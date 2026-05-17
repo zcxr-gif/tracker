@@ -2,157 +2,235 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#08080b">
     <title>VA Staff Console · InFlight</title>
     <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] },
-                colors: { background:'#020617', surface:'#0f172a', pro:'#fbbf24', accent:'#38bdf8' } } }
-        }
-    </script>
+    <link rel="stylesheet" href="va-ui.css">
     <style>
-        body { background:#020617; color:#f8fafc; font-family:Inter,sans-serif; }
-        .tab-btn { padding:8px 16px; border-radius:10px; font-weight:600; font-size:0.9rem; color:#94a3b8; transition:all 140ms ease; cursor:pointer; }
-        .tab-btn:hover { color:#cbd5e1; }
-        .tab-btn.active { background:rgba(56,189,248,0.12); color:#38bdf8; }
-        .card { background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px; }
-        .input { background:rgba(15,23,42,0.7); border:1px solid rgba(255,255,255,0.1); color:#f8fafc;
-                 border-radius:8px; padding:8px 10px; font-size:0.9rem; }
-        .btn { padding:7px 14px; border-radius:9px; font-weight:600; font-size:0.85rem; cursor:pointer; transition:all 120ms; }
-        .btn-approve { background:rgba(74,222,128,0.15); color:#4ade80; border:1px solid rgba(74,222,128,0.3); }
-        .btn-approve:hover { background:rgba(74,222,128,0.25); }
-        .btn-reject { background:rgba(248,113,113,0.15); color:#f87171; border:1px solid rgba(248,113,113,0.3); }
-        .btn-reject:hover { background:rgba(248,113,113,0.25); }
-        details summary { cursor:pointer; }
-        details summary::-webkit-details-marker { display:none; }
-
-        /* Premium staff auth gate */
-        .gate-wrap {
-            min-height: calc(100vh - 200px);
+        .admin-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+        .admin-stats .va-stat-value {
+            font-size: 1.8rem;
+        }
+        .review-card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
+            border: 1px solid var(--va-border);
+            border-radius: 18px;
+            padding: 18px;
+            transition: border-color 200ms;
+        }
+        .review-card:hover { border-color: var(--va-border-2); }
+        .review-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+        .review-logo {
+            width: 52px; height: 52px;
+            border-radius: 13px;
+            object-fit: cover;
+            border: 1px solid var(--va-border-2);
+            background: #0f0f13;
             display: flex; align-items: center; justify-content: center;
-            padding: 40px 20px;
+            color: var(--va-text-3);
+            flex-shrink: 0;
         }
-        .gate-card {
-            position: relative;
-            width: 100%; max-width: 460px;
-            background: linear-gradient(180deg, #1c1c1e 0%, #131315 100%);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 22px;
-            padding: 40px 36px 32px;
-            box-shadow: 0 40px 100px -20px rgba(0,0,0,0.75);
-            text-align: center;
-            overflow: hidden;
+        .review-body { min-width: 0; flex: 1; }
+        .review-title {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            min-width: 0;
         }
-        .gate-card::before {
-            content: "";
-            position: absolute;
-            top: -120px; left: 50%;
-            width: 360px; height: 240px;
-            transform: translateX(-50%);
-            background: radial-gradient(closest-side, rgba(59,130,246,0.30), transparent 70%);
-            filter: blur(40px);
-            pointer-events: none;
+        .review-title h3 {
+            font-size: 1.08rem; font-weight: 700; margin: 0;
+            letter-spacing: -0.01em;
         }
-        .gate-icon {
-            position: relative;
-            display: inline-flex; align-items: center; justify-content: center;
-            width: 56px; height: 56px;
-            border-radius: 16px;
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            border: 1px solid rgba(59,130,246,0.35);
-            color: #ffffff; font-size: 1.4rem;
-            margin-bottom: 18px;
-            box-shadow: 0 10px 30px -10px rgba(59,130,246,0.55);
+        .review-meta {
+            margin-top: 6px;
+            font-size: 0.85rem; color: var(--va-text-2);
+            line-height: 1.55;
         }
-        .gate-title {
-            position: relative;
-            font-size: 1.6rem; font-weight: 800; color: #ffffff;
-            letter-spacing: -0.02em; margin-bottom: 8px;
+        .review-meta .key { color: var(--va-text-3); }
+        .review-stamp {
+            margin-top: 4px;
+            font-size: 0.74rem; color: var(--va-text-3);
         }
-        .gate-sub {
-            position: relative;
-            color: #a3a3a3; font-size: 0.95rem; line-height: 1.5;
-            margin-bottom: 24px;
+        details.review-details {
+            margin-top: 14px;
+            border-top: 1px solid var(--va-border);
+            padding-top: 14px;
         }
-        .gate-btn {
-            position: relative;
-            display: inline-flex; align-items: center; gap: 10px;
-            padding: 12px 22px;
+        details.review-details summary {
+            list-style: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--va-accent);
+            display: inline-flex; align-items: center; gap: 6px;
+            user-select: none;
+        }
+        details.review-details summary::-webkit-details-marker { display: none; }
+        details.review-details summary i.chev { transition: transform 200ms; }
+        details.review-details[open] summary i.chev { transform: rotate(180deg); }
+        details.review-details .body {
+            margin-top: 12px;
+            font-size: 0.88rem;
+            color: var(--va-text);
+            display: grid;
+            gap: 10px;
+            line-height: 1.55;
+        }
+        details.review-details .body .label { color: var(--va-text-3); font-weight: 600; margin-right: 6px; }
+        details.review-details .body .block {
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--va-border);
             border-radius: 12px;
-            background: #ffffff;
-            color: #0a0a0a;
-            font-weight: 700; font-size: 0.95rem;
-            border: 0; cursor: pointer;
-            transition: transform 120ms ease, background 120ms ease;
-            box-shadow: 0 12px 30px -10px rgba(255,255,255,0.25);
+            white-space: pre-wrap;
         }
-        .gate-btn:hover { transform: translateY(-1px); background: #f5f5f5; }
-        .gate-foot {
-            position: relative;
-            margin-top: 22px; font-size: 0.78rem; color: #6b7280;
-            display: flex; align-items: center; justify-content: center; gap: 6px;
+        details.review-details .body a {
+            color: var(--va-accent);
+            text-decoration: none;
         }
+        details.review-details .body a:hover { text-decoration: underline; }
+        .review-actions {
+            margin-top: 16px;
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        }
+        .slug-wrap {
+            display: flex; flex-direction: column; gap: 4px;
+            flex: 1; min-width: 200px;
+        }
+        .slug-wrap label {
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+            color: var(--va-text-3); text-transform: uppercase;
+        }
+        .slug-wrap .va-input {
+            padding: 8px 12px; font-size: 0.88rem;
+        }
+        @media (max-width: 480px) {
+            .review-actions { flex-direction: column; align-items: stretch; }
+            .review-actions .va-btn { width: 100%; }
+            .slug-wrap { min-width: 0; }
+        }
+        .staff-form {
+            display: flex; gap: 10px;
+            max-width: 560px;
+            flex-wrap: wrap;
+        }
+        .staff-form > .va-input { flex: 1; min-width: 200px; }
     </style>
 </head>
-<body class="min-h-screen">
-    <header class="border-b border-white/5 bg-slate-950/70 backdrop-blur sticky top-0 z-30">
-        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <a href="home.html" class="flex items-center gap-3">
-                <img src="Images/inflight.png" alt="InFlight" class="h-8 w-8 rounded-md">
-                <span class="font-extrabold tracking-tight">InFlight <span class="text-slate-400 font-medium">· Staff</span></span>
+<body>
+    <header class="va-header">
+        <div class="va-header-inner">
+            <a href="home.html" class="va-brand">
+                <img src="Images/inflight.png" alt="InFlight">
+                <span>InFlight</span>
+                <span class="va-brand-tag">Staff Console</span>
             </a>
-            <nav class="flex items-center gap-4 text-sm">
-                <a href="events.html" class="text-slate-400 hover:text-white">Events</a>
-                <a href="va-apply.html" class="text-slate-400 hover:text-white">Apply</a>
-                <a href="home.html" class="text-slate-400 hover:text-white">Home</a>
+            <nav class="va-nav">
+                <a href="events.html"><i class="fa-solid fa-calendar"></i><span>Events</span></a>
+                <a href="va-apply.html"><i class="fa-solid fa-id-badge"></i><span>Apply</span></a>
+                <a href="home.html"><i class="fa-solid fa-house"></i><span>Home</span></a>
             </nav>
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-6 py-8">
-        <div id="auth-gate" class="hidden gate-wrap">
-            <div class="gate-card">
-                <div class="gate-icon"><i class="fa-solid fa-shield-halved"></i></div>
-                <h2 class="gate-title">Staff console</h2>
-                <p class="gate-sub">This area is reserved for InFlight staff. Sign in with your authorized account to review VA applications and event submissions.</p>
-                <button id="btn-signin" class="gate-btn">
-                    <i class="fa-solid fa-right-to-bracket"></i>
-                    Sign in to continue
-                </button>
-                <div class="gate-foot">
-                    <i class="fa-solid fa-lock"></i> Restricted access
+    <main class="va-main">
+        <!-- Signed-out gate -->
+        <div id="auth-gate" class="va-hidden va-gate-wrap">
+            <div class="va-gate-card">
+                <div class="va-gate-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                <h2 class="va-gate-title">Staff console</h2>
+                <p class="va-gate-sub">This area is reserved for InFlight staff. Sign in with your authorized account to review VA applications and event submissions.</p>
+                <div class="va-gate-actions">
+                    <button id="btn-signin" class="va-btn va-btn-primary">
+                        <i class="fa-solid fa-right-to-bracket"></i> Sign in to continue
+                    </button>
                 </div>
+                <div class="va-gate-foot"><i class="fa-solid fa-lock"></i> Restricted access</div>
             </div>
         </div>
 
-        <div id="console" class="hidden">
-            <div class="flex items-center justify-between mb-6">
-                <h1 class="text-3xl font-extrabold tracking-tight">Staff console</h1>
-                <div class="flex gap-2">
-                    <button class="tab-btn active" data-tab="applications">VA Applications <span id="cnt-apps" class="ml-1 text-xs opacity-70"></span></button>
-                    <button class="tab-btn" data-tab="events">Event Reviews <span id="cnt-events" class="ml-1 text-xs opacity-70"></span></button>
-                    <button class="tab-btn" data-tab="staff">Staff</button>
-                </div>
+        <!-- Loading -->
+        <div id="loading-state" class="va-hidden va-gate-wrap">
+            <div style="text-align:center; color: var(--va-text-2);">
+                <div class="va-spinner va-spinner-light" style="display:inline-block; width:24px; height:24px;"></div>
+                <div style="margin-top: 12px; font-size: 0.9rem;">Loading console…</div>
             </div>
+        </div>
 
-            <section id="tab-applications" class="space-y-4"></section>
-            <section id="tab-events" class="hidden space-y-4"></section>
-            <section id="tab-staff" class="hidden card">
-                <h2 class="text-lg font-bold mb-3">Grant staff access</h2>
-                <p class="text-sm text-slate-400 mb-4">Enter the user ID (UUID) of an existing InFlight account to grant staff privileges. They'll see this console next time they sign in.</p>
-                <form id="staff-form" class="flex gap-2 max-w-xl">
-                    <input class="input flex-1" name="user_id" placeholder="user uuid" required>
-                    <button class="btn btn-approve">Grant</button>
-                </form>
-                <div id="staff-msg" class="text-sm mt-3"></div>
-                <h3 class="mt-6 text-sm font-bold uppercase tracking-wider text-slate-500">Current staff</h3>
-                <div id="staff-list" class="mt-2 text-sm text-slate-300 space-y-1"></div>
+        <!-- Console -->
+        <div id="console" class="va-hidden">
+            <section class="va-section">
+                <div class="va-toolbar">
+                    <div class="va-toolbar-text">
+                        <div class="va-eyebrow" style="margin-bottom:8px;">InFlight · Staff</div>
+                        <h1 class="va-h1">Review queue</h1>
+                        <p class="va-toolbar-sub">Approve or reject new VA applications and event submissions. Decisions are visible to applicants.</p>
+                    </div>
+                </div>
+
+                <div class="admin-stats">
+                    <div class="va-stat">
+                        <div class="va-stat-label">Pending applications</div>
+                        <div id="stat-apps" class="va-stat-value">—</div>
+                        <div class="va-stat-sub">New VAs waiting on review</div>
+                    </div>
+                    <div class="va-stat">
+                        <div class="va-stat-label">Pending events</div>
+                        <div id="stat-events" class="va-stat-value">—</div>
+                        <div class="va-stat-sub">Events from non-Trusted VAs</div>
+                    </div>
+                </div>
+
+                <div class="va-tabs-wrap">
+                    <div class="va-tabs" role="tablist">
+                        <button class="va-tab active" data-tab="applications" role="tab">
+                            <i class="fa-solid fa-id-badge"></i> Applications <span id="cnt-apps" class="va-tab-count">0</span>
+                        </button>
+                        <button class="va-tab" data-tab="events" role="tab">
+                            <i class="fa-solid fa-calendar-check"></i> Events <span id="cnt-events" class="va-tab-count">0</span>
+                        </button>
+                        <button class="va-tab" data-tab="staff" role="tab">
+                            <i class="fa-solid fa-user-shield"></i> Staff
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-applications" class="va-section" style="display:grid; gap:12px;"></section>
+            <section id="tab-events" class="va-section va-hidden" style="display:grid; gap:12px;"></section>
+
+            <section id="tab-staff" class="va-section va-hidden">
+                <div class="va-card elevated">
+                    <div class="va-toolbar">
+                        <div class="va-toolbar-text">
+                            <h2 class="va-h2">Grant staff access</h2>
+                            <p class="va-toolbar-sub">Enter the user ID (UUID) of an existing InFlight account to grant staff privileges. They'll see this console next time they sign in.</p>
+                        </div>
+                    </div>
+                    <form id="staff-form" class="staff-form">
+                        <input class="va-input va-mono" name="user_id" placeholder="user uuid" required>
+                        <button type="submit" class="va-btn va-btn-success">
+                            <i class="fa-solid fa-user-plus"></i> Grant access
+                        </button>
+                    </form>
+                    <div id="staff-msg" class="va-field-msg" style="margin-top:12px;"></div>
+
+                    <hr class="va-divider">
+
+                    <div class="va-section-title">Current staff</div>
+                    <div id="staff-list" style="display:grid; gap:6px;"></div>
+                </div>
             </section>
         </div>
     </main>
@@ -165,15 +243,24 @@
         } from './vaService.js';
         import { openAuthModal } from './vaAuth.js';
 
+        const authGate   = document.getElementById('auth-gate');
+        const loading    = document.getElementById('loading-state');
+        const consoleEl  = document.getElementById('console');
+        const tabApps    = document.getElementById('tab-applications');
+        const tabEvents  = document.getElementById('tab-events');
+        const tabStaff   = document.getElementById('tab-staff');
+        const cntApps    = document.getElementById('cnt-apps');
+        const cntEvents  = document.getElementById('cnt-events');
+        const statApps   = document.getElementById('stat-apps');
+        const statEvents = document.getElementById('stat-events');
+
         document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
 
-        const authGate = document.getElementById('auth-gate');
-        const consoleEl = document.getElementById('console');
-        const tabApps = document.getElementById('tab-applications');
-        const tabEvents = document.getElementById('tab-events');
-        const tabStaff = document.getElementById('tab-staff');
-        const cntApps = document.getElementById('cnt-apps');
-        const cntEvents = document.getElementById('cnt-events');
+        function show(...els) {
+            const all = [authGate, loading, consoleEl];
+            all.forEach(el => el.classList.add('va-hidden'));
+            els.forEach(el => el.classList.remove('va-hidden'));
+        }
 
         function escapeHtml(s) {
             return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -182,53 +269,73 @@
         }
 
         function setTab(name) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-            tabApps.classList.toggle('hidden', name !== 'applications');
-            tabEvents.classList.toggle('hidden', name !== 'events');
-            tabStaff.classList.toggle('hidden', name !== 'staff');
+            document.querySelectorAll('.va-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+            tabApps.classList.toggle('va-hidden', name !== 'applications');
+            tabEvents.classList.toggle('va-hidden', name !== 'events');
+            tabStaff.classList.toggle('va-hidden', name !== 'staff');
             if (name === 'staff') loadStaff();
         }
-
-        document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+        document.querySelectorAll('.va-tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 
         async function loadApplications() {
             const apps = await listPendingApplications();
-            cntApps.textContent = `(${apps.length})`;
+            cntApps.textContent = apps.length;
+            statApps.textContent = apps.length;
             if (!apps.length) {
-                tabApps.innerHTML = `<div class="card text-slate-400 text-sm">Nothing pending. Good work.</div>`;
+                tabApps.innerHTML = `
+                    <div class="va-empty">
+                        <i class="va-empty-icon fa-solid fa-check-double"></i>
+                        <div class="va-empty-title">All clear</div>
+                        <div class="va-empty-sub">No pending VA applications. Nice work.</div>
+                    </div>`;
                 return;
             }
             tabApps.innerHTML = apps.map(a => {
                 const proposedSlug = slugify(a.va_name);
                 return `
-                <div class="card" data-id="${a.id}">
-                    <div class="flex items-start justify-between gap-4">
-                        <div class="flex items-start gap-4 min-w-0 flex-1">
-                            ${a.logo_url ? `<img src="${escapeHtml(a.logo_url)}" class="h-14 w-14 rounded-lg object-cover border border-white/10">` : `<div class="h-14 w-14 rounded-lg bg-slate-800 border border-white/10 flex items-center justify-center text-slate-500"><i class="fa-solid fa-plane"></i></div>`}
-                            <div class="min-w-0 flex-1">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <h3 class="font-bold text-lg truncate">${escapeHtml(a.va_name)}</h3>
-                                    <span class="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono">${escapeHtml(a.callsign)}</span>
-                                </div>
-                                <div class="mt-1 text-sm text-slate-400">CEO: <span class="text-slate-200">@${escapeHtml(a.ceo_ifc_handle)}</span> · Hub: <span class="text-slate-200">${escapeHtml(a.hub)}</span> · ${escapeHtml(a.region || 'no region')}</div>
-                                <div class="mt-1 text-xs text-slate-500">Submitted ${new Date(a.created_at).toLocaleString()}</div>
+                <div class="review-card" data-id="${a.id}">
+                    <div class="review-head">
+                        ${a.logo_url
+                            ? `<img src="${escapeHtml(a.logo_url)}" class="review-logo" alt="">`
+                            : `<div class="review-logo"><i class="fa-solid fa-plane"></i></div>`}
+                        <div class="review-body">
+                            <div class="review-title">
+                                <h3>${escapeHtml(a.va_name)}</h3>
+                                <span class="va-badge va-badge-server">${escapeHtml(a.callsign)}</span>
+                                <span class="va-badge va-badge-pending"><i class="fa-solid fa-clock"></i> pending</span>
                             </div>
+                            <div class="review-meta">
+                                <span class="key">CEO:</span> @${escapeHtml(a.ceo_ifc_handle)}
+                                <span style="color:var(--va-text-3); margin: 0 6px;">·</span>
+                                <span class="key">Hub:</span> <span class="va-mono">${escapeHtml(a.hub)}</span>
+                                ${a.region ? `<span style="color:var(--va-text-3); margin: 0 6px;">·</span><span>${escapeHtml(a.region)}</span>` : ''}
+                            </div>
+                            <div class="review-stamp">Submitted ${new Date(a.created_at).toLocaleString()}</div>
                         </div>
                     </div>
-                    <details class="mt-3">
-                        <summary class="text-sm text-accent hover:underline">View full submission</summary>
-                        <div class="mt-3 text-sm text-slate-300 space-y-2">
-                            ${a.fleet ? `<div><b class="text-slate-400">Fleet:</b> ${escapeHtml(a.fleet)}</div>` : ''}
-                            ${a.website ? `<div><b class="text-slate-400">Website:</b> <a class="text-accent hover:underline" href="${escapeHtml(a.website)}" target="_blank" rel="noopener">${escapeHtml(a.website)}</a></div>` : ''}
-                            ${a.discord ? `<div><b class="text-slate-400">Discord:</b> <a class="text-accent hover:underline" href="${escapeHtml(a.discord)}" target="_blank" rel="noopener">${escapeHtml(a.discord)}</a></div>` : ''}
-                            ${a.pitch ? `<div class="p-3 rounded-lg bg-slate-950/60 border border-white/5 whitespace-pre-wrap">${escapeHtml(a.pitch)}</div>` : ''}
+                    <details class="review-details">
+                        <summary>
+                            <i class="fa-solid fa-chevron-down chev" style="font-size:0.72rem;"></i>
+                            View full submission
+                        </summary>
+                        <div class="body">
+                            ${a.fleet ? `<div><span class="label">Fleet:</span> ${escapeHtml(a.fleet)}</div>` : ''}
+                            ${a.website ? `<div><span class="label">Website:</span> <a href="${escapeHtml(a.website)}" target="_blank" rel="noopener">${escapeHtml(a.website)}</a></div>` : ''}
+                            ${a.discord ? `<div><span class="label">Discord:</span> <a href="${escapeHtml(a.discord)}" target="_blank" rel="noopener">${escapeHtml(a.discord)}</a></div>` : ''}
+                            ${a.pitch ? `<div class="block">${escapeHtml(a.pitch)}</div>` : '<div class="va-muted" style="font-size:0.85rem;">No pitch provided.</div>'}
                         </div>
                     </details>
-                    <div class="mt-4 flex items-center gap-2 flex-wrap">
-                        <label class="text-xs text-slate-400">Slug:</label>
-                        <input class="input slug-input" value="${escapeHtml(proposedSlug)}" data-id="${a.id}">
-                        <button class="btn btn-approve" data-action="approve" data-id="${a.id}"><i class="fa-solid fa-check"></i> Approve</button>
-                        <button class="btn btn-reject" data-action="reject" data-id="${a.id}"><i class="fa-solid fa-xmark"></i> Reject</button>
+                    <div class="review-actions">
+                        <div class="slug-wrap">
+                            <label>Slug</label>
+                            <input class="va-input slug-input va-mono" value="${escapeHtml(proposedSlug)}" data-id="${a.id}">
+                        </div>
+                        <button class="va-btn va-btn-success" data-action="approve" data-id="${a.id}">
+                            <i class="fa-solid fa-check"></i> Approve
+                        </button>
+                        <button class="va-btn va-btn-danger" data-action="reject" data-id="${a.id}">
+                            <i class="fa-solid fa-xmark"></i> Reject
+                        </button>
                     </div>
                 </div>`;
             }).join('');
@@ -236,36 +343,58 @@
 
         async function loadEvents() {
             const events = await listPendingEvents();
-            cntEvents.textContent = `(${events.length})`;
+            cntEvents.textContent = events.length;
+            statEvents.textContent = events.length;
             if (!events.length) {
-                tabEvents.innerHTML = `<div class="card text-slate-400 text-sm">No pending events.</div>`;
+                tabEvents.innerHTML = `
+                    <div class="va-empty">
+                        <i class="va-empty-icon fa-solid fa-check-double"></i>
+                        <div class="va-empty-title">No pending events</div>
+                        <div class="va-empty-sub">All caught up. Trusted VAs publish instantly.</div>
+                    </div>`;
                 return;
             }
             tabEvents.innerHTML = events.map(ev => `
-                <div class="card" data-id="${ev.id}">
-                    <div class="flex items-start gap-4">
-                        ${ev.vas?.logo_url ? `<img src="${escapeHtml(ev.vas.logo_url)}" class="h-12 w-12 rounded-lg object-cover border border-white/10">` : `<div class="h-12 w-12 rounded-lg bg-slate-800 border border-white/10 flex items-center justify-center text-slate-500"><i class="fa-solid fa-calendar"></i></div>`}
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <h3 class="font-bold text-lg truncate">${escapeHtml(ev.name)}</h3>
-                                <span class="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono uppercase">${escapeHtml(ev.server)}</span>
+                <div class="review-card" data-id="${ev.id}">
+                    <div class="review-head">
+                        ${ev.vas?.logo_url
+                            ? `<img src="${escapeHtml(ev.vas.logo_url)}" class="review-logo" alt="">`
+                            : `<div class="review-logo"><i class="fa-solid fa-calendar"></i></div>`}
+                        <div class="review-body">
+                            <div class="review-title">
+                                <h3>${escapeHtml(ev.name)}</h3>
+                                <span class="va-badge va-badge-server">${escapeHtml(ev.server)}</span>
+                                <span class="va-badge va-badge-pending"><i class="fa-solid fa-clock"></i> pending</span>
                             </div>
-                            <div class="mt-1 text-sm text-slate-400">${escapeHtml(ev.vas?.name || '—')} · ${escapeHtml(ev.origin_icao || '')} → ${escapeHtml(ev.destination_icao || '')}</div>
-                            <div class="mt-1 text-xs text-slate-500">${new Date(ev.start_at).toLocaleString()}</div>
+                            <div class="review-meta">
+                                <span class="key">VA:</span> ${escapeHtml(ev.vas?.name || '—')}
+                                <span style="color:var(--va-text-3); margin: 0 6px;">·</span>
+                                <span class="va-mono">${escapeHtml(ev.origin_icao || '')}</span>
+                                <span style="color:var(--va-text-3);">→</span>
+                                <span class="va-mono">${escapeHtml(ev.destination_icao || '')}</span>
+                            </div>
+                            <div class="review-stamp">Starts ${new Date(ev.start_at).toLocaleString()}</div>
                         </div>
                     </div>
-                    <details class="mt-3">
-                        <summary class="text-sm text-accent hover:underline">View briefing</summary>
-                        <div class="mt-3 text-sm text-slate-300 space-y-2">
-                            ${ev.aircraft ? `<div><b class="text-slate-400">Aircraft:</b> ${escapeHtml(ev.aircraft)} ${ev.livery ? '· '+escapeHtml(ev.livery) : ''}</div>` : ''}
-                            ${ev.route ? `<div><b class="text-slate-400">Route:</b> <span class="font-mono text-xs">${escapeHtml(ev.route)}</span></div>` : ''}
-                            ${ev.signup_url ? `<div><b class="text-slate-400">Sign-up:</b> <a class="text-accent hover:underline" href="${escapeHtml(ev.signup_url)}" target="_blank" rel="noopener">${escapeHtml(ev.signup_url)}</a></div>` : ''}
-                            ${ev.briefing ? `<div class="p-3 rounded-lg bg-slate-950/60 border border-white/5 whitespace-pre-wrap">${escapeHtml(ev.briefing)}</div>` : ''}
+                    <details class="review-details">
+                        <summary>
+                            <i class="fa-solid fa-chevron-down chev" style="font-size:0.72rem;"></i>
+                            View briefing
+                        </summary>
+                        <div class="body">
+                            ${ev.aircraft ? `<div><span class="label">Aircraft:</span> ${escapeHtml(ev.aircraft)}${ev.livery ? ` <span class="va-muted">· ${escapeHtml(ev.livery)}</span>` : ''}</div>` : ''}
+                            ${ev.route ? `<div><span class="label">Route:</span> <span class="va-mono">${escapeHtml(ev.route)}</span></div>` : ''}
+                            ${ev.signup_url ? `<div><span class="label">Sign-up:</span> <a href="${escapeHtml(ev.signup_url)}" target="_blank" rel="noopener">${escapeHtml(ev.signup_url)}</a></div>` : ''}
+                            ${ev.briefing ? `<div class="block">${escapeHtml(ev.briefing)}</div>` : '<div class="va-muted" style="font-size:0.85rem;">No briefing provided.</div>'}
                         </div>
                     </details>
-                    <div class="mt-4 flex gap-2 flex-wrap">
-                        <button class="btn btn-approve" data-action="approve-event" data-id="${ev.id}"><i class="fa-solid fa-check"></i> Approve</button>
-                        <button class="btn btn-reject" data-action="reject-event" data-id="${ev.id}"><i class="fa-solid fa-xmark"></i> Reject</button>
+                    <div class="review-actions">
+                        <button class="va-btn va-btn-success" data-action="approve-event" data-id="${ev.id}">
+                            <i class="fa-solid fa-check"></i> Approve
+                        </button>
+                        <button class="va-btn va-btn-danger" data-action="reject-event" data-id="${ev.id}">
+                            <i class="fa-solid fa-xmark"></i> Reject
+                        </button>
                     </div>
                 </div>
             `).join('');
@@ -273,9 +402,20 @@
 
         async function loadStaff() {
             const { data } = await supabase.from('va_staff').select('user_id, granted_at');
-            document.getElementById('staff-list').innerHTML = (data || []).map(s =>
-                `<div class="font-mono text-xs">${escapeHtml(s.user_id)} <span class="text-slate-500">· granted ${new Date(s.granted_at).toLocaleDateString()}</span></div>`
-            ).join('') || '<div class="text-slate-500">No staff yet.</div>';
+            const list = document.getElementById('staff-list');
+            if (!data || !data.length) {
+                list.innerHTML = '<div class="va-muted" style="font-size:0.86rem;">No staff yet.</div>';
+                return;
+            }
+            list.innerHTML = data.map(s => `
+                <div class="va-row" style="padding: 10px 14px; gap: 12px;">
+                    <div class="va-avatar" style="width:32px; height:32px;"><i class="fa-solid fa-user-shield" style="font-size:0.78rem;"></i></div>
+                    <div class="va-row-body">
+                        <div class="va-row-title va-mono" style="font-size:0.84rem;">${escapeHtml(s.user_id)}</div>
+                        <div class="va-row-sub">Granted ${new Date(s.granted_at).toLocaleDateString()}</div>
+                    </div>
+                </div>
+            `).join('');
         }
 
         document.getElementById('staff-form').addEventListener('submit', async (e) => {
@@ -286,13 +426,13 @@
                 const session = await getSession();
                 const { error } = await supabase.from('va_staff').insert({ user_id: userId, granted_by: session?.user?.id });
                 if (error) throw error;
-                msg.textContent = 'Granted.';
-                msg.className = 'text-sm mt-3 text-emerald-400';
+                msg.className = 'va-field-msg ok';
+                msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Granted.';
                 e.currentTarget.reset();
                 loadStaff();
             } catch (err) {
-                msg.textContent = err.message || 'Failed.';
-                msg.className = 'text-sm mt-3 text-rose-400';
+                msg.className = 'va-field-msg err';
+                msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Failed.'}`;
             }
         });
 
@@ -304,7 +444,7 @@
             btn.disabled = true;
             try {
                 if (action === 'approve') {
-                    const slugInput = btn.closest('.card').querySelector('.slug-input');
+                    const slugInput = btn.closest('.review-card').querySelector('.slug-input');
                     const slug = (slugInput.value || '').trim();
                     if (!slug) throw new Error('Slug required.');
                     await approveApplication(id, slug);
@@ -331,11 +471,12 @@
         });
 
         async function boot() {
+            show(loading);
             const session = await getSession();
-            if (!session) { authGate.classList.remove('hidden'); return; }
+            if (!session) { show(authGate); return; }
             const staff = await isStaff();
-            if (!staff) { authGate.classList.remove('hidden'); return; }
-            consoleEl.classList.remove('hidden');
+            if (!staff) { show(authGate); return; }
+            show(consoleEl);
             await Promise.all([loadApplications(), loadEvents()]);
         }
 

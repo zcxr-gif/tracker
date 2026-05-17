@@ -1,6 +1,9 @@
 // Premium auth modal for VA partnership + staff console.
 // Distinct from the main tracker AuthUI (which is wired to Pro/Stripe and
 // auto-redirects into the tracker on sign-in).
+//
+// Visual language matches va-ui.css. The modal also injects a minimal,
+// self-contained stylesheet so it works on any page that loads this module.
 
 import { supabase } from './vaService.js';
 
@@ -13,15 +16,17 @@ function injectStyles() {
     style.textContent = `
         #va-auth-overlay {
             position: fixed; inset: 0; z-index: 99999;
-            background: rgba(10, 10, 10, 0.85);
-            -webkit-backdrop-filter: blur(14px);
-            backdrop-filter: blur(14px);
+            background: rgba(4, 4, 6, 0.78);
+            -webkit-backdrop-filter: blur(18px);
+            backdrop-filter: blur(18px);
             display: none;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
-            opacity: 0; transition: opacity 220ms ease;
-            padding: max(20px, env(safe-area-inset-top, 0px)) 20px max(20px, env(safe-area-inset-bottom, 0px));
-            font-family: Inter, system-ui, -apple-system, sans-serif;
+            opacity: 0;
+            transition: opacity 220ms ease;
+            padding: max(20px, env(safe-area-inset-top, 0px)) 18px max(20px, env(safe-area-inset-bottom, 0px));
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            -webkit-font-smoothing: antialiased;
         }
         #va-auth-overlay.va-open {
             display: flex;
@@ -32,16 +37,17 @@ function injectStyles() {
 
         #va-auth-card {
             position: relative;
-            width: 100%; max-width: 440px;
+            width: 100%;
+            max-width: 440px;
             margin: auto;
-            background: linear-gradient(180deg, #1c1c1e 0%, #131315 100%);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 22px;
-            padding: 36px 32px 28px;
+            background: linear-gradient(180deg, #1a1a1d 0%, #101013 100%);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 24px;
+            padding: 34px 30px 28px;
             box-shadow:
                 0 40px 100px -20px rgba(0,0,0,0.75),
-                0 0 0 1px rgba(255,255,255,0.03) inset;
-            transform: translateY(12px) scale(0.97);
+                0 0 0 1px rgba(255,255,255,0.02) inset;
+            transform: translateY(14px) scale(0.97);
             opacity: 0;
             transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
             overflow: hidden;
@@ -52,25 +58,23 @@ function injectStyles() {
             opacity: 1;
         }
 
-        /* Subtle blue glow at top */
         #va-auth-card::before {
             content: "";
             position: absolute;
-            top: -100px; left: 50%;
-            width: 320px; height: 220px;
+            top: -110px; left: 50%;
+            width: 340px; height: 230px;
             transform: translateX(-50%);
-            background: radial-gradient(closest-side, rgba(59,130,246,0.30), transparent 70%);
+            background: radial-gradient(closest-side, rgba(59,130,246,0.32), transparent 70%);
             filter: blur(40px);
             pointer-events: none;
         }
-        /* Soft hairline highlight */
         #va-auth-card::after {
             content: "";
             position: absolute;
             inset: 0;
-            border-radius: 22px;
+            border-radius: 24px;
             padding: 1px;
-            background: linear-gradient(140deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 50%, rgba(59,130,246,0.10) 100%);
+            background: linear-gradient(140deg, rgba(255,255,255,0.12), rgba(255,255,255,0) 45%, rgba(96,165,250,0.10) 100%);
             -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             -webkit-mask-composite: xor; mask-composite: exclude;
             pointer-events: none;
@@ -78,27 +82,26 @@ function injectStyles() {
 
         .va-auth-brand {
             position: relative;
-            display: flex; align-items: center; gap: 10px;
+            display: flex; align-items: center; gap: 11px;
             margin-bottom: 22px;
         }
         .va-auth-brand-logo {
-            width: 34px; height: 34px; border-radius: 10px;
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 8px 20px -6px rgba(59,130,246,0.55);
-            color: white; font-weight: 800; font-size: 0.85rem;
-            letter-spacing: -0.02em;
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            object-fit: cover;
+            box-shadow: 0 8px 22px -8px rgba(59,130,246,0.55);
         }
         .va-auth-brand-name {
-            font-weight: 800; color: #ffffff; letter-spacing: -0.01em;
+            font-weight: 800; color: #ffffff;
+            letter-spacing: -0.02em;
             font-size: 1rem;
         }
         .va-auth-brand-tag {
             margin-left: auto;
-            font-size: 0.65rem; font-weight: 700; letter-spacing: 0.18em;
-            color: #a3a3a3; text-transform: uppercase;
-            padding: 4px 9px; border-radius: 999px;
-            background: rgba(255,255,255,0.05);
+            font-size: 0.66rem; font-weight: 700; letter-spacing: 0.18em;
+            color: #a1a1aa; text-transform: uppercase;
+            padding: 4px 10px; border-radius: 999px;
+            background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.08);
         }
 
@@ -106,34 +109,34 @@ function injectStyles() {
             position: relative;
             margin: 0 0 6px;
             font-size: 1.55rem; font-weight: 800; color: #ffffff;
-            letter-spacing: -0.02em; line-height: 1.15;
+            letter-spacing: -0.025em; line-height: 1.15;
         }
         #va-auth-card .va-auth-sub {
             position: relative;
-            margin: 0 0 22px; color: #a3a3a3;
-            font-size: 0.92rem; line-height: 1.45;
+            margin: 0 0 22px; color: #a1a1aa;
+            font-size: 0.92rem; line-height: 1.5;
         }
 
         .va-auth-tabs {
             position: relative;
-            display: flex; gap: 4px;
+            display: flex; gap: 2px;
             background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 11px; padding: 4px;
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px; padding: 4px;
             margin-bottom: 20px;
         }
         .va-auth-tab {
-            flex: 1; background: transparent; border: 0; color: #a3a3a3;
+            flex: 1; background: transparent; border: 0; color: #a1a1aa;
             font-weight: 600; font-size: 0.88rem; padding: 9px 0;
-            border-radius: 8px; cursor: pointer;
-            transition: all 160ms ease;
+            border-radius: 9px; cursor: pointer;
+            transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease;
             font-family: inherit;
         }
         .va-auth-tab:hover { color: #ffffff; }
         .va-auth-tab.active {
-            background: linear-gradient(180deg, rgba(59,130,246,0.22), rgba(59,130,246,0.12));
+            background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
             color: #ffffff;
-            box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 6px 18px -10px rgba(59,130,246,0.6);
+            box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 4px 12px -6px rgba(0,0,0,0.4);
         }
 
         #va-auth-form {
@@ -143,48 +146,45 @@ function injectStyles() {
         .va-auth-field { display: flex; flex-direction: column; gap: 7px; }
         .va-auth-field label {
             font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
-            color: #a3a3a3; text-transform: uppercase;
+            color: #a1a1aa; text-transform: uppercase;
             display: flex; align-items: center; gap: 6px;
         }
-        .va-auth-field label i { color: #6b7280; font-size: 0.75rem; }
+        .va-auth-field label i { color: #71717a; font-size: 0.78rem; }
 
-        .va-auth-input-wrap {
-            position: relative;
-            display: flex; align-items: center;
-        }
+        .va-auth-input-wrap { position: relative; display: flex; align-items: center; }
         .va-auth-field input {
             width: 100%;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.10);
             color: #ffffff;
-            border-radius: 10px;
+            border-radius: 11px;
             padding: 12px 14px;
             font-size: 0.95rem; font-family: inherit;
             outline: none;
             transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
         }
-        .va-auth-field input::placeholder { color: #6b7280; }
-        .va-auth-field input:hover { border-color: rgba(255,255,255,0.16); }
+        .va-auth-field input::placeholder { color: #71717a; }
+        .va-auth-field input:hover { border-color: rgba(255,255,255,0.18); }
         .va-auth-field input:focus {
-            border-color: rgba(59,130,246,0.60);
-            background: rgba(255,255,255,0.06);
-            box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
+            border-color: rgba(96,165,250,0.65);
+            background: rgba(255,255,255,0.05);
+            box-shadow: 0 0 0 4px rgba(96,165,250,0.18);
         }
 
         .va-auth-pw-toggle {
-            position: absolute; right: 10px;
+            position: absolute; right: 8px;
             background: transparent; border: 0;
-            color: #6b7280; cursor: pointer;
-            padding: 6px; border-radius: 6px;
+            color: #71717a; cursor: pointer;
+            padding: 6px 8px; border-radius: 7px;
             font-size: 0.85rem;
-            transition: color 120ms;
+            transition: color 120ms, background 120ms;
         }
-        .va-auth-pw-toggle:hover { color: #d4d4d4; }
+        .va-auth-pw-toggle:hover { color: #e4e4e7; background: rgba(255,255,255,0.04); }
 
         #va-auth-submit {
-            margin-top: 8px;
+            margin-top: 6px;
             padding: 12px 16px;
-            border-radius: 11px;
+            border-radius: 12px;
             background: #ffffff;
             color: #0a0a0a;
             font-weight: 700; font-size: 0.95rem;
@@ -193,10 +193,11 @@ function injectStyles() {
             transition: transform 120ms ease, box-shadow 160ms ease, background 160ms ease;
             box-shadow: 0 10px 30px -10px rgba(255,255,255,0.30);
             display: flex; align-items: center; justify-content: center; gap: 8px;
+            min-height: 44px;
         }
         #va-auth-submit:hover:not(:disabled) {
             transform: translateY(-1px);
-            background: #f5f5f5;
+            background: #f4f4f5;
             box-shadow: 0 14px 34px -10px rgba(255,255,255,0.35);
         }
         #va-auth-submit:active:not(:disabled) { transform: translateY(0); }
@@ -211,34 +212,35 @@ function injectStyles() {
         @keyframes va-auth-spin { to { transform: rotate(360deg); } }
 
         #va-auth-msg {
-            font-size: 0.85rem; min-height: 1.1em;
+            font-size: 0.85rem; min-height: 1.2em;
             padding: 0 2px;
             display: flex; align-items: center; gap: 6px;
+            line-height: 1.4;
         }
         .va-auth-msg-err { color: #f87171; }
-        .va-auth-msg-ok { color: #4ade80; }
+        .va-auth-msg-ok  { color: #4ade80; }
 
         #va-auth-close {
             position: absolute; top: 14px; right: 14px;
             background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.08);
-            color: #a3a3a3;
-            width: 30px; height: 30px;
+            color: #a1a1aa;
+            width: 32px; height: 32px;
             display: flex; align-items: center; justify-content: center;
-            border-radius: 8px;
+            border-radius: 9px;
             cursor: pointer; padding: 0;
-            font-size: 1rem;
+            font-size: 0.95rem;
             transition: all 140ms ease;
             z-index: 2;
         }
         #va-auth-close:hover {
             color: #ffffff;
             background: rgba(255,255,255,0.10);
-            border-color: rgba(255,255,255,0.15);
+            border-color: rgba(255,255,255,0.18);
         }
 
         .va-auth-footer {
-            margin-top: 16px; font-size: 0.82rem; color: #a3a3a3; text-align: center;
+            margin-top: 16px; font-size: 0.84rem; color: #a1a1aa; text-align: center;
             position: relative;
         }
         .va-auth-footer a {
@@ -249,15 +251,15 @@ function injectStyles() {
 
         .va-auth-fineprint {
             position: relative;
-            margin-top: 14px;
-            font-size: 0.72rem;
-            color: #6b7280;
+            margin-top: 16px;
+            font-size: 0.74rem;
+            color: #71717a;
             text-align: center;
-            line-height: 1.5;
+            line-height: 1.55;
         }
         .va-auth-fineprint a {
-            color: #a3a3a3; text-decoration: underline;
-            text-decoration-color: rgba(163,163,163,0.3);
+            color: #a1a1aa; text-decoration: underline;
+            text-decoration-color: rgba(161,161,170,0.35);
             text-underline-offset: 2px;
         }
         .va-auth-fineprint a:hover { color: #ffffff; }
@@ -265,21 +267,31 @@ function injectStyles() {
         @media (max-width: 460px) {
             #va-auth-card {
                 padding: 28px 20px 22px;
-                border-radius: 18px;
+                border-radius: 20px;
             }
             #va-auth-card h2 { font-size: 1.3rem; }
-            #va-auth-card .va-auth-sub { font-size: 0.85rem; margin-bottom: 18px; }
-            .va-auth-brand { margin-bottom: 16px; }
-            .va-auth-field input { padding: 11px 12px; font-size: 16px; /* prevent iOS zoom */ }
-            #va-auth-submit { padding: 14px 16px; font-size: 1rem; }
+            #va-auth-card .va-auth-sub { font-size: 0.88rem; margin-bottom: 18px; }
+            .va-auth-brand { margin-bottom: 18px; }
+            .va-auth-field input { padding: 12px 12px; font-size: 16px; }
+            #va-auth-submit { padding: 13px 16px; font-size: 1rem; }
+            #va-auth-close { top: 10px; right: 10px; }
         }
-        @media (max-height: 700px) {
+        @media (max-height: 720px) {
             #va-auth-card { padding: 24px 24px 20px; }
             .va-auth-brand { margin-bottom: 14px; }
             #va-auth-card h2 { font-size: 1.3rem; }
             #va-auth-card .va-auth-sub { margin-bottom: 14px; }
             .va-auth-tabs { margin-bottom: 14px; }
-            #va-auth-form { gap: 10px; }
+            #va-auth-form { gap: 11px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            #va-auth-overlay,
+            #va-auth-card,
+            #va-auth-submit,
+            .va-auth-tab,
+            .va-auth-field input { transition: none; }
+            #va-auth-submit .va-auth-spinner { animation: none; }
         }
     `;
     document.head.appendChild(style);
@@ -289,25 +301,25 @@ function render(mode) {
     const overlay = document.getElementById('va-auth-overlay');
     const isSignUp = mode === 'signup';
     overlay.innerHTML = `
-        <div id="va-auth-card">
-            <button id="va-auth-close" aria-label="Close">
+        <div id="va-auth-card" role="dialog" aria-modal="true" aria-labelledby="va-auth-title">
+            <button id="va-auth-close" type="button" aria-label="Close">
                 <i class="fa-solid fa-xmark" aria-hidden="true"></i>
             </button>
 
             <div class="va-auth-brand">
-                <div class="va-auth-brand-logo">IF</div>
+                <img class="va-auth-brand-logo" src="Images/inflight.png" alt="">
                 <span class="va-auth-brand-name">InFlight</span>
                 <span class="va-auth-brand-tag">Partnership</span>
             </div>
 
-            <h2>${isSignUp ? 'Create your account' : 'Welcome back'}</h2>
+            <h2 id="va-auth-title">${isSignUp ? 'Create your account' : 'Welcome back'}</h2>
             <p class="va-auth-sub">${isSignUp
                 ? 'Free account — no card required. Used to apply for the VA partnership program and manage your roster.'
                 : 'Sign in to manage your virtual airline, submit events, or access the staff console.'}</p>
 
             <div class="va-auth-tabs" role="tablist">
-                <button class="va-auth-tab ${!isSignUp ? 'active' : ''}" data-mode="signin" role="tab">Sign in</button>
-                <button class="va-auth-tab ${isSignUp ? 'active' : ''}" data-mode="signup" role="tab">Sign up</button>
+                <button type="button" class="va-auth-tab ${!isSignUp ? 'active' : ''}" data-mode="signin" role="tab" aria-selected="${!isSignUp}">Sign in</button>
+                <button type="button" class="va-auth-tab ${isSignUp ? 'active' : ''}" data-mode="signup" role="tab" aria-selected="${isSignUp}">Sign up</button>
             </div>
 
             <form id="va-auth-form" autocomplete="on" novalidate>
@@ -321,7 +333,7 @@ function render(mode) {
                 <div class="va-auth-field">
                     <label><i class="fa-solid fa-envelope"></i> Email</label>
                     <div class="va-auth-input-wrap">
-                        <input name="email" type="email" required autocomplete="email" placeholder="you@example.com">
+                        <input name="email" type="email" required autocomplete="email" placeholder="you@example.com" inputmode="email">
                     </div>
                 </div>
                 <div class="va-auth-field">
@@ -331,15 +343,15 @@ function render(mode) {
                                autocomplete="${isSignUp ? 'new-password' : 'current-password'}"
                                placeholder="${isSignUp ? 'At least 6 characters' : 'Your password'}">
                         <button type="button" class="va-auth-pw-toggle" aria-label="Show password" data-pw-toggle>
-                            <i class="fa-solid fa-eye"></i>
+                            <i class="fa-solid fa-eye" aria-hidden="true"></i>
                         </button>
                     </div>
                 </div>
                 <button id="va-auth-submit" type="submit">
                     <span class="va-auth-label">${isSignUp ? 'Create account' : 'Sign in'}</span>
-                    <i class="fa-solid fa-arrow-right" style="font-size:0.8rem;"></i>
+                    <i class="fa-solid fa-arrow-right" style="font-size:0.8rem;" aria-hidden="true"></i>
                 </button>
-                <div id="va-auth-msg"></div>
+                <div id="va-auth-msg" role="status" aria-live="polite"></div>
             </form>
 
             ${!isSignUp ? `
@@ -361,7 +373,6 @@ function render(mode) {
     overlay.querySelectorAll('.va-auth-tab').forEach(b => {
         b.addEventListener('click', () => {
             render(b.dataset.mode);
-            // Re-trigger visible state since we rebuilt the card markup
             overlay.classList.add('va-visible');
         });
     });
@@ -377,19 +388,22 @@ function render(mode) {
             const showing = input.type === 'text';
             input.type = showing ? 'password' : 'text';
             pwToggle.innerHTML = showing
-                ? '<i class="fa-solid fa-eye"></i>'
-                : '<i class="fa-solid fa-eye-slash"></i>';
+                ? '<i class="fa-solid fa-eye" aria-hidden="true"></i>'
+                : '<i class="fa-solid fa-eye-slash" aria-hidden="true"></i>';
             pwToggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
         });
     }
 
-    // Autofocus first empty input
-    setTimeout(() => {
-        const inputs = overlay.querySelectorAll('input');
-        for (const input of inputs) {
-            if (!input.value) { input.focus(); break; }
-        }
-    }, 60);
+    // Autofocus first empty input (skip on mobile to avoid keyboard jump)
+    const isTouch = window.matchMedia('(hover: none)').matches;
+    if (!isTouch) {
+        setTimeout(() => {
+            const inputs = overlay.querySelectorAll('input');
+            for (const input of inputs) {
+                if (!input.value) { input.focus(); break; }
+            }
+        }, 60);
+    }
 }
 
 async function handleSubmit(e, isSignUp) {
@@ -416,9 +430,7 @@ async function handleSubmit(e, isSignUp) {
             const { error } = await supabase.auth.signUp({
                 email: data.email,
                 password: data.password,
-                options: {
-                    data: { if_username: data.if_username }
-                }
+                options: { data: { if_username: data.if_username } }
             });
             if (error) throw error;
             const { data: sess } = await supabase.auth.getSession();
@@ -482,9 +494,6 @@ export function openAuthModal(mode = 'signin') {
     }
     render(mode);
 
-    // Flip display first, then trigger transitions on the next frame.
-    // Doing both in one frame can make some browsers skip the transition,
-    // leaving the modal stuck at opacity:0 ("invisible").
     overlay.classList.add('va-open');
     // Force layout so the transition actually runs.
     // eslint-disable-next-line no-unused-expressions
@@ -503,7 +512,6 @@ export function closeAuthModal() {
     overlay.classList.remove('va-visible');
     document.removeEventListener('keydown', escListener);
     document.body.style.overflow = '';
-    // Wait for fade-out before hiding from layout
     setTimeout(() => {
         if (!overlay.classList.contains('va-visible')) {
             overlay.classList.remove('va-open');
