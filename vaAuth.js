@@ -12,9 +12,8 @@ function injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
         #va-auth-overlay {
-            position: fixed; inset: 0; z-index: 9999;
-            background: radial-gradient(ellipse at top, rgba(56, 189, 248, 0.08), transparent 60%),
-                        rgba(2, 6, 23, 0.78);
+            position: fixed; inset: 0; z-index: 99999;
+            background: rgba(10, 10, 10, 0.78);
             backdrop-filter: blur(14px) saturate(140%);
             -webkit-backdrop-filter: blur(14px) saturate(140%);
             display: none; align-items: center; justify-content: center;
@@ -22,50 +21,48 @@ function injectStyles() {
             padding: 20px;
             font-family: Inter, system-ui, -apple-system, sans-serif;
         }
-        #va-auth-overlay.open { display: flex; opacity: 1; }
+        #va-auth-overlay.va-open { display: flex; }
+        #va-auth-overlay.va-visible { opacity: 1; }
 
         #va-auth-card {
             position: relative;
             width: 100%; max-width: 440px;
-            background:
-                radial-gradient(120% 60% at 50% -10%, rgba(56,189,248,0.10), transparent 60%),
-                linear-gradient(180deg, #0b1426 0%, #070b18 100%);
-            border: 1px solid rgba(255,255,255,0.08);
+            background: linear-gradient(180deg, #1c1c1e 0%, #131315 100%);
+            border: 1px solid rgba(255,255,255,0.10);
             border-radius: 22px;
             padding: 36px 32px 28px;
             box-shadow:
-                0 40px 100px -20px rgba(0,0,0,0.7),
-                0 0 0 1px rgba(255,255,255,0.02) inset,
-                0 1px 0 rgba(255,255,255,0.05) inset;
-            transform: translateY(8px) scale(0.985);
+                0 40px 100px -20px rgba(0,0,0,0.75),
+                0 0 0 1px rgba(255,255,255,0.03) inset;
+            transform: translateY(12px) scale(0.97);
             opacity: 0;
-            transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
+            transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
             overflow: hidden;
         }
-        #va-auth-overlay.open #va-auth-card {
+        #va-auth-overlay.va-visible #va-auth-card {
             transform: translateY(0) scale(1);
             opacity: 1;
         }
 
-        /* Subtle aurora at the top of the card */
+        /* Subtle blue glow at top */
         #va-auth-card::before {
             content: "";
             position: absolute;
-            top: -120px; left: 50%;
-            width: 360px; height: 240px;
+            top: -100px; left: 50%;
+            width: 320px; height: 220px;
             transform: translateX(-50%);
-            background: radial-gradient(closest-side, rgba(99,102,241,0.35), transparent 70%);
+            background: radial-gradient(closest-side, rgba(59,130,246,0.30), transparent 70%);
             filter: blur(40px);
             pointer-events: none;
-            opacity: 0.7;
         }
+        /* Soft hairline highlight */
         #va-auth-card::after {
             content: "";
             position: absolute;
             inset: 0;
             border-radius: 22px;
             padding: 1px;
-            background: linear-gradient(140deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 40%, rgba(56,189,248,0.10) 100%);
+            background: linear-gradient(140deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 50%, rgba(59,130,246,0.10) 100%);
             -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             -webkit-mask-composite: xor; mask-composite: exclude;
             pointer-events: none;
@@ -74,61 +71,61 @@ function injectStyles() {
         .va-auth-brand {
             position: relative;
             display: flex; align-items: center; gap: 10px;
-            margin-bottom: 18px;
+            margin-bottom: 22px;
         }
         .va-auth-brand-logo {
-            width: 32px; height: 32px; border-radius: 9px;
-            background: linear-gradient(135deg, #6366f1, #38bdf8);
+            width: 34px; height: 34px; border-radius: 10px;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
             display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 6px 18px -6px rgba(99,102,241,0.6);
+            box-shadow: 0 8px 20px -6px rgba(59,130,246,0.55);
             color: white; font-weight: 800; font-size: 0.85rem;
             letter-spacing: -0.02em;
         }
         .va-auth-brand-name {
-            font-weight: 800; color: #f8fafc; letter-spacing: -0.01em;
+            font-weight: 800; color: #ffffff; letter-spacing: -0.01em;
             font-size: 1rem;
         }
         .va-auth-brand-tag {
             margin-left: auto;
             font-size: 0.65rem; font-weight: 700; letter-spacing: 0.18em;
-            color: #64748b; text-transform: uppercase;
+            color: #a3a3a3; text-transform: uppercase;
             padding: 4px 9px; border-radius: 999px;
-            background: rgba(148,163,184,0.08);
-            border: 1px solid rgba(148,163,184,0.12);
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
         }
 
         #va-auth-card h2 {
             position: relative;
             margin: 0 0 6px;
-            font-size: 1.55rem; font-weight: 800; color: #f8fafc;
+            font-size: 1.55rem; font-weight: 800; color: #ffffff;
             letter-spacing: -0.02em; line-height: 1.15;
         }
         #va-auth-card .va-auth-sub {
             position: relative;
-            margin: 0 0 22px; color: #94a3b8;
+            margin: 0 0 22px; color: #a3a3a3;
             font-size: 0.92rem; line-height: 1.45;
         }
 
         .va-auth-tabs {
             position: relative;
             display: flex; gap: 4px;
-            background: rgba(15,23,42,0.65);
+            background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 11px; padding: 4px;
             margin-bottom: 20px;
         }
         .va-auth-tab {
-            flex: 1; background: transparent; border: 0; color: #94a3b8;
+            flex: 1; background: transparent; border: 0; color: #a3a3a3;
             font-weight: 600; font-size: 0.88rem; padding: 9px 0;
             border-radius: 8px; cursor: pointer;
             transition: all 160ms ease;
             font-family: inherit;
         }
-        .va-auth-tab:hover { color: #cbd5e1; }
+        .va-auth-tab:hover { color: #ffffff; }
         .va-auth-tab.active {
-            background: linear-gradient(180deg, rgba(56,189,248,0.18), rgba(56,189,248,0.10));
-            color: #f8fafc;
-            box-shadow: 0 1px 0 rgba(255,255,255,0.07) inset, 0 6px 18px -10px rgba(56,189,248,0.6);
+            background: linear-gradient(180deg, rgba(59,130,246,0.22), rgba(59,130,246,0.12));
+            color: #ffffff;
+            box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 6px 18px -10px rgba(59,130,246,0.6);
         }
 
         #va-auth-form {
@@ -138,10 +135,10 @@ function injectStyles() {
         .va-auth-field { display: flex; flex-direction: column; gap: 7px; }
         .va-auth-field label {
             font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
-            color: #94a3b8; text-transform: uppercase;
+            color: #a3a3a3; text-transform: uppercase;
             display: flex; align-items: center; gap: 6px;
         }
-        .va-auth-field label i { color: #475569; font-size: 0.75rem; }
+        .va-auth-field label i { color: #6b7280; font-size: 0.75rem; }
 
         .va-auth-input-wrap {
             position: relative;
@@ -149,56 +146,57 @@ function injectStyles() {
         }
         .va-auth-field input {
             width: 100%;
-            background: rgba(15,23,42,0.75);
+            background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.08);
-            color: #f8fafc;
+            color: #ffffff;
             border-radius: 10px;
             padding: 12px 14px;
             font-size: 0.95rem; font-family: inherit;
             outline: none;
             transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
         }
-        .va-auth-field input::placeholder { color: #475569; }
-        .va-auth-field input:hover { border-color: rgba(255,255,255,0.14); }
+        .va-auth-field input::placeholder { color: #6b7280; }
+        .va-auth-field input:hover { border-color: rgba(255,255,255,0.16); }
         .va-auth-field input:focus {
-            border-color: rgba(56,189,248,0.55);
-            background: rgba(15,23,42,0.95);
-            box-shadow: 0 0 0 4px rgba(56,189,248,0.10);
+            border-color: rgba(59,130,246,0.60);
+            background: rgba(255,255,255,0.06);
+            box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
         }
 
         .va-auth-pw-toggle {
             position: absolute; right: 10px;
             background: transparent; border: 0;
-            color: #64748b; cursor: pointer;
+            color: #6b7280; cursor: pointer;
             padding: 6px; border-radius: 6px;
             font-size: 0.85rem;
             transition: color 120ms;
         }
-        .va-auth-pw-toggle:hover { color: #cbd5e1; }
+        .va-auth-pw-toggle:hover { color: #d4d4d4; }
 
         #va-auth-submit {
             margin-top: 8px;
             padding: 12px 16px;
             border-radius: 11px;
-            background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
-            color: #020617;
+            background: #ffffff;
+            color: #0a0a0a;
             font-weight: 700; font-size: 0.95rem;
             border: 0; cursor: pointer;
             font-family: inherit;
-            transition: transform 120ms ease, box-shadow 160ms ease, filter 120ms ease;
-            box-shadow: 0 12px 30px -10px rgba(255,255,255,0.25), 0 1px 0 rgba(255,255,255,0.5) inset;
+            transition: transform 120ms ease, box-shadow 160ms ease, background 160ms ease;
+            box-shadow: 0 10px 30px -10px rgba(255,255,255,0.30);
             display: flex; align-items: center; justify-content: center; gap: 8px;
         }
         #va-auth-submit:hover:not(:disabled) {
             transform: translateY(-1px);
-            filter: brightness(1.03);
+            background: #f5f5f5;
+            box-shadow: 0 14px 34px -10px rgba(255,255,255,0.35);
         }
         #va-auth-submit:active:not(:disabled) { transform: translateY(0); }
         #va-auth-submit:disabled { opacity: 0.55; cursor: not-allowed; }
         #va-auth-submit .va-auth-spinner {
             width: 14px; height: 14px;
-            border: 2px solid rgba(2,6,23,0.25);
-            border-top-color: #020617;
+            border: 2px solid rgba(10,10,10,0.20);
+            border-top-color: #0a0a0a;
             border-radius: 50%;
             animation: va-auth-spin 0.7s linear infinite;
         }
@@ -209,14 +207,14 @@ function injectStyles() {
             padding: 0 2px;
             display: flex; align-items: center; gap: 6px;
         }
-        .va-auth-msg-err { color: #fca5a5; }
-        .va-auth-msg-ok { color: #86efac; }
+        .va-auth-msg-err { color: #f87171; }
+        .va-auth-msg-ok { color: #4ade80; }
 
         #va-auth-close {
             position: absolute; top: 14px; right: 14px;
-            background: rgba(148,163,184,0.06);
-            border: 1px solid rgba(255,255,255,0.06);
-            color: #94a3b8;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #a3a3a3;
             width: 30px; height: 30px;
             display: flex; align-items: center; justify-content: center;
             border-radius: 8px;
@@ -226,51 +224,35 @@ function injectStyles() {
             z-index: 2;
         }
         #va-auth-close:hover {
-            color: #f8fafc;
-            background: rgba(148,163,184,0.14);
-            border-color: rgba(255,255,255,0.12);
+            color: #ffffff;
+            background: rgba(255,255,255,0.10);
+            border-color: rgba(255,255,255,0.15);
         }
 
         .va-auth-footer {
-            margin-top: 16px; font-size: 0.8rem; color: #64748b; text-align: center;
+            margin-top: 16px; font-size: 0.82rem; color: #a3a3a3; text-align: center;
             position: relative;
         }
         .va-auth-footer a {
-            color: #94a3b8; text-decoration: none;
+            color: #60a5fa; text-decoration: none;
             font-weight: 500; transition: color 120ms;
         }
-        .va-auth-footer a:hover { color: #38bdf8; }
-
-        .va-auth-divider {
-            position: relative;
-            margin: 18px 0 4px;
-            text-align: center;
-            font-size: 0.7rem; font-weight: 600; letter-spacing: 0.15em;
-            color: #475569; text-transform: uppercase;
-        }
-        .va-auth-divider::before, .va-auth-divider::after {
-            content: "";
-            position: absolute; top: 50%;
-            width: calc(50% - 30px); height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-        }
-        .va-auth-divider::before { left: 0; }
-        .va-auth-divider::after { right: 0; }
+        .va-auth-footer a:hover { color: #93c5fd; text-decoration: underline; }
 
         .va-auth-fineprint {
             position: relative;
             margin-top: 14px;
             font-size: 0.72rem;
-            color: #475569;
+            color: #6b7280;
             text-align: center;
             line-height: 1.5;
         }
         .va-auth-fineprint a {
-            color: #64748b; text-decoration: underline;
-            text-decoration-color: rgba(100,116,139,0.3);
+            color: #a3a3a3; text-decoration: underline;
+            text-decoration-color: rgba(163,163,163,0.3);
             text-underline-offset: 2px;
         }
-        .va-auth-fineprint a:hover { color: #94a3b8; }
+        .va-auth-fineprint a:hover { color: #ffffff; }
 
         @media (max-width: 460px) {
             #va-auth-card { padding: 28px 22px 22px; border-radius: 18px; }
@@ -354,7 +336,11 @@ function render(mode) {
     overlay.querySelector('#va-auth-close').addEventListener('click', closeAuthModal);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeAuthModal(); });
     overlay.querySelectorAll('.va-auth-tab').forEach(b => {
-        b.addEventListener('click', () => render(b.dataset.mode));
+        b.addEventListener('click', () => {
+            render(b.dataset.mode);
+            // Re-trigger visible state since we rebuilt the card markup
+            overlay.classList.add('va-visible');
+        });
     });
     overlay.querySelector('#va-auth-form').addEventListener('submit', (e) => handleSubmit(e, isSignUp));
 
@@ -472,16 +458,34 @@ export function openAuthModal(mode = 'signin') {
         document.body.appendChild(overlay);
     }
     render(mode);
-    requestAnimationFrame(() => overlay.classList.add('open'));
+
+    // Flip display first, then trigger transitions on the next frame.
+    // Doing both in one frame can make some browsers skip the transition,
+    // leaving the modal stuck at opacity:0 ("invisible").
+    overlay.classList.add('va-open');
+    // Force layout so the transition actually runs.
+    // eslint-disable-next-line no-unused-expressions
+    overlay.offsetHeight;
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('va-visible'));
+    });
+
     document.addEventListener('keydown', escListener);
     document.body.style.overflow = 'hidden';
 }
 
 export function closeAuthModal() {
     const overlay = document.getElementById('va-auth-overlay');
-    if (overlay) overlay.classList.remove('open');
+    if (!overlay) return;
+    overlay.classList.remove('va-visible');
     document.removeEventListener('keydown', escListener);
     document.body.style.overflow = '';
+    // Wait for fade-out before hiding from layout
+    setTimeout(() => {
+        if (!overlay.classList.contains('va-visible')) {
+            overlay.classList.remove('va-open');
+        }
+    }, 240);
 }
 
 function escListener(e) {

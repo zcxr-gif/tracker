@@ -49,13 +49,11 @@
         .gate-card {
             position: relative;
             width: 100%; max-width: 460px;
-            background:
-                radial-gradient(120% 60% at 50% -10%, rgba(251,191,36,0.10), transparent 60%),
-                linear-gradient(180deg, #0b1426 0%, #070b18 100%);
-            border: 1px solid rgba(255,255,255,0.08);
+            background: linear-gradient(180deg, #1c1c1e 0%, #131315 100%);
+            border: 1px solid rgba(255,255,255,0.10);
             border-radius: 22px;
             padding: 40px 36px 32px;
-            box-shadow: 0 40px 100px -20px rgba(0,0,0,0.7);
+            box-shadow: 0 40px 100px -20px rgba(0,0,0,0.75);
             text-align: center;
             overflow: hidden;
         }
@@ -65,7 +63,7 @@
             top: -120px; left: 50%;
             width: 360px; height: 240px;
             transform: translateX(-50%);
-            background: radial-gradient(closest-side, rgba(251,191,36,0.30), transparent 70%);
+            background: radial-gradient(closest-side, rgba(59,130,246,0.30), transparent 70%);
             filter: blur(40px);
             pointer-events: none;
         }
@@ -74,20 +72,20 @@
             display: inline-flex; align-items: center; justify-content: center;
             width: 56px; height: 56px;
             border-radius: 16px;
-            background: linear-gradient(135deg, rgba(251,191,36,0.20), rgba(245,158,11,0.20));
-            border: 1px solid rgba(251,191,36,0.3);
-            color: #fbbf24; font-size: 1.4rem;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            border: 1px solid rgba(59,130,246,0.35);
+            color: #ffffff; font-size: 1.4rem;
             margin-bottom: 18px;
-            box-shadow: 0 10px 30px -10px rgba(251,191,36,0.4);
+            box-shadow: 0 10px 30px -10px rgba(59,130,246,0.55);
         }
         .gate-title {
             position: relative;
-            font-size: 1.6rem; font-weight: 800; color: #f8fafc;
+            font-size: 1.6rem; font-weight: 800; color: #ffffff;
             letter-spacing: -0.02em; margin-bottom: 8px;
         }
         .gate-sub {
             position: relative;
-            color: #94a3b8; font-size: 0.95rem; line-height: 1.5;
+            color: #a3a3a3; font-size: 0.95rem; line-height: 1.5;
             margin-bottom: 24px;
         }
         .gate-btn {
@@ -95,23 +93,23 @@
             display: inline-flex; align-items: center; gap: 10px;
             padding: 12px 22px;
             border-radius: 12px;
-            background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
-            color: #020617;
+            background: #ffffff;
+            color: #0a0a0a;
             font-weight: 700; font-size: 0.95rem;
             border: 0; cursor: pointer;
-            transition: transform 120ms ease, filter 120ms ease;
-            box-shadow: 0 12px 30px -10px rgba(255,255,255,0.2);
+            transition: transform 120ms ease, background 120ms ease;
+            box-shadow: 0 12px 30px -10px rgba(255,255,255,0.25);
         }
-        .gate-btn:hover { transform: translateY(-1px); filter: brightness(1.04); }
+        .gate-btn:hover { transform: translateY(-1px); background: #f5f5f5; }
         .gate-link {
             position: relative;
             margin-top: 14px;
             display: block;
             font-size: 0.82rem;
-            color: #64748b;
+            color: #6b7280;
         }
-        .gate-link a { color: #38bdf8; text-decoration: none; font-weight: 500; }
-        .gate-link a:hover { text-decoration: underline; }
+        .gate-link a { color: #60a5fa; text-decoration: none; font-weight: 500; }
+        .gate-link a:hover { color: #93c5fd; text-decoration: underline; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -145,7 +143,7 @@
 
         <div id="no-va" class="hidden gate-wrap">
             <div class="gate-card">
-                <div class="gate-icon" style="background:linear-gradient(135deg,rgba(99,102,241,0.20),rgba(56,189,248,0.20));border-color:rgba(99,102,241,0.3);color:#818cf8;box-shadow:0 10px 30px -10px rgba(99,102,241,0.4);"><i class="fa-solid fa-paper-plane"></i></div>
+                <div class="gate-icon"><i class="fa-solid fa-paper-plane"></i></div>
                 <h2 class="gate-title">Ready to launch your VA?</h2>
                 <p class="gate-sub">You're signed in, but you don't have an approved virtual airline yet. Submit an application and our staff will review it.</p>
                 <a href="va-apply.html" class="gate-btn">
