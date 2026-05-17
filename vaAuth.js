@@ -7,6 +7,21 @@
 
 import { supabase } from './vaService.js';
 
+const AUTH_TIMEOUT_MS = 20000;
+
+// Race a promise against a timeout so the modal can never get stuck on
+// a spinner when the underlying Supabase call hangs (network drop, SDK
+// lock contention, etc.).
+function withTimeout(promise, ms, message) {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(message || 'Request timed out. Check your connection and try again.'));
+        }, ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
 let injected = false;
 
 function injectStyles() {
@@ -426,11 +441,15 @@ async function handleSubmit(e, isSignUp) {
 
     try {
         if (isSignUp) {
-            const { error } = await supabase.auth.signUp({
-                email: data.email,
-                password: data.password,
-                options: { data: { if_username: data.if_username } }
-            });
+            const { error } = await withTimeout(
+                supabase.auth.signUp({
+                    email: data.email,
+                    password: data.password,
+                    options: { data: { if_username: data.if_username } }
+                }),
+                AUTH_TIMEOUT_MS,
+                'Sign-up is taking too long. Check your connection and try again.'
+            );
             if (error) throw error;
             const { data: sess } = await supabase.auth.getSession();
             if (sess?.session) {
@@ -440,10 +459,14 @@ async function handleSubmit(e, isSignUp) {
                 msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Check your email to confirm your account, then sign in.';
             }
         } else {
-            const { error } = await supabase.auth.signInWithPassword({
-                email: data.email,
-                password: data.password
-            });
+            const { error } = await withTimeout(
+                supabase.auth.signInWithPassword({
+                    email: data.email,
+                    password: data.password
+                }),
+                AUTH_TIMEOUT_MS,
+                'Sign-in is taking too long. Check your connection and try again.'
+            );
             if (error) throw error;
             closeAuthModal();
         }
