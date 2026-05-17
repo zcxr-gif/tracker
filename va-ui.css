@@ -756,3 +756,399 @@ body::before {
 }
 .va-grid-2 { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .va-grid-3 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+
+/* -------------------------------- account menu -------------------------- */
+
+.va-account-menu-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.va-account-chip {
+    background: var(--va-surface-1);
+    border: 1px solid var(--va-border-2);
+    color: var(--va-text);
+    padding: 6px 10px 6px 6px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 160ms, border-color 160ms;
+    max-width: 240px;
+    line-height: 1;
+}
+.va-account-chip:hover { background: var(--va-surface-2); border-color: var(--va-border-3); }
+
+.va-account-avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: white;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.va-account-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+}
+
+.va-account-chev {
+    font-size: 0.6rem;
+    color: var(--va-text-3);
+    transition: transform 200ms;
+}
+.va-account-menu-wrap.va-open .va-account-chev { transform: rotate(180deg); }
+
+.va-account-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 240px;
+    max-width: 320px;
+    background: linear-gradient(180deg, #1a1a1d 0%, #131316 100%);
+    border: 1px solid var(--va-border-2);
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 22px 60px -20px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.02) inset;
+    z-index: 100;
+    animation: va-menu-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes va-menu-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.va-account-id {
+    padding: 10px 12px 8px;
+    line-height: 1.35;
+}
+.va-account-id-name {
+    font-weight: 700;
+    font-size: 0.92rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.va-account-id-email {
+    font-size: 0.78rem;
+    color: var(--va-text-3);
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.va-account-sep {
+    height: 1px;
+    background: var(--va-border);
+    margin: 6px 0;
+}
+.va-account-item {
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: var(--va-text);
+    text-align: left;
+    padding: 9px 11px;
+    border-radius: 9px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font-family: inherit;
+    font-size: 0.88rem;
+    transition: background 140ms, color 140ms;
+}
+.va-account-item:hover { background: var(--va-surface-2); }
+.va-account-item i {
+    font-size: 0.85rem;
+    color: var(--va-text-3);
+    width: 14px;
+    text-align: center;
+}
+.va-account-item:hover i { color: var(--va-text-2); }
+.va-account-item-danger { color: var(--va-danger); }
+.va-account-item-danger i { color: var(--va-danger); }
+.va-account-item-danger:hover {
+    background: rgba(248,113,113,0.10);
+    color: var(--va-danger);
+}
+
+@media (max-width: 640px) {
+    .va-account-chip .va-account-name {
+        display: none;
+    }
+    .va-account-chip .va-account-chev { font-size: 0.5rem; }
+    .va-account-menu { min-width: 220px; right: -4px; }
+}
+
+/* -------------------------------- toast --------------------------------- */
+
+.va-toast-host {
+    position: fixed;
+    top: max(16px, env(safe-area-inset-top, 16px));
+    right: 16px;
+    left: 16px;
+    z-index: 100000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    pointer-events: none;
+}
+.va-toast {
+    pointer-events: auto;
+    min-width: 240px;
+    max-width: 420px;
+    background: linear-gradient(180deg, #1a1a1d, #131316);
+    border: 1px solid var(--va-border-2);
+    box-shadow: 0 24px 60px -16px rgba(0,0,0,0.65);
+    color: var(--va-text);
+    border-radius: 12px;
+    padding: 12px 14px 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+    transition: opacity 200ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.va-toast.va-toast-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+.va-toast i { font-size: 1rem; flex-shrink: 0; }
+.va-toast-msg { flex: 1; min-width: 0; word-wrap: break-word; }
+.va-toast-close {
+    background: transparent;
+    border: 0;
+    color: var(--va-text-3);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    transition: color 140ms, background 140ms;
+}
+.va-toast-close:hover { color: var(--va-text); background: var(--va-surface-2); }
+
+.va-toast-ok  { border-color: rgba(74,222,128,0.35);  }
+.va-toast-ok i { color: var(--va-success); }
+.va-toast-err { border-color: rgba(248,113,113,0.35); }
+.va-toast-err i { color: var(--va-danger); }
+.va-toast-warn { border-color: rgba(251,191,36,0.35); }
+.va-toast-warn i { color: var(--va-warning); }
+.va-toast-info i { color: var(--va-accent); }
+
+@media (max-width: 640px) {
+    .va-toast-host { left: 12px; right: 12px; align-items: stretch; }
+    .va-toast { min-width: 0; max-width: 100%; }
+}
+
+/* -------------------------------- dialog -------------------------------- */
+
+.va-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99998;
+    background: rgba(4, 4, 6, 0.72);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(20px, env(safe-area-inset-top, 0px)) 18px max(20px, env(safe-area-inset-bottom, 0px));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.va-dialog-overlay.va-visible { opacity: 1; }
+
+.va-dialog {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    background: linear-gradient(180deg, #1a1a1d 0%, #101013 100%);
+    border: 1px solid var(--va-border-2);
+    border-radius: 22px;
+    padding: 28px 26px 22px;
+    box-shadow: 0 40px 100px -20px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.02) inset;
+    transform: translateY(10px) scale(0.97);
+    opacity: 0;
+    transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease;
+}
+.va-dialog-overlay.va-visible .va-dialog {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+.va-dialog-icon {
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(99,102,241,0.10));
+    border: 1px solid rgba(59,130,246,0.25);
+    color: var(--va-accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.15rem;
+    margin-bottom: 14px;
+}
+.va-dialog-icon-danger {
+    background: linear-gradient(135deg, rgba(248,113,113,0.22), rgba(220,38,38,0.10));
+    border-color: rgba(248,113,113,0.28);
+    color: #fda4a4;
+}
+
+.va-dialog-title {
+    margin: 0 0 8px;
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--va-text);
+    line-height: 1.2;
+}
+.va-dialog-msg {
+    margin: 0 0 18px;
+    font-size: 0.92rem;
+    color: var(--va-text-2);
+    line-height: 1.55;
+}
+
+.va-dialog-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.va-dialog-form .va-input,
+.va-dialog-form .va-textarea {
+    width: 100%;
+    box-sizing: border-box;
+}
+.va-dialog-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: -4px;
+}
+.va-chip {
+    background: var(--va-surface-2);
+    border: 1px solid var(--va-border);
+    color: var(--va-text-2);
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 140ms, color 140ms, border-color 140ms;
+}
+.va-chip:hover {
+    background: var(--va-surface-3);
+    color: var(--va-text);
+    border-color: var(--va-border-2);
+}
+.va-dialog-err {
+    color: var(--va-danger);
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+.va-dialog-actions {
+    margin-top: 14px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.va-btn-danger-solid {
+    background: linear-gradient(180deg, #ef4444, #dc2626);
+    color: white;
+    border-color: rgba(248,113,113,0.20);
+    box-shadow: 0 8px 22px -8px rgba(220,38,38,0.55);
+}
+.va-btn-danger-solid:hover:not(:disabled) {
+    background: linear-gradient(180deg, #f87171, #ef4444);
+    transform: translateY(-1px);
+}
+
+@media (max-width: 480px) {
+    .va-dialog { padding: 24px 20px 18px; border-radius: 18px; }
+    .va-dialog-actions { flex-direction: column-reverse; }
+    .va-dialog-actions > .va-btn { width: 100%; }
+}
+
+/* -------------------------------- password show toggle ------------------ */
+/* Used by va-reset.html; matches the auth modal's eye toggle. */
+.va-pw-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: 0;
+    color: var(--va-text-3);
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 7px;
+    font-size: 0.85rem;
+    transition: color 140ms, background 140ms;
+}
+.va-pw-toggle:hover { color: var(--va-text); background: var(--va-surface-2); }
+
+/* -------------------------------- inline search ------------------------ */
+
+.va-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 320px;
+}
+.va-search i {
+    position: absolute;
+    left: 12px;
+    color: var(--va-text-3);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+.va-search input {
+    width: 100%;
+    background: var(--va-surface-1);
+    border: 1px solid var(--va-border-2);
+    color: var(--va-text);
+    border-radius: 11px;
+    padding: 9px 11px 9px 34px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 140ms, background 140ms, box-shadow 140ms;
+}
+.va-search input::placeholder { color: var(--va-text-3); }
+.va-search input:hover { border-color: var(--va-border-3); }
+.va-search input:focus {
+    border-color: var(--va-accent);
+    background: var(--va-surface-2);
+    box-shadow: 0 0 0 4px var(--va-accent-glow);
+}
+@media (max-width: 640px) {
+    .va-search { max-width: 100%; }
+    .va-search input { font-size: 16px; }
+}
+
+/* -------------------------------- nav account slot ---------------------- */
+/* When the account menu sits inside .va-nav we want it on the right
+   without forcing it to pretend it's a nav link. */
+.va-nav .va-account-menu-wrap {
+    margin-left: 6px;
+}
+@media (max-width: 640px) {
+    .va-nav .va-account-menu-wrap { margin-left: 2px; }
+}

@@ -197,6 +197,7 @@
             <nav class="va-nav">
                 <a href="events.html"><i class="fa-solid fa-calendar"></i><span>Events</span></a>
                 <a href="home.html"><i class="fa-solid fa-house"></i><span>Home</span></a>
+                <span id="account-slot"></span>
             </nav>
         </div>
     </header>
@@ -354,9 +355,10 @@
 
     <script type="module">
         import {
-            supabase, getSession, getMyApplications, submitApplication
+            supabase, getSession, signOut, getMyApplications, submitApplication
         } from './vaService.js';
         import { openAuthModal } from './vaAuth.js';
+        import { vaToast, friendlyAuthError, subscribeAuth, renderAccountMenu } from './vaUI.js';
 
         const authGate = document.getElementById('auth-gate');
         const form = document.getElementById('apply-form');
@@ -367,9 +369,25 @@
         const successTitle = document.getElementById('apply-success-title');
         const successSub = document.getElementById('apply-success-sub');
         const successMeta = document.getElementById('apply-success-meta');
+        const accountSlot = document.getElementById('account-slot');
+        let bootInFlight = false;
 
         document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
         document.getElementById('btn-signup').addEventListener('click', () => openAuthModal('signup'));
+
+        async function doSignOut() {
+            try {
+                await signOut();
+                vaToast({ type: 'ok', message: 'Signed out.' });
+            } catch (err) {
+                vaToast({ type: 'err', message: friendlyAuthError(err) });
+            }
+        }
+
+        function renderAccount(user) {
+            if (!user) { accountSlot.innerHTML = ''; return; }
+            renderAccountMenu(accountSlot, { user, onSignOut: doSignOut });
+        }
 
         function showFormMsg(text, kind, html = false) {
             msg.classList.remove('va-hidden');
@@ -438,16 +456,29 @@
         }
 
         async function boot() {
+            if (bootInFlight) return;
+            bootInFlight = true;
+            try {
+                await bootInner();
+            } finally {
+                bootInFlight = false;
+            }
+        }
+
+        async function bootInner() {
             let session;
             try { session = await getSession(); }
             catch (_) { session = null; }
 
             if (!session) {
+                renderAccount(null);
                 authGate.classList.remove('va-hidden');
                 hideForm();
+                successCard.classList.add('va-hidden');
                 myApps.classList.add('va-hidden');
                 return;
             }
+            renderAccount(session.user);
             authGate.classList.add('va-hidden');
 
             let apps = [];
@@ -500,12 +531,13 @@
                 });
             } catch (err) {
                 showFormMsg(err.message || 'Could not submit. Try again.', 'err');
+                vaToast({ type: 'err', message: err.message || 'Could not submit application.' });
             } finally {
                 submitBtn.disabled = false;
             }
         });
 
-        supabase.auth.onAuthStateChange(() => boot());
+        subscribeAuth(() => boot());
         boot();
     </script>
 </body>

@@ -5,9 +5,12 @@
 // Visual language matches va-ui.css. The modal also injects a minimal,
 // self-contained stylesheet so it works on any page that loads this module.
 
-import { supabase } from './vaService.js';
+import { supabase, getSession, signOut as serviceSignOut } from './vaService.js';
+import { friendlyAuthError, vaToast } from './vaUI.js';
 
 let injected = false;
+let lastMode = 'signin';
+let pendingConfirmEmail = null;
 
 function injectStyles() {
     if (injected) return;
@@ -293,13 +296,185 @@ function injectStyles() {
             .va-auth-field input { transition: none; }
             #va-auth-submit .va-auth-spinner { animation: none; }
         }
+
+        /* "Already signed in" + "confirm email" sub-states */
+        .va-auth-actions-stack {
+            display: flex; flex-direction: column; gap: 10px;
+            margin-top: 18px;
+        }
+        .va-auth-btn-primary, .va-auth-btn-ghost, .va-auth-btn-link {
+            font-family: inherit; cursor: pointer;
+            border-radius: 12px; padding: 12px 16px;
+            font-size: 0.95rem; font-weight: 700;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            transition: transform 120ms, background 160ms, border-color 160ms, color 160ms;
+            border: 1px solid transparent;
+            min-height: 44px;
+        }
+        .va-auth-btn-primary {
+            background: #ffffff; color: #0a0a0a;
+            box-shadow: 0 10px 30px -10px rgba(255,255,255,0.30);
+        }
+        .va-auth-btn-primary:hover { background: #f4f4f5; transform: translateY(-1px); }
+        .va-auth-btn-ghost {
+            background: rgba(255,255,255,0.04);
+            color: #ffffff;
+            border-color: rgba(255,255,255,0.10);
+        }
+        .va-auth-btn-ghost:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); }
+        .va-auth-btn-link {
+            background: transparent; border: 0;
+            color: #60a5fa; font-weight: 500; font-size: 0.88rem;
+            padding: 6px 8px; min-height: 0;
+        }
+        .va-auth-btn-link:hover { color: #93c5fd; text-decoration: underline; }
+
+        .va-auth-success-icon {
+            margin: 4px 0 14px;
+            width: 56px; height: 56px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(74,222,128,0.25), rgba(34,197,94,0.10));
+            border: 1px solid rgba(74,222,128,0.30);
+            color: #86efac;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.4rem;
+        }
+        .va-auth-tips {
+            margin-top: 14px;
+            display: grid; gap: 8px;
+        }
+        .va-auth-tip {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 0.84rem; color: #a1a1aa;
+            padding: 9px 12px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 10px;
+        }
+        .va-auth-tip i { color: #71717a; font-size: 0.82rem; }
     `;
     document.head.appendChild(style);
 }
 
+function escAttr(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+}
+
+async function renderSignedInState(overlay, session) {
+    const user = session.user;
+    const name = user.user_metadata?.if_username || user.email || 'Signed in';
+    const email = user.email || '';
+    overlay.innerHTML = `
+        <div id="va-auth-card" role="dialog" aria-modal="true" aria-labelledby="va-auth-title">
+            <button id="va-auth-close" type="button" aria-label="Close">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+
+            <div class="va-auth-brand">
+                <img class="va-auth-brand-logo" src="Images/inflight.png" alt="">
+                <span class="va-auth-brand-name">InFlight</span>
+                <span class="va-auth-brand-tag">Partnership</span>
+            </div>
+
+            <h2 id="va-auth-title">You're already signed in</h2>
+            <p class="va-auth-sub">Continue as <b>${escAttr(name)}</b>${email && email !== name ? ` <span style="color:#71717a;">(${escAttr(email)})</span>` : ''}, or switch to a different account.</p>
+
+            <div class="va-auth-actions-stack">
+                <button id="va-auth-continue" type="button" class="va-auth-btn-primary">
+                    <i class="fa-solid fa-arrow-right"></i> Continue as ${escAttr(name)}
+                </button>
+                <button id="va-auth-switch" type="button" class="va-auth-btn-ghost">
+                    <i class="fa-solid fa-arrow-right-arrow-left"></i> Use a different account
+                </button>
+            </div>
+            <div id="va-auth-msg" role="status" aria-live="polite"></div>
+        </div>
+    `;
+    overlay.querySelector('#va-auth-close').addEventListener('click', closeAuthModal);
+    overlay.querySelector('#va-auth-continue').addEventListener('click', closeAuthModal);
+    overlay.querySelector('#va-auth-switch').addEventListener('click', async () => {
+        const msgEl = overlay.querySelector('#va-auth-msg');
+        msgEl.className = '';
+        msgEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Signing out…';
+        try {
+            await serviceSignOut();
+            render('signin');
+        } catch (err) {
+            msgEl.className = 'va-auth-msg-err';
+            msgEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${escAttr(friendlyAuthError(err))}`;
+        }
+    });
+}
+
+function renderConfirmEmailState(overlay, email) {
+    overlay.innerHTML = `
+        <div id="va-auth-card" role="dialog" aria-modal="true" aria-labelledby="va-auth-title">
+            <button id="va-auth-close" type="button" aria-label="Close">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+
+            <div class="va-auth-brand">
+                <img class="va-auth-brand-logo" src="Images/inflight.png" alt="">
+                <span class="va-auth-brand-name">InFlight</span>
+                <span class="va-auth-brand-tag">Partnership</span>
+            </div>
+
+            <div class="va-auth-success-icon">
+                <i class="fa-solid fa-envelope-circle-check"></i>
+            </div>
+            <h2 id="va-auth-title">Confirm your email</h2>
+            <p class="va-auth-sub">We sent a confirmation link to <b>${escAttr(email)}</b>. Open it on this device to finish creating your account.</p>
+
+            <div class="va-auth-tips">
+                <div class="va-auth-tip"><i class="fa-solid fa-clock"></i> The link expires in about an hour.</div>
+                <div class="va-auth-tip"><i class="fa-solid fa-folder-open"></i> No email? Check spam or promotions.</div>
+            </div>
+
+            <div class="va-auth-actions-stack">
+                <button id="va-auth-resend" type="button" class="va-auth-btn-ghost">
+                    <i class="fa-solid fa-paper-plane"></i> Resend confirmation
+                </button>
+                <button id="va-auth-back-signin" type="button" class="va-auth-btn-link">
+                    Already confirmed? Sign in
+                </button>
+            </div>
+            <div id="va-auth-msg" role="status" aria-live="polite"></div>
+        </div>
+    `;
+    overlay.querySelector('#va-auth-close').addEventListener('click', closeAuthModal);
+    overlay.querySelector('#va-auth-back-signin').addEventListener('click', () => render('signin'));
+    overlay.querySelector('#va-auth-resend').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const msgEl = overlay.querySelector('#va-auth-msg');
+        btn.disabled = true;
+        msgEl.className = '';
+        msgEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Resending…';
+        try {
+            const { error } = await supabase.auth.resend({ type: 'signup', email });
+            if (error) throw error;
+            msgEl.className = 'va-auth-msg-ok';
+            msgEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Sent again. Check your inbox.';
+        } catch (err) {
+            msgEl.className = 'va-auth-msg-err';
+            msgEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${escAttr(friendlyAuthError(err))}`;
+        } finally {
+            setTimeout(() => { btn.disabled = false; }, 1200);
+        }
+    });
+}
+
 function render(mode) {
     const overlay = document.getElementById('va-auth-overlay');
+    if (mode === 'awaiting-confirmation') {
+        renderConfirmEmailState(overlay, pendingConfirmEmail || '');
+        return;
+    }
+
     const isSignUp = mode === 'signup';
+    lastMode = isSignUp ? 'signup' : 'signin';
+
     overlay.innerHTML = `
         <div id="va-auth-card" role="dialog" aria-modal="true" aria-labelledby="va-auth-title">
             <button id="va-auth-close" type="button" aria-label="Close">
@@ -327,7 +502,7 @@ function render(mode) {
                     <div class="va-auth-field">
                         <label><i class="fa-solid fa-at"></i> IFC handle</label>
                         <div class="va-auth-input-wrap">
-                            <input name="if_username" type="text" required autocomplete="username" placeholder="CaptainSmith">
+                            <input name="if_username" type="text" required autocomplete="username" placeholder="CaptainSmith" maxlength="40">
                         </div>
                     </div>` : ''}
                 <div class="va-auth-field">
@@ -405,39 +580,91 @@ function render(mode) {
     }
 }
 
+function setSubmitBusy(btn, busy, busyLabel) {
+    const label = btn.querySelector('.va-auth-label');
+    const arrow = btn.querySelector('i');
+    const spinner = btn.querySelector('.va-auth-spinner');
+    if (busy) {
+        btn.disabled = true;
+        if (label) {
+            btn.dataset.origLabel = btn.dataset.origLabel || label.textContent;
+            label.textContent = busyLabel;
+        }
+        if (arrow) arrow.style.display = 'none';
+        if (!spinner) {
+            const s = document.createElement('span');
+            s.className = 'va-auth-spinner';
+            btn.appendChild(s);
+        }
+    } else {
+        btn.disabled = false;
+        if (label && btn.dataset.origLabel) {
+            label.textContent = btn.dataset.origLabel;
+            delete btn.dataset.origLabel;
+        }
+        if (arrow) arrow.style.display = '';
+        if (spinner) spinner.remove();
+    }
+}
+
+function showMsg(msgEl, kind, html) {
+    msgEl.className = kind === 'err' ? 'va-auth-msg-err' : kind === 'ok' ? 'va-auth-msg-ok' : '';
+    msgEl.innerHTML = html;
+}
+
+function validIfUsername(name) {
+    if (!name) return false;
+    const trimmed = name.trim();
+    if (trimmed.length < 2 || trimmed.length > 40) return false;
+    // IFC handles are alphanumeric + _ — keep this loose, IFC is the source of truth.
+    return /^[A-Za-z0-9._\- ]+$/.test(trimmed);
+}
+
 async function handleSubmit(e, isSignUp) {
     e.preventDefault();
     const form = e.currentTarget;
     const data = Object.fromEntries(new FormData(form).entries());
     const msg = form.querySelector('#va-auth-msg');
     const btn = form.querySelector('#va-auth-submit');
-    const label = btn.querySelector('.va-auth-label');
-    const arrow = btn.querySelector('i');
-    const originalLabel = label.textContent;
 
-    btn.disabled = true;
-    msg.className = '';
-    msg.textContent = '';
-    label.textContent = isSignUp ? 'Creating account…' : 'Signing in…';
-    if (arrow) arrow.style.display = 'none';
-    const spinner = document.createElement('span');
-    spinner.className = 'va-auth-spinner';
-    btn.appendChild(spinner);
+    // Client-side validation up front — surfaces issues before we round-trip.
+    if (isSignUp && !validIfUsername(data.if_username)) {
+        showMsg(msg, 'err', '<i class="fa-solid fa-circle-exclamation"></i> IFC handle needs 2–40 characters (letters, numbers, dots, dashes, underscores).');
+        form.querySelector('input[name="if_username"]')?.focus();
+        return;
+    }
+    if (!data.email || !/.+@.+\..+/.test(data.email)) {
+        showMsg(msg, 'err', "<i class=\"fa-solid fa-circle-exclamation\"></i> That email address doesn't look right.");
+        form.querySelector('input[name="email"]')?.focus();
+        return;
+    }
+    if (!data.password || data.password.length < 6) {
+        showMsg(msg, 'err', '<i class="fa-solid fa-circle-exclamation"></i> Your password needs at least 6 characters.');
+        form.querySelector('input[name="password"]')?.focus();
+        return;
+    }
+
+    showMsg(msg, '', '');
+    setSubmitBusy(btn, true, isSignUp ? 'Creating account…' : 'Signing in…');
 
     try {
         if (isSignUp) {
             const { error } = await supabase.auth.signUp({
                 email: data.email,
                 password: data.password,
-                options: { data: { if_username: data.if_username } }
+                options: {
+                    data: { if_username: (data.if_username || '').trim() },
+                    emailRedirectTo: window.location.origin + '/va-apply.html'
+                }
             });
             if (error) throw error;
-            const { data: sess } = await supabase.auth.getSession();
-            if (sess?.session) {
+            const sess = await getSession();
+            if (sess) {
+                vaToast({ type: 'ok', message: `Welcome aboard, ${(data.if_username || '').trim() || 'pilot'}.` });
                 closeAuthModal();
             } else {
-                msg.className = 'va-auth-msg-ok';
-                msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Check your email to confirm your account, then sign in.';
+                pendingConfirmEmail = data.email;
+                render('awaiting-confirmation');
             }
         } else {
             const { error } = await supabase.auth.signInWithPassword({
@@ -445,16 +672,13 @@ async function handleSubmit(e, isSignUp) {
                 password: data.password
             });
             if (error) throw error;
+            vaToast({ type: 'ok', message: 'Signed in.' });
             closeAuthModal();
         }
     } catch (err) {
-        msg.className = 'va-auth-msg-err';
-        msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Something went wrong.'}`;
+        showMsg(msg, 'err', `<i class="fa-solid fa-circle-exclamation"></i> ${escAttr(friendlyAuthError(err))}`);
     } finally {
-        btn.disabled = false;
-        label.textContent = originalLabel;
-        if (arrow) arrow.style.display = '';
-        spinner.remove();
+        setSubmitBusy(btn, false);
     }
 }
 
@@ -464,22 +688,24 @@ async function handleForgot() {
     const msg = overlay.querySelector('#va-auth-msg');
     const email = (emailInput?.value || '').trim();
     if (!email) {
-        msg.className = 'va-auth-msg-err';
-        msg.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Enter your email above first.';
+        showMsg(msg, 'err', '<i class="fa-solid fa-circle-exclamation"></i> Enter your email above first.');
         emailInput?.focus();
         return;
     }
-    msg.className = '';
-    msg.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Sending reset link…';
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin + '/va-apply.html'
-    });
-    if (error) {
-        msg.className = 'va-auth-msg-err';
-        msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${error.message || 'Could not send reset email.'}`;
-    } else {
-        msg.className = 'va-auth-msg-ok';
-        msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Reset email sent. Check your inbox.';
+    if (!/.+@.+\..+/.test(email)) {
+        showMsg(msg, 'err', "<i class=\"fa-solid fa-circle-exclamation\"></i> That email address doesn't look right.");
+        emailInput?.focus();
+        return;
+    }
+    showMsg(msg, '', '<i class="fa-solid fa-paper-plane"></i> Sending reset link…');
+    try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin + '/va-reset.html'
+        });
+        if (error) throw error;
+        showMsg(msg, 'ok', `<i class="fa-solid fa-circle-check"></i> Reset link sent to <b>${escAttr(email)}</b>. Check your inbox.`);
+    } catch (err) {
+        showMsg(msg, 'err', `<i class="fa-solid fa-circle-exclamation"></i> ${escAttr(friendlyAuthError(err))}`);
     }
 }
 
@@ -532,7 +758,7 @@ function attachBackdropHandlers(overlay) {
     }
 }
 
-export function openAuthModal(mode = 'signin') {
+export async function openAuthModal(mode = 'signin') {
     injectStyles();
     let overlay = document.getElementById('va-auth-overlay');
     if (!overlay) {
@@ -542,7 +768,18 @@ export function openAuthModal(mode = 'signin') {
     }
     attachBackdropHandlers(overlay);
     overlay.__vaOpenedAt = Date.now();
-    render(mode);
+
+    // If a session already exists, show the "already signed in" state
+    // rather than the sign-in form. Avoids the confusing case where a
+    // tracker page opens the auth modal but the user has been signed
+    // in this whole time on another tab.
+    let session = null;
+    try { session = await getSession(); } catch (_) {}
+    if (session && (mode === 'signin' || mode === 'signup')) {
+        await renderSignedInState(overlay, session);
+    } else {
+        render(mode);
+    }
 
     overlay.classList.add('va-open');
     // Force layout so the transition actually runs.

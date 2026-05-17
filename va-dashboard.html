@@ -94,6 +94,7 @@
                 <a id="public-link" href="#" class="va-nav-text-only va-hidden"><i class="fa-solid fa-arrow-up-right-from-square"></i><span>Public page</span></a>
                 <a href="events.html"><i class="fa-solid fa-calendar"></i><span>Events</span></a>
                 <a href="home.html"><i class="fa-solid fa-house"></i><span>Home</span></a>
+                <span id="account-slot"></span>
             </nav>
         </div>
     </header>
@@ -184,9 +185,6 @@
                                 <a id="va-public" href="#" class="va-btn va-btn-ghost va-btn-sm" target="_blank" rel="noopener">
                                     <i class="fa-solid fa-arrow-up-right-from-square"></i> View public page
                                 </a>
-                                <button id="btn-signout" class="va-btn va-btn-ghost va-btn-sm">
-                                    <i class="fa-solid fa-right-from-bracket"></i> Sign out
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -402,12 +400,13 @@
 
     <script type="module">
         import {
-            supabase, getSession, getVaByCeo, updateVa,
+            supabase, getSession, signOut, getVaByCeo, updateVa,
             listPilots, addPilot, removePilot,
             listEventsForVa, createEvent, deleteEvent,
             formatEventTime
         } from './vaService.js';
         import { openAuthModal } from './vaAuth.js';
+        import { vaToast, vaConfirm, vaPrompt, friendlyAuthError, subscribeAuth, renderAccountMenu } from './vaUI.js';
 
         const authGate    = document.getElementById('auth-gate');
         const noVa        = document.getElementById('no-va');
@@ -415,16 +414,24 @@
         const dash        = document.getElementById('dashboard');
         const bootError   = document.getElementById('boot-error');
         const bootErrorMsg = document.getElementById('boot-error-msg');
+        const accountSlot = document.getElementById('account-slot');
 
         let currentVa = null;
         let currentPilots = [];
         let currentEvents = [];
+        let bootInFlight = false;
 
         document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
         document.getElementById('btn-retry').addEventListener('click', () => boot());
-        document.getElementById('btn-signout').addEventListener('click', async () => {
-            await supabase.auth.signOut();
-        });
+
+        async function doSignOut() {
+            try {
+                await signOut();
+                vaToast({ type: 'ok', message: 'Signed out.' });
+            } catch (err) {
+                vaToast({ type: 'err', message: friendlyAuthError(err) });
+            }
+        }
 
         function escapeHtml(s) {
             return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -609,40 +616,79 @@
                 renderHeader(updated);
                 msg.className = 'va-field-msg ok';
                 msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Saved.';
-                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+                vaToast({ type: 'ok', message: 'Profile saved.' });
                 setTimeout(() => { msg.textContent = ''; msg.className = 'va-field-msg'; }, 3000);
             } catch (err) {
                 msg.className = 'va-field-msg err';
                 msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Failed.'}`;
-                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+                vaToast({ type: 'err', message: err.message || 'Could not save profile.' });
             }
         });
 
         document.getElementById('pilot-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(e.currentTarget).entries());
+            const btn = e.currentTarget.querySelector('button[type="submit"]');
+            btn.disabled = true;
             try {
                 await addPilot(currentVa.id, data.ifc_handle, data.rank, currentPilots.length);
                 e.currentTarget.reset();
-                loadRoster();
+                await loadRoster();
+                vaToast({ type: 'ok', message: `Added @${(data.ifc_handle || '').trim()} to roster.` });
             } catch (err) {
-                alert(err.message || 'Failed.');
+                vaToast({ type: 'err', message: err.message || 'Could not add pilot.' });
+            } finally {
+                btn.disabled = false;
             }
         });
 
         document.addEventListener('click', async (e) => {
             const delPilot = e.target.closest('[data-pilot-del]');
             if (delPilot) {
-                if (!confirm('Remove this pilot?')) return;
-                await removePilot(delPilot.dataset.pilotDel);
-                loadRoster();
+                const id = delPilot.dataset.pilotDel;
+                const pilot = currentPilots.find(p => p.id === id);
+                const handle = pilot ? `@${pilot.ifc_handle}` : 'this pilot';
+                const ok = await vaConfirm({
+                    title: 'Remove pilot?',
+                    message: `${handle} will be removed from your roster. You can add them back at any time.`,
+                    confirmLabel: 'Remove',
+                    danger: true,
+                    icon: 'fa-user-minus'
+                });
+                if (!ok) return;
+                delPilot.disabled = true;
+                try {
+                    await removePilot(id);
+                    await loadRoster();
+                    vaToast({ type: 'ok', message: `Removed ${handle}.` });
+                } catch (err) {
+                    delPilot.disabled = false;
+                    vaToast({ type: 'err', message: err.message || 'Could not remove pilot.' });
+                }
                 return;
             }
             const delEvent = e.target.closest('[data-event-del]');
             if (delEvent) {
-                if (!confirm('Delete this event?')) return;
-                await deleteEvent(delEvent.dataset.eventDel);
-                loadEvents();
+                const id = delEvent.dataset.eventDel;
+                const ev = currentEvents.find(x => x.id === id);
+                const name = ev ? `"${ev.name}"` : 'this event';
+                const ok = await vaConfirm({
+                    title: 'Delete event?',
+                    message: `${name} will be permanently deleted. If it was approved, it disappears from the public events board.`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                    icon: 'fa-calendar-xmark'
+                });
+                if (!ok) return;
+                delEvent.disabled = true;
+                try {
+                    await deleteEvent(id);
+                    await loadEvents();
+                    vaToast({ type: 'ok', message: 'Event deleted.' });
+                } catch (err) {
+                    delEvent.disabled = false;
+                    vaToast({ type: 'err', message: err.message || 'Could not delete event.' });
+                }
             }
         });
 
@@ -686,22 +732,67 @@
                 msg.innerHTML = currentVa.trusted
                     ? '<i class="fa-solid fa-circle-check"></i> Published.'
                     : '<i class="fa-solid fa-circle-check"></i> Submitted for review.';
-                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+                vaToast({
+                    type: 'ok',
+                    message: currentVa.trusted
+                        ? 'Event published on InFlight.'
+                        : 'Event submitted for staff review.'
+                });
                 eventForm.reset();
                 eventForm.classList.add('va-hidden');
                 loadEvents();
             } catch (err) {
                 msg.className = 'va-field-msg err';
                 msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Failed.'}`;
-                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+                vaToast({ type: 'err', message: err.message || 'Could not submit event.' });
             }
         });
 
+        function renderAccount(user) {
+            if (!user) { accountSlot.innerHTML = ''; return; }
+            renderAccountMenu(accountSlot, {
+                user,
+                onSignOut: doSignOut,
+                extraItems: [
+                    { icon: 'fa-key', label: 'Change password', onClick: changePassword }
+                ]
+            });
+        }
+
+        async function changePassword() {
+            const newPw = await vaPrompt({
+                title: 'Change password',
+                message: 'Enter a new password for your InFlight account.',
+                label: 'New password',
+                placeholder: 'At least 6 characters',
+                confirmLabel: 'Update password',
+                required: true,
+                inputType: 'password',
+                icon: 'fa-key'
+            });
+            if (newPw == null) return;
+            if (newPw.length < 6) {
+                vaToast({ type: 'err', message: 'Password needs at least 6 characters.' });
+                return;
+            }
+            try {
+                const { error } = await supabase.auth.updateUser({ password: newPw });
+                if (error) throw error;
+                vaToast({ type: 'ok', message: 'Password updated.' });
+            } catch (err) {
+                vaToast({ type: 'err', message: friendlyAuthError(err) });
+            }
+        }
+
         async function boot() {
+            if (bootInFlight) return;
+            bootInFlight = true;
             show(loading);
             try {
                 const session = await getSession();
-                if (!session) { show(authGate); return; }
+                if (!session) { show(authGate); renderAccount(null); return; }
+                renderAccount(session.user);
+
                 let va;
                 try { va = await getVaByCeo(); }
                 catch (_) { va = null; }
@@ -716,10 +807,12 @@
                     ? `${err.message}. Check your connection and try again.`
                     : "Something went wrong while connecting to InFlight. Check your connection and try again.";
                 show(bootError);
+            } finally {
+                bootInFlight = false;
             }
         }
 
-        supabase.auth.onAuthStateChange(() => boot());
+        subscribeAuth(() => boot());
         boot();
     </script>
 </body>
