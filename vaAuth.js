@@ -369,7 +369,6 @@ function render(mode) {
     `;
 
     overlay.querySelector('#va-auth-close').addEventListener('click', closeAuthModal);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeAuthModal(); });
     overlay.querySelectorAll('.va-auth-tab').forEach(b => {
         b.addEventListener('click', () => {
             render(b.dataset.mode);
@@ -484,6 +483,55 @@ async function handleForgot() {
     }
 }
 
+// Attach backdrop-close handlers ONCE per overlay. We use pointer events
+// with drag detection so that scrolling inside the modal on iOS Safari
+// can't synthesize a stray click on the backdrop and close it.
+function attachBackdropHandlers(overlay) {
+    if (overlay.__vaBackdrop) return;
+    overlay.__vaBackdrop = true;
+
+    let pressedOnBackdrop = false;
+    let pressX = 0, pressY = 0;
+    let pressAt = 0;
+
+    const onDown = (e) => {
+        pressedOnBackdrop = e.target === overlay;
+        pressX = e.clientX ?? 0;
+        pressY = e.clientY ?? 0;
+        pressAt = Date.now();
+    };
+    const onUp = (e) => {
+        const was = pressedOnBackdrop;
+        pressedOnBackdrop = false;
+        if (!was) return;
+        if (e.target !== overlay) return;
+        // Ignore taps within 350ms of opening — covers iOS Safari ghost
+        // clicks that can land on the backdrop right after the trigger
+        // button is tapped.
+        if (Date.now() - overlay.__vaOpenedAt < 350) return;
+        const moved = Math.hypot((e.clientX ?? 0) - pressX, (e.clientY ?? 0) - pressY);
+        if (moved > 8) return;  // user was scrolling, not tapping
+        closeAuthModal();
+    };
+
+    if ('PointerEvent' in window) {
+        overlay.addEventListener('pointerdown', onDown);
+        overlay.addEventListener('pointerup', onUp);
+    } else {
+        // Fallback for very old browsers
+        overlay.addEventListener('mousedown', onDown);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('touchstart', (e) => {
+            const t = e.touches[0];
+            onDown({ target: e.target, clientX: t?.clientX, clientY: t?.clientY });
+        }, { passive: true });
+        overlay.addEventListener('touchend', (e) => {
+            const t = e.changedTouches[0];
+            onUp({ target: e.target, clientX: t?.clientX, clientY: t?.clientY });
+        });
+    }
+}
+
 export function openAuthModal(mode = 'signin') {
     injectStyles();
     let overlay = document.getElementById('va-auth-overlay');
@@ -492,6 +540,8 @@ export function openAuthModal(mode = 'signin') {
         overlay.id = 'va-auth-overlay';
         document.body.appendChild(overlay);
     }
+    attachBackdropHandlers(overlay);
+    overlay.__vaOpenedAt = Date.now();
     render(mode);
 
     overlay.classList.add('va-open');
