@@ -1,525 +1,1022 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en" class="scroll-smooth" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InFlight | Professional Flight Tracking</title>
-    
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
-    <!-- Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <title>InFlight — Track every flight, beautifully.</title>
+
+    <!-- Set theme before paint to avoid flash. -->
     <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
-                    colors: {
-                        background: '#0a0a0a',
-                        surface: '#171717',
-                        primary: '#3b82f6',
-                        accent: '#60a5fa',
-                        border: 'rgba(255, 255, 255, 0.1)',
-                        pro: '#fbbf24',
-                    },
-                    animation: {
-                        'fade-in-up': 'fadeInUp 0.6s ease-out forwards',
-                        'spin-slow': 'spin 8s linear infinite',
-                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                    },
-                    keyframes: {
-                        fadeInUp: {
-                            '0%': { opacity: '0', transform: 'translateY(10px)' },
-                            '100%': { opacity: '1', transform: 'translateY(0)' },
-                        }
-                    }
-                }
-            }
-        }
+        (function () {
+            try {
+                const stored = localStorage.getItem('inflight-theme');
+                const system = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.dataset.theme = stored || system;
+            } catch (_) { /* localStorage may be blocked */ }
+        })();
     </script>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+
     <style>
+        /* ─── Theme tokens ──────────────────────────────────────────────── */
+        :root,
+        [data-theme="light"] {
+            --bg:           #ffffff;
+            --bg-alt:       #f5f5f7;
+            --bg-elev:      #ffffff;
+            --bg-tint:      rgba(0, 0, 0, 0.025);
+            --hairline:     rgba(0, 0, 0, 0.08);
+            --hairline-2:   rgba(0, 0, 0, 0.04);
+            --text:         #1d1d1f;
+            --text-2:       #6e6e73;
+            --text-3:       #86868b;
+            --accent:       #0071e3;
+            --accent-hover: #0077ed;
+            --accent-tint:  rgba(0, 113, 227, 0.08);
+            --pro:          #b4660d;
+            --pro-tint:     rgba(180, 102, 13, 0.08);
+            --pro-glow:     rgba(255, 184, 0, 0.16);
+            --solid-cta:    #1d1d1f;
+            --solid-cta-fg: #ffffff;
+            --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-md:    0 6px 24px -8px rgba(0, 0, 0, 0.10), 0 2px 6px -2px rgba(0, 0, 0, 0.06);
+            --shadow-lg:    0 30px 80px -20px rgba(0, 0, 0, 0.18), 0 8px 24px -10px rgba(0, 0, 0, 0.08);
+            --nav-bg:       rgba(255, 255, 255, 0.72);
+            --mesh-1:       rgba(0, 113, 227, 0.18);
+            --mesh-2:       rgba(255, 138, 0, 0.10);
+            --mesh-3:       rgba(102, 217, 255, 0.18);
+        }
+
+        [data-theme="dark"] {
+            --bg:           #000000;
+            --bg-alt:       #0a0a0a;
+            --bg-elev:      #141416;
+            --bg-tint:      rgba(255, 255, 255, 0.04);
+            --hairline:     rgba(255, 255, 255, 0.10);
+            --hairline-2:   rgba(255, 255, 255, 0.06);
+            --text:         #f5f5f7;
+            --text-2:       #a1a1a6;
+            --text-3:       #6e6e73;
+            --accent:       #0a84ff;
+            --accent-hover: #409cff;
+            --accent-tint:  rgba(10, 132, 255, 0.14);
+            --pro:          #ffb800;
+            --pro-tint:     rgba(255, 184, 0, 0.12);
+            --pro-glow:     rgba(255, 184, 0, 0.28);
+            --solid-cta:    #f5f5f7;
+            --solid-cta-fg: #000000;
+            --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.35);
+            --shadow-md:    0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+            --shadow-lg:    0 40px 100px -20px rgba(0, 0, 0, 0.75), 0 10px 30px -10px rgba(0, 0, 0, 0.4);
+            --nav-bg:       rgba(0, 0, 0, 0.72);
+            --mesh-1:       rgba(10, 132, 255, 0.32);
+            --mesh-2:       rgba(255, 138, 0, 0.18);
+            --mesh-3:       rgba(80, 200, 255, 0.18);
+        }
+
+        /* ─── Base ─────────────────────────────────────────────────────── */
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
         body {
-            background-color: #0a0a0a;
-            color: #f8fafc;
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
             overflow-x: hidden;
+            transition: background-color 220ms ease, color 220ms ease;
+        }
+        .display { font-family: 'Inter Tight', 'Inter', system-ui, sans-serif; letter-spacing: -0.035em; }
+        .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        a { color: inherit; text-decoration: none; }
+        ::selection { background: var(--accent-tint); color: var(--text); }
+        img { display: block; max-width: 100%; }
+        button { font-family: inherit; }
+
+        /* ─── Layout helpers ───────────────────────────────────────────── */
+        .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+        .section { padding: 120px 0; position: relative; }
+        @media (max-width: 720px) {
+            .section { padding: 80px 0; }
         }
 
-        /* Character Animation */
-        .char {
-            display: inline-block;
+        /* ─── Navigation ───────────────────────────────────────────────── */
+        .nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+            background: var(--nav-bg);
+            -webkit-backdrop-filter: saturate(180%) blur(24px);
+            backdrop-filter: saturate(180%) blur(24px);
+            border-bottom: 1px solid var(--hairline-2);
+            transition: background-color 220ms ease, border-color 220ms ease;
+        }
+        .nav-inner {
+            max-width: 1180px; margin: 0 auto; padding: 0 24px;
+            height: 56px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 24px;
+        }
+        .nav-brand {
+            display: inline-flex; align-items: center; gap: 10px;
+            font-weight: 600; letter-spacing: -0.01em; color: var(--text);
+            font-size: 0.95rem;
+        }
+        .nav-brand img {
+            width: 28px; height: 28px; border-radius: 8px; object-fit: cover;
+        }
+        .nav-links { display: flex; align-items: center; gap: 28px; }
+        .nav-link {
+            font-size: 0.84rem; font-weight: 500; color: var(--text-2);
+            transition: color 140ms ease;
+        }
+        .nav-link:hover { color: var(--text); }
+        .nav-link.is-pro { color: var(--pro); font-weight: 600; }
+        .nav-link.is-pro:hover { filter: brightness(1.1); }
+
+        .nav-actions { display: flex; align-items: center; gap: 8px; }
+
+        .theme-toggle {
+            background: var(--bg-tint);
+            border: 1px solid var(--hairline);
+            color: var(--text-2);
+            width: 34px; height: 34px;
+            border-radius: 999px;
+            display: inline-flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: background 140ms ease, color 140ms ease, transform 220ms ease;
+        }
+        .theme-toggle:hover { color: var(--text); background: var(--hairline); }
+        .theme-toggle .sun { display: none; }
+        [data-theme="dark"] .theme-toggle .sun { display: inline-flex; }
+        [data-theme="dark"] .theme-toggle .moon { display: none; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 9px 18px;
+            border-radius: 999px;
+            font-weight: 600; font-size: 0.86rem;
+            line-height: 1; letter-spacing: -0.005em;
+            cursor: pointer; border: 0;
+            transition: transform 120ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+            white-space: nowrap;
+        }
+        .btn-primary { background: var(--accent); color: #ffffff; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-primary:active { transform: scale(0.98); }
+
+        .btn-solid { background: var(--solid-cta); color: var(--solid-cta-fg); }
+        .btn-solid:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+        .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--hairline); }
+        .btn-ghost:hover { background: var(--bg-tint); }
+
+        .btn-lg { padding: 14px 26px; font-size: 0.95rem; }
+
+        /* ─── Mobile nav drawer ────────────────────────────────────────── */
+        .nav-burger {
+            display: none;
+            background: transparent; border: 0;
+            color: var(--text); padding: 8px;
+            border-radius: 8px; cursor: pointer;
+        }
+        .nav-burger:hover { background: var(--bg-tint); }
+        @media (max-width: 900px) {
+            .nav-links, .nav-actions .btn { display: none; }
+            .nav-burger { display: inline-flex; }
+        }
+
+        .mobile-sheet {
+            position: fixed; inset: 0;
+            background: var(--bg);
+            z-index: 70;
+            display: none;
+            flex-direction: column;
+            padding: 80px 24px 32px;
+            transform: translateY(8px);
             opacity: 0;
-            transform: translateY(30px);
-            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: opacity 220ms ease, transform 220ms ease;
         }
-        .char.visible {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        /* Rotating Text Logic */
-        #rotating-text {
-            display: inline-block;
-            min-width: 200px;
-            transition: opacity 0.4s ease, transform 0.4s ease;
-        }
-        .text-out {
-            opacity: 0;
-            transform: translateY(-10px);
-        }
-        .text-in {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        /* Card Effects */
-        .glow-card {
-            position: relative;
-            background: rgba(23, 23, 23, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            transition: all 0.4s ease;
-            overflow: hidden;
-            backdrop-filter: blur(12px);
-        }
-
-        .glow-card::before {
-            content: "";
-            position: absolute;
-            inset: -1px;
-            background: radial-gradient(circle at var(--x) var(--y), rgba(59, 130, 246, 0.25) 0%, transparent 50%);
-            border-radius: inherit;
-            z-index: 1;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s;
-        }
-
-        .glow-card:hover::before {
-            opacity: 1;
-        }
-
-        .glow-card:hover {
-            border-color: rgba(59, 130, 246, 0.4);
-            background: rgba(23, 23, 23, 0.75);
-            transform: translateY(-4px);
-        }
-
-        /* Premium Pro Card */
-        .pro-card {
-            position: relative;
-            background: linear-gradient(135deg, rgba(251, 191, 36, 0.05) 0%, rgba(23, 23, 23, 0.85) 100%);
-            border: 1px solid rgba(251, 191, 36, 0.2);
-            overflow: hidden;
-        }
-
-        .pro-card::after {
-            content: "";
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: conic-gradient(from 0deg, transparent, rgba(251, 191, 36, 0.1), transparent 30%);
-            animation: rotate-conic 10s linear infinite;
-            pointer-events: none;
-        }
-
-        @keyframes rotate-conic {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .nav-blur {
-            background: rgba(10, 10, 10, 0.78);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .text-gradient {
-            background: linear-gradient(to bottom, #fff 30%, rgba(255, 255, 255, 0.4));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .text-pro-gradient {
-            background: linear-gradient(to right, #fbbf24, #f59e0b);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        canvas#bg-canvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-            pointer-events: none;
-        }
-
-        .section-animate {
-            opacity: 0;
-            transform: translateY(20px);
-            transition: all 0.8s ease-out;
-        }
-        .section-animate.visible {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .btn-premium {
-            position: relative;
-            padding: 1px;
-            border-radius: 9999px;
-            background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);
-            display: inline-block;
-        }
-        .btn-premium-inner {
-            background: #000;
-            color: #fff;
-            padding: 10px 24px;
-            border-radius: 9999px;
+        .mobile-sheet.is-open {
             display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 600;
-            transition: background 0.3s;
+            transform: translateY(0);
+            opacity: 1;
         }
-
-        /* Hero Background Image */
-        .hero-bg-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100vh;
-            background-image: url('https://images.unsplash.com/photo-1436491865332-7a61a109c0f2?auto=format&fit=crop&q=80&w=2070');
-            background-size: cover;
-            background-position: center;
-            z-index: -2;
-            opacity: 0.12;
-            filter: grayscale(0.8);
-        }
-
-        /* Mobile menu */
-        .mobile-nav-link {
+        .mobile-sheet a {
             display: block;
-            padding: 14px 4px;
-            color: #f8fafc;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            transition: color 120ms ease, padding 200ms ease;
+            padding: 16px 4px;
+            font-size: 1.1rem; font-weight: 500;
+            color: var(--text);
+            border-bottom: 1px solid var(--hairline-2);
         }
-        .mobile-nav-link:hover { color: #38bdf8; padding-left: 10px; }
+        .mobile-sheet a.is-pro { color: var(--pro); font-weight: 600; }
+        .mobile-sheet .btn { margin-top: 32px; align-self: flex-start; }
+        .mobile-sheet-close {
+            position: absolute; top: 16px; right: 16px;
+            width: 36px; height: 36px; border-radius: 999px;
+            background: var(--bg-tint); border: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            color: var(--text); cursor: pointer;
+        }
 
-        /* Aurora hero glow */
-        .hero-aurora {
-            position: absolute;
-            top: 20%; left: 50%;
-            width: 800px; height: 400px;
-            transform: translateX(-50%);
-            background: radial-gradient(closest-side, rgba(59,130,246,0.18), transparent 70%);
-            filter: blur(60px);
+        /* ─── Hero ─────────────────────────────────────────────────────── */
+        .hero {
+            position: relative;
+            padding: 160px 0 100px;
+            overflow: hidden;
+        }
+        .hero-mesh {
+            position: absolute; inset: -10% -10% auto -10%;
+            height: 110%;
             z-index: -1;
             pointer-events: none;
+            background:
+                radial-gradient(60% 50% at 20% 20%, var(--mesh-1) 0%, transparent 60%),
+                radial-gradient(50% 40% at 80% 10%, var(--mesh-3) 0%, transparent 60%),
+                radial-gradient(40% 30% at 60% 80%, var(--mesh-2) 0%, transparent 70%);
+            filter: blur(40px);
+            opacity: 0.95;
+            transition: opacity 220ms ease;
         }
 
-        /* Rotating text — prevent layout jank */
-        #rotating-text {
+        .hero-inner { text-align: center; max-width: 920px; margin: 0 auto; }
+
+        .eyebrow {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: var(--bg-tint);
+            border: 1px solid var(--hairline);
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--text-2);
+            letter-spacing: 0.02em;
+            margin-bottom: 28px;
+        }
+        .eyebrow-dot {
+            position: relative; width: 7px; height: 7px;
+            border-radius: 999px; background: var(--accent);
+        }
+        .eyebrow-dot::after {
+            content: ""; position: absolute; inset: 0;
+            border-radius: inherit;
+            background: var(--accent);
+            opacity: 0.6;
+            animation: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2.4); opacity: 0; }
+        }
+
+        .hero h1 {
+            font-family: 'Inter Tight', sans-serif;
+            font-weight: 700;
+            font-size: clamp(2.6rem, 8vw, 5.6rem);
+            line-height: 1.02;
+            letter-spacing: -0.045em;
+            color: var(--text);
+            margin: 0 0 22px;
+        }
+        .hero h1 .accent {
+            background: linear-gradient(120deg, var(--accent) 0%, #66d9ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+        }
+
+        .hero-sub {
+            font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+            color: var(--text-2);
+            line-height: 1.5;
+            max-width: 640px;
+            margin: 0 auto 36px;
+        }
+
+        .hero-rotator {
             display: inline-block;
-            min-width: 280px;
-            text-align: left;
+            color: var(--text);
+            font-weight: 600;
+            position: relative;
+        }
+        .hero-rotator .word {
+            display: inline-block;
+            transition: opacity 320ms ease, transform 320ms ease;
+        }
+        .hero-rotator.is-out .word { opacity: 0; transform: translateY(-8px); }
+
+        .hero-cta {
+            display: inline-flex; flex-wrap: wrap; gap: 12px;
+            justify-content: center;
+            margin-bottom: 72px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            max-width: 720px;
+            margin: 0 auto;
+            background: var(--hairline-2);
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid var(--hairline);
+        }
+        .stat {
+            background: var(--bg-elev);
+            padding: 22px 16px;
+            text-align: center;
+        }
+        .stat-value {
+            font-family: 'Inter Tight', sans-serif;
+            font-weight: 700;
+            font-size: 1.75rem;
+            letter-spacing: -0.025em;
+            color: var(--text);
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+        .stat-label {
+            font-size: 0.7rem; font-weight: 600;
+            letter-spacing: 0.06em;
+            color: var(--text-3);
+            text-transform: uppercase;
         }
         @media (max-width: 640px) {
-            #rotating-text { min-width: 200px; }
+            .stats { grid-template-columns: 1fr; }
         }
 
-        /* Contributor / community media tiles */
-        .contrib-tile {
+        /* ─── Section header ───────────────────────────────────────────── */
+        .section-head {
+            text-align: center;
+            max-width: 760px;
+            margin: 0 auto 64px;
+        }
+        .section-head .display {
+            font-size: clamp(2rem, 4.5vw, 3.2rem);
+            font-weight: 700;
+            line-height: 1.05;
+            color: var(--text);
+            margin: 0 0 18px;
+        }
+        .section-head p {
+            color: var(--text-2);
+            font-size: 1.05rem;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        /* ─── Bento (capabilities) ─────────────────────────────────────── */
+        .bento {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 20px;
+        }
+        .card {
+            background: var(--bg-elev);
+            border: 1px solid var(--hairline);
+            border-radius: 24px;
+            padding: 28px;
             position: relative;
-            display: block;
+            overflow: hidden;
+            transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1),
+                        box-shadow 320ms ease,
+                        border-color 220ms ease;
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-md);
+        }
+        .card-icon {
+            width: 40px; height: 40px;
+            border-radius: 12px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: var(--accent-tint);
+            color: var(--accent);
+            margin-bottom: 18px;
+        }
+        .card h3 {
+            font-family: 'Inter Tight', sans-serif;
+            font-weight: 600;
+            font-size: 1.15rem;
+            margin: 0 0 8px;
+            letter-spacing: -0.015em;
+            color: var(--text);
+        }
+        .card p {
+            margin: 0;
+            color: var(--text-2);
+            font-size: 0.92rem;
+            line-height: 1.55;
+        }
+        .card .tag {
+            display: inline-block;
+            margin-left: 8px;
+            font-size: 0.6rem; font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 2px 7px;
+            border-radius: 6px;
+            background: var(--accent-tint);
+            color: var(--accent);
+            vertical-align: middle;
+        }
+        .b-2 { grid-column: span 2; }
+        .b-3 { grid-column: span 3; }
+        .b-4 { grid-column: span 4; }
+        .b-6 { grid-column: span 6; }
+        @media (max-width: 900px) {
+            .bento { grid-template-columns: repeat(2, 1fr); }
+            .b-2, .b-3, .b-4 { grid-column: span 1; }
+            .b-6 { grid-column: span 2; }
+        }
+        @media (max-width: 540px) {
+            .bento { grid-template-columns: 1fr; }
+            .b-2, .b-3, .b-4, .b-6 { grid-column: span 1; }
+        }
+
+        .card-hero {
+            padding: 36px;
+            background:
+                radial-gradient(80% 80% at 20% 0%, var(--accent-tint) 0%, transparent 60%),
+                var(--bg-elev);
+        }
+        .card-hero h3 { font-size: 1.55rem; margin-bottom: 10px; }
+        .card-hero p { font-size: 1rem; max-width: 460px; }
+        .card-hero .card-icon {
+            width: 52px; height: 52px;
+            border-radius: 14px;
+        }
+
+        /* ─── Pro section ──────────────────────────────────────────────── */
+        .pro-wrap {
+            position: relative;
+            background: var(--bg-alt);
+            border-radius: 32px;
+            padding: 80px 56px;
+            overflow: hidden;
+            border: 1px solid var(--hairline);
+        }
+        .pro-wrap::before {
+            content: "";
+            position: absolute;
+            inset: -40% -10% auto auto;
+            width: 60%; height: 120%;
+            background: radial-gradient(closest-side, var(--pro-glow), transparent 70%);
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        .pro-grid {
+            position: relative;
+            display: grid;
+            grid-template-columns: 1.05fr 1.4fr;
+            gap: 56px;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .pro-wrap { padding: 48px 28px; border-radius: 24px; }
+            .pro-grid { grid-template-columns: 1fr; gap: 36px; }
+        }
+
+        .pro-eyebrow {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: var(--pro-tint);
+            color: var(--pro);
+            font-size: 0.7rem; font-weight: 700;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            margin-bottom: 20px;
+        }
+        .pro-title {
+            font-family: 'Inter Tight', sans-serif;
+            font-size: clamp(2.2rem, 5vw, 3.4rem);
+            font-weight: 700;
+            line-height: 1.02;
+            letter-spacing: -0.04em;
+            color: var(--text);
+            margin: 0 0 18px;
+        }
+        .pro-title .accent {
+            background: linear-gradient(120deg, var(--pro) 0%, #ffd25e 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+        }
+        .pro-desc { color: var(--text-2); font-size: 1.05rem; line-height: 1.55; margin: 0 0 28px; max-width: 460px; }
+
+        .pro-price {
+            display: flex; align-items: baseline; gap: 8px;
+            margin-bottom: 28px;
+        }
+        .pro-price .amount {
+            font-family: 'Inter Tight', sans-serif;
+            font-size: 2.8rem; font-weight: 700;
+            letter-spacing: -0.03em;
+            color: var(--text);
+        }
+        .pro-price .per { color: var(--text-2); font-size: 0.95rem; }
+
+        .pro-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+        }
+        @media (max-width: 540px) {
+            .pro-feature-grid { grid-template-columns: 1fr; }
+        }
+        .pro-feature {
+            background: var(--bg-elev);
+            border: 1px solid var(--hairline);
+            border-radius: 18px;
+            padding: 20px;
+            transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 320ms ease;
+        }
+        .pro-feature:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        .pro-feature .card-icon {
+            background: var(--pro-tint);
+            color: var(--pro);
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+        .pro-feature h4 {
+            font-family: 'Inter Tight', sans-serif;
+            font-weight: 600;
+            font-size: 1rem;
+            letter-spacing: -0.01em;
+            color: var(--text);
+            margin: 0 0 6px;
+        }
+        .pro-feature p { margin: 0; color: var(--text-2); font-size: 0.85rem; line-height: 1.5; }
+        .pro-feature.span2 { grid-column: span 2; }
+        @media (max-width: 540px) {
+            .pro-feature.span2 { grid-column: span 1; }
+        }
+
+        .btn-pro {
+            background: var(--pro);
+            color: #1d1d1f;
+        }
+        .btn-pro:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 12px 28px -10px var(--pro-glow); }
+
+        /* ─── VA Partnership ───────────────────────────────────────────── */
+        .va-wrap {
+            background: var(--bg-elev);
+            border: 1px solid var(--hairline);
+            border-radius: 32px;
+            padding: 64px 56px;
+            position: relative;
             overflow: hidden;
         }
-        .contrib-tile .contrib-media {
+        .va-wrap::before {
+            content: "";
+            position: absolute;
+            inset: auto -10% -50% -10%;
+            height: 80%;
+            background: radial-gradient(closest-side, var(--accent-tint), transparent 70%);
+            pointer-events: none;
+        }
+        .va-grid {
             position: relative;
-            border-radius: 0.75rem;
-            aspect-ratio: 16/10;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 56px;
+            align-items: center;
+        }
+        @media (max-width: 900px) {
+            .va-wrap { padding: 40px 28px; border-radius: 24px; }
+            .va-grid { grid-template-columns: 1fr; gap: 32px; }
+        }
+        .va-headline {
+            font-family: 'Inter Tight', sans-serif;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-weight: 700;
+            line-height: 1.05;
+            letter-spacing: -0.035em;
+            color: var(--text);
+            margin: 0 0 16px;
+        }
+        .va-copy {
+            color: var(--text-2);
+            font-size: 1.05rem;
+            line-height: 1.55;
+            max-width: 480px;
+            margin: 0 0 28px;
+        }
+        .va-mini-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .va-mini {
+            background: var(--bg-alt);
+            border: 1px solid var(--hairline-2);
+            border-radius: 16px;
+            padding: 18px;
+        }
+        .va-mini .card-icon {
+            width: 32px; height: 32px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+            background: var(--accent-tint);
+            color: var(--accent);
+        }
+        .va-mini h4 {
+            font-family: 'Inter Tight', sans-serif;
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin: 0 0 4px;
+            color: var(--text);
+        }
+        .va-mini p { margin: 0; color: var(--text-2); font-size: 0.8rem; line-height: 1.45; }
+
+        /* ─── Community ────────────────────────────────────────────────── */
+        .community {
+            background: var(--bg-alt);
+            border-top: 1px solid var(--hairline-2);
+            border-bottom: 1px solid var(--hairline-2);
+        }
+        .community-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 56px;
+            align-items: center;
+        }
+        @media (max-width: 900px) {
+            .community-grid { grid-template-columns: 1fr; gap: 36px; }
+        }
+        .community-copy h2 {
+            font-family: 'Inter Tight', sans-serif;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-weight: 700;
+            line-height: 1.05;
+            letter-spacing: -0.035em;
+            color: var(--text);
+            margin: 0 0 16px;
+        }
+        .community-copy p {
+            color: var(--text-2);
+            font-size: 1.05rem;
+            line-height: 1.55;
+            margin: 0 0 28px;
+        }
+
+        .btn-discord { background: #5865F2; color: #ffffff; }
+        .btn-discord:hover { background: #4752C4; }
+
+        .tile-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .tile {
+            position: relative;
+            display: block;
+            border-radius: 18px;
+            overflow: hidden;
+            background: var(--bg-elev);
+            border: 1px solid var(--hairline);
+            box-shadow: var(--shadow-sm);
+            transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1),
+                        box-shadow 380ms ease;
+        }
+        .tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+        .tile-media {
+            aspect-ratio: 4 / 3;
             background-size: cover;
             background-position: center;
-            background-color: #171717;
-            transition: transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
         }
-        .contrib-tile:hover .contrib-media { transform: scale(1.04); }
-        .contrib-tile .contrib-media::after {
+        .tile-media::after {
             content: "";
             position: absolute; inset: 0;
-            background: linear-gradient(180deg, transparent 50%, rgba(10,10,10,0.7) 100%);
+            background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.55) 100%);
         }
-        .contrib-tile .contrib-tag {
+        .tile-tag {
             position: absolute;
             top: 10px; left: 10px;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 600;
             color: #fff;
-            padding: 3px 8px;
+            padding: 4px 8px;
             border-radius: 6px;
-            background: rgba(10,10,10,0.6);
+            background: rgba(0,0,0,0.55);
             backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.16);
+            letter-spacing: 0.04em;
+        }
+        .tile-meta {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 14px;
+            font-size: 0.72rem;
+            color: var(--text-2);
+            font-weight: 500;
+        }
+        .tile-meta .who { color: var(--text); font-weight: 600; }
+
+        .tile.tile-contribute {
+            display: flex; align-items: center; justify-content: center;
+            text-align: center; padding: 32px 18px;
+            background: var(--accent-tint);
+            border-color: transparent;
+        }
+        .tile-contribute .badge {
+            width: 44px; height: 44px;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #fff;
+            display: inline-flex; align-items: center; justify-content: center;
+            margin: 0 auto 12px;
+            box-shadow: 0 10px 24px -8px var(--accent);
+        }
+        .tile-contribute h4 {
+            font-family: 'Inter Tight', sans-serif;
+            margin: 0 0 4px; font-size: 1rem; font-weight: 600;
+            color: var(--text);
+        }
+        .tile-contribute p { margin: 0; font-size: 0.78rem; color: var(--text-2); }
+
+        /* ─── Footer ───────────────────────────────────────────────────── */
+        .footer {
+            padding: 80px 0 40px;
+            border-top: 1px solid var(--hairline-2);
+            background: var(--bg);
+        }
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr 1fr 1fr;
+            gap: 48px;
+            margin-bottom: 56px;
+        }
+        @media (max-width: 720px) {
+            .footer-grid { grid-template-columns: 1fr 1fr; gap: 36px; }
+        }
+        .footer-brand img {
+            width: 32px; height: 32px; border-radius: 10px; margin-bottom: 16px;
+        }
+        .footer-brand p {
+            color: var(--text-2);
+            font-size: 0.88rem;
+            line-height: 1.55;
+            margin: 0;
+            max-width: 320px;
+        }
+        .footer-col h6 {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text);
+            margin: 0 0 16px;
+        }
+        .footer-col ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+        .footer-col a { color: var(--text-2); font-size: 0.88rem; transition: color 140ms ease; }
+        .footer-col a:hover { color: var(--text); }
+        .footer-col a.is-pro { color: var(--pro); }
+        .footer-bottom {
+            padding-top: 28px;
+            border-top: 1px solid var(--hairline-2);
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.78rem;
+            color: var(--text-3);
+        }
+        .footer-bottom .mono { letter-spacing: 0.08em; text-transform: uppercase; }
+
+        /* ─── Reveal animation ─────────────────────────────────────────── */
+        .reveal {
+            opacity: 0;
+            transform: translateY(16px);
+            transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reveal.is-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .reveal { opacity: 1; transform: none; transition: none; }
+            .hero-rotator .word { transition: none; }
+            .eyebrow-dot::after { animation: none; }
         }
     </style>
 </head>
-<body class="antialiased selection:bg-primary/30">
-
-    <canvas id="bg-canvas"></canvas>
-    <div class="hero-bg-overlay"></div>
-    <div class="hero-aurora"></div>
-
-    <!-- Mobile menu drawer -->
-    <div id="mobile-menu" class="fixed inset-0 z-[60] hidden">
-        <div id="mobile-menu-backdrop" class="absolute inset-0 bg-background/90 backdrop-blur-xl"></div>
-        <div class="relative h-full flex flex-col px-6 pt-24 pb-10 max-w-md mx-auto">
-            <button id="mobile-menu-close" class="absolute top-6 right-6 p-2 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition">
-                <i data-lucide="x" class="size-5"></i>
-            </button>
-            <nav class="flex flex-col gap-2 text-lg">
-                <a href="#features" class="mobile-nav-link">Capabilities</a>
-                <a href="#pro" class="mobile-nav-link text-pro">InFlight Pro</a>
-                <a href="events.html" class="mobile-nav-link">Events</a>
-                <a href="va-apply.html" class="mobile-nav-link">VA Partners</a>
-                <a href="gallery.html" class="mobile-nav-link">Gallery</a>
-                <a href="https://discord.gg/cNSkZtdJ" class="mobile-nav-link">Discord</a>
-            </nav>
-            <a href="index.html" class="mt-auto px-6 py-4 rounded-2xl bg-white text-background font-bold text-center hover:bg-neutral-200 transition">
-                Launch Tracker
-            </a>
-        </div>
-    </div>
+<body>
 
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 nav-blur">
-        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-            <a href="#" class="flex items-center gap-3 group">
-                <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover transition-all duration-300 group-hover:scale-110 ring-2 ring-primary/20 shadow-lg shadow-primary/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
-                <span class="text-xl font-bold tracking-tight text-white">InFlight</span>
+    <nav class="nav" aria-label="Primary">
+        <div class="nav-inner">
+            <a href="#" class="nav-brand">
+                <img src="Images/inflight.png" alt="" onerror="this.style.display='none'">
+                <span>InFlight</span>
             </a>
 
-            <div class="hidden md:flex items-center gap-8">
-                <a href="#features" class="text-sm font-medium text-neutral-400 hover:text-white transition-colors">Capabilities</a>
-                <a href="#pro" class="text-sm font-bold text-pro hover:brightness-110 transition-all flex items-center gap-2">
-                    <img src="Images/InflightPro.png" alt="Pro" class="h-4" onerror="this.style.display='none'">
-                    Pro
-                </a>
-                <a href="events.html" class="text-sm font-medium text-neutral-400 hover:text-white transition-colors">Events</a>
-                <a href="va-apply.html" class="text-sm font-medium text-neutral-400 hover:text-white transition-colors">VA Partners</a>
-                <a href="gallery.html" class="text-sm font-medium text-neutral-400 hover:text-white transition-colors">Gallery</a>
-                <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-neutral-400 hover:text-white transition-colors">Discord</a>
-                <a href="index.html" class="btn-premium">
-                    <div class="btn-premium-inner">
-                        Launch Tracker <i data-lucide="arrow-right" class="size-4"></i>
-                    </div>
-                </a>
+            <div class="nav-links">
+                <a href="#capabilities" class="nav-link">Capabilities</a>
+                <a href="#pro" class="nav-link is-pro">Pro</a>
+                <a href="events.html" class="nav-link">Events</a>
+                <a href="va-apply.html" class="nav-link">VA Partners</a>
+                <a href="gallery.html" class="nav-link">Gallery</a>
+                <a href="https://discord.gg/cNSkZtdJ" class="nav-link">Discord</a>
             </div>
-            <button id="mobile-menu-btn" class="md:hidden p-2 rounded-lg text-neutral-300 hover:text-white hover:bg-white/5 transition-colors">
-                <i data-lucide="menu" class="size-5"></i>
-            </button>
+
+            <div class="nav-actions">
+                <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme">
+                    <i data-lucide="moon" class="moon" style="width:16px;height:16px"></i>
+                    <i data-lucide="sun" class="sun" style="width:16px;height:16px"></i>
+                </button>
+                <a href="index.html" class="btn btn-solid">
+                    Launch Tracker <i data-lucide="arrow-right" style="width:14px;height:14px"></i>
+                </a>
+                <button class="nav-burger" id="nav-burger" type="button" aria-label="Open menu">
+                    <i data-lucide="menu" style="width:20px;height:20px"></i>
+                </button>
+            </div>
         </div>
     </nav>
 
-    <!-- Hero Section -->
-    <main class="relative z-10 min-h-screen flex flex-col items-center justify-center px-6 pt-24 text-center">
-        <div class="space-y-10 max-w-5xl">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
-                <span class="relative flex h-2 w-2">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+    <!-- Mobile sheet -->
+    <div class="mobile-sheet" id="mobile-sheet" role="dialog" aria-modal="true">
+        <button class="mobile-sheet-close" id="mobile-sheet-close" aria-label="Close menu">
+            <i data-lucide="x" style="width:18px;height:18px"></i>
+        </button>
+        <a href="#capabilities">Capabilities</a>
+        <a href="#pro" class="is-pro">InFlight Pro</a>
+        <a href="events.html">Events</a>
+        <a href="va-apply.html">VA Partners</a>
+        <a href="gallery.html">Gallery</a>
+        <a href="https://discord.gg/cNSkZtdJ">Discord</a>
+        <a href="index.html" class="btn btn-solid btn-lg">
+            Launch Tracker <i data-lucide="arrow-right" style="width:16px;height:16px"></i>
+        </a>
+    </div>
+
+    <!-- Hero -->
+    <header class="hero">
+        <div class="hero-mesh" aria-hidden="true"></div>
+        <div class="container">
+            <div class="hero-inner">
+                <span class="eyebrow">
+                    <span class="eyebrow-dot" aria-hidden="true"></span>
+                    Next-gen telemetry for Infinite Flight
                 </span>
-                <span class="text-[10px] font-bold text-neutral-300 uppercase tracking-[0.2em]">Next-Gen Telemetry System</span>
-            </div>
 
-            <h1 id="hero-title" class="text-6xl md:text-9xl font-black tracking-tighter text-gradient leading-[0.9]">
-                InFlight
-            </h1>
+                <h1 class="display">
+                    Track every flight,<br>
+                    <span class="accent">beautifully.</span>
+                </h1>
 
-            <div class="h-20 flex items-center justify-center">
-                <p id="hero-subtitle" class="text-2xl md:text-4xl font-light text-neutral-400">
-                    Unlock <span id="rotating-text" class="text-white font-semibold ml-2">latest features</span>
+                <p class="hero-sub">
+                    Unlock <span class="hero-rotator"><span class="word" id="rotator-word">live telemetry</span></span>
+                    with 3D paths, glass instrumentation, and community-driven imagery — all in one effortless place.
                 </p>
-            </div>
 
-            <p class="text-lg text-neutral-500 max-w-2xl mx-auto leading-relaxed section-animate">
-               Experience the sky in high-fidelity with 3D paths, live instrumentation, and community-driven data.
-            </p>
-
-            <div class="flex flex-col sm:flex-row gap-5 justify-center items-center section-animate">
-                <a href="index.html" class="px-10 py-4 rounded-2xl bg-white text-background font-bold text-lg transition-all hover:bg-neutral-200 hover:scale-105 active:scale-95 shadow-[0_0_50px_-10px_rgba(255,255,255,0.3)]">
-                    Start Tracking
-                </a>
-                <a href="#pro" class="px-10 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all flex items-center gap-2">
-                    Upgrade to Pro <img src="Images/InflightPro.png" alt="Pro" class="h-4" onerror="this.style.display='none'">
-                </a>
-            </div>
-
-            <!-- Stats Bar -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-20 max-w-3xl mx-auto section-animate">
-                <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
-                    <div class="text-3xl font-bold text-white mb-1">1,200+</div>
-                    <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">Global Data Nodes</div>
+                <div class="hero-cta">
+                    <a href="index.html" class="btn btn-primary btn-lg">
+                        Launch tracker
+                        <i data-lucide="arrow-right" style="width:16px;height:16px"></i>
+                    </a>
+                    <a href="#pro" class="btn btn-ghost btn-lg">
+                        Discover Pro
+                    </a>
                 </div>
-                <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
-                    <div class="text-3xl font-bold text-white mb-1">99.9%</div>
-                    <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">Live Uptime</div>
-                </div>
-                <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
-                    <div class="text-3xl font-bold text-white mb-1">150%</div>
-                    <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">Community Growth</div>
+
+                <div class="stats reveal">
+                    <div class="stat">
+                        <div class="stat-value">1,200+</div>
+                        <div class="stat-label">Data nodes</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">99.9%</div>
+                        <div class="stat-label">Live uptime</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">150%</div>
+                        <div class="stat-label">Community growth</div>
+                    </div>
                 </div>
             </div>
         </div>
-    </main>
+    </header>
 
-    <!-- Capabilities Grid -->
-    <section id="features" class="max-w-7xl mx-auto px-6 py-40">
-        <div class="text-center space-y-4 mb-24 section-animate">
-            <h2 class="text-4xl md:text-6xl font-bold tracking-tight">Mission Capabilities</h2>
-            <p class="text-neutral-500 max-w-2xl mx-auto">Pushing the boundaries of simulation tracking with cutting-edge experimental features.</p>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" id="features-grid">
-            <div class="glow-card rounded-3xl p-8 space-y-4 group">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-primary/10 text-primary"><i data-lucide="layers" class="size-5"></i></div>
-                    <h3 class="text-xl font-bold">3D Flight Paths <span class="ml-2 text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full uppercase">Exp</span></h3>
-                </div>
-                <p class="text-neutral-400 text-sm leading-relaxed">
-                    Visualize trajectories in true 3D space. Track altitude changes and vertical profiles with our new experimental rendering engine.
-                </p>
+    <!-- Capabilities -->
+    <section id="capabilities" class="section">
+        <div class="container">
+            <div class="section-head reveal">
+                <h2 class="display">Capability, refined.</h2>
+                <p>A precision instrument for serious virtual aviators — every tool considered, every interaction intentional.</p>
             </div>
 
-            <div class="glow-card rounded-3xl p-8 space-y-4">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-accent/10 text-accent"><i data-lucide="filter" class="size-5"></i></div>
-                    <h3 class="text-xl font-bold">Traffic Scrubbing</h3>
-                </div>
-                <p class="text-neutral-400 text-sm leading-relaxed">
-                    New advanced filters allow you to instantly hide unwanted traffic, focusing only on the airspace that matters to your mission.
-                </p>
-            </div>
+            <div class="bento">
+                <article class="card card-hero b-4 reveal">
+                    <div class="card-icon"><i data-lucide="layers" style="width:22px;height:22px"></i></div>
+                    <h3>3D Flight Paths <span class="tag">Experimental</span></h3>
+                    <p>See trajectories the way they truly fly. Track altitude, climb rate, and vertical profile in true 3D space with the new experimental rendering engine.</p>
+                </article>
 
-            <div class="glow-card rounded-3xl p-8 space-y-4">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400"><i data-lucide="camera" class="size-5"></i></div>
-                    <h3 class="text-xl font-bold">Contributor Assets</h3>
-                </div>
-                <p class="text-neutral-400 text-sm leading-relaxed">
-                    Our database for aircraft and airport imagery is constantly updated with the latest high-resolution shots from our community.
-                </p>
-            </div>
+                <article class="card b-2 reveal">
+                    <div class="card-icon"><i data-lucide="filter" style="width:20px;height:20px"></i></div>
+                    <h3>Traffic Scrubbing</h3>
+                    <p>Hide what doesn't matter. Surface only the airspace and aircraft relevant to your mission.</p>
+                </article>
 
-            <div class="glow-card rounded-3xl p-8 space-y-4">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-pink-500/10 text-pink-400"><i data-lucide="file-text" class="size-5"></i></div>
-                    <h3 class="text-xl font-bold">SimBrief Sync</h3>
-                </div>
-                <p class="text-neutral-400 text-sm leading-relaxed">
-                    Import OFPs instantly. Fuel blocks, weights, and waypoint data are parsed and synced directly to your telemetry dashboard.
-                </p>
-            </div>
+                <article class="card b-2 reveal">
+                    <div class="card-icon"><i data-lucide="camera" style="width:20px;height:20px"></i></div>
+                    <h3>Contributor Assets</h3>
+                    <p>A living database of liveries and airport imagery, updated daily by the community.</p>
+                </article>
 
-            <div class="glow-card rounded-3xl p-8 space-y-4">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-orange-500/10 text-orange-400"><i data-lucide="radio-tower" class="size-5"></i></div>
-                    <h3 class="text-xl font-bold">D-ATIS & NOTAMs</h3>
-                </div>
-                <p class="text-neutral-400 text-sm leading-relaxed">
-                    Total airport situational awareness. View real-time digital ATIS and airport-specific operational notices globally.
-                </p>
-            </div>
+                <article class="card b-2 reveal">
+                    <div class="card-icon"><i data-lucide="file-text" style="width:20px;height:20px"></i></div>
+                    <h3>SimBrief Sync</h3>
+                    <p>Import OFPs instantly. Fuel blocks, weights, and waypoints sync straight to your telemetry.</p>
+                </article>
 
-            <div class="glow-card rounded-3xl p-8 space-y-4">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-purple-500/10 text-purple-400"><i data-lucide="gauge" class="size-5"></i></div>
-                    <h3 class="text-xl font-bold">EFB Glass Cockpit</h3>
-                </div>
-                <p class="text-neutral-400 text-sm leading-relaxed">
-                    Turn any secondary device into a professional-grade instrumentation display with real-time telemetry streaming.
-                </p>
+                <article class="card b-2 reveal">
+                    <div class="card-icon"><i data-lucide="radio-tower" style="width:20px;height:20px"></i></div>
+                    <h3>D-ATIS &amp; NOTAMs</h3>
+                    <p>Total airport situational awareness with real-time digital ATIS and global operational notices.</p>
+                </article>
+
+                <article class="card b-2 reveal">
+                    <div class="card-icon"><i data-lucide="gauge" style="width:20px;height:20px"></i></div>
+                    <h3>EFB Glass Cockpit</h3>
+                    <p>Turn any secondary screen into a professional-grade instrumentation display with live streaming.</p>
+                </article>
             </div>
         </div>
     </section>
 
-    <!-- InFlight Pro Section -->
-    <section id="pro" class="py-40 relative overflow-hidden">
-        <div class="max-w-7xl mx-auto px-6 relative z-10">
-            <div class="grid lg:grid-cols-12 gap-12 items-center">
-                <div class="lg:col-span-5 space-y-8 section-animate">
-                    <div class="flex items-center gap-4">
-                        <img src="Images/InflightPro.png" alt="InFlight Pro Badge" class="h-12 drop-shadow-[0_0_15px_rgba(251,191,36,0.5)]" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=Pro&background=fbbf24&color=000';">
-                        <h2 class="text-4xl md:text-5xl font-black text-white italic tracking-tighter uppercase">InFlight Pro</h2>
-                    </div>
-                    <p class="text-neutral-400 text-lg leading-relaxed">
-                        The ultimate tracking suite for the serious virtual aviator. Unlock 3D visualization, advanced dispatching, and deep customization.
-                    </p>
-                    <div class="flex items-baseline gap-2">
-                        <span class="text-5xl font-bold text-white">$1.99</span>
-                        <span class="text-neutral-500 font-medium">/ month</span>
-                    </div>
-                    <a href="index.html?auth=signup" class="block w-full sm:w-fit px-12 py-5 rounded-2xl bg-pro text-background font-black text-xl text-center hover:scale-105 transition-all shadow-[0_0_40px_-5px_rgba(251,191,36,0.4)] hover:brightness-110">
-    Upgrade Now
-</a>
-                </div>
-
-                <div class="lg:col-span-7 grid sm:grid-cols-2 gap-4 section-animate" id="pro-features-grid">
-                    <!-- Feature Cards -->
-                    <div class="glow-card pro-card rounded-3xl p-6 border-pro/20">
-                        <div class="relative z-10">
-                            <div class="text-pro mb-3"><i data-lucide="box" class="size-6"></i></div>
-                            <h4 class="text-lg font-bold text-white mb-2">3D Terrain & View</h4>
-                            <p class="text-xs text-neutral-400 leading-relaxed">High-fidelity 3D landscapes and immersive camera perspectives for every flight.</p>
+    <!-- InFlight Pro -->
+    <section id="pro" class="section">
+        <div class="container">
+            <div class="pro-wrap reveal">
+                <div class="pro-grid">
+                    <div>
+                        <span class="pro-eyebrow">
+                            <i data-lucide="sparkles" style="width:13px;height:13px"></i>
+                            InFlight Pro
+                        </span>
+                        <h2 class="pro-title">For the serious <span class="accent">virtual aviator.</span></h2>
+                        <p class="pro-desc">
+                            The ultimate tracking suite. Unlock 3D visualization, advanced dispatching, and deep customization that the standard tracker only hints at.
+                        </p>
+                        <div class="pro-price">
+                            <span class="amount">$1.99</span>
+                            <span class="per">/ month</span>
                         </div>
+                        <a href="index.html?auth=signup" class="btn btn-pro btn-lg">
+                            Upgrade now
+                            <i data-lucide="arrow-right" style="width:16px;height:16px"></i>
+                        </a>
                     </div>
-                    <div class="glow-card rounded-3xl p-6">
-                        <div class="text-pro mb-3"><i data-lucide="palette" class="size-6"></i></div>
-                        <h4 class="text-lg font-bold text-white mb-2">Custom Aesthetics</h4>
-                        <p class="text-xs text-neutral-400 leading-relaxed">Personalize plane colors for yourself and your friends' aircraft in the live tracker.</p>
-                    </div>
-                    <div class="glow-card rounded-3xl p-6">
-                        <div class="text-pro mb-3"><i data-lucide="activity" class="size-6"></i></div>
-                        <h4 class="text-lg font-bold text-white mb-2">Advanced Metrics</h4>
-                        <p class="text-xs text-neutral-400 leading-relaxed">Full access to your stats page modal, including real-time airport traffic density data.</p>
-                    </div>
-                    <div class="glow-card rounded-3xl p-6">
-                        <div class="text-pro mb-3"><i data-lucide="map" class="size-6"></i></div>
-                        <h4 class="text-lg font-bold text-white mb-2">Base Map Control</h4>
-                        <p class="text-xs text-neutral-400 leading-relaxed">Modify and toggle specific base map elements for a cleaner, tailored view.</p>
-                    </div>
-                    <div class="glow-card rounded-3xl p-6">
-                        <div class="text-pro mb-3"><i data-lucide="navigation" class="size-6"></i></div>
-                        <h4 class="text-lg font-bold text-white mb-2">Major Dispatch</h4>
-                        <p class="text-xs text-neutral-400 leading-relaxed">Full flight planning suite with instant sync to the flight info window.</p>
-                    </div>
-                    <div class="glow-card rounded-3xl p-6">
-                        <div class="text-pro mb-3"><i data-lucide="copy" class="size-6"></i></div>
-                        <h4 class="text-lg font-bold text-white mb-2">Multi-Flight Pinning</h4>
-                        <p class="text-xs text-neutral-400 leading-relaxed">Pin multiple flights simultaneously and visualize their entire flown paths.</p>
-                    </div>
-                    <div class="glow-card rounded-3xl p-6 col-span-full">
-                        <div class="flex items-center gap-4">
-                            <div class="text-pro"><i data-lucide="users" class="size-6"></i></div>
-                            <div>
-                                <h4 class="text-lg font-bold text-white">Friends Watchlist</h4>
-                                <p class="text-xs text-neutral-400">Keep track of your crew with custom identifiers and preferred display colors.</p>
-                            </div>
+
+                    <div class="pro-feature-grid">
+                        <div class="pro-feature">
+                            <div class="card-icon"><i data-lucide="box" style="width:18px;height:18px"></i></div>
+                            <h4>3D Terrain &amp; View</h4>
+                            <p>High-fidelity 3D landscapes and immersive camera perspectives for every flight.</p>
+                        </div>
+                        <div class="pro-feature">
+                            <div class="card-icon"><i data-lucide="palette" style="width:18px;height:18px"></i></div>
+                            <h4>Custom Aesthetics</h4>
+                            <p>Personalize plane colors for yourself and your friends' aircraft in the live tracker.</p>
+                        </div>
+                        <div class="pro-feature">
+                            <div class="card-icon"><i data-lucide="activity" style="width:18px;height:18px"></i></div>
+                            <h4>Advanced Metrics</h4>
+                            <p>Full access to the stats modal, including real-time airport traffic density.</p>
+                        </div>
+                        <div class="pro-feature">
+                            <div class="card-icon"><i data-lucide="map" style="width:18px;height:18px"></i></div>
+                            <h4>Base Map Control</h4>
+                            <p>Toggle specific base map elements for a cleaner, tailored view of any region.</p>
+                        </div>
+                        <div class="pro-feature">
+                            <div class="card-icon"><i data-lucide="navigation" style="width:18px;height:18px"></i></div>
+                            <h4>Major Dispatch</h4>
+                            <p>Full flight planning with instant sync to the flight info window.</p>
+                        </div>
+                        <div class="pro-feature">
+                            <div class="card-icon"><i data-lucide="copy" style="width:18px;height:18px"></i></div>
+                            <h4>Multi-Flight Pinning</h4>
+                            <p>Pin multiple flights at once and visualize every flown path simultaneously.</p>
+                        </div>
+                        <div class="pro-feature span2">
+                            <div class="card-icon"><i data-lucide="users" style="width:18px;height:18px"></i></div>
+                            <h4>Friends Watchlist</h4>
+                            <p>Keep tabs on your crew with custom identifiers and preferred display colors.</p>
                         </div>
                     </div>
                 </div>
@@ -527,56 +1024,51 @@
         </div>
     </section>
 
-    <!-- VA Partnership Section -->
-    <section id="va-partner" class="py-32 relative">
-        <div class="max-w-7xl mx-auto px-6">
-            <div class="relative overflow-hidden rounded-[2rem] p-10 md:p-16 border border-white/10 section-animate"
-                 style="background: radial-gradient(120% 80% at 100% 0%, rgba(59,130,246,0.12), transparent 60%), radial-gradient(80% 60% at 0% 100%, rgba(96,165,250,0.08), transparent 60%), linear-gradient(180deg, rgba(23,23,23,0.65), rgba(23,23,23,0.35));">
-                <div class="absolute -top-32 -right-32 w-80 h-80 rounded-full" style="background:radial-gradient(closest-side, rgba(56,189,248,0.25), transparent 70%); filter: blur(40px);"></div>
-
-                <div class="relative grid lg:grid-cols-2 gap-12 items-center">
-                    <div class="space-y-6">
-                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20">
-                            <i data-lucide="shield-check" class="size-3 text-accent"></i>
-                            <span class="text-[10px] font-bold text-accent uppercase tracking-widest">Partnership Program · Free</span>
-                        </div>
-                        <h2 class="text-3xl md:text-5xl font-bold tracking-tight">
-                            Bring your <br class="hidden sm:inline">Virtual Airline aboard.
-                        </h2>
-                        <p class="text-neutral-400 text-lg leading-relaxed max-w-lg">
+    <!-- VA Partnership -->
+    <section id="va-partner" class="section">
+        <div class="container">
+            <div class="va-wrap reveal">
+                <div class="va-grid">
+                    <div>
+                        <span class="eyebrow">
+                            <i data-lucide="shield-check" style="width:13px;height:13px;color:var(--accent)"></i>
+                            Partnership program · Free
+                        </span>
+                        <h2 class="va-headline">Bring your Virtual Airline aboard.</h2>
+                        <p class="va-copy">
                             Showcase your VA inside InFlight: a public profile, a roster page, and an events board that surfaces your group flights to the entire community.
                         </p>
-                        <div class="flex flex-wrap gap-3 pt-2">
-                            <a href="va-apply.html" class="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-white text-background font-bold hover:bg-neutral-200 transition-all hover:scale-[1.02]">
+                        <div style="display:flex; flex-wrap:wrap; gap:10px;">
+                            <a href="va-apply.html" class="btn btn-solid btn-lg">
                                 Apply for partnership
-                                <i data-lucide="arrow-right" class="size-4"></i>
+                                <i data-lucide="arrow-right" style="width:16px;height:16px"></i>
                             </a>
-                            <a href="events.html" class="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition">
+                            <a href="events.html" class="btn btn-ghost btn-lg">
                                 Browse events
                             </a>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-3 text-sm">
-                        <div class="glow-card rounded-2xl p-5">
-                            <div class="text-accent mb-2"><i data-lucide="users" class="size-5"></i></div>
-                            <div class="font-bold text-white">Public roster</div>
-                            <p class="text-neutral-400 text-xs mt-1 leading-relaxed">A polished page for your pilots and callsign.</p>
+                    <div class="va-mini-grid">
+                        <div class="va-mini">
+                            <div class="card-icon"><i data-lucide="users" style="width:16px;height:16px"></i></div>
+                            <h4>Public roster</h4>
+                            <p>A polished page for your pilots and callsign.</p>
                         </div>
-                        <div class="glow-card rounded-2xl p-5">
-                            <div class="text-accent mb-2"><i data-lucide="calendar" class="size-5"></i></div>
-                            <div class="font-bold text-white">Events board</div>
-                            <p class="text-neutral-400 text-xs mt-1 leading-relaxed">Surface group flights to the whole community.</p>
+                        <div class="va-mini">
+                            <div class="card-icon"><i data-lucide="calendar" style="width:16px;height:16px"></i></div>
+                            <h4>Events board</h4>
+                            <p>Surface group flights to the whole community.</p>
                         </div>
-                        <div class="glow-card rounded-2xl p-5">
-                            <div class="text-accent mb-2"><i data-lucide="zap" class="size-5"></i></div>
-                            <div class="font-bold text-white">Live banner</div>
-                            <p class="text-neutral-400 text-xs mt-1 leading-relaxed">"Happening now" while your event is running.</p>
+                        <div class="va-mini">
+                            <div class="card-icon"><i data-lucide="zap" style="width:16px;height:16px"></i></div>
+                            <h4>Live banner</h4>
+                            <p>"Happening now" while your event is running.</p>
                         </div>
-                        <div class="glow-card rounded-2xl p-5">
-                            <div class="text-accent mb-2"><i data-lucide="badge-check" class="size-5"></i></div>
-                            <div class="font-bold text-white">Trusted status</div>
-                            <p class="text-neutral-400 text-xs mt-1 leading-relaxed">Earn auto-publishing after 5 quality events.</p>
+                        <div class="va-mini">
+                            <div class="card-icon"><i data-lucide="badge-check" style="width:16px;height:16px"></i></div>
+                            <h4>Trusted status</h4>
+                            <p>Earn auto-publishing after five quality events.</p>
                         </div>
                     </div>
                 </div>
@@ -584,57 +1076,48 @@
         </div>
     </section>
 
-    <!-- Community Hub -->
-    <section id="community" class="py-40 relative bg-white/[0.02] border-y border-white/5">
-        <div class="max-w-7xl mx-auto px-6">
-            <div class="grid lg:grid-cols-2 gap-20 items-center">
-                <div class="space-y-8 section-animate">
-                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Global Network</span>
-                    </div>
-                    <h2 class="text-4xl md:text-5xl font-bold text-white">Always up-to-date.<br>Always community-led.</h2>
-                    <p class="text-neutral-400 text-lg leading-relaxed">
-                        InFlight is fueled by many contributors. Our aircraft and airport imagery database is updated daily to ensure you're seeing the latest liveries and terminal changes.
-                    </p>
-                    <a href="https://discord.gg/cNSkZtdJ" class="inline-flex items-center px-8 py-4 rounded-2xl bg-[#5865F2] text-white font-bold hover:bg-[#4752C4] transition-all shadow-xl shadow-blue-500/20">
-                        <i data-lucide="message-square" class="size-5 mr-3"></i> Join Our Discord
+    <!-- Community -->
+    <section class="section community">
+        <div class="container">
+            <div class="community-grid">
+                <div class="community-copy reveal">
+                    <span class="eyebrow">
+                        <i data-lucide="globe-2" style="width:13px;height:13px;color:var(--accent)"></i>
+                        Global network
+                    </span>
+                    <h2>Always up-to-date.<br>Always community-led.</h2>
+                    <p>InFlight is fueled by hundreds of contributors. Our aircraft and airport imagery database is updated daily so you always see the latest liveries and terminal changes.</p>
+                    <a href="https://discord.gg/cNSkZtdJ" class="btn btn-discord btn-lg">
+                        <i data-lucide="message-square" style="width:16px;height:16px"></i>
+                        Join our Discord
                     </a>
                 </div>
 
-                <div class="relative grid grid-cols-2 gap-4 section-animate" id="community-grid">
-                    <div class="glow-card p-3 rounded-2xl rotate-[-3deg] hover:rotate-0 transition-transform contrib-tile">
-                        <div class="contrib-media" style="background-image:url('https://images.unsplash.com/photo-1474302770737-173ee21bab63?auto=format&fit=crop&q=80&w=800');">
-                            <span class="contrib-tag">B787-9</span>
+                <div class="tile-grid reveal">
+                    <div class="tile">
+                        <div class="tile-media" style="background-image:url('https://images.unsplash.com/photo-1474302770737-173ee21bab63?auto=format&fit=crop&q=80&w=800');">
+                            <span class="tile-tag">B787-9</span>
                         </div>
-                        <div class="mt-3 flex justify-between text-[10px] font-bold text-neutral-500">
-                            <span>Approach · KJFK</span>
-                            <span class="text-white">@Contributor1</span>
-                        </div>
+                        <div class="tile-meta"><span>Approach · KJFK</span><span class="who">@Contributor1</span></div>
                     </div>
-                    <div class="glow-card p-3 rounded-2xl rotate-[2deg] translate-y-8 hover:rotate-0 transition-transform contrib-tile">
-                        <div class="contrib-media" style="background-image:url('https://images.unsplash.com/photo-1583416750470-965b2707b355?auto=format&fit=crop&q=80&w=800');">
-                            <span class="contrib-tag">A350-1000</span>
+                    <div class="tile" style="transform:translateY(24px);">
+                        <div class="tile-media" style="background-image:url('https://images.unsplash.com/photo-1583416750470-965b2707b355?auto=format&fit=crop&q=80&w=800');">
+                            <span class="tile-tag">A350-1000</span>
                         </div>
-                        <div class="mt-3 flex justify-between text-[10px] font-bold text-neutral-500">
-                            <span>Cruise · FL380</span>
-                            <span class="text-white">@SkyPhotos</span>
-                        </div>
+                        <div class="tile-meta"><span>Cruise · FL380</span><span class="who">@SkyPhotos</span></div>
                     </div>
-                    <div class="glow-card p-3 rounded-2xl rotate-[-1deg] hover:rotate-0 transition-transform contrib-tile">
-                        <div class="contrib-media" style="background-image:url('https://images.unsplash.com/photo-1542296332-2e4473faf563?auto=format&fit=crop&q=80&w=800');">
-                            <span class="contrib-tag">B747-8i</span>
+                    <div class="tile">
+                        <div class="tile-media" style="background-image:url('https://images.unsplash.com/photo-1542296332-2e4473faf563?auto=format&fit=crop&q=80&w=800');">
+                            <span class="tile-tag">B747-8i</span>
                         </div>
-                        <div class="mt-3 flex justify-between text-[10px] font-bold text-neutral-500">
-                            <span>Departure · EGLL</span>
-                            <span class="text-white">@HeavyMetal</span>
-                        </div>
+                        <div class="tile-meta"><span>Departure · EGLL</span><span class="who">@HeavyMetal</span></div>
                     </div>
-                    <a href="https://discord.gg/cNSkZtdJ" class="glow-card p-3 rounded-2xl rotate-[3deg] translate-y-8 hover:rotate-0 hover:-translate-y-1 flex flex-col items-center justify-center text-center bg-blue-500/10 border-blue-500/30 transition-all duration-300">
-                        <div class="size-12 rounded-full bg-blue-500 text-white flex items-center justify-center mb-3 shadow-lg shadow-blue-500/30">
-                            <i data-lucide="plus" class="size-6"></i>
+                    <a href="https://discord.gg/cNSkZtdJ" class="tile tile-contribute" style="transform:translateY(24px);">
+                        <div>
+                            <div class="badge"><i data-lucide="plus" style="width:20px;height:20px"></i></div>
+                            <h4>Contribute</h4>
+                            <p>Join the Discord</p>
                         </div>
-                        <h4 class="font-bold text-white text-sm">Contribute</h4>
-                        <p class="text-[10px] text-neutral-500 mt-1">Join Discord</p>
                     </a>
                 </div>
             </div>
@@ -642,193 +1125,127 @@
     </section>
 
     <!-- Footer -->
-    <footer class="pt-40 pb-20 px-6 border-t border-white/5 bg-background">
-        <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-20">
-            <div class="space-y-8">
-                <div class="flex items-center gap-3">
-                    <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover border border-white/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
-                    <span class="text-2xl font-bold">InFlight</span>
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <img src="Images/inflight.png" alt="" onerror="this.style.display='none'">
+                    <p>InFlight is an Infinite Flight tracker built for virtual aviators. Driven by a passion for flight simulation and a commitment to the best tracking experience possible.</p>
                 </div>
-                <p class="text-neutral-500 text-sm max-w-sm leading-relaxed">
-                    InFlight is a infinite flight tracker built for the virtual aviators. We are driven by a passion for flight simulation and a commitment to delivering the best tracking experience possible to our users.
-                </p>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-10">
-                <div class="space-y-4">
-                    <div class="text-[10px] font-bold uppercase tracking-widest text-white">Platform</div>
-                    <ul class="text-sm text-neutral-500 space-y-2">
-                        <li><a href="#" class="hover:text-white transition-colors">Tracker</a></li>
-                        <li><a href="#features" class="hover:text-white transition-colors">Capabilities</a></li>
-                        <li><a href="#pro" class="text-pro hover:brightness-110 transition-colors">InFlight Pro</a></li>
-                        <li><a href="events.html" class="hover:text-white transition-colors">Events</a></li>
-                        <li><a href="va-apply.html" class="hover:text-white transition-colors">VA Partnership</a></li>
+                <div class="footer-col">
+                    <h6>Platform</h6>
+                    <ul>
+                        <li><a href="index.html">Tracker</a></li>
+                        <li><a href="#capabilities">Capabilities</a></li>
+                        <li><a href="#pro" class="is-pro">InFlight Pro</a></li>
+                        <li><a href="events.html">Events</a></li>
+                        <li><a href="va-apply.html">VA Partnership</a></li>
                     </ul>
                 </div>
-                <div class="space-y-4">
-                    <div class="text-[10px] font-bold uppercase tracking-widest text-white">Connect</div>
-                    <ul class="text-sm text-neutral-500 space-y-2">
-                        <li><a href="https://discord.gg/MaS4JwBzyw" class="hover:text-white transition-colors">Discord</a></li>
-                        <li><a href="#" class="hover:text-white transition-colors">Email</a></li>
+                <div class="footer-col">
+                    <h6>Connect</h6>
+                    <ul>
+                        <li><a href="https://discord.gg/cNSkZtdJ">Discord</a></li>
+                        <li><a href="mailto:hello@inflight.local">Email</a></li>
                     </ul>
                 </div>
-                <div class="space-y-4">
-                    <div class="text-[10px] font-bold uppercase tracking-widest text-white">Legal</div>
-                    <ul class="text-sm text-neutral-500 space-y-2">
-                        <li><a href="terms.html" class="hover:text-white transition-colors">Terms</a></li>
-                        <li><a href="privacy.html" class="hover:text-white transition-colors">Privacy</a></li>
+                <div class="footer-col">
+                    <h6>Legal</h6>
+                    <ul>
+                        <li><a href="terms.html">Terms</a></li>
+                        <li><a href="privacy.html">Privacy</a></li>
                     </ul>
                 </div>
             </div>
-        </div>
-        <div class="max-w-7xl mx-auto pt-20 mt-20 border-t border-white/5 flex justify-between items-center text-[10px] font-mono text-neutral-700 tracking-widest uppercase">
-            <span>© 2026 InFlight Tracker</span>
+            <div class="footer-bottom">
+                <span class="mono">© 2026 InFlight Tracker</span>
+                <span class="mono">Built for virtual aviators</span>
+            </div>
         </div>
     </footer>
 
     <script>
-        // Initialize Lucide Icons
-        lucide.createIcons();
+        // Lucide icons
+        if (window.lucide) lucide.createIcons();
 
-        // 1. Hero Text Animation
-        function animateText(id) {
-            const el = document.getElementById(id);
-            if(!el) return;
-            const text = el.innerText;
-            el.innerHTML = '';
-            [...text].forEach((char, i) => {
-                const span = document.createElement('span');
-                span.innerText = char === ' ' ? '\u00A0' : char;
-                span.className = 'char';
-                span.style.transitionDelay = `${i * 40}ms`;
-                el.appendChild(span);
-                setTimeout(() => span.classList.add('visible'), 100);
-            });
+        // Theme toggle
+        const themeToggle = document.getElementById('theme-toggle');
+        function setTheme(next) {
+            document.documentElement.dataset.theme = next;
+            try { localStorage.setItem('inflight-theme', next); } catch (_) {}
         }
-        animateText('hero-title');
-
-        // 2. Rotating Phrases
-        const phrases = [
-            "latest features",
-            "a large amount of features",
-            "unmatched reliability",
-            "global insights",
-            "next-gen tracking",
-            "unrivaled performance"
-        ];
-        let currentPhraseIndex = 0;
-        const rotatingEl = document.getElementById('rotating-text');
-
-        function rotate() {
-            rotatingEl.classList.add('text-out');
-            setTimeout(() => {
-                currentPhraseIndex = (currentPhraseIndex + 1) % phrases.length;
-                rotatingEl.innerText = phrases[currentPhraseIndex];
-                rotatingEl.classList.remove('text-out');
-                rotatingEl.classList.add('text-in');
-            }, 400);
-        }
-        setInterval(rotate, 3000);
-
-        // 3. Levitating Particles Animation
-        const canvas = document.getElementById('bg-canvas');
-        const ctx = canvas.getContext('2d');
-        let particles = [];
-
-        function initCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-
-        class FloatingParticle {
-            constructor() {
-                this.reset();
-            }
-            reset() {
-                this.x = Math.random() * canvas.width;
-                this.y = Math.random() * canvas.height;
-                this.size = Math.random() * 1.5 + 0.5; // Smaller
-                this.opacity = Math.random() * 0.2 + 0.05; // Very subtle
-                this.vx = Math.random() * 0.2 - 0.1;
-                this.vy = Math.random() * 0.2 - 0.1;
-                this.offset = Math.random() * Math.PI * 2;
-                this.oscillationSpeed = Math.random() * 0.01 + 0.005;
-            }
-            update() {
-                this.offset += this.oscillationSpeed;
-                this.x += this.vx + Math.sin(this.offset) * 0.2;
-                this.y += this.vy + Math.cos(this.offset) * 0.2;
-
-                if (this.x < 0) this.x = canvas.width;
-                if (this.x > canvas.width) this.x = 0;
-                if (this.y < 0) this.y = canvas.height;
-                if (this.y > canvas.height) this.y = 0;
-            }
-            draw() {
-                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            particles.forEach(p => {
-                p.update();
-                p.draw();
-            });
-            requestAnimationFrame(animate);
-        }
-
-        window.addEventListener('resize', initCanvas);
-        initCanvas();
-        for (let i = 0; i < 100; i++) particles.push(new FloatingParticle());
-        animate();
-
-        // 4. Optimized Mouse Interactive Glow (Using Event Delegation to avoid lag)
-        const handleGlow = (e) => {
-            const target = e.target.closest('.glow-card');
-            if (!target) return;
-            const rect = target.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            target.style.setProperty('--x', `${x}px`);
-            target.style.setProperty('--y', `${y}px`);
-        };
-        
-        document.getElementById('features-grid').addEventListener('mousemove', handleGlow);
-        document.getElementById('pro-features-grid').addEventListener('mousemove', handleGlow);
-        document.getElementById('community-grid').addEventListener('mousemove', handleGlow);
-
-        // 5. Intersection Observer for Scroll Animations
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('visible');
+        themeToggle?.addEventListener('click', () => {
+            const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+            setTheme(next);
+        });
+        // Follow system if the user hasn't explicitly picked one.
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', (e) => {
+            try {
+                if (!localStorage.getItem('inflight-theme')) {
+                    document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
                 }
-            });
-        }, { threshold: 0.1 });
+            } catch (_) {}
+        });
 
-        document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
+        // Mobile sheet
+        const sheet = document.getElementById('mobile-sheet');
+        const burger = document.getElementById('nav-burger');
+        const close = document.getElementById('mobile-sheet-close');
+        function openSheet() { sheet?.classList.add('is-open'); document.body.style.overflow = 'hidden'; }
+        function closeSheet() { sheet?.classList.remove('is-open'); document.body.style.overflow = ''; }
+        burger?.addEventListener('click', openSheet);
+        close?.addEventListener('click', closeSheet);
+        sheet?.querySelectorAll('a').forEach(a => a.addEventListener('click', closeSheet));
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
-        // 6. Mobile menu
-        const mobileMenu = document.getElementById('mobile-menu');
-        const mobileBtn = document.getElementById('mobile-menu-btn');
-        const mobileClose = document.getElementById('mobile-menu-close');
-        const mobileBackdrop = document.getElementById('mobile-menu-backdrop');
-
-        function openMobileMenu() {
-            mobileMenu.classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
+        // Hero rotator
+        const rotatorWord = document.getElementById('rotator-word');
+        const rotator = rotatorWord?.parentElement;
+        const phrases = [
+            'live telemetry',
+            'a fleet of features',
+            'unmatched reliability',
+            'global insights',
+            'next-gen tracking',
+            'unrivaled performance'
+        ];
+        let phraseIndex = 0;
+        if (rotator && rotatorWord) {
+            setInterval(() => {
+                rotator.classList.add('is-out');
+                setTimeout(() => {
+                    phraseIndex = (phraseIndex + 1) % phrases.length;
+                    rotatorWord.textContent = phrases[phraseIndex];
+                    rotator.classList.remove('is-out');
+                }, 320);
+            }, 3200);
         }
-        function closeMobileMenu() {
-            mobileMenu.classList.add('hidden');
-            document.body.style.overflow = '';
+
+        // Reveal on scroll
+        const reveals = document.querySelectorAll('.reveal');
+        if ('IntersectionObserver' in window) {
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('is-visible');
+                        io.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.12 });
+            reveals.forEach(el => io.observe(el));
+        } else {
+            reveals.forEach(el => el.classList.add('is-visible'));
         }
-        mobileBtn?.addEventListener('click', openMobileMenu);
-        mobileClose?.addEventListener('click', closeMobileMenu);
-        mobileBackdrop?.addEventListener('click', closeMobileMenu);
-        mobileMenu?.querySelectorAll('a').forEach(a => a.addEventListener('click', closeMobileMenu));
+
+        // Subtle parallax on hero mesh
+        const mesh = document.querySelector('.hero-mesh');
+        if (mesh && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            window.addEventListener('scroll', () => {
+                const y = window.scrollY;
+                if (y > 800) return;
+                mesh.style.transform = `translateY(${y * 0.15}px)`;
+            }, { passive: true });
+        }
     </script>
 </body>
 </html>
