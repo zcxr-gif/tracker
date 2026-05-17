@@ -103,6 +103,13 @@
         }
         .form-msg.err { background: rgba(248,113,113,0.10); color: #fda4a4; border: 1px solid rgba(248,113,113,0.25); }
         .form-msg.ok  { background: rgba(74,222,128,0.10); color: #86efac; border: 1px solid rgba(74,222,128,0.25); }
+        /* Apply form layout. Display lives in CSS, not inline, so the
+           va-hidden class is the single source of visibility. */
+        .apply-form {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
     </style>
 </head>
 <body>
@@ -167,7 +174,7 @@
 
         <section id="my-apps" class="va-hidden my-apps"></section>
 
-        <form id="apply-form" class="va-hidden va-card elevated" style="display:none; flex-direction:column; gap:18px;">
+        <form id="apply-form" class="va-hidden va-card elevated apply-form">
             <div class="va-form-grid">
                 <div class="va-field">
                     <label class="va-field-label"><i class="fa-solid fa-tag"></i> Virtual airline name <span class="va-field-req">*</span></label>
@@ -257,16 +264,13 @@
             } else {
                 msg.innerHTML = `<i class="fa-solid ${icon}"></i><span>${escapeHtml(text)}</span>`;
             }
+            // On mobile the success / error often lands below the fold; bring it
+            // into view so the user can see that something did happen.
+            try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
         }
 
-        function showForm() {
-            form.classList.remove('va-hidden');
-            form.style.display = 'flex';
-        }
-        function hideForm() {
-            form.classList.add('va-hidden');
-            form.style.display = 'none';
-        }
+        function showForm() { form.classList.remove('va-hidden'); }
+        function hideForm() { form.classList.add('va-hidden'); }
 
         function escapeHtml(s) {
             return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -303,7 +307,10 @@
         }
 
         async function boot() {
-            const session = await getSession();
+            let session;
+            try { session = await getSession(); }
+            catch (_) { session = null; }
+
             if (!session) {
                 authGate.classList.remove('va-hidden');
                 hideForm();
@@ -311,7 +318,17 @@
                 return;
             }
             authGate.classList.add('va-hidden');
-            const apps = await getMyApplications();
+
+            let apps = [];
+            try { apps = await getMyApplications(); }
+            catch (err) {
+                // Don't leave the page blank if the apps lookup fails — show the
+                // form anyway so the user can still submit.
+                showForm();
+                form.querySelectorAll('input, textarea, select, button').forEach(el => el.disabled = false);
+                showFormMsg(err.message || 'Could not load your applications.', 'err');
+                return;
+            }
             renderApplications(apps);
 
             const hasPending  = apps.some(a => a.status === 'pending');

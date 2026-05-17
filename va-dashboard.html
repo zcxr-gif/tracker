@@ -580,10 +580,12 @@
                 renderHeader(updated);
                 msg.className = 'va-field-msg ok';
                 msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Saved.';
+                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
                 setTimeout(() => { msg.textContent = ''; msg.className = 'va-field-msg'; }, 3000);
             } catch (err) {
                 msg.className = 'va-field-msg err';
                 msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Failed.'}`;
+                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
             }
         });
 
@@ -655,26 +657,32 @@
                 msg.innerHTML = currentVa.trusted
                     ? '<i class="fa-solid fa-circle-check"></i> Published.'
                     : '<i class="fa-solid fa-circle-check"></i> Submitted for review.';
+                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
                 eventForm.reset();
                 eventForm.classList.add('va-hidden');
                 loadEvents();
             } catch (err) {
                 msg.className = 'va-field-msg err';
                 msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Failed.'}`;
+                try { msg.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
             }
         });
 
         async function boot() {
             show(loading);
-            const session = await getSession();
+            let session;
+            try { session = await getSession(); }
+            catch (_) { session = null; }
             if (!session) { show(authGate); return; }
-            const va = await getVaByCeo();
+            let va;
+            try { va = await getVaByCeo(); }
+            catch (_) { va = null; }
             if (!va) { show(noVa); return; }
             currentVa = va;
             renderHeader(va);
             fillProfileForm(va);
             show(dash);
-            await Promise.all([loadRoster(), loadEvents()]);
+            try { await Promise.all([loadRoster(), loadEvents()]); } catch (_) {}
         }
 
         supabase.auth.onAuthStateChange(() => boot());

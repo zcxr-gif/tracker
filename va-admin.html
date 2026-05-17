@@ -472,12 +472,16 @@
 
         async function boot() {
             show(loading);
-            const session = await getSession();
+            let session;
+            try { session = await getSession(); }
+            catch (_) { session = null; }
             if (!session) { show(authGate); return; }
-            const staff = await isStaff();
+            let staff = false;
+            try { staff = await isStaff(); }
+            catch (_) { staff = false; }
             if (!staff) { show(authGate); return; }
             show(consoleEl);
-            await Promise.all([loadApplications(), loadEvents()]);
+            try { await Promise.all([loadApplications(), loadEvents()]); } catch (_) {}
         }
 
         supabase.auth.onAuthStateChange(() => boot());
