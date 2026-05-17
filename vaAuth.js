@@ -13,20 +13,27 @@ function injectStyles() {
     style.textContent = `
         #va-auth-overlay {
             position: fixed; inset: 0; z-index: 99999;
-            background: rgba(10, 10, 10, 0.78);
-            backdrop-filter: blur(14px) saturate(140%);
-            -webkit-backdrop-filter: blur(14px) saturate(140%);
-            display: none; align-items: center; justify-content: center;
+            background: rgba(10, 10, 10, 0.85);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
+            display: none;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             opacity: 0; transition: opacity 220ms ease;
-            padding: 20px;
+            padding: max(20px, env(safe-area-inset-top, 0px)) 20px max(20px, env(safe-area-inset-bottom, 0px));
             font-family: Inter, system-ui, -apple-system, sans-serif;
         }
-        #va-auth-overlay.va-open { display: flex; }
+        #va-auth-overlay.va-open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
         #va-auth-overlay.va-visible { opacity: 1; }
 
         #va-auth-card {
             position: relative;
             width: 100%; max-width: 440px;
+            margin: auto;
             background: linear-gradient(180deg, #1c1c1e 0%, #131315 100%);
             border: 1px solid rgba(255,255,255,0.10);
             border-radius: 22px;
@@ -38,6 +45,7 @@ function injectStyles() {
             opacity: 0;
             transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
             overflow: hidden;
+            flex: 0 0 auto;
         }
         #va-auth-overlay.va-visible #va-auth-card {
             transform: translateY(0) scale(1);
@@ -255,8 +263,23 @@ function injectStyles() {
         .va-auth-fineprint a:hover { color: #ffffff; }
 
         @media (max-width: 460px) {
-            #va-auth-card { padding: 28px 22px 22px; border-radius: 18px; }
-            #va-auth-card h2 { font-size: 1.35rem; }
+            #va-auth-card {
+                padding: 28px 20px 22px;
+                border-radius: 18px;
+            }
+            #va-auth-card h2 { font-size: 1.3rem; }
+            #va-auth-card .va-auth-sub { font-size: 0.85rem; margin-bottom: 18px; }
+            .va-auth-brand { margin-bottom: 16px; }
+            .va-auth-field input { padding: 11px 12px; font-size: 16px; /* prevent iOS zoom */ }
+            #va-auth-submit { padding: 14px 16px; font-size: 1rem; }
+        }
+        @media (max-height: 700px) {
+            #va-auth-card { padding: 24px 24px 20px; }
+            .va-auth-brand { margin-bottom: 14px; }
+            #va-auth-card h2 { font-size: 1.3rem; }
+            #va-auth-card .va-auth-sub { margin-bottom: 14px; }
+            .va-auth-tabs { margin-bottom: 14px; }
+            #va-auth-form { gap: 10px; }
         }
     `;
     document.head.appendChild(style);
