@@ -26,6 +26,29 @@ export async function getSession() {
     return data?.session || null;
 }
 
+export async function getUser() {
+    const { data } = await supabase.auth.getUser();
+    return data?.user || null;
+}
+
+export async function signOut() {
+    // signOut can fail when the network is down or the token is already
+    // gone server-side. Clear local session either way so the UI doesn't
+    // get stuck looking signed in.
+    try {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+    } catch (err) {
+        try { await supabase.auth.signOut({ scope: 'local' }); } catch (_) {}
+        throw err;
+    }
+}
+
+export async function updatePassword(newPassword) {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+}
+
 export async function isStaff() {
     const session = await getSession();
     if (!session) return false;

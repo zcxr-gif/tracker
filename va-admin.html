@@ -138,8 +138,8 @@
             </a>
             <nav class="va-nav">
                 <a href="events.html"><i class="fa-solid fa-calendar"></i><span>Events</span></a>
-                <a href="va-apply.html"><i class="fa-solid fa-id-badge"></i><span>Apply</span></a>
                 <a href="home.html"><i class="fa-solid fa-house"></i><span>Home</span></a>
+                <span id="account-slot"></span>
             </nav>
         </div>
     </header>
@@ -220,7 +220,7 @@
                     </div>
                 </div>
 
-                <div class="va-tabs-wrap">
+                <div class="va-tabs-wrap" style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
                     <div class="va-tabs" role="tablist">
                         <button class="va-tab active" data-tab="applications" role="tab">
                             <i class="fa-solid fa-id-badge"></i> Applications <span id="cnt-apps" class="va-tab-count">0</span>
@@ -231,6 +231,10 @@
                         <button class="va-tab" data-tab="staff" role="tab">
                             <i class="fa-solid fa-user-shield"></i> Staff
                         </button>
+                    </div>
+                    <div id="search-wrap" class="va-search">
+                        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                        <input id="search-input" type="search" placeholder="Filter the queue…" aria-label="Filter">
                     </div>
                 </div>
             </section>
@@ -243,11 +247,11 @@
                     <div class="va-toolbar">
                         <div class="va-toolbar-text">
                             <h2 class="va-h2">Grant staff access</h2>
-                            <p class="va-toolbar-sub">Enter the user ID (UUID) of an existing InFlight account to grant staff privileges. They'll see this console next time they sign in.</p>
+                            <p class="va-toolbar-sub">Enter the user ID (UUID) of an existing InFlight account to grant staff privileges. They'll see this console next time they sign in. Tip: a user can copy their own UUID from the account menu (top right).</p>
                         </div>
                     </div>
                     <form id="staff-form" class="staff-form">
-                        <input class="va-input va-mono" name="user_id" placeholder="user uuid" required>
+                        <input class="va-input va-mono" name="user_id" placeholder="00000000-0000-0000-0000-000000000000" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" autocomplete="off">
                         <button type="submit" class="va-btn va-btn-success">
                             <i class="fa-solid fa-user-plus"></i> Grant access
                         </button>
@@ -265,11 +269,13 @@
 
     <script type="module">
         import {
-            supabase, getSession, isStaff, listPendingApplications,
+            supabase, getSession, signOut, isStaff,
+            listPendingApplications,
             approveApplication, rejectApplication, slugify,
             listPendingEvents, approveEvent, rejectEvent
         } from './vaService.js';
         import { openAuthModal } from './vaAuth.js';
+        import { vaToast, vaConfirm, vaPrompt, friendlyAuthError, subscribeAuth, renderAccountMenu } from './vaUI.js';
 
         const authGate   = document.getElementById('auth-gate');
         const loading    = document.getElementById('loading-state');
@@ -283,9 +289,46 @@
         const cntEvents  = document.getElementById('cnt-events');
         const statApps   = document.getElementById('stat-apps');
         const statEvents = document.getElementById('stat-events');
+        const accountSlot = document.getElementById('account-slot');
+        const searchInput = document.getElementById('search-input');
+        const searchWrap  = document.getElementById('search-wrap');
+
+        let allApps = [];
+        let allEvents = [];
+        let currentTab = 'applications';
+        let searchTerm = '';
+        let bootInFlight = false;
+
+        const REJECT_REASONS_APP = [
+            'Insufficient information — please add more detail and reapply.',
+            "Duplicate of an existing VA in our directory.",
+            'Inactive VA — no recent activity verifiable on IFC.',
+            "Doesn't meet quality bar — see partnership guidelines."
+        ];
+        const REJECT_REASONS_EVENT = [
+            'Briefing is too thin — please add gate, pushback, expected ATC, etc.',
+            'Conflicts with another major event already on the board at this time.',
+            'Server choice is inappropriate for this aircraft / route.',
+            'Route or origin/destination ICAO is invalid.'
+        ];
 
         document.getElementById('btn-signin').addEventListener('click', () => openAuthModal('signin'));
         document.getElementById('btn-retry').addEventListener('click', () => boot());
+
+        async function doSignOut() {
+            try {
+                await signOut();
+                vaToast({ type: 'ok', message: 'Signed out.' });
+            } catch (err) {
+                vaToast({ type: 'err', message: friendlyAuthError(err) });
+            }
+        }
+
+        function matchesSearch(term, ...fields) {
+            if (!term) return true;
+            const lower = term.toLowerCase();
+            return fields.some(f => (f || '').toString().toLowerCase().includes(lower));
+        }
 
         function show(...els) {
             const all = [authGate, loading, consoleEl, bootError];
@@ -300,24 +343,58 @@
         }
 
         function setTab(name) {
+            currentTab = name;
             document.querySelectorAll('.va-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
             tabApps.classList.toggle('va-hidden', name !== 'applications');
             tabEvents.classList.toggle('va-hidden', name !== 'events');
             tabStaff.classList.toggle('va-hidden', name !== 'staff');
+            // Hide search box on the staff tab — nothing useful to filter there.
+            searchWrap.style.visibility = name === 'staff' ? 'hidden' : '';
             if (name === 'staff') loadStaff();
+            else applyFilter();
         }
         document.querySelectorAll('.va-tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 
+        searchInput.addEventListener('input', (e) => {
+            searchTerm = e.target.value.trim();
+            applyFilter();
+        });
+
+        function applyFilter() {
+            if (currentTab === 'applications') renderApplications(filteredApps());
+            else if (currentTab === 'events') renderEvents(filteredEvents());
+        }
+        function filteredApps() {
+            return allApps.filter(a => matchesSearch(searchTerm, a.va_name, a.callsign, a.ceo_ifc_handle, a.hub, a.region));
+        }
+        function filteredEvents() {
+            return allEvents.filter(ev => matchesSearch(searchTerm,
+                ev.name, ev.origin_icao, ev.destination_icao, ev.vas?.name, ev.vas?.callsign));
+        }
+
         async function loadApplications() {
-            const apps = await listPendingApplications();
-            cntApps.textContent = apps.length;
-            statApps.textContent = apps.length;
-            if (!apps.length) {
+            allApps = await listPendingApplications();
+            cntApps.textContent = allApps.length;
+            statApps.textContent = allApps.length;
+            renderApplications(filteredApps());
+        }
+
+        function renderApplications(apps) {
+            if (!allApps.length) {
                 tabApps.innerHTML = `
                     <div class="va-empty">
                         <i class="va-empty-icon fa-solid fa-check-double"></i>
                         <div class="va-empty-title">All clear</div>
                         <div class="va-empty-sub">No pending VA applications. Nice work.</div>
+                    </div>`;
+                return;
+            }
+            if (!apps.length) {
+                tabApps.innerHTML = `
+                    <div class="va-empty">
+                        <i class="va-empty-icon fa-solid fa-filter-circle-xmark"></i>
+                        <div class="va-empty-title">No applications match "${escapeHtml(searchTerm)}"</div>
+                        <div class="va-empty-sub">Clear the search to see all ${allApps.length} pending.</div>
                     </div>`;
                 return;
             }
@@ -373,15 +450,28 @@
         }
 
         async function loadEvents() {
-            const events = await listPendingEvents();
-            cntEvents.textContent = events.length;
-            statEvents.textContent = events.length;
-            if (!events.length) {
+            allEvents = await listPendingEvents();
+            cntEvents.textContent = allEvents.length;
+            statEvents.textContent = allEvents.length;
+            renderEvents(filteredEvents());
+        }
+
+        function renderEvents(events) {
+            if (!allEvents.length) {
                 tabEvents.innerHTML = `
                     <div class="va-empty">
                         <i class="va-empty-icon fa-solid fa-check-double"></i>
                         <div class="va-empty-title">No pending events</div>
                         <div class="va-empty-sub">All caught up. Trusted VAs publish instantly.</div>
+                    </div>`;
+                return;
+            }
+            if (!events.length) {
+                tabEvents.innerHTML = `
+                    <div class="va-empty">
+                        <i class="va-empty-icon fa-solid fa-filter-circle-xmark"></i>
+                        <div class="va-empty-title">No events match "${escapeHtml(searchTerm)}"</div>
+                        <div class="va-empty-sub">Clear the search to see all ${allEvents.length} pending.</div>
                     </div>`;
                 return;
             }
@@ -432,38 +522,64 @@
         }
 
         async function loadStaff() {
-            const { data } = await supabase.from('va_staff').select('user_id, granted_at');
+            const { data, error } = await supabase.from('va_staff').select('user_id, granted_at').order('granted_at', { ascending: true });
             const list = document.getElementById('staff-list');
+            if (error) {
+                list.innerHTML = `<div class="va-field-msg err"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(error.message)}</div>`;
+                return;
+            }
             if (!data || !data.length) {
                 list.innerHTML = '<div class="va-muted" style="font-size:0.86rem;">No staff yet.</div>';
                 return;
             }
-            list.innerHTML = data.map(s => `
+            const session = await getSession();
+            const me = session?.user?.id || '';
+            list.innerHTML = data.map(s => {
+                const isMe = s.user_id === me;
+                return `
                 <div class="va-row" style="padding: 10px 14px; gap: 12px;">
                     <div class="va-avatar" style="width:32px; height:32px;"><i class="fa-solid fa-user-shield" style="font-size:0.78rem;"></i></div>
                     <div class="va-row-body">
-                        <div class="va-row-title va-mono" style="font-size:0.84rem;">${escapeHtml(s.user_id)}</div>
+                        <div class="va-row-title va-mono" style="font-size:0.84rem;">${escapeHtml(s.user_id)}${isMe ? ' <span class="va-badge va-badge-soft" style="margin-left:8px;">you</span>' : ''}</div>
                         <div class="va-row-sub">Granted ${new Date(s.granted_at).toLocaleDateString()}</div>
                     </div>
+                    ${isMe ? '' : `
+                        <button class="va-btn va-btn-danger va-btn-sm" data-action="remove-staff" data-id="${escapeHtml(s.user_id)}" aria-label="Revoke staff access">
+                            <i class="fa-solid fa-user-minus"></i> Revoke
+                        </button>
+                    `}
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         document.getElementById('staff-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const userId = new FormData(e.currentTarget).get('user_id').toString().trim();
             const msg = document.getElementById('staff-msg');
+            const btn = e.currentTarget.querySelector('button[type="submit"]');
+            const uuidOk = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(userId);
+            if (!uuidOk) {
+                msg.className = 'va-field-msg err';
+                msg.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> That doesn\'t look like a user UUID.';
+                return;
+            }
+            btn.disabled = true;
             try {
                 const session = await getSession();
                 const { error } = await supabase.from('va_staff').insert({ user_id: userId, granted_by: session?.user?.id });
                 if (error) throw error;
                 msg.className = 'va-field-msg ok';
                 msg.innerHTML = '<i class="fa-solid fa-circle-check"></i> Granted.';
+                vaToast({ type: 'ok', message: 'Staff access granted.' });
                 e.currentTarget.reset();
                 loadStaff();
             } catch (err) {
                 msg.className = 'va-field-msg err';
                 msg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${err.message || 'Failed.'}`;
+                vaToast({ type: 'err', message: err.message || 'Could not grant staff access.' });
+            } finally {
+                btn.disabled = false;
             }
         });
 
@@ -478,38 +594,119 @@
                     const slugInput = btn.closest('.review-card').querySelector('.slug-input');
                     const slug = (slugInput.value || '').trim();
                     if (!slug) throw new Error('Slug required.');
+                    const ok = await vaConfirm({
+                        title: 'Approve this VA?',
+                        message: `Their public page will live at va.html?slug=${slug}. The CEO unlocks their dashboard immediately.`,
+                        confirmLabel: 'Approve',
+                        icon: 'fa-circle-check'
+                    });
+                    if (!ok) return;
                     await approveApplication(id, slug);
+                    vaToast({ type: 'ok', message: 'VA approved.' });
                     await loadApplications();
                 } else if (action === 'reject') {
-                    const reason = prompt('Reason for rejection (shown to the applicant):');
+                    const reason = await vaPrompt({
+                        title: 'Reject application',
+                        message: 'This reason will be shown to the applicant on their /va-apply page.',
+                        label: 'Reason',
+                        placeholder: 'Tell them why and how to improve…',
+                        confirmLabel: 'Reject application',
+                        cancelLabel: 'Cancel',
+                        multiline: true,
+                        required: true,
+                        inputMaxLength: 500,
+                        danger: true,
+                        icon: 'fa-circle-xmark',
+                        presets: REJECT_REASONS_APP
+                    });
                     if (reason == null) return;
                     await rejectApplication(id, reason);
+                    vaToast({ type: 'ok', message: 'Application rejected.' });
                     await loadApplications();
                 } else if (action === 'approve-event') {
                     await approveEvent(id);
+                    vaToast({ type: 'ok', message: 'Event approved and live on the board.' });
                     await loadEvents();
                 } else if (action === 'reject-event') {
-                    const reason = prompt('Reason for rejection:');
+                    const reason = await vaPrompt({
+                        title: 'Reject event',
+                        message: 'This reason will be shown on the VA\'s CEO dashboard.',
+                        label: 'Reason',
+                        placeholder: 'What needs to change?',
+                        confirmLabel: 'Reject event',
+                        multiline: true,
+                        required: true,
+                        inputMaxLength: 500,
+                        danger: true,
+                        icon: 'fa-circle-xmark',
+                        presets: REJECT_REASONS_EVENT
+                    });
                     if (reason == null) return;
                     await rejectEvent(id, reason);
+                    vaToast({ type: 'ok', message: 'Event rejected.' });
                     await loadEvents();
+                } else if (action === 'remove-staff') {
+                    const ok = await vaConfirm({
+                        title: 'Revoke staff access?',
+                        message: 'They lose access to this console immediately. You can grant access again later.',
+                        confirmLabel: 'Revoke access',
+                        danger: true,
+                        icon: 'fa-user-minus'
+                    });
+                    if (!ok) return;
+                    const { error } = await supabase.from('va_staff').delete().eq('user_id', id);
+                    if (error) throw error;
+                    vaToast({ type: 'ok', message: 'Staff access revoked.' });
+                    await loadStaff();
                 }
             } catch (err) {
-                alert(err.message || 'Action failed.');
+                vaToast({ type: 'err', message: err.message || 'Action failed.' });
             } finally {
                 btn.disabled = false;
             }
         });
 
+        function renderAccount(user) {
+            if (!user) { accountSlot.innerHTML = ''; return; }
+            renderAccountMenu(accountSlot, { user, onSignOut: doSignOut });
+        }
+
         async function boot() {
+            if (bootInFlight) return;
+            bootInFlight = true;
             show(loading);
             try {
                 const session = await getSession();
-                if (!session) { show(authGate); return; }
+                if (!session) { renderAccount(null); show(authGate); return; }
+                renderAccount(session.user);
+
                 let staff = false;
                 try { staff = await isStaff(); }
                 catch (_) { staff = false; }
-                if (!staff) { show(authGate); return; }
+                if (!staff) {
+                    // Signed in but not staff. Show the auth gate but with
+                    // a clearer message — and let them switch accounts.
+                    const card = authGate.querySelector('.va-gate-card');
+                    card.innerHTML = `
+                        <div class="va-gate-icon" style="background: rgba(248,113,113,0.12); color:#fda4a4; border-color: rgba(248,113,113,0.25);"><i class="fa-solid fa-lock"></i></div>
+                        <h2 class="va-gate-title">Not authorized</h2>
+                        <p class="va-gate-sub">You're signed in as <b>${escapeHtml(session.user.email || session.user.user_metadata?.if_username || 'this account')}</b>, but this account isn't on the staff list. Sign in with an authorized account to continue.</p>
+                        <div class="va-gate-actions">
+                            <button id="btn-switch" class="va-btn va-btn-primary">
+                                <i class="fa-solid fa-arrow-right-arrow-left"></i> Switch account
+                            </button>
+                            <a href="home.html" class="va-btn va-btn-ghost">
+                                <i class="fa-solid fa-house"></i> Back to home
+                            </a>
+                        </div>
+                    `;
+                    card.querySelector('#btn-switch').addEventListener('click', async () => {
+                        await doSignOut();
+                        setTimeout(() => openAuthModal('signin'), 200);
+                    });
+                    show(authGate);
+                    return;
+                }
                 show(consoleEl);
                 try { await Promise.all([loadApplications(), loadEvents()]); } catch (_) {}
             } catch (err) {
@@ -517,10 +714,12 @@
                     ? `${err.message}. Check your connection and try again.`
                     : "Something went wrong while connecting to InFlight. Check your connection and try again.";
                 show(bootError);
+            } finally {
+                bootInFlight = false;
             }
         }
 
-        supabase.auth.onAuthStateChange(() => boot());
+        subscribeAuth(() => boot());
         boot();
     </script>
 </body>
