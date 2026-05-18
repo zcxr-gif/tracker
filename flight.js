@@ -43,54 +43,166 @@ window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
 
 
+// Felzenszwalb-Huttenlocher 1D squared distance transform.
+// f: input, d: output, v/z: scratch. All length-n (z is n+1).
+function _edt1d(f, n, d, v, z) {
+    let k = 0;
+    v[0] = 0;
+    z[0] = -1e20;
+    z[1] = 1e20;
+    for (let q = 1; q < n; q++) {
+        let s;
+        while (true) {
+            const r = v[k];
+            s = ((f[q] + q * q) - (f[r] + r * r)) / (2 * (q - r));
+            if (s > z[k]) break;
+            k--;
+        }
+        k++;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = 1e20;
+    }
+    k = 0;
+    for (let q = 0; q < n; q++) {
+        while (z[k + 1] < q) k++;
+        const r = v[k];
+        d[q] = (q - r) * (q - r) + f[r];
+    }
+}
+
+function _edt2d(grid, w, h, scratch) {
+    const { f, d, v, z } = scratch;
+    for (let x = 0; x < w; x++) {
+        for (let y = 0; y < h; y++) f[y] = grid[y * w + x];
+        _edt1d(f, h, d, v, z);
+        for (let y = 0; y < h; y++) grid[y * w + x] = d[y];
+    }
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) f[x] = grid[y * w + x];
+        _edt1d(f, w, d, v, z);
+        for (let x = 0; x < w; x++) grid[y * w + x] = d[x];
+    }
+}
+
+// Build a Mapbox-compatible SDF (edge encoded at alpha=192, cutoff=0.25, radius=8)
+// from a padded RGBA tile. Returns Uint8ClampedArray with R=G=B=255 and A=distance.
+function _buildSDF(rgba, w, h, radius, cutoff) {
+    const n = w * h;
+    const INF = 1e20;
+    const distToInside = new Float64Array(n);
+    const distToOutside = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+        const a = rgba[i * 4 + 3];
+        if (a >= 128) {
+            distToInside[i] = 0;
+            distToOutside[i] = INF;
+        } else {
+            distToInside[i] = INF;
+            distToOutside[i] = 0;
+        }
+    }
+    const maxDim = Math.max(w, h);
+    const scratch = {
+        f: new Float64Array(maxDim),
+        d: new Float64Array(maxDim),
+        v: new Int32Array(maxDim),
+        z: new Float64Array(maxDim + 1),
+    };
+    _edt2d(distToInside, w, h, scratch);
+    _edt2d(distToOutside, w, h, scratch);
+
+    const out = new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) {
+        const signed = Math.sqrt(distToInside[i]) - Math.sqrt(distToOutside[i]);
+        let alpha = 255 - 255 * (signed / radius + cutoff);
+        if (alpha < 0) alpha = 0;
+        else if (alpha > 255) alpha = 255;
+        out[i * 4] = 255;
+        out[i * 4 + 1] = 255;
+        out[i * 4 + 2] = 255;
+        out[i * 4 + 3] = alpha;
+    }
+    return out;
+}
+
 async function loadSpriteSheetAndGenerateIcons(map) {
-    const spriteUrl = './markers.png'; 
+    const spriteUrl = './markers.png';
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
-    
-    // Await the physical loading of the sprite sheet
+
     await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
         img.src = spriteUrl;
     });
 
-    // --- GPU ACCELERATED SDF MASKING ---
-    // 1. Master Base Canvas
     const baseCanvas = document.createElement('canvas');
     baseCanvas.width = img.width;
     baseCanvas.height = img.height;
     const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
     baseCtx.drawImage(img, 0, 0);
 
-    const TARGET_LOGICAL_SIZE = 128; 
-    const entries = Object.entries(spriteUVs);
+    // Natural CSS-pixel size when icon-size = 1. Layer scales this down with icon-size.
+    const TARGET_LOGICAL_SIZE = 256;
+    // Resolution we resample each source tile to before computing its SDF.
+    // Source tiles are ~24 px; upscaling to 128 captures the alpha curve with
+    // bicubic precision so the distance field has sub-source-pixel accuracy.
+    const SDF_UPSCALE = 128;
+    // Padding around each tile so the outside gradient isn't clipped.
+    const SDF_PAD = 8;
+    // SDF encoding params matching Mapbox's symbol-sdf shader (edge at alpha 192).
+    const SDF_RADIUS = 8;
+    const SDF_CUTOFF = 0.25;
 
-    // --- ADAPTIVE FRAME BUDGETING ---
-    const FRAME_BUDGET_MS = 12; 
+    const scratchCanvas = document.createElement('canvas');
+    const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true });
+
+    const entries = Object.entries(spriteUVs);
+    const FRAME_BUDGET_MS = 12;
     let executionStartTime = performance.now();
 
     for (let i = 0; i < entries.length; i++) {
         const [iconKey, uvRatios] = entries[i];
         const [xRatio, yRatio, wRatio, hRatio] = uvRatios;
-        
+
         const pixelX = Math.floor(xRatio * img.width);
         const pixelY = Math.floor(yRatio * img.height);
         const pixelW = Math.floor(wRatio * img.width);
         const pixelH = Math.floor(hRatio * img.height);
 
         if (pixelW === 0 || pixelH === 0) continue;
-        
-        const pRatio = pixelW / TARGET_LOGICAL_SIZE;
+        if (map.hasImage(`icon-${iconKey}`)) continue;
 
-        // Register Base Icon with 'sdf: true' for Native Mapbox GPU Tinting
-        // This replaces the old multi-canvas system and unlocks infinite colors.
-        if (!map.hasImage(`icon-${iconKey}`)) {
-            const baseImageData = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
-            map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio, sdf: true });
-        }
-        
+        // High-quality bicubic upscale of the tile, preserving aspect ratio.
+        const aspect = pixelW / pixelH;
+        const sdfW = aspect >= 1 ? SDF_UPSCALE : Math.max(1, Math.round(SDF_UPSCALE * aspect));
+        const sdfH = aspect >= 1 ? Math.max(1, Math.round(SDF_UPSCALE / aspect)) : SDF_UPSCALE;
+        const padW = sdfW + 2 * SDF_PAD;
+        const padH = sdfH + 2 * SDF_PAD;
+
+        scratchCanvas.width = padW;
+        scratchCanvas.height = padH;
+        scratchCtx.imageSmoothingEnabled = true;
+        scratchCtx.imageSmoothingQuality = 'high';
+        scratchCtx.clearRect(0, 0, padW, padH);
+        scratchCtx.drawImage(
+            baseCanvas,
+            pixelX, pixelY, pixelW, pixelH,
+            SDF_PAD, SDF_PAD, sdfW, sdfH
+        );
+        const tile = scratchCtx.getImageData(0, 0, padW, padH);
+
+        const sdfData = _buildSDF(tile.data, padW, padH, SDF_RADIUS, SDF_CUTOFF);
+        const sdfImage = { width: padW, height: padH, data: sdfData };
+
+        // pixelRatio maps source pixels to CSS pixels. We want the icon's
+        // longest dimension to occupy TARGET_LOGICAL_SIZE CSS px at icon-size=1.
+        const pRatio = Math.max(padW, padH) / TARGET_LOGICAL_SIZE;
+
+        map.addImage(`icon-${iconKey}`, sdfImage, { pixelRatio: pRatio, sdf: true });
+
         if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
             await new Promise(resolve => requestAnimationFrame(resolve));
             executionStartTime = performance.now();
