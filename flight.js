@@ -129,6 +129,10 @@ function _buildSDF(rgba, w, h, radius, cutoff) {
 async function loadSpriteSheetAndGenerateIcons(map) {
     const spriteUrl = './markers.png';
 
+    // Flip to false to register raw full-color sprites instead of SDF silhouettes.
+    // Note: icon-color tinting on the layer has no effect when USE_SDF is false.
+    const USE_SDF = true;
+
     const img = new Image();
     img.crossOrigin = "Anonymous";
 
@@ -174,6 +178,17 @@ async function loadSpriteSheetAndGenerateIcons(map) {
 
         if (pixelW === 0 || pixelH === 0) continue;
         if (map.hasImage(`icon-${iconKey}`)) continue;
+
+        if (!USE_SDF) {
+            const raw = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+            const pRatio = pixelW / TARGET_LOGICAL_SIZE;
+            map.addImage(`icon-${iconKey}`, raw, { pixelRatio: pRatio, sdf: false });
+            if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                executionStartTime = performance.now();
+            }
+            continue;
+        }
 
         // High-quality bicubic upscale of the tile, preserving aspect ratio.
         const aspect = pixelW / pixelH;
