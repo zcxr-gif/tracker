@@ -409,27 +409,187 @@ export const TopWatchedUsers = {
                 pointer-events: none;
             }
 
-            /* Mobile presentation: the same stack shifts to the top-left,
-               sits below the existing mobile-server-pill (handled by
-               sector-ops-mobile-ui.js), narrows, and the Server card is
-               hidden because the native pill already owns that. The Most
-               Tracked card defaults to collapsed so it doesn't blanket
-               the map — users see a small "Most Tracked" pill and can
-               expand it inline. Tapping a pilot still flies the map. */
+            /* Mobile: the desktop stack is hidden — the leaderboard lives
+               inside a proper bottom-sheet (#twu-mobile-sheet) triggered
+               from the mobile HUD action stack. Server switching is
+               handled by the native mobile-server-pill. */
             @media (max-width: ${MOBILE_BREAKPOINT}px) {
-                .twu-stack {
-                    top: calc(env(safe-area-inset-top, 20px) + 65px);
-                    left: 15px;
-                    right: auto;
-                    width: min(calc(100vw - 30px), 320px);
-                    gap: 8px;
-                }
-                .twu-stack [data-card="server"] { display: none; }
-                .twu-card-head { padding: 12px 14px; }
-                .twu-card-title { font-size: 0.85rem; }
-                .twu-stack .twu-list { max-height: 230px; }
-                .twu-item { padding: 11px 8px; }
-                .twu-name { font-size: 0.95rem; }
+                .twu-stack { display: none !important; }
+            }
+
+            /* ---- Mobile bottom-sheet ---- */
+            #twu-mobile-overlay {
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.55);
+                backdrop-filter: blur(4px);
+                -webkit-backdrop-filter: blur(4px);
+                z-index: 2000;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s ease;
+            }
+            #twu-mobile-overlay.visible {
+                opacity: 1;
+                pointer-events: auto;
+            }
+
+            .twu-sheet {
+                position: absolute;
+                left: 0; right: 0; bottom: 0;
+                background: rgba(20, 22, 32, 0.96);
+                backdrop-filter: blur(28px);
+                -webkit-backdrop-filter: blur(28px);
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 22px 22px 0 0;
+                padding: 8px 0 0;
+                padding-bottom: env(safe-area-inset-bottom, 0px);
+                z-index: 2001;
+                transform: translateY(100%);
+                transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+                max-height: 75vh;
+                display: flex;
+                flex-direction: column;
+                color: #fff;
+                font-family: 'Inter', sans-serif;
+            }
+            .twu-sheet.visible { transform: translateY(0); }
+            .twu-sheet[data-theme="light"] {
+                background: rgba(255, 255, 255, 0.96);
+                color: #111827;
+                border-top-color: rgba(0, 0, 0, 0.08);
+            }
+
+            .twu-sheet-grabber {
+                width: 38px; height: 4px;
+                background: rgba(255, 255, 255, 0.18);
+                border-radius: 999px;
+                margin: 6px auto 12px;
+            }
+            .twu-sheet[data-theme="light"] .twu-sheet-grabber {
+                background: rgba(0, 0, 0, 0.18);
+            }
+
+            .twu-sheet-head {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 0 18px 14px;
+            }
+            .twu-sheet-title {
+                font-size: 1.1rem;
+                font-weight: 700;
+                flex: 1;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .twu-sheet-title i {
+                color: #eab308;
+                font-size: 1rem;
+            }
+            .twu-sheet-meta {
+                font-size: 0.7rem;
+                font-weight: 700;
+                color: #94a3b8;
+                background: rgba(255, 255, 255, 0.06);
+                padding: 5px 10px;
+                border-radius: 100px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .twu-sheet[data-theme="light"] .twu-sheet-meta {
+                background: rgba(0, 0, 0, 0.06);
+                color: #4b5563;
+            }
+            .twu-sheet-meta .twu-meta-dot {
+                width: 6px; height: 6px;
+                background: #10b981;
+                border-radius: 50%;
+                box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+            }
+            .twu-sheet-close {
+                width: 30px; height: 30px;
+                border-radius: 50%;
+                background: rgba(255, 255, 255, 0.08);
+                color: #ddd;
+                border: none;
+                display: grid;
+                place-items: center;
+                font-size: 0.85rem;
+                cursor: pointer;
+            }
+            .twu-sheet-close:active { background: rgba(255, 255, 255, 0.15); }
+            .twu-sheet[data-theme="light"] .twu-sheet-close {
+                background: rgba(0, 0, 0, 0.06);
+                color: #4b5563;
+            }
+
+            .twu-sheet .twu-list {
+                padding: 4px 10px 16px;
+                margin: 0;
+                list-style: none;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                flex: 1;
+            }
+            .twu-sheet .twu-item {
+                display: grid;
+                grid-template-columns: 28px 1fr;
+                column-gap: 12px;
+                align-items: start;
+                padding: 12px 8px;
+                border-radius: 12px;
+                cursor: pointer;
+            }
+            .twu-sheet .twu-item:active {
+                background: rgba(255, 255, 255, 0.06);
+            }
+            .twu-sheet[data-theme="light"] .twu-sheet .twu-item:active,
+            .twu-sheet[data-theme="light"] .twu-item:active {
+                background: rgba(0, 0, 0, 0.05);
+            }
+            .twu-sheet .twu-rank {
+                font-size: 1rem;
+                font-weight: 700;
+                color: #94a3b8;
+                text-align: center;
+                padding-top: 2px;
+                font-variant-numeric: tabular-nums;
+            }
+            .twu-sheet .twu-row-main { min-width: 0; }
+            .twu-sheet .twu-row-top {
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            }
+            .twu-sheet .twu-name {
+                font-size: 1rem;
+                font-weight: 700;
+                color: inherit;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 60vw;
+            }
+            .twu-sheet .twu-row-sub {
+                font-size: 0.82rem;
+                color: #94a3b8;
+                margin-top: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .twu-sheet[data-theme="light"] .twu-sheet .twu-row-sub {
+                color: #6b7280;
+            }
+            .twu-sheet .twu-empty,
+            .twu-sheet .twu-loading {
+                padding: 24px;
+                text-align: center;
+                color: #94a3b8;
+                font-size: 0.85rem;
+                font-style: italic;
             }
         `;
         document.head.appendChild(style);
@@ -555,6 +715,12 @@ export const TopWatchedUsers = {
         window.addEventListener('serverChange', () => {
             this._renderServerCard();
             this._render();
+            // Keep the mobile sheet's server badge in sync.
+            const sheet = document.getElementById('twu-mobile-sheet');
+            if (sheet) {
+                const tag = sheet.querySelector('.twu-sheet-meta > span:last-child');
+                if (tag) tag.textContent = getActiveServerShort().toUpperCase();
+            }
             // Re-fetch shortly so live dots can re-light once flights stream in.
             setTimeout(() => this._refresh(), 1500);
         });
@@ -563,6 +729,8 @@ export const TopWatchedUsers = {
             if (t === 'light' || t === 'dark') this._theme = t;
             const stack = document.getElementById('twu-stack');
             if (stack) stack.setAttribute('data-theme', this._theme);
+            const sheet = document.getElementById('twu-mobile-sheet');
+            if (sheet) sheet.setAttribute('data-theme', this._theme);
         });
     },
 
@@ -582,6 +750,7 @@ export const TopWatchedUsers = {
 
     _render() {
         this._renderInto('twu-list-desktop');
+        this._renderInto('twu-list-mobile');
     },
 
     _renderInto(listId) {
@@ -685,9 +854,114 @@ export const TopWatchedUsers = {
             } catch (err) {
                 console.warn('[TopWatched] focus failed:', err);
             }
+            this._closeMobileSheet();
         } else if (typeof window.showGlobalNotification === 'function') {
             window.showGlobalNotification(`${username || 'This flight'} is not currently flying on this server.`, 'info');
         }
+    },
+
+    // ---------------- mobile bottom-sheet ----------------
+
+    openMobileSheet() {
+        const map = document.getElementById('sector-ops-map-fullscreen');
+        if (!map) return;
+
+        // Close any previous instance so we always animate in fresh.
+        this._closeMobileSheet(true);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'twu-mobile-overlay';
+
+        const sheet = document.createElement('section');
+        sheet.id = 'twu-mobile-sheet';
+        sheet.className = 'twu-sheet';
+        sheet.setAttribute('data-theme', this._theme);
+        sheet.setAttribute('role', 'dialog');
+        sheet.setAttribute('aria-label', 'Most Tracked Pilots');
+        sheet.innerHTML = `
+            <div class="twu-sheet-grabber"></div>
+            <div class="twu-sheet-head">
+                <span class="twu-sheet-title">
+                    <i class="fa-solid fa-trophy"></i>
+                    Most Tracked
+                </span>
+                <span class="twu-sheet-meta">
+                    <span class="twu-meta-dot"></span>
+                    <span>${esc(getActiveServerShort().toUpperCase())}</span>
+                </span>
+                <button type="button" class="twu-sheet-close" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <ul class="twu-list" id="twu-list-mobile" role="listbox">
+                <li class="twu-loading">Loading…</li>
+            </ul>
+        `;
+
+        map.appendChild(overlay);
+        map.appendChild(sheet);
+
+        // Animate in next frame so the transform transition runs.
+        requestAnimationFrame(() => {
+            overlay.classList.add('visible');
+            sheet.classList.add('visible');
+        });
+
+        const close = () => this._closeMobileSheet();
+        overlay.addEventListener('click', close);
+        sheet.querySelector('.twu-sheet-close').addEventListener('click', close);
+
+        // Basic swipe-to-dismiss on the grabber/header.
+        let touchStartY = null;
+        const header = sheet.querySelector('.twu-sheet-head');
+        const grabber = sheet.querySelector('.twu-sheet-grabber');
+        const onTouchStart = (e) => {
+            if (!e.touches || !e.touches.length) return;
+            touchStartY = e.touches[0].clientY;
+            sheet.style.transition = 'none';
+        };
+        const onTouchMove = (e) => {
+            if (touchStartY == null || !e.touches || !e.touches.length) return;
+            const dy = e.touches[0].clientY - touchStartY;
+            if (dy > 0) sheet.style.transform = `translateY(${dy}px)`;
+        };
+        const onTouchEnd = (e) => {
+            if (touchStartY == null) return;
+            const endY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : touchStartY;
+            const dy = endY - touchStartY;
+            touchStartY = null;
+            sheet.style.transition = '';
+            sheet.style.transform = '';
+            if (dy > 80) close();
+        };
+        [header, grabber].forEach(el => {
+            if (!el) return;
+            el.addEventListener('touchstart', onTouchStart, { passive: true });
+            el.addEventListener('touchmove', onTouchMove, { passive: true });
+            el.addEventListener('touchend', onTouchEnd);
+            el.addEventListener('touchcancel', onTouchEnd);
+        });
+
+        // Populate immediately with whatever data we have, then refresh.
+        this._renderInto('twu-list-mobile');
+        this._refresh();
+    },
+
+    _closeMobileSheet(immediate = false) {
+        const overlay = document.getElementById('twu-mobile-overlay');
+        const sheet = document.getElementById('twu-mobile-sheet');
+        if (!overlay && !sheet) return;
+        if (immediate) {
+            if (overlay) overlay.remove();
+            if (sheet) sheet.remove();
+            return;
+        }
+        if (overlay) overlay.classList.remove('visible');
+        if (sheet) sheet.classList.remove('visible');
+        setTimeout(() => {
+            if (overlay) overlay.remove();
+            if (sheet) sheet.remove();
+        }, 320);
     },
 };
 

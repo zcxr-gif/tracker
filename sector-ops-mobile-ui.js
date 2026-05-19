@@ -63,18 +63,52 @@ const MobileUIHandler = {
         this.boundHudTouchEnd = this.handleHudTouchEnd.bind(this);
         this.boundLegacyTouchMove = this.handleLegacyTouchMove.bind(this);
         this.boundLegacyTouchEnd = this.handleLegacyTouchEnd.bind(this);
-        
 
-window.addEventListener('resize', () => {
-    if (this.isMobile()) {
-        // Keep this empty or only handle logic NOT related to the HUD buttons
-    } else {
-        if (this.activeWindow) {
-            this.closeActiveWindow(true); 
+        // Mount mobile HUD controls (server pill + action stack) on mobile.
+        // Defer until the tactical map container exists.
+        const mountIfMobile = () => {
+            if (this.isMobile()) this.injectMobileHudControls();
+        };
+        if (document.getElementById('sector-ops-map-fullscreen')) {
+            mountIfMobile();
+        } else {
+            const ready = () => {
+                mountIfMobile();
+                document.removeEventListener('DOMContentLoaded', ready);
+            };
+            document.addEventListener('DOMContentLoaded', ready);
+            // The tactical map container is created by landingUI.js after
+            // its own boot. Retry a few times so we mount as soon as it
+            // appears without polling forever.
+            let tries = 0;
+            const retry = setInterval(() => {
+                if (document.getElementById('sector-ops-map-fullscreen')) {
+                    mountIfMobile();
+                    clearInterval(retry);
+                } else if (++tries > 40) {
+                    clearInterval(retry);
+                }
+            }, 250);
         }
-        this.restoreMapControls();
-    }
-});
+
+        window.addEventListener('resize', () => {
+            if (this.isMobile()) {
+                // Make sure the mobile HUD is mounted when rotating /
+                // resizing into a mobile viewport.
+                if (!document.getElementById('mobile-hud-controls')) {
+                    this.injectMobileHudControls();
+                }
+            } else {
+                if (this.activeWindow) {
+                    this.closeActiveWindow(true);
+                }
+                this.restoreMapControls();
+                // Tear down the mobile HUD when we leave the mobile
+                // breakpoint so the desktop UI takes over cleanly.
+                const hud = document.getElementById('mobile-hud-controls');
+                if (hud) hud.remove();
+            }
+        });
         
         // Listen for clicks outside search to close it (if active)
         document.addEventListener('click', (e) => {
@@ -142,24 +176,29 @@ disableHudControls() {
         const shortServerName = currentServer.split(' ')[0]; // "Expert"
 
         const serverPillHTML = `
-            <div id="mobile-server-pill" class="mobile-glass-pill">
-                <div class="status-dot"></div>
-                <span id="mobile-server-name">${shortServerName}</span>
-                <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; opacity: 0.7;"></i>
-            </div>
+            <button type="button" id="mobile-server-pill" class="mobile-glass-pill" aria-label="Switch server">
+                <span class="server-pill-dot"></span>
+                <span class="server-pill-stack">
+                    <span class="server-pill-label">Server</span>
+                    <span id="mobile-server-name" class="server-pill-name">${shortServerName}</span>
+                </span>
+                <i class="fa-solid fa-chevron-down server-pill-chev"></i>
+            </button>
         `;
 
-        // --- 3. Top Right: Action Stack (Search, Weather, Filters) ---
-        // [UPDATED] Added Search Button here
+        // --- 3. Top Right: Action Stack (Search, Top Pilots, Weather, Filters) ---
         const actionStackHTML = `
             <div class="mobile-action-stack">
-                <button id="mobile-btn-search" class="mobile-glass-sq-btn">
+                <button id="mobile-btn-search" class="mobile-glass-sq-btn" aria-label="Search">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
-                <button id="mobile-btn-weather" class="mobile-glass-sq-btn">
+                <button id="mobile-btn-top-pilots" class="mobile-glass-sq-btn" aria-label="Top tracked pilots">
+                    <i class="fa-solid fa-trophy"></i>
+                </button>
+                <button id="mobile-btn-weather" class="mobile-glass-sq-btn" aria-label="Weather">
                     <i class="fa-solid fa-cloud-sun"></i>
                 </button>
-                <button id="mobile-btn-filters" class="mobile-glass-sq-btn">
+                <button id="mobile-btn-filters" class="mobile-glass-sq-btn" aria-label="Filters">
                     <i class="fa-solid fa-layer-group"></i>
                 </button>
             </div>
@@ -191,6 +230,14 @@ disableHudControls() {
         document.getElementById('mobile-btn-filters').addEventListener('click', () => {
             const btn = document.getElementById('open-filter-settings-btn'); // Trigger desktop logic
             if (btn) btn.click();
+        });
+
+        // Top Pilots — opens the Most Tracked bottom sheet (owned by
+        // topWatchedUsers.js so the data/render code stays in one place).
+        document.getElementById('mobile-btn-top-pilots').addEventListener('click', () => {
+            if (window.TopWatchedUsers && typeof window.TopWatchedUsers.openMobileSheet === 'function') {
+                window.TopWatchedUsers.openMobileSheet();
+            }
         });
     },
 
@@ -238,39 +285,30 @@ disableHudControls() {
         // Helper to generate the loading state HTML
         const loadingState = `<span class="s-desc" style="color: var(--hud-accent);"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading...</span>`;
 
+        const serverRow = (full, klass, icon, countId) => {
+            const active = current === full;
+            return `
+                <button class="server-opt-btn ${active ? 'active' : ''}" data-server="${full}">
+                    <div class="server-icon ${klass}"><i class="fa-solid ${icon}"></i></div>
+                    <div class="server-info">
+                        <span class="s-name">${full}</span>
+                        <span class="s-desc" id="${countId}">${loadingState}</span>
+                    </div>
+                    <i class="fa-solid fa-check s-check" style="opacity:${active ? 1 : 0};"></i>
+                </button>
+            `;
+        };
+
         sheet.innerHTML = `
+            <div class="sheet-grabber"></div>
             <div class="sheet-header">
                 <span>Select Server</span>
-                <button id="close-server-sheet"><i class="fa-solid fa-xmark"></i></button>
+                <button id="close-server-sheet" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="server-options-list">
-                
-                <button class="server-opt-btn ${current === 'Expert Server' ? 'active' : ''}" data-server="Expert Server">
-                    <div class="server-icon expert"><i class="fa-solid fa-trophy"></i></div>
-                    <div class="server-info">
-                        <span class="s-name">Expert Server</span>
-                        <span class="s-desc" id="cnt-expert">${loadingState}</span>
-                    </div>
-                    ${current === 'Expert Server' ? '<i class="fa-solid fa-check"></i>' : ''}
-                </button>
-
-                <button class="server-opt-btn ${current === 'Training Server' ? 'active' : ''}" data-server="Training Server">
-                    <div class="server-icon training"><i class="fa-solid fa-graduation-cap"></i></div>
-                    <div class="server-info">
-                        <span class="s-name">Training Server</span>
-                        <span class="s-desc" id="cnt-training">${loadingState}</span>
-                    </div>
-                    ${current === 'Training Server' ? '<i class="fa-solid fa-check"></i>' : ''}
-                </button>
-
-                <button class="server-opt-btn ${current === 'Casual Server' ? 'active' : ''}" data-server="Casual Server">
-                    <div class="server-icon casual"><i class="fa-solid fa-plane-arrival"></i></div>
-                    <div class="server-info">
-                        <span class="s-name">Casual Server</span>
-                        <span class="s-desc" id="cnt-casual">${loadingState}</span>
-                    </div>
-                    ${current === 'Casual Server' ? '<i class="fa-solid fa-check"></i>' : ''}
-                </button>
+                ${serverRow('Expert Server',   'expert',   'fa-trophy',           'cnt-expert')}
+                ${serverRow('Training Server', 'training', 'fa-graduation-cap',   'cnt-training')}
+                ${serverRow('Casual Server',   'casual',   'fa-plane-arrival',    'cnt-casual')}
             </div>
         `;
 
@@ -299,14 +337,21 @@ disableHudControls() {
         sheet.querySelectorAll('.server-opt-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const newServer = btn.dataset.server;
-                
-                // Update Pill Text
-                const pillText = document.getElementById('mobile-server-name');
-                if (pillText) pillText.textContent = newServer.split(' ')[0];
+                const shortName = newServer.split(' ')[0]; // "Expert" / "Training" / "Casual"
 
-                // Trigger Desktop Logic
-                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
-                if (desktopBtn) desktopBtn.click();
+                // Update Pill Text + active state immediately for snappy UX
+                const pillText = document.getElementById('mobile-server-name');
+                if (pillText) pillText.textContent = shortName;
+                sheet.querySelectorAll('.server-opt-btn').forEach(b => {
+                    b.classList.toggle('active', b === btn);
+                    const check = b.querySelector('.s-check');
+                    if (check) check.style.opacity = b === btn ? '1' : '0';
+                });
+
+                // Dispatch the same event the desktop UI uses. flight.js
+                // listens for this and calls switchServer() which updates
+                // localStorage('preferredServer') and re-fetches.
+                window.dispatchEvent(new CustomEvent('serverChange', { detail: { server: shortName } }));
 
                 overlay.click(); // Close
             });
@@ -384,29 +429,16 @@ disableHudControls() {
                 overflow: hidden;
             }
 
-            /* --- [CRITICAL FIX] Hide Clutter when Mobile Window (or Search) is Open --- */
-            /* This effectively clears the "other icons" the user complained about */
-            
-            /* Update this block in your injectMobileStyles function */
-#sector-ops-map-fullscreen.mobile-window-open > *:not(.landing-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
-    /* Only hide things that aren't the window or your landing UI */
-}
-                display: none !important;
+            /* --- Hide HUD clutter when a mobile window or search is open ---
+               Selectively fade the floating HUD bits so the active sheet has
+               the stage. We keep the landing UI / aircraft view / bottom
+               islands visible because they're the active surface. */
+            #sector-ops-map-fullscreen.mobile-window-open #mobile-hud-controls,
+            #sector-ops-map-fullscreen.mobile-search-open  #mobile-hud-controls,
+            #sector-ops-map-fullscreen.mobile-window-open #twu-stack,
+            #sector-ops-map-fullscreen.mobile-search-open  #twu-stack {
                 opacity: 0 !important;
                 pointer-events: none !important;
-            }
-
-            /* Also hide controls when SEARCH is open */
-            /* Update this block in your injectMobileStyles function */
-#sector-ops-map-fullscreen.mobile-window-open > *:not(.la/* Find this in your code and ensure your UI class isn't targeted */
-#sector-ops-map-fullscreen.mobile-search-open .your-landing-ui-class {
-    display: flex !important; /* Force visibility */
-    opacity: 1 !important;
-    pointer-events: auto !important;
-}nding-ui-container):not(.mobile-aircraft-view):not(.mobile-island-bottom) {
-    /* Only hide things that aren't the window or your landing UI */
-}
-                display: none !important;
             }
 
             @media (max-width: ${this.CONFIG.breakpoint}px) {
@@ -443,33 +475,70 @@ disableHudControls() {
             /* --- 1. Top Left Server Pill --- */
             .mobile-glass-pill {
                 position: absolute;
-                top: calc(env(safe-area-inset-top, 20px) + 15px);
-                left: 15px;
+                top: calc(env(safe-area-inset-top, 20px) + 12px);
+                left: 12px;
                 pointer-events: auto;
-                
+
                 background: var(--hud-bg);
                 backdrop-filter: blur(var(--hud-blur));
                 -webkit-backdrop-filter: blur(var(--hud-blur));
                 border: 1px solid var(--hud-border);
-                border-radius: 30px;
-                
-                padding: 8px 14px;
+                border-radius: 14px;
+
+                padding: 8px 12px 8px 10px;
                 display: flex;
                 align-items: center;
-                gap: 8px;
-                
+                gap: 10px;
+
                 color: var(--hud-text);
                 font-family: 'Inter', sans-serif;
-                font-weight: 600;
-                font-size: 0.85rem;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-                transition: transform 0.2s ease, opacity 0.2s;
+                box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+                transition: transform 0.18s ease, opacity 0.2s, border-color 0.2s;
+                appearance: none;
+                cursor: pointer;
             }
-            .mobile-glass-pill:active { transform: scale(0.95); }
+            .mobile-glass-pill:active {
+                transform: scale(0.97);
+                border-color: rgba(56, 189, 248, 0.45);
+            }
+            .server-pill-dot {
+                width: 8px; height: 8px;
+                background: #22c55e;
+                border-radius: 50%;
+                box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+                flex-shrink: 0;
+            }
+            .server-pill-stack {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                line-height: 1.1;
+                text-align: left;
+            }
+            .server-pill-label {
+                font-size: 0.6rem;
+                font-weight: 600;
+                color: #94a3b8;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .server-pill-name {
+                font-size: 0.92rem;
+                font-weight: 700;
+                color: #fff;
+                margin-top: 1px;
+            }
+            .server-pill-chev {
+                font-size: 0.65rem;
+                color: #94a3b8;
+                margin-left: 2px;
+            }
 
+            /* Keep the legacy .status-dot class working anywhere else it's
+               used (e.g. inside the original landing UI). */
             .status-dot {
                 width: 8px; height: 8px;
-                background: #22c55e; /* Green */
+                background: #22c55e;
                 border-radius: 50%;
                 box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
             }
@@ -477,37 +546,39 @@ disableHudControls() {
             /* --- 2. Top Right Action Stack --- */
             .mobile-action-stack {
                 position: absolute;
-                top: calc(env(safe-area-inset-top, 20px) + 15px);
-                right: 15px;
+                top: calc(env(safe-area-inset-top, 20px) + 12px);
+                right: 12px;
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap: 8px;
                 pointer-events: auto;
                 transition: opacity 0.2s;
             }
 
             .mobile-glass-sq-btn {
-                width: 44px; height: 44px;
+                width: 42px; height: 42px;
                 background: var(--hud-bg);
                 backdrop-filter: blur(var(--hud-blur));
                 -webkit-backdrop-filter: blur(var(--hud-blur));
                 border: 1px solid var(--hud-border);
                 border-radius: 12px;
-                
-                color: #94a3b8; /* Muted icon color */
-                font-size: 1.1rem;
+
+                color: #cbd5e1;
+                font-size: 1.05rem;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                
-                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-                transition: all 0.2s ease;
+                cursor: pointer;
+                appearance: none;
+
+                box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+                transition: transform 0.18s ease, background 0.2s, color 0.2s, border-color 0.2s;
             }
             .mobile-glass-sq-btn:active {
-                transform: scale(0.95);
-                background: rgba(56, 189, 248, 0.2);
+                transform: scale(0.94);
+                background: rgba(56, 189, 248, 0.18);
                 color: #fff;
-                border-color: rgba(56, 189, 248, 0.5);
+                border-color: rgba(56, 189, 248, 0.45);
             }
 
             /* --- 3. Server Switcher Sheet --- */
@@ -524,55 +595,77 @@ disableHudControls() {
             .mobile-server-sheet {
                 position: absolute;
                 bottom: 0; left: 0; right: 0;
-                background: #18181b; /* Zinc 900 */
-                border-top: 1px solid #333;
-                border-radius: 20px 20px 0 0;
-                padding: 20px;
+                background: rgba(20, 22, 32, 0.96);
+                backdrop-filter: blur(28px);
+                -webkit-backdrop-filter: blur(28px);
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 22px 22px 0 0;
+                padding: 8px 18px 24px;
+                padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
                 z-index: 2001;
                 transform: translateY(100%);
-                transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                padding-bottom: calc(20px + env(safe-area-inset-bottom, 20px));
+                transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
             }
             .mobile-server-sheet.visible { transform: translateY(0); }
 
+            .sheet-grabber {
+                width: 38px; height: 4px;
+                background: rgba(255, 255, 255, 0.18);
+                border-radius: 999px;
+                margin: 6px auto 14px;
+            }
+
             .sheet-header {
                 display: flex; justify-content: space-between; align-items: center;
-                margin-bottom: 20px;
-                color: #fff; font-weight: 700; font-size: 1.1rem;
+                margin-bottom: 16px;
+                color: #fff; font-weight: 700; font-size: 1.05rem;
             }
             #close-server-sheet {
-                background: rgba(255,255,255,0.1); border: none; color: #ccc;
+                background: rgba(255,255,255,0.08); border: none; color: #ddd;
                 width: 30px; height: 30px; border-radius: 50%;
                 display: grid; place-items: center;
+                cursor: pointer; font-size: 0.85rem;
             }
+            #close-server-sheet:active { background: rgba(255,255,255,0.15); }
 
-            .server-options-list { display: flex; flex-direction: column; gap: 10px; }
-            
+            .server-options-list { display: flex; flex-direction: column; gap: 8px; }
+
             .server-opt-btn {
-                background: rgba(255,255,255,0.03);
-                border: 1px solid rgba(255,255,255,0.05);
-                border-radius: 12px;
-                padding: 15px;
-                display: flex; align-items: center; gap: 15px;
+                background: rgba(255,255,255,0.04);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 14px;
+                padding: 14px;
+                display: flex; align-items: center; gap: 14px;
                 color: #fff; text-align: left;
-                transition: all 0.2s;
+                cursor: pointer; appearance: none;
+                transition: transform 0.15s ease, background 0.2s, border-color 0.2s;
+                width: 100%;
             }
+            .server-opt-btn:active { transform: scale(0.985); }
             .server-opt-btn.active {
-                background: rgba(56, 189, 248, 0.1);
-                border-color: rgba(56, 189, 248, 0.3);
+                background: rgba(56, 189, 248, 0.12);
+                border-color: rgba(56, 189, 248, 0.35);
             }
-            
-            .server-icon {
-                width: 40px; height: 40px; border-radius: 10px;
-                display: grid; place-items: center; font-size: 1.2rem;
-            }
-            .server-icon.expert { background: rgba(234, 179, 8, 0.1); color: #eab308; }
-            .server-icon.training { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
-            .server-icon.casual { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
 
-            .server-info { flex-grow: 1; display: flex; flex-direction: column; }
-            .s-name { font-weight: 600; font-size: 1rem; }
-            .s-desc { font-size: 0.8rem; color: #94a3b8; }
+            .server-icon {
+                width: 40px; height: 40px; border-radius: 11px;
+                display: grid; place-items: center; font-size: 1.1rem;
+                flex-shrink: 0;
+            }
+            .server-icon.expert { background: rgba(234, 179, 8, 0.12); color: #eab308; }
+            .server-icon.training { background: rgba(168, 85, 247, 0.12); color: #a855f7; }
+            .server-icon.casual { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+
+            .server-info { flex-grow: 1; display: flex; flex-direction: column; min-width: 0; }
+            .s-name { font-weight: 600; font-size: 0.98rem; }
+            .s-desc { font-size: 0.78rem; color: #94a3b8; margin-top: 2px; }
+            .s-check {
+                color: #38bdf8;
+                font-size: 0.95rem;
+                transition: opacity 0.2s;
+                flex-shrink: 0;
+            }
 
             /* The canonical mobile search bar lives in the tactical header
                (landingUI.js .search-blade). The HUD search button just
