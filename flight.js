@@ -126,12 +126,8 @@ function _buildSDF(rgba, w, h, radius, cutoff) {
     return out;
 }
 
-async function loadSpriteSheetAndGenerateIcons(map) {
+async function loadSpriteSheetAndGenerateIcons(map, { useSdf = true } = {}) {
     const spriteUrl = './markers.png';
-
-    // Flip to false to register raw full-color sprites instead of SDF silhouettes.
-    // Note: icon-color tinting on the layer has no effect when USE_SDF is false.
-    const USE_SDF = true;
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -179,7 +175,7 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         if (pixelW === 0 || pixelH === 0) continue;
         if (map.hasImage(`icon-${iconKey}`)) continue;
 
-        if (!USE_SDF) {
+        if (!useSdf) {
             const raw = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
             const pRatio = pixelW / TARGET_LOGICAL_SIZE;
             map.addImage(`icon-${iconKey}`, raw, { pixelRatio: pRatio, sdf: false });
@@ -12037,9 +12033,27 @@ async function setupMapLayersAndFog() {
         'star-intensity': 0.3
     });
 
-    // Load the sprite sheet once
+    // Load the sprite sheet once. Pro users get SDF rendering so the dynamic
+    // icon-color pipeline (user/watchlist/inbound/outbound + custom colors)
+    // works; non-pro users get raw full-color sprites from the sheet, which
+    // makes icon-color a no-op but ships the higher-detail original art.
+    let isProForSprites = false;
     try {
-        await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData?.session?.user?.id;
+        if (userId) {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', userId)
+                .single();
+            isProForSprites = !!profile?.is_pro;
+        }
+    } catch (err) {
+        console.warn("Pro check for sprite mode failed; defaulting to non-SDF.", err);
+    }
+    try {
+        await loadSpriteSheetAndGenerateIcons(sectorOpsMap, { useSdf: isProForSprites });
     } catch (err) {
         console.error("Sprite sheet failed to load:", err);
     }
