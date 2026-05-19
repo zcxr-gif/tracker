@@ -46,6 +46,8 @@ FlightDispatchService.init(supabase);
 async function loadSpriteSheetAndGenerateIcons(map) {
     const spriteUrl = './markers.png'; 
 
+    const USE_SDF = true;
+
     const img = new Image();
     img.crossOrigin = "Anonymous";
     
@@ -81,6 +83,18 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         const pixelH = Math.floor(hRatio * img.height);
 
         if (pixelW === 0 || pixelH === 0) continue;
+
+        if (!USE_SDF) {
+            const raw = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+            const pRatio = pixelW / TARGET_LOGICAL_SIZE;
+            map.addImage(`icon-${iconKey}`, raw, { pixelRatio: pRatio, sdf: false });
+            if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                executionStartTime = performance.now();
+            }
+            continue;
+        }
+
         
         const pRatio = pixelW / TARGET_LOGICAL_SIZE;
 
