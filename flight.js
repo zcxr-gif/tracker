@@ -42,7 +42,6 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
-TopWatchedUsers.init(supabase);
 
 
 // Felzenszwalb-Huttenlocher 1D squared distance transform.
@@ -286,6 +285,7 @@ if ('serviceWorker' in navigator) {
 
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+    TopWatchedUsers.init(API_BASE_URL);
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';

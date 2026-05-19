@@ -1,12 +1,13 @@
 /**
  * topWatchedUsers.js
  *
- * Renders a small leaderboard of the most-watched Infinite Flight
- * pilots across all user watchlists. Pinned top-left on desktop,
- * collapsible dropdown on mobile.
+ * Renders a small leaderboard of the most-tracked Infinite Flight
+ * pilots, reusing the existing /api/leaderboard/top endpoint that
+ * already powers the "Most Tracked Today" card in panel-content.html.
+ * Pinned top-left on desktop, collapsible dropdown on mobile.
  */
 
-const REFRESH_MS = 5 * 60 * 1000;
+const REFRESH_MS = 60 * 1000; // match existing leaderboard cadence
 const TOP_N = 5;
 const MOBILE_BREAKPOINT = 992;
 
@@ -17,14 +18,14 @@ function escapeHtml(s) {
 }
 
 export const TopWatchedUsers = {
-    _supabase: null,
+    _apiBase: null,
     _data: [],
     _open: false,
     _timer: null,
 
-    init(supabase) {
-        if (this._supabase) return;
-        this._supabase = supabase;
+    init(apiBaseUrl) {
+        if (this._apiBase) return;
+        this._apiBase = apiBaseUrl;
         this._mount();
         this._bind();
         this._refresh();
@@ -38,8 +39,8 @@ export const TopWatchedUsers = {
         panel.className = 'twu-panel';
         panel.innerHTML = `
             <button type="button" id="twu-toggle" class="twu-header" aria-expanded="false" aria-controls="twu-list">
-                <i class="fa-solid fa-binoculars twu-icon" aria-hidden="true"></i>
-                <span class="twu-title">Top Watched</span>
+                <i class="fa-solid fa-fire twu-icon" aria-hidden="true"></i>
+                <span class="twu-title">Most Tracked</span>
                 <i class="fa-solid fa-chevron-down twu-chevron" aria-hidden="true"></i>
             </button>
             <div class="twu-body">
@@ -59,13 +60,11 @@ export const TopWatchedUsers = {
                 this._setOpen(!this._open);
             });
         }
-        // Close mobile dropdown when tapping outside.
         document.addEventListener('click', (e) => {
             if (!this._open) return;
             const panel = document.getElementById('top-watched-panel');
             if (panel && !panel.contains(e.target)) this._setOpen(false);
         });
-        // If the viewport crosses the desktop breakpoint, keep state sane.
         window.addEventListener('resize', () => {
             if (window.innerWidth > MOBILE_BREAKPOINT) this._setOpen(false);
         });
@@ -81,13 +80,13 @@ export const TopWatchedUsers = {
 
     async _refresh() {
         try {
-            const { data, error } = await this._supabase
-                .rpc('get_top_watched_users', { p_limit: TOP_N });
-            if (error) throw error;
-            this._data = Array.isArray(data) ? data : [];
+            const res = await fetch(`${this._apiBase}/api/leaderboard/top`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const rows = await res.json();
+            this._data = Array.isArray(rows) ? rows.slice(0, TOP_N) : [];
         } catch (err) {
             console.warn('[TopWatched] fetch failed:', err && err.message ? err.message : err);
-            // Keep previous data on failure so the panel doesn't flicker.
+            // Keep previous data on failure.
         }
         this._render();
     },
@@ -96,17 +95,16 @@ export const TopWatchedUsers = {
         const list = document.getElementById('twu-list');
         if (!list) return;
         if (!this._data.length) {
-            list.innerHTML = `<li class="twu-empty">No watched pilots yet</li>`;
+            list.innerHTML = `<li class="twu-empty">No flights tracked yet today</li>`;
             return;
         }
         list.innerHTML = this._data.map((row, i) => {
-            const name = String(row.watched_username || '').trim();
-            const count = Number(row.watcher_count || 0);
+            const name = String(row.pilotName || '').trim();
+            const count = Number(row.viewCount || 0);
             const safeName = escapeHtml(name);
-            const plural = count === 1 ? 'watcher' : 'watchers';
             return `
                 <li class="twu-item" data-username="${safeName}" role="option" tabindex="0"
-                    title="${safeName} — ${count} ${plural}">
+                    title="${safeName} — ${count} views">
                     <span class="twu-rank">${i + 1}</span>
                     <span class="twu-name">${safeName}</span>
                     <span class="twu-count"><i class="fa-solid fa-eye" aria-hidden="true"></i>${count}</span>
@@ -139,7 +137,6 @@ export const TopWatchedUsers = {
             const coords = match.geometry && match.geometry.coordinates;
             if (flightId && coords && coords.length >= 2) {
                 try {
-                    // Signature: (flightId, lat, lng)
                     window.onSearchResultClick(flightId, coords[1], coords[0]);
                 } catch (err) {
                     console.warn('[TopWatched] focus failed:', err);
