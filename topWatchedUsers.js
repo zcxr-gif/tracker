@@ -118,7 +118,9 @@ export const TopWatchedUsers = {
     _timer: null,
     _liveTimer: null,
     _serverOpen: false,
-    _trackedOpen: true,
+    // Tracked card open by default on desktop, collapsed on mobile so it
+    // doesn't blanket the map.
+    _trackedOpen: typeof window === 'undefined' || window.innerWidth > MOBILE_BREAKPOINT,
 
     init(apiBaseUrl) {
         if (this._apiBase) return;
@@ -126,8 +128,7 @@ export const TopWatchedUsers = {
         this._theme = getStoredTheme();
 
         this._injectStyles();
-        this._mountDesktop();
-        this._hookMobile();
+        this._mount();
         this._bindGlobalEvents();
 
         this._refresh();
@@ -268,10 +269,13 @@ export const TopWatchedUsers = {
                 color: #111827;
             }
 
-            /* Leaderboard rows */
-            .twu-list { list-style: none; margin: 0; padding: 0 6px; max-height: 360px; overflow-y: auto; }
-            .twu-list::-webkit-scrollbar { width: 6px; }
-            .twu-list::-webkit-scrollbar-thumb {
+            /* Leaderboard rows. The desktop stack caps the list at ~3 rows
+               so positions 4–5 require a quick scroll, matching the
+               Planefinder Explore card. */
+            .twu-list { list-style: none; margin: 0; padding: 0 6px; overflow-y: auto; }
+            .twu-stack .twu-list { max-height: 210px; }
+            .twu-stack .twu-list::-webkit-scrollbar { width: 6px; }
+            .twu-stack .twu-list::-webkit-scrollbar-thumb {
                 background: var(--lui-border-base, rgba(255, 255, 255, 0.08));
                 border-radius: 3px;
             }
@@ -397,67 +401,48 @@ export const TopWatchedUsers = {
             }
             .twu-server-opt.active .twu-server-check { opacity: 1; }
 
-            /* Desktop stack hidden on mobile — the bottom sheet takes over. */
+            /* Stay out of the way when a mobile flight/airport sheet is open
+               (sector-ops-mobile-ui.js flips this class on the map container
+               and hides the rest of the HUD the same way). */
+            #sector-ops-map-fullscreen.mobile-window-open .twu-stack {
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            /* Mobile presentation: the same stack shifts to the top-left,
+               sits below the existing mobile-server-pill (handled by
+               sector-ops-mobile-ui.js), narrows, and the Server card is
+               hidden because the native pill already owns that. The Most
+               Tracked card defaults to collapsed so it doesn't blanket
+               the map — users see a small "Most Tracked" pill and can
+               expand it inline. Tapping a pilot still flies the map. */
             @media (max-width: ${MOBILE_BREAKPOINT}px) {
-                .twu-stack { display: none; }
-            }
-
-            /* Mobile bottom sheet — re-uses the visual language of the
-               existing server sheet for consistency. */
-            #twu-sheet-overlay {
-                position: absolute; inset: 0;
-                background: rgba(0, 0, 0, 0.6);
-                backdrop-filter: blur(4px);
-                z-index: 2000;
-                opacity: 0; pointer-events: none;
-                transition: opacity 0.3s ease;
-            }
-            #twu-sheet-overlay.visible { opacity: 1; pointer-events: auto; }
-
-            .twu-sheet {
-                position: absolute;
-                bottom: 0; left: 0; right: 0;
-                background: #18181b;
-                color: #fff;
-                border-top: 1px solid #333;
-                border-radius: 20px 20px 0 0;
-                padding: 20px 14px calc(20px + env(safe-area-inset-bottom, 20px));
-                z-index: 2001;
-                transform: translateY(100%);
-                transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                max-height: 85vh;
-                overflow-y: auto;
-                display: flex;
-                flex-direction: column;
-                gap: 14px;
-            }
-            .twu-sheet.visible { transform: translateY(0); }
-            .twu-sheet[data-theme="light"] {
-                background: #ffffff;
-                color: #111827;
-                border-top-color: #e5e7eb;
-            }
-
-            .twu-sheet-bar {
-                display: flex; justify-content: space-between; align-items: center;
-                padding: 0 6px 2px;
-            }
-            .twu-sheet-bar h3 { margin: 0; font-size: 1.05rem; font-weight: 700; }
-            #twu-sheet-close {
-                background: rgba(255,255,255,0.1); border: none; color: #ccc;
-                width: 32px; height: 32px; border-radius: 50%;
-                display: grid; place-items: center; cursor: pointer;
-            }
-            .twu-sheet[data-theme="light"] #twu-sheet-close {
-                background: rgba(0, 0, 0, 0.06); color: #4b5563;
+                .twu-stack {
+                    top: calc(env(safe-area-inset-top, 20px) + 65px);
+                    left: 15px;
+                    right: auto;
+                    width: min(calc(100vw - 30px), 320px);
+                    gap: 8px;
+                }
+                .twu-stack [data-card="server"] { display: none; }
+                .twu-card-head { padding: 12px 14px; }
+                .twu-card-title { font-size: 0.85rem; }
+                .twu-stack .twu-list { max-height: 230px; }
+                .twu-item { padding: 11px 8px; }
+                .twu-name { font-size: 0.95rem; }
             }
         `;
         document.head.appendChild(style);
     },
 
-    // ---------------- desktop mount ----------------
+    // ---------------- mount ----------------
+    //
+    // The same stack ships to desktop and mobile. On mobile the CSS hides
+    // the Server card (the native server pill already handles that) and
+    // repositions/narrows the Most Tracked card so it sits below the pill
+    // as a collapsible glance.
 
-    _mountDesktop() {
+    _mount() {
         const map = document.getElementById('sector-ops-map-fullscreen');
         if (!map || document.getElementById('twu-stack')) return;
 
@@ -564,130 +549,6 @@ export const TopWatchedUsers = {
         this._renderServerCard();
     },
 
-    // ---------------- mobile hook ----------------
-
-    _hookMobile() {
-        // Override MobileUIHandler.openServerSheet so the mobile server
-        // pill opens our unified sheet (server + Most Tracked) instead of
-        // the server-only sheet. The handler script is loaded with `defer`
-        // before flight.js, so it should already be on window, but poll
-        // briefly just in case.
-        const install = () => {
-            if (window.MobileUIHandler && typeof window.MobileUIHandler.openServerSheet === 'function') {
-                window.MobileUIHandler.openServerSheet = () => this._openMobileSheet();
-                return true;
-            }
-            return false;
-        };
-        if (install()) return;
-        const iv = setInterval(() => { if (install()) clearInterval(iv); }, 200);
-        setTimeout(() => clearInterval(iv), 5000);
-    },
-
-    _openMobileSheet() {
-        const map = document.getElementById('sector-ops-map-fullscreen');
-        if (!map) return;
-
-        const prevSheet = document.getElementById('twu-mobile-sheet');
-        const prevOverlay = document.getElementById('twu-sheet-overlay');
-        if (prevSheet) prevSheet.remove();
-        if (prevOverlay) prevOverlay.remove();
-
-        const overlay = document.createElement('div');
-        overlay.id = 'twu-sheet-overlay';
-
-        const sheet = document.createElement('div');
-        sheet.id = 'twu-mobile-sheet';
-        sheet.className = 'twu-sheet';
-        sheet.setAttribute('data-theme', this._theme);
-        sheet.innerHTML = `
-            <div class="twu-sheet-bar">
-                <h3>Live</h3>
-                <button id="twu-sheet-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <div class="twu-card is-open" data-card="tracked">
-                <div class="twu-card-head" style="cursor:default;">
-                    <span class="twu-card-title">Most Tracked</span>
-                </div>
-                <div class="twu-card-body">
-                    <div class="twu-card-body-inner">
-                        <ul class="twu-list" id="twu-list-mobile" role="listbox">
-                            <li class="twu-loading">Loading…</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-
-            <div class="twu-card is-open" data-card="server">
-                <div class="twu-card-head" style="cursor:default;">
-                    <span class="twu-card-title">Server</span>
-                    <span class="twu-card-meta">
-                        <span class="twu-meta-dot"></span>
-                        <span data-server-tag>${esc(getActiveServerShort().toUpperCase())}</span>
-                    </span>
-                </div>
-                <div class="twu-card-body">
-                    <div class="twu-card-body-inner">
-                        <div class="twu-server-list" data-server-list>
-                            ${this._serverOptionsHTML(getActiveServerShort())}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const close = () => {
-            sheet.classList.remove('visible');
-            overlay.classList.remove('visible');
-            setTimeout(() => { sheet.remove(); overlay.remove(); }, 300);
-        };
-        overlay.addEventListener('click', close);
-
-        map.appendChild(overlay);
-        map.appendChild(sheet);
-        requestAnimationFrame(() => {
-            overlay.classList.add('visible');
-            sheet.classList.add('visible');
-        });
-
-        sheet.querySelector('#twu-sheet-close').addEventListener('click', close);
-
-        // Server option clicks (re-uses _selectServer, then closes).
-        sheet.querySelectorAll('.twu-server-opt').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const val = btn.dataset.server;
-                this._selectServer(val);
-                // Reflect new server visually before closing.
-                const tag = sheet.querySelector('[data-server-tag]');
-                if (tag) tag.textContent = val.toUpperCase();
-                sheet.querySelectorAll('.twu-server-opt').forEach(o => {
-                    o.classList.toggle('active', o.dataset.server === val);
-                });
-                // Update mobile pill label too, since we hijacked its click.
-                const pillLabel = document.getElementById('mobile-server-name');
-                if (pillLabel) pillLabel.textContent = val;
-                // Mirror MobileUIHandler's path: click the matching desktop
-                // server-btn so any legacy listeners still fire.
-                const fullName = `${val} Server`;
-                const legacy = document.querySelector(`.server-btn[data-server="${fullName}"]`);
-                if (legacy) legacy.click();
-                setTimeout(close, 200);
-            });
-        });
-
-        // Item clicks (delegated).
-        sheet.addEventListener('click', (e) => {
-            const item = e.target.closest && e.target.closest('.twu-item');
-            if (!item) return;
-            this._focus(item.dataset.username, item.dataset.flightId);
-            close();
-        });
-
-        this._renderInto('twu-list-mobile');
-    },
-
     // ---------------- events ----------------
 
     _bindGlobalEvents() {
@@ -702,8 +563,6 @@ export const TopWatchedUsers = {
             if (t === 'light' || t === 'dark') this._theme = t;
             const stack = document.getElementById('twu-stack');
             if (stack) stack.setAttribute('data-theme', this._theme);
-            const sheet = document.getElementById('twu-mobile-sheet');
-            if (sheet) sheet.setAttribute('data-theme', this._theme);
         });
     },
 
@@ -723,7 +582,6 @@ export const TopWatchedUsers = {
 
     _render() {
         this._renderInto('twu-list-desktop');
-        this._renderInto('twu-list-mobile');
     },
 
     _renderInto(listId) {
