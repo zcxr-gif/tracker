@@ -41,20 +41,50 @@ function getActiveServerShort() {
     } catch (_) { return 'Expert'; }
 }
 
-// A single pilotUserId can have multiple concurrent flights, but the
-// leaderboard endpoint only tallies views per pilotName. Until the
-// backend exposes per-flight counts, pick the flight that's most
-// likely to be the one viewers actually clicked on:
-//   1. Prefer flights with a real flight plan (departureIcao + arrivalIcao).
-//   2. Among those, prefer the one with the highest altitude (a proxy for
-//      "in cruise" — sitting at a gate is rarely what's being tracked).
-//   3. Fall back to the only / first match.
-function lookupLive(username) {
-    const target = String(username || '').toLowerCase();
-    if (!target) return null;
+// Pick the exact live flight a leaderboard row points at. The backend now
+// tallies views per (pilot, flight, day), so each row carries a `flightId`
+// — we look it up directly. If `flightId` is missing (older backend, or a
+// NO_FLIGHT-bucketed row) we fall back to a heuristic over the pilot's
+// concurrent flights: prefer ones with a real flight plan, tiebreak by
+// altitude.
+function describeFeature(f) {
+    if (!f) return null;
+    const p = f.properties || {};
+    let acData = p.aircraft;
+    if (typeof acData === 'string') {
+        try { acData = JSON.parse(acData); } catch { acData = null; }
+    }
+    return {
+        feature: f,
+        flightId: p.flightId,
+        callsign: p.callsign || '',
+        category: p.category || '',
+        aircraftName: (acData && acData.aircraftName) || p.aircraftName || '',
+        registration: p.registration || (acData && acData.registration) || '',
+        departureIcao: p.departureIcao || '',
+        arrivalIcao: p.arrivalIcao || '',
+        coords: f.geometry && f.geometry.coordinates,
+    };
+}
+
+function lookupLive(row) {
     const flights = (typeof window.getLiveFlightData === 'function')
         ? (window.getLiveFlightData() || [])
         : [];
+
+    // Preferred path: the backend told us exactly which flight this row is.
+    const fid = row && row.flightId;
+    if (fid) {
+        const match = flights.find(f => f && f.properties && f.properties.flightId === fid);
+        if (match) return describeFeature(match);
+        // Backend has a flightId but the local cache doesn't (the flight may
+        // have just ended on this server or we're viewing a different
+        // server). Fall through to the username heuristic so we still show
+        // something useful.
+    }
+
+    const target = String((row && row.pilotName) || '').toLowerCase();
+    if (!target) return null;
 
     const matches = [];
     for (const f of flights) {
@@ -71,25 +101,7 @@ function lookupLive(username) {
         if (planA !== planB) return planB - planA;
         return (Number(pb.altitude) || 0) - (Number(pa.altitude) || 0);
     });
-
-    const f = matches[0];
-    const p = f.properties;
-    let acData = p.aircraft;
-    if (typeof acData === 'string') {
-        try { acData = JSON.parse(acData); } catch { acData = null; }
-    }
-    return {
-        feature: f,
-        flightId: p.flightId,
-        callsign: p.callsign || '',
-        category: p.category || '',
-        aircraftName: (acData && acData.aircraftName) || p.aircraftName || '',
-        registration: p.registration || (acData && acData.registration) || '',
-        departureIcao: p.departureIcao || '',
-        arrivalIcao: p.arrivalIcao || '',
-        coords: f.geometry && f.geometry.coordinates,
-        otherCount: matches.length - 1, // 0 when there's only one
-    };
+    return describeFeature(matches[0]);
 }
 
 function lookupAirportCity(icao) {
@@ -318,16 +330,6 @@ export const TopWatchedUsers = {
             .twu-sheet[data-theme="light"] .twu-tag {
                 background: rgba(0, 0, 0, 0.06);
                 color: #4b5563;
-            }
-            .twu-other {
-                font-size: 0.65rem;
-                font-weight: 700;
-                color: var(--lui-accent, #38bdf8);
-                background: rgba(56, 189, 248, 0.12);
-                padding: 2px 6px;
-                border-radius: 100px;
-                line-height: 1.2;
-                cursor: help;
             }
             .twu-row-sub {
                 font-size: 0.82rem;
@@ -679,7 +681,7 @@ export const TopWatchedUsers = {
         sheet.addEventListener('click', (e) => {
             const item = e.target.closest && e.target.closest('.twu-item');
             if (!item) return;
-            this._focus(item.dataset.username);
+            this._focus(item.dataset.username, item.dataset.flightId);
             close();
         });
 
@@ -736,7 +738,7 @@ export const TopWatchedUsers = {
         list.innerHTML = this._data.map((row, i) => this._rowHTML(row, i)).join('');
 
         list.querySelectorAll('.twu-item').forEach(li => {
-            const go = () => this._focus(li.dataset.username);
+            const go = () => this._focus(li.dataset.username, li.dataset.flightId);
             li.addEventListener('click', go);
             li.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
@@ -748,7 +750,7 @@ export const TopWatchedUsers = {
         const name = String(row.pilotName || '').trim();
         const count = Number(row.viewCount || 0);
         const safeName = esc(name);
-        const live = lookupLive(name);
+        const live = lookupLive(row);
 
         // Primary label: live callsign if available, otherwise the pilot
         // name (e.g. "GILDA" in the reference design).
@@ -781,24 +783,17 @@ export const TopWatchedUsers = {
             sub = `${count} ${count === 1 ? 'view' : 'views'} today`;
         }
 
-        // When the pilot has more than one concurrent live flight we
-        // can't know which one is being tracked, so surface that
-        // honestly with a small "+N" hint next to the registration.
-        const otherHint = (live && live.otherCount > 0)
-            ? `<span class="twu-other" title="${live.otherCount} other live flight${live.otherCount === 1 ? '' : 's'} from this pilot">+${live.otherCount}</span>`
-            : '';
-
         const title = live ? `${safePrimary} • ${esc(name)}` : safeName;
+        const dataFlightId = row && row.flightId ? esc(row.flightId) : '';
 
         return `
-            <li class="twu-item ${live ? 'is-live' : ''}" data-username="${safeName}"
+            <li class="twu-item ${live ? 'is-live' : ''}" data-username="${safeName}" data-flight-id="${dataFlightId}"
                 role="option" tabindex="0" title="${title}">
                 <span class="twu-rank">${i + 1}</span>
                 <div class="twu-row-main">
                     <div class="twu-row-top">
                         <span class="twu-name">${safePrimary}</span>
                         ${tags.join('')}
-                        ${otherHint}
                     </div>
                     <div class="twu-row-sub">${sub}</div>
                 </div>
@@ -823,9 +818,9 @@ export const TopWatchedUsers = {
 
     // ---------------- click-through to map ----------------
 
-    _focus(username) {
-        if (!username) return;
-        const live = lookupLive(username);
+    _focus(username, flightId) {
+        if (!username && !flightId) return;
+        const live = lookupLive({ pilotName: username, flightId });
         if (live && live.flightId && live.coords && typeof window.onSearchResultClick === 'function') {
             try {
                 window.onSearchResultClick(live.flightId, live.coords[1], live.coords[0]);
@@ -833,7 +828,7 @@ export const TopWatchedUsers = {
                 console.warn('[TopWatched] focus failed:', err);
             }
         } else if (typeof window.showGlobalNotification === 'function') {
-            window.showGlobalNotification(`${username} is not currently flying on this server.`, 'info');
+            window.showGlobalNotification(`${username || 'This flight'} is not currently flying on this server.`, 'info');
         }
     },
 };
