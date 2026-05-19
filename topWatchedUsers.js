@@ -711,7 +711,7 @@ export const TopWatchedUsers = {
 
     async _refresh() {
         try {
-            const res = await fetch(`${this._apiBase}/api/leaderboard/top`);
+            const res = await fetch(`${this._apiBase}/api/leaderboard/top?limit=${TOP_N}`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const rows = await res.json();
             this._data = Array.isArray(rows) ? rows.slice(0, TOP_N) : [];
