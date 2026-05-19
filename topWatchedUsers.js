@@ -41,34 +41,62 @@ function getActiveServerShort() {
     } catch (_) { return 'Expert'; }
 }
 
-// Looks up a live flight by pilot name and returns enrichment fields.
+// A single pilotUserId can have multiple concurrent flights, but the
+// leaderboard endpoint only tallies views per pilotName. Until the
+// backend exposes per-flight counts, pick the flight that's most
+// likely to be the one viewers actually clicked on:
+//   1. Prefer flights with a real flight plan (departureIcao + arrivalIcao).
+//   2. Among those, prefer the one with the highest altitude (a proxy for
+//      "in cruise" — sitting at a gate is rarely what's being tracked).
+//   3. Fall back to the only / first match.
 function lookupLive(username) {
     const target = String(username || '').toLowerCase();
     if (!target) return null;
     const flights = (typeof window.getLiveFlightData === 'function')
         ? (window.getLiveFlightData() || [])
         : [];
+
+    const matches = [];
     for (const f of flights) {
         const p = f && f.properties;
         if (!p) continue;
-        if (String(p.username || '').toLowerCase() === target) {
-            let acData = p.aircraft;
-            if (typeof acData === 'string') {
-                try { acData = JSON.parse(acData); } catch { acData = null; }
-            }
-            return {
-                feature: f,
-                flightId: p.flightId,
-                callsign: p.callsign || '',
-                category: p.category || (acData && acData.aircraftName) || '',
-                aircraftName: (acData && acData.aircraftName) || p.aircraftName || '',
-                departureIcao: p.departureIcao || '',
-                arrivalIcao: p.arrivalIcao || '',
-                coords: f.geometry && f.geometry.coordinates,
-            };
-        }
+        if (String(p.username || '').toLowerCase() === target) matches.push(f);
     }
-    return null;
+    if (!matches.length) return null;
+
+    matches.sort((a, b) => {
+        const pa = a.properties, pb = b.properties;
+        const planA = (pa.departureIcao && pa.arrivalIcao) ? 1 : 0;
+        const planB = (pb.departureIcao && pb.arrivalIcao) ? 1 : 0;
+        if (planA !== planB) return planB - planA;
+        return (Number(pb.altitude) || 0) - (Number(pa.altitude) || 0);
+    });
+
+    const f = matches[0];
+    const p = f.properties;
+    let acData = p.aircraft;
+    if (typeof acData === 'string') {
+        try { acData = JSON.parse(acData); } catch { acData = null; }
+    }
+    return {
+        feature: f,
+        flightId: p.flightId,
+        callsign: p.callsign || '',
+        category: p.category || '',
+        aircraftName: (acData && acData.aircraftName) || p.aircraftName || '',
+        registration: p.registration || (acData && acData.registration) || '',
+        departureIcao: p.departureIcao || '',
+        arrivalIcao: p.arrivalIcao || '',
+        coords: f.geometry && f.geometry.coordinates,
+        otherCount: matches.length - 1, // 0 when there's only one
+    };
+}
+
+function lookupAirportCity(icao) {
+    if (!icao) return '';
+    const data = window.airportsData && window.airportsData[icao];
+    if (!data) return '';
+    return data.city || data.name || '';
 }
 
 export const TopWatchedUsers = {
@@ -237,10 +265,10 @@ export const TopWatchedUsers = {
             }
             .twu-item {
                 display: grid;
-                grid-template-columns: 22px 30px 1fr;
-                column-gap: 12px;
+                grid-template-columns: 22px 1fr;
+                column-gap: 14px;
                 align-items: start;
-                padding: 10px 8px;
+                padding: 12px 10px;
                 border-radius: 10px;
                 cursor: pointer;
                 transition: background 0.2s ease;
@@ -250,64 +278,67 @@ export const TopWatchedUsers = {
                 outline: none;
             }
             .twu-rank {
-                font-size: 0.85rem;
-                font-weight: 700;
+                font-size: 0.95rem;
+                font-weight: 600;
                 color: var(--lui-text-gray-2, #71717a);
                 text-align: center;
-                padding-top: 4px;
+                padding-top: 2px;
                 font-variant-numeric: tabular-nums;
             }
-            .twu-icon {
-                width: 30px; height: 30px;
-                border-radius: 8px;
-                display: grid; place-items: center;
-                background: var(--lui-border-base, rgba(255, 255, 255, 0.05));
-                color: var(--lui-text-gray-1, #a1a1aa);
-                font-size: 0.85rem;
-                margin-top: 2px;
-            }
-            .twu-item.is-live .twu-icon {
-                background: rgba(56, 189, 248, 0.12);
-                color: var(--lui-accent, #38bdf8);
-            }
-            .twu-icon i { transform: rotate(-45deg); }
 
             .twu-row-main { min-width: 0; }
             .twu-row-top {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 8px;
                 flex-wrap: wrap;
             }
             .twu-name {
-                font-size: 0.95rem;
-                font-weight: 700;
+                font-size: 1rem;
+                font-weight: 800;
                 color: var(--lui-text-main, #fff);
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
-                max-width: 130px;
+                max-width: 160px;
+                letter-spacing: 0.2px;
             }
             .twu-stack[data-theme="light"] .twu-name { color: #111827; }
             .twu-tag {
+                font-size: 0.7rem;
+                font-weight: 600;
+                color: var(--lui-text-gray-1, #a1a1aa);
+                background: rgba(255, 255, 255, 0.06);
+                padding: 3px 9px;
+                border-radius: 100px;
+                white-space: nowrap;
+                line-height: 1.2;
+            }
+            .twu-stack[data-theme="light"] .twu-tag,
+            .twu-sheet[data-theme="light"] .twu-tag {
+                background: rgba(0, 0, 0, 0.06);
+                color: #4b5563;
+            }
+            .twu-other {
                 font-size: 0.65rem;
                 font-weight: 700;
-                letter-spacing: 0.5px;
-                color: var(--lui-text-gray-1, #a1a1aa);
-                background: var(--lui-border-base, rgba(255, 255, 255, 0.05));
-                border: 1px solid var(--lui-border-base, rgba(255, 255, 255, 0.05));
-                padding: 2px 7px;
-                border-radius: 5px;
-                white-space: nowrap;
+                color: var(--lui-accent, #38bdf8);
+                background: rgba(56, 189, 248, 0.12);
+                padding: 2px 6px;
+                border-radius: 100px;
+                line-height: 1.2;
+                cursor: help;
             }
             .twu-row-sub {
-                font-size: 0.78rem;
-                color: var(--lui-text-gray-2, #71717a);
-                margin-top: 3px;
+                font-size: 0.82rem;
+                color: var(--lui-text-gray-1, #a1a1aa);
+                margin-top: 4px;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
+            .twu-stack[data-theme="light"] .twu-row-sub,
+            .twu-sheet[data-theme="light"] .twu-row-sub { color: #6b7280; }
             .twu-empty, .twu-loading {
                 padding: 16px;
                 font-size: 0.8rem;
@@ -716,33 +747,58 @@ export const TopWatchedUsers = {
     _rowHTML(row, i) {
         const name = String(row.pilotName || '').trim();
         const count = Number(row.viewCount || 0);
-        const safe = esc(name);
+        const safeName = esc(name);
         const live = lookupLive(name);
 
+        // Primary label: live callsign if available, otherwise the pilot
+        // name (e.g. "GILDA" in the reference design).
+        const primary = live && live.callsign ? live.callsign : name;
+        const safePrimary = esc(primary);
+
+        // Tags: aircraft type code + registration (matches the
+        // "[C17] [ZZ172]" style in the reference). Falls back to a
+        // single "N views" pill when the pilot isn't currently flying.
         const tags = [];
         if (live && live.category) tags.push(`<span class="twu-tag">${esc(live.category)}</span>`);
-        if (live && live.callsign) tags.push(`<span class="twu-tag">${esc(live.callsign)}</span>`);
+        if (live && live.registration) tags.push(`<span class="twu-tag">${esc(live.registration)}</span>`);
         if (!tags.length) tags.push(`<span class="twu-tag">${count} views</span>`);
 
+        // Subtitle: "City ICAO to City ICAO" when there's a plan,
+        // otherwise the full aircraft name. Mirrors the screenshot
+        // where ferries fall back to just the airframe.
         let sub = '';
         if (live && (live.departureIcao || live.arrivalIcao)) {
-            const dep = live.departureIcao || '???';
-            const arr = live.arrivalIcao || '???';
-            sub = `${esc(dep)} <i class="fa-solid fa-arrow-right" style="font-size:0.6rem;opacity:0.5;"></i> ${esc(arr)}`;
+            const dep = live.departureIcao || '';
+            const arr = live.arrivalIcao || '';
+            const depCity = lookupAirportCity(dep);
+            const arrCity = lookupAirportCity(arr);
+            const depLabel = depCity ? `${esc(depCity)} ${esc(dep)}` : esc(dep || '???');
+            const arrLabel = arrCity ? `${esc(arrCity)} ${esc(arr)}` : esc(arr || '???');
+            sub = `${depLabel} to ${arrLabel}`;
+        } else if (live && live.aircraftName) {
+            sub = esc(live.aircraftName);
         } else {
             sub = `${count} ${count === 1 ? 'view' : 'views'} today`;
         }
 
+        // When the pilot has more than one concurrent live flight we
+        // can't know which one is being tracked, so surface that
+        // honestly with a small "+N" hint next to the registration.
+        const otherHint = (live && live.otherCount > 0)
+            ? `<span class="twu-other" title="${live.otherCount} other live flight${live.otherCount === 1 ? '' : 's'} from this pilot">+${live.otherCount}</span>`
+            : '';
+
+        const title = live ? `${safePrimary} • ${esc(name)}` : safeName;
+
         return `
-            <li class="twu-item ${live ? 'is-live' : ''}" data-username="${safe}"
-                role="option" tabindex="0"
-                title="${safe}${live ? ' — live now' : ''}">
+            <li class="twu-item ${live ? 'is-live' : ''}" data-username="${safeName}"
+                role="option" tabindex="0" title="${title}">
                 <span class="twu-rank">${i + 1}</span>
-                <span class="twu-icon" aria-hidden="true"><i class="fa-solid fa-plane"></i></span>
                 <div class="twu-row-main">
                     <div class="twu-row-top">
-                        <span class="twu-name">${safe}</span>
+                        <span class="twu-name">${safePrimary}</span>
                         ${tags.join('')}
+                        ${otherHint}
                     </div>
                     <div class="twu-row-sub">${sub}</div>
                 </div>

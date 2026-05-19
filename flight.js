@@ -5004,7 +5004,8 @@ async function trackPilotView(flight) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 pilotUserId: flight.userId,
-                pilotName: flight.username
+                pilotName: flight.username,
+                flightId: flight.flightId || null
             })
         });
     } catch (e) {
@@ -7204,6 +7205,7 @@ async function fetchAirportsData() {
         }
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
+        window.airportsData = airportsData;
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
