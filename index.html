@@ -2044,6 +2044,123 @@
             height: 24px;
             width: 24px;
         }
+
+        /* ====================================================================
+        --- TOP WATCHED PILOTS (desktop top-left panel / mobile dropdown) ---
+        ==================================================================== */
+        .twu-panel {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1050;
+            width: 240px;
+            background: rgba(18, 20, 38, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+            color: #e8eaf6;
+            font-family: 'Inter', system-ui, sans-serif;
+            overflow: hidden;
+        }
+        .twu-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 14px;
+            background: transparent;
+            border: none;
+            color: #e8eaf6;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.02em;
+        }
+        .twu-header:hover { background: rgba(255, 255, 255, 0.04); }
+        .twu-icon { color: #c084fc; font-size: 0.95rem; }
+        .twu-title { flex: 1; text-align: left; }
+        .twu-chevron {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            transition: transform 0.2s ease;
+            display: none; /* hidden on desktop — body is always visible */
+        }
+        .twu-body {
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        .twu-list {
+            list-style: none;
+            margin: 0;
+            padding: 6px 0;
+        }
+        .twu-item {
+            display: grid;
+            grid-template-columns: 22px 1fr auto;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            font-size: 0.85rem;
+        }
+        .twu-item:hover, .twu-item:focus-visible {
+            background: rgba(0, 168, 255, 0.12);
+            outline: none;
+        }
+        .twu-rank {
+            font-weight: 700;
+            color: #9fa8da;
+            font-size: 0.75rem;
+            text-align: center;
+        }
+        .twu-item:nth-child(1) .twu-rank { color: #facc15; }
+        .twu-item:nth-child(2) .twu-rank { color: #cbd5e1; }
+        .twu-item:nth-child(3) .twu-rank { color: #d97706; }
+        .twu-name {
+            color: #e8eaf6;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .twu-count {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: #94a3b8;
+            font-size: 0.75rem;
+            font-variant-numeric: tabular-nums;
+        }
+        .twu-count .fa-eye { font-size: 0.7rem; }
+        .twu-empty {
+            list-style: none;
+            padding: 10px 14px;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        /* Mobile: collapse into a dropdown toggled by the header. */
+        @media (max-width: 992px) {
+            .twu-panel {
+                top: calc(env(safe-area-inset-top, 15px) + 70px);
+                left: 15px;
+                width: auto;
+                max-width: calc(100vw - 30px);
+            }
+            .twu-header { padding: 8px 12px; font-size: 0.8rem; }
+            .twu-chevron { display: inline-block; }
+            .twu-panel.twu-open .twu-chevron { transform: rotate(180deg); }
+            .twu-body {
+                display: none;
+                width: 260px;
+                max-width: calc(100vw - 30px);
+            }
+            .twu-panel.twu-open .twu-body { display: block; }
+        }
     </style>
 </head>
 <body>

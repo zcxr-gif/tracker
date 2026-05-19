@@ -17,6 +17,7 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
+import { TopWatchedUsers } from './topWatchedUsers.js';
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -41,6 +42,7 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
+TopWatchedUsers.init(supabase);
 
 
 // Felzenszwalb-Huttenlocher 1D squared distance transform.
