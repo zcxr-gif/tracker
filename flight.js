@@ -126,7 +126,7 @@ function _buildSDF(rgba, w, h, radius, cutoff) {
     return out;
 }
 
-async function loadSpriteSheetAndGenerateIcons(map, { useSdf = true } = {}) {
+async function loadSpriteSheetAndGenerateIcons(map) {
     const spriteUrl = './markers.png';
 
     const img = new Image();
@@ -173,12 +173,17 @@ async function loadSpriteSheetAndGenerateIcons(map, { useSdf = true } = {}) {
         const pixelH = Math.floor(hRatio * img.height);
 
         if (pixelW === 0 || pixelH === 0) continue;
-        if (map.hasImage(`icon-${iconKey}`)) continue;
 
-        if (!useSdf) {
+        // Register the non-SDF "raw colors" variant — selected when
+        // iconColorMode === 'default' so users see the source sheet's
+        // baked-in colors. icon-color tinting has no effect on these.
+        if (!map.hasImage(`icon-${iconKey}-color`)) {
             const raw = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
-            const pRatio = pixelW / TARGET_LOGICAL_SIZE;
-            map.addImage(`icon-${iconKey}`, raw, { pixelRatio: pRatio, sdf: false });
+            const pRatioRaw = pixelW / TARGET_LOGICAL_SIZE;
+            map.addImage(`icon-${iconKey}-color`, raw, { pixelRatio: pRatioRaw, sdf: false });
+        }
+
+        if (map.hasImage(`icon-${iconKey}`)) {
             if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
                 await new Promise(resolve => requestAnimationFrame(resolve));
                 executionStartTime = performance.now();
@@ -274,13 +279,19 @@ function applyTrafficHighlighting() {
     }
 }
 
+// "Default (White)" mode points at the non-SDF "-color" sprite variants so
+// users see the source sheet's baked-in colors. Other color modes keep the
+// SDF variants for live icon-color tinting.
+function _iconVariantSuffix() {
+    return mapFilters.iconColorMode === 'default' ? '-color' : '';
+}
+
 function getIconImageExpression() {
-    // With SDF GPU tinting, dynamic color suffixes are no longer needed
-    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], _iconVariantSuffix()];
 }
 
 function getHoverIconImageExpression() {
-    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], '_S'];
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], '_S', _iconVariantSuffix()];
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -12033,27 +12044,11 @@ async function setupMapLayersAndFog() {
         'star-intensity': 0.3
     });
 
-    // Load the sprite sheet once. Pro users get SDF rendering so the dynamic
-    // icon-color pipeline (user/watchlist/inbound/outbound + custom colors)
-    // works; non-pro users get raw full-color sprites from the sheet, which
-    // makes icon-color a no-op but ships the higher-detail original art.
-    let isProForSprites = false;
+    // Load the sprite sheet once. Both SDF and non-SDF variants of each icon
+    // get registered so the layer can switch between them based on
+    // iconColorMode (see getIconImageExpression) without re-loading.
     try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userId = sessionData?.session?.user?.id;
-        if (userId) {
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('is_pro')
-                .eq('id', userId)
-                .single();
-            isProForSprites = !!profile?.is_pro;
-        }
-    } catch (err) {
-        console.warn("Pro check for sprite mode failed; defaulting to non-SDF.", err);
-    }
-    try {
-        await loadSpriteSheetAndGenerateIcons(sectorOpsMap, { useSdf: isProForSprites });
+        await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
     } catch (err) {
         console.error("Sprite sheet failed to load:", err);
     }
@@ -16101,10 +16096,14 @@ if (flatMapToggle) {
         } else if (target.name === 'icon-color-mode') {
             mapFilters.iconColorMode = target.value;
             saveFiltersToLocalStorage();
-            // Re-render aircraft icons by updating layer property
+            // Re-render aircraft icons by updating layer property. Also swap
+            // icon-image to switch between SDF and non-SDF sprite variants
+            // (Default = source-sheet colors; Blue/Orange = SDF tinted).
             if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
+                sectorOpsMap.setLayoutProperty('sector-ops-live-flights-layer', 'icon-image', getIconImageExpression());
                 sectorOpsMap.setPaintProperty('sector-ops-live-flights-layer', 'icon-color', getPremiumColorExpression());
                 if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
+                    sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
                     sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', getPremiumColorExpression());
                 }
             }
