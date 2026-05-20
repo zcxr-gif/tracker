@@ -119,13 +119,6 @@ function getCurrentIfName() {
     } catch (_) { return ''; }
 }
 
-function lookupAirportCity(icao) {
-    if (!icao) return '';
-    const data = window.airportsData && window.airportsData[icao];
-    if (!data) return '';
-    return data.city || data.name || '';
-}
-
 export const TopWatchedUsers = {
     _apiBase: null,
     _data: [],
@@ -688,25 +681,22 @@ export const TopWatchedUsers = {
         const safePrimary = esc(primary);
 
         // Tags: aircraft type code + registration (matches the
-        // "[C17] [ZZ172]" style in the reference). Falls back to a
-        // single "N views" pill when the pilot isn't currently flying.
+        // "[C17] [ZZ172]" style in the reference), always followed by a
+        // view-count pill so every row shows how many views the pilot has
+        // earned today.
         const tags = [];
         if (live && live.category) tags.push(`<span class="twu-tag">${esc(live.category)}</span>`);
         if (live && live.registration) tags.push(`<span class="twu-tag">${esc(live.registration)}</span>`);
-        if (!tags.length) tags.push(`<span class="twu-tag">${count} views</span>`);
+        tags.push(`<span class="twu-tag twu-tag-views">${count} ${count === 1 ? 'view' : 'views'}</span>`);
 
-        // Subtitle: "City ICAO to City ICAO" when there's a plan,
-        // otherwise the full aircraft name. Mirrors the screenshot
-        // where ferries fall back to just the airframe.
+        // Subtitle: "ICAO to ICAO" when there's a plan, otherwise the full
+        // aircraft name. Mirrors the screenshot where ferries fall back to
+        // just the airframe.
         let sub = '';
         if (live && (live.departureIcao || live.arrivalIcao)) {
-            const dep = live.departureIcao || '';
-            const arr = live.arrivalIcao || '';
-            const depCity = lookupAirportCity(dep);
-            const arrCity = lookupAirportCity(arr);
-            const depLabel = depCity ? `${esc(depCity)} ${esc(dep)}` : esc(dep || '???');
-            const arrLabel = arrCity ? `${esc(arrCity)} ${esc(arr)}` : esc(arr || '???');
-            sub = `${depLabel} to ${arrLabel}`;
+            const dep = esc(live.departureIcao || '???');
+            const arr = esc(live.arrivalIcao || '???');
+            sub = `${dep} to ${arr}`;
         } else if (live && live.aircraftName) {
             sub = esc(live.aircraftName);
         } else {
