@@ -17,6 +17,7 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
+import { TopWatchedUsers } from './topWatchedUsers.js';
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -284,6 +285,8 @@ if ('serviceWorker' in navigator) {
 
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+    window.API_BASE_URL = API_BASE_URL;
+    TopWatchedUsers.init(API_BASE_URL);
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
@@ -5002,7 +5005,8 @@ async function trackPilotView(flight) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 pilotUserId: flight.userId,
-                pilotName: flight.username
+                pilotName: flight.username,
+                flightId: flight.flightId || null
             })
         });
     } catch (e) {
@@ -7202,6 +7206,7 @@ async function fetchAirportsData() {
         }
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
+        window.airportsData = airportsData;
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
