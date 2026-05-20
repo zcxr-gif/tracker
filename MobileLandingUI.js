@@ -492,10 +492,14 @@ export const MobileLandingUI = {
             return;
         }
         try {
-            const res = await fetch(`${base}/api/leaderboard/top?limit=5`);
-            if (!res.ok) throw new Error('bad response');
-            const data = await res.json();
-            this._trendingData = Array.isArray(data) ? data : [];
+            // The default /top response only returns per-flight rows
+            // (flightId !== NO_FLIGHT), which carry a fly-to target. When the
+            // live socket isn't feeding flightIds, every view buckets into the
+            // NO_FLIGHT sentinel and that response is empty — so fall back to
+            // ?groupBy=pilot, which sums views per pilot across all buckets.
+            let data = await this._fetchLeaderboard(base, false);
+            if (!data.length) data = await this._fetchLeaderboard(base, true);
+            this._trendingData = data;
             this._renderTrending();
         } catch (_) {
             // Fall back to whatever TopWatchedUsers already had cached.
@@ -506,6 +510,14 @@ export const MobileLandingUI = {
                 list.innerHTML = `<div class="m-tb-hint">Couldn't load trending right now.</div>`;
             }
         }
+    },
+
+    async _fetchLeaderboard(base, byPilot) {
+        const url = `${base}/api/leaderboard/top?limit=5${byPilot ? '&groupBy=pilot' : ''}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('bad response');
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
     },
 
     _matchFlight(row, live) {
