@@ -1508,7 +1508,11 @@ export const LandingUI = {
                 }
 
                 .search-blade {
-                    width: 150px !important;
+                    /* Fill the header row to the right of the compact trending
+                       icon / server pill. The reserved 115px on the left keeps
+                       a clear gap from those controls (see topWatchedUsers.js
+                       mobile block). */
+                    width: calc(100vw - 130px) !important;
                     height: 38px !important;
                     padding: 0 12px !important;
                     background: var(--lui-bg-card) !important;

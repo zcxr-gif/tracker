@@ -195,6 +195,8 @@ export const TopWatchedUsers = {
                 color: inherit;
                 text-align: left;
             }
+            /* Leading head icons only surface on the compact mobile layout. */
+            .twu-head-icon { display: none; }
             .twu-card-title {
                 flex: 1;
                 font-size: 0.95rem;
@@ -403,33 +405,54 @@ export const TopWatchedUsers = {
             }
             .twu-server-opt.active .twu-server-check { opacity: 1; }
 
-            /* Mobile presentation (matches LandingUI's own 768px breakpoint).
-               The stack moves to the very top-left, taking the slot where
-               LandingUI's server pill normally sits (we hide that pill and
-               recreate it as the Server card). Both cards default to
-               collapsed so they read as two compact pills and never blanket
-               the map; one tap expands either. Tapping a pilot flies the map. */
+            /* Mobile layout (matches LandingUI's own 768px breakpoint).
+               The two controls live at the top-left of LandingUI's mobile
+               header as compact pills, leaving the rest of the row for the
+               search blade (which sits top-right and overlays them when
+               focused). To stay narrow they collapse hard:
+                 • Trending  → an icon-only round button.
+                 • Server    → a "broadcast · EXPERT" pill (the word "Server"
+                               is dropped; the live tag carries the meaning).
+               Tapping either expands it into a readable column that drops
+               down over the map; the other control reflows below it. */
             @media (max-width: ${MOBILE_BREAKPOINT}px) {
                 .twu-stack {
-                    /* Vertically centre the collapsed pills against the search
-                       blade in LandingUI's 60px mobile header. */
-                    top: calc(env(safe-area-inset-top, 0px) + 12px);
+                    top: calc(env(safe-area-inset-top, 0px) + 11px);
                     left: 15px;
                     right: auto;
                     width: auto;
                     align-items: flex-start;
                     gap: 8px;
-                    /* Leave room for the top-right search blade and never run
-                       off-screen on small phones. */
+                    /* Stay on-screen; collapsed pills are tiny (icon + row-2
+                       server pill) so they clear the top-right search blade on
+                       their own, and expanded panels can use the full width. */
                     max-width: calc(100vw - 30px);
                 }
-                /* Collapsed cards hug their header (compact pills that clear
-                   the top-right search blade); expanding one widens it to a
-                   readable column. */
+
                 .twu-card { width: max-content; max-width: calc(100vw - 30px); }
-                .twu-card.is-open { width: min(calc(100vw - 30px), 300px); }
-                .twu-card-head { padding: 10px 14px; }
-                .twu-card-title { font-size: 0.8rem; }
+                .twu-card.is-open { width: min(calc(100vw - 30px), 320px); }
+                .twu-card-head { padding: 9px 13px; gap: 9px; }
+                .twu-card-title { font-size: 0.82rem; }
+                .twu-head-icon { display: inline-block; font-size: 0.9rem; opacity: 0.85; }
+
+                /* Trending collapses to an icon-only button. The title and
+                   chevron return the moment it is opened so the panel reads
+                   normally. */
+                .twu-card[data-card="tracked"]:not(.is-open) .twu-card-title,
+                .twu-card[data-card="tracked"]:not(.is-open) .twu-card-chev {
+                    display: none;
+                }
+                .twu-card[data-card="tracked"]:not(.is-open) .twu-card-head {
+                    padding: 10px;
+                }
+
+                /* Server drops the redundant "Server" word when collapsed but
+                   keeps it once expanded for a clear panel header. */
+                .twu-card[data-card="server"]:not(.is-open) .twu-card-title {
+                    display: none;
+                }
+                .twu-card-meta { font-size: 0.62rem; padding: 3px 8px; }
+
                 .twu-stack .twu-list { max-height: 220px; }
                 .twu-item { padding: 11px 8px; }
                 .twu-name { font-size: 0.95rem; }
@@ -478,7 +501,8 @@ export const TopWatchedUsers = {
     _cardTrackedHTML() {
         return `
             <section class="twu-card ${this._trackedOpen ? 'is-open' : ''}" data-card="tracked">
-                <button type="button" class="twu-card-head" data-toggle="tracked" aria-expanded="${this._trackedOpen}">
+                <button type="button" class="twu-card-head" data-toggle="tracked" aria-expanded="${this._trackedOpen}" aria-label="Most Tracked">
+                    <i class="fa-solid fa-arrow-trend-up twu-head-icon"></i>
                     <span class="twu-card-title">Most Tracked</span>
                     <i class="fa-solid fa-chevron-up twu-card-chev"></i>
                 </button>
@@ -500,7 +524,8 @@ export const TopWatchedUsers = {
         const active = getActiveServerShort();
         return `
             <section class="twu-card ${this._serverOpen ? 'is-open' : ''}" data-card="server">
-                <button type="button" class="twu-card-head" data-toggle="server" aria-expanded="${this._serverOpen}">
+                <button type="button" class="twu-card-head" data-toggle="server" aria-expanded="${this._serverOpen}" aria-label="Server">
+                    <i class="fa-solid fa-tower-broadcast twu-head-icon"></i>
                     <span class="twu-card-title">Server</span>
                     <span class="twu-card-meta">
                         <span class="twu-meta-dot"></span>
