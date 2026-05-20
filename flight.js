@@ -542,6 +542,7 @@ window.pinFlight = function(flightId) {
         
         if (currentFlightInWindow !== flightId) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(flightId);
+            if (typeof FlownPath3D !== 'undefined') FlownPath3D.clearPath(sectorOpsMap, flightId);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(flightId);
         } else {
             const pinBtn = document.getElementById('pin-flight-btn');
@@ -6819,6 +6820,28 @@ window.addEventListener('serverChange', (e) => {
     }
 });
 
+/**
+ * Rebuilds the 3D flown-path geometry for every flight currently shown in 3D
+ * (the open flight + any pinned flights). Must run after a projection change
+ * (mercator <-> globe) because the trail geometry is built in projection-specific
+ * coordinates, and after a style swap, which drops custom layers entirely.
+ */
+function rebuildVisible3DPaths() {
+    if (typeof FlownPath3D === 'undefined' || !sectorOpsMap) return;
+
+    const ids = new Set();
+    if (currentFlightInWindow) ids.add(currentFlightInWindow);
+    if (window.pinnedFlights) window.pinnedFlights.forEach(id => ids.add(id));
+
+    ids.forEach(id => {
+        const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(id)) || [];
+        // Drop the old layer first so stale geometry / the removed custom layer
+        // is fully replaced, then rebuild in the active projection.
+        FlownPath3D.clearPath(sectorOpsMap, id);
+        FlownPath3D.updatePath(sectorOpsMap, id, trail, mapFilters.show3DPath);
+    });
+}
+
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
@@ -6843,14 +6866,7 @@ function updateMapFilters() {
     
     const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
 
-    if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
-        FlownPath3D.updatePath(
-            sectorOpsMap, 
-            currentFlightInWindow, 
-            liveTrailCache.get(currentFlightInWindow), 
-            mapFilters.show3DPath 
-        );
-    }
+    rebuildVisible3DPaths();
 
     if (currentMapStyle !== targetStyle) {
         currentMapStyle = targetStyle;
@@ -12043,6 +12059,9 @@ function initializeSectorOpsMap(centerICAO) {
     showSectorOpsMapLoader();
 
     if (sectorOpsMap) {
+        // Tear down 3D path objects + the shared renderer tied to the old GL context
+        // before the map (and its WebGL context) is destroyed.
+        if (typeof FlownPath3D !== 'undefined') FlownPath3D.clearAllPaths(sectorOpsMap);
         sectorOpsMap.remove();
         sectorOpsMap = null;
     }
@@ -12274,7 +12293,11 @@ if (flightProps) {
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
         }
-        
+
+        // 8b. Re-add 3D flown paths — Mapbox drops all custom layers on setStyle,
+        // so without this the 3D trail vanishes after any map-style change.
+        rebuildVisible3DPaths();
+
         // 9. Re-apply aircraft filters
         updateAircraftLayerFilter();
 
@@ -12903,6 +12926,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
         if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
+            // Also drop the 3D trail of the previous flight — otherwise its tube
+            // orphans on the map after switching to another aircraft.
+            if (typeof FlownPath3D !== 'undefined') FlownPath3D.clearPath(sectorOpsMap, currentFlightInWindow);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
         }
     }
@@ -15851,6 +15877,9 @@ if (flatMapToggle) {
         // Update the Mapbox projection
         if (sectorOpsMap) {
             sectorOpsMap.setProjection(useFlat ? 'mercator' : 'globe');
+            // The 3D path geometry is projection-specific (Mercator vs globe ECEF),
+            // so rebuild it whenever the projection toggles.
+            rebuildVisible3DPaths();
         }
     });
 }
