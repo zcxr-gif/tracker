@@ -1446,90 +1446,80 @@ export const LandingUI = {
             .slide-in { animation: slideIn 0.35s forwards; }
 
             @media (max-width: 768px) {
-                /* The mobile top bar is a transparent passthrough layer. The
-                   trending / server pills (topWatchedUsers.js) float top-left
-                   and the search blade floats top-right, each carrying its own
-                   frosted background. The header paints nothing of its own, so
-                   it never hides the pills, but it sits above them in the
-                   stacking order so a focused search can overlay them and the
-                   full-screen results sheet covers everything. */
                 .tactical-header {
                     position: fixed;
                     top: 0;
-                    left: 0;
-                    width: 100%;
                     height: 60px;
+                    background: var(--lui-bg-main);
+                    backdrop-filter: blur(20px);
+                    border-bottom: 1px solid var(--lui-border-base);
                     display: flex !important;
                     align-items: center !important;
-                    justify-content: flex-end !important;
+                    justify-content: space-between !important;
                     padding: 0 15px !important;
-                    background: transparent !important;
-                    backdrop-filter: none !important;
-                    border-bottom: none !important;
                     pointer-events: none !important;
-                    z-index: 2001;
                 }
 
-                /* LandingUI's native server pill is normally replaced by the
-                   unified stack's Server card (topWatchedUsers.js hides it). If
-                   that stack ever fails to mount, the native pill stays usable
-                   as a top-left fallback rather than vanishing. */
-                .top-branding.dropdown {
-                    position: fixed !important;
-                    top: 12px !important;
-                    left: 15px !important;
-                    transform: none !important;
-                    margin: 0 !important;
-                    padding: 8px 14px !important;
-                    gap: 8px !important;
-                    box-shadow: none !important;
-                    pointer-events: auto;
-                    z-index: 2001;
-                }
-                #landing-server-name {
-                    font-size: 0.7rem !important;
-                    font-weight: 800;
-                }
-                .status-dot { width: 6px !important; height: 6px !important; }
-
+                .top-branding.dropdown, 
                 .top-right-actions {
                     position: static !important;
                     transform: none !important;
                     box-shadow: none !important;
-                    margin: 0 !important;
                     padding: 0 !important;
+                    margin: 0 !important;
                     background: transparent !important;
                     border: none !important;
                     backdrop-filter: none !important;
-                    flex: 0 1 auto;
+                }
+
+                .top-branding.dropdown {
+                    flex-shrink: 0;
+                    margin-right: 15px !important;
+                }
+
+                #landing-server-name {
+                    font-size: 0.7rem !important;
+                    font-weight: 800;
+                }
+
+                .top-right-actions {
+                    flex: 1;
+                    max-width: 200px; 
                     display: flex;
                     justify-content: flex-end;
-                    pointer-events: auto;
                 }
 
                 .search-blade {
-                    /* Fill the header row to the right of the compact trending
-                       icon / server pill. The reserved 115px on the left keeps
-                       a clear gap from those controls (see topWatchedUsers.js
-                       mobile block). */
-                    width: calc(100vw - 130px) !important;
-                    height: 38px !important;
+                    width: 100% !important;
+                    height: 36px !important;
                     padding: 0 12px !important;
-                    background: var(--lui-bg-card) !important;
-                    border-radius: 10px !important;
-                    position: relative !important;
-                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-                    z-index: 1 !important;
+                    background: var(--lui-border-base) !important;
+                    border-radius: 8px !important;
                 }
+
                 .search-blade:focus-within {
-                    width: calc(100vw - 30px) !important;
+                    position: absolute !important;
+                    left: 10px !important;
+                    right: 10px !important;
+                    top: 10px !important;
+                    width: calc(100% - 20px) !important;
+                    height: 40px !important;
+                    z-index: 100 !important;
                     max-width: none !important;
-                    background: var(--lui-bg-main) !important;
-                    z-index: 2 !important;
+                    background: var(--lui-bg-card) !important;
                 }
-                #blade-search-input { font-size: 16px !important; }
+
                 .search-shortcut { display: none !important; }
 
+                .utility-nexus { bottom: 20px !important; right: 20px !important; }
+                
+                .auth-nexus {
+                    bottom: 20px !important;
+                    left: 20px !important;
+                }
+
+                .orb-btn { width: 44px !important; height: 44px !important; }
+                
                 .search-results-dropdown {
                     position: fixed !important;
                     top: 60px !important;
@@ -1542,7 +1532,6 @@ export const LandingUI = {
                     height: calc(100dvh - 60px) !important;
                     max-height: none !important;
                     border-radius: 0 !important;
-                    z-index: 5 !important;
                     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
                 }
                 .blade-results-section + .blade-results-section {
@@ -1557,16 +1546,65 @@ export const LandingUI = {
                     padding: 12px 16px 6px !important;
                 }
 
-                .utility-nexus { bottom: 20px !important; right: 20px !important; }
-                .auth-nexus { bottom: 20px !important; left: 20px !important; }
-                .orb-row { gap: 10px !important; }
+                .top-branding.dropdown {
+                    top: 15px !important;
+                    left: 15px !important;
+                    padding: 8px 14px !important;
+                    gap: 8px !important;
+                }
+                #landing-server-name {
+                    font-size: 0.7rem !important; 
+                }
+                .status-dot {
+                    width: 6px !important;
+                    height: 6px !important;
+                }
+
+                .top-right-actions {
+                    position: static !important;
+                    flex: 1;
+                    display: flex;
+                    justify-content: flex-end; 
+                    pointer-events: auto;
+                }
+
+                .search-blade {
+                    width: 150px !important; 
+                    height: 38px !important;
+                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+                    position: relative !important; 
+                }
+
+                .search-blade:focus-within {
+                    width: calc(100vw - 120px) !important; 
+                    z-index: 100 !important;
+                }
+                #blade-search-input {
+                    font-size: 13px !important;
+                }
+                .search-shortcut {
+                    display: none; 
+                }
+
+                .utility-nexus {
+                    bottom: 20px !important;
+                    right: 20px !important;
+                }
+                .orb-row {
+                    gap: 10px !important;
+                }
                 .orb-btn {
                     width: 42px !important;
                     height: 42px !important;
-                    font-size: 0.9rem !important;
+                    font-size: 0.9rem !important; 
                 }
-                .spread-opt { padding: 8px 15px !important; }
-                .spread-opt i { font-size: 0.8rem !important; }
+
+                .spread-opt {
+                    padding: 8px 15px !important;
+                }
+                .spread-opt i {
+                    font-size: 0.8rem !important;
+                }
             }
         `;
         
