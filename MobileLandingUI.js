@@ -2,6 +2,8 @@
  * MobileLandingUI.js - Optimized for State Persistence & Responsive Inputs
  */
 
+import { TopWatchedUsers } from './topWatchedUsers.js';
+
 export const MobileLandingUI = {
     _isOpen: false,
 
@@ -474,16 +476,33 @@ export const MobileLandingUI = {
     async _loadTrending() {
         const list = document.getElementById('m-tb-trending-list');
         if (!list) return;
-        const base = window.API_BASE_URL;
-        if (!base) { list.innerHTML = `<div class="m-tb-hint">Trending is unavailable.</div>`; return; }
+
+        // The leaderboard is independent of the live socket/plane layer, so it
+        // populates even when no planes are loaded. Prefer the data the desktop
+        // TopWatchedUsers component already fetches and keeps fresh (the proven
+        // path), then refresh from the same endpoint.
+        if (Array.isArray(TopWatchedUsers?._data) && TopWatchedUsers._data.length) {
+            this._trendingData = TopWatchedUsers._data;
+            this._renderTrending();
+        }
+
+        const base = TopWatchedUsers?._apiBase || window.API_BASE_URL;
+        if (!base) {
+            if (!this._trendingData.length) list.innerHTML = `<div class="m-tb-hint">Trending is unavailable.</div>`;
+            return;
+        }
         try {
-            const res = await fetch(`${base}/api/leaderboard/top`);
+            const res = await fetch(`${base}/api/leaderboard/top?limit=5`);
             if (!res.ok) throw new Error('bad response');
             const data = await res.json();
             this._trendingData = Array.isArray(data) ? data : [];
             this._renderTrending();
         } catch (_) {
-            if (!this._trendingData.length) {
+            // Fall back to whatever TopWatchedUsers already had cached.
+            if (!this._trendingData.length && Array.isArray(TopWatchedUsers?._data) && TopWatchedUsers._data.length) {
+                this._trendingData = TopWatchedUsers._data;
+                this._renderTrending();
+            } else if (!this._trendingData.length) {
                 list.innerHTML = `<div class="m-tb-hint">Couldn't load trending right now.</div>`;
             }
         }
