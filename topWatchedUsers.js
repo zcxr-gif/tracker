@@ -106,6 +106,19 @@ function lookupLive(row) {
     return describeFeature(matches[0]);
 }
 
+// The current user's Infinite Flight handle, as stored by ProfileUI after
+// login. Returns lowercased for case-insensitive leaderboard matching, or
+// '' when nobody is logged in / hasn't linked an IF account.
+function getCurrentIfName() {
+    try {
+        const name = window.ProfileUI
+            && window.ProfileUI._currentUser
+            && window.ProfileUI._currentUser.user_metadata
+            && window.ProfileUI._currentUser.user_metadata.if_username;
+        return name ? String(name).toLowerCase() : '';
+    } catch (_) { return ''; }
+}
+
 function lookupAirportCity(icao) {
     if (!icao) return '';
     const data = window.airportsData && window.airportsData[icao];
@@ -432,6 +445,31 @@ export const TopWatchedUsers = {
                    and there's only one tab anyway. */
                 .twu-tabs { display: none; }
             }
+
+            /* Window-edge glow shown when the logged-in user is among the
+               top 5 most-tracked pilots. A full-viewport, click-through
+               overlay with an inset light-blue halo that gently pulses. */
+            #twu-self-glow {
+                position: fixed;
+                inset: 0;
+                z-index: 2000;
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.6s ease;
+                box-shadow: inset 0 0 60px 6px rgba(56, 189, 248, 0.55),
+                            inset 0 0 140px 30px rgba(56, 189, 248, 0.25);
+            }
+            #twu-self-glow.is-active {
+                opacity: 1;
+                animation: twu-self-glow-pulse 3.2s ease-in-out infinite;
+            }
+            @keyframes twu-self-glow-pulse {
+                0%, 100% { opacity: 0.55; }
+                50%      { opacity: 1; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #twu-self-glow.is-active { animation: none; opacity: 0.8; }
+            }
         `;
         document.head.appendChild(style);
     },
@@ -592,6 +630,30 @@ export const TopWatchedUsers = {
 
     _render() {
         this._renderInto('twu-list-desktop');
+        this._updateSelfGlow();
+    },
+
+    // Light up the window edges when the logged-in user is one of the top 5
+    // most-tracked pilots. The glow lives on <body> so it frames the whole
+    // viewport regardless of the tactical overlay's active state.
+    _updateSelfGlow() {
+        const me = getCurrentIfName();
+        const inTop5 = !!me && this._data.some(
+            row => String((row && row.pilotName) || '').toLowerCase() === me
+        );
+
+        let glow = document.getElementById('twu-self-glow');
+        if (!inTop5) {
+            if (glow) glow.classList.remove('is-active');
+            return;
+        }
+        if (!glow) {
+            glow = document.createElement('div');
+            glow.id = 'twu-self-glow';
+            glow.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(glow);
+        }
+        glow.classList.add('is-active');
     },
 
     _renderInto(listId) {
