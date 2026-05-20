@@ -14,7 +14,9 @@
 
 const REFRESH_MS = 60 * 1000;
 const TOP_N = 5;
-const MOBILE_BREAKPOINT = 992;
+// Matches LandingUI's own responsive breakpoint (the current mobile UI),
+// not the legacy sector-ops-mobile-ui.js one.
+const MOBILE_BREAKPOINT = 768;
 
 const SERVERS = [
     { val: 'Expert',   label: 'Expert',   color: '#eab308', icon: 'fa-trophy' },
@@ -401,35 +403,34 @@ export const TopWatchedUsers = {
             }
             .twu-server-opt.active .twu-server-check { opacity: 1; }
 
-            /* Stay out of the way when a mobile flight/airport sheet is open
-               (sector-ops-mobile-ui.js flips this class on the map container
-               and hides the rest of the HUD the same way). */
-            #sector-ops-map-fullscreen.mobile-window-open .twu-stack {
-                opacity: 0;
-                pointer-events: none;
-            }
-
-            /* Mobile presentation: the same stack shifts to the top-left,
-               sits below the existing mobile-server-pill (handled by
-               sector-ops-mobile-ui.js), narrows, and the Server card is
-               hidden because the native pill already owns that. The Most
-               Tracked card defaults to collapsed so it doesn't blanket
-               the map — users see a small "Most Tracked" pill and can
-               expand it inline. Tapping a pilot still flies the map. */
+            /* Mobile presentation (matches LandingUI's own 768px breakpoint).
+               The stack moves to the very top-left, taking the slot where
+               LandingUI's server pill normally sits (we hide that pill and
+               recreate it as the Server card). Both cards default to
+               collapsed so they read as two compact pills and never blanket
+               the map; one tap expands either. Tapping a pilot flies the map. */
             @media (max-width: ${MOBILE_BREAKPOINT}px) {
                 .twu-stack {
-                    top: calc(env(safe-area-inset-top, 20px) + 65px);
+                    top: calc(env(safe-area-inset-top, 0px) + 15px);
                     left: 15px;
                     right: auto;
-                    width: min(calc(100vw - 30px), 320px);
+                    width: auto;
+                    align-items: flex-start;
                     gap: 8px;
                 }
-                .twu-stack [data-card="server"] { display: none; }
-                .twu-card-head { padding: 12px 14px; }
-                .twu-card-title { font-size: 0.85rem; }
-                .twu-stack .twu-list { max-height: 230px; }
+                /* Collapsed cards hug their header (compact pills that clear
+                   the top-right search blade); expanding one widens it to a
+                   readable column. */
+                .twu-card { width: max-content; max-width: calc(100vw - 30px); }
+                .twu-card.is-open { width: min(calc(100vw - 30px), 300px); }
+                .twu-card-head { padding: 10px 14px; }
+                .twu-card-title { font-size: 0.8rem; }
+                .twu-stack .twu-list { max-height: 220px; }
                 .twu-item { padding: 11px 8px; }
                 .twu-name { font-size: 0.95rem; }
+                /* Drop the "Trending" tab on mobile — vertical space is tight
+                   and there's only one tab anyway. */
+                .twu-tabs { display: none; }
             }
         `;
         document.head.appendChild(style);
@@ -437,14 +438,21 @@ export const TopWatchedUsers = {
 
     // ---------------- mount ----------------
     //
-    // The same stack ships to desktop and mobile. On mobile the CSS hides
-    // the Server card (the native server pill already handles that) and
-    // repositions/narrows the Most Tracked card so it sits below the pill
-    // as a collapsible glance.
+    // Mount inside LandingUI's tactical root (#inflight-tactical-ui) so the
+    // stack inherits the active theme variables and fades in/out together
+    // with the rest of the overlay — including when a flight is opened on
+    // mobile (LandingUI.update(false) drops `.active`). The tactical root is
+    // created during LandingUI.init() which runs after us, so poll for it.
 
     _mount() {
-        const map = document.getElementById('sector-ops-map-fullscreen');
-        if (!map || document.getElementById('twu-stack')) return;
+        if (document.getElementById('twu-stack')) return;
+        const root = document.getElementById('inflight-tactical-ui');
+        if (!root) {
+            if (!this._mountTries) this._mountTries = 0;
+            if (this._mountTries++ > 60) return; // ~30s then give up
+            setTimeout(() => this._mount(), 500);
+            return;
+        }
 
         const stack = document.createElement('div');
         stack.id = 'twu-stack';
@@ -454,10 +462,12 @@ export const TopWatchedUsers = {
             ${this._cardTrackedHTML()}
             ${this._cardServerHTML()}
         `;
-        map.appendChild(stack);
+        root.appendChild(stack);
         requestAnimationFrame(() => stack.classList.add('ready'));
 
         this._wireCards(stack);
+        // We may have mounted after the first fetch resolved; paint now.
+        this._render();
     },
 
     _cardTrackedHTML() {
