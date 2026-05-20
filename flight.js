@@ -1545,11 +1545,13 @@ function injectCustomStyles() {
 }
 
 .tc-card {
-    background: linear-gradient(180deg, #11141f 0%, #0a0b10 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
+    background: rgba(30, 31, 32, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.04);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
 }
 
 .tc-hero {
@@ -1574,7 +1576,7 @@ function injectCustomStyles() {
 .tc-hero-gradient {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgba(15,23,42,0.05) 0%, rgba(17,20,31,0.55) 70%, rgba(17,20,31,1) 100%);
+    background: linear-gradient(to bottom, rgba(30,31,32,0.05) 0%, rgba(30,31,32,0.6) 70%, rgba(30,31,32,1) 100%);
     pointer-events: none;
 }
 
@@ -1583,24 +1585,25 @@ function injectCustomStyles() {
     top: 12px;
     right: 12px;
     z-index: 10;
-    background: rgba(0,0,0,0.5);
+    background: rgba(255,255,255,0.06);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #fff;
-    width: 32px;
-    height: 32px;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8eaed;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.85rem;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    font-size: 0.8rem;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .tc-exit-btn:hover {
-    background: rgba(239, 68, 68, 0.85);
-    border-color: rgba(239, 68, 68, 1);
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.3);
+    color: #fff;
 }
 .tc-exit-btn:active { transform: scale(0.92); }
 
@@ -1653,19 +1656,15 @@ function injectCustomStyles() {
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.12);
     font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #e2e8f0;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #e8eaed;
     text-transform: uppercase;
-    transition: color 0.3s ease, border-color 0.3s ease;
+    transition: transform 0.3s ease;
 }
-.tc-phase-badge i { font-size: 0.6rem; transition: transform 0.4s ease; }
-.tc-phase-badge.climb  { color: #4ade80; border-color: rgba(74,222,128,0.4); }
-.tc-phase-badge.climb i  { transform: rotate(-35deg); }
-.tc-phase-badge.cruise { color: #38bdf8; border-color: rgba(56,189,248,0.4); }
-.tc-phase-badge.descent{ color: #fbbf24; border-color: rgba(251,191,36,0.4); }
-.tc-phase-badge.descent i{ transform: rotate(35deg); }
-.tc-phase-badge.ground { color: #94a3b8; border-color: rgba(148,163,184,0.4); }
+.tc-phase-badge i { font-size: 0.6rem; color: #9aa0a6; transition: transform 0.4s ease; }
+.tc-phase-badge.climb i   { transform: rotate(-35deg); }
+.tc-phase-badge.descent i { transform: rotate(35deg); }
 
 /* Callsign + subtitle overlaid on the hero photo */
 .tc-hero-overlay {
@@ -1706,19 +1705,20 @@ function injectCustomStyles() {
     align-items: center;
     gap: 6px;
     font-size: 0.72rem;
-    color: #cbd5e1;
+    color: #9aa0a6;
     font-weight: 500;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
     overflow: hidden;
     text-shadow: 0 1px 6px rgba(0,0,0,0.9);
 }
 .tc-pilot {
-    color: #38bdf8;
+    color: #e8eaed;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     white-space: nowrap;
 }
-.tc-divider { color: #475569; flex-shrink: 0; }
+.tc-divider { color: #6b7177; flex-shrink: 0; }
 .tc-ac {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1765,10 +1765,10 @@ function injectCustomStyles() {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-size: 0.55rem;
     font-weight: 600;
-    color: #64748b;
+    color: #9aa0a6;
     white-space: nowrap;
 }
-.tc-progress-meta .tc-eta { color: #38bdf8; font-weight: 700; }
+.tc-progress-meta .tc-eta { color: #e8eaed; font-weight: 700; }
 .tc-progress-track {
     position: relative;
     width: 100%;
@@ -1783,9 +1783,9 @@ function injectCustomStyles() {
     left: 0;
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #38bdf8, #a855f7);
+    background: rgba(255,255,255,0.9);
     border-radius: 2px;
-    box-shadow: 0 0 8px rgba(56,189,248,0.5);
+    box-shadow: 0 0 8px rgba(255,255,255,0.4);
     transition: width 0.6s ease;
 }
 .tc-plane-icon {
@@ -1798,58 +1798,44 @@ function injectCustomStyles() {
     transition: left 0.6s ease;
 }
 
-/* Replay-style HUD: four live telemetry readouts in one strip */
+/* Replay-style HUD: four live telemetry readouts in dark cells */
 .tc-hud {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 8px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 12px;
-    padding: 10px 6px;
 }
 .tc-hud-stat {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    position: relative;
-}
-.tc-hud-stat:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    right: -4px;
-    top: 15%;
-    height: 70%;
-    width: 1px;
-    background: rgba(255,255,255,0.06);
+    padding: 6px 4px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
 }
 .tc-hud-stat label {
     font-size: 0.5rem;
-    color: #64748b;
-    font-weight: 800;
-    letter-spacing: 1px;
+    color: #9aa0a6;
+    font-weight: 700;
+    letter-spacing: 0.8px;
 }
 .tc-hud-val {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.05rem;
+    font-size: 1rem;
     color: #fff;
     font-weight: 700;
     line-height: 1;
 }
-.tc-hud-stat small { font-size: 0.5rem; color: #64748b; font-weight: 600; }
-.tc-hud-val.tc-alt { color: #38bdf8; }
-.tc-hud-val.tc-spd { color: #fbbf24; }
-.tc-hud-val.tc-vs.up   { color: #4ade80; }
-.tc-hud-val.tc-vs.down { color: #fb7185; }
+.tc-hud-stat small { font-size: 0.5rem; color: #9aa0a6; font-weight: 600; }
 
 /* Live altitude / speed profile sparkline — fills in as the flight is tracked */
 .tc-chart-wrap {
     position: relative;
     height: 72px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
     padding: 6px;
     overflow: hidden;
 }
@@ -1867,17 +1853,14 @@ function injectCustomStyles() {
     letter-spacing: 0.5px;
     pointer-events: none;
 }
-.tc-chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
-.tc-chart-legend span::before {
-    content: '';
-    width: 8px;
-    height: 2px;
-    border-radius: 2px;
+.tc-chart-legend span { display: inline-flex; align-items: center; gap: 4px; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.tc-legend-alt {
+    background: linear-gradient(90deg, #38bdf8, #a3e635, #f43f5e);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
-.tc-legend-alt { color: #38bdf8; }
-.tc-legend-alt::before { background: #38bdf8; }
-.tc-legend-spd { color: #fbbf24; }
-.tc-legend-spd::before { background: #fbbf24; }
+.tc-legend-spd { color: rgba(255,255,255,0.5); }
 .tc-chart-empty {
     position: absolute;
     inset: 0;
@@ -6409,10 +6392,8 @@ function updateTripCardRealtime() {
 
     const vsEl = ui.querySelector('.tc-vs');
     if (vsEl) {
-        const sign = vsFpm > 50 ? '+' : (vsFpm < -50 ? '' : '');
+        const sign = vsFpm > 50 ? '+' : '';
         vsEl.textContent = `${sign}${vsFpm.toLocaleString()}`;
-        vsEl.classList.toggle('up', vsFpm > 50);
-        vsEl.classList.toggle('down', vsFpm < -50);
     }
 
     // Phase of flight — prefer server-provided phase, otherwise derive from V/S + altitude.
@@ -6554,32 +6535,39 @@ function drawTripCardChart(canvas, history) {
     const yAlt = v => padTop + plotH - (v / maxAlt) * plotH;
     const ySpd = v => padTop + plotH - (v / maxSpd) * plotH;
 
-    // Altitude: filled area + stroke
+    // Altitude trace coloured by height like the replay chart:
+    // low = sky blue, mid = lime, high = rose (vertical gradient).
+    const altGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+    altGrad.addColorStop(0, '#f43f5e'); // top of plot = highest altitude
+    altGrad.addColorStop(0.5, '#a3e635');
+    altGrad.addColorStop(1, '#38bdf8'); // bottom = ground
+
+    // Filled area beneath the altitude trace (faint white)
     ctx.beginPath();
     ctx.moveTo(xAt(0), yAlt(history[0].alt));
     for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
     ctx.lineTo(xAt(n - 1), padTop + plotH);
     ctx.lineTo(xAt(0), padTop + plotH);
     ctx.closePath();
-    const grad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
-    grad.addColorStop(0, 'rgba(56,189,248,0.35)');
-    grad.addColorStop(1, 'rgba(56,189,248,0.02)');
-    ctx.fillStyle = grad;
+    const fillGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+    fillGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
+    fillGrad.addColorStop(1, 'rgba(255,255,255,0.01)');
+    ctx.fillStyle = fillGrad;
     ctx.fill();
 
     ctx.beginPath();
     ctx.moveTo(xAt(0), yAlt(history[0].alt));
     for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
-    ctx.strokeStyle = '#38bdf8';
+    ctx.strokeStyle = altGrad;
     ctx.lineWidth = 1.75;
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // Speed: dashed amber line
+    // Speed: faint white dashed line
     ctx.beginPath();
     ctx.moveTo(xAt(0), ySpd(history[0].spd));
     for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(history[i].spd));
-    ctx.strokeStyle = 'rgba(251,191,36,0.85)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 1.25;
     ctx.setLineDash([3, 3]);
     ctx.stroke();
@@ -6588,7 +6576,7 @@ function drawTripCardChart(canvas, history) {
     // Leading dot on the altitude trace
     ctx.beginPath();
     ctx.arc(xAt(n - 1), yAlt(history[n - 1].alt), 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#38bdf8';
+    ctx.fillStyle = '#fff';
     ctx.fill();
 }
 
