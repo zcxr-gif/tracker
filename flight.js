@@ -1545,18 +1545,20 @@ function injectCustomStyles() {
 }
 
 .tc-card {
-    background: linear-gradient(180deg, #11141f 0%, #0a0b10 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
+    background: rgba(30, 31, 32, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.04);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
 }
 
 .tc-hero {
     position: relative;
     width: 100%;
     height: 150px;
-    background: #0f172a;
+    background: #1e1f20;
     overflow: hidden;
 }
 @media (max-width: 640px) {
@@ -1566,7 +1568,7 @@ function injectCustomStyles() {
 .tc-bg-layer {
     position: absolute;
     inset: 0;
-    background-color: #0f172a;
+    background-color: #1e1f20;
     background-size: cover;
     background-position: center;
     transition: background-image 0.5s ease-in-out;
@@ -1574,7 +1576,7 @@ function injectCustomStyles() {
 .tc-hero-gradient {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgba(15,23,42,0.05) 0%, rgba(17,20,31,0.55) 70%, rgba(17,20,31,1) 100%);
+    background: linear-gradient(to bottom, rgba(30,31,32,0.05) 0%, rgba(30,31,32,0.6) 70%, rgba(30,31,32,1) 100%);
     pointer-events: none;
 }
 
@@ -1583,59 +1585,27 @@ function injectCustomStyles() {
     top: 12px;
     right: 12px;
     z-index: 10;
-    background: rgba(0,0,0,0.5);
+    background: rgba(255,255,255,0.06);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #fff;
-    width: 32px;
-    height: 32px;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8eaed;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.85rem;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    font-size: 0.8rem;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .tc-exit-btn:hover {
-    background: rgba(239, 68, 68, 0.85);
-    border-color: rgba(239, 68, 68, 1);
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.3);
+    color: #fff;
 }
 .tc-exit-btn:active { transform: scale(0.92); }
-
-.tc-hero-badge {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 10;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #fff;
-    text-transform: uppercase;
-}
-.tc-hero-badge .tc-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #22c55e;
-    box-shadow: 0 0 6px rgba(34,197,94,0.7);
-    animation: tc-pulse 1.5s ease-in-out infinite;
-}
-@keyframes tc-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-}
 
 /* Phase pill (Climb / Cruise / Descent / Ground), top-right next to close */
 .tc-phase-badge {
@@ -1653,19 +1623,15 @@ function injectCustomStyles() {
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.12);
     font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #e2e8f0;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #e8eaed;
     text-transform: uppercase;
-    transition: color 0.3s ease, border-color 0.3s ease;
+    transition: transform 0.3s ease;
 }
-.tc-phase-badge i { font-size: 0.6rem; transition: transform 0.4s ease; }
-.tc-phase-badge.climb  { color: #4ade80; border-color: rgba(74,222,128,0.4); }
-.tc-phase-badge.climb i  { transform: rotate(-35deg); }
-.tc-phase-badge.cruise { color: #38bdf8; border-color: rgba(56,189,248,0.4); }
-.tc-phase-badge.descent{ color: #fbbf24; border-color: rgba(251,191,36,0.4); }
-.tc-phase-badge.descent i{ transform: rotate(35deg); }
-.tc-phase-badge.ground { color: #94a3b8; border-color: rgba(148,163,184,0.4); }
+.tc-phase-badge i { font-size: 0.6rem; color: #9aa0a6; transition: transform 0.4s ease; }
+.tc-phase-badge.climb i   { transform: rotate(-35deg); }
+.tc-phase-badge.descent i { transform: rotate(35deg); }
 
 /* Callsign + subtitle overlaid on the hero photo */
 .tc-hero-overlay {
@@ -1706,19 +1672,20 @@ function injectCustomStyles() {
     align-items: center;
     gap: 6px;
     font-size: 0.72rem;
-    color: #cbd5e1;
+    color: #9aa0a6;
     font-weight: 500;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
     overflow: hidden;
     text-shadow: 0 1px 6px rgba(0,0,0,0.9);
 }
 .tc-pilot {
-    color: #38bdf8;
+    color: #e8eaed;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     white-space: nowrap;
 }
-.tc-divider { color: #475569; flex-shrink: 0; }
+.tc-divider { color: #6b7177; flex-shrink: 0; }
 .tc-ac {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1765,10 +1732,10 @@ function injectCustomStyles() {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-size: 0.55rem;
     font-weight: 600;
-    color: #64748b;
+    color: #9aa0a6;
     white-space: nowrap;
 }
-.tc-progress-meta .tc-eta { color: #38bdf8; font-weight: 700; }
+.tc-progress-meta .tc-eta { color: #e8eaed; font-weight: 700; }
 .tc-progress-track {
     position: relative;
     width: 100%;
@@ -1783,9 +1750,9 @@ function injectCustomStyles() {
     left: 0;
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #38bdf8, #a855f7);
+    background: rgba(255,255,255,0.9);
     border-radius: 2px;
-    box-shadow: 0 0 8px rgba(56,189,248,0.5);
+    box-shadow: 0 0 8px rgba(255,255,255,0.4);
     transition: width 0.6s ease;
 }
 .tc-plane-icon {
@@ -1798,58 +1765,84 @@ function injectCustomStyles() {
     transition: left 0.6s ease;
 }
 
-/* Replay-style HUD: four live telemetry readouts in one strip */
+/* Replay-style HUD: four live telemetry readouts in dark cells */
 .tc-hud {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 8px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 12px;
-    padding: 10px 6px;
 }
 .tc-hud-stat {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    position: relative;
-}
-.tc-hud-stat:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    right: -4px;
-    top: 15%;
-    height: 70%;
-    width: 1px;
-    background: rgba(255,255,255,0.06);
+    padding: 6px 4px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
 }
 .tc-hud-stat label {
     font-size: 0.5rem;
-    color: #64748b;
-    font-weight: 800;
-    letter-spacing: 1px;
+    color: #9aa0a6;
+    font-weight: 700;
+    letter-spacing: 0.8px;
 }
 .tc-hud-val {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.05rem;
+    font-size: 1rem;
     color: #fff;
     font-weight: 700;
     line-height: 1;
 }
-.tc-hud-stat small { font-size: 0.5rem; color: #64748b; font-weight: 600; }
-.tc-hud-val.tc-alt { color: #38bdf8; }
-.tc-hud-val.tc-spd { color: #fbbf24; }
-.tc-hud-val.tc-vs.up   { color: #4ade80; }
-.tc-hud-val.tc-vs.down { color: #fb7185; }
+.tc-hud-stat small { font-size: 0.5rem; color: #9aa0a6; font-weight: 600; }
+
+/* Collapsible "Flight Profile" toggle — chart is hidden until requested */
+.tc-chart-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #9aa0a6;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.tc-chart-toggle:hover { background: rgba(255,255,255,0.06); color: #e8eaed; }
+.tc-chart-toggle.active { color: #fff; border-color: rgba(255,255,255,0.2); }
+.tc-chart-toggle .tc-chart-caret {
+    margin-left: auto;
+    font-size: 0.7rem;
+    transition: transform 0.3s ease;
+}
+.tc-chart-toggle.active .tc-chart-caret { transform: rotate(180deg); }
+
+.tc-chart-drawer {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease, margin-top 0.3s ease;
+}
+.tc-chart-drawer.expanded {
+    height: 84px;
+    opacity: 1;
+    margin-top: -6px;
+}
 
 /* Live altitude / speed profile sparkline — fills in as the flight is tracked */
 .tc-chart-wrap {
     position: relative;
     height: 72px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
     padding: 6px;
     overflow: hidden;
 }
@@ -1867,17 +1860,14 @@ function injectCustomStyles() {
     letter-spacing: 0.5px;
     pointer-events: none;
 }
-.tc-chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
-.tc-chart-legend span::before {
-    content: '';
-    width: 8px;
-    height: 2px;
-    border-radius: 2px;
+.tc-chart-legend span { display: inline-flex; align-items: center; gap: 4px; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.tc-legend-alt {
+    background: linear-gradient(90deg, #38bdf8, #a3e635, #f43f5e);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
-.tc-legend-alt { color: #38bdf8; }
-.tc-legend-alt::before { background: #38bdf8; }
-.tc-legend-spd { color: #fbbf24; }
-.tc-legend-spd::before { background: #fbbf24; }
+.tc-legend-spd { color: rgba(255,255,255,0.5); }
 .tc-chart-empty {
     position: absolute;
     inset: 0;
@@ -5874,6 +5864,7 @@ async function loadExternalPanelContent() {
 // Rolling telemetry history for the trip card's live profile sparkline.
 // Reset each time a flight is opened in the card. Capped to keep the trace light.
 let tripCardHistory = [];
+let tripCardLastSampleTs = 0;
 const TRIP_CARD_HISTORY_MAX = 300;
 
 function toggleTripCardMode(active) {
@@ -5886,7 +5877,6 @@ function toggleTripCardMode(active) {
                 <div class="tc-hero">
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
-                    <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
                     <div class="tc-phase-badge"><i class="fa-solid fa-plane-up"></i> <span class="tc-phase-text">--</span></div>
                     <button class="tc-exit-btn" type="button" aria-label="Close trip card">
                         <i class="fa-solid fa-xmark"></i>
@@ -5940,23 +5930,46 @@ function toggleTripCardMode(active) {
                             <span class="tc-hud-val tc-vs">--</span><small>fpm</small>
                         </div>
                     </div>
-                    <div class="tc-chart-wrap">
-                        <div class="tc-chart-legend">
-                            <span class="tc-legend-alt">ALT</span>
-                            <span class="tc-legend-spd">SPD</span>
+                    <button class="tc-chart-toggle" type="button" aria-expanded="false">
+                        <i class="fa-solid fa-chart-area"></i>
+                        <span>Flight Profile</span>
+                        <i class="fa-solid fa-chevron-down tc-chart-caret"></i>
+                    </button>
+                    <div class="tc-chart-drawer">
+                        <div class="tc-chart-wrap">
+                            <div class="tc-chart-legend">
+                                <span class="tc-legend-alt">ALT</span>
+                                <span class="tc-legend-spd">SPD</span>
+                            </div>
+                            <canvas class="tc-chart-canvas"></canvas>
+                            <div class="tc-chart-empty">Loading flight profile…</div>
                         </div>
-                        <canvas class="tc-chart-canvas"></canvas>
-                        <div class="tc-chart-empty">Tracking live profile…</div>
                     </div>
                 </div>
             </div>
         `;
 
-        // Reset the live profile history for the newly opened flight.
+        // Seed the profile chart from the flight's recorded history, then let
+        // live ticks extend it. Reset first so a stale trace never lingers.
         tripCardHistory = [];
+        tripCardLastSampleTs = 0;
+        loadTripCardHistory(currentFlightInWindow);
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
+        });
+
+        // Flight-profile chart is collapsed by default; reveal it on demand.
+        const chartToggle = takeoverUI.querySelector('.tc-chart-toggle');
+        const chartDrawer = takeoverUI.querySelector('.tc-chart-drawer');
+        chartToggle?.addEventListener('click', () => {
+            const open = chartDrawer.classList.toggle('expanded');
+            chartToggle.classList.toggle('active', open);
+            chartToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (open) {
+                // Canvas has real dimensions only once visible — draw after expand.
+                setTimeout(() => drawTripCardChart(takeoverUI.querySelector('.tc-chart-canvas'), tripCardHistory), 320);
+            }
         });
 
         takeoverUI.classList.add('active');
@@ -6409,10 +6422,8 @@ function updateTripCardRealtime() {
 
     const vsEl = ui.querySelector('.tc-vs');
     if (vsEl) {
-        const sign = vsFpm > 50 ? '+' : (vsFpm < -50 ? '' : '');
+        const sign = vsFpm > 50 ? '+' : '';
         vsEl.textContent = `${sign}${vsFpm.toLocaleString()}`;
-        vsEl.classList.toggle('up', vsFpm > 50);
-        vsEl.classList.toggle('down', vsFpm < -50);
     }
 
     // Phase of flight — prefer server-provided phase, otherwise derive from V/S + altitude.
@@ -6492,13 +6503,17 @@ function updateTripCardRealtime() {
         if (etaEl) etaEl.textContent = 'ETA --';
     }
 
-    // Accumulate the live profile and redraw the sparkline.
-    const last = tripCardHistory[tripCardHistory.length - 1];
-    if (!last || last.alt !== altFt || last.spd !== gsKt) {
+    // Extend the history-seeded profile with live samples. Sample at most once
+    // per second to keep the array light.
+    const nowTs = Date.now();
+    if (nowTs - tripCardLastSampleTs >= 1000) {
+        tripCardLastSampleTs = nowTs;
         tripCardHistory.push({ alt: altFt, spd: gsKt });
         if (tripCardHistory.length > TRIP_CARD_HISTORY_MAX) tripCardHistory.shift();
     }
-    drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    if (ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
+        drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    }
 
     // Airline Logo Handling
     const words = livName.trim().split(/\s+/);
@@ -6519,15 +6534,18 @@ function updateTripCardRealtime() {
 }
 
 /**
- * Draws the live altitude/speed profile sparkline for the trip card.
- * Mirrors the flight-replay chart's look (altitude in cyan, speed in amber)
- * but accumulates points live as realtime updates stream in.
+ * Draws the altitude/speed profile sparkline for the trip card, mirroring the
+ * flight-replay chart: altitude as a height-coloured trace (blue→lime→rose),
+ * speed as a faint dashed white line.
  */
 function drawTripCardChart(canvas, history) {
     if (!canvas) return;
     const wrap = canvas.closest('.tc-chart-wrap');
-    if (wrap) wrap.classList.toggle('has-data', history.length >= 2);
-    if (history.length < 2) return;
+    if (wrap) wrap.classList.toggle('has-data', history.length >= 1);
+    if (history.length < 1) return;
+
+    // With a single sample, draw a flat line so the chart isn't blank.
+    const data = history.length === 1 ? [history[0], history[0]] : history;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -6545,41 +6563,48 @@ function drawTripCardChart(canvas, history) {
     const padX = 4, padTop = 6, padBottom = 4;
     const plotW = cssW - padX * 2;
     const plotH = cssH - padTop - padBottom;
-    const n = history.length;
+    const n = data.length;
 
-    const maxAlt = Math.max(1000, ...history.map(p => p.alt));
-    const maxSpd = Math.max(100, ...history.map(p => p.spd));
+    const maxAlt = Math.max(1000, ...data.map(p => p.alt));
+    const maxSpd = Math.max(100, ...data.map(p => p.spd));
 
     const xAt = i => padX + (n === 1 ? plotW : (i / (n - 1)) * plotW);
     const yAlt = v => padTop + plotH - (v / maxAlt) * plotH;
     const ySpd = v => padTop + plotH - (v / maxSpd) * plotH;
 
-    // Altitude: filled area + stroke
+    // Altitude trace coloured by height like the replay chart:
+    // low = sky blue, mid = lime, high = rose (vertical gradient).
+    const altGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+    altGrad.addColorStop(0, '#f43f5e'); // top of plot = highest altitude
+    altGrad.addColorStop(0.5, '#a3e635');
+    altGrad.addColorStop(1, '#38bdf8'); // bottom = ground
+
+    // Filled area beneath the altitude trace (faint white)
     ctx.beginPath();
-    ctx.moveTo(xAt(0), yAlt(history[0].alt));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
+    ctx.moveTo(xAt(0), yAlt(data[0].alt));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(data[i].alt));
     ctx.lineTo(xAt(n - 1), padTop + plotH);
     ctx.lineTo(xAt(0), padTop + plotH);
     ctx.closePath();
-    const grad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
-    grad.addColorStop(0, 'rgba(56,189,248,0.35)');
-    grad.addColorStop(1, 'rgba(56,189,248,0.02)');
-    ctx.fillStyle = grad;
+    const fillGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+    fillGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
+    fillGrad.addColorStop(1, 'rgba(255,255,255,0.01)');
+    ctx.fillStyle = fillGrad;
     ctx.fill();
 
     ctx.beginPath();
-    ctx.moveTo(xAt(0), yAlt(history[0].alt));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
-    ctx.strokeStyle = '#38bdf8';
+    ctx.moveTo(xAt(0), yAlt(data[0].alt));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(data[i].alt));
+    ctx.strokeStyle = altGrad;
     ctx.lineWidth = 1.75;
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // Speed: dashed amber line
+    // Speed: faint white dashed line
     ctx.beginPath();
-    ctx.moveTo(xAt(0), ySpd(history[0].spd));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(history[i].spd));
-    ctx.strokeStyle = 'rgba(251,191,36,0.85)';
+    ctx.moveTo(xAt(0), ySpd(data[0].spd));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(data[i].spd));
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 1.25;
     ctx.setLineDash([3, 3]);
     ctx.stroke();
@@ -6587,9 +6612,66 @@ function drawTripCardChart(canvas, history) {
 
     // Leading dot on the altitude trace
     ctx.beginPath();
-    ctx.arc(xAt(n - 1), yAlt(history[n - 1].alt), 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#38bdf8';
+    ctx.arc(xAt(n - 1), yAlt(data[n - 1].alt), 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
     ctx.fill();
+}
+
+/**
+ * Seeds the trip card's profile chart from the flight's recorded history —
+ * the same backend `/history` endpoint + in-memory trail that flight replay
+ * uses — so the chart reflects the whole flight so far, not just samples
+ * collected since the card was opened. Live ticks then extend it.
+ */
+async function loadTripCardHistory(flightId) {
+    if (!flightId) return;
+
+    const pickNum = (...c) => { for (const v of c) if (typeof v === 'number' && !isNaN(v)) return v; return null; };
+    const toSample = (p) => {
+        if (!p || typeof p !== 'object') return null;
+        const pos = (p.position && typeof p.position === 'object') ? p.position : p;
+        const alt = pickNum(pos.alt_ft, pos.alt, pos.altitude, p.alt_ft, p.alt, p.altitude);
+        const spd = pickNum(pos.gs_kt, pos.gs, pos.groundSpeed, p.gs_kt, p.gs, p.groundSpeed);
+        if (alt == null && spd == null) return null;
+        let t = NaN;
+        const tc = [pos.time, pos.lastReportMs, pos.timeMs, p.time, p.lastReportMs, p.timeMs,
+                    pos.timestamp, pos.lastReport, p.timestamp, p.lastReport];
+        for (const v of tc) {
+            if (typeof v === 'number' && !isNaN(v)) { t = v; break; }
+            if (typeof v === 'string' && v) { const d = Date.parse(v); if (!isNaN(d)) { t = d; break; } }
+        }
+        return { t: isNaN(t) ? null : t, alt: Math.round(alt || 0), spd: Math.round(spd || 0) };
+    };
+
+    let backend = [];
+    try {
+        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+        const res = await fetch(historyUrl);
+        const json = res.ok ? await res.json() : null;
+        if (json && json.ok) backend = json.path || json.route || [];
+    } catch (e) { /* fall back to in-memory trail */ }
+
+    // The card may have closed or switched flights while the fetch was in flight.
+    if (currentFlightInWindow !== flightId) return;
+
+    const memory = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    const samples = backend.concat(memory).map(toSample).filter(Boolean);
+    samples.sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+
+    const series = [];
+    for (const s of samples) {
+        const prev = series[series.length - 1];
+        if (!prev || s.t == null || s.t !== prev.t) series.push({ alt: s.alt, spd: s.spd });
+    }
+    if (!series.length) return;
+
+    tripCardHistory = series.slice(-TRIP_CARD_HISTORY_MAX);
+    tripCardLastSampleTs = Date.now();
+
+    const ui = document.getElementById('trip-card-takeover');
+    if (ui && ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
+        drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    }
 }
 
 /**
