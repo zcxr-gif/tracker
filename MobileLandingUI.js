@@ -642,6 +642,12 @@ export const MobileLandingUI = {
                 #inflight-tactical-ui .tactical-header { display: none !important; }
                 #twu-stack { display: none !important; }
 
+                /* Hide the mobile top bar while a flight/airport window is open
+                   so it doesn't overlap the info sheet. MobileUIHandler toggles
+                   .mobile-window-open on the map container. */
+                #sector-ops-map-fullscreen.mobile-window-open #m-topbar,
+                #sector-ops-map-fullscreen.mobile-window-open .m-tb-scrim { display: none !important; }
+
                 #m-topbar, #m-topbar * { box-sizing: border-box; }
                 #m-topbar {
                     position: fixed; top: 0; left: 0; right: 0;

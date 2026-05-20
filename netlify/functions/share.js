@@ -183,12 +183,22 @@ function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawl
     const appUrl = `${siteOrigin}/?${appParams.toString()}`;
     const shareUrl = `${siteOrigin}/share/${encodeURIComponent(flightId)}`;
 
-    // Crawlers must NOT see a meta refresh — Discord follows it and ends up on
-    // the SPA, where it can't find any OG tags. Humans get the refresh as a
-    // belt-and-braces backup to the JS redirect.
-    const metaRefresh = isCrawler
+    // Humans: set the handoff snapshot and THEN redirect, in that order, from a
+    // single <head> script. Doing both here (instead of a body script) means the
+    // snapshot can never be lost to a meta-refresh race — the old `content="0"`
+    // refresh fired during head parsing, before the body script ran, so the SPA
+    // frequently loaded with no snapshot. No-JS humans fall back to a meta
+    // refresh. Crawlers get NEITHER — they must only parse the OG tags, never
+    // follow a refresh onto the SPA (which has no per-flight OG tags).
+    const handoffJson = JSON.stringify(JSON.stringify(handoffPayload));
+    const appUrlJson = JSON.stringify(appUrl);
+    const headRedirect = isCrawler
         ? ''
-        : `<meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}">`;
+        : `<script>
+  try { sessionStorage.setItem('inflight_share_payload', ${handoffJson}); } catch (_) {}
+  location.replace(${appUrlJson});
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}"></noscript>`;
 
     return `<!doctype html>
 <html lang="en">
@@ -219,7 +229,7 @@ ${imageType ? `<meta property="og:image:type" content="${escapeAttr(imageType)}"
 <meta name="twitter:image" content="${escapeAttr(image)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
-${metaRefresh}
+${headRedirect}
 
 <style>
   html, body { margin: 0; padding: 0; background: #0a0f1f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
@@ -249,14 +259,6 @@ ${metaRefresh}
       </div>
     </div>
   </div>
-  <script>
-    // Hand off the flight payload to the main app via sessionStorage so the
-    // flight info window can open instantly — no waiting on the websocket.
-    try {
-      sessionStorage.setItem('inflight_share_payload', ${JSON.stringify(JSON.stringify(handoffPayload))});
-    } catch (_) { /* private mode etc — non-fatal */ }
-    window.location.replace(${JSON.stringify(appUrl)});
-  </script>
 </body>
 </html>`;
 }
@@ -292,10 +294,18 @@ function buildPendingHandoffPage({ siteOrigin, flightId, isCrawler }) {
         ? `${siteOrigin}/share/${encodeURIComponent(flightId)}`
         : `${siteOrigin}/`;
 
-    // Crawlers must not follow the redirect — they need to parse OG tags only.
-    const metaRefresh = isCrawler
+    // Humans: stash the (pending) snapshot then redirect, from one head script,
+    // so the client keeps the flightId to poll for. Crawlers must not follow any
+    // refresh — they only parse OG tags.
+    const pendingJson = handoffPayload ? JSON.stringify(JSON.stringify(handoffPayload)) : null;
+    const appUrlJson = JSON.stringify(appUrl);
+    const headRedirect = isCrawler
         ? ''
-        : `<meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}">`;
+        : `<script>
+  try { ${pendingJson ? `sessionStorage.setItem('inflight_share_payload', ${pendingJson});` : ''} } catch (_) {}
+  location.replace(${appUrlJson});
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=${escapeAttr(appUrl)}"></noscript>`;
 
     const ogTitle = `Live flight on ${BRAND_NAME}`;
     const ogDescription = `Watch this live flight on ${BRAND_TAGLINE}.`;
@@ -325,7 +335,7 @@ ${heroType ? `<meta property="og:image:type" content="${escapeAttr(heroType)}">`
 <meta name="twitter:image" content="${escapeAttr(heroImage)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
-${metaRefresh}
+${headRedirect}
 
 <style>
   html, body { margin: 0; padding: 0; background: #0a0f1f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
@@ -345,12 +355,6 @@ ${metaRefresh}
       <p>Connecting to ${escapeHtml(BRAND_NAME)}.</p>
     </div>
   </div>
-  <script>
-    try {
-      ${handoffPayload ? `sessionStorage.setItem('inflight_share_payload', ${JSON.stringify(JSON.stringify(handoffPayload))});` : ''}
-    } catch (_) { /* private mode etc — non-fatal */ }
-    window.location.replace(${JSON.stringify(appUrl)});
-  </script>
 </body>
 </html>`;
 }
