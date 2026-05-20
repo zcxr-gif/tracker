@@ -411,12 +411,17 @@ export const TopWatchedUsers = {
                the map; one tap expands either. Tapping a pilot flies the map. */
             @media (max-width: ${MOBILE_BREAKPOINT}px) {
                 .twu-stack {
-                    top: calc(env(safe-area-inset-top, 0px) + 15px);
+                    /* Vertically centre the collapsed pills against the search
+                       blade in LandingUI's 60px mobile header. */
+                    top: calc(env(safe-area-inset-top, 0px) + 12px);
                     left: 15px;
                     right: auto;
                     width: auto;
                     align-items: flex-start;
                     gap: 8px;
+                    /* Leave room for the top-right search blade and never run
+                       off-screen on small phones. */
+                    max-width: calc(100vw - 30px);
                 }
                 /* Collapsed cards hug their header (compact pills that clear
                    the top-right search blade); expanding one widens it to a
