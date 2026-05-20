@@ -1497,7 +1497,7 @@ function injectCustomStyles() {
     opacity: 1;
 }
 
-/* Mobile layout — full-width drawer */
+/* Mobile layout — full-width bottom sheet, flush to the screen edges */
 @media (max-width: 640px) {
     #trip-card-takeover {
         bottom: 0;
@@ -1506,12 +1506,41 @@ function injectCustomStyles() {
         width: 100%;
         max-width: 100%;
         transform: translateY(120%);
-        padding: 0 10px;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+        padding: 0;
         box-sizing: border-box;
     }
     #trip-card-takeover.active {
         transform: translateY(0);
+    }
+    .tc-card {
+        border-radius: 20px 20px 0 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        /* Never exceed the viewport: hero stays put, body scrolls if needed. */
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .tc-card .tc-hero { flex: 0 0 auto; }
+    .tc-card .tc-body {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    /* Drag-handle affordance at the top of the sheet */
+    .tc-hero::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 11;
+        width: 40px;
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.45);
     }
 }
 
@@ -1863,6 +1892,18 @@ function injectCustomStyles() {
 }
 .tc-chart-wrap.has-data .tc-chart-empty { display: none; }
 .tc-unit { color: #64748b; font-size: 0.7rem; margin-left: 3px; font-weight: 600; }
+
+/* Mobile fit: tighter spacing + slightly smaller readouts so the sheet
+   never overflows and the HUD stays on a single comfortable row. */
+@media (max-width: 640px) {
+    .tc-body { padding: 14px 14px 16px; gap: 12px; }
+    .tc-callsign { font-size: 1.35rem; }
+    .tc-icao { font-size: 1.3rem; }
+    .tc-hud { padding: 9px 4px; gap: 4px; }
+    .tc-hud-val { font-size: 0.95rem; }
+    .tc-hero-overlay { left: 14px; right: 14px; }
+    .tc-phase-badge { right: 48px; padding: 4px 8px; }
+}
 
 .tc-share-btn {
     display: inline-flex;
@@ -5907,20 +5948,12 @@ function toggleTripCardMode(active) {
                         <canvas class="tc-chart-canvas"></canvas>
                         <div class="tc-chart-empty">Tracking live profile…</div>
                     </div>
-                    <button class="tc-share-btn" type="button" title="Share this flight">
-                        <i class="fa-solid fa-share-nodes"></i>
-                        <span class="tc-share-btn-label">Share Flight</span>
-                    </button>
                 </div>
             </div>
         `;
 
         // Reset the live profile history for the newly opened flight.
         tripCardHistory = [];
-
-        takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', () => {
-            shareCurrentFlight(takeoverUI.querySelector('.tc-share-btn'));
-        });
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
