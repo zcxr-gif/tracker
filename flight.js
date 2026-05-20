@@ -1558,7 +1558,7 @@ function injectCustomStyles() {
     position: relative;
     width: 100%;
     height: 150px;
-    background: #0f172a;
+    background: #1e1f20;
     overflow: hidden;
 }
 @media (max-width: 640px) {
@@ -1568,7 +1568,7 @@ function injectCustomStyles() {
 .tc-bg-layer {
     position: absolute;
     inset: 0;
-    background-color: #0f172a;
+    background-color: #1e1f20;
     background-size: cover;
     background-position: center;
     transition: background-image 0.5s ease-in-out;
@@ -1606,39 +1606,6 @@ function injectCustomStyles() {
     color: #fff;
 }
 .tc-exit-btn:active { transform: scale(0.92); }
-
-.tc-hero-badge {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 10;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #fff;
-    text-transform: uppercase;
-}
-.tc-hero-badge .tc-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #22c55e;
-    box-shadow: 0 0 6px rgba(34,197,94,0.7);
-    animation: tc-pulse 1.5s ease-in-out infinite;
-}
-@keyframes tc-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-}
 
 /* Phase pill (Climb / Cruise / Descent / Ground), top-right next to close */
 .tc-phase-badge {
@@ -1828,6 +1795,46 @@ function injectCustomStyles() {
     line-height: 1;
 }
 .tc-hud-stat small { font-size: 0.5rem; color: #9aa0a6; font-weight: 600; }
+
+/* Collapsible "Flight Profile" toggle — chart is hidden until requested */
+.tc-chart-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #9aa0a6;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.tc-chart-toggle:hover { background: rgba(255,255,255,0.06); color: #e8eaed; }
+.tc-chart-toggle.active { color: #fff; border-color: rgba(255,255,255,0.2); }
+.tc-chart-toggle .tc-chart-caret {
+    margin-left: auto;
+    font-size: 0.7rem;
+    transition: transform 0.3s ease;
+}
+.tc-chart-toggle.active .tc-chart-caret { transform: rotate(180deg); }
+
+.tc-chart-drawer {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease, margin-top 0.3s ease;
+}
+.tc-chart-drawer.expanded {
+    height: 84px;
+    opacity: 1;
+    margin-top: -6px;
+}
 
 /* Live altitude / speed profile sparkline — fills in as the flight is tracked */
 .tc-chart-wrap {
@@ -5869,7 +5876,6 @@ function toggleTripCardMode(active) {
                 <div class="tc-hero">
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
-                    <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
                     <div class="tc-phase-badge"><i class="fa-solid fa-plane-up"></i> <span class="tc-phase-text">--</span></div>
                     <button class="tc-exit-btn" type="button" aria-label="Close trip card">
                         <i class="fa-solid fa-xmark"></i>
@@ -5923,13 +5929,20 @@ function toggleTripCardMode(active) {
                             <span class="tc-hud-val tc-vs">--</span><small>fpm</small>
                         </div>
                     </div>
-                    <div class="tc-chart-wrap">
-                        <div class="tc-chart-legend">
-                            <span class="tc-legend-alt">ALT</span>
-                            <span class="tc-legend-spd">SPD</span>
+                    <button class="tc-chart-toggle" type="button" aria-expanded="false">
+                        <i class="fa-solid fa-chart-area"></i>
+                        <span>Flight Profile</span>
+                        <i class="fa-solid fa-chevron-down tc-chart-caret"></i>
+                    </button>
+                    <div class="tc-chart-drawer">
+                        <div class="tc-chart-wrap">
+                            <div class="tc-chart-legend">
+                                <span class="tc-legend-alt">ALT</span>
+                                <span class="tc-legend-spd">SPD</span>
+                            </div>
+                            <canvas class="tc-chart-canvas"></canvas>
+                            <div class="tc-chart-empty">Tracking live profile…</div>
                         </div>
-                        <canvas class="tc-chart-canvas"></canvas>
-                        <div class="tc-chart-empty">Tracking live profile…</div>
                     </div>
                 </div>
             </div>
@@ -5940,6 +5953,19 @@ function toggleTripCardMode(active) {
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
+        });
+
+        // Flight-profile chart is collapsed by default; reveal it on demand.
+        const chartToggle = takeoverUI.querySelector('.tc-chart-toggle');
+        const chartDrawer = takeoverUI.querySelector('.tc-chart-drawer');
+        chartToggle?.addEventListener('click', () => {
+            const open = chartDrawer.classList.toggle('expanded');
+            chartToggle.classList.toggle('active', open);
+            chartToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (open) {
+                // Canvas has real dimensions only once visible — draw after expand.
+                setTimeout(() => drawTripCardChart(takeoverUI.querySelector('.tc-chart-canvas'), tripCardHistory), 320);
+            }
         });
 
         takeoverUI.classList.add('active');
@@ -6473,13 +6499,15 @@ function updateTripCardRealtime() {
         if (etaEl) etaEl.textContent = 'ETA --';
     }
 
-    // Accumulate the live profile and redraw the sparkline.
+    // Accumulate the live profile; only redraw when the chart drawer is open.
     const last = tripCardHistory[tripCardHistory.length - 1];
     if (!last || last.alt !== altFt || last.spd !== gsKt) {
         tripCardHistory.push({ alt: altFt, spd: gsKt });
         if (tripCardHistory.length > TRIP_CARD_HISTORY_MAX) tripCardHistory.shift();
     }
-    drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    if (ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
+        drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    }
 
     // Airline Logo Handling
     const words = livName.trim().split(/\s+/);
