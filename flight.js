@@ -1608,6 +1608,50 @@ function injectCustomStyles() {
     50% { opacity: 0.35; }
 }
 
+/* Phase pill (Climb / Cruise / Descent / Ground), top-right next to close */
+.tc-phase-badge {
+    position: absolute;
+    top: 12px;
+    right: 52px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #e2e8f0;
+    text-transform: uppercase;
+    transition: color 0.3s ease, border-color 0.3s ease;
+}
+.tc-phase-badge i { font-size: 0.6rem; transition: transform 0.4s ease; }
+.tc-phase-badge.climb  { color: #4ade80; border-color: rgba(74,222,128,0.4); }
+.tc-phase-badge.climb i  { transform: rotate(-35deg); }
+.tc-phase-badge.cruise { color: #38bdf8; border-color: rgba(56,189,248,0.4); }
+.tc-phase-badge.descent{ color: #fbbf24; border-color: rgba(251,191,36,0.4); }
+.tc-phase-badge.descent i{ transform: rotate(35deg); }
+.tc-phase-badge.ground { color: #94a3b8; border-color: rgba(148,163,184,0.4); }
+
+/* Callsign + subtitle overlaid on the hero photo */
+.tc-hero-overlay {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 12px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    pointer-events: none;
+}
+
 .tc-body {
     padding: 16px 18px 18px;
     display: flex;
@@ -1615,15 +1659,9 @@ function injectCustomStyles() {
     gap: 14px;
 }
 
-.tc-title-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-}
 .tc-callsign {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.35rem;
+    font-size: 1.5rem;
     font-weight: 800;
     color: #fff;
     margin: 0;
@@ -1632,15 +1670,17 @@ function injectCustomStyles() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.8);
 }
 .tc-subtitle {
     display: flex;
     align-items: center;
     gap: 6px;
     font-size: 0.72rem;
-    color: #94a3b8;
+    color: #cbd5e1;
     font-weight: 500;
     overflow: hidden;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.9);
 }
 .tc-pilot {
     color: #38bdf8;
@@ -1687,7 +1727,19 @@ function injectCustomStyles() {
     color: #fff;
     line-height: 1;
 }
-.tc-route-progress { padding: 0 4px; min-width: 60px; }
+.tc-route-progress { padding: 0 4px; min-width: 90px; display: flex; flex-direction: column; gap: 7px; }
+.tc-progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.55rem;
+    font-weight: 600;
+    color: #64748b;
+    white-space: nowrap;
+}
+.tc-progress-meta .tc-eta { color: #38bdf8; font-weight: 700; }
 .tc-progress-track {
     position: relative;
     width: 100%;
@@ -1717,35 +1769,99 @@ function injectCustomStyles() {
     transition: left 0.6s ease;
 }
 
-.tc-stats {
+/* Replay-style HUD: four live telemetry readouts in one strip */
+.tc-hud {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-.tc-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 10px 12px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 10px;
+    border-radius: 12px;
+    padding: 10px 6px;
 }
-.tc-stat-label {
-    font-size: 0.55rem;
+.tc-hud-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    position: relative;
+}
+.tc-hud-stat:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: -4px;
+    top: 15%;
+    height: 70%;
+    width: 1px;
+    background: rgba(255,255,255,0.06);
+}
+.tc-hud-stat label {
+    font-size: 0.5rem;
     color: #64748b;
     font-weight: 800;
-    text-transform: uppercase;
     letter-spacing: 1px;
 }
-.tc-stat-value {
+.tc-hud-val {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1rem;
+    font-size: 1.05rem;
     color: #fff;
     font-weight: 700;
+    line-height: 1;
 }
-.tc-stat-value .tc-alt { color: #38bdf8; }
-.tc-stat-value .tc-spd { color: #fbbf24; }
+.tc-hud-stat small { font-size: 0.5rem; color: #64748b; font-weight: 600; }
+.tc-hud-val.tc-alt { color: #38bdf8; }
+.tc-hud-val.tc-spd { color: #fbbf24; }
+.tc-hud-val.tc-vs.up   { color: #4ade80; }
+.tc-hud-val.tc-vs.down { color: #fb7185; }
+
+/* Live altitude / speed profile sparkline — fills in as the flight is tracked */
+.tc-chart-wrap {
+    position: relative;
+    height: 72px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 6px;
+    overflow: hidden;
+}
+.tc-chart-canvas { width: 100%; height: 100%; display: block; }
+.tc-chart-legend {
+    position: absolute;
+    top: 7px;
+    right: 10px;
+    z-index: 2;
+    display: flex;
+    gap: 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.5rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+.tc-chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.tc-chart-legend span::before {
+    content: '';
+    width: 8px;
+    height: 2px;
+    border-radius: 2px;
+}
+.tc-legend-alt { color: #38bdf8; }
+.tc-legend-alt::before { background: #38bdf8; }
+.tc-legend-spd { color: #fbbf24; }
+.tc-legend-spd::before { background: #fbbf24; }
+.tc-chart-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    color: #475569;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    pointer-events: none;
+}
+.tc-chart-wrap.has-data .tc-chart-empty { display: none; }
 .tc-unit { color: #64748b; font-size: 0.7rem; margin-left: 3px; font-weight: 600; }
 
 .tc-share-btn {
@@ -5714,6 +5830,11 @@ async function loadExternalPanelContent() {
 }
 
 
+// Rolling telemetry history for the trip card's live profile sparkline.
+// Reset each time a flight is opened in the card. Capped to keep the trace light.
+let tripCardHistory = [];
+const TRIP_CARD_HISTORY_MAX = 300;
+
 function toggleTripCardMode(active) {
     const takeoverUI = document.getElementById('trip-card-takeover');
     if (!takeoverUI) return;
@@ -5725,12 +5846,11 @@ function toggleTripCardMode(active) {
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
                     <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
+                    <div class="tc-phase-badge"><i class="fa-solid fa-plane-up"></i> <span class="tc-phase-text">--</span></div>
                     <button class="tc-exit-btn" type="button" aria-label="Close trip card">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
-                </div>
-                <div class="tc-body">
-                    <div class="tc-title-row">
+                    <div class="tc-hero-overlay">
                         <h2 class="tc-callsign">---</h2>
                         <div class="tc-subtitle">
                             <span class="tc-pilot">---</span>
@@ -5738,6 +5858,8 @@ function toggleTripCardMode(active) {
                             <span class="tc-ac">---</span>
                         </div>
                     </div>
+                </div>
+                <div class="tc-body">
                     <div class="tc-route">
                         <div class="tc-route-airport">
                             <span class="tc-route-label">From</span>
@@ -5748,21 +5870,42 @@ function toggleTripCardMode(active) {
                                 <div class="tc-progress-bar"></div>
                                 <i class="fa-solid fa-plane tc-plane-icon"></i>
                             </div>
+                            <div class="tc-progress-meta">
+                                <span class="tc-dist-flown">--</span>
+                                <span class="tc-eta">ETA --</span>
+                                <span class="tc-dist-rem">--</span>
+                            </div>
                         </div>
                         <div class="tc-route-airport tc-route-airport-right">
                             <span class="tc-route-label">To</span>
                             <span class="tc-icao destination">---</span>
                         </div>
                     </div>
-                    <div class="tc-stats">
-                        <div class="tc-stat">
-                            <span class="tc-stat-label">Altitude</span>
-                            <span class="tc-stat-value"><span class="tc-alt">---</span><span class="tc-unit">ft</span></span>
+                    <div class="tc-hud">
+                        <div class="tc-hud-stat">
+                            <label>ALT</label>
+                            <span class="tc-hud-val tc-alt">--</span><small>ft</small>
                         </div>
-                        <div class="tc-stat">
-                            <span class="tc-stat-label">Speed</span>
-                            <span class="tc-stat-value"><span class="tc-spd">---</span><span class="tc-unit">kt</span></span>
+                        <div class="tc-hud-stat">
+                            <label>GS</label>
+                            <span class="tc-hud-val tc-spd">--</span><small>kt</small>
                         </div>
+                        <div class="tc-hud-stat">
+                            <label>HDG</label>
+                            <span class="tc-hud-val tc-hdg">--</span><small>°</small>
+                        </div>
+                        <div class="tc-hud-stat">
+                            <label>V/S</label>
+                            <span class="tc-hud-val tc-vs">--</span><small>fpm</small>
+                        </div>
+                    </div>
+                    <div class="tc-chart-wrap">
+                        <div class="tc-chart-legend">
+                            <span class="tc-legend-alt">ALT</span>
+                            <span class="tc-legend-spd">SPD</span>
+                        </div>
+                        <canvas class="tc-chart-canvas"></canvas>
+                        <div class="tc-chart-empty">Tracking live profile…</div>
                     </div>
                     <button class="tc-share-btn" type="button" title="Share this flight">
                         <i class="fa-solid fa-share-nodes"></i>
@@ -5771,6 +5914,9 @@ function toggleTripCardMode(active) {
                 </div>
             </div>
         `;
+
+        // Reset the live profile history for the newly opened flight.
+        tripCardHistory = [];
 
         takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', () => {
             shareCurrentFlight(takeoverUI.querySelector('.tc-share-btn'));
@@ -6215,16 +6361,47 @@ function updateTripCardRealtime() {
         }
     }
 
+    const altFt = Math.round(pos.alt_ft || 0);
+    const gsKt = Math.round(pos.gs_kt || 0);
+    const hdgDeg = Math.round(pos.heading_deg || 0);
+    const vsFpm = Math.round(pos.vs_fpm || 0);
+
     ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
     ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
-    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
-    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0).toString();
-    
+    ui.querySelector('.tc-alt').textContent = altFt.toLocaleString();
+    ui.querySelector('.tc-spd').textContent = gsKt.toString();
+
+    const hdgEl = ui.querySelector('.tc-hdg');
+    if (hdgEl) hdgEl.textContent = String(hdgDeg).padStart(3, '0');
+
+    const vsEl = ui.querySelector('.tc-vs');
+    if (vsEl) {
+        const sign = vsFpm > 50 ? '+' : (vsFpm < -50 ? '' : '');
+        vsEl.textContent = `${sign}${vsFpm.toLocaleString()}`;
+        vsEl.classList.toggle('up', vsFpm > 50);
+        vsEl.classList.toggle('down', vsFpm < -50);
+    }
+
+    // Phase of flight — prefer server-provided phase, otherwise derive from V/S + altitude.
+    const phaseBadge = ui.querySelector('.tc-phase-badge');
+    const phaseText = ui.querySelector('.tc-phase-text');
+    if (phaseBadge && phaseText) {
+        let phase = (props.phase || '').toString().toLowerCase();
+        let key, label;
+        if (gsKt < 40 && altFt < 1500) { key = 'ground'; label = 'On Ground'; }
+        else if (phase.includes('climb') || vsFpm > 350) { key = 'climb'; label = 'Climbing'; }
+        else if (phase.includes('desc') || vsFpm < -350) { key = 'descent'; label = 'Descending'; }
+        else { key = 'cruise'; label = 'Cruise'; }
+        phaseBadge.classList.remove('climb', 'cruise', 'descent', 'ground');
+        phaseBadge.classList.add(key);
+        phaseText.textContent = label;
+    }
+
     const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
     const acName = acData.aircraftName || props.aircraftName || 'Unknown Type';
     const livName = acData.liveryName || props.liveryName || '';
-    
-    ui.querySelector('.tc-ac').textContent = `${acName} • ${livName}`;
+
+    ui.querySelector('.tc-ac').textContent = livName ? `${acName} • ${livName}` : acName;
 
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
@@ -6233,26 +6410,62 @@ function updateTripCardRealtime() {
 
     // Route Progress Bar Logic
     let progressPercent = 0;
+    let totalDistKm = 0;
+    let remainingDistKm = 0;
     if (dep !== '???' && arr !== '???') {
         const depData = typeof airportsData !== 'undefined' ? airportsData[dep] : null;
         const arrData = typeof airportsData !== 'undefined' ? airportsData[arr] : null;
         if (depData && arrData && pos.lat) {
             try {
-                const totalDist = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
-                const remainingDist = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
-                if (totalDist > 0) {
-                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
+                totalDistKm = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
+                remainingDistKm = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
+                if (totalDistKm > 0) {
+                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDistKm / totalDistKm)) * 100));
                 }
             } catch(err) {}
         }
     }
-    
+
     const displayPercent = Math.max(0, Math.min(100, progressPercent));
     const progressBar = ui.querySelector('.tc-progress-bar');
     const planeIcon = ui.querySelector('.tc-plane-icon');
-    
+
     if (progressBar) progressBar.style.width = `${displayPercent}%`;
     if (planeIcon) planeIcon.style.left = `${displayPercent}%`;
+
+    // Distance flown / remaining + ETA based on current ground speed.
+    const NM_PER_KM = 0.539957;
+    const flownEl = ui.querySelector('.tc-dist-flown');
+    const remEl = ui.querySelector('.tc-dist-rem');
+    const etaEl = ui.querySelector('.tc-eta');
+    if (totalDistKm > 0) {
+        const flownNm = Math.max(0, (totalDistKm - remainingDistKm)) * NM_PER_KM;
+        const remNm = Math.max(0, remainingDistKm) * NM_PER_KM;
+        if (flownEl) flownEl.textContent = `${Math.round(flownNm)} nm`;
+        if (remEl) remEl.textContent = `${Math.round(remNm)} nm`;
+        if (etaEl) {
+            if (gsKt > 40 && remNm > 1) {
+                const etaMin = Math.round((remNm / gsKt) * 60);
+                const h = Math.floor(etaMin / 60);
+                const m = etaMin % 60;
+                etaEl.textContent = h > 0 ? `ETA ${h}h ${m}m` : `ETA ${m}m`;
+            } else {
+                etaEl.textContent = remNm <= 1 ? 'Arrived' : 'ETA --';
+            }
+        }
+    } else {
+        if (flownEl) flownEl.textContent = '--';
+        if (remEl) remEl.textContent = '--';
+        if (etaEl) etaEl.textContent = 'ETA --';
+    }
+
+    // Accumulate the live profile and redraw the sparkline.
+    const last = tripCardHistory[tripCardHistory.length - 1];
+    if (!last || last.alt !== altFt || last.spd !== gsKt) {
+        tripCardHistory.push({ alt: altFt, spd: gsKt });
+        if (tripCardHistory.length > TRIP_CARD_HISTORY_MAX) tripCardHistory.shift();
+    }
+    drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
 
     // Airline Logo Handling
     const words = livName.trim().split(/\s+/);
@@ -6271,7 +6484,81 @@ function updateTripCardRealtime() {
         img.src = `Images/airline_logos/${sanitizedLogoName}.png`;
     }
 }
-    
+
+/**
+ * Draws the live altitude/speed profile sparkline for the trip card.
+ * Mirrors the flight-replay chart's look (altitude in cyan, speed in amber)
+ * but accumulates points live as realtime updates stream in.
+ */
+function drawTripCardChart(canvas, history) {
+    if (!canvas) return;
+    const wrap = canvas.closest('.tc-chart-wrap');
+    if (wrap) wrap.classList.toggle('has-data', history.length >= 2);
+    if (history.length < 2) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || 320;
+    const cssH = canvas.clientHeight || 60;
+    if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const padX = 4, padTop = 6, padBottom = 4;
+    const plotW = cssW - padX * 2;
+    const plotH = cssH - padTop - padBottom;
+    const n = history.length;
+
+    const maxAlt = Math.max(1000, ...history.map(p => p.alt));
+    const maxSpd = Math.max(100, ...history.map(p => p.spd));
+
+    const xAt = i => padX + (n === 1 ? plotW : (i / (n - 1)) * plotW);
+    const yAlt = v => padTop + plotH - (v / maxAlt) * plotH;
+    const ySpd = v => padTop + plotH - (v / maxSpd) * plotH;
+
+    // Altitude: filled area + stroke
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAlt(history[0].alt));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
+    ctx.lineTo(xAt(n - 1), padTop + plotH);
+    ctx.lineTo(xAt(0), padTop + plotH);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+    grad.addColorStop(0, 'rgba(56,189,248,0.35)');
+    grad.addColorStop(1, 'rgba(56,189,248,0.02)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAlt(history[0].alt));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.75;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // Speed: dashed amber line
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), ySpd(history[0].spd));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(history[i].spd));
+    ctx.strokeStyle = 'rgba(251,191,36,0.85)';
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Leading dot on the altitude trace
+    ctx.beginPath();
+    ctx.arc(xAt(n - 1), yAlt(history[n - 1].alt), 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fill();
+}
+
 /**
  * Categorized search input handler.
  * Delegates ranking to window.GlobalSearchEngine and renders three sections:
