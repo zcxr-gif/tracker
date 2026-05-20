@@ -5864,6 +5864,7 @@ async function loadExternalPanelContent() {
 // Rolling telemetry history for the trip card's live profile sparkline.
 // Reset each time a flight is opened in the card. Capped to keep the trace light.
 let tripCardHistory = [];
+let tripCardLastSampleTs = 0;
 const TRIP_CARD_HISTORY_MAX = 300;
 
 function toggleTripCardMode(active) {
@@ -5941,15 +5942,18 @@ function toggleTripCardMode(active) {
                                 <span class="tc-legend-spd">SPD</span>
                             </div>
                             <canvas class="tc-chart-canvas"></canvas>
-                            <div class="tc-chart-empty">Tracking live profile…</div>
+                            <div class="tc-chart-empty">Loading flight profile…</div>
                         </div>
                     </div>
                 </div>
             </div>
         `;
 
-        // Reset the live profile history for the newly opened flight.
+        // Seed the profile chart from the flight's recorded history, then let
+        // live ticks extend it. Reset first so a stale trace never lingers.
         tripCardHistory = [];
+        tripCardLastSampleTs = 0;
+        loadTripCardHistory(currentFlightInWindow);
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
@@ -6499,9 +6503,11 @@ function updateTripCardRealtime() {
         if (etaEl) etaEl.textContent = 'ETA --';
     }
 
-    // Accumulate the live profile; only redraw when the chart drawer is open.
-    const last = tripCardHistory[tripCardHistory.length - 1];
-    if (!last || last.alt !== altFt || last.spd !== gsKt) {
+    // Extend the history-seeded profile with live samples. Sample at most once
+    // per second to keep the array light.
+    const nowTs = Date.now();
+    if (nowTs - tripCardLastSampleTs >= 1000) {
+        tripCardLastSampleTs = nowTs;
         tripCardHistory.push({ alt: altFt, spd: gsKt });
         if (tripCardHistory.length > TRIP_CARD_HISTORY_MAX) tripCardHistory.shift();
     }
@@ -6528,15 +6534,18 @@ function updateTripCardRealtime() {
 }
 
 /**
- * Draws the live altitude/speed profile sparkline for the trip card.
- * Mirrors the flight-replay chart's look (altitude in cyan, speed in amber)
- * but accumulates points live as realtime updates stream in.
+ * Draws the altitude/speed profile sparkline for the trip card, mirroring the
+ * flight-replay chart: altitude as a height-coloured trace (blue→lime→rose),
+ * speed as a faint dashed white line.
  */
 function drawTripCardChart(canvas, history) {
     if (!canvas) return;
     const wrap = canvas.closest('.tc-chart-wrap');
-    if (wrap) wrap.classList.toggle('has-data', history.length >= 2);
-    if (history.length < 2) return;
+    if (wrap) wrap.classList.toggle('has-data', history.length >= 1);
+    if (history.length < 1) return;
+
+    // With a single sample, draw a flat line so the chart isn't blank.
+    const data = history.length === 1 ? [history[0], history[0]] : history;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -6554,10 +6563,10 @@ function drawTripCardChart(canvas, history) {
     const padX = 4, padTop = 6, padBottom = 4;
     const plotW = cssW - padX * 2;
     const plotH = cssH - padTop - padBottom;
-    const n = history.length;
+    const n = data.length;
 
-    const maxAlt = Math.max(1000, ...history.map(p => p.alt));
-    const maxSpd = Math.max(100, ...history.map(p => p.spd));
+    const maxAlt = Math.max(1000, ...data.map(p => p.alt));
+    const maxSpd = Math.max(100, ...data.map(p => p.spd));
 
     const xAt = i => padX + (n === 1 ? plotW : (i / (n - 1)) * plotW);
     const yAlt = v => padTop + plotH - (v / maxAlt) * plotH;
@@ -6572,8 +6581,8 @@ function drawTripCardChart(canvas, history) {
 
     // Filled area beneath the altitude trace (faint white)
     ctx.beginPath();
-    ctx.moveTo(xAt(0), yAlt(history[0].alt));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
+    ctx.moveTo(xAt(0), yAlt(data[0].alt));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(data[i].alt));
     ctx.lineTo(xAt(n - 1), padTop + plotH);
     ctx.lineTo(xAt(0), padTop + plotH);
     ctx.closePath();
@@ -6584,8 +6593,8 @@ function drawTripCardChart(canvas, history) {
     ctx.fill();
 
     ctx.beginPath();
-    ctx.moveTo(xAt(0), yAlt(history[0].alt));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(history[i].alt));
+    ctx.moveTo(xAt(0), yAlt(data[0].alt));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(data[i].alt));
     ctx.strokeStyle = altGrad;
     ctx.lineWidth = 1.75;
     ctx.lineJoin = 'round';
@@ -6593,8 +6602,8 @@ function drawTripCardChart(canvas, history) {
 
     // Speed: faint white dashed line
     ctx.beginPath();
-    ctx.moveTo(xAt(0), ySpd(history[0].spd));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(history[i].spd));
+    ctx.moveTo(xAt(0), ySpd(data[0].spd));
+    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(data[i].spd));
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 1.25;
     ctx.setLineDash([3, 3]);
@@ -6603,9 +6612,66 @@ function drawTripCardChart(canvas, history) {
 
     // Leading dot on the altitude trace
     ctx.beginPath();
-    ctx.arc(xAt(n - 1), yAlt(history[n - 1].alt), 2.5, 0, Math.PI * 2);
+    ctx.arc(xAt(n - 1), yAlt(data[n - 1].alt), 2.5, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
+}
+
+/**
+ * Seeds the trip card's profile chart from the flight's recorded history —
+ * the same backend `/history` endpoint + in-memory trail that flight replay
+ * uses — so the chart reflects the whole flight so far, not just samples
+ * collected since the card was opened. Live ticks then extend it.
+ */
+async function loadTripCardHistory(flightId) {
+    if (!flightId) return;
+
+    const pickNum = (...c) => { for (const v of c) if (typeof v === 'number' && !isNaN(v)) return v; return null; };
+    const toSample = (p) => {
+        if (!p || typeof p !== 'object') return null;
+        const pos = (p.position && typeof p.position === 'object') ? p.position : p;
+        const alt = pickNum(pos.alt_ft, pos.alt, pos.altitude, p.alt_ft, p.alt, p.altitude);
+        const spd = pickNum(pos.gs_kt, pos.gs, pos.groundSpeed, p.gs_kt, p.gs, p.groundSpeed);
+        if (alt == null && spd == null) return null;
+        let t = NaN;
+        const tc = [pos.time, pos.lastReportMs, pos.timeMs, p.time, p.lastReportMs, p.timeMs,
+                    pos.timestamp, pos.lastReport, p.timestamp, p.lastReport];
+        for (const v of tc) {
+            if (typeof v === 'number' && !isNaN(v)) { t = v; break; }
+            if (typeof v === 'string' && v) { const d = Date.parse(v); if (!isNaN(d)) { t = d; break; } }
+        }
+        return { t: isNaN(t) ? null : t, alt: Math.round(alt || 0), spd: Math.round(spd || 0) };
+    };
+
+    let backend = [];
+    try {
+        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+        const res = await fetch(historyUrl);
+        const json = res.ok ? await res.json() : null;
+        if (json && json.ok) backend = json.path || json.route || [];
+    } catch (e) { /* fall back to in-memory trail */ }
+
+    // The card may have closed or switched flights while the fetch was in flight.
+    if (currentFlightInWindow !== flightId) return;
+
+    const memory = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    const samples = backend.concat(memory).map(toSample).filter(Boolean);
+    samples.sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+
+    const series = [];
+    for (const s of samples) {
+        const prev = series[series.length - 1];
+        if (!prev || s.t == null || s.t !== prev.t) series.push({ alt: s.alt, spd: s.spd });
+    }
+    if (!series.length) return;
+
+    tripCardHistory = series.slice(-TRIP_CARD_HISTORY_MAX);
+    tripCardLastSampleTs = Date.now();
+
+    const ui = document.getElementById('trip-card-takeover');
+    if (ui && ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
+        drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    }
 }
 
 /**
