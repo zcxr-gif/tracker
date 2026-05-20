@@ -2240,10 +2240,34 @@ function injectCustomStyles() {
             transform: translateX(20px);
             pointer-events: none;
         }
-        .info-window.visible { 
+        .info-window.visible {
             opacity: 1;
             transform: translateX(0);
             pointer-events: auto;
+        }
+        /* Light-orange halo shown when the open flight is the single
+           most-watched flight on the network right now. */
+        .info-window.most-watched {
+            border-color: rgba(255, 178, 102, 0.85);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8),
+                        0 0 24px 4px rgba(255, 178, 102, 0.55),
+                        0 0 60px 16px rgba(255, 178, 102, 0.28);
+            animation: iw-most-watched-pulse 3.2s ease-in-out infinite;
+        }
+        @keyframes iw-most-watched-pulse {
+            0%, 100% {
+                box-shadow: 0 20px 50px rgba(0,0,0,0.8),
+                            0 0 18px 3px rgba(255, 178, 102, 0.42),
+                            0 0 50px 12px rgba(255, 178, 102, 0.22);
+            }
+            50% {
+                box-shadow: 0 20px 50px rgba(0,0,0,0.8),
+                            0 0 30px 6px rgba(255, 178, 102, 0.70),
+                            0 0 74px 20px rgba(255, 178, 102, 0.38);
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .info-window.most-watched { animation: none; }
         }
         .info-window-header {
             display: flex;
@@ -12865,6 +12889,8 @@ function closeAircraftWindow() {
     }
 
     aircraftInfoWindow.classList.remove('visible');
+    aircraftInfoWindow.classList.remove('most-watched');
+    delete aircraftInfoWindow.dataset.flightId;
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
     
     // Clear the map layers using the ID tracker
@@ -12944,12 +12970,15 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     currentFlightInWindow = flightProps.flightId;
     currentAircraftPositionForGeocode = flightProps.position;
+    aircraftInfoWindow.dataset.flightId = flightProps.flightId || '';
 
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
+
+    updateMostWatchedGlow();
 
     if (typeof aircraftInfoWindowRecallBtn !== 'undefined' && aircraftInfoWindowRecallBtn) {
         aircraftInfoWindowRecallBtn.classList.remove('visible');
@@ -13174,6 +13203,8 @@ function closeAircraftWindow() {
     }
 
     aircraftInfoWindow.classList.remove('visible');
+    aircraftInfoWindow.classList.remove('most-watched');
+    delete aircraftInfoWindow.dataset.flightId;
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
     
     // Clear the map layers using the ID tracker ONLY IF NOT PINNED
@@ -13200,6 +13231,24 @@ function closeAircraftWindow() {
         });
     }
 }
+
+// Toggle the light-orange "most watched" glow on the flight info window
+// based on whether the currently-open flight is the network's #1 most-watched
+// flight. Reads the open flightId from the window's dataset so it works
+// independently of any closure state.
+function updateMostWatchedGlow() {
+    const win = document.getElementById('aircraft-info-window');
+    if (!win) return;
+    let mostWatchedId = null;
+    try { mostWatchedId = TopWatchedUsers.getMostWatchedFlightId(); } catch (_) {}
+    const shownId = win.dataset.flightId || null;
+    const on = !!mostWatchedId && shownId === mostWatchedId && win.classList.contains('visible');
+    win.classList.toggle('most-watched', on);
+}
+
+// The most-watched flight changes as the leaderboard refreshes (~every 60s),
+// so re-evaluate the glow whenever it does.
+window.addEventListener('topWatchedChanged', updateMostWatchedGlow);
 
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
