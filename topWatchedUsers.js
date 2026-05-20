@@ -624,6 +624,24 @@ export const TopWatchedUsers = {
     _render() {
         this._renderInto('twu-list-desktop');
         this._updateSelfGlow();
+        this._emitChange();
+    },
+
+    // The flightId of the single most-watched flight right now (rank #1 of
+    // the leaderboard), or null if there's nothing tracked yet.
+    getMostWatchedFlightId() {
+        const top = this._data && this._data[0];
+        return (top && top.flightId) ? top.flightId : null;
+    },
+
+    // Let the rest of the app react when the most-watched flight changes
+    // (e.g. the flight info window's "most watched" glow).
+    _emitChange() {
+        try {
+            window.dispatchEvent(new CustomEvent('topWatchedChanged', {
+                detail: { mostWatchedFlightId: this.getMostWatchedFlightId() }
+            }));
+        } catch (_) {}
     },
 
     // Light up the window edges when the logged-in user is one of the top 5
