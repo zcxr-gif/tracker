@@ -1735,12 +1735,13 @@ function injectCustomStyles() {
     white-space: nowrap;
 }
 .tc-divider { color: #6b7177; flex-shrink: 0; }
-.tc-ac {
+.tc-ac-type, .tc-ac-airline {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
 }
+.tc-ac-airline { color: #e8eaed; font-weight: 600; }
 
 .tc-route {
     display: grid;
@@ -1970,24 +1971,6 @@ function injectCustomStyles() {
 .tc-share-btn:active { transform: translateY(0); }
 .tc-share-btn i { font-size: 0.95rem; }
 
-/* --- Airline logo on the hero (hidden until a matching logo loads) --- */
-.tc-logo {
-    position: absolute;
-    z-index: 10;
-    height: var(--tc-logo-size, 26px);
-    width: auto;
-    max-width: 45%;
-    object-fit: contain;
-    display: none;
-    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7));
-    pointer-events: none;
-}
-.tc-logo.tc-logo-top-left     { top: 12px; left: 14px; }
-.tc-logo.tc-logo-top-right    { top: 12px; right: 14px; }
-.tc-logo.tc-logo-bottom-right { bottom: 12px; right: 14px; }
-/* Keep the logo clear of the badge/close cluster when pinned top-right. */
-.tc-card:not(.tc-no-phase) .tc-logo.tc-logo-top-right { top: 48px; }
-
 /* --- Minimalist customizer trigger: a tiny kebab that reveals a menu --- */
 .tc-menu-wrap { position: absolute; top: 12px; right: 50px; z-index: 12; }
 .tc-menu-btn {
@@ -2161,12 +2144,42 @@ function injectCustomStyles() {
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 .tc-cz-presets button:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.25); }
+/* Touch devices have no hover, so keep the options trigger visible. */
+@media (hover: none) {
+    .tc-menu-btn { opacity: 0.85; }
+}
+
 @media (max-width: 640px) {
     #tc-customizer {
         left: 0; right: 0; bottom: 0;
         width: 100%; max-width: 100%;
         border-radius: 18px 18px 0 0;
-        max-height: 80vh;
+        max-height: 58vh;
+    }
+    /* Drag-handle affordance on the customizer sheet. */
+    .tc-cz-head { position: relative; }
+    .tc-cz-head::before {
+        content: '';
+        position: absolute;
+        top: 6px; left: 50%;
+        transform: translateX(-50%);
+        width: 40px; height: 4px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.4);
+    }
+    /* Bigger tap targets while editing on a phone. */
+    .tc-cz-row { padding: 9px 0; }
+    .tc-cz-row input[type="range"] { height: 24px; }
+    .tc-cz-presets button { padding: 10px 6px; }
+    /* While the customizer sheet is open, pin the card to the top so live
+       edits stay visible above the sheet instead of being covered by it. */
+    #trip-card-takeover.tc-customizing {
+        top: 8px;
+        bottom: auto;
+        transform: translateY(0);
+    }
+    #trip-card-takeover.tc-customizing .tc-card {
+        max-height: 36vh;
     }
 }
 
@@ -6126,7 +6139,6 @@ function toggleTripCardMode(active) {
                 <div class="tc-hero">
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
-                    <img class="tc-logo tc-logo-top-left" alt="" />
                     <div class="tc-phase-badge"><i class="fa-solid fa-plane-up"></i> <span class="tc-phase-text">--</span></div>
                     <div class="tc-menu-wrap">
                         <button class="tc-menu-btn" type="button" aria-label="Trip card options" aria-haspopup="true" aria-expanded="false">
@@ -6144,8 +6156,10 @@ function toggleTripCardMode(active) {
                         <h2 class="tc-callsign">---</h2>
                         <div class="tc-subtitle">
                             <span class="tc-pilot">---</span>
-                            <span class="tc-divider">·</span>
-                            <span class="tc-ac">---</span>
+                            <span class="tc-divider tc-div-1">·</span>
+                            <span class="tc-ac-type">---</span>
+                            <span class="tc-divider tc-div-2">·</span>
+                            <span class="tc-ac-airline">---</span>
                         </div>
                     </div>
                 </div>
@@ -6285,7 +6299,8 @@ function toggleTripCardMode(active) {
         }
     } else {
         takeoverUI.classList.remove('active');
-        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
+        if (typeof closeTripCardCustomizer === 'function') closeTripCardCustomizer();
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
         if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
             aircraftInfoWindow.classList.add('visible');
             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
@@ -6319,10 +6334,9 @@ const TRIP_CARD_DEFAULTS = {
     callsignSize: 1.5, icaoSize: 1.5,
     // Fades / effects
     heroFade: 100,
-    // Logo
-    logoShow: false, logoPos: 'top-left', logoSize: 26,
     // Content visibility
-    showHero: true, showPhase: true, showPilot: true, showAircraft: true,
+    showHero: true, showPhase: true, showPilot: true,
+    showAircraft: true, showAirline: true,
     showRoute: true, showProgress: true, showDistances: true,
     statAlt: true, statSpd: true, statHdg: true, statVs: true,
     showChart: true, showShare: false,
@@ -6378,7 +6392,6 @@ function applyTripCardConfig() {
     S('--tc-callsign-size', `${c.callsignSize}rem`);
     S('--tc-icao-size', `${c.icaoSize}rem`);
     S('--tc-hero-fade', String(c.heroFade / 100));
-    S('--tc-logo-size', `${c.logoSize}px`);
 
     // --- Position & animation classes on the takeover host ---
     ['tc-pos-bottom-center','tc-pos-bottom-left','tc-pos-bottom-right',
@@ -6406,16 +6419,22 @@ function applyTripCardConfig() {
     setShown('.tc-share-btn', c.showShare, 'inline-flex');
     if (!c.showChart) setShown('.tc-chart-drawer', false);
 
-    // Pilot / aircraft in the subtitle line — hide the trailing divider with each.
+    // Subtitle line: pilot · aircraft type · airline name. Each part is
+    // independently toggleable; dividers only appear between two visible parts.
+    // Hidden parts collapse, so a divider sitting between them bridges the gap.
     const subtitle = card.querySelector('.tc-subtitle');
     if (subtitle) {
         const pilot = subtitle.querySelector('.tc-pilot');
-        const ac = subtitle.querySelector('.tc-ac');
-        const divider = subtitle.querySelector('.tc-divider');
+        const acType = subtitle.querySelector('.tc-ac-type');
+        const airline = subtitle.querySelector('.tc-ac-airline');
+        const div1 = subtitle.querySelector('.tc-div-1');
+        const div2 = subtitle.querySelector('.tc-div-2');
         if (pilot) pilot.style.display = c.showPilot ? '' : 'none';
-        if (ac) ac.style.display = c.showAircraft ? '' : 'none';
-        if (divider) divider.style.display = (c.showPilot && c.showAircraft) ? '' : 'none';
-        subtitle.style.display = (c.showPilot || c.showAircraft) ? 'flex' : 'none';
+        if (acType) acType.style.display = c.showAircraft ? '' : 'none';
+        if (airline) airline.style.display = c.showAirline ? '' : 'none';
+        if (div1) div1.style.display = (c.showPilot && c.showAircraft) ? '' : 'none';
+        if (div2) div2.style.display = (c.showAirline && (c.showPilot || c.showAircraft)) ? '' : 'none';
+        subtitle.style.display = (c.showPilot || c.showAircraft || c.showAirline) ? 'flex' : 'none';
     }
 
     // --- HUD stats: toggle individually and keep the grid evenly sized ---
@@ -6430,15 +6449,6 @@ function applyTripCardConfig() {
         });
         hud.style.gridTemplateColumns = visible ? `repeat(${visible}, 1fr)` : '';
         hud.style.display = visible ? 'grid' : 'none';
-    }
-
-    // --- Logo position class (visibility handled in realtime once it loads) ---
-    const logo = card.querySelector('.tc-logo');
-    if (logo) {
-        ['tc-logo-top-left','tc-logo-top-right','tc-logo-bottom-right']
-            .forEach(cls => logo.classList.remove(cls));
-        logo.classList.add(`tc-logo-${c.logoPos}`);
-        if (!c.logoShow) logo.style.display = 'none';
     }
 }
 window.applyTripCardConfig = applyTripCardConfig;
@@ -6473,17 +6483,12 @@ const TRIP_CARD_CONTROLS = [
         { key: 'icaoSize', type: 'range', label: 'Airport size', min: 0.9, max: 2.4, step: 0.05, unit: 'rem' },
         { key: 'heroFade', type: 'range', label: 'Hero fade', min: 0, max: 100, step: 1, unit: '%' },
     ] },
-    { group: 'Airline Logo', controls: [
-        { key: 'logoShow', type: 'toggle', label: 'Show logo' },
-        { key: 'logoPos', type: 'select', label: 'Logo position', options: [
-            ['top-left','Top left'],['top-right','Top right'],['bottom-right','Bottom right'] ] },
-        { key: 'logoSize', type: 'range', label: 'Logo size', min: 14, max: 56, step: 1, unit: 'px' },
-    ] },
     { group: 'Content', controls: [
         { key: 'showHero', type: 'toggle', label: 'Hero photo' },
         { key: 'showPhase', type: 'toggle', label: 'Phase badge' },
         { key: 'showPilot', type: 'toggle', label: 'Pilot name' },
         { key: 'showAircraft', type: 'toggle', label: 'Aircraft type' },
+        { key: 'showAirline', type: 'toggle', label: 'Airline name' },
         { key: 'showRoute', type: 'toggle', label: 'Route (from/to)' },
         { key: 'showProgress', type: 'toggle', label: 'Progress bar' },
         { key: 'showDistances', type: 'toggle', label: 'Distances / ETA' },
@@ -6617,9 +6622,12 @@ function openTripCardCustomizer() {
     buildTripCardCustomizer();
     syncTripCardCustomizerInputs();
     document.getElementById('tc-customizer')?.classList.add('open');
+    // On mobile this pins the card to the top so it stays visible above the sheet.
+    document.getElementById('trip-card-takeover')?.classList.add('tc-customizing');
 }
 function closeTripCardCustomizer() {
     document.getElementById('tc-customizer')?.classList.remove('open');
+    document.getElementById('trip-card-takeover')?.classList.remove('tc-customizing');
 }
 window.openTripCardCustomizer = openTripCardCustomizer;
 
@@ -7065,7 +7073,16 @@ function updateTripCardRealtime() {
     const acName = acData.aircraftName || props.aircraftName || 'Unknown Type';
     const livName = acData.liveryName || props.liveryName || '';
 
-    ui.querySelector('.tc-ac').textContent = livName ? `${acName} • ${livName}` : acName;
+    const acTypeEl = ui.querySelector('.tc-ac-type');
+    const airlineEl = ui.querySelector('.tc-ac-airline');
+    if (acTypeEl) acTypeEl.textContent = acName;
+    if (airlineEl) airlineEl.textContent = livName || '—';
+    // No airline name available → drop it (and its divider) regardless of config.
+    if (airlineEl && !livName) {
+        airlineEl.style.display = 'none';
+        const div2 = ui.querySelector('.tc-div-2');
+        if (div2) div2.style.display = 'none';
+    }
 
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
@@ -7133,27 +7150,6 @@ function updateTripCardRealtime() {
     }
     if (ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
         drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
-    }
-
-    // Airline Logo Handling — only when the user has enabled it in the customizer.
-    const logoImg = ui.querySelector('.tc-logo');
-    if (logoImg) {
-        if (!tripCardConfig || !tripCardConfig.logoShow) {
-            logoImg.style.display = 'none';
-        } else {
-            const words = livName.trim().split(/\s+/);
-            let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-            const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-            const img = new Image();
-            img.onload = () => {
-                logoImg.src = img.src;
-                logoImg.style.display = 'block';
-            };
-            img.onerror = () => {
-                logoImg.style.display = 'none';
-            };
-            img.src = `Images/airline_logos/${sanitizedLogoName}.png`;
-        }
     }
 }
 
