@@ -343,6 +343,19 @@ export const TopWatchedUsers = {
                 background: rgba(0, 0, 0, 0.06);
                 color: #4b5563;
             }
+            /* Username handle shown under the callsign for live pilots. */
+            .twu-handle {
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: var(--lui-text-gray-1, #a1a1aa);
+                margin-top: 3px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 200px;
+            }
+            .twu-stack[data-theme="light"] .twu-handle,
+            .twu-sheet[data-theme="light"] .twu-handle { color: #6b7280; }
             .twu-row-sub {
                 font-size: 0.82rem;
                 color: var(--lui-text-gray-1, #a1a1aa);
@@ -679,7 +692,7 @@ export const TopWatchedUsers = {
         list.innerHTML = this._data.map((row, i) => this._rowHTML(row, i)).join('');
 
         list.querySelectorAll('.twu-item').forEach(li => {
-            const go = () => this._focus(li.dataset.username, li.dataset.flightId);
+            const go = () => this._focus(li.dataset.username, li.dataset.flightId, Number(li.dataset.rank));
             li.addEventListener('click', go);
             li.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
@@ -724,8 +737,13 @@ export const TopWatchedUsers = {
         const title = live ? `${safePrimary} • ${esc(name)}` : safeName;
         const dataFlightId = row && row.flightId ? esc(row.flightId) : '';
 
+        // When the pilot is live the callsign is the headline; the username
+        // drops to a handle line directly beneath it. When they're offline the
+        // username stays as the headline (there's no callsign to show).
+        const handle = live && name ? `<div class="twu-handle">${safeName}</div>` : '';
+
         return `
-            <li class="twu-item ${live ? 'is-live' : ''}" data-username="${safeName}" data-flight-id="${dataFlightId}"
+            <li class="twu-item ${live ? 'is-live' : ''}" data-username="${safeName}" data-flight-id="${dataFlightId}" data-rank="${i}"
                 role="option" tabindex="0" title="${title}">
                 <span class="twu-rank">${i + 1}</span>
                 <div class="twu-row-main">
@@ -733,6 +751,7 @@ export const TopWatchedUsers = {
                         <span class="twu-name">${safePrimary}</span>
                         ${tags.join('')}
                     </div>
+                    ${handle}
                     <div class="twu-row-sub">${sub}</div>
                 </div>
             </li>
@@ -756,7 +775,7 @@ export const TopWatchedUsers = {
 
     // ---------------- click-through to map ----------------
 
-    _focus(username, flightId) {
+    _focus(username, flightId, rank) {
         if (!username && !flightId) return;
         const live = lookupLive({ pilotName: username, flightId });
         if (live && live.flightId && live.coords && typeof window.onSearchResultClick === 'function') {
@@ -765,7 +784,23 @@ export const TopWatchedUsers = {
             } catch (err) {
                 console.warn('[TopWatched] focus failed:', err);
             }
-        } else if (typeof window.showGlobalNotification === 'function') {
+            return;
+        }
+
+        // Not live. For the top three flights, jump straight into replay/
+        // playback of the recorded flight rather than just nudging the user.
+        if (flightId && rank < 3 && typeof window.openFlightReplayById === 'function') {
+            Promise.resolve(window.openFlightReplayById(flightId, { callsign: username }))
+                .then(ok => {
+                    if (!ok && typeof window.showGlobalNotification === 'function') {
+                        window.showGlobalNotification(`No replay available yet for ${username || 'this flight'}.`, 'info');
+                    }
+                })
+                .catch(err => console.warn('[TopWatched] replay failed:', err));
+            return;
+        }
+
+        if (typeof window.showGlobalNotification === 'function') {
             window.showGlobalNotification(`${username || 'This flight'} is not currently flying on this server.`, 'info');
         }
     },
