@@ -648,6 +648,10 @@ export const MobileLandingUI = {
                 #sector-ops-map-fullscreen.mobile-window-open #m-topbar,
                 #sector-ops-map-fullscreen.mobile-window-open .m-tb-scrim { display: none !important; }
 
+                /* Hide the mobile top bar while the trip card takeover is open. */
+                body.trip-card-open #m-topbar,
+                body.trip-card-open .m-tb-scrim { display: none !important; }
+
                 #m-topbar, #m-topbar * { box-sizing: border-box; }
                 #m-topbar {
                     position: fixed; top: 0; left: 0; right: 0;

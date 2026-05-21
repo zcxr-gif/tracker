@@ -1773,6 +1773,28 @@ function injectCustomStyles() {
     color: var(--tc-text, #fff);
     line-height: 1;
 }
+.tc-icao-row { display: flex; align-items: center; gap: 6px; line-height: 1; min-width: 0; }
+.tc-route-airport-right .tc-icao-row { flex-direction: row-reverse; }
+.tc-flag { font-size: calc(var(--tc-icao-size, 1.5rem) * 0.85); line-height: 1; flex: 0 0 auto; }
+.tc-flag:empty { display: none; }
+.tc-airport-name {
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: var(--tc-muted, #9aa0a6);
+    max-width: clamp(72px, 26vw, 130px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tc-airport-name:empty { display: none; }
+.tc-airport-country {
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.tc-airport-country:empty { display: none; }
 .tc-route-progress { padding: 0 4px; min-width: 90px; display: flex; flex-direction: column; gap: 7px; }
 .tc-progress-meta {
     display: flex;
@@ -6171,7 +6193,9 @@ function toggleTripCardMode(active) {
                     <div class="tc-route">
                         <div class="tc-route-airport">
                             <span class="tc-route-label">From</span>
-                            <span class="tc-icao origin">---</span>
+                            <span class="tc-icao-row"><span class="tc-flag origin-flag" aria-hidden="true"></span><span class="tc-icao origin">---</span></span>
+                            <span class="tc-airport-name origin-name"></span>
+                            <span class="tc-airport-country origin-country"></span>
                         </div>
                         <div class="tc-route-progress">
                             <div class="tc-progress-track">
@@ -6186,7 +6210,9 @@ function toggleTripCardMode(active) {
                         </div>
                         <div class="tc-route-airport tc-route-airport-right">
                             <span class="tc-route-label">To</span>
-                            <span class="tc-icao destination">---</span>
+                            <span class="tc-icao-row"><span class="tc-flag destination-flag" aria-hidden="true"></span><span class="tc-icao destination">---</span></span>
+                            <span class="tc-airport-name destination-name"></span>
+                            <span class="tc-airport-country destination-country"></span>
                         </div>
                     </div>
                     <div class="tc-hud">
@@ -6285,7 +6311,8 @@ function toggleTripCardMode(active) {
         applyTripCardConfig();
 
         takeoverUI.classList.add('active');
-        
+        document.body.classList.add('trip-card-open');
+
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
         }
@@ -6303,6 +6330,7 @@ function toggleTripCardMode(active) {
         }
     } else {
         takeoverUI.classList.remove('active');
+        document.body.classList.remove('trip-card-open');
         if (typeof closeTripCardCustomizer === 'function') closeTripCardCustomizer();
         if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
         if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
@@ -6342,6 +6370,7 @@ const TRIP_CARD_DEFAULTS = {
     showHero: true, showPhase: true, showPilot: true,
     showAircraft: true, showAirline: true,
     showRoute: true, showProgress: true, showDistances: true,
+    showFlag: true, showAirportName: true, showCountry: false,
     statAlt: true, statSpd: true, statHdg: true, statVs: true,
     showChart: true, showShare: false,
 };
@@ -6418,6 +6447,12 @@ function applyTripCardConfig() {
     setShown('.tc-phase-badge', c.showPhase, 'inline-flex');
     setShown('.tc-route', c.showRoute, 'grid');
     setShown('.tc-route-progress', c.showProgress, 'flex');
+    setShown('.origin-flag', c.showFlag, '');
+    setShown('.destination-flag', c.showFlag, '');
+    setShown('.origin-name', c.showAirportName, '');
+    setShown('.destination-name', c.showAirportName, '');
+    setShown('.origin-country', c.showCountry, '');
+    setShown('.destination-country', c.showCountry, '');
     setShown('.tc-progress-meta', c.showDistances, 'flex');
     setShown('.tc-chart-toggle', c.showChart, 'flex');
     setShown('.tc-share-btn', c.showShare, 'inline-flex');
@@ -6494,6 +6529,9 @@ const TRIP_CARD_CONTROLS = [
         { key: 'showAircraft', type: 'toggle', label: 'Aircraft type' },
         { key: 'showAirline', type: 'toggle', label: 'Airline name' },
         { key: 'showRoute', type: 'toggle', label: 'Route (from/to)' },
+        { key: 'showFlag', type: 'toggle', label: 'Country flags' },
+        { key: 'showAirportName', type: 'toggle', label: 'Airport names' },
+        { key: 'showCountry', type: 'toggle', label: 'Country names' },
         { key: 'showProgress', type: 'toggle', label: 'Progress bar' },
         { key: 'showDistances', type: 'toggle', label: 'Distances / ETA' },
         { key: 'statAlt', type: 'toggle', label: 'Stat · Altitude' },
@@ -7019,6 +7057,25 @@ if (typeof window !== 'undefined') {
     }
 }
 
+// ISO 3166-1 alpha-2 → flag emoji via regional indicator symbols.
+function tripCardCountryFlag(iso2) {
+    if (!iso2 || !/^[a-zA-Z]{2}$/.test(iso2)) return '';
+    const cc = iso2.toUpperCase();
+    return String.fromCodePoint(...[...cc].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
+}
+
+let _tripCardRegionNames = null;
+// ISO 3166-1 alpha-2 → English country name (e.g. "GB" → "United Kingdom").
+function tripCardCountryName(iso2) {
+    if (!iso2 || !/^[a-zA-Z]{2}$/.test(iso2)) return '';
+    try {
+        if (!_tripCardRegionNames && typeof Intl !== 'undefined' && Intl.DisplayNames) {
+            _tripCardRegionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+        }
+        return _tripCardRegionNames ? (_tripCardRegionNames.of(iso2.toUpperCase()) || '') : iso2.toUpperCase();
+    } catch (e) { return iso2.toUpperCase(); }
+}
+
 function updateTripCardRealtime() {
     if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
 
@@ -7092,6 +7149,21 @@ function updateTripCardRealtime() {
     const arr = props.arrivalIcao || '???';
     ui.querySelector('.tc-icao.origin').textContent = dep;
     ui.querySelector('.tc-icao.destination').textContent = arr;
+
+    // Airport name / country flag / country name (each toggleable via the customizer).
+    const setAirportMeta = (which, info) => {
+        const flagEl = ui.querySelector(`.${which}-flag`);
+        const nameEl = ui.querySelector(`.${which}-name`);
+        const ctryEl = ui.querySelector(`.${which}-country`);
+        const cc = info && info.country;
+        if (flagEl) flagEl.textContent = tripCardCountryFlag(cc);
+        if (nameEl) nameEl.textContent = (info && info.name) ? info.name : '';
+        if (ctryEl) ctryEl.textContent = tripCardCountryName(cc);
+    };
+    const depMeta = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[dep] : null;
+    const arrMeta = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[arr] : null;
+    setAirportMeta('origin', depMeta);
+    setAirportMeta('destination', arrMeta);
 
     // Route Progress Bar Logic
     let progressPercent = 0;
