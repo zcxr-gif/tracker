@@ -2014,10 +2014,14 @@ function injectCustomStyles() {
 }
 .tc-hero:hover .tc-menu-btn { opacity: 1; }
 .tc-menu-btn:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); color: #fff; opacity: 1; }
+/* Anchored to #trip-card-takeover (its transform makes it the containing
+   block) rather than the hero, so the menu escapes the card's overflow:hidden
+   instead of being clipped by it. */
 .tc-menu-pop {
     position: absolute;
-    top: 36px;
-    right: 0;
+    top: 48px;
+    right: 50px;
+    z-index: 14;
     min-width: 150px;
     background: rgba(20,21,22,0.97);
     border: 1px solid rgba(255,255,255,0.14);
@@ -6170,10 +6174,6 @@ function toggleTripCardMode(active) {
                         <button class="tc-menu-btn" type="button" aria-label="Trip card options" aria-haspopup="true" aria-expanded="false">
                             <i class="fa-solid fa-ellipsis-vertical"></i>
                         </button>
-                        <div class="tc-menu-pop" role="menu">
-                            <button class="tc-menu-customize" type="button" role="menuitem"><i class="fa-solid fa-sliders"></i> Customize</button>
-                            <button class="tc-menu-share" type="button" role="menuitem"><i class="fa-solid fa-arrow-up-from-bracket"></i> Share flight</button>
-                        </div>
                     </div>
                     <button class="tc-exit-btn" type="button" aria-label="Close trip card">
                         <i class="fa-solid fa-xmark"></i>
@@ -6252,6 +6252,10 @@ function toggleTripCardMode(active) {
                         <i class="fa-solid fa-arrow-up-from-bracket"></i> Share this flight
                     </button>
                 </div>
+            </div>
+            <div class="tc-menu-pop" role="menu">
+                <button class="tc-menu-customize" type="button" role="menuitem"><i class="fa-solid fa-sliders"></i> Customize</button>
+                <button class="tc-menu-share" type="button" role="menuitem"><i class="fa-solid fa-arrow-up-from-bracket"></i> Share flight</button>
             </div>
         `;
 
