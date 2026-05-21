@@ -1482,12 +1482,34 @@ function injectCustomStyles() {
     opacity: 0;
 }
 
-/* Desktop layout */
+/* Desktop layout.
+   Geometry, colour and typography are all driven by CSS custom properties so
+   the customizer can rewrite the look live. Fallbacks reproduce the original
+   design exactly, so an un-customized card is unchanged. */
 #trip-card-takeover {
+    --tc-width: 380px;
+    --tc-radius: 16px;
+    --tc-hero-height: 150px;
+    --tc-pad-x: 18px;
+    --tc-pad-y: 16px;
+    --tc-gap: 14px;
+    --tc-bg: rgba(30, 31, 32, 0.94);
+    --tc-blur: 18px;
+    --tc-border-color: rgba(255, 255, 255, 0.15);
+    --tc-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
+    --tc-accent: #38bdf8;
+    --tc-accent-2: #a855f7;
+    --tc-text: #ffffff;
+    --tc-muted: #9aa0a6;
+    --tc-callsign-size: 1.5rem;
+    --tc-icao-size: 1.5rem;
+    --tc-hero-fade: 1;
+    --tc-enter-y: 24px;
+
     bottom: 24px;
     left: 50%;
-    transform: translateX(-50%) translateY(24px);
-    width: 380px;
+    transform: translateX(-50%) translateY(var(--tc-enter-y));
+    width: var(--tc-width);
     max-width: calc(100vw - 24px);
 }
 #trip-card-takeover.active {
@@ -1496,6 +1518,20 @@ function injectCustomStyles() {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
 }
+
+/* Anchor variants (set by the customizer). Center stays the default above. */
+#trip-card-takeover.tc-pos-bottom-left  { left: 24px; transform: translateX(0) translateY(var(--tc-enter-y)); }
+#trip-card-takeover.tc-pos-bottom-left.active  { transform: translateX(0) translateY(0); }
+#trip-card-takeover.tc-pos-bottom-right { left: auto; right: 24px; transform: translateX(0) translateY(var(--tc-enter-y)); }
+#trip-card-takeover.tc-pos-bottom-right.active { transform: translateX(0) translateY(0); }
+#trip-card-takeover.tc-pos-top-center { bottom: auto; top: 24px; transform: translateX(-50%) translateY(calc(-1 * var(--tc-enter-y))); }
+#trip-card-takeover.tc-pos-top-center.active { transform: translateX(-50%) translateY(0); }
+#trip-card-takeover.tc-pos-top-left { bottom: auto; top: 24px; left: 24px; transform: translateX(0) translateY(calc(-1 * var(--tc-enter-y))); }
+#trip-card-takeover.tc-pos-top-left.active { transform: translateX(0) translateY(0); }
+#trip-card-takeover.tc-pos-top-right { bottom: auto; top: 24px; left: auto; right: 24px; transform: translateX(0) translateY(calc(-1 * var(--tc-enter-y))); }
+#trip-card-takeover.tc-pos-top-right.active { transform: translateX(0) translateY(0); }
+/* No-animation mode: kill the entrance slide. */
+#trip-card-takeover.tc-no-anim { transition: opacity 0.2s ease; --tc-enter-y: 0px; }
 
 /* Mobile layout — full-width bottom sheet, flush to the screen edges */
 @media (max-width: 640px) {
@@ -1545,24 +1581,34 @@ function injectCustomStyles() {
 }
 
 .tc-card {
-    background: rgba(30, 31, 32, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 16px;
+    background: var(--tc-bg, rgba(30, 31, 32, 0.94));
+    border: 1px solid var(--tc-border-color, rgba(255, 255, 255, 0.15));
+    border-radius: var(--tc-radius, 16px);
     overflow: hidden;
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(var(--tc-blur, 18px));
+    -webkit-backdrop-filter: blur(var(--tc-blur, 18px));
+    box-shadow: var(--tc-shadow, 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05));
 }
 
 .tc-hero {
     position: relative;
     width: 100%;
-    height: 150px;
+    height: var(--tc-hero-height, 150px);
     background: #1e1f20;
     overflow: hidden;
 }
+/* When the hero photo is hidden the card collapses to a header-less sheet. */
+.tc-card.tc-no-hero .tc-hero { height: auto; min-height: 0; background: transparent; }
+.tc-card.tc-no-hero .tc-bg-layer,
+.tc-card.tc-no-hero .tc-hero-gradient { display: none; }
+.tc-card.tc-no-hero .tc-hero-overlay {
+    position: static;
+    padding: 14px 96px 0 16px;
+}
+.tc-card.tc-no-hero .tc-callsign,
+.tc-card.tc-no-hero .tc-subtitle { text-shadow: none; }
 @media (max-width: 640px) {
-    .tc-hero { height: 130px; }
+    .tc-hero { height: var(--tc-hero-height, 130px); }
 }
 
 .tc-bg-layer {
@@ -1578,6 +1624,8 @@ function injectCustomStyles() {
     inset: 0;
     background: linear-gradient(to bottom, rgba(30,31,32,0.05) 0%, rgba(30,31,32,0.6) 70%, rgba(30,31,32,1) 100%);
     pointer-events: none;
+    opacity: var(--tc-hero-fade, 1);
+    transition: opacity 0.2s ease;
 }
 
 .tc-exit-btn {
@@ -1607,11 +1655,12 @@ function injectCustomStyles() {
 }
 .tc-exit-btn:active { transform: scale(0.92); }
 
-/* Phase pill (Climb / Cruise / Descent / Ground), top-right next to close */
+/* Phase pill (Climb / Cruise / Descent / Ground), top-right beside the
+   close + options buttons (which occupy ~right:12 and right:50). */
 .tc-phase-badge {
     position: absolute;
     top: 12px;
-    right: 52px;
+    right: 88px;
     z-index: 10;
     display: inline-flex;
     align-items: center;
@@ -1648,17 +1697,17 @@ function injectCustomStyles() {
 }
 
 .tc-body {
-    padding: 16px 18px 18px;
+    padding: var(--tc-pad-y, 16px) var(--tc-pad-x, 18px) calc(var(--tc-pad-y, 16px) + 2px);
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--tc-gap, 14px);
 }
 
 .tc-callsign {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.5rem;
+    font-size: var(--tc-callsign-size, 1.5rem);
     font-weight: 800;
-    color: #fff;
+    color: var(--tc-text, #fff);
     margin: 0;
     line-height: 1.1;
     letter-spacing: -0.4px;
@@ -1718,9 +1767,9 @@ function injectCustomStyles() {
 }
 .tc-icao {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.5rem;
+    font-size: var(--tc-icao-size, 1.5rem);
     font-weight: 800;
-    color: #fff;
+    color: var(--tc-text, #fff);
     line-height: 1;
 }
 .tc-route-progress { padding: 0 4px; min-width: 90px; display: flex; flex-direction: column; gap: 7px; }
@@ -1750,16 +1799,16 @@ function injectCustomStyles() {
     left: 0;
     height: 100%;
     width: 0%;
-    background: rgba(255,255,255,0.9);
+    background: var(--tc-accent, rgba(255,255,255,0.9));
     border-radius: 2px;
-    box-shadow: 0 0 8px rgba(255,255,255,0.4);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--tc-accent, #fff) 50%, transparent);
     transition: width 0.6s ease;
 }
 .tc-plane-icon {
     position: absolute;
     left: 0%;
     transform: translateX(-50%);
-    color: #fff;
+    color: var(--tc-accent, #fff);
     font-size: 12px;
     filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
     transition: left 0.6s ease;
@@ -1892,7 +1941,7 @@ function injectCustomStyles() {
     .tc-hud { padding: 9px 4px; gap: 4px; }
     .tc-hud-val { font-size: 0.95rem; }
     .tc-hero-overlay { left: 14px; right: 14px; }
-    .tc-phase-badge { right: 48px; padding: 4px 8px; }
+    .tc-phase-badge { right: 84px; padding: 4px 8px; }
 }
 
 .tc-share-btn {
@@ -1902,7 +1951,7 @@ function injectCustomStyles() {
     gap: 8px;
     width: 100%;
     padding: 12px 20px;
-    background: linear-gradient(135deg, #38bdf8, #a855f7);
+    background: linear-gradient(135deg, var(--tc-accent, #38bdf8), var(--tc-accent-2, #a855f7));
     color: #fff;
     border: none;
     border-radius: 12px;
@@ -1911,7 +1960,7 @@ function injectCustomStyles() {
     font-size: 0.85rem;
     font-weight: 700;
     letter-spacing: 0.3px;
-    box-shadow: 0 8px 24px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--tc-accent, #38bdf8) 35%, transparent), inset 0 1px 0 rgba(255,255,255,0.15);
     transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.25s ease;
 }
 .tc-share-btn:hover {
@@ -1920,6 +1969,206 @@ function injectCustomStyles() {
 }
 .tc-share-btn:active { transform: translateY(0); }
 .tc-share-btn i { font-size: 0.95rem; }
+
+/* --- Airline logo on the hero (hidden until a matching logo loads) --- */
+.tc-logo {
+    position: absolute;
+    z-index: 10;
+    height: var(--tc-logo-size, 26px);
+    width: auto;
+    max-width: 45%;
+    object-fit: contain;
+    display: none;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7));
+    pointer-events: none;
+}
+.tc-logo.tc-logo-top-left     { top: 12px; left: 14px; }
+.tc-logo.tc-logo-top-right    { top: 12px; right: 14px; }
+.tc-logo.tc-logo-bottom-right { bottom: 12px; right: 14px; }
+/* Keep the logo clear of the badge/close cluster when pinned top-right. */
+.tc-card:not(.tc-no-phase) .tc-logo.tc-logo-top-right { top: 48px; }
+
+/* --- Minimalist customizer trigger: a tiny kebab that reveals a menu --- */
+.tc-menu-wrap { position: absolute; top: 12px; right: 50px; z-index: 12; }
+.tc-menu-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8eaed;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    opacity: 0.35;
+    transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.tc-hero:hover .tc-menu-btn { opacity: 1; }
+.tc-menu-btn:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); color: #fff; opacity: 1; }
+.tc-menu-pop {
+    position: absolute;
+    top: 36px;
+    right: 0;
+    min-width: 150px;
+    background: rgba(20,21,22,0.97);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+    padding: 5px;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+}
+.tc-menu-pop.open { display: flex; }
+.tc-menu-pop button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    border-radius: 7px;
+    color: #e8eaed;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+.tc-menu-pop button:hover { background: rgba(255,255,255,0.08); }
+.tc-menu-pop button i { width: 14px; text-align: center; color: #9aa0a6; }
+
+/* --- Customizer panel: docks beside the card (sheet on mobile) --- */
+#tc-customizer {
+    position: fixed;
+    z-index: 10001;
+    width: 340px;
+    max-width: calc(100vw - 24px);
+    max-height: 78vh;
+    bottom: 24px;
+    left: calc(50% + 200px);
+    background: rgba(24,25,26,0.97);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    color: #e8eaed;
+}
+#tc-customizer.open { display: flex; }
+.tc-cz-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex: 0 0 auto;
+}
+.tc-cz-head h3 { margin: 0; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.2px; }
+.tc-cz-head .tc-cz-spacer { margin-left: auto; }
+.tc-cz-head button {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8eaed;
+    border-radius: 7px;
+    padding: 5px 9px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.tc-cz-head button:hover { background: rgba(255,255,255,0.14); }
+.tc-cz-body {
+    padding: 6px 16px 16px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    -webkit-overflow-scrolling: touch;
+}
+.tc-cz-group { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.tc-cz-group:last-child { border-bottom: none; }
+.tc-cz-group > h4 {
+    margin: 0 0 10px;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: #6b7177;
+}
+.tc-cz-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+}
+.tc-cz-row label { font-size: 0.8rem; font-weight: 500; color: #d4d6d9; }
+.tc-cz-row input[type="range"] { flex: 1 1 auto; max-width: 150px; accent-color: #38bdf8; cursor: pointer; }
+.tc-cz-row input[type="color"] { width: 34px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; border-radius: 6px; }
+.tc-cz-row select {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8eaed;
+    border-radius: 7px;
+    padding: 5px 8px;
+    font-size: 0.76rem;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+}
+.tc-cz-val { font-size: 0.7rem; color: #9aa0a6; min-width: 42px; text-align: right; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+/* Toggle switch */
+.tc-cz-switch { position: relative; width: 38px; height: 22px; flex: 0 0 auto; }
+.tc-cz-switch input { opacity: 0; width: 0; height: 0; }
+.tc-cz-track {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.14);
+    border-radius: 999px;
+    transition: background 0.18s ease;
+}
+.tc-cz-track::before {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 16px; height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.18s ease;
+}
+.tc-cz-switch input:checked + .tc-cz-track { background: #38bdf8; }
+.tc-cz-switch input:checked + .tc-cz-track::before { transform: translateX(16px); }
+.tc-cz-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.tc-cz-presets button {
+    flex: 1 1 auto;
+    min-width: 64px;
+    padding: 7px 6px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: #d4d6d9;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tc-cz-presets button:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.25); }
+@media (max-width: 640px) {
+    #tc-customizer {
+        left: 0; right: 0; bottom: 0;
+        width: 100%; max-width: 100%;
+        border-radius: 18px 18px 0 0;
+        max-height: 80vh;
+    }
+}
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -5877,7 +6126,17 @@ function toggleTripCardMode(active) {
                 <div class="tc-hero">
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
+                    <img class="tc-logo tc-logo-top-left" alt="" />
                     <div class="tc-phase-badge"><i class="fa-solid fa-plane-up"></i> <span class="tc-phase-text">--</span></div>
+                    <div class="tc-menu-wrap">
+                        <button class="tc-menu-btn" type="button" aria-label="Trip card options" aria-haspopup="true" aria-expanded="false">
+                            <i class="fa-solid fa-ellipsis-vertical"></i>
+                        </button>
+                        <div class="tc-menu-pop" role="menu">
+                            <button class="tc-menu-customize" type="button" role="menuitem"><i class="fa-solid fa-sliders"></i> Customize</button>
+                            <button class="tc-menu-share" type="button" role="menuitem"><i class="fa-solid fa-arrow-up-from-bracket"></i> Share flight</button>
+                        </div>
+                    </div>
                     <button class="tc-exit-btn" type="button" aria-label="Close trip card">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
@@ -5913,19 +6172,19 @@ function toggleTripCardMode(active) {
                         </div>
                     </div>
                     <div class="tc-hud">
-                        <div class="tc-hud-stat">
+                        <div class="tc-hud-stat" data-stat="alt">
                             <label>ALT</label>
                             <span class="tc-hud-val tc-alt">--</span><small>ft</small>
                         </div>
-                        <div class="tc-hud-stat">
+                        <div class="tc-hud-stat" data-stat="spd">
                             <label>GS</label>
                             <span class="tc-hud-val tc-spd">--</span><small>kt</small>
                         </div>
-                        <div class="tc-hud-stat">
+                        <div class="tc-hud-stat" data-stat="hdg">
                             <label>HDG</label>
                             <span class="tc-hud-val tc-hdg">--</span><small>°</small>
                         </div>
-                        <div class="tc-hud-stat">
+                        <div class="tc-hud-stat" data-stat="vs">
                             <label>V/S</label>
                             <span class="tc-hud-val tc-vs">--</span><small>fpm</small>
                         </div>
@@ -5945,6 +6204,9 @@ function toggleTripCardMode(active) {
                             <div class="tc-chart-empty">Loading flight profile…</div>
                         </div>
                     </div>
+                    <button class="tc-share-btn" type="button">
+                        <i class="fa-solid fa-arrow-up-from-bracket"></i> Share this flight
+                    </button>
                 </div>
             </div>
         `;
@@ -5971,6 +6233,38 @@ function toggleTripCardMode(active) {
                 setTimeout(() => drawTripCardChart(takeoverUI.querySelector('.tc-chart-canvas'), tripCardHistory), 320);
             }
         });
+
+        // Minimalist options menu: kebab → { Customize, Share }.
+        const menuBtn = takeoverUI.querySelector('.tc-menu-btn');
+        const menuPop = takeoverUI.querySelector('.tc-menu-pop');
+        menuBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = menuPop.classList.toggle('open');
+            menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        // Close the kebab menu on outside-click. Attached once for the page; it
+        // re-queries the live elements so card re-renders don't leak listeners.
+        if (!window.__tcMenuDismissBound) {
+            window.__tcMenuDismissBound = true;
+            document.addEventListener('click', (e) => {
+                const pop = document.querySelector('#trip-card-takeover .tc-menu-pop');
+                const btn = document.querySelector('#trip-card-takeover .tc-menu-btn');
+                if (pop && !pop.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+                    pop.classList.remove('open');
+                    btn?.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+        takeoverUI.querySelector('.tc-menu-customize')?.addEventListener('click', () => {
+            menuPop?.classList.remove('open');
+            openTripCardCustomizer();
+        });
+        const doShare = () => { menuPop?.classList.remove('open'); shareCurrentFlight(); };
+        takeoverUI.querySelector('.tc-menu-share')?.addEventListener('click', doShare);
+        takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', (e) => shareCurrentFlight(e.currentTarget));
+
+        // Paint the card with the user's saved customizations before showing it.
+        applyTripCardConfig();
 
         takeoverUI.classList.add('active');
         
@@ -6002,6 +6296,332 @@ function toggleTripCardMode(active) {
 }
 
 window.toggleTripCardMode = toggleTripCardMode;
+
+/* ===================================================================
+   TRIP CARD CUSTOMIZER
+   A per-device (localStorage) customization layer for the trip card.
+   Everything — size, position, colours, fades, fonts and which pieces
+   of content are shown — is driven from a single config object that is
+   applied to the live card via CSS custom properties and classes.
+   =================================================================== */
+
+const TRIP_CARD_CONFIG_KEY = 'tripCardConfig.v1';
+
+const TRIP_CARD_DEFAULTS = {
+    // Layout & size
+    width: 380, heroHeight: 150, radius: 16, padX: 18, padY: 16, gap: 14,
+    position: 'bottom-center',
+    // Surface & colour
+    bgColor: '#1e1f20', bgOpacity: 94, blur: 18,
+    border: true, shadow: true, animate: true,
+    accent: '#38bdf8', accent2: '#a855f7', textColor: '#ffffff',
+    // Typography
+    callsignSize: 1.5, icaoSize: 1.5,
+    // Fades / effects
+    heroFade: 100,
+    // Logo
+    logoShow: false, logoPos: 'top-left', logoSize: 26,
+    // Content visibility
+    showHero: true, showPhase: true, showPilot: true, showAircraft: true,
+    showRoute: true, showProgress: true, showDistances: true,
+    statAlt: true, statSpd: true, statHdg: true, statVs: true,
+    showChart: true, showShare: false,
+};
+
+let tripCardConfig = loadTripCardConfig();
+
+function loadTripCardConfig() {
+    try {
+        const raw = localStorage.getItem(TRIP_CARD_CONFIG_KEY);
+        if (raw) return { ...TRIP_CARD_DEFAULTS, ...JSON.parse(raw) };
+    } catch (e) { /* corrupt / unavailable storage — fall back to defaults */ }
+    return { ...TRIP_CARD_DEFAULTS };
+}
+
+function saveTripCardConfig() {
+    try { localStorage.setItem(TRIP_CARD_CONFIG_KEY, JSON.stringify(tripCardConfig)); }
+    catch (e) { /* storage full or blocked — customizations stay session-only */ }
+}
+
+function hexToRgba(hex, opacityPct) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+    if (!m) return hex;
+    const a = Math.max(0, Math.min(100, opacityPct == null ? 100 : opacityPct)) / 100;
+    return `rgba(${parseInt(m[1],16)}, ${parseInt(m[2],16)}, ${parseInt(m[3],16)}, ${a})`;
+}
+
+/**
+ * Applies the current config to the live trip card. Safe to call at any time
+ * (on render, on every customizer tweak); it is a no-op when the card is absent.
+ */
+function applyTripCardConfig() {
+    const ui = document.getElementById('trip-card-takeover');
+    if (!ui) return;
+    const c = tripCardConfig;
+    const card = ui.querySelector('.tc-card');
+
+    // --- CSS custom properties (size / colour / type) ---
+    const S = (k, v) => ui.style.setProperty(k, v);
+    S('--tc-width', `${c.width}px`);
+    S('--tc-hero-height', `${c.heroHeight}px`);
+    S('--tc-radius', `${c.radius}px`);
+    S('--tc-pad-x', `${c.padX}px`);
+    S('--tc-pad-y', `${c.padY}px`);
+    S('--tc-gap', `${c.gap}px`);
+    S('--tc-bg', hexToRgba(c.bgColor, c.bgOpacity));
+    S('--tc-blur', `${c.blur}px`);
+    S('--tc-border-color', c.border ? 'rgba(255,255,255,0.15)' : 'transparent');
+    S('--tc-shadow', c.shadow ? '0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(255,255,255,0.05)' : 'none');
+    S('--tc-accent', c.accent);
+    S('--tc-accent-2', c.accent2);
+    S('--tc-text', c.textColor);
+    S('--tc-callsign-size', `${c.callsignSize}rem`);
+    S('--tc-icao-size', `${c.icaoSize}rem`);
+    S('--tc-hero-fade', String(c.heroFade / 100));
+    S('--tc-logo-size', `${c.logoSize}px`);
+
+    // --- Position & animation classes on the takeover host ---
+    ['tc-pos-bottom-center','tc-pos-bottom-left','tc-pos-bottom-right',
+     'tc-pos-top-center','tc-pos-top-left','tc-pos-top-right']
+        .forEach(cls => ui.classList.remove(cls));
+    ui.classList.add(`tc-pos-${c.position}`);
+    ui.classList.toggle('tc-no-anim', !c.animate);
+
+    if (!card) return;
+
+    // --- Structural toggles on the card ---
+    card.classList.toggle('tc-no-hero', !c.showHero);
+    card.classList.toggle('tc-no-phase', !c.showPhase);
+
+    const setShown = (sel, shown, display = '') => {
+        const el = card.querySelector(sel);
+        if (el) el.style.display = shown ? display : 'none';
+    };
+
+    setShown('.tc-phase-badge', c.showPhase, 'inline-flex');
+    setShown('.tc-route', c.showRoute, 'grid');
+    setShown('.tc-route-progress', c.showProgress, 'flex');
+    setShown('.tc-progress-meta', c.showDistances, 'flex');
+    setShown('.tc-chart-toggle', c.showChart, 'flex');
+    setShown('.tc-share-btn', c.showShare, 'inline-flex');
+    if (!c.showChart) setShown('.tc-chart-drawer', false);
+
+    // Pilot / aircraft in the subtitle line — hide the trailing divider with each.
+    const subtitle = card.querySelector('.tc-subtitle');
+    if (subtitle) {
+        const pilot = subtitle.querySelector('.tc-pilot');
+        const ac = subtitle.querySelector('.tc-ac');
+        const divider = subtitle.querySelector('.tc-divider');
+        if (pilot) pilot.style.display = c.showPilot ? '' : 'none';
+        if (ac) ac.style.display = c.showAircraft ? '' : 'none';
+        if (divider) divider.style.display = (c.showPilot && c.showAircraft) ? '' : 'none';
+        subtitle.style.display = (c.showPilot || c.showAircraft) ? 'flex' : 'none';
+    }
+
+    // --- HUD stats: toggle individually and keep the grid evenly sized ---
+    const hud = card.querySelector('.tc-hud');
+    if (hud) {
+        const map = { alt: c.statAlt, spd: c.statSpd, hdg: c.statHdg, vs: c.statVs };
+        let visible = 0;
+        Object.entries(map).forEach(([k, on]) => {
+            const cell = hud.querySelector(`.tc-hud-stat[data-stat="${k}"]`);
+            if (cell) cell.style.display = on ? 'flex' : 'none';
+            if (on) visible++;
+        });
+        hud.style.gridTemplateColumns = visible ? `repeat(${visible}, 1fr)` : '';
+        hud.style.display = visible ? 'grid' : 'none';
+    }
+
+    // --- Logo position class (visibility handled in realtime once it loads) ---
+    const logo = card.querySelector('.tc-logo');
+    if (logo) {
+        ['tc-logo-top-left','tc-logo-top-right','tc-logo-bottom-right']
+            .forEach(cls => logo.classList.remove(cls));
+        logo.classList.add(`tc-logo-${c.logoPos}`);
+        if (!c.logoShow) logo.style.display = 'none';
+    }
+}
+window.applyTripCardConfig = applyTripCardConfig;
+
+// Declarative spec for the customizer UI. Each control maps to one config key.
+const TRIP_CARD_CONTROLS = [
+    { group: 'Presets', presets: true },
+    { group: 'Layout & Size', controls: [
+        { key: 'position', type: 'select', label: 'Anchor', options: [
+            ['bottom-center','Bottom center'],['bottom-left','Bottom left'],['bottom-right','Bottom right'],
+            ['top-center','Top center'],['top-left','Top left'],['top-right','Top right'] ] },
+        { key: 'width', type: 'range', label: 'Width', min: 280, max: 520, step: 4, unit: 'px' },
+        { key: 'heroHeight', type: 'range', label: 'Hero height', min: 80, max: 240, step: 2, unit: 'px' },
+        { key: 'padX', type: 'range', label: 'Padding X', min: 6, max: 32, step: 1, unit: 'px' },
+        { key: 'padY', type: 'range', label: 'Padding Y', min: 6, max: 32, step: 1, unit: 'px' },
+        { key: 'gap', type: 'range', label: 'Content gap', min: 4, max: 28, step: 1, unit: 'px' },
+        { key: 'radius', type: 'range', label: 'Corner radius', min: 0, max: 32, step: 1, unit: 'px' },
+    ] },
+    { group: 'Surface & Colour', controls: [
+        { key: 'bgColor', type: 'color', label: 'Background' },
+        { key: 'bgOpacity', type: 'range', label: 'Bg opacity', min: 0, max: 100, step: 1, unit: '%' },
+        { key: 'blur', type: 'range', label: 'Blur', min: 0, max: 30, step: 1, unit: 'px' },
+        { key: 'accent', type: 'color', label: 'Accent' },
+        { key: 'accent2', type: 'color', label: 'Accent 2' },
+        { key: 'textColor', type: 'color', label: 'Text' },
+        { key: 'border', type: 'toggle', label: 'Border' },
+        { key: 'shadow', type: 'toggle', label: 'Drop shadow' },
+        { key: 'animate', type: 'toggle', label: 'Entrance animation' },
+    ] },
+    { group: 'Typography & Fades', controls: [
+        { key: 'callsignSize', type: 'range', label: 'Callsign size', min: 0.9, max: 2.4, step: 0.05, unit: 'rem' },
+        { key: 'icaoSize', type: 'range', label: 'Airport size', min: 0.9, max: 2.4, step: 0.05, unit: 'rem' },
+        { key: 'heroFade', type: 'range', label: 'Hero fade', min: 0, max: 100, step: 1, unit: '%' },
+    ] },
+    { group: 'Airline Logo', controls: [
+        { key: 'logoShow', type: 'toggle', label: 'Show logo' },
+        { key: 'logoPos', type: 'select', label: 'Logo position', options: [
+            ['top-left','Top left'],['top-right','Top right'],['bottom-right','Bottom right'] ] },
+        { key: 'logoSize', type: 'range', label: 'Logo size', min: 14, max: 56, step: 1, unit: 'px' },
+    ] },
+    { group: 'Content', controls: [
+        { key: 'showHero', type: 'toggle', label: 'Hero photo' },
+        { key: 'showPhase', type: 'toggle', label: 'Phase badge' },
+        { key: 'showPilot', type: 'toggle', label: 'Pilot name' },
+        { key: 'showAircraft', type: 'toggle', label: 'Aircraft type' },
+        { key: 'showRoute', type: 'toggle', label: 'Route (from/to)' },
+        { key: 'showProgress', type: 'toggle', label: 'Progress bar' },
+        { key: 'showDistances', type: 'toggle', label: 'Distances / ETA' },
+        { key: 'statAlt', type: 'toggle', label: 'Stat · Altitude' },
+        { key: 'statSpd', type: 'toggle', label: 'Stat · Ground speed' },
+        { key: 'statHdg', type: 'toggle', label: 'Stat · Heading' },
+        { key: 'statVs', type: 'toggle', label: 'Stat · Vertical speed' },
+        { key: 'showChart', type: 'toggle', label: 'Flight profile chart' },
+        { key: 'showShare', type: 'toggle', label: 'Share button' },
+    ] },
+];
+
+const TRIP_CARD_PRESETS = {
+    Default: { ...TRIP_CARD_DEFAULTS },
+    Glass: { bgColor: '#0b1220', bgOpacity: 55, blur: 26, border: true, shadow: true,
+             radius: 20, accent: '#38bdf8', accent2: '#a855f7', heroFade: 85 },
+    Solid: { bgColor: '#16181a', bgOpacity: 100, blur: 0, border: true, shadow: true,
+             radius: 12, heroFade: 100 },
+    Minimal: { showPhase: false, showChart: false, showShare: false, showDistances: false,
+               statHdg: false, statVs: false, border: false, shadow: false, bgOpacity: 100,
+               bgColor: '#101113', radius: 10, heroHeight: 110, gap: 10 },
+    Compact: { width: 300, heroHeight: 96, padX: 12, padY: 10, gap: 8, radius: 12,
+               callsignSize: 1.2, icaoSize: 1.2, showChart: false },
+    Tall: { width: 360, heroHeight: 200, padX: 20, padY: 20, gap: 18, radius: 18,
+            showChart: true, showShare: true },
+    Light: { bgColor: '#f4f5f7', bgOpacity: 96, textColor: '#0b0d12', blur: 14,
+             accent: '#2563eb', accent2: '#7c3aed', heroFade: 100 },
+};
+
+function applyTripCardPreset(name) {
+    const preset = TRIP_CARD_PRESETS[name];
+    if (!preset) return;
+    tripCardConfig = name === 'Default'
+        ? { ...TRIP_CARD_DEFAULTS }
+        : { ...tripCardConfig, ...preset };
+    saveTripCardConfig();
+    applyTripCardConfig();
+    syncTripCardCustomizerInputs();
+    updateTripCardRealtime();
+}
+
+function buildTripCardCustomizer() {
+    if (document.getElementById('tc-customizer')) return;
+    const panel = document.createElement('div');
+    panel.id = 'tc-customizer';
+
+    const groupsHtml = TRIP_CARD_CONTROLS.map(g => {
+        if (g.presets) {
+            const btns = Object.keys(TRIP_CARD_PRESETS)
+                .map(n => `<button type="button" data-preset="${n}">${n}</button>`).join('');
+            return `<div class="tc-cz-group"><h4>${g.group}</h4><div class="tc-cz-presets">${btns}</div></div>`;
+        }
+        const rows = g.controls.map(ctrl => {
+            const id = `tc-cz-${ctrl.key}`;
+            if (ctrl.type === 'toggle') {
+                return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
+                    <span class="tc-cz-switch"><input type="checkbox" id="${id}" data-key="${ctrl.key}"><span class="tc-cz-track"></span></span></div>`;
+            }
+            if (ctrl.type === 'color') {
+                return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
+                    <input type="color" id="${id}" data-key="${ctrl.key}"></div>`;
+            }
+            if (ctrl.type === 'select') {
+                const opts = ctrl.options.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+                return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
+                    <select id="${id}" data-key="${ctrl.key}">${opts}</select></div>`;
+            }
+            // range
+            return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
+                <input type="range" id="${id}" data-key="${ctrl.key}" min="${ctrl.min}" max="${ctrl.max}" step="${ctrl.step}">
+                <span class="tc-cz-val" data-val-for="${ctrl.key}"></span></div>`;
+        }).join('');
+        return `<div class="tc-cz-group"><h4>${g.group}</h4>${rows}</div>`;
+    }).join('');
+
+    panel.innerHTML = `
+        <div class="tc-cz-head">
+            <h3>Customize card</h3>
+            <span class="tc-cz-spacer"></span>
+            <button type="button" class="tc-cz-reset">Reset</button>
+            <button type="button" class="tc-cz-close" aria-label="Close customizer">Done</button>
+        </div>
+        <div class="tc-cz-body">${groupsHtml}</div>
+    `;
+    document.body.appendChild(panel);
+
+    // Wire inputs: each edit mutates config, persists, and re-applies live.
+    panel.querySelectorAll('[data-key]').forEach(input => {
+        const key = input.dataset.key;
+        const ctrl = TRIP_CARD_CONTROLS.flatMap(g => g.controls || []).find(c => c.key === key);
+        const handler = () => {
+            let v;
+            if (input.type === 'checkbox') v = input.checked;
+            else if (input.type === 'range') v = parseFloat(input.value);
+            else v = input.value;
+            tripCardConfig[key] = v;
+            const valEl = panel.querySelector(`[data-val-for="${key}"]`);
+            if (valEl && ctrl) valEl.textContent = `${v}${ctrl.unit || ''}`;
+            saveTripCardConfig();
+            applyTripCardConfig();
+            // A few content/logo toggles need fresh data painted back in.
+            updateTripCardRealtime();
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
+    });
+
+    panel.querySelectorAll('[data-preset]').forEach(btn => {
+        btn.addEventListener('click', () => applyTripCardPreset(btn.dataset.preset));
+    });
+    panel.querySelector('.tc-cz-reset')?.addEventListener('click', () => applyTripCardPreset('Default'));
+    panel.querySelector('.tc-cz-close')?.addEventListener('click', closeTripCardCustomizer);
+}
+
+// Reflect the current config values into the customizer's inputs.
+function syncTripCardCustomizerInputs() {
+    const panel = document.getElementById('tc-customizer');
+    if (!panel) return;
+    panel.querySelectorAll('[data-key]').forEach(input => {
+        const key = input.dataset.key;
+        const v = tripCardConfig[key];
+        if (input.type === 'checkbox') input.checked = !!v;
+        else input.value = v;
+        const ctrl = TRIP_CARD_CONTROLS.flatMap(g => g.controls || []).find(c => c.key === key);
+        const valEl = panel.querySelector(`[data-val-for="${key}"]`);
+        if (valEl && ctrl) valEl.textContent = `${v}${ctrl.unit || ''}`;
+    });
+}
+
+function openTripCardCustomizer() {
+    buildTripCardCustomizer();
+    syncTripCardCustomizerInputs();
+    document.getElementById('tc-customizer')?.classList.add('open');
+}
+function closeTripCardCustomizer() {
+    document.getElementById('tc-customizer')?.classList.remove('open');
+}
+window.openTripCardCustomizer = openTripCardCustomizer;
 
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
@@ -6515,21 +7135,25 @@ function updateTripCardRealtime() {
         drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
     }
 
-    // Airline Logo Handling
-    const words = livName.trim().split(/\s+/);
-    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+    // Airline Logo Handling — only when the user has enabled it in the customizer.
     const logoImg = ui.querySelector('.tc-logo');
     if (logoImg) {
-        const img = new Image();
-        img.onload = () => {
-            logoImg.src = img.src;
-            logoImg.style.display = 'block';
-        };
-        img.onerror = () => {
+        if (!tripCardConfig || !tripCardConfig.logoShow) {
             logoImg.style.display = 'none';
-        };
-        img.src = `Images/airline_logos/${sanitizedLogoName}.png`;
+        } else {
+            const words = livName.trim().split(/\s+/);
+            let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+            const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+            const img = new Image();
+            img.onload = () => {
+                logoImg.src = img.src;
+                logoImg.style.display = 'block';
+            };
+            img.onerror = () => {
+                logoImg.style.display = 'none';
+            };
+            img.src = `Images/airline_logos/${sanitizedLogoName}.png`;
+        }
     }
 }
 
