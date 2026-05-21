@@ -7621,6 +7621,15 @@ function onSearchResultClick(arg1, arg2, arg3) {
     // CRITICAL: Make function globally available to landingUI.js
     window.onSearchResultClick = onSearchResultClick;
 
+    // Open the replay/playback panel for any flightId by pulling its recorded
+    // history from the backend. Used by the Most Tracked panel to let users
+    // jump into a top flight's playback when that pilot isn't live right now.
+    window.openFlightReplayById = async function(flightId, meta = {}) {
+        if (!flightId || typeof FlightReplay === 'undefined' || !sectorOpsMap) return false;
+        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+        return FlightReplay.open({ map: sectorOpsMap, flightId, historyUrl, meta });
+    };
+
 function _closeSearchAfterPick() {
     const dropdown = document.getElementById('search-results-dropdown');
     const searchInput = document.getElementById('sector-ops-search-input');
