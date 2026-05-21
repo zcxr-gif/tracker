@@ -2156,6 +2156,10 @@ function injectCustomStyles() {
         border-radius: 18px 18px 0 0;
         max-height: 58vh;
     }
+    /* Keep the final rows (the Content toggles) clear of the home indicator. */
+    #tc-customizer .tc-cz-body {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    }
     /* Drag-handle affordance on the customizer sheet. */
     .tc-cz-head { position: relative; }
     .tc-cz-head::before {
@@ -6545,7 +6549,7 @@ function buildTripCardCustomizer() {
             const id = `tc-cz-${ctrl.key}`;
             if (ctrl.type === 'toggle') {
                 return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
-                    <span class="tc-cz-switch"><input type="checkbox" id="${id}" data-key="${ctrl.key}"><span class="tc-cz-track"></span></span></div>`;
+                    <label class="tc-cz-switch" for="${id}"><input type="checkbox" id="${id}" data-key="${ctrl.key}"><span class="tc-cz-track"></span></label></div>`;
             }
             if (ctrl.type === 'color') {
                 return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
