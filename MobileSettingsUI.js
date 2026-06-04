@@ -143,6 +143,14 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="blue">Blue</button>
                             <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
                         </div>
+
+                        <div class="mobile-section-header">VA Partner</div>
+                        <div style="padding: 0 20px 8px;">
+                            <button id="mobile-va-partner-btn" class="m-btn m-va">
+                                <i class="fa-solid fa-plane-departure" style="margin-right: 8px;"></i>
+                                Open VA Partner Sign In
+                            </button>
+                        </div>
                     </div>
 
                     <div class="sheet-footer">
@@ -224,6 +232,18 @@ refreshProLocks() {
 
         overlay.addEventListener('click', closeUI);
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
+
+        // VA Partner sign-in: dismiss the sheet and pop out the dedicated VA
+        // auth modal (vaAuth.js), the correct portal for virtual airlines.
+        // Self-contained and shares the same Supabase project as the tracker.
+        document.getElementById('mobile-va-partner-btn')?.addEventListener('click', () => {
+            closeUI();
+            setTimeout(() => {
+                import('./vaAuth.js')
+                    .then(mod => mod.openAuthModal('signin'))
+                    .catch(err => console.error('Failed to load VA partner sign-in:', err));
+            }, 350);
+        });
 
         // --- Pro Feature Intercept Logic ---
         sheet.querySelectorAll('.is-pro-feature').forEach(row => {
@@ -443,7 +463,9 @@ refreshProLocks() {
                 .sheet-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); }
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
-                
+                .m-va { background: #0f172a; color: #fff; border: 1px solid rgba(56,189,248,0.5); }
+                .m-va i { color: #38bdf8; }
+
                 .custom-scroll { overflow-y: auto; flex: 1; }
             }
         `;

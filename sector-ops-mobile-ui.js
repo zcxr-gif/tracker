@@ -1,3 +1,7 @@
+// NOTE: The mobile settings bottom sheet (and the VA Partner sign-in entry)
+// does NOT live here. This file only handles the mobile flight-info windows
+// and sheets. For the mobile settings sheet, including the "VA Partner"
+// section, see MobileSettingsUI.js.
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
