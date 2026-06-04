@@ -11,6 +11,12 @@ import { friendlyAuthError, vaToast } from './vaUI.js';
 let injected = false;
 let lastMode = 'signin';
 let pendingConfirmEmail = null;
+// When the modal is opened from a page that isn't part of the VA portal
+// (e.g. the tracker), the caller passes a redirect target so a successful
+// sign-in lands the user in the actual VA area instead of silently closing
+// and leaving them in the tracker's Pro context. Null on the VA pages
+// themselves, which preserves their original close-in-place behavior.
+let postAuthRedirect = null;
 
 function injectStyles() {
     if (injected) return;
@@ -393,7 +399,7 @@ async function renderSignedInState(overlay, session) {
         </div>
     `;
     overlay.querySelector('#va-auth-close').addEventListener('click', closeAuthModal);
-    overlay.querySelector('#va-auth-continue').addEventListener('click', closeAuthModal);
+    overlay.querySelector('#va-auth-continue').addEventListener('click', finishAuth);
     overlay.querySelector('#va-auth-switch').addEventListener('click', async () => {
         const msgEl = overlay.querySelector('#va-auth-msg');
         msgEl.className = '';
@@ -661,7 +667,7 @@ async function handleSubmit(e, isSignUp) {
             const sess = await getSession();
             if (sess) {
                 vaToast({ type: 'ok', message: `Welcome aboard, ${(data.if_username || '').trim() || 'pilot'}.` });
-                closeAuthModal();
+                finishAuth();
             } else {
                 pendingConfirmEmail = data.email;
                 render('awaiting-confirmation');
@@ -673,7 +679,7 @@ async function handleSubmit(e, isSignUp) {
             });
             if (error) throw error;
             vaToast({ type: 'ok', message: 'Signed in.' });
-            closeAuthModal();
+            finishAuth();
         }
     } catch (err) {
         showMsg(msg, 'err', `<i class="fa-solid fa-circle-exclamation"></i> ${escAttr(friendlyAuthError(err))}`);
@@ -758,7 +764,8 @@ function attachBackdropHandlers(overlay) {
     }
 }
 
-export async function openAuthModal(mode = 'signin') {
+export async function openAuthModal(mode = 'signin', options = {}) {
+    postAuthRedirect = options.redirectTo || null;
     injectStyles();
     let overlay = document.getElementById('va-auth-overlay');
     if (!overlay) {
@@ -791,6 +798,19 @@ export async function openAuthModal(mode = 'signin') {
 
     document.addEventListener('keydown', escListener);
     document.body.style.overflow = 'hidden';
+}
+
+// Called after a successful authentication. If the modal was opened with a
+// redirect target (i.e. from outside the VA portal), navigate there so the
+// user lands in the actual VA area. Otherwise just close in place.
+function finishAuth() {
+    if (postAuthRedirect) {
+        const target = postAuthRedirect;
+        postAuthRedirect = null;
+        window.location.assign(target);
+        return;
+    }
+    closeAuthModal();
 }
 
 export function closeAuthModal() {

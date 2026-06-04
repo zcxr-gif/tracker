@@ -178,7 +178,9 @@ export const AuthUI = {
         this.close();
         try {
             const mod = await import('./vaAuth.js');
-            await mod.openAuthModal('signin');
+            // Redirect into the VA portal after sign-in so partners land in
+            // their VA dashboard, not back in the tracker's Pro context.
+            await mod.openAuthModal('signin', { redirectTo: 'va-dashboard.html' });
         } catch (err) {
             console.error('AuthUI: Failed to load VA partner sign-in.', err);
         }

@@ -12731,7 +12731,7 @@ if (upgradeBtn) {
             vaPartnerBtn.addEventListener('click', () => {
                 SettingsUI.toggle(false);
                 import('./vaAuth.js')
-                    .then(mod => mod.openAuthModal('signin'))
+                    .then(mod => mod.openAuthModal('signin', { redirectTo: 'va-dashboard.html' }))
                     .catch(err => console.error('Failed to load VA partner sign-in:', err));
             });
         }
