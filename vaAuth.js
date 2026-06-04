@@ -12,11 +12,12 @@ let injected = false;
 let lastMode = 'signin';
 let pendingConfirmEmail = null;
 // When the modal is opened from a page that isn't part of the VA portal
-// (e.g. the tracker), the caller passes a redirect target so a successful
-// sign-in lands the user in the actual VA area instead of silently closing
-// and leaving them in the tracker's Pro context. Null on the VA pages
+// (e.g. the tracker) the caller can pass either a redirect target or an
+// onAuthed callback so a successful sign-in lands the user in the actual VA
+// experience instead of silently closing. Both null on the VA pages
 // themselves, which preserves their original close-in-place behavior.
 let postAuthRedirect = null;
+let postAuthCallback = null;
 
 function injectStyles() {
     if (injected) return;
@@ -766,6 +767,7 @@ function attachBackdropHandlers(overlay) {
 
 export async function openAuthModal(mode = 'signin', options = {}) {
     postAuthRedirect = options.redirectTo || null;
+    postAuthCallback = typeof options.onAuthed === 'function' ? options.onAuthed : null;
     injectStyles();
     let overlay = document.getElementById('va-auth-overlay');
     if (!overlay) {
@@ -800,10 +802,18 @@ export async function openAuthModal(mode = 'signin', options = {}) {
     document.body.style.overflow = 'hidden';
 }
 
-// Called after a successful authentication. If the modal was opened with a
-// redirect target (i.e. from outside the VA portal), navigate there so the
-// user lands in the actual VA area. Otherwise just close in place.
+// Called after a successful authentication. If the modal was opened with an
+// onAuthed callback (e.g. from the tracker, to pop out the VA portal) close
+// in place and invoke it. If a redirect target was given instead, navigate
+// there. Otherwise just close — preserving the VA pages' original behavior.
 function finishAuth() {
+    if (postAuthCallback) {
+        const cb = postAuthCallback;
+        postAuthCallback = null;
+        closeAuthModal();
+        try { cb(); } catch (err) { console.error('[vaAuth] onAuthed callback failed', err); }
+        return;
+    }
     if (postAuthRedirect) {
         const target = postAuthRedirect;
         postAuthRedirect = null;

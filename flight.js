@@ -12724,15 +12724,15 @@ if (upgradeBtn) {
             });
         }
 
-        // VA Partner sign-in: close settings and pop out the dedicated VA
-        // auth modal (vaAuth.js), the correct portal for virtual airlines.
+        // VA Partner: close settings and pop out the VA Partner portal
+        // (VAPortalUI) over the tracker, like ProfileUI. Never navigates away.
         const vaPartnerBtn = document.getElementById('set-va-partner-btn');
         if (vaPartnerBtn) {
             vaPartnerBtn.addEventListener('click', () => {
                 SettingsUI.toggle(false);
-                import('./vaAuth.js')
-                    .then(mod => mod.openAuthModal('signin', { redirectTo: 'va-dashboard.html' }))
-                    .catch(err => console.error('Failed to load VA partner sign-in:', err));
+                import('./VAPortalUI.js')
+                    .then(mod => mod.VAPortalUI.launch())
+                    .catch(err => console.error('Failed to load VA partner portal:', err));
             });
         }
     }

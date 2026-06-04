@@ -170,19 +170,17 @@ export const AuthUI = {
         this._tempSignUpData = null;
     },
 
-    // Closes the Pro auth modal and pops out the separate VA Partner sign-in
-    // (vaAuth.js openAuthModal), which is the correct portal for virtual
-    // airline partners and staff. Self-contained: it injects its own styles
-    // and shares the same Supabase project as the tracker.
+    // Closes the Pro auth modal and pops out the VA Partner portal
+    // (VAPortalUI) over the tracker — like ProfileUI. If the user isn't
+    // signed in, launch() first pops out the VA sign-in modal and opens the
+    // portal on success. Never navigates away from the tracker.
     async openVAPartner() {
         this.close();
         try {
-            const mod = await import('./vaAuth.js');
-            // Redirect into the VA portal after sign-in so partners land in
-            // their VA dashboard, not back in the tracker's Pro context.
-            await mod.openAuthModal('signin', { redirectTo: 'va-dashboard.html' });
+            const mod = await import('./VAPortalUI.js');
+            await mod.VAPortalUI.launch();
         } catch (err) {
-            console.error('AuthUI: Failed to load VA partner sign-in.', err);
+            console.error('AuthUI: Failed to load VA partner portal.', err);
         }
     },
 

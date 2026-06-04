@@ -233,15 +233,14 @@ refreshProLocks() {
         overlay.addEventListener('click', closeUI);
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
 
-        // VA Partner sign-in: dismiss the sheet and pop out the dedicated VA
-        // auth modal (vaAuth.js), the correct portal for virtual airlines.
-        // Self-contained and shares the same Supabase project as the tracker.
+        // VA Partner: dismiss the sheet and pop out the VA Partner portal
+        // (VAPortalUI) over the tracker, like ProfileUI. Never navigates away.
         document.getElementById('mobile-va-partner-btn')?.addEventListener('click', () => {
             closeUI();
             setTimeout(() => {
-                import('./vaAuth.js')
-                    .then(mod => mod.openAuthModal('signin', { redirectTo: 'va-dashboard.html' }))
-                    .catch(err => console.error('Failed to load VA partner sign-in:', err));
+                import('./VAPortalUI.js')
+                    .then(mod => mod.VAPortalUI.launch())
+                    .catch(err => console.error('Failed to load VA partner portal:', err));
             }, 350);
         });
 
