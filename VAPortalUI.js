@@ -51,6 +51,7 @@ export const VAPortalUI = {
     _session: null,
     _va: null,
     _isStaff: false,
+    _hasPro: false,
     _pilots: [],
     _events: [],
     _apps: [],
@@ -110,12 +111,14 @@ export const VAPortalUI = {
                 this._renderShell(this._gateHTML());
                 return;
             }
-            const [va, staff] = await Promise.all([
+            const [va, staff, pro] = await Promise.all([
                 getVaByCeo().catch(() => null),
-                isStaff().catch(() => false)
+                isStaff().catch(() => false),
+                this._checkPro()
             ]);
             this._va = va;
             this._isStaff = !!staff;
+            this._hasPro = pro;
 
             const tabs = this._availableTabs();
             if (tabs.length === 0) {
@@ -144,6 +147,18 @@ export const VAPortalUI = {
         } catch (err) {
             this._renderShell(this._errorHTML(err?.message));
         }
+    },
+
+    // Pro and the VA portal are independent products on the same Supabase
+    // project. Returns true only for active Pro subscribers, so the cross-link
+    // to the Pro dashboard stays hidden for VA-only accounts.
+    async _checkPro() {
+        try {
+            const uid = this._session?.user?.id;
+            if (!uid) return false;
+            const { data } = await supabase.from('profiles').select('is_pro').eq('id', uid).maybeSingle();
+            return data?.is_pro === true;
+        } catch (_) { return false; }
     },
 
     async _loadStaff() {
@@ -218,6 +233,7 @@ export const VAPortalUI = {
                     <span class="vap-brand-tag">Partnership</span>
                 </div>
                 <div class="vap-topstrip-right">
+                    ${this._hasPro ? `<button class="vap-icon-btn" id="vap-pro-btn" title="Open Pro dashboard"><i class="fa-solid fa-gauge-high"></i></button>` : ''}
                     <button class="vap-icon-btn" id="vap-theme-btn" title="Toggle theme"><i class="fa-solid ${themeIcon}"></i></button>
                     ${email ? `
                         <div class="vap-user-chip">
@@ -588,6 +604,7 @@ export const VAPortalUI = {
     async _onClick(e) {
         const t = e.target;
         if (t.closest('#vap-close-btn')) { this.close(); return; }
+        if (t.closest('#vap-pro-btn')) { this._openPro(); return; }
         if (t.closest('#vap-theme-btn')) { this._toggleTheme(); return; }
         if (t.closest('#vap-signout-btn')) { this._signOut(); return; }
         if (t.closest('#vap-gate-signin')) {
@@ -619,6 +636,21 @@ export const VAPortalUI = {
         if (form.id === 'vap-pilot-form') return this._addPilot(form);
         if (form.id === 'vap-event-form') return this._createEvent(form);
         if (form.id === 'vap-staff-form') return this._grantStaff(form);
+    },
+
+    // Cross-link to the (separate) Pro dashboard. Only wired in for active Pro
+    // subscribers. Closes the VA portal and opens ProfileUI with the shared
+    // Supabase session user.
+    async _openPro() {
+        this.close();
+        try {
+            const mod = await import('./profileUI.js');
+            if (!mod.ProfileUI._supabase) mod.ProfileUI.init(supabase);
+            mod.ProfileUI.open(this._session.user);
+        } catch (err) {
+            console.error('[VAPortalUI] Failed to open Pro dashboard:', err);
+            this._toast('err', 'Could not open Pro dashboard.');
+        }
     },
 
     _toggleTheme() {

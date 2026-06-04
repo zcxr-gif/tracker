@@ -676,6 +676,7 @@ init(supabaseClient) {
         this._shellBuilt = false;
         this._editingFlightId = null; // Reset edit state
         this._render();
+        this._checkVaAccess();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
@@ -1537,6 +1538,9 @@ const requests = [
                     </button>
                     <button class="pui-icon-btn" id="pui-theme-btn" title="Theme: ${this._theme === 'dark' ? 'Dark' : 'Light'} — click to toggle">
                         <i class="fa-solid ${themeIcon}"></i>
+                    </button>
+                    <button class="pui-icon-btn" id="pui-va-btn" title="VA Partner Portal" style="${this._hasVaAccess ? '' : 'display:none;'}">
+                        <i class="fa-solid fa-plane-up"></i>
                     </button>
                     <div class="pui-user-chip" title="${name} · ${planLabel}">
                         <span class="pui-user-initials">${initials}</span>
@@ -3234,6 +3238,14 @@ _showCancellationModal() {
             this.cycleTheme();
             this._refreshTopStripIcons();
         });
+        // Cross-link to the (separate) VA Partner portal. Only revealed for
+        // accounts that actually own a VA or are VA staff — see _checkVaAccess.
+        document.getElementById('pui-va-btn')?.addEventListener('click', () => {
+            this.close();
+            import('./VAPortalUI.js')
+                .then(m => m.VAPortalUI.open())
+                .catch(err => console.error('Failed to load VA portal:', err));
+        });
         document.getElementById('pui-density-btn')?.addEventListener('click', () => {
             this.cycleDensity();
             this._refreshTopStripIcons();
@@ -3257,6 +3269,25 @@ _showCancellationModal() {
             densityBtn.innerHTML = `<i class="fa-solid ${this._density === 'compact' ? 'fa-grip-lines' : 'fa-grip'}"></i>`;
             densityBtn.title = `Density: ${this._density === 'compact' ? 'Compact' : 'Cozy'} — click to toggle`;
         }
+    },
+
+    // Pro and the VA portal are independent products on the same Supabase
+    // project. Reveal the top-strip VA shortcut only for accounts that hold a
+    // VA account (own a VA or are VA staff), so it stays hidden for Pro-only
+    // users. Result is cached so subsequent shell renders keep the button.
+    async _checkVaAccess() {
+        try {
+            const va = await import('./vaService.js');
+            const [owned, staff] = await Promise.all([
+                va.getVaByCeo().catch(() => null),
+                va.isStaff().catch(() => false)
+            ]);
+            this._hasVaAccess = !!(owned || staff);
+        } catch (_) {
+            this._hasVaAccess = false;
+        }
+        const btn = document.getElementById('pui-va-btn');
+        if (btn) btn.style.display = this._hasVaAccess ? '' : 'none';
     },
 
 _attachContentListeners() {
