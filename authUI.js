@@ -170,6 +170,20 @@ export const AuthUI = {
         this._tempSignUpData = null;
     },
 
+    // Closes the Pro auth modal and pops out the separate VA Partner sign-in
+    // (vaAuth.js openAuthModal), which is the correct portal for virtual
+    // airline partners and staff. Self-contained: it injects its own styles
+    // and shares the same Supabase project as the tracker.
+    async openVAPartner() {
+        this.close();
+        try {
+            const mod = await import('./vaAuth.js');
+            await mod.openAuthModal('signin');
+        } catch (err) {
+            console.error('AuthUI: Failed to load VA partner sign-in.', err);
+        }
+    },
+
     switchMode(mode) {
         if (this._mode === mode) return; 
         this._mode = mode;
@@ -401,6 +415,12 @@ export const AuthUI = {
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
                 <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${submitText}</button>
+
+                <div class="auth-va-divider"><span>VIRTUAL AIRLINE</span></div>
+                <button type="button" class="auth-va-btn" id="auth-va-partner-btn">
+                    <i class="fa-solid fa-plane-departure"></i>
+                    VA Partner Sign In
+                </button>
             `;
         }
 
@@ -687,6 +707,10 @@ export const AuthUI = {
                     this.open();
                 }
             }
+        });
+
+        document.getElementById('auth-va-partner-btn')?.addEventListener('click', () => {
+            this.openVAPartner();
         });
 
         document.getElementById('auth-forgot-password')?.addEventListener('click', (e) => {
@@ -1144,6 +1168,50 @@ export const AuthUI = {
                 color: #0f172a;
                 border-color: #cbd5e1;
             }
+
+            /* VA Partner sign-in entry */
+            .auth-va-divider {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: #64748b;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                margin: 22px 0 14px;
+            }
+
+            .auth-va-divider::before,
+            .auth-va-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: #e2e8f0;
+            }
+
+            .auth-va-btn {
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                background: #0f172a;
+                color: #fff;
+                border: 1px solid #0f172a;
+                border-radius: 10px;
+                padding: 12px;
+                font-size: 0.9rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .auth-va-btn:hover {
+                background: #1e293b;
+                border-color: #1e293b;
+            }
+
+            .auth-va-btn i { color: #38bdf8; }
 
             /* Hosted Stripe Styles */
             .stripe-hosted-container {

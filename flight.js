@@ -11840,7 +11840,8 @@ const SettingsUI = {
         visuals: { label: "Visuals", icon: "fa-eye" },
         pro_layers: { label: "Pro Layers", icon: "fa-layer-group" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
-        theme: { label: "Theme", icon: "fa-palette" }
+        theme: { label: "Theme", icon: "fa-palette" },
+        va_partner: { label: "VA Partner", icon: "fa-handshake" }
     },
 
     _injectStyles() {
@@ -12054,6 +12055,8 @@ const SettingsUI = {
             }
             #global-settings-modal-overlay .modal-btn.secondary { background: rgba(255,255,255,0.04); color: #e4e4e7; }
             #global-settings-modal-overlay .modal-btn.secondary:hover { background: rgba(255,255,255,0.08); }
+            #global-settings-modal-overlay .modal-btn.primary { background: linear-gradient(135deg, #38bdf8, #0ea5e9); color: #06121f; border-color: rgba(56,189,248,0.6); }
+            #global-settings-modal-overlay .modal-btn.primary:hover { filter: brightness(1.08); }
 
             /* Custom scrollbars inside the modal */
             #global-settings-modal-overlay .custom-scroll::-webkit-scrollbar { width: 8px; }
@@ -12526,6 +12529,24 @@ renderCategory(catId) {
                         </div>
                     `;
                     break;
+                case 'va_partner':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Virtual Airline Partnership</label>
+                            <div class="settings-row" style="align-items: flex-start;">
+                                <div class="row-label" style="display: block; line-height: 1.55;">
+                                    <i class="fa-solid fa-handshake"></i>
+                                    Manage your virtual airline, staff console and partnership tools.
+                                    This is a separate portal from your InFlight Pro account.
+                                </div>
+                            </div>
+                            <button id="set-va-partner-btn" class="modal-btn primary" style="width: 100%; margin-top: 16px;">
+                                <i class="fa-solid fa-plane-departure" style="margin-right: 8px;"></i>
+                                Open VA Partner Sign In
+                            </button>
+                        </div>
+                    `;
+                    break;
             }
 
             container.innerHTML = html;
@@ -12700,6 +12721,18 @@ if (upgradeBtn) {
                 themeEnd.value = '#18181b';
                 themeOpacity.value = 90;
                 updateTheme();
+            });
+        }
+
+        // VA Partner sign-in: close settings and pop out the dedicated VA
+        // auth modal (vaAuth.js), the correct portal for virtual airlines.
+        const vaPartnerBtn = document.getElementById('set-va-partner-btn');
+        if (vaPartnerBtn) {
+            vaPartnerBtn.addEventListener('click', () => {
+                SettingsUI.toggle(false);
+                import('./vaAuth.js')
+                    .then(mod => mod.openAuthModal('signin'))
+                    .catch(err => console.error('Failed to load VA partner sign-in:', err));
             });
         }
     }
