@@ -1545,6 +1545,9 @@ const requests = [
                             <span class="pui-user-plan">${planLabel}</span>
                         </span>
                     </div>
+                    <button class="pui-icon-btn" id="pui-va-btn" title="VA Partnership" style="font-size:0.72rem;font-weight:700;padding:5px 9px;gap:5px;display:flex;align-items:center">
+                        <i class="fa-solid fa-plane-circle-check"></i><span style="letter-spacing:0.02em">VA</span>
+                    </button>
                     <button class="pui-icon-btn" id="pui-signout-btn" title="Sign out">
                         <i class="fa-solid fa-arrow-right-from-bracket"></i>
                     </button>
@@ -3224,6 +3227,14 @@ _showCancellationModal() {
     _attachListeners() {
         // Top strip
         document.getElementById('pui-close-btn')?.addEventListener('click', () => this.close());
+        document.getElementById('pui-va-btn')?.addEventListener('click', () => {
+            this.close();
+            localStorage.setItem('inflight_auth_type', 'va');
+            import('./VADashboardUI.js').then(m => {
+                if (!m.VADashboardUI._supabase) m.VADashboardUI.init(this._supabase);
+                m.VADashboardUI.open(this._currentUser);
+            }).catch(err => console.error('Failed to load VADashboardUI:', err));
+        });
         document.getElementById('pui-signout-btn')?.addEventListener('click', async () => {
             if (this._supabase) {
                 await this._supabase.auth.signOut();

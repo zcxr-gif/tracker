@@ -6,6 +6,7 @@ const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TRhge6y7GsJq8x0sd1UDluQGEmHK1i32pEubTn
 export const AuthUI = {
     _isOpen: false,
     _mode: 'signin',
+    _accountType: localStorage.getItem('inflight_auth_type') || null, // 'pro' | 'va' | null
     _supabase: null,
     _tempSignUpData: null,
     _stripe: null,
@@ -118,35 +119,61 @@ export const AuthUI = {
         const { data } = await this._supabase.auth.getSession();
         
         if (data?.session?.user && mode !== 'update_password') {
-            
-            // Premium Access Gate: Verify subscription status from the database
-            const { data: profile, error: profileError } = await this._supabase
+            const storedType = localStorage.getItem('inflight_auth_type');
+
+            if (storedType === 'va') {
+                // VA user — open the VA dashboard in-app
+                this._accountType = 'va';
+                import('./VADashboardUI.js').then(module => {
+                    if (!module.VADashboardUI._supabase) {
+                        module.VADashboardUI.init(this._supabase);
+                    }
+                    module.VADashboardUI.open(data.session.user);
+                }).catch(err => console.error("Failed to load VADashboardUI:", err));
+                return;
+            }
+
+            // Pro access gate
+            const { data: profile } = await this._supabase
                 .from('profiles')
                 .select('is_pro')
                 .eq('id', data.session.user.id)
                 .single();
 
             if (profile && profile.is_pro === false) {
-                // Subscription is inactive, force them to the premium renewal flow
                 this._mode = 'renew';
-                this._tempSignUpData = { 
+                this._accountType = 'pro';
+                this._tempSignUpData = {
                     email: data.session.user.email,
-                    is_renew: true 
+                    is_renew: true
                 };
             } else {
-                // Active Pro User -> Launch App
                 import('./profileUI.js').then(module => {
                     if (!module.ProfileUI._supabase) {
                         module.ProfileUI.init(this._supabase);
                     }
                     module.ProfileUI.open(data.session.user);
                 }).catch(err => console.error("Failed to load ProfileUI:", err));
-                
-                return; 
+                return;
             }
         } else {
-            this._mode = mode;
-            this._tempSignUpData = null; 
+            // No session — decide which screen to show
+            const bypassModes = ['renew', 'forgot', 'update_password', 'payment'];
+            if (bypassModes.includes(mode)) {
+                this._mode = mode;
+            } else if (mode === 'signup' && !this._accountType) {
+                // Called from a Pro feature gate — default to Pro signup
+                this._accountType = 'pro';
+                localStorage.setItem('inflight_auth_type', 'pro');
+                this._mode = 'signup';
+            } else if (this._accountType) {
+                // Remembered preference — go straight to the right form
+                this._mode = (mode === 'signup') ? 'signup' : 'signin';
+            } else {
+                // Fresh open — show account type selector
+                this._mode = 'select';
+            }
+            this._tempSignUpData = null;
         }
         
         if (!document.getElementById('auth-modal-overlay')) {
@@ -188,6 +215,19 @@ export const AuthUI = {
     renderContent() {
         const card = document.getElementById('auth-modal-card');
         if (!card) return;
+
+        // ── New modes ─────────────────────────────────────────────────────────
+        if (this._mode === 'select') {
+            card.innerHTML = this._buildModeSelector();
+            this.attachContentListeners();
+            return;
+        }
+        if (this._accountType === 'va' && (this._mode === 'signin' || this._mode === 'signup')) {
+            card.innerHTML = this._buildVAForm(this._mode === 'signup');
+            this.attachContentListeners();
+            return;
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         const isSignIn = this._mode === 'signin';
         const isSignUp = this._mode === 'signup';
@@ -411,6 +451,163 @@ export const AuthUI = {
         if (showPaymentOptions) {
             this.loadPayPalAndRender();
             this.loadStripeAndRender();
+        }
+    },
+
+    _buildModeSelector() {
+        return `
+            <div class="auth-premium-accent"></div>
+            <button class="auth-close-btn" id="close-auth-ui" aria-label="Close">&times;</button>
+            <div class="auth-header-section">
+                <img src="Images/InflightPro.png" alt="InFlight" class="auth-brand-logo" onerror="this.style.display='none'">
+                <p style="margin:6px 0 0;color:#64748b;font-size:0.88rem;text-align:center">Choose your account type to continue</p>
+            </div>
+            <div class="auth-form-body">
+                <div class="auth-type-grid">
+                    <button class="auth-type-card" id="select-pro-btn" type="button">
+                        <div class="auth-type-icon auth-type-icon-pro"><i class="fa-solid fa-gem"></i></div>
+                        <div class="auth-type-info">
+                            <div class="auth-type-name">InFlight Pro</div>
+                            <div class="auth-type-desc">Live flight tracker &amp; premium features</div>
+                            <span class="auth-type-badge auth-type-badge-pro">$1.99 / month</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right auth-type-arrow"></i>
+                    </button>
+                    <button class="auth-type-card" id="select-va-btn" type="button">
+                        <div class="auth-type-icon auth-type-icon-va"><i class="fa-solid fa-plane-circle-check"></i></div>
+                        <div class="auth-type-info">
+                            <div class="auth-type-name">VA Partnership</div>
+                            <div class="auth-type-desc">Virtual Airline management portal</div>
+                            <span class="auth-type-badge auth-type-badge-free">Free</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right auth-type-arrow"></i>
+                    </button>
+                </div>
+            </div>`;
+    },
+
+    _buildVAForm(isSignUp) {
+        return `
+            <div class="auth-premium-accent" style="background:linear-gradient(90deg,#059669,#34d399,#059669)"></div>
+            <button class="auth-close-btn" id="close-auth-ui" aria-label="Close">&times;</button>
+            <div class="auth-header-section">
+                <img src="Images/InflightPro.png" alt="InFlight" class="auth-brand-logo" onerror="this.style.display='none'">
+                <div class="auth-toggle-container">
+                    <div class="auth-toggle-pill">
+                        <button class="auth-toggle-btn ${!isSignUp ? 'active' : ''}" data-mode="signin">Sign In</button>
+                        <button class="auth-toggle-btn ${isSignUp ? 'active' : ''}" data-mode="signup">Sign Up</button>
+                    </div>
+                </div>
+            </div>
+            <div class="auth-form-body">
+                <div class="auth-va-notice">
+                    <i class="fa-solid fa-plane-circle-check" style="color:#059669;margin-top:2px"></i>
+                    <span><strong>VA Partnership</strong> — Free account, no card required.</span>
+                </div>
+                ${isSignUp ? `
+                    <div class="auth-input-group">
+                        <label>IFC Handle</label>
+                        <div class="auth-field-wrapper">
+                            <i class="fa-solid fa-at auth-field-icon"></i>
+                            <input type="text" id="va-ifc-handle" placeholder="CaptainSmith" class="auth-input">
+                        </div>
+                    </div>` : ''}
+                <div class="auth-input-group">
+                    <label>Email Address</label>
+                    <div class="auth-field-wrapper">
+                        <i class="fa-solid fa-envelope auth-field-icon"></i>
+                        <input type="email" id="va-email" placeholder="pilot@example.com" class="auth-input" required>
+                    </div>
+                </div>
+                <div class="auth-input-group">
+                    <label>Password</label>
+                    <div class="auth-field-wrapper">
+                        <i class="fa-solid fa-lock auth-field-icon"></i>
+                        <input type="password" id="va-password" placeholder="${isSignUp ? 'At least 6 characters' : '••••••••'}" class="auth-input" required>
+                    </div>
+                </div>
+                ${!isSignUp ? `<div style="text-align:right;margin-bottom:16px"><a href="#" class="auth-forgot-link" id="va-forgot-link">Forgot password?</a></div>` : `
+                    <div class="auth-options">
+                        <label class="auth-checkbox">
+                            <input type="checkbox" id="va-terms" required>
+                            <span>I agree to the <a href="terms.html" target="_blank" class="auth-terms-link">Terms</a> &amp; <a href="privacy.html" target="_blank" class="auth-terms-link">Privacy Policy</a></span>
+                        </label>
+                    </div>`}
+                <div id="auth-error-message" class="auth-error" style="display:none"></div>
+                <div id="auth-success-message" class="auth-success" style="display:none"></div>
+                <button class="auth-submit-btn" id="va-auth-submit-btn" style="background:linear-gradient(135deg,#059669,#047857)">
+                    ${isSignUp ? 'Create Account' : 'Sign In'}
+                </button>
+                <button class="auth-back-btn" id="va-back-to-selector" style="margin-top:10px">
+                    <i class="fa-solid fa-arrow-left" style="font-size:0.8rem"></i> Back
+                </button>
+            </div>`;
+    },
+
+    async _handleVAAuth() {
+        const isSignUp = this._mode === 'signup';
+        const email = document.getElementById('va-email')?.value?.trim();
+        const password = document.getElementById('va-password')?.value;
+        const ifc = document.getElementById('va-ifc-handle')?.value?.trim();
+        const errEl = document.getElementById('auth-error-message');
+        const okEl  = document.getElementById('auth-success-message');
+        const btn   = document.getElementById('va-auth-submit-btn');
+
+        if (!email || !password) {
+            if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.style.display = 'block'; }
+            return;
+        }
+        if (isSignUp) {
+            const tc = document.getElementById('va-terms');
+            if (tc && !tc.checked) {
+                if (errEl) { errEl.textContent = 'Please agree to the Terms and Privacy Policy.'; errEl.style.display = 'block'; }
+                return;
+            }
+        }
+
+        const origTxt = btn?.innerHTML;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processing…'; }
+        if (errEl) errEl.style.display = 'none';
+        if (okEl)  okEl.style.display  = 'none';
+
+        try {
+            if (isSignUp) {
+                const { data, error } = await this._supabase.auth.signUp({
+                    email, password,
+                    options: { data: { if_username: ifc || '' } }
+                });
+                if (error) throw error;
+
+                if (data.session) {
+                    localStorage.setItem('inflight_auth_type', 'va');
+                    this._accountType = 'va';
+                    this.close();
+                    import('./VADashboardUI.js').then(m => {
+                        if (!m.VADashboardUI._supabase) m.VADashboardUI.init(this._supabase);
+                        m.VADashboardUI.open(data.session.user);
+                    });
+                } else {
+                    if (okEl) {
+                        okEl.innerHTML = '<i class="fa-solid fa-circle-check" style="font-size:1.4rem;color:#16a34a;display:block;margin-bottom:8px"></i>Account created! Check your email to confirm, then sign in.';
+                        okEl.style.display = 'block';
+                    }
+                    if (btn) { btn.disabled = false; btn.innerHTML = origTxt; }
+                }
+            } else {
+                const { data, error } = await this._supabase.auth.signInWithPassword({ email, password });
+                if (error) throw error;
+
+                localStorage.setItem('inflight_auth_type', 'va');
+                this._accountType = 'va';
+                this.close();
+                import('./VADashboardUI.js').then(m => {
+                    if (!m.VADashboardUI._supabase) m.VADashboardUI.init(this._supabase);
+                    m.VADashboardUI.open(data.user);
+                });
+            }
+        } catch (err) {
+            if (errEl) { errEl.textContent = err.message || 'Authentication failed.'; errEl.style.display = 'block'; }
+            if (btn) { btn.disabled = false; btn.innerHTML = origTxt; }
         }
     },
 
@@ -701,7 +898,9 @@ export const AuthUI = {
         document.getElementById('auth-signout-btn')?.addEventListener('click', async () => {
             this.setLoading('auth-signout-btn', true, 'Signing out...');
             await this._supabase.auth.signOut();
-            this._mode = 'signin';
+            this._accountType = null;
+            localStorage.removeItem('inflight_auth_type');
+            this._mode = 'select';
             this._tempSignUpData = null;
             this.renderContent();
         });
@@ -780,6 +979,46 @@ export const AuthUI = {
         document.getElementById('stripe-checkout-btn')?.addEventListener('click', () => {
             this.handleStripeHostedCheckout();
         });
+
+        // ── Mode selector ─────────────────────────────────────────────────────
+        document.getElementById('select-pro-btn')?.addEventListener('click', () => {
+            this._accountType = 'pro';
+            localStorage.setItem('inflight_auth_type', 'pro');
+            this.switchMode('signin');
+        });
+        document.getElementById('select-va-btn')?.addEventListener('click', () => {
+            this._accountType = 'va';
+            localStorage.setItem('inflight_auth_type', 'va');
+            this.switchMode('signin');
+        });
+
+        // ── VA form ───────────────────────────────────────────────────────────
+        document.getElementById('va-auth-submit-btn')?.addEventListener('click', () => this._handleVAAuth());
+        document.getElementById('va-back-to-selector')?.addEventListener('click', () => {
+            this._accountType = null;
+            localStorage.removeItem('inflight_auth_type');
+            this.switchMode('select');
+        });
+        document.getElementById('va-forgot-link')?.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('va-email')?.value?.trim();
+            const errEl = document.getElementById('auth-error-message');
+            const okEl  = document.getElementById('auth-success-message');
+            if (!email) {
+                if (errEl) { errEl.textContent = 'Enter your email address above first.'; errEl.style.display = 'block'; }
+                return;
+            }
+            const { error } = await this._supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+            if (error) {
+                if (errEl) { errEl.textContent = error.message; errEl.style.display = 'block'; }
+            } else {
+                if (okEl) { okEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Reset email sent. Check your inbox.'; okEl.style.display = 'block'; }
+            }
+        });
+
+        // Toggle buttons in VA form (reuse same class handler already bound above
+        // for .auth-toggle-btn — no extra wiring needed; switchMode is already
+        // called from the shared toggle listener).
     },
 
     injectStyles() {
@@ -1217,6 +1456,49 @@ export const AuthUI = {
                 flex: 1;
                 height: 1px;
                 background: #e2e8f0;
+            }
+
+            /* ── Mode selector ──────────────────────────────────────────── */
+            .auth-type-grid {
+                display: flex; flex-direction: column; gap: 10px;
+            }
+            .auth-type-card {
+                display: flex; align-items: center; gap: 14px;
+                padding: 15px; background: #f8fafc;
+                border: 1px solid #e2e8f0; border-radius: 14px;
+                cursor: pointer; transition: all 0.2s ease;
+                text-align: left; width: 100%; font-family: inherit;
+            }
+            .auth-type-card:hover {
+                border-color: #cbd5e1; background: #ffffff;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                transform: translateY(-1px);
+            }
+            .auth-type-icon {
+                width: 42px; height: 42px; border-radius: 12px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 1.15rem; flex-shrink: 0;
+            }
+            .auth-type-icon-pro { background: linear-gradient(135deg,#dbeafe,#bfdbfe); color: #1d4ed8; }
+            .auth-type-icon-va  { background: linear-gradient(135deg,#d1fae5,#a7f3d0); color: #047857; }
+            .auth-type-info { flex: 1; min-width: 0; }
+            .auth-type-name  { font-size: 0.93rem; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
+            .auth-type-desc  { font-size: 0.78rem; color: #64748b; margin-bottom: 5px; }
+            .auth-type-badge {
+                display: inline-block; font-size: 0.7rem; font-weight: 700;
+                padding: 2px 8px; border-radius: 999px; letter-spacing: 0.02em;
+            }
+            .auth-type-badge-pro  { background: #dbeafe; color: #1d4ed8; }
+            .auth-type-badge-free { background: #d1fae5; color: #047857; }
+            .auth-type-arrow { color: #94a3b8; font-size: 0.78rem; flex-shrink: 0; }
+
+            /* ── VA auth notice ─────────────────────────────────────────── */
+            .auth-va-notice {
+                display: flex; align-items: flex-start; gap: 10px;
+                background: linear-gradient(145deg,#f0fdf4,#dcfce7);
+                border: 1px solid #bbf7d0; padding: 12px 14px;
+                border-radius: 12px; margin-bottom: 18px;
+                font-size: 0.84rem; color: #166534; line-height: 1.4;
             }
 
             @media (max-width: 480px) {
