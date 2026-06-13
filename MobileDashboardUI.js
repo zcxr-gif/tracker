@@ -1446,7 +1446,7 @@ _tabCareer() {
 
     /**
      * Premium Subscription Cancellation Portal
-     * Mirrors Desktop logic: Stripe/PayPal selection -> Edge Function -> Mailto Fallback
+     * Mirrors Desktop logic: Stripe selection -> Edge Function -> Mailto Fallback
      */
     _showCancellationModal() {
         const existing = document.getElementById('mdui-custom-confirm');
@@ -1465,23 +1465,15 @@ _tabCareer() {
                 </div>
                 <div style="padding: 0 20px 20px;">
                     <p style="margin-bottom: 20px; font-size: 0.88rem; color: var(--mdui-muted); line-height: 1.5; text-align: center;">
-                        Select the payment method used to upgrade. We will route you to the secure portal to manage your billing.
+                        We will route you to the secure billing portal to manage your subscription.
                     </p>
-                    
+
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                         <button class="mdui-btn-secondary" id="mdui-cancel-stripe-btn" style="padding: 12px; height: auto; justify-content: flex-start; border-color: var(--mdui-border-strong); text-align: left;">
                             <i class="fa-brands fa-stripe" style="font-size: 1.8rem; color: #6366f1; width: 40px;"></i>
                             <div style="display: flex; flex-direction: column; gap: 2px;">
                                 <span style="font-size: 0.9rem;">Apple Pay, Google Pay, or Card</span>
                                 <span style="font-size: 0.7rem; color: var(--mdui-tertiary); font-weight: 500;">Manage via Stripe Billing Portal</span>
-                            </div>
-                        </button>
-
-                        <button class="mdui-btn-secondary" id="mdui-cancel-paypal-btn" style="padding: 12px; height: auto; justify-content: flex-start; border-color: var(--mdui-border-strong); text-align: left;">
-                            <i class="fa-brands fa-paypal" style="font-size: 1.5rem; color: #00457C; width: 40px;"></i>
-                            <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <span style="font-size: 0.9rem;">PayPal</span>
-                                <span style="font-size: 0.7rem; color: var(--mdui-tertiary); font-weight: 500;">Manage via PayPal AutoPay</span>
                             </div>
                         </button>
                     </div>
@@ -1503,13 +1495,6 @@ _tabCareer() {
         document.addEventListener('keydown', escHandler);
         document.getElementById('mdui-confirm-close').addEventListener('click', cleanup);
         overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
-
-        // --- PAYPAL ROUTE ---
-        document.getElementById('mdui-cancel-paypal-btn').addEventListener('click', () => {
-            window.open('https://www.paypal.com/myaccount/autopay/', '_blank');
-            cleanup();
-            this._showMessage('mdui-billing-msg', 'Opened PayPal. Please log in to manage your payments.', 'info');
-        });
 
         // --- STRIPE ROUTE ---
         document.getElementById('mdui-cancel-stripe-btn').addEventListener('click', async () => {
