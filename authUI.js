@@ -267,10 +267,6 @@ export const AuthUI = {
                     </p>
                 </div>
 
-                <div class="payment-or-divider"><span>OR PAY WITH</span></div>
-
-                <div id="paypal-button-container" style="min-height: 50px; margin-bottom: 8px;"></div>
-
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
                     <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 12px; color: #2563eb;"></i>
@@ -409,7 +405,6 @@ export const AuthUI = {
         this.attachContentListeners(); 
 
         if (showPaymentOptions) {
-            this.loadPayPalAndRender();
             this.loadStripeAndRender();
         }
     },
@@ -460,93 +455,6 @@ export const AuthUI = {
         }
     },
 
-    async loadPayPalAndRender() {
-        if (!window.paypal) {
-            const script = document.createElement('script');
-            script.src = "https://www.paypal.com/sdk/js?client-id=AXjiYt3mjJBEkP4DnnXQLbx_YGlEoJgvtA_Yj-1MSIZFKT91tuFN9NL6HVmlThqqE7ZlazkquLkKleix&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
-            script.async = true;
-            document.body.appendChild(script);
-
-            await new Promise((resolve, reject) => {
-                script.onload = resolve;
-                script.onerror = reject;
-            });
-        }
-
-        const container = document.getElementById('paypal-button-container');
-        if (container) container.innerHTML = ''; 
-
-        window.paypal.Buttons({
-            createSubscription: function(data, actions) {
-                return actions.subscription.create({
-                    'plan_id': 'P-3S33604333332730HNGWPSWA' 
-                });
-            },
-            onApprove: async (paymentData, actions) => {
-                this.hideError();
-                
-                const loadingDiv = document.getElementById('auth-loading-message');
-                const checkoutSection = document.getElementById('stripe-checkout-section');
-                const btnContainer = document.getElementById('paypal-button-container');
-                const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
-
-                if (loadingDiv) loadingDiv.style.display = 'block';
-                if (checkoutSection) checkoutSection.style.display = 'none';
-                if (btnContainer) btnContainer.style.display = 'none';
-                if (backBtn) backBtn.style.display = 'none';
-
-                try {
-                    const payload = {
-                        email: this._tempSignUpData.email,
-                        subscriptionID: paymentData.subscriptionID,
-                        is_renew: this._tempSignUpData.is_renew || false
-                    };
-
-                    if (!payload.is_renew) {
-                        payload.password = this._tempSignUpData.password;
-                        payload.name = this._tempSignUpData.name;
-                    }
-
-                    const { data: result, error: functionError } = await this._supabase.functions.invoke('process-payment', {
-                        body: payload
-                    });
-
-                    if (functionError) {
-                        throw new Error(result?.error || functionError.message || "Payment verification failed.");
-                    }
-
-                    if (!payload.is_renew) {
-                        const { error: loginError } = await this._supabase.auth.signInWithPassword({
-                            email: this._tempSignUpData.email,
-                            password: this._tempSignUpData.password,
-                        });
-
-                        if (loginError) {
-                            throw new Error("Account created, but automatic login failed: " + loginError.message);
-                        }
-                    }
-
-                    const overlay = document.getElementById('auth-modal-overlay');
-                    if (overlay) overlay.classList.remove('open');
-                    this._isOpen = false;
-                    this._tempSignUpData = null;
-                    
-                    this.open(); 
-
-                } catch (err) {
-                    if (loadingDiv) loadingDiv.style.display = 'none';
-                    if (checkoutSection) checkoutSection.style.display = 'block';
-                    if (btnContainer) btnContainer.style.display = 'block';
-                    if (backBtn) backBtn.style.display = 'block';
-                    this.showError(err.message);
-                }
-            },
-            onError: (err) => {
-                this.showError("PayPal encountered an error. Please try again or use a different payment method.");
-            }
-        }).render('#paypal-button-container');
-    },
-
     async loadStripeAndRender() {
         if (!window.Stripe) {
             const script = document.createElement('script');
@@ -565,14 +473,10 @@ export const AuthUI = {
         this.hideError();
         const loadingDiv = document.getElementById('auth-loading-message');
         const checkoutSection = document.getElementById('stripe-checkout-section');
-        const orDivider = document.querySelector('.payment-or-divider');
-        const paypalContainer = document.getElementById('paypal-button-container');
         const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
 
         if (loadingDiv) loadingDiv.style.display = 'block';
         if (checkoutSection) checkoutSection.style.display = 'none';
-        if (orDivider) orDivider.style.display = 'none';
-        if (paypalContainer) paypalContainer.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
 
         try {
@@ -610,8 +514,6 @@ export const AuthUI = {
             
             if (loadingDiv) loadingDiv.style.display = 'none';
             if (checkoutSection) checkoutSection.style.display = 'block';
-            if (orDivider) orDivider.style.display = 'flex';
-            if (paypalContainer) paypalContainer.style.display = 'block';
             if (backBtn) backBtn.style.display = 'block';
             this.showError(err.message || 'Payment redirection failed. Please try again.');
         }
@@ -1198,25 +1100,6 @@ export const AuthUI = {
 
             .stripe-security-notice strong {
                 color: #6366f1; /* Stripe Blurple */
-            }
-
-            .payment-or-divider {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                color: #64748b;
-                font-size: 0.7rem;
-                font-weight: 700;
-                letter-spacing: 0.1em;
-                margin: 24px 0 16px;
-            }
-
-            .payment-or-divider::before,
-            .payment-or-divider::after {
-                content: '';
-                flex: 1;
-                height: 1px;
-                background: #e2e8f0;
             }
 
             @media (max-width: 480px) {
