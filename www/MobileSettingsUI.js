@@ -625,7 +625,7 @@ export const MobileSettingsUI = {
         return `
             <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>ATC Tag Studio</div>
             <div class="m-atc-stage">
-                <div id="m-atc-tag-preview"></div>
+                <div class="m-atc-tag-preview"></div>
             </div>
             <div class="m-settings-list">
                 <div class="m-setting-row is-pro-feature">
@@ -642,21 +642,21 @@ export const MobileSettingsUI = {
                     </div>
                 </div>
             </div>
-            <div id="m-atc-tag-options">
+            <div class="m-atc-tag-options">
                 <div class="mobile-section-header pro-accent"><i class="fa-solid fa-dice"></i> Preset Designs</div>
                 <div class="m-atc-roulette is-pro-feature">
                     <button class="m-atc-roulette-arrow" data-atc-roulette="prev" type="button" aria-label="Previous preset">
                         <i class="fa-solid fa-chevron-left"></i>
                     </button>
                     <div class="m-atc-roulette-window">
-                        <div class="m-atc-roulette-name" id="m-atc-preset-name">Midnight</div>
-                        <div class="m-atc-roulette-count" id="m-atc-preset-count">1 / ${ATC_TAG_PRESETS.length}</div>
+                        <div class="m-atc-roulette-name m-atc-preset-name">Midnight</div>
+                        <div class="m-atc-roulette-count m-atc-preset-count">1 / ${ATC_TAG_PRESETS.length}</div>
                     </div>
                     <button class="m-atc-roulette-arrow" data-atc-roulette="next" type="button" aria-label="Next preset">
                         <i class="fa-solid fa-chevron-right"></i>
                     </button>
                 </div>
-                <button class="m-atc-spin is-pro-feature" id="m-atc-spin" type="button">
+                <button class="m-atc-spin is-pro-feature" type="button">
                     <i class="fa-solid fa-dice"></i> Spin the Roulette
                 </button>
                 <div class="m-settings-list">
@@ -702,7 +702,7 @@ export const MobileSettingsUI = {
                 <div class="m-setting-range-card is-pro-feature" style="margin-top:8px;">
                     <div class="range-header">
                         <span>Background Opacity</span>
-                        <span id="m-val-atcTagOpacity">90%</span>
+                        <span class="m-val-atcTagOpacity">90%</span>
                     </div>
                     <input type="range" class="m-range-input m-atc-input" data-atc-tag="opacity" min="0.2" max="1" step="0.05">
                 </div>
@@ -808,6 +808,12 @@ export const MobileSettingsUI = {
     },
 
     attachAtcTagHandlers(sheet) {
+        // Idempotent per host: the studio is mounted in both the mobile sheet
+        // and (re-rendered) the desktop settings panel, so guard against
+        // double-binding the same DOM. Re-renders produce fresh nodes, so the
+        // flag never blocks a legitimate re-bind.
+        if (!sheet || sheet.dataset.atcBound === '1') return;
+        sheet.dataset.atcBound = '1';
         sheet.querySelectorAll('.m-atc-input[type="checkbox"]').forEach(input => {
             input.addEventListener('change', (e) => {
                 if (e.target.closest('.locked')) return;
@@ -842,7 +848,7 @@ export const MobileSettingsUI = {
                 this.applyAtcTagPreset(this._atcPresetIndex + (btn.dataset.atcRoulette === 'prev' ? -1 : 1));
             });
         });
-        const spin = sheet.querySelector('#m-atc-spin');
+        const spin = sheet.querySelector('.m-atc-spin');
         if (spin) {
             spin.addEventListener('click', () => {
                 if (spin.classList.contains('locked')) return;
@@ -853,23 +859,27 @@ export const MobileSettingsUI = {
     },
 
     // Reflect mapFilters.atcTagConfig into the studio's controls + preview.
+    // Queries are class-based and document-wide (not scoped to the mobile
+    // sheet) so a single call keeps *every* mounted studio in sync — the
+    // mobile bottom-sheet and the desktop settings panel can both be in the
+    // DOM at once, and a tweak in one must mirror into the other.
     syncAtcTagControls() {
-        const container = document.getElementById('mobile-settings-nexus');
-        if (!container) return;
         const cfg = { ...ATC_TAG_DEFAULTS, ...((window.mapFilters && window.mapFilters.atcTagConfig) || {}) };
 
-        container.querySelectorAll('.m-atc-input[type="checkbox"]').forEach(input => {
+        document.querySelectorAll('.m-atc-input[type="checkbox"]').forEach(input => {
             input.checked = !!cfg[input.dataset.atcTag];
         });
-        container.querySelectorAll('.m-atc-input[type="color"]').forEach(input => {
+        document.querySelectorAll('.m-atc-input[type="color"]').forEach(input => {
             const val = cfg[input.dataset.atcTag];
             if (val) input.value = val;
         });
-        const range = container.querySelector('.m-atc-input[type="range"]');
-        if (range) range.value = cfg.opacity;
-        const opacityLabel = document.getElementById('m-val-atcTagOpacity');
-        if (opacityLabel) opacityLabel.textContent = `${Math.round(cfg.opacity * 100)}%`;
-        container.querySelectorAll('.m-atc-pill').forEach(btn => {
+        document.querySelectorAll('.m-atc-input[type="range"]').forEach(range => {
+            range.value = cfg.opacity;
+        });
+        document.querySelectorAll('.m-val-atcTagOpacity').forEach(label => {
+            label.textContent = `${Math.round(cfg.opacity * 100)}%`;
+        });
+        document.querySelectorAll('.m-atc-pill').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.atcStyle === cfg.style);
         });
 
@@ -877,17 +887,17 @@ export const MobileSettingsUI = {
         // so the arrows continue from it), or "Custom" after manual tweaks.
         const presetIdx = ATC_TAG_PRESETS.findIndex(p => p.name === cfg.preset);
         if (presetIdx >= 0) this._atcPresetIndex = presetIdx;
-        const presetName = document.getElementById('m-atc-preset-name');
-        if (presetName) presetName.textContent = presetIdx >= 0 ? cfg.preset : 'Custom';
-        const presetCount = document.getElementById('m-atc-preset-count');
-        if (presetCount) {
-            presetCount.textContent = presetIdx >= 0
+        document.querySelectorAll('.m-atc-preset-name').forEach(el => {
+            el.textContent = presetIdx >= 0 ? cfg.preset : 'Custom';
+        });
+        document.querySelectorAll('.m-atc-preset-count').forEach(el => {
+            el.textContent = presetIdx >= 0
                 ? `${presetIdx + 1} / ${ATC_TAG_PRESETS.length}`
                 : `${ATC_TAG_PRESETS.length} presets`;
-        }
-
-        const options = document.getElementById('m-atc-tag-options');
-        if (options) options.classList.toggle('is-off', !cfg.enabled);
+        });
+        document.querySelectorAll('.m-atc-tag-options').forEach(options => {
+            options.classList.toggle('is-off', !cfg.enabled);
+        });
 
         this.updateAtcTagPreview();
     },
@@ -896,8 +906,8 @@ export const MobileSettingsUI = {
     // .apt-live-tag styles (flight.js injects them globally), so the preview
     // is exactly what the map will draw.
     updateAtcTagPreview() {
-        const host = document.getElementById('m-atc-tag-preview');
-        if (!host) return;
+        const hosts = document.querySelectorAll('.m-atc-tag-preview');
+        if (!hosts.length) return;
         const cfg = { ...ATC_TAG_DEFAULTS, ...((window.mapFilters && window.mapFilters.atcTagConfig) || {}) };
         const custom = cfg.enabled;
 
@@ -919,7 +929,7 @@ export const MobileSettingsUI = {
             ? `--atc-tag-bg:${hexToRgba(cfg.bg, cfg.opacity)};--atc-tag-text:${cfg.text};--atc-tag-border:${cfg.border};`
             : '';
 
-        host.innerHTML = `
+        const markup = `
             <div class="${cls.join(' ')}" style="${vars}">
                 <div class="tag-pulse-aura"></div>
                 <div class="apt-tag-base">
@@ -933,6 +943,7 @@ export const MobileSettingsUI = {
                 </div>
             </div>
         `;
+        hosts.forEach(host => { host.innerHTML = markup; });
     },
 
     renderColorRow(setting, label, icon, value) {
@@ -2179,8 +2190,8 @@ export const MobileSettingsUI = {
                     font-size: 0.75rem; -webkit-tap-highlight-color: transparent;
                 }
                 .m-atc-pill.active { background: #38bdf8; color: #000; border-color: #38bdf8; }
-                #m-atc-tag-options { transition: opacity 0.2s; }
-                #m-atc-tag-options.is-off { opacity: 0.45; pointer-events: none; }
+                .m-atc-tag-options { transition: opacity 0.2s; }
+                .m-atc-tag-options.is-off { opacity: 0.45; pointer-events: none; }
                 .is-pro-feature.locked .m-atc-pill,
                 .is-pro-feature.locked .m-range-input {
                     opacity: 0.3; pointer-events: none; filter: grayscale(100%);

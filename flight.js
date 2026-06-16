@@ -13863,6 +13863,10 @@ renderCategory(catId) {
                             </div>
                         </div>
 
+                        <div class="settings-section" id="desktop-atc-tag-studio">
+                            ${MobileSettingsUI.renderAtcTagStudio()}
+                        </div>
+
                         <div class="settings-section">
                             <label class="config-header">Flight Plan Routes</label>
                             <div class="settings-mobile-grid">
@@ -13939,6 +13943,17 @@ renderCategory(catId) {
             if (catId === 'map') {
                 const activeCard = container.querySelector(`.m-style-card[data-value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (activeCard) activeCard.classList.add('active');
+            }
+            if (catId === 'overlays') {
+                // Wire + hydrate the shared ATC Tag Studio (same controls as the
+                // mobile sheet; the methods are class-scoped so they drive every
+                // mounted instance). Fresh DOM each render, so the attach guard
+                // never blocks a re-bind.
+                const studio = container.querySelector('#desktop-atc-tag-studio');
+                if (studio) {
+                    MobileSettingsUI.attachAtcTagHandlers(studio);
+                    MobileSettingsUI.syncAtcTagControls();
+                }
             }
             if (!isSignedIn) {
                 // Signed-out users see pro style cards / label themes locked;
@@ -14256,6 +14271,20 @@ if (upgradeBtn) {
                 if (typeof applyAircraftLabelStyle === 'function') applyAircraftLabelStyle();
                 saveFiltersToLocalStorage();
             });
+        });
+
+        // ATC Tag Studio — its controls are bound by MobileSettingsUI, but when
+        // they're locked (signed-out) those handlers no-op. Intercept on capture
+        // so a click anywhere in a locked pro row routes to the upsell instead,
+        // matching the map-style cards and label theme pills above.
+        content?.querySelectorAll('#desktop-atc-tag-studio .is-pro-feature').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (row.classList.contains('locked')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openProUpsell();
+                }
+            }, true);
         });
     }
 };
