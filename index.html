@@ -2121,14 +2121,35 @@
     <!-- Splash must be the first body child so it paints before any
          downstream UI is parsed. The script below handles share-link
          skip + dismiss; keeping it inline (rather than in flight.js)
-         is what makes the splash appear immediately on launch. -->
+         is what makes the splash appear immediately on launch.
+         The splash logo defaults to the neutral mark so non-Pro users
+         (and brand-new users whose Pro status hasn't been resolved yet)
+         never see Pro branding flash on screen. flight.js writes the
+         cached Pro entitlement to localStorage, which the inline script
+         below reads to upgrade the logo to the Pro mark for Pro users. -->
     <div id="inflight-pro-loader-overlay" role="status" aria-live="polite" aria-label="Inflight is loading">
         <div class="inflight-splash-stack">
             <div class="inflight-splash-logo-wrap">
-                <img src="Images/InflightPro.png" alt="Inflight" class="inflight-splash-logo">
+                <img src="Images/inflight.png" alt="Inflight" class="inflight-splash-logo" id="inflight-splash-logo">
             </div>
         </div>
     </div>
+    <script>
+        // Upgrade the splash logo to the Pro mark if (and only if) the last
+        // Supabase lookup confirmed this user is on Pro. Anyone else — first
+        // launch, signed-out users, anonymous web visitors — stays on the
+        // neutral logo. The iOS swap further up the page also forces neutral
+        // branding regardless of entitlement.
+        (function () {
+            try {
+                if (window.isIOSNative && window.isIOSNative()) return;
+                var cached = localStorage.getItem('inflight_is_pro');
+                if (cached !== 'true') return;
+                var img = document.getElementById('inflight-splash-logo');
+                if (img) img.src = 'Images/InflightPro.png';
+            } catch (_) { /* storage unavailable — leave neutral logo in place */ }
+        })();
+    </script>
     <script>
         (function() {
             var overlayId = 'inflight-pro-loader-overlay';
