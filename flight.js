@@ -321,7 +321,12 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     try {
         supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT' || !session?.user) {
-                
+
+                // 0. Forget the cached Pro entitlement so the next launch's
+                //    splash flashes the neutral logo instead of carrying the
+                //    Pro mark over from the signed-in session that just ended.
+                try { localStorage.setItem('inflight_is_pro', 'false'); } catch (_) { /* storage unavailable */ }
+
                 // 1. Wipe Pinned Flights (Multi-Track)
                 if (window.pinnedFlights && window.pinnedFlights.size > 0) {
                     const ids = Array.from(window.pinnedFlights);
@@ -1015,10 +1020,22 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     // the Inflight multi-flight tracking limit) we cache it once here and
     // expose it on window. Defaults to false until the lookup resolves so a
     // slow/failed query never accidentally unlocks Pro-only behavior.
+    //
+    // The result is also mirrored to localStorage so the next launch's splash
+    // (which paints before Supabase has even loaded) can pick the right brand
+    // logo: Pro users keep seeing the Pro mark, everyone else gets the neutral
+    // one instead of being flashed Pro branding they haven't paid for.
+    const PRO_STATUS_STORAGE_KEY = 'inflight_is_pro';
     window.InflightUser = window.InflightUser || { isPro: false, loaded: false };
     window.isInflightPro = function () {
         return !!(window.InflightUser && window.InflightUser.isPro);
     };
+
+    function persistProStatus(isPro) {
+        try {
+            localStorage.setItem(PRO_STATUS_STORAGE_KEY, isPro ? 'true' : 'false');
+        } catch (_) { /* storage unavailable; splash will fall back to non-pro */ }
+    }
 
     async function refreshProStatus() {
         try {
@@ -1026,6 +1043,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
             const userId = sessionData?.session?.user?.id;
             if (!userId) {
                 window.InflightUser = { isPro: false, loaded: true };
+                persistProStatus(false);
                 return false;
             }
             const { data: profile, error } = await supabase
@@ -1035,6 +1053,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
                 .single();
             const isPro = !error && !!(profile && profile.is_pro);
             window.InflightUser = { isPro, loaded: true };
+            persistProStatus(isPro);
             window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro } }));
             return isPro;
         } catch (e) {
@@ -16013,7 +16032,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 && window.MobileUIHandler.isMobile());
             const initialPhase = onMobile ? 'collapsed' : 'expanded';
             applySimpleWindowPhase(initialPhase);
-            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; flex-grow: 1; border:none;" scrolling="no"></iframe>`;
+            // height:100% is essential on desktop — #aircraft-info-window forces
+            // display:block (overflow scroll), so flex-grow does nothing and the
+            // iframe would collapse to the browser's ~150px default. On mobile
+            // .mobile-legacy-sheet has its own !important rules that win anyway.
+            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {

@@ -34,7 +34,10 @@ const STORAGE_KEY = 'inflight_legal_accepted';
 // legal docs before this step existed — is asked exactly once.
 const WINDOW_CHOICE_KEY = 'inflight_window_choice';
 
-const ACCENT = '#38bdf8';
+// Neutral zinc accent — the rest of the app's surfaces use a charcoal/zinc
+// palette (see the simple flight window and the launch splash), so the legal
+// gate and window picker now match instead of standing out as navy/sky-blue.
+const ACCENT = '#d4d4d8';
 
 /** Has the user already agreed to the *current* version of the docs? */
 export function hasAcceptedLegal() {
@@ -467,10 +470,17 @@ function buildModal() {
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-labelledby', 'fre-title');
 
+    // First-run users haven't logged in yet, so they're non-Pro by default —
+    // mirror the splash logic and show the neutral logo unless localStorage
+    // has a confirmed Pro entitlement carried over from a previous session.
+    let isProCached = false;
+    try { isProCached = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) { /* default false */ }
+    const logoSrc = isProCached ? 'Images/InflightPro.png' : 'Images/inflight.png';
+
     overlay.innerHTML = `
         <div class="fre-card" role="document">
             <div class="fre-logo-wrap">
-                <img src="Images/InflightPro.png" alt="" class="fre-logo">
+                <img src="${logoSrc}" alt="" class="fre-logo">
             </div>
             <h1 id="fre-title" class="fre-title">Welcome to Inflight</h1>
             <p class="fre-sub">Live flight tracking for the simulation community.</p>
@@ -689,8 +699,8 @@ function injectStyles() {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             color: #e8eaf6;
             background:
-                radial-gradient(ellipse at 50% 36%, rgba(56, 189, 248, 0.16) 0%, transparent 62%),
-                rgba(5, 10, 24, 0.55);
+                radial-gradient(ellipse at 50% 36%, rgba(255, 255, 255, 0.06) 0%, transparent 62%),
+                rgba(15, 15, 17, 0.62);
             -webkit-backdrop-filter: blur(14px);
             backdrop-filter: blur(14px);
             opacity: 0;
@@ -714,8 +724,8 @@ function injectStyles() {
             text-align: center;
             padding: 32px 26px 26px;
             border-radius: 24px;
-            background: linear-gradient(180deg, #0e1a36 0%, #070d1f 100%);
-            border: 1px solid rgba(56, 189, 248, 0.18);
+            background: linear-gradient(180deg, #2b2d31 0%, #161719 100%);
+            border: 1px solid rgba(255, 255, 255, 0.10);
             box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6),
                         inset 0 1px 0 rgba(255, 255, 255, 0.05);
             transform: translateY(18px) scale(0.98);
@@ -737,7 +747,7 @@ function injectStyles() {
             position: absolute;
             inset: -22px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(56, 189, 248, 0.30) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, transparent 70%);
             filter: blur(6px);
             pointer-events: none;
         }
@@ -745,28 +755,28 @@ function injectStyles() {
             position: relative;
             height: 72px;
             width: auto;
-            filter: drop-shadow(0 8px 24px rgba(56, 189, 248, 0.35));
+            filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.5));
         }
 
         #fre-overlay .fre-title {
             font-size: 1.6rem;
             font-weight: 700;
             margin: 0 0 4px;
-            background: linear-gradient(180deg, #ffffff 0%, #c7d2fe 100%);
+            background: linear-gradient(180deg, #ffffff 0%, #d4d4d8 100%);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         #fre-overlay .fre-sub {
             font-size: 0.9rem;
-            color: rgba(199, 210, 254, 0.7);
+            color: rgba(212, 212, 216, 0.7);
             margin: 0 0 20px;
         }
 
         #fre-overlay .fre-body {
             font-size: 0.9rem;
             line-height: 1.55;
-            color: rgba(226, 234, 246, 0.82);
+            color: rgba(228, 228, 231, 0.82);
             text-align: left;
         }
         #fre-overlay .fre-body p { margin: 0 0 12px; }
@@ -792,7 +802,7 @@ function injectStyles() {
             text-align: left;
             font-size: 0.85rem;
             line-height: 1.45;
-            color: rgba(226, 234, 246, 0.9);
+            color: rgba(228, 228, 231, 0.9);
             margin: 6px 0 22px;
             cursor: pointer;
         }
@@ -812,9 +822,9 @@ function injectStyles() {
             border-radius: 14px;
             font-size: 1rem;
             font-weight: 700;
-            color: #04111f;
-            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
-            box-shadow: 0 10px 26px rgba(56, 189, 248, 0.35);
+            color: #18181b;
+            background: linear-gradient(180deg, #f4f4f5 0%, ${ACCENT} 100%);
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
             cursor: pointer;
             transition: transform 120ms ease, opacity 200ms ease, box-shadow 200ms ease;
         }
@@ -851,8 +861,8 @@ function injectStyles() {
         #fre-overlay .fre-choice:active { transform: scale(0.99); }
         #fre-overlay .fre-choice-selected {
             border-color: ${ACCENT};
-            background: rgba(56, 189, 248, 0.10);
-            box-shadow: 0 0 0 1px ${ACCENT}, 0 10px 26px rgba(56, 189, 248, 0.18);
+            background: rgba(255, 255, 255, 0.07);
+            box-shadow: 0 0 0 1px ${ACCENT}, 0 10px 26px rgba(0, 0, 0, 0.35);
         }
         #fre-overlay .fre-choice-head {
             display: flex;
@@ -871,7 +881,7 @@ function injectStyles() {
         #fre-overlay .fre-choice-desc {
             font-size: 0.8rem;
             line-height: 1.4;
-            color: rgba(199, 210, 254, 0.72);
+            color: rgba(212, 212, 216, 0.72);
         }
 
         /* --- Mini mockups: a tiny live-ish preview of each window style --- */
@@ -882,7 +892,7 @@ function injectStyles() {
             height: 104px;
             padding: 11px;
             border-radius: 11px;
-            background: linear-gradient(150deg, #18181b, #0c1322);
+            background: linear-gradient(150deg, #27272a, #18181b);
             border: 1px solid rgba(255, 255, 255, 0.07);
             overflow: hidden;
         }
@@ -893,7 +903,7 @@ function injectStyles() {
         #fre-overlay .pv-s-id { display: flex; flex-direction: column; gap: 4px; }
         #fre-overlay .pv-s-call { width: 52px; height: 9px; border-radius: 3px; background: #ffffff; }
         #fre-overlay .pv-s-sub { width: 34px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.35); }
-        #fre-overlay .pv-s-thumb { width: 46px; height: 26px; border-radius: 6px; background: rgba(56,189,248,0.22); border: 1px solid rgba(255,255,255,0.12); }
+        #fre-overlay .pv-s-thumb { width: 46px; height: 26px; border-radius: 6px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.12); }
         #fre-overlay .pv-s-route { display: flex; align-items: center; justify-content: space-between; }
         #fre-overlay .pv-s-icao { width: 40px; height: 13px; border-radius: 3px; background: rgba(255,255,255,0.85); }
         #fre-overlay .pv-s-plane { color: ${ACCENT}; font-size: 11px; }
@@ -906,7 +916,7 @@ function injectStyles() {
         #fre-overlay .pv-d-body { flex: 1; display: flex; gap: 7px; }
         #fre-overlay .pv-d-adi {
             width: 40px; border-radius: 6px; flex: 0 0 auto;
-            background: radial-gradient(circle at 50% 38%, #38bdf8 0 42%, #1d4ed8 42% 50%, #7c5e2a 50% 58%, #b45309 58% 100%);
+            background: radial-gradient(circle at 50% 38%, #d4d4d8 0 42%, #71717a 42% 50%, #57534e 50% 58%, #292524 58% 100%);
             border: 1px solid rgba(255,255,255,0.18);
         }
         #fre-overlay .pv-d-tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 5px; }
@@ -918,7 +928,10 @@ function injectStyles() {
         /* --- Live window demo (Step 2 preferred path) --- */
         /* The demo restores the full app chrome and lets the real info window
            open normally, with this top-docked banner floating above it. The
-           banner is non-blocking — only the card itself captures input. */
+           banner is non-blocking — only the card itself captures input.
+           On desktop the floating flight info window anchors to the top-right
+           (~440px wide), so on wider viewports the banner is biased left to
+           keep both fully visible side-by-side instead of stacking on top. */
         #fre-window-demo {
             position: fixed;
             top: 0;
@@ -939,6 +952,20 @@ function injectStyles() {
         #fre-window-demo.fre-visible { opacity: 1; transform: translateY(0); }
         #fre-window-demo.fre-dismissing { opacity: 0; transform: translateY(-14px); }
 
+        /* Desktop: yield the top-right corner to the flight info window.
+           Below 993px the info window snaps to 95vw (see .info-window's
+           max-width:992px breakpoint in flight.js) so there's nowhere to
+           dodge to — the default centered-top banner is the right call
+           there because the user will be dragging the sheet anyway. */
+        @media (min-width: 993px) {
+            #fre-window-demo {
+                /* Reserve ~480px on the right for the floating info window
+                   (440px panel + 20px gutter + breathing room) so the
+                   centered banner sits clearly to the left of it. */
+                padding-right: 500px;
+            }
+        }
+
         #fre-window-demo .fre-demo-card {
             pointer-events: auto;
             width: 100%;
@@ -946,8 +973,8 @@ function injectStyles() {
             padding: 15px 18px 17px;
             border-radius: 20px;
             text-align: center;
-            background: linear-gradient(180deg, #0e1a36 0%, #070d1f 100%);
-            border: 1px solid rgba(56, 189, 248, 0.22);
+            background: linear-gradient(180deg, #2b2d31 0%, #161719 100%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55),
                         inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
@@ -960,7 +987,7 @@ function injectStyles() {
         #fre-window-demo .fre-demo-sub {
             font-size: 0.8rem;
             line-height: 1.4;
-            color: rgba(199, 210, 254, 0.72);
+            color: rgba(212, 212, 216, 0.72);
             margin: 0 0 13px;
         }
         #fre-window-demo .fre-seg {
@@ -982,7 +1009,7 @@ function injectStyles() {
             border: none;
             border-radius: 10px;
             background: transparent;
-            color: rgba(226, 234, 246, 0.78);
+            color: rgba(228, 228, 231, 0.78);
             font: inherit;
             font-size: 0.92rem;
             font-weight: 600;
@@ -991,11 +1018,11 @@ function injectStyles() {
         }
         #fre-window-demo .fre-seg-btn i { font-size: 0.85rem; color: ${ACCENT}; }
         #fre-window-demo .fre-seg-btn.fre-seg-active {
-            color: #04111f;
-            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
-            box-shadow: 0 6px 16px rgba(56, 189, 248, 0.32);
+            color: #18181b;
+            background: linear-gradient(180deg, #f4f4f5 0%, ${ACCENT} 100%);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
         }
-        #fre-window-demo .fre-seg-btn.fre-seg-active i { color: #04111f; }
+        #fre-window-demo .fre-seg-btn.fre-seg-active i { color: #18181b; }
         #fre-window-demo .fre-agree {
             width: 100%;
             padding: 13px 18px;
@@ -1003,9 +1030,9 @@ function injectStyles() {
             border-radius: 13px;
             font-size: 0.98rem;
             font-weight: 700;
-            color: #04111f;
-            background: linear-gradient(180deg, #5cc8ff 0%, ${ACCENT} 100%);
-            box-shadow: 0 10px 26px rgba(56, 189, 248, 0.35);
+            color: #18181b;
+            background: linear-gradient(180deg, #f4f4f5 0%, ${ACCENT} 100%);
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
             cursor: pointer;
             transition: transform 120ms ease, box-shadow 200ms ease;
         }
@@ -1018,7 +1045,7 @@ function injectStyles() {
             z-index: 2147483001;
             display: flex;
             flex-direction: column;
-            background: #0b1530;
+            background: #161719;
             transform: translateX(100%);
             transition: transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
         }
@@ -1029,7 +1056,7 @@ function injectStyles() {
             align-items: center;
             gap: 8px;
             padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
-            background: #0e1a36;
+            background: #2b2d31;
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
@@ -1051,7 +1078,7 @@ function injectStyles() {
             flex: 1 1 auto;
             width: 100%;
             border: none;
-            background: #0b1530;
+            background: #161719;
         }
     `;
     document.head.appendChild(style);
