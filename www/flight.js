@@ -403,6 +403,25 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                 const endColorInput = document.getElementById('theme-color-end');
                 if (startColorInput) startColorInput.value = '#18181b';
                 if (endColorInput) endColorInput.value = '#18181b';
+            } else if (session?.user) {
+                // --- PRO GATE: Re-evaluate entitlement whenever a session
+                //     appears or changes (email sign-in, OAuth redirect,
+                //     renewal, token refresh, user update).
+                //
+                // refreshProStatus() only runs once at app boot, when a user
+                // who signs in *after* the app has loaded still has no session.
+                // Without re-running it here, window.InflightUser.isPro stays
+                // false for the rest of the page's life, `proStatusChanged`
+                // never fires, and every Pro-gated surface keeps showing the
+                // locked/upsell state even though the account is now Pro.
+                //
+                // Calling it on sign-in fetches profiles.is_pro, updates
+                // window.InflightUser, persists it, and dispatches
+                // `proStatusChanged` so the gated surfaces unlock instantly
+                // without requiring a full page reload.
+                if (typeof window.refreshProStatus === 'function') {
+                    window.refreshProStatus();
+                }
             }
         });
     } catch (err) {
