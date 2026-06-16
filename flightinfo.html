@@ -3,600 +3,1020 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flight Avionics Interface - Carbon</title>
-    
+    <title>Flight Info</title>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="flight-graph.js"></script>
 
     <style>
     /* --- DESIGN TOKENS (Theme: Carbon & Titanium) --- */
     :root {
-        /* Palette */
-        --bg-glass: rgba(24, 24, 27, 0.90); /* Zinc-900 base */
-        --bg-panel: rgba(63, 63, 70, 0.35); /* Zinc-700 lighter gray */
+        --bg-glass: rgba(24, 24, 27, 0.92);
+        --bg-panel: rgba(63, 63, 70, 0.35);
+        --bg-subtle: rgba(255, 255, 255, 0.03);
 
-        /* Dynamic Theme Variables (Updated via JS) */
-        --theme-bg-start: rgba(24, 24, 27, 0.90);
-        --theme-bg-end: rgba(24, 24, 27, 0.90);
-        
+        --theme-bg-start: rgba(24, 24, 27, 0.92);
+        --theme-bg-end: rgba(24, 24, 27, 0.92);
+
         --border-glass: rgba(255, 255, 255, 0.08);
         --border-highlight: rgba(255, 255, 255, 0.12);
-        
-        /* Typography Colors */
-        --text-primary: #fafafa; /* Zinc-50 */
-        --text-secondary: #a1a1aa; /* Zinc-400 */
-        --text-dim: #52525b; /* Zinc-600 */
-        
-        /* Functional Colors */
-        --color-accent: #e4e4e7; /* Zinc-200 */
-        --color-success: #10b981; 
+
+        --text-primary: #fafafa;
+        --text-secondary: #a1a1aa;
+        --text-dim: #52525b;
+
+        --color-accent: #e4e4e7;
+        --color-brand: #38bdf8;
+        --color-success: #10b981;
         --color-warning: #f59e0b;
         --color-danger: #ef4444;
+        --color-gold: #ffffff;
 
-        /* Dimensions */
         --radius-sm: 8px;
+        --radius-md: 12px;
         --radius-lg: 20px;
-        
-        /* Fonts */
-        --font-ui: 'Inter', -apple-system, sans-serif;
+
+        --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         --font-data: 'JetBrains Mono', monospace;
 
-        /* Motion */
         --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
+
+        /* --- CUSTOMIZATION TOKENS (overridden live by the layout studio) --- */
+        --card-bg: rgba(24, 24, 27, 0.92);   /* surface for route/times/progress/cards */
+        --blur-amount: 40px;                  /* backdrop blur strength */
+        --text-scale: 1;                      /* global type multiplier */
+        --photo-dim: 0;                       /* extra darken layer over the hero photo (0–0.8) */
+        --font-num: var(--font-data);         /* font used for numeric readouts */
+        --tel-cols: 2;                        /* Live Telemetry grid columns */
+        --nav-cols: 2;                        /* Nav & Environment grid columns */
+
+        /* Flight-state palette as "r,g,b" channels so color + tint + border all theme. */
+        --state-climb: 52, 211, 153;
+        --state-descend: 251, 191, 36;
+        --state-cruise: 56, 189, 248;
+        --state-ground: 161, 161, 170;
+        --state-approach: 192, 132, 252;
+        --state-pushback: 251, 146, 60;
+        --state-enroute: 148, 163, 184;
     }
 
-    /* --- RESET & BASE --- */
-    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
     body {
         background: transparent;
         height: 100vh;
         font-family: var(--font-ui);
         overflow: hidden;
         color: var(--text-primary);
-        perspective: 1000px;
+        user-select: none;
     }
 
-    /* --- MAIN CONTAINER --- */
-    .avionics-window {
+    /* ============================================================
+       PHASE VISIBILITY
+       body.collapsed -> compact bar ; body.expanded -> full window
+       Both phases stay in the layout (absolutely stacked) and cross-fade
+       so dragging the sheet morphs small <-> big info in and out.
+       ============================================================ */
+    .collapsed-bar, .expanded-view {
+        position: absolute; inset: 0;
+        opacity: 0; visibility: hidden; pointer-events: none;
+        transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+    }
+    body.collapsed .collapsed-bar,
+    body.expanded  .expanded-view {
+        opacity: 1; visibility: visible; pointer-events: auto;
+        transition: opacity 0.35s ease, visibility 0s linear 0s;
+    }
+
+    /* ============================================================
+       PHASE 1 — COLLAPSED BAR
+       ============================================================ */
+    .collapsed-bar {
         width: 100%;
         height: 100%;
-        /* Use the dynamic variables here */
+        display: flex;
+        flex-direction: column;
+        /* Anchor content to the TOP. The mobile peek sheet is taller than the
+           screen and is positioned with its top edge at the peek line, so only
+           the TOP slice of the iframe is actually on-screen. Extra top padding
+           keeps the content clear of the floating drag handle / grip. */
+        justify-content: flex-start;
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
-        backdrop-filter: blur(40px) saturate(140%);
-        -webkit-backdrop-filter: blur(40px) saturate(140%);
-        display: flex;
-        flex-direction: column;
-        position: relative;
-        /* Noise texture */
-        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+        backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        padding: 26px 16px 16px;
+        gap: 14px;
+        cursor: pointer;
+        position: absolute; inset: 0;
+        overflow: hidden;
     }
 
-    /* --- HEADER: INTEGRATED STYLE --- */
-    .header-section {
-        padding: 24px 20px 12px 20px;
-        flex-shrink: 0;
-        z-index: 20;
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        /* UPDATED: Use dynamic variable for seamless blend */
-        background: linear-gradient(180deg, var(--theme-bg-start) 0%, rgba(0,0,0,0) 100%);
-    }
-
-    .identity-group {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .main-callsign {
-        font-family: var(--font-ui);
-        font-weight: 800;
-        font-size: 32px;
-        line-height: 1;
-        letter-spacing: -1px;
-        color: #fff;
-        background: linear-gradient(180deg, #ffffff, #d4d4d8);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-    }
-
-    .pilot-row {
+    /* Row 1: identity + small plane thumbnail */
+    .cb-top {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 11px;
-        color: var(--text-secondary);
-        font-weight: 500;
-        margin-top: 4px;
-        cursor: pointer;
-        transition: color 0.2s;
+        justify-content: space-between;
+        gap: 14px;
+    }
+    .cb-identity { min-width: 0; flex: 1; }
+    .cb-callsign-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .cb-callsign {
+        font-size: 22px; font-weight: 900; letter-spacing: -0.5px;
+        color: var(--color-gold); line-height: 1;
+        min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cb-chip {
+        font-family: var(--font-data); font-size: 9.5px; font-weight: 600;
+        padding: 2px 7px; border-radius: 6px;
+        background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); letter-spacing: 0.4px;
+        white-space: nowrap; flex-shrink: 0;
+    }
+    .cb-pilot {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12px; font-weight: 600; color: var(--text-primary);
+        margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        letter-spacing: 0.3px;
+    }
+    .cb-pilot i { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+    .cb-pilot span { overflow: hidden; text-overflow: ellipsis; }
+    /* Aircraft meta line: type chip + livery share one tidy row under the pilot. */
+    .cb-meta { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 6px; }
+    .cb-airline {
+        font-size: 12px; font-weight: 600; color: var(--text-secondary);
+        min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cb-thumb {
+        width: 118px; height: 74px; flex-shrink: 0;
+        border-radius: var(--radius-md);
+        /* cover (not contain) so the photo always fills the frame edge-to-edge */
+        background: #0f172a center/cover no-repeat;
+        border: 1px solid var(--border-highlight);
+        box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+        position: relative; overflow: hidden;
+    }
+    .cb-thumb::after {
+        content: ''; position: absolute; inset: 0;
+        border-radius: inherit;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+        background: linear-gradient(to top, rgba(15,23,42,0.35), transparent 45%);
+    }
+
+    /* Row 2: route strip — origin and destination joined by the live progress
+       track, with the departed/arriving captions underneath. One contained
+       card so the whole journey reads as a single organized unit. */
+    .cb-route-card {
+        display: flex; flex-direction: column; gap: 9px;
+        padding: 12px 14px 10px;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+    }
+    .cb-route { display: flex; align-items: flex-start; gap: 12px; }
+    .cb-port { min-width: 0; max-width: 34%; }
+    .cb-port.dest { text-align: right; }
+    .cb-icao {
+        font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -1px;
+        color: #fff;
+    }
+    .cb-city {
+        font-size: 11px; font-weight: 600; color: var(--text-dim);
+        text-transform: uppercase; letter-spacing: 0.6px; margin-top: 5px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* The progress track lives BETWEEN the ICAOs, centered on their midline. */
+    .cb-mid {
+        flex: 1; min-width: 40px;
+        padding-top: calc(15px * var(--text-scale) - 2px);
+    }
+    .cb-track {
+        position: relative; height: 4px; border-radius: 2px;
+        background: rgba(255,255,255,0.10);
+    }
+    .cb-track::before, .cb-track::after {
+        content: ''; position: absolute; top: 50%; transform: translateY(-50%);
+        width: 7px; height: 7px; border-radius: 50%;
+    }
+    .cb-track::before { left: -3px; background: var(--color-gold); }
+    .cb-track::after { right: -3px; border: 2px solid rgba(255,255,255,0.30); background: transparent; }
+    .cb-fill {
+        position: absolute; left: 0; top: 0; height: 100%; width: 0%;
+        background: var(--color-gold); border-radius: 2px;
+        transition: width 0.5s linear;
+    }
+    .cb-fill-plane {
+        position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%);
+        color: var(--color-gold); font-size: 13px;
+        transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
+    }
+    .cb-prog-labels {
+        display: flex; justify-content: space-between; gap: 10px;
+        padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08);
+        font-size: 11px; font-weight: 500; color: var(--text-secondary);
+    }
+    .cb-prog-labels span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cb-grip {
+        position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+        width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18);
+    }
+
+    /* ============================================================
+       PHASE 2 — EXPANDED VIEW (avionics window)
+       ============================================================ */
+    .expanded-view {
+        width: 100%; height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        position: absolute; inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+
+    /* Header */
+    .ev-header {
+        flex-shrink: 0; z-index: 20;
+        padding: 22px 18px 12px;
+        display: flex; align-items: flex-start; justify-content: space-between;
+        background: linear-gradient(180deg, var(--theme-bg-start) 0%, rgba(0,0,0,0) 100%);
+    }
+    .ev-id-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .ev-callsign-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ev-callsign {
+        font-weight: 900; font-size: 28px; line-height: 1; letter-spacing: -1px;
+        color: var(--color-gold);
+    }
+    .pilot-row {
+        display: flex; align-items: center; gap: 8px; font-size: 11px;
+        color: var(--text-secondary); font-weight: 500; cursor: pointer; transition: color .2s;
     }
     .pilot-row:hover { color: #fff; }
     .pilot-row i { font-size: 10px; color: var(--text-dim); }
-
-    /* New Mini Label for Seat Text */
     .seat-mini-label {
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        padding: 2px 6px;
-        border-radius: 4px;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.05);
-        color: var(--text-dim);
-        transition: all 0.3s ease;
+        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.05); color: var(--text-dim);
     }
-    
-    /* Text Colors for Mini Label */
-    .text-active { color: #4ade80; background: rgba(74, 222, 128, 0.1); border-color: rgba(74, 222, 128, 0.15); }
-    .text-auto   { color: #facc15; background: rgba(250, 204, 21, 0.1); border-color: rgba(250, 204, 21, 0.15); }
-    .text-parked { color: #f87171; background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.15); }
-    .text-ap-plus { color: #818cf8; background: rgba(129, 140, 248, 0.1); border-color: rgba(129, 140, 248, 0.15); }
+    .text-active { color:#4ade80; background:rgba(74,222,128,.1); border-color:rgba(74,222,128,.15); }
+    .text-auto   { color:#facc15; background:rgba(250,204,21,.1); border-color:rgba(250,204,21,.15); }
+    .text-parked { color:#f87171; background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.15); }
+    .text-ap-plus{ color:#818cf8; background:rgba(129,140,248,.1); border-color:rgba(129,140,248,.15); }
 
-    /* Modern Status Pill (Dot Indicator for Flight Phase) */
     .flight-state-badge {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 14px;
-        border-radius: 99px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        backdrop-filter: blur(8px);
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-secondary);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
+        display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+        font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+        color: var(--text-secondary); box-shadow: 0 4px 12px rgba(0,0,0,.2); flex-shrink: 0;
     }
-    
-    .state-indicator-dot {
-        width: 6px;
-        height: 6px; border-radius: 50%;
-        box-shadow: 0 0 8px currentColor;
-        background: currentColor;
-    }
-    
-    /* Dynamic State Colors (Applied to Badge Parent) */
-    .state-climb { color: #34d399; border-color: rgba(52, 211, 153, 0.2); background: rgba(52, 211, 153, 0.05); }
-    .state-descend { color: #fbbf24; border-color: rgba(251, 191, 36, 0.2); background: rgba(251, 191, 36, 0.05); }
-    .state-cruise { color: #38bdf8; border-color: rgba(56, 189, 248, 0.2); background: rgba(56, 189, 248, 0.05); }
-    .state-ground { color: #a1a1aa; border-color: rgba(161, 161, 170, 0.2); background: rgba(161, 161, 170, 0.05); }
+    .state-indicator-dot { width:6px; height:6px; border-radius:50%; box-shadow:0 0 8px currentColor; background:currentColor; }
+    .state-climb { color:rgb(var(--state-climb)); border-color:rgba(var(--state-climb),.2); background:rgba(var(--state-climb),.05); }
+    .state-descend { color:rgb(var(--state-descend)); border-color:rgba(var(--state-descend),.2); background:rgba(var(--state-descend),.05); }
+    .state-cruise { color:rgb(var(--state-cruise)); border-color:rgba(var(--state-cruise),.2); background:rgba(var(--state-cruise),.05); }
+    .state-ground { color:rgb(var(--state-ground)); border-color:rgba(var(--state-ground),.2); background:rgba(var(--state-ground),.05); }
+    .state-approach { color:rgb(var(--state-approach)); border-color:rgba(var(--state-approach),.2); background:rgba(var(--state-approach),.05); }
+    .state-pushback { color:rgb(var(--state-pushback)); border-color:rgba(var(--state-pushback),.2); background:rgba(var(--state-pushback),.05); }
+    .state-enroute { color:rgb(var(--state-enroute)); border-color:rgba(var(--state-enroute),.2); background:rgba(var(--state-enroute),.05); }
+    .state-badge-icon { font-size:9px; }
 
-    /* --- SCROLL AREA --- */
+    /* Scroll area */
     .scroll-viewport {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-        padding: 0 8px 20px 8px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        mask-image: linear-gradient(to bottom, transparent 0%, black 20px, black 100%);
+        flex: 1; overflow-y: auto; overflow-x: hidden;
+        padding: 0 8px 8px; display: flex; flex-direction: column; gap: 12px;
+        mask-image: linear-gradient(to bottom, transparent 0, black 18px, black 100%);
     }
-    .scroll-viewport::-webkit-scrollbar { width: 0px; } 
+    .scroll-viewport::-webkit-scrollbar { width: 0; }
+    /* The viewport is a flex column, so its children would otherwise shrink to
+       fit. The mission card has overflow:hidden, which lets flexbox collapse it
+       to near-zero height (min-height:auto resolves to 0), hiding the hero,
+       route, times and progress. Pin every child to its natural height and let
+       the viewport scroll instead. */
+    .scroll-viewport > * { flex-shrink: 0; }
+    .scroll-viewport > .sw-block[data-block="hero"] { margin-top: 6px; }
 
-    /* --- UNIFIED MISSION CARD --- */
-    .unified-mission-card {
-        border-radius: var(--radius-lg);
-        border: 1px solid var(--border-glass);
-        box-shadow: 0 20px 40px -10px rgba(0,0,0,0.6);
-        display: flex;
-        flex-direction: column;
-        background: var(--bg-panel);
-        margin-top: 10px;
-        position: relative;
-    }
-
+    /* HERO — big plane image.
+       Match the regular flight window's hero: a fixed aspect ratio with
+       object-fit: cover so the photo fills the frame edge-to-edge (no dark
+       letterbox gaps), just at the simple window's smaller size. */
     .mission-visual-section {
-        position: relative;
-        width: 100%;
-        height: 320px; 
-        flex: 0 0 auto;
-        background: #0f172a;
-        overflow: hidden;
-        z-index: 1; 
+        position: relative; width: 100%; aspect-ratio: 21 / 9; flex: 0 0 auto;
+        background: #0f172a; overflow: hidden;
     }
-
     .hero-img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        object-position: center;
-        transition: transform 8s ease;
-        transform: scale(1.02);
-        z-index: 1;
-        position: relative;
-        display: block; 
+        width: 100%; height: 100%; object-fit: cover; object-position: center;
+        display: block; transition: transform 8s ease; transform: scale(1);
     }
-
-    .unified-mission-card:hover .hero-img { 
-        transform: scale(1.1); 
-    }
-
-    .hero-overlay {
-        position: absolute; 
-        bottom: 0; left: 0; right: 0;
-        background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,0.8) 30%, transparent 100%);
-        padding: 60px 20px 16px;
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-end;
-        z-index: 10;
-        gap: 16px;
-    }
-
+    .sw-block[data-block="hero"]:hover .hero-img { transform: scale(1.03); }
     .photo-credit {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        font-size: 9px;
-        color: rgba(255, 255, 255, 0.7);
-        background: rgba(0, 0, 0, 0.5);
-        padding: 3px 8px;
-        border-radius: 6px;
-        backdrop-filter: blur(4px);
-        pointer-events: none;
-        font-weight: 500;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        text-transform: uppercase;
-        z-index: 10;
+        position: absolute; top: 10px; left: 10px; font-size: 9px;
+        color: rgba(255,255,255,.75); background: rgba(0,0,0,.5); padding: 3px 8px;
+        border-radius: 6px; backdrop-filter: blur(4px); font-weight: 500;
+        border: 1px solid rgba(255,255,255,.1); text-transform: uppercase; z-index: 10;
     }
-
-    .ac-info {
-        flex: 1;
-        min-width: 0;
-        z-index: 11;
+    .hero-overlay {
+        position: absolute; bottom: 0; left: 0; right: 0;
+        background: linear-gradient(to top, rgba(15,23,42,1) 0%, rgba(15,23,42,.75) 38%, transparent 100%);
+        padding: 50px 16px 14px; display: flex; justify-content: space-between; align-items: flex-end;
+        gap: 14px; z-index: 5;
     }
-
-    .ac-info h2 { 
-        font-size: 18px;
-        font-weight: 700; 
-        color: #fff; 
-        margin-bottom: 4px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    .ac-info { flex: 1; min-width: 0; }
+    .ac-info h2 {
+        font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 3px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 10px rgba(0,0,0,.5);
     }
-    
-    .ac-info span { 
-        font-size: 13px; 
-        color: var(--text-secondary); 
-        display: block; 
-        font-weight: 500; 
-    }
-
+    .ac-info span { font-size: 12px; color: var(--text-secondary); display: block; font-weight: 500; }
     .ac-reg-badge {
-        font-family: var(--font-data);
-        font-size: 12px;
-        background: rgba(255,255,255,0.1);
-        padding: 6px 12px;
-        border-radius: 8px;
-        border: 1px solid var(--border-glass);
-        backdrop-filter: blur(4px);
-        color: #fff;
-        font-weight: 600;
-        z-index: 11;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        font-family: var(--font-data); font-size: 12px; background: rgba(255,255,255,.12);
+        padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-glass);
+        backdrop-filter: blur(4px); color: #fff; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,.3);
+    }
+    /* Collapse chip on hero */
+    .hero-collapse-btn {
+        position: absolute; top: 10px; right: 10px; z-index: 10;
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 700; color: #fff;
+        background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 99px;
+        border: 1px solid rgba(255,255,255,.15); backdrop-filter: blur(6px); cursor: pointer;
+    }
+    .hero-collapse-btn:active { transform: scale(0.96); }
+
+    /* BIG ROUTE BLOCK */
+    .route-hero {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 22px 18px 18px; gap: 12px;
+        background: var(--card-bg); border-top: 1px solid rgba(255,255,255,.05);
+    }
+    .rh-port { min-width: 0; text-align: center; }
+    .rh-icao { font-size: 44px; font-weight: 900; line-height: .95; letter-spacing: -2px; color: #fff; }
+    .icao-clickable { cursor: pointer; transition: color .15s ease, text-shadow .15s ease; }
+    .icao-clickable:hover { color: #38bdf8; text-shadow: 0 0 14px rgba(56,189,248,0.5); }
+    .rh-city {
+        font-size: 12px; font-weight: 600; color: var(--text-secondary);
+        text-transform: uppercase; letter-spacing: .5px; margin-top: 6px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;
+    }
+    .rh-mid { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .rh-plane-badge {
+        width: 46px; height: 46px; border-radius: 50%;
+        background: #fff; display: grid; place-items: center;
+        color: #18181b; font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
     }
 
-    /* --- ROUTE SECTION --- */
-    .mission-route-section {
-        border-top: 1px solid rgba(255,255,255,0.05);
-        background: rgba(24, 24, 27, 0.9);
-        position: relative;
-        z-index: 20; 
-        box-shadow: 0 -5px 20px rgba(0,0,0,0.5);
+    /* TIMES GRID (Scheduled / Actual / Estimated) */
+    .times-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border-glass); }
+    .tg-cell {
+        background: var(--card-bg); padding: 12px 16px;
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
     }
+    .tg-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text-dim); }
+    .tg-time { font-family: var(--font-data); font-size: 17px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
+    .tg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 6px currentColor; }
 
+    /* progress under times */
+    .route-progress-row {
+        padding: 16px 18px 18px; background: var(--card-bg);
+        border-top: 1px solid rgba(255,255,255,.05);
+    }
+    .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
+    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-gold); border-radius: 2px; transition: width .5s linear; }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); }
+    .rp-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+    .rp-labels .mono { font-family: var(--font-data); }
+
+    /* ROUTE / WAYPOINTS dropdown */
+    .mission-route-section { background: var(--card-bg); position: relative; }
     .route-visual-header {
-        padding: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        cursor: pointer;
-        position: relative;
+        padding: 14px 18px; display: flex; align-items: center; justify-content: center; gap: 10px;
+        cursor: pointer; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+        color: var(--text-secondary); border-top: 1px solid rgba(255,255,255,.05);
     }
-    .route-visual-header:hover { background: rgba(255,255,255,0.02); }
-    
-    .route-toggle-icon {
-        position: absolute;
-        top: 8px; right: 8px;
-        font-size: 10px; color: var(--text-dim);
-        transition: transform 0.3s;
-    }
-    .mission-route-section.expanded .route-toggle-icon { 
-        transform: rotate(180deg); color: var(--text-primary); 
-    }
-    
-    .route-airport { text-align: center; min-width: 50px; }
-    .route-airport-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
-    
-    .country-flag {
-        height: 14px; width: auto; border-radius: 2px;
-        opacity: 0.8; box-shadow: 0 1px 2px rgba(0,0,0,0.5); display: none;
-    }
-    
-    .route-icao { 
-        display: block;
-        font-family: var(--font-data); 
-        font-size: 24px; font-weight: 700; color: #fff; line-height: 1;
-    }
-    .route-time { 
-        display: block; font-size: 11px; color: var(--text-dim);
-        margin-top: 4px; font-weight: 600;
-    }
-
-    .route-graphic {
-        flex: 1; margin: 0 24px; position: relative; height: 30px; display: flex; align-items: center;
-    }
-    .track-line {
-        width: 100%; height: 2px; background: rgba(255,255,255,0.08); border-radius: 2px;
-    }
-    .track-progress {
-        position: absolute; left: 0; top: 50%; transform: translateY(-50%);
-        height: 2px; background: #fff; width: 0%;
-        box-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
-        transition: width 0.5s linear;
-    }
-    .track-plane {
-        position: absolute; top: 50%; left: 0%;
-        transform: translate(-50%, -50%); 
-        color: #fff; font-size: 16px;
-        transition: left 0.5s linear;
-        filter: drop-shadow(0 0 8px rgba(255,255,255,0.6));
-    }
-
-    /* --- DROPDOWN --- */
-    .waypoint-dropdown-wrapper {
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.4s var(--ease-out);
-        border-top: 1px solid transparent;
-        background: rgba(0,0,0,0.2);
-    }
-    .mission-route-section.expanded .waypoint-dropdown-wrapper {
-        max-height: 400px;
-        border-top: 1px solid var(--border-glass);
-    }
-    .waypoint-list { padding: 0; max-height: 400px; overflow-y: auto; }
+    .route-visual-header:hover { background: rgba(255,255,255,.02); color: #fff; }
+    .route-toggle-icon { transition: transform .3s; }
+    .mission-route-section.expanded .route-toggle-icon { transform: rotate(180deg); color: #fff; }
+    .waypoint-dropdown-wrapper { max-height: 0; overflow: hidden; transition: max-height .4s var(--ease-out); background: rgba(0,0,0,.2); }
+    .mission-route-section.expanded .waypoint-dropdown-wrapper { max-height: 420px; border-top: 1px solid var(--border-glass); }
+    .waypoint-list { max-height: 420px; overflow-y: auto; }
     .waypoint-list::-webkit-scrollbar { width: 4px; }
-    .waypoint-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px;}
-
+    .waypoint-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
     .wp-group-header {
-        position: sticky; top: 0;
-        padding: 8px 20px;
-        background: rgba(24, 24, 27, 0.95);
-        color: var(--text-secondary); font-size: 10px; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 1px;
-        border-bottom: 1px solid var(--border-glass);
-        z-index: 5; backdrop-filter: blur(4px);
+        position: sticky; top: 0; padding: 8px 20px; background: rgba(24,24,27,.95);
+        color: var(--text-secondary); font-size: 10px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 1px; border-bottom: 1px solid var(--border-glass); z-index: 5; backdrop-filter: blur(4px);
     }
+    .wp-row { display: flex; align-items: center; padding: 12px 20px; position: relative; }
+    .wp-row:not(:last-child)::after { content:''; position:absolute; bottom:0; left:50px; right:0; height:1px; background:rgba(255,255,255,.03); }
+    .wp-status { width:8px; height:8px; border-radius:50%; background:var(--text-dim); margin-right:20px; z-index:2; border:2px solid rgba(24,24,27,.8); }
+    .wp-row.passed .wp-status { background: var(--color-success); opacity:.6; }
+    .wp-row.active { background: rgba(255,255,255,.03); }
+    .wp-row.active .wp-status { background:#fff; box-shadow:0 0 10px rgba(255,255,255,.5); }
+    .wp-line-connect { position:absolute; left:23px; top:-50%; bottom:-50%; width:2px; background:rgba(255,255,255,.05); z-index:1; }
+    .wp-row:first-child .wp-line-connect { top:50%; }
+    .wp-row:last-child .wp-line-connect { bottom:50%; }
+    .wp-data { flex:1; }
+    .wp-ident { font-size:14px; font-weight:600; color:var(--text-primary); display:block; }
+    .wp-name { font-size:11px; color:var(--text-secondary); display:block; margin-top:2px; }
+    .wp-ete { font-family:var(--font-data); font-size:12px; color:var(--text-dim); margin-left:auto; }
+    .wp-row.active .wp-ete { color:var(--text-primary); font-weight:600; }
 
-    .wp-row {
-        display: flex; align-items: center; padding: 12px 20px; position: relative;
-    }
-    .wp-row:not(:last-child)::after {
-        content: ''; position: absolute; bottom: 0; left: 50px; right: 0;
-        height: 1px; background: rgba(255,255,255,0.03);
-    }
-
-    .wp-status {
-        width: 8px; height: 8px; border-radius: 50%;
-        background: var(--text-dim); margin-right: 20px;
-        z-index: 2; border: 2px solid rgba(24, 24, 27, 0.8);
-    }
-    .wp-row.passed .wp-status { background: var(--color-success); opacity: 0.6; }
-    
-    .wp-row.active { background: rgba(255, 255, 255, 0.03); }
-    .wp-row.active .wp-status { 
-        background: #fff;
-        box-shadow: 0 0 10px rgba(255,255,255,0.5);
-    }
-
-    .wp-line-connect {
-        position: absolute; left: 23px; top: -50%; bottom: -50%;
-        width: 2px; background: rgba(255,255,255,0.05); z-index: 1;
-    }
-    .wp-row:first-child .wp-line-connect { top: 50%; }
-    .wp-row:last-child .wp-line-connect { bottom: 50%; }
-
-    .wp-data { flex: 1; }
-    .wp-ident { font-size: 14px; font-weight: 600; color: var(--text-primary); display: block; }
-    .wp-name { font-size: 11px; color: var(--text-secondary); display: block; margin-top: 2px; }
-    .wp-ete { font-family: var(--font-data); font-size: 12px; color: var(--text-dim); margin-left: auto; }
-    .wp-row.active .wp-ete { color: var(--text-primary); font-weight: 600; }
-
-    /* --- BENTO GRID (Telemetry) --- */
-    .grid-section-label {
-        font-size: 10px; text-transform: uppercase; color: var(--text-dim);
-        letter-spacing: 1px; margin: 16px 0 8px 4px; font-weight: 700;
-    }
-
-    .telemetry-bento {
-        display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
-    }
-
+    /* TELEMETRY */
+    .grid-section-label { font-size:10px; text-transform:uppercase; color:var(--text-dim); letter-spacing:1px; margin:14px 0 8px 4px; font-weight:700; }
+    .telemetry-bento { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
     .bento-cell {
-        background: var(--bg-panel);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-sm);
-        padding: 16px;
-        display: flex; flex-direction: column; justify-content: space-between;
-        min-height: 90px;
-        transition: border-color 0.2s, background 0.2s;
+        background:var(--bg-panel); border:1px solid var(--border-glass); border-radius:var(--radius-sm);
+        padding:16px; display:flex; flex-direction:column; justify-content:space-between; min-height:88px;
+        transition:border-color .2s, background .2s;
     }
-    .bento-cell:hover { border-color: var(--border-highlight); background: rgba(255,255,255,0.06); }
+    .bento-cell:hover { border-color:var(--border-highlight); background:rgba(255,255,255,.06); }
+    .cell-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .cell-label { font-size:10px; text-transform:uppercase; color:var(--text-secondary); font-weight:700; letter-spacing:.5px; }
+    .cell-icon { font-size:12px; color:var(--text-dim); }
+    .cell-data { font-family:var(--font-data); font-size:24px; font-weight:600; color:#fff; letter-spacing:-1px; display:flex; align-items:baseline; gap:4px; }
+    .cell-unit { font-size:12px; color:var(--text-dim); font-weight:500; letter-spacing:0; }
+    .cell-vs-graphic { display:flex; align-items:center; gap:8px; font-size:18px; }
+    .vs-arrow { transition:transform .3s; color:var(--text-dim); font-size:14px; }
+    .vs-arrow.climbing { color:var(--color-success); transform:rotate(-45deg); }
+    .vs-arrow.descending { color:var(--color-warning); transform:rotate(45deg); }
 
-    .cell-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-    .cell-label { font-size: 10px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px; }
-    .cell-icon { font-size: 12px; color: var(--text-dim); }
-    
-    .cell-data { 
-        font-family: var(--font-data); font-size: 24px;
-        font-weight: 600; color: #fff; letter-spacing: -1px; 
-        display: flex; align-items: baseline; gap: 4px; 
+    /* SPEED & ALTITUDE GRAPH */
+    .sa-graph-card {
+        background:var(--bg-panel); border:1px solid var(--border-glass);
+        border-radius:var(--radius-sm); padding:12px; overflow:hidden;
     }
-    .cell-unit { font-size: 12px; color: var(--text-dim); font-weight: 500; letter-spacing: 0; }
+    .sa-graph { width:100%; min-height:180px; }
+    .sa-graph svg { width:100%; height:auto; display:block; }
 
-    .cell-vs-graphic { display: flex; align-items: center; gap: 8px; font-size: 18px; }
-    .vs-arrow { transition: transform 0.3s; color: var(--text-dim); font-size: 14px; }
-    .vs-arrow.climbing { color: var(--color-success); transform: rotate(-45deg); }
-    .vs-arrow.descending { color: var(--color-warning); transform: rotate(45deg); }
+    /* PILOT MANIFEST */
+    .profile-card { background:var(--bg-panel); border:1px solid var(--border-glass); border-radius:var(--radius-lg); overflow:hidden; display:flex; flex-direction:column; margin-bottom:6px; }
+    .profile-pilot-head { padding:16px 20px 0; display:flex; flex-direction:column; gap:4px; }
+    .pp-name { font-size:18px; font-weight:800; color:#fff; letter-spacing:-.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pp-link { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--color-brand); text-decoration:none; width:fit-content; }
+    .pp-link:hover { color:#fff; }
+    .pp-link i { font-size:9px; }
+    .profile-header-row { padding:20px; display:flex; align-items:center; gap:20px; background:rgba(255,255,255,.02); }
+    .grade-badge-group { display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); padding:10px 16px; border-radius:12px; min-width:80px; }
+    .grade-label { font-size:8px; color:var(--text-dim); font-weight:700; letter-spacing:1px; margin-bottom:2px; }
+    .grade-val { font-family:var(--font-data); font-size:28px; font-weight:700; color:#fff; line-height:1; }
+    .profile-identity-meta { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .p-meta-row { display:flex; justify-content:space-between; align-items:center; }
+    .p-label { font-size:10px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:.5px; }
+    .p-val { font-size:13px; font-weight:600; color:var(--text-primary); }
+    .text-highlight { color:#fff; text-shadow:0 0 10px rgba(255,255,255,.3); }
+    .profile-divider { border:0; height:1px; background:var(--border-glass); }
+    .profile-stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:1px; background:var(--border-glass); border-bottom:1px solid var(--border-glass); }
+    .p-stat-item { background:var(--bg-panel); padding:12px 20px; display:flex; flex-direction:column; gap:4px; }
+    .p-stat-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.5px; }
+    .p-stat-val { font-family:var(--font-data); font-size:15px; font-weight:600; color:var(--text-primary); }
+    .text-danger { color:var(--color-danger); }
+    .text-dim { color:var(--text-dim); }
+    .profile-details-wrapper { display:flex; }
+    .p-col { flex:1; padding:20px; }
+    .p-col.border-left { border-left:1px solid var(--border-glass); }
+    .p-col-header { font-size:10px; color:var(--text-secondary); text-transform:uppercase; font-weight:700; letter-spacing:1px; margin-bottom:12px; }
+    .prog-item { margin-bottom:12px; }
+    .prog-label-row { display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px; }
+    .prog-name { color:var(--text-secondary); font-weight:500; }
+    .prog-nums { font-family:var(--font-data); font-size:10px; color:var(--text-dim); }
+    .prog-track { width:100%; height:4px; background:rgba(255,255,255,.05); border-radius:2px; overflow:hidden; }
+    .prog-fill { height:100%; background:var(--text-secondary); border-radius:2px; width:0%; transition:width .5s ease; }
+    .prog-item.failed .prog-fill { background:var(--color-danger); }
+    .prog-item.failed .prog-nums { color:var(--color-danger); }
+    .prog-item.success .prog-fill { background:var(--color-success); }
+    .violation-list { display:flex; flex-direction:column; gap:8px; }
+    .vio-row { display:flex; justify-content:space-between; font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .vio-count { font-family:var(--font-data); color:#fff; }
+    .vio-date { font-family:var(--font-data); color:var(--text-primary); font-size:11px; }
+    .mt-sm { margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.05); }
 
-    /* --- PROFILE SECTION --- */
-    .profile-card {
-        background: var(--bg-panel);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-lg);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        margin-bottom: 20px; /* spacing at bottom */
+    /* ACTION BAR (replaces the X) */
+    .action-bar {
+        flex-shrink: 0; display: flex; align-items: stretch;
+        background: var(--theme-bg-end); border-top: 1px solid var(--border-glass);
+        backdrop-filter: blur(20px); z-index: 50;
+    }
+    .action-btn {
+        flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+        padding: 11px 4px 12px; background: none; border: none; cursor: pointer;
+        color: var(--text-secondary); font-family: var(--font-ui); transition: color .2s, background .2s;
+    }
+    .action-btn:not(:last-child) { border-right: 1px solid rgba(255,255,255,.05); }
+    .action-btn i { font-size: 16px; }
+    .action-btn span { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+    .action-btn:hover { color: #fff; background: rgba(255,255,255,.04); }
+    .action-btn:active { background: rgba(255,255,255,.08); }
+    .action-btn.is-active { color: var(--color-brand); }
+
+    /* SKELETON */
+    .skeleton { background:rgba(255,255,255,.03); border-radius:4px; color:transparent !important; animation:pulse 2s infinite; }
+    @keyframes pulse { 0%{opacity:.4;} 50%{opacity:.7;} 100%{opacity:.4;} }
+
+    /* --- Wider hosts (iPad / desktop): keep everything in a centered,
+       phone-width column so the card never stretches or looks sparse.
+       Phones (< 560px) are untouched. --- */
+    @media (min-width: 560px) {
+        .scroll-viewport { align-items: center; }
+        .scroll-viewport > * { width: 100%; max-width: 520px; }
+        .ev-header, .action-bar {
+            width: 100%; max-width: 540px; margin-left: auto; margin-right: auto;
+        }
+        .collapsed-bar { max-width: 540px; margin-left: auto; margin-right: auto; }
+        .rh-city { max-width: 200px; }
     }
 
-    .profile-header-row {
-        padding: 20px;
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        background: rgba(255,255,255,0.02);
+    /* ============================================================
+       LAYOUT CUSTOMIZATION
+       `body[data-peek]` chooses how much the collapsed/peek bar shows
+       (small picture <-> bigger picture). `body.hide-*` classes drop
+       individual sections out of the expanded view. Both are driven by
+       the in-window Customize editor and persisted to localStorage.
+       ============================================================ */
+
+    /* --- New collapsed-bar pieces. Hidden by default; revealed per preset. --- */
+    .cb-state, .cb-seat { display: none; }
+    .cb-state {
+        font-family: var(--font-data); font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .6px;
+        padding: 3px 9px; border-radius: 999px;
+        border: 1px solid currentColor; color: var(--text-secondary);
+        align-items: center; gap: 6px; line-height: 1; flex-shrink: 0;
     }
-
-    .grade-badge-group {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        padding: 10px 16px;
-        border-radius: 12px;
-        min-width: 80px;
+    .cb-state .cb-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+    .cb-state.state-climb { color:rgb(var(--state-climb)); } .cb-state.state-descend { color:rgb(var(--state-descend)); }
+    .cb-state.state-cruise { color:rgb(var(--state-cruise)); } .cb-state.state-ground { color:rgb(var(--state-ground)); }
+    .cb-state.state-approach { color:rgb(var(--state-approach)); } .cb-state.state-pushback { color:rgb(var(--state-pushback)); }
+    .cb-state.state-enroute { color:rgb(var(--state-enroute)); }
+    .cb-seat {
+        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 7px; border-radius: 5px; align-items: center; flex-shrink: 0;
+        background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.05); color: var(--text-dim);
     }
-    .grade-label { font-size: 8px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
-    .grade-val { font-family: var(--font-data); font-size: 28px; font-weight: 700; color: #fff; line-height: 1; }
+    .cb-seat.text-active { color:#4ade80; background:rgba(74,222,128,.1); border-color:rgba(74,222,128,.15); }
+    .cb-seat.text-auto   { color:#facc15; background:rgba(250,204,21,.1); border-color:rgba(250,204,21,.15); }
+    .cb-seat.text-parked { color:#f87171; background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.15); }
+    .cb-seat.text-ap-plus{ color:#818cf8; background:rgba(129,140,248,.1); border-color:rgba(129,140,248,.15); }
 
-    .profile-identity-meta { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-    .p-meta-row { display: flex; justify-content: space-between; align-items: center; }
-    .p-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
-    .p-val { font-family: var(--font-ui); font-size: 13px; font-weight: 600; color: var(--text-primary); }
-    .text-highlight { color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+    /* Subtle settings affordance in the peek bar (opens the editor directly). */
+    .cb-edit {
+        position: absolute; top: 18px; right: 14px; z-index: 6;
+        width: 30px; height: 30px; border-radius: 50%;
+        display: grid; place-items: center; cursor: pointer;
+        background: rgba(255,255,255,.06); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); font-size: 12px; backdrop-filter: blur(6px);
+        transition: color .2s, background .2s;
+    }
+    .cb-edit:active { transform: scale(.94); }
+    .cb-edit:hover { color: #fff; background: rgba(255,255,255,.12); }
 
-    .profile-divider { border: 0; height: 1px; background: var(--border-glass); margin: 0; }
+    /* Rich-peek aircraft photo card (mirrors the expanded hero, condensed). */
+    .cb-hero {
+        display: none; position: relative; width: 100%; height: 150px; flex-shrink: 0;
+        border-radius: var(--radius-md); overflow: hidden;
+        background: #0f172a center/cover no-repeat;
+        border: 1px solid var(--border-highlight);
+        box-shadow: 0 8px 22px rgba(0,0,0,.45);
+    }
+    .cb-hero-overlay {
+        position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: space-between;
+        gap: 10px; padding: 34px 12px 11px;
+        background: linear-gradient(to top, rgba(15,23,42,.95) 0%, rgba(15,23,42,.4) 55%, transparent 100%);
+    }
+    .cb-hero-name { font-size: 14px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .cb-hero-sub { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .cb-hero-reg { font-family: var(--font-data); font-size: 11px; font-weight: 600; color: #fff; background: rgba(255,255,255,.14); border: 1px solid var(--border-glass); padding: 4px 9px; border-radius: 7px; flex-shrink: 0; }
+    .cb-hero-credit { position: absolute; top: 8px; left: 8px; font-size: 8px; text-transform: uppercase; letter-spacing: .4px; color: rgba(255,255,255,.8); background: rgba(0,0,0,.5); padding: 2px 6px; border-radius: 5px; }
 
-    .profile-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 1px;
-        background: var(--border-glass); /* Creates grid lines */
+    /* --- PRESET: MINIMAL — identity + state + route + thin progress only. --- */
+    body[data-peek="minimal"] .cb-thumb,
+    body[data-peek="minimal"] .cb-pilot,
+    body[data-peek="minimal"] .cb-meta,
+    body[data-peek="minimal"] .cb-hero,
+    body[data-peek="minimal"] .cb-city,
+    body[data-peek="minimal"] .cb-prog-labels { display: none; }
+    body[data-peek="minimal"] .cb-state { display: inline-flex; }
+    body[data-peek="minimal"] .collapsed-bar { gap: 12px; }
+
+    /* --- PRESET: STANDARD (default) — adds thumbnail, pilot, airline, cities. --- */
+    body[data-peek="standard"] .cb-state { display: inline-flex; }
+    body[data-peek="standard"] .cb-hero { display: none; }
+
+    /* --- PRESET: RICH — swaps the thumbnail for a full photo card (shared design). --- */
+    body[data-peek="rich"] .cb-thumb,
+    body[data-peek="rich"] .cb-meta { display: none; } /* aircraft + livery shown on the photo card instead */
+    body[data-peek="rich"] .cb-hero { display: block; }
+    body[data-peek="rich"] .cb-state,
+    body[data-peek="rich"] .cb-seat { display: inline-flex; }
+
+    /* --- Expanded-view section visibility (whole blocks) --- */
+    body.hide-hero      .sw-block[data-block="hero"],
+    body.hide-times     .sw-block[data-block="times"],
+    body.hide-flightplan .sw-block[data-block="flightplan"],
+    body.hide-flightplan #btn-route,
+    body.hide-telemetry .sw-block[data-block="telemetry"],
+    body.hide-navenv    .sw-block[data-block="navenv"],
+    body.hide-graph     .sw-block[data-block="graph"],
+    body.hide-manifest  .sw-block[data-block="manifest"] { display: none; }
+    /* Editing always reveals every block (even toggled-off ones) so they can be
+       re-ordered / re-enabled in place. */
+    body.editing .sw-block { display: block !important; }
+
+    /* Per-grid column counts (studio "columns" control). */
+    #sec-telemetry .telemetry-bento { grid-template-columns: repeat(var(--tel-cols, 2), 1fr); }
+    #sec-navenv .telemetry-bento { grid-template-columns: repeat(var(--nav-cols, 2), 1fr); }
+    /* A metric hidden via the studio. */
+    .bento-cell.metric-off { display: none; }
+
+    /* ============================================================
+       CUSTOMIZE EDITOR — in-window bottom sheet
+       ============================================================ */
+    .customize-sheet {
+        position: fixed; inset: 0; z-index: 200;
+        opacity: 0; visibility: hidden; transition: opacity .28s ease, visibility 0s linear .28s;
+    }
+    .customize-sheet.open { opacity: 1; visibility: visible; transition: opacity .28s ease; }
+    .cs-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); }
+    .cs-panel {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        max-height: 86%; display: flex; flex-direction: column;
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        backdrop-filter: blur(var(--blur-amount)) saturate(140%); -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
+        border-top: 1px solid var(--border-highlight);
+        border-radius: 22px 22px 0 0; box-shadow: 0 -20px 50px rgba(0,0,0,.5);
+        transform: translateY(100%); transition: transform .34s var(--ease-out);
+        padding-bottom: env(safe-area-inset-bottom, 12px);
+    }
+    .customize-sheet.open .cs-panel { transform: translateY(0); }
+    .cs-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin: 10px auto 0; flex-shrink: 0; }
+    .cs-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 8px; flex-shrink: 0; }
+    .cs-title { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -.3px; }
+    .cs-close { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-glass); background: rgba(255,255,255,.06); color: var(--text-secondary); cursor: pointer; display: grid; place-items: center; font-size: 14px; }
+    .cs-close:active { transform: scale(.94); }
+    .cs-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 8px; }
+    .cs-body::-webkit-scrollbar { width: 0; }
+    .cs-group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin: 14px 0 4px 2px; }
+    .cs-group-label:first-child { margin-top: 6px; }
+
+    .cs-peek-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .cs-peek-opt {
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+        padding: 14px 6px 12px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+        color: var(--text-secondary); transition: border-color .2s, background .2s, color .2s;
+    }
+    .cs-peek-opt:hover { background: rgba(255,255,255,.06); }
+    .cs-peek-opt.active { border-color: var(--color-brand); color: #fff; background: rgba(56,189,248,.08); box-shadow: 0 0 0 1px var(--color-brand); }
+    .cs-peek-glyph { display: flex; flex-direction: column; gap: 3px; width: 40px; align-items: stretch; }
+    .cs-peek-glyph i { height: 4px; border-radius: 2px; background: currentColor; opacity: .35; }
+    .cs-peek-opt.active .cs-peek-glyph i { opacity: 1; }
+    .cs-peek-glyph i.tall { height: 16px; }
+    .cs-peek-glyph i.med { height: 9px; }
+    .cs-peek-name { font-size: 12px; font-weight: 700; }
+    .cs-peek-desc { font-size: 9px; color: var(--text-dim); text-align: center; line-height: 1.25; }
+    .cs-peek-opt.active .cs-peek-desc { color: var(--text-secondary); }
+
+    .cs-toggle {
+        display: flex; align-items: center; gap: 12px; padding: 13px 14px;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);
+        cursor: pointer;
+    }
+    .cs-toggle:active { background: rgba(255,255,255,.06); }
+    .cs-toggle-icon { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; background: rgba(255,255,255,.05); color: var(--text-secondary); font-size: 13px; flex-shrink: 0; }
+    .cs-toggle-text { flex: 1; min-width: 0; }
+    .cs-toggle-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .cs-toggle-sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+    .cs-switch { position: relative; width: 42px; height: 25px; flex-shrink: 0; }
+    .cs-switch input { opacity: 0; width: 0; height: 0; }
+    .cs-switch-track { position: absolute; inset: 0; border-radius: 99px; background: rgba(255,255,255,.12); transition: background .2s; }
+    .cs-switch-track::before { content: ''; position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: transform .22s var(--ease-out); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    .cs-switch input:checked + .cs-switch-track { background: var(--color-brand); }
+    .cs-switch input:checked + .cs-switch-track::before { transform: translateX(17px); }
+
+    .cs-reset {
+        margin-top: 14px; padding: 13px; border-radius: var(--radius-sm); cursor: pointer;
+        background: rgba(255,255,255,.04); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .5px;
+    }
+    .cs-reset:active { background: rgba(255,255,255,.08); }
+
+    /* Header gear that opens the editor from the expanded view. */
+    .ev-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .ev-gear {
+        width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+        background: rgba(255,255,255,.05); border: 1px solid var(--border-glass);
+        color: var(--text-secondary); display: grid; place-items: center; font-size: 14px;
+        transition: color .2s, background .2s;
+    }
+    .ev-gear:hover { color: #fff; background: rgba(255,255,255,.1); }
+    .ev-gear:active { transform: scale(.94); }
+
+    /* ============================================================
+       TYPE SCALE — multiply key sizes by --text-scale so the studio's
+       text-size control affects the headline elements uniformly.
+       ============================================================ */
+    .cb-callsign { font-size: calc(22px * var(--text-scale)); }
+    .cb-icao { font-size: calc(30px * var(--text-scale)); }
+    .cb-city, .cb-state, .cb-seat { font-size: calc(10.5px * var(--text-scale)); }
+    .cb-hero-name { font-size: calc(14px * var(--text-scale)); }
+    .ev-callsign { font-size: calc(28px * var(--text-scale)); }
+    .flight-state-badge { font-size: calc(10px * var(--text-scale)); }
+    .rh-icao { font-size: calc(44px * var(--text-scale)); }
+    .rh-city { font-size: calc(12px * var(--text-scale)); }
+    .tg-time { font-size: calc(17px * var(--text-scale)); }
+    .tg-label { font-size: calc(10px * var(--text-scale)); }
+    .grid-section-label { font-size: calc(10px * var(--text-scale)); }
+    .cell-label { font-size: calc(10px * var(--text-scale)); }
+    .cell-data { font-size: calc(24px * var(--text-scale)); }
+    .rp-labels { font-size: calc(12px * var(--text-scale)); }
+    .wp-ident { font-size: calc(14px * var(--text-scale)); }
+    .pp-name { font-size: calc(18px * var(--text-scale)); }
+    .grade-val { font-size: calc(28px * var(--text-scale)); }
+    .p-stat-val { font-size: calc(15px * var(--text-scale)); }
+
+    /* Numeric readouts honor the chosen number font (mono toggle). */
+    .cell-data, .tg-time, .rh-icao, .cb-icao, .grade-val, .p-stat-val, .rp-labels .mono { font-family: var(--font-num); }
+
+    /* --- DENSITY: compact tightens spacing throughout. --- */
+    body[data-density="compact"] .scroll-viewport { gap: 7px; }
+    body[data-density="compact"] .bento-cell { padding: 11px; min-height: 70px; }
+    body[data-density="compact"] .telemetry-bento { gap: 6px; }
+    body[data-density="compact"] .route-hero { padding: 14px 14px 12px; }
+    body[data-density="compact"] .route-progress-row { padding: 12px 14px; }
+    body[data-density="compact"] .tg-cell { padding: 9px 14px; }
+    body[data-density="compact"] .grid-section-label { margin: 8px 0 5px 4px; }
+    body[data-density="compact"] .ev-header { padding: 16px 16px 8px; }
+
+    /* --- GLOW off: drop the decorative text/dot halos. --- */
+    body.no-glow .rh-icao, body.no-glow .cb-callsign, body.no-glow .ev-callsign,
+    body.no-glow .text-highlight, body.no-glow .cb-icao { text-shadow: none; }
+    body.no-glow .state-indicator-dot, body.no-glow .cb-state-dot { box-shadow: none; }
+    body.no-glow .cb-fill-plane { filter: none; }
+
+    /* Extra darkening layer over the hero photo (studio "photo dim"). */
+    .hero-dim { position: absolute; inset: 0; background: #000; opacity: var(--photo-dim); pointer-events: none; z-index: 2; }
+
+    /* ============================================================
+       FLAT, REORDERABLE BLOCKS
+       Each expanded section is an independent, individually styleable
+       card so the studio can drag them into any order. IDs inside are
+       unchanged so live data keeps binding.
+       ============================================================ */
+    .sw-block { position: relative; }
+    /* Give the route/times/progress/flightplan blocks the card surface +
+       rounded corners now that they're no longer fused in one card. */
+    .sw-block[data-block="route"] .route-hero,
+    .sw-block[data-block="times"] .times-grid,
+    .sw-block[data-block="progress"] .route-progress-row,
+    .sw-block[data-block="flightplan"] .mission-route-section {
+        border-radius: var(--radius-lg); border: 1px solid var(--border-glass); overflow: hidden;
+    }
+    .sw-block[data-block="hero"] .mission-visual-section { border-radius: var(--radius-lg); }
+    .sw-block[data-block="times"] .times-grid { border-top: none; }
+    .sw-block[data-block="progress"] .route-progress-row,
+    .sw-block[data-block="route"] .route-hero { border-top: none; }
+
+    /* Drag handle — hidden until edit mode. */
+    .sw-drag-handle {
+        display: none; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        z-index: 30; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px;
+        background: rgba(0,0,0,.6); border: 1px solid var(--border-highlight); color: #fff;
+        font-size: 11px; font-weight: 700; cursor: grab; backdrop-filter: blur(6px);
+        touch-action: none; user-select: none;
+    }
+    .sw-drag-handle i { font-size: 10px; opacity: .8; }
+
+    /* Edit mode: outline every block, reveal handles, dim live chrome. */
+    body.editing .sw-block {
+        outline: 1px dashed rgba(255,255,255,.25); outline-offset: 2px;
+        border-radius: var(--radius-lg); min-height: 54px;
+        transition: transform .18s ease, opacity .18s ease;
+    }
+    body.editing .sw-block .sw-drag-handle { display: inline-flex; }
+    body.editing .scroll-viewport { padding-top: 14px; }
+    /* Pointer events on inner controls are suppressed so taps don't toggle
+       dropdowns / scroll the route while you're rearranging. */
+    body.editing .sw-block > *:not(.sw-drag-handle) { pointer-events: none; }
+    .sw-block.sw-dragging { opacity: .9; z-index: 50; box-shadow: 0 18px 40px rgba(0,0,0,.6); cursor: grabbing; }
+    .sw-block.sw-placeholder { opacity: 0; }
+
+    /* Floating Done bar shown while editing the live layout. */
+    .edit-banner {
+        position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        transform: translateX(-50%) translateY(140%); z-index: 180;
+        display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 18px;
+        background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
+        border: 1px solid var(--border-highlight); border-radius: 99px;
+        box-shadow: 0 14px 40px rgba(0,0,0,.5); backdrop-filter: blur(var(--blur-amount));
+        transition: transform .3s var(--ease-out);
+    }
+    body.editing .edit-banner { transform: translateX(-50%) translateY(0); }
+    .edit-banner span { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .edit-banner button {
+        border: none; border-radius: 99px; padding: 8px 18px; cursor: pointer;
+        background: var(--color-brand); color: #04121c; font-weight: 800; font-size: 12px;
+        text-transform: uppercase; letter-spacing: .5px;
+    }
+    .edit-banner button:active { transform: scale(.96); }
+
+    /* ============================================================
+       STUDIO CONTROLS (tabs + rows + pickers)
+       ============================================================ */
+    .cs-tabs {
+        display: flex; gap: 4px; padding: 4px 14px 10px; flex-shrink: 0;
         border-bottom: 1px solid var(--border-glass);
     }
-    .p-stat-item {
-        background: var(--bg-panel); /* Restore bg */
-        padding: 12px 20px;
-        display: flex; flex-direction: column; gap: 4px;
+    .cs-tab {
+        flex: 1; padding: 9px 4px; border: none; cursor: pointer; border-radius: 10px;
+        background: transparent; color: var(--text-dim);
+        font-family: var(--font-ui); font-size: 11px; font-weight: 700;
+        display: flex; flex-direction: column; align-items: center; gap: 4px; transition: color .2s, background .2s;
     }
-    .p-stat-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-    .p-stat-val { font-family: var(--font-data); font-size: 15px; font-weight: 600; color: var(--text-primary); }
-    .text-danger { color: var(--color-danger); }
-    .text-dim { color: var(--text-dim); }
+    .cs-tab i { font-size: 13px; }
+    .cs-tab.active { color: #fff; background: rgba(255,255,255,.07); }
+    .cs-pane { display: none; flex-direction: column; gap: 8px; }
+    .cs-pane.active { display: flex; }
 
-    .profile-details-wrapper { display: flex; }
-    .p-col { flex: 1; padding: 20px; }
-    .p-col.border-left { border-left: 1px solid var(--border-glass); }
-    .p-col-header { 
-        font-size: 10px; color: var(--text-secondary); 
-        text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 12px; 
+    .cs-row { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 4px 2px; }
+    .cs-row-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .cs-row-val { font-family: var(--font-data); font-size: 12px; color: var(--text-secondary); min-width: 38px; text-align: right; }
+
+    .cs-color {
+        -webkit-appearance: none; appearance: none; width: 46px; height: 30px; padding: 0;
+        border: 1px solid var(--border-highlight); border-radius: 8px; background: none; cursor: pointer; flex-shrink: 0;
+    }
+    .cs-color::-webkit-color-swatch-wrapper { padding: 2px; }
+    .cs-color::-webkit-color-swatch { border: none; border-radius: 6px; }
+
+    .cs-range {
+        -webkit-appearance: none; appearance: none; flex: 1.4; height: 4px; border-radius: 2px;
+        background: rgba(255,255,255,.15); outline: none;
+    }
+    .cs-range::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+        background: var(--color-brand); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4);
     }
 
-    /* Progression Bars */
-    .prog-item { margin-bottom: 12px; }
-    .prog-label-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px; }
-    .prog-name { color: var(--text-secondary); font-weight: 500; }
-    .prog-nums { font-family: var(--font-data); font-size: 10px; color: var(--text-dim); }
-    
-    .prog-track { width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
-    .prog-fill { height: 100%; background: var(--text-secondary); border-radius: 2px; width: 0%; transition: width 0.5s ease; }
-    
-    .prog-item.failed .prog-fill { background: var(--color-danger); }
-    .prog-item.failed .prog-nums { color: var(--color-danger); }
-    .prog-item.success .prog-fill { background: var(--color-success); }
-
-    /* Violation List */
-    .violation-list { display: flex; flex-direction: column; gap: 8px; }
-    .vio-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
-    .vio-count { font-family: var(--font-data); color: #fff; }
-    .vio-date { font-family: var(--font-data); color: var(--text-primary); font-size: 11px; }
-    .mt-sm { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); }
-
-    /* --- FOOTER --- */
-    .footer-bar {
-        margin-top: auto; padding: 16px;
-        /* UPDATED: Use dynamic variable */
-        background: var(--theme-bg-end);
-        border-top: 1px solid var(--border-glass);
-        display: flex; justify-content: space-between;
-        backdrop-filter: blur(20px);
-        z-index: 50;
+    .cs-seg { display: inline-flex; background: rgba(255,255,255,.05); border: 1px solid var(--border-glass); border-radius: 9px; padding: 3px; gap: 3px; }
+    .cs-seg button {
+        border: none; background: transparent; cursor: pointer; padding: 6px 14px; border-radius: 7px;
+        color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; font-weight: 700; transition: background .2s, color .2s;
     }
-    .footer-stat { display: flex; flex-direction: column; align-items: center; width: 33%; }
-    .footer-stat:not(:last-child) { border-right: 1px solid rgba(255,255,255,0.05); }
-    
-    .f-label { font-size: 9px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 4px; }
-    .f-value { font-family: var(--font-data); font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .cs-seg button.active { background: var(--color-brand); color: #04121c; }
 
-    /* --- SKELETON --- */
-    .skeleton {
-        background: rgba(255,255,255,0.03); border-radius: 4px;
-        color: transparent !important; animation: pulse 2s infinite;
+    .cs-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .cs-chip {
+        border: 1px solid var(--border-glass); background: rgba(255,255,255,.04); cursor: pointer;
+        padding: 8px 13px; border-radius: 99px; color: var(--text-dim);
+        font-family: var(--font-ui); font-size: 12px; font-weight: 600; transition: all .18s;
     }
-    @keyframes pulse {
-        0% { opacity: 0.4; } 50% { opacity: 0.7; } 100% { opacity: 0.4; }
+    .cs-chip.active { color: #fff; border-color: var(--color-brand); background: rgba(56,189,248,.14); }
+    .cs-chip::before { content: '\f00d'; font-family: 'Font Awesome 6 Free'; font-weight: 900; font-size: 9px; margin-right: 6px; opacity: .5; }
+    .cs-chip.active::before { content: '\f00c'; opacity: 1; color: var(--color-brand); }
+
+    .cs-state-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .cs-state-chip {
+        display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);
     }
+    .cs-state-chip span { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+
+    .cs-theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .cs-theme {
+        display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 4px; cursor: pointer;
+        background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-md);
+        color: var(--text-secondary); font-size: 11px; font-weight: 700; transition: border-color .2s;
+    }
+    .cs-theme:hover { border-color: var(--border-highlight); color: #fff; }
+    .cs-theme-sw { width: 100%; height: 30px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); }
+
+    .cs-bigbtn {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 13px; border-radius: var(--radius-sm); cursor: pointer; width: 100%;
+        background: rgba(255,255,255,.05); border: 1px solid var(--border-highlight);
+        color: var(--text-primary); font-family: var(--font-ui); font-size: 13px; font-weight: 700;
+    }
+    .cs-bigbtn:active { transform: scale(.99); background: rgba(255,255,255,.09); }
+
+    .cs-saved-list { display: flex; flex-direction: column; gap: 6px; }
+    .cs-empty { font-size: 12px; color: var(--text-dim); font-style: italic; padding: 6px 2px; }
+    .cs-saved-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); }
+    .cs-saved-item .name { flex: 1; font-size: 13px; font-weight: 600; color: var(--text-primary); cursor: pointer; }
+    .cs-saved-item button { border: none; background: rgba(255,255,255,.06); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 7px; cursor: pointer; }
+    .cs-saved-item button.apply { color: var(--color-brand); }
+
+    .cs-share-row { display: flex; gap: 6px; }
+    .cs-code { flex: 1; min-width: 0; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-secondary); font-family: var(--font-data); font-size: 11px; padding: 8px 10px; }
+    .cs-mini { border: 1px solid var(--border-highlight); background: rgba(255,255,255,.05); color: var(--text-primary); border-radius: 8px; padding: 8px 12px; font-size: 11px; font-weight: 700; cursor: pointer; }
     </style>
 </head>
-<body>
+<body class="collapsed">
 
-    <div class="avionics-window">
-        
-        <header class="header-section">
-            <div class="identity-group">
-                <div class="main-callsign skeleton" id="callsign">WAITING</div>
+    <!-- ===========================================================
+         PHASE 1 — COLLAPSED BAR
+         =========================================================== -->
+    <div class="collapsed-bar" id="collapsed-bar">
+        <div class="cb-grip"></div>
+        <div class="cb-edit" id="cb-edit" title="Customize"><i class="fa-solid fa-sliders"></i></div>
+
+        <div class="cb-top">
+            <div class="cb-identity">
+                <div class="cb-callsign-row">
+                    <span class="cb-callsign" id="c-callsign">----</span>
+                    <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
+                </div>
+                <div class="cb-pilot" id="c-pilot">
+                    <i class="fa-solid fa-user-astronaut"></i>
+                    <span id="c-username">Pilot</span>
+                    <span class="cb-seat" id="c-seat" style="display:none;">---</span>
+                </div>
+                <div class="cb-meta">
+                    <span class="cb-chip" id="c-actype" style="display:none;">---</span>
+                    <span class="cb-airline" id="c-airline">Tap for details</span>
+                </div>
+            </div>
+            <div class="cb-thumb" id="c-thumb"></div>
+        </div>
+
+        <!-- Rich-peek aircraft photo card (shown only when data-peek="rich"). -->
+        <div class="cb-hero" id="c-hero">
+            <span class="cb-hero-credit" id="c-hero-credit" style="display:none;"></span>
+            <div class="cb-hero-overlay">
+                <div style="min-width:0;">
+                    <div class="cb-hero-name" id="c-hero-name">---</div>
+                    <div class="cb-hero-sub" id="c-hero-livery">---</div>
+                </div>
+                <div class="cb-hero-reg" id="c-hero-reg">---</div>
+            </div>
+        </div>
+
+        <div class="cb-route-card">
+            <div class="cb-route">
+                <div class="cb-port origin">
+                    <div class="cb-icao" id="c-dep-icao">---</div>
+                    <div class="cb-city" id="c-dep-city">&nbsp;</div>
+                </div>
+                <div class="cb-mid">
+                    <div class="cb-track">
+                        <div class="cb-fill" id="c-progress"></div>
+                        <i class="fa-solid fa-plane cb-fill-plane" id="c-plane"></i>
+                    </div>
+                </div>
+                <div class="cb-port dest">
+                    <div class="cb-icao" id="c-arr-icao">---</div>
+                    <div class="cb-city" id="c-arr-city">&nbsp;</div>
+                </div>
+            </div>
+            <div class="cb-prog-labels">
+                <span id="c-status-left">--</span>
+                <span id="c-status-right">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===========================================================
+         PHASE 2 — EXPANDED VIEW
+         =========================================================== -->
+    <div class="expanded-view" id="expanded-view">
+
+        <header class="ev-header">
+            <div class="ev-id-group">
+                <div class="ev-callsign-row">
+                    <span class="ev-callsign" id="callsign">----</span>
+                </div>
                 <div class="pilot-row" onclick="scrollToProfile()">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="username">PILOT</span>
-                    
-                    <span id="seat-status-label" class="seat-mini-label" style="display: none;">---</span>
+                    <span id="seat-status-label" class="seat-mini-label" style="display:none;">---</span>
                 </div>
             </div>
-            
-            <div style="display: flex;">
+            <div class="ev-header-right">
+                <button class="ev-gear" id="ev-gear" title="Customize layout" aria-label="Customize layout">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
                 <div class="flight-state-badge" id="state-badge">
                     <div class="state-indicator-dot" id="state-dot"></div>
+                    <i class="fa-solid fa-route state-badge-icon" id="state-icon"></i>
                     <span class="state-text" id="status-text">Standby</span>
                 </div>
             </div>
         </header>
 
         <div class="scroll-viewport">
-            
-            <div class="unified-mission-card">
-                
+
+            <!-- BIG plane hero -->
+            <div class="sw-block" data-block="hero">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Aircraft</div>
                 <div class="mission-visual-section skeleton" id="hero-container">
-                    <img id="ac-photo" class="hero-img" src="" style="display:none;" onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
-                    <div id="ac-credit" class="photo-credit" style="display: none;"></div>
-                    
+                    <img id="ac-photo" class="hero-img" src="" style="display:none;"
+                         onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
+                    <div class="hero-dim"></div>
+                    <div id="ac-credit" class="photo-credit" style="display:none;"></div>
+                    <div class="hero-collapse-btn" id="hero-collapse-btn">
+                        <i class="fa-solid fa-chevron-up"></i> Less info
+                    </div>
                     <div class="hero-overlay">
                         <div class="ac-info">
                             <h2 id="ac-name">---</h2>
@@ -605,531 +1025,1264 @@
                         <div class="ac-reg-badge" id="ac-reg">---</div>
                     </div>
                 </div>
+            </div>
 
+            <!-- BIG route -->
+            <div class="sw-block" data-block="route">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Route</div>
+                <div class="route-hero">
+                    <div class="rh-port origin">
+                        <div class="rh-icao" id="dep-icao">---</div>
+                        <div class="rh-city" id="dep-city">&nbsp;</div>
+                        <img id="dep-flag" src="" alt="" style="display:none;">
+                    </div>
+                    <div class="rh-mid">
+                        <div class="rh-plane-badge"><i class="fa-solid fa-plane"></i></div>
+                    </div>
+                    <div class="rh-port dest">
+                        <div class="rh-icao" id="arr-icao">---</div>
+                        <div class="rh-city" id="arr-city">&nbsp;</div>
+                        <img id="arr-flag" src="" alt="" style="display:none;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Times grid -->
+            <div class="sw-block" data-block="times">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Times</div>
+                <div class="times-grid" id="sec-times">
+                    <div class="tg-cell">
+                        <span class="tg-label" id="dep-label-1">Scheduled</span>
+                        <span class="tg-time" id="dep-time-1">--:--</span>
+                    </div>
+                    <div class="tg-cell">
+                        <span class="tg-label" id="arr-label-1">Scheduled</span>
+                        <span class="tg-time" id="arr-time-1">--:--</span>
+                    </div>
+                    <div class="tg-cell">
+                        <span class="tg-label" id="dep-label-2">Actual</span>
+                        <span class="tg-time" id="dep-time-2">--:--</span>
+                    </div>
+                    <div class="tg-cell">
+                        <span class="tg-label" id="arr-label-2">Estimated</span>
+                        <span class="tg-time"><span class="tg-dot" id="arr-dot" style="display:none;"></span><span id="arr-time-2">--:--</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- progress -->
+            <div class="sw-block" data-block="progress">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Progress</div>
+                <div class="route-progress-row">
+                    <div class="rp-track">
+                        <div class="rp-fill" id="route-progress"></div>
+                        <i class="fa-solid fa-plane rp-plane" id="route-plane"></i>
+                    </div>
+                    <div class="rp-labels">
+                        <span><span class="mono" id="dist-flown">----</span> · <span id="elapsed-ago">--</span></span>
+                        <span><span class="mono" id="dist-remaining">----</span> · <span id="arrive-in">--</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- waypoints -->
+            <div class="sw-block" data-block="flightplan">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Flight Plan</div>
                 <div class="mission-route-section" id="route-card-container">
                     <div class="route-visual-header" id="route-toggle-btn">
+                        <i class="fa-solid fa-route"></i> Flight Plan
                         <i class="fa-solid fa-chevron-down route-toggle-icon"></i>
-                        
-                        <div class="route-airport">
-                            <div class="route-airport-row">
-                                <img id="dep-flag" class="country-flag" src="" alt="Origin Flag">
-                                <span class="route-icao" id="dep-icao">---</span>
-                            </div>
-                            <span class="route-time" id="dep-time">--:--</span>
-                        </div>
-                        
-                        <div class="route-graphic">
-                            <div class="track-line"></div>
-                            <div class="track-progress" id="route-progress"></div>
-                            <i class="fa-solid fa-plane track-plane" id="route-plane"></i>
-                        </div>
-
-                        <div class="route-airport">
-                            <div class="route-airport-row">
-                                <span class="route-icao" id="arr-icao">---</span>
-                                <img id="arr-flag" class="country-flag" src="" alt="Dest Flag">
-                            </div>
-                            <span class="route-time" id="arr-time">--:--</span>
-                        </div>
                     </div>
-                    
                     <div class="waypoint-dropdown-wrapper">
                         <div class="waypoint-list" id="wp-list">
-                            <div style="padding: 24px; text-align: center; color: var(--text-dim); font-size: 12px; font-style: italic;">
+                            <div style="padding:24px; text-align:center; color:var(--text-dim); font-size:12px; font-style:italic;">
                                 Route data unavailable
                             </div>
                         </div>
                     </div>
                 </div>
-
             </div>
 
-            <div>
+            <div class="sw-block" data-block="telemetry" id="sec-telemetry">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Telemetry</div>
                 <div class="grid-section-label">Live Telemetry</div>
                 <div class="telemetry-bento">
-                    
-                    <div class="bento-cell">
-                        <div class="cell-header">
-                            <span class="cell-label">Altitude</span>
-                            <i class="fa-solid fa-cloud cell-icon"></i>
-                        </div>
-                        <div class="cell-data">
-                            <span id="val-alt">---</span>
-                            <span class="cell-unit">ft</span>
-                        </div>
+                    <div class="bento-cell" data-metric="alt">
+                        <div class="cell-header"><span class="cell-label">Altitude</span><i class="fa-solid fa-cloud cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-alt">---</span><span class="cell-unit">ft</span></div>
                     </div>
-
-                    <div class="bento-cell">
-                        <div class="cell-header">
-                            <span class="cell-label">GND Speed</span>
-                            <i class="fa-solid fa-gauge-high cell-icon"></i>
-                        </div>
-                        <div class="cell-data">
-                            <span id="val-spd">---</span>
-                            <span class="cell-unit">kts</span>
-                        </div>
+                    <div class="bento-cell" data-metric="spd">
+                        <div class="cell-header"><span class="cell-label">GND Speed</span><i class="fa-solid fa-gauge-high cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-spd">---</span><span class="cell-unit">kts</span></div>
                     </div>
-
-                    <div class="bento-cell">
-                        <div class="cell-header">
-                            <span class="cell-label">Vertical</span>
-                            <i class="fa-solid fa-elevator cell-icon"></i>
-                        </div>
-                        <div class="cell-data cell-vs-graphic">
-                            <i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i>
-                            <span id="val-vs">0</span>
-                            <span class="cell-unit">fpm</span>
-                        </div>
+                    <div class="bento-cell" data-metric="vs">
+                        <div class="cell-header"><span class="cell-label">Vertical</span><i class="fa-solid fa-elevator cell-icon"></i></div>
+                        <div class="cell-data cell-vs-graphic"><i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i><span id="val-vs">0</span><span class="cell-unit">fpm</span></div>
                     </div>
-
-                    <div class="bento-cell">
-                        <div class="cell-header">
-                            <span class="cell-label">Heading</span>
-                            <i class="fa-regular fa-compass cell-icon"></i>
-                        </div>
-                        <div class="cell-data">
-                            <span id="val-hdg">---</span>
-                            <span class="cell-unit">°</span>
-                        </div>
+                    <div class="bento-cell" data-metric="hdg">
+                        <div class="cell-header"><span class="cell-label">Heading</span><i class="fa-regular fa-compass cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-hdg">---</span><span class="cell-unit">°</span></div>
                     </div>
-
                 </div>
             </div>
 
-            <div id="profile-anchor">
+            <div class="sw-block" data-block="navenv" id="sec-navenv">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Nav &amp; Env</div>
+                <div class="grid-section-label">Navigation &amp; Environment</div>
+                <div class="telemetry-bento">
+                    <div class="bento-cell" data-metric="tas">
+                        <div class="cell-header"><span class="cell-label">True Airspeed</span><i class="fa-solid fa-wind cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-tas">---</span><span class="cell-unit">kts</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="oat">
+                        <div class="cell-header"><span class="cell-label">OAT</span><i class="fa-solid fa-temperature-half cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-oat">---</span><span class="cell-unit">°C</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="wind">
+                        <div class="cell-header"><span class="cell-label">Wind</span><i class="fa-solid fa-location-arrow cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:18px;"><span id="val-wind">---</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="dtg">
+                        <div class="cell-header"><span class="cell-label">To Destination</span><i class="fa-solid fa-flag-checkered cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-dtg">---</span><span class="cell-unit">nm</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="nextwp">
+                        <div class="cell-header"><span class="cell-label">Next Waypoint</span><i class="fa-solid fa-diamond-turn-right cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:16px;"><span id="val-nextwp">---</span></div>
+                        <div class="cell-unit" id="val-nextwp-dist" style="margin-top:4px;"></div>
+                    </div>
+                    <div class="bento-cell" data-metric="pos">
+                        <div class="cell-header"><span class="cell-label">Position</span><i class="fa-solid fa-crosshairs cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:13px; line-height:1.4;"><span id="val-pos">---</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sw-block" data-block="graph" id="sec-graph">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Graph</div>
+                <div class="grid-section-label">Speed &amp; Altitude</div>
+                <div class="sa-graph-card">
+                    <div id="sa-graph" class="sa-graph"></div>
+                </div>
+            </div>
+
+            <div class="sw-block" data-block="manifest" id="profile-anchor">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Manifest</div>
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
-                    
+                    <div class="profile-pilot-head">
+                        <span class="pp-name" id="prof-username">Pilot</span>
+                        <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">
+                            Community Profile <i class="fa-solid fa-up-right-from-square"></i>
+                        </a>
+                    </div>
                     <div class="profile-header-row">
                         <div class="grade-badge-group">
                             <span class="grade-label">GRADE</span>
                             <span class="grade-val" id="prof-grade">--</span>
                         </div>
                         <div class="profile-identity-meta">
-                            <div class="p-meta-row">
-                                <span class="p-label">Virtual Airline</span>
-                                <span class="p-val text-highlight" id="prof-va">---</span>
-                            </div>
-                            <div class="p-meta-row">
-                                <span class="p-label">ATC Rank</span>
-                                <span class="p-val" id="prof-atc">---</span>
-                            </div>
+                            <div class="p-meta-row"><span class="p-label">Virtual Airline</span><span class="p-val text-highlight" id="prof-va">---</span></div>
+                            <div class="p-meta-row"><span class="p-label">ATC Rank</span><span class="p-val" id="prof-atc">---</span></div>
                         </div>
                     </div>
-
                     <hr class="profile-divider">
-
                     <div class="profile-stats-grid">
-                        <div class="p-stat-item">
-                            <span class="p-stat-label">Total XP</span>
-                            <span class="p-stat-val" id="prof-xp">---</span>
-                        </div>
-                        <div class="p-stat-item">
-                            <span class="p-stat-label">Total Violations</span>
-                            <span class="p-stat-val text-danger" id="prof-total-vio">---</span>
-                        </div>
-                        <div class="p-stat-item">
-                            <span class="p-stat-label">Flight Time (90d)</span>
-                            <span class="p-stat-val" id="prof-time-90">---</span>
-                        </div>
-                        <div class="p-stat-item">
-                            <span class="p-stat-label">Landings (90d)</span>
-                            <span class="p-stat-val" id="prof-land-90">---</span>
-                        </div>
+                        <div class="p-stat-item"><span class="p-stat-label">Total XP</span><span class="p-stat-val" id="prof-xp">---</span></div>
+                        <div class="p-stat-item"><span class="p-stat-label">Total Violations</span><span class="p-stat-val text-danger" id="prof-total-vio">---</span></div>
+                        <div class="p-stat-item"><span class="p-stat-label">Flight Time (90d)</span><span class="p-stat-val" id="prof-time-90">---</span></div>
+                        <div class="p-stat-item"><span class="p-stat-label">Landings (90d)</span><span class="p-stat-val" id="prof-land-90">---</span></div>
                     </div>
-
                     <div class="profile-details-wrapper">
-                        
                         <div class="p-col">
                             <div class="p-col-header">Grade Progression</div>
-                            <div id="progression-list" class="progression-list">
-                                </div>
+                            <div id="progression-list" class="progression-list"></div>
                         </div>
-
                         <div class="p-col border-left">
                             <div class="p-col-header">Violation History</div>
                             <div class="violation-list">
-                                <div class="vio-row">
-                                    <span>Level 1</span>
-                                    <span class="vio-count" id="prof-v1">0</span>
-                                </div>
-                                <div class="vio-row">
-                                    <span>Level 2</span>
-                                    <span class="vio-count" id="prof-v2">0</span>
-                                </div>
-                                <div class="vio-row">
-                                    <span>Level 3</span>
-                                    <span class="vio-count" id="prof-v3">0</span>
-                                </div>
-                                <div class="vio-row mt-sm">
-                                    <span class="text-dim">Last Violation</span>
-                                    <span class="vio-date" id="prof-last-vio">---</span>
-                                </div>
+                                <div class="vio-row"><span>Level 1</span><span class="vio-count" id="prof-v1">0</span></div>
+                                <div class="vio-row"><span>Level 2</span><span class="vio-count" id="prof-v2">0</span></div>
+                                <div class="vio-row"><span>Level 3</span><span class="vio-count" id="prof-v3">0</span></div>
+                                <div class="vio-row mt-sm"><span class="text-dim">Last Violation</span><span class="vio-date" id="prof-last-vio">---</span></div>
                             </div>
                         </div>
-
                     </div>
-
                 </div>
             </div>
-            </div>
 
-        <footer class="footer-bar">
-            <div class="footer-stat">
-                <div class="f-label">Elapsed</div>
-                <div class="f-value" id="val-ete">--:--</div>
-            </div>
-            <div class="footer-stat">
-                <div class="f-label">Estimate</div>
-                <div class="f-value" id="val-eta">--:--</div>
-            </div>
-            <div class="footer-stat">
-                <div class="f-label">Remaining</div>
-                <div class="f-value" id="val-rem">--:--</div>
-            </div>
+        </div>
+
+        <!-- ACTION BAR -->
+        <footer class="action-bar">
+            <button class="action-btn" data-action="replay"><i class="fa-solid fa-clock-rotate-left"></i><span>Replay</span></button>
+            <button class="action-btn" id="btn-route"><i class="fa-solid fa-route"></i><span>Route</span></button>
+            <button class="action-btn" data-action="tripcard"><i class="fa-solid fa-id-card"></i><span>Trip Card</span></button>
+            <button class="action-btn" data-action="follow"><i class="fa-solid fa-location-crosshairs"></i><span>Follow</span></button>
+            <button class="action-btn" id="btn-collapse"><i class="fa-solid fa-chevron-up"></i><span>Collapse</span></button>
         </footer>
 
     </div>
 
+    <!-- Floating bar shown while rearranging blocks in place. -->
+    <div class="edit-banner" id="edit-banner">
+        <span><i class="fa-solid fa-up-down-left-right"></i> Drag the blocks to reorder</span>
+        <button id="edit-done">Done</button>
+    </div>
+
+    <!-- ===========================================================
+         CUSTOMIZE EDITOR
+         =========================================================== -->
+    <div class="customize-sheet" id="customize-sheet" aria-hidden="true">
+        <div class="cs-backdrop" id="cs-backdrop"></div>
+        <div class="cs-panel" role="dialog" aria-label="Customize flight window">
+            <div class="cs-grip"></div>
+            <div class="cs-header">
+                <span class="cs-title">Customize</span>
+                <button class="cs-close" id="cs-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="cs-tabs" id="cs-tabs">
+                <button class="cs-tab active" data-tab="style"><i class="fa-solid fa-palette"></i> Style</button>
+                <button class="cs-tab" data-tab="text"><i class="fa-solid fa-font"></i> Text</button>
+                <button class="cs-tab" data-tab="layout"><i class="fa-solid fa-table-cells-large"></i> Layout</button>
+                <button class="cs-tab" data-tab="presets"><i class="fa-solid fa-swatchbook"></i> Presets</button>
+            </div>
+
+            <div class="cs-body">
+
+                <!-- ===== STYLE ===== -->
+                <div class="cs-pane active" data-pane="style">
+                    <div class="cs-group-label">Background</div>
+                    <label class="cs-row"><span class="cs-row-label">Gradient top</span><input type="color" class="cs-color" data-style="bgStart"></label>
+                    <label class="cs-row"><span class="cs-row-label">Gradient bottom</span><input type="color" class="cs-color" data-style="bgEnd"></label>
+                    <div class="cs-row"><span class="cs-row-label">Opacity</span><input type="range" class="cs-range" data-style="bgOpacity" min="40" max="100" step="1"><span class="cs-row-val" data-valfor="bgOpacity"></span></div>
+                    <div class="cs-row"><span class="cs-row-label">Blur</span><input type="range" class="cs-range" data-style="blur" min="0" max="60" step="2"><span class="cs-row-val" data-valfor="blur"></span></div>
+
+                    <div class="cs-group-label">Accent &amp; text</div>
+                    <label class="cs-row"><span class="cs-row-label">Accent</span><input type="color" class="cs-color" data-style="accent"></label>
+                    <label class="cs-row"><span class="cs-row-label">Primary text</span><input type="color" class="cs-color" data-style="textPrimary"></label>
+                    <label class="cs-row"><span class="cs-row-label">Secondary text</span><input type="color" class="cs-color" data-style="textSecondary"></label>
+
+                    <div class="cs-group-label">Surface</div>
+                    <label class="cs-row"><span class="cs-row-label">Card colour</span><input type="color" class="cs-color" data-style="cardBg"></label>
+                    <div class="cs-row"><span class="cs-row-label">Corner radius</span><input type="range" class="cs-range" data-style="radius" min="0" max="28" step="2"><span class="cs-row-val" data-valfor="radius"></span></div>
+                    <div class="cs-row"><span class="cs-row-label">Photo dim</span><input type="range" class="cs-range" data-style="photoDim" min="0" max="80" step="5"><span class="cs-row-val" data-valfor="photoDim"></span></div>
+                    <label class="cs-row"><span class="cs-row-label">Accent glow</span><span class="cs-switch"><input type="checkbox" data-style="glow"><span class="cs-switch-track"></span></span></label>
+
+                    <div class="cs-group-label">Flight-state colours</div>
+                    <div class="cs-state-grid" id="cs-state-grid">
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="climb"><span>Climb</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="cruise"><span>Cruise</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="descend"><span>Descend</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="approach"><span>Approach</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="ground"><span>Ground</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="pushback"><span>Pushback</span></label>
+                        <label class="cs-state-chip"><input type="color" class="cs-color" data-state="enroute"><span>Enroute</span></label>
+                    </div>
+                </div>
+
+                <!-- ===== TEXT ===== -->
+                <div class="cs-pane" data-pane="text">
+                    <div class="cs-group-label">Text size</div>
+                    <div class="cs-row"><span class="cs-row-label">Scale</span><input type="range" class="cs-range" data-text="scale" min="0.8" max="1.4" step="0.05"><span class="cs-row-val" data-valfor="scale"></span></div>
+                    <div class="cs-group-label">Spacing</div>
+                    <div class="cs-row"><span class="cs-row-label">Density</span>
+                        <div class="cs-seg" data-seg="density">
+                            <button data-val="comfortable">Comfort</button>
+                            <button data-val="compact">Compact</button>
+                        </div>
+                    </div>
+                    <div class="cs-group-label">Fonts</div>
+                    <div class="cs-row"><span class="cs-row-label">Interface</span>
+                        <div class="cs-seg" data-seg="font">
+                            <button data-val="inter">Inter</button>
+                            <button data-val="system">System</button>
+                            <button data-val="mono">Mono</button>
+                        </div>
+                    </div>
+                    <label class="cs-row"><span class="cs-row-label">Mono numbers</span><span class="cs-switch"><input type="checkbox" data-text="monoNumbers"><span class="cs-switch-track"></span></span></label>
+                </div>
+
+                <!-- ===== LAYOUT ===== -->
+                <div class="cs-pane" data-pane="layout">
+                    <div class="cs-group-label">Peek size — how much shows before you open it</div>
+                    <div class="cs-peek-grid" id="cs-peek-grid">
+                        <button class="cs-peek-opt" data-peek="minimal"><span class="cs-peek-glyph"><i></i><i class="med"></i></span><span class="cs-peek-name">Minimal</span><span class="cs-peek-desc">Callsign &amp; route</span></button>
+                        <button class="cs-peek-opt" data-peek="standard"><span class="cs-peek-glyph"><i></i><i class="med"></i><i></i></span><span class="cs-peek-name">Standard</span><span class="cs-peek-desc">Thumbnail &amp; pilot</span></button>
+                        <button class="cs-peek-opt" data-peek="rich"><span class="cs-peek-glyph"><i></i><i class="tall"></i><i></i></span><span class="cs-peek-name">Rich</span><span class="cs-peek-desc">Big photo card</span></button>
+                    </div>
+
+                    <div class="cs-group-label">Arrange — drag the blocks into any order</div>
+                    <button class="cs-bigbtn" id="cs-edit-layout"><i class="fa-solid fa-up-down-left-right"></i> Rearrange sections</button>
+
+                    <div class="cs-group-label">Sections — what to show</div>
+                    <div id="cs-toggles">
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-image"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Aircraft photo</div></span><span class="cs-switch"><input type="checkbox" data-section="hero"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-clock"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Times</div></span><span class="cs-switch"><input type="checkbox" data-section="times"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-route"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Flight plan</div></span><span class="cs-switch"><input type="checkbox" data-section="flightplan"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-gauge-high"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Live telemetry</div></span><span class="cs-switch"><input type="checkbox" data-section="telemetry"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-compass"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Navigation &amp; environment</div></span><span class="cs-switch"><input type="checkbox" data-section="navenv"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-chart-area"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Speed &amp; altitude graph</div></span><span class="cs-switch"><input type="checkbox" data-section="graph"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-user-astronaut"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Pilot manifest</div></span><span class="cs-switch"><input type="checkbox" data-section="manifest"><span class="cs-switch-track"></span></span></label>
+                    </div>
+
+                    <div class="cs-group-label">Telemetry readouts</div>
+                    <div class="cs-chips" data-metricset="telemetry">
+                        <button class="cs-chip" data-metric="alt">Altitude</button>
+                        <button class="cs-chip" data-metric="spd">GND Speed</button>
+                        <button class="cs-chip" data-metric="vs">Vertical</button>
+                        <button class="cs-chip" data-metric="hdg">Heading</button>
+                    </div>
+                    <div class="cs-row"><span class="cs-row-label">Columns</span>
+                        <div class="cs-seg" data-seg="telCols"><button data-val="1">1</button><button data-val="2">2</button></div>
+                    </div>
+
+                    <div class="cs-group-label">Nav &amp; Environment readouts</div>
+                    <div class="cs-chips" data-metricset="navenv">
+                        <button class="cs-chip" data-metric="tas">True Airspeed</button>
+                        <button class="cs-chip" data-metric="oat">OAT</button>
+                        <button class="cs-chip" data-metric="wind">Wind</button>
+                        <button class="cs-chip" data-metric="dtg">To Dest</button>
+                        <button class="cs-chip" data-metric="nextwp">Next WP</button>
+                        <button class="cs-chip" data-metric="pos">Position</button>
+                    </div>
+                    <div class="cs-row"><span class="cs-row-label">Columns</span>
+                        <div class="cs-seg" data-seg="navCols"><button data-val="1">1</button><button data-val="2">2</button></div>
+                    </div>
+                </div>
+
+                <!-- ===== PRESETS ===== -->
+                <div class="cs-pane" data-pane="presets">
+                    <div class="cs-group-label">Theme presets</div>
+                    <div class="cs-theme-grid" id="cs-theme-grid">
+                        <button class="cs-theme" data-theme="carbon"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#18181b,#27272a)"></span>Carbon</button>
+                        <button class="cs-theme" data-theme="midnight"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#0b1220,#1e3a5f)"></span>Midnight</button>
+                        <button class="cs-theme" data-theme="slate"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#1e293b,#334155)"></span>Slate</button>
+                        <button class="cs-theme" data-theme="mono"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#111,#2b2b2b)"></span>Mono</button>
+                        <button class="cs-theme" data-theme="light"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#e7e7ea,#cfcfd6)"></span>Light</button>
+                        <button class="cs-theme" data-theme="sunset"><span class="cs-theme-sw" style="background:linear-gradient(135deg,#2b1331,#7a2d4d)"></span>Sunset</button>
+                    </div>
+
+                    <div class="cs-group-label">My presets</div>
+                    <div id="cs-saved-list" class="cs-saved-list"><div class="cs-empty">No saved presets yet.</div></div>
+                    <button class="cs-bigbtn" id="cs-save-preset"><i class="fa-solid fa-bookmark"></i> Save current as preset</button>
+
+                    <div class="cs-group-label">Share</div>
+                    <div class="cs-share-row">
+                        <input type="text" id="cs-code" class="cs-code" placeholder="Paste a layout code…" spellcheck="false">
+                        <button class="cs-mini" id="cs-import">Import</button>
+                        <button class="cs-mini" id="cs-export">Copy</button>
+                    </div>
+
+                    <button class="cs-reset" id="cs-reset">Reset everything to defaults</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
     <script>
-        // --- UI LOGIC ---
-        const scrollViewport = document.querySelector('.scroll-viewport');
-        const mainWindow = document.querySelector('.avionics-window');
+        // =========================================================
+        // PHASE STATE
+        // =========================================================
+        const body = document.body;
+        let currentPhase = body.classList.contains('expanded') ? 'expanded' : 'collapsed';
 
-        // Scroll Shadow
-        scrollViewport.addEventListener('scroll', () => {
-            if (scrollViewport.scrollTop > 10) {
-                mainWindow.classList.add('scrolled');
-            } else {
-                mainWindow.classList.remove('scrolled');
+        // The `changed` guard makes this idempotent: when the parent echoes the
+        // phase back (e.g. via drag sync), we morph the content but don't loop.
+        function setPhase(phase) {
+            const next = (phase === 'expanded') ? 'expanded' : 'collapsed';
+            const changed = next !== currentPhase;
+            currentPhase = next;
+            body.classList.toggle('expanded', next === 'expanded');
+            body.classList.toggle('collapsed', next === 'collapsed');
+
+            if (!changed) return;
+
+            // Tell the parent so it can resize the host window / snap the sheet.
+            try {
+                window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: next }, '*');
+            } catch (e) {}
+            // When opening, ask for fresh pilot stats and draw the graph now
+            // that the container finally has a measurable width.
+            if (next === 'expanded') {
+                try { window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*'); } catch (e) {}
+                setTimeout(renderSpeedAltGraph, 60);
             }
-        });
+        }
 
+        document.getElementById('collapsed-bar').addEventListener('click', () => setPhase('expanded'));
+        document.getElementById('hero-collapse-btn').addEventListener('click', (e) => { e.stopPropagation(); setPhase('collapsed'); });
+        document.getElementById('btn-collapse').addEventListener('click', () => setPhase('collapsed'));
+
+        // Route / waypoint dropdown
         const routeToggleBtn = document.getElementById('route-toggle-btn');
         const routeCardContainer = document.getElementById('route-card-container');
-        
-        routeToggleBtn.addEventListener('click', () => {
-            routeCardContainer.classList.toggle('expanded');
+        const btnRoute = document.getElementById('btn-route');
+        function toggleRoute() {
+            const open = routeCardContainer.classList.toggle('expanded');
+            btnRoute.classList.toggle('is-active', open);
+            if (open) routeCardContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        routeToggleBtn.addEventListener('click', toggleRoute);
+        btnRoute.addEventListener('click', toggleRoute);
+
+        // Action buttons -> parent
+        document.querySelectorAll('.action-btn[data-action]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_ACTION', action: btn.dataset.action }, '*'); } catch (e) {}
+            });
         });
 
-        // --- SCROLL FUNCTION ---
+        // Clickable origin/destination ICAOs -> ask the host to open that airport.
+        // Only mark codes that look like real ICAOs (3-4 alphanumerics); '---'/'N/A'
+        // stay inert.
+        function setIcaoClickable(id, icao) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const code = (icao || '').trim().toUpperCase();
+            if (/^[A-Z0-9]{3,4}$/.test(code)) {
+                el.dataset.icao = code;
+                el.classList.add('icao-clickable');
+            } else {
+                delete el.dataset.icao;
+                el.classList.remove('icao-clickable');
+            }
+        }
+        // Capture phase so tapping an ICAO inside the collapsed bar jumps to the
+        // airport instead of just expanding the window.
+        document.addEventListener('click', (e) => {
+            const el = e.target.closest('.icao-clickable[data-icao]');
+            if (!el) return;
+            e.preventDefault();
+            e.stopPropagation();
+            try { window.parent.postMessage({ type: 'NAVIGATE_TO_AIRPORT', icao: el.dataset.icao }, '*'); } catch (err) {}
+        }, true);
+
         window.scrollToProfile = function() {
             const el = document.getElementById('profile-anchor');
-            if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         };
 
-        // --- DATA UPDATE HANDLER ---
-        // This handles the generic flight data update
+        // =========================================================
+        // LAYOUT STUDIO
+        // Full customization for the simple window: peek size, per-section
+        // visibility + free drag-reorder, per-metric selection + columns,
+        // full theming (background / accent / text / surface / flight-state
+        // colours), text size / density / fonts, theme presets, saved presets
+        // and shareable codes. Everything is applied through CSS custom
+        // properties + body data-attributes and persisted to localStorage.
+        // =========================================================
+        const LAYOUT_KEY = 'inflightSimpleLayout';
+        const PRESETS_KEY = 'inflightSimplePresets';
+        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'];
+        const PEEK_HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
+        const METRICS = { telemetry: ['alt', 'spd', 'vs', 'hdg'], navenv: ['tas', 'oat', 'wind', 'dtg', 'nextwp', 'pos'] };
+        const STATE_KEYS = ['climb', 'descend', 'cruise', 'ground', 'approach', 'pushback', 'enroute'];
+
+        const DEFAULTS = {
+            peek: 'standard',
+            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, graph: true, manifest: true },
+            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'],
+            metrics: { telemetry: { alt: true, spd: true, vs: true, hdg: true }, navenv: { tas: true, oat: true, wind: true, dtg: true, nextwp: true, pos: true } },
+            cols: { telemetry: 2, navenv: 2 },
+            style: {
+                bgStart: '#18181b', bgEnd: '#18181b', bgOpacity: 92, blur: 40, photoDim: 0,
+                accent: '#38bdf8', textPrimary: '#fafafa', textSecondary: '#a1a1aa',
+                cardBg: '#18181b', radius: 20, glow: true,
+                states: { climb: '#34d399', descend: '#fbbf24', cruise: '#38bdf8', ground: '#a1a1aa', approach: '#c084fc', pushback: '#fb923c', enroute: '#94a3b8' }
+            },
+            text: { scale: 1, density: 'comfortable', font: 'inter', monoNumbers: true }
+        };
+
+        const THEMES = {
+            carbon:   { bgStart: '#18181b', bgEnd: '#27272a', bgOpacity: 92, accent: '#38bdf8', textPrimary: '#fafafa', textSecondary: '#a1a1aa', cardBg: '#18181b' },
+            midnight: { bgStart: '#0b1220', bgEnd: '#1e3a5f', bgOpacity: 94, accent: '#60a5fa', textPrimary: '#eaf2ff', textSecondary: '#9db4d4', cardBg: '#0f1b2e' },
+            slate:    { bgStart: '#1e293b', bgEnd: '#334155', bgOpacity: 94, accent: '#38bdf8', textPrimary: '#f1f5f9', textSecondary: '#94a3b8', cardBg: '#1e293b' },
+            mono:     { bgStart: '#111111', bgEnd: '#2b2b2b', bgOpacity: 94, accent: '#e4e4e7', textPrimary: '#fafafa', textSecondary: '#a1a1aa', cardBg: '#1a1a1a' },
+            light:    { bgStart: '#e7e7ea', bgEnd: '#cfcfd6', bgOpacity: 100, accent: '#2563eb', textPrimary: '#18181b', textSecondary: '#52525b', cardBg: '#ffffff' },
+            sunset:   { bgStart: '#2b1331', bgEnd: '#7a2d4d', bgOpacity: 95, accent: '#fb7185', textPrimary: '#fff1f5', textSecondary: '#d8a7b8', cardBg: '#241026' }
+        };
+
+        const root = document.documentElement;
+        const viewport = document.querySelector('.scroll-viewport');
+        const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+        const deepClone = (o) => JSON.parse(JSON.stringify(o));
+
+        function hexToRgb(hex) {
+            const h = String(hex || '').replace('#', '');
+            const f = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+            return { r: parseInt(f.slice(0, 2), 16) || 0, g: parseInt(f.slice(2, 4), 16) || 0, b: parseInt(f.slice(4, 6), 16) || 0 };
+        }
+        const hexChannels = (hex) => { const c = hexToRgb(hex); return `${c.r}, ${c.g}, ${c.b}`; };
+        const hexToRgba = (hex, opacityPct) => { const c = hexToRgb(hex); return `rgba(${c.r}, ${c.g}, ${c.b}, ${clamp(opacityPct, 0, 100) / 100})`; };
+
+        // Build a complete prefs object from possibly-partial/older saved data.
+        function coercePrefs(saved) {
+            const p = deepClone(DEFAULTS);
+            if (!saved || typeof saved !== 'object') return p;
+            if (PEEK_HEIGHTS[saved.peek]) p.peek = saved.peek;
+            if (saved.sections) SECTION_KEYS.forEach(k => { if (typeof saved.sections[k] === 'boolean') p.sections[k] = saved.sections[k]; });
+            if (Array.isArray(saved.order)) {
+                const seen = saved.order.filter(n => DEFAULTS.order.includes(n));
+                DEFAULTS.order.forEach(n => { if (!seen.includes(n)) seen.push(n); });
+                p.order = seen;
+            }
+            if (saved.metrics) ['telemetry', 'navenv'].forEach(set => {
+                if (saved.metrics[set]) METRICS[set].forEach(m => { if (typeof saved.metrics[set][m] === 'boolean') p.metrics[set][m] = saved.metrics[set][m]; });
+            });
+            if (saved.cols) { p.cols.telemetry = clamp(parseInt(saved.cols.telemetry, 10) || 2, 1, 2); p.cols.navenv = clamp(parseInt(saved.cols.navenv, 10) || 2, 1, 2); }
+            if (saved.style) {
+                Object.keys(p.style).forEach(k => { if (k !== 'states' && saved.style[k] !== undefined) p.style[k] = saved.style[k]; });
+                if (saved.style.states) STATE_KEYS.forEach(k => { if (saved.style.states[k]) p.style.states[k] = saved.style.states[k]; });
+            }
+            if (saved.text) Object.keys(p.text).forEach(k => { if (saved.text[k] !== undefined) p.text[k] = saved.text[k]; });
+            return p;
+        }
+
+        let prefs = loadPrefs();
+        function loadPrefs() {
+            try { return coercePrefs(JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}')); }
+            catch (e) { return deepClone(DEFAULTS); }
+        }
+        function savePrefs() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(prefs)); } catch (e) {} }
+
+        function reportPeekHeight() {
+            const h = PEEK_HEIGHTS[prefs.peek] || PEEK_HEIGHTS.standard;
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: h, peek: prefs.peek }, '*'); } catch (e) {}
+        }
+
+        // ---- Appliers (granular so live edits stay cheap) ----
+        function applyPeek() { body.dataset.peek = prefs.peek; reportPeekHeight(); }
+        function applySections() {
+            SECTION_KEYS.forEach(k => body.classList.toggle('hide-' + k, !prefs.sections[k]));
+            if (currentPhase === 'expanded' && prefs.sections.graph) setTimeout(renderSpeedAltGraph, 60);
+        }
+        function applyOrder() {
+            prefs.order.forEach(name => {
+                const el = viewport.querySelector('.sw-block[data-block="' + name + '"]');
+                if (el) viewport.appendChild(el); // appending in sequence sets DOM (visual) order
+            });
+        }
+        function applyCols() {
+            root.style.setProperty('--tel-cols', prefs.cols.telemetry);
+            root.style.setProperty('--nav-cols', prefs.cols.navenv);
+        }
+        function applyMetrics() {
+            ['telemetry', 'navenv'].forEach(set => {
+                const block = viewport.querySelector('.sw-block[data-block="' + set + '"]');
+                if (!block) return;
+                block.querySelectorAll('.bento-cell[data-metric]').forEach(cell => {
+                    cell.classList.toggle('metric-off', !prefs.metrics[set][cell.dataset.metric]);
+                });
+            });
+            applyCols();
+        }
+        function applyStyle() {
+            const s = prefs.style;
+            root.style.setProperty('--theme-bg-start', hexToRgba(s.bgStart, s.bgOpacity));
+            root.style.setProperty('--theme-bg-end', hexToRgba(s.bgEnd, s.bgOpacity));
+            root.style.setProperty('--blur-amount', s.blur + 'px');
+            root.style.setProperty('--photo-dim', (s.photoDim / 100));
+            root.style.setProperty('--color-brand', s.accent);
+            root.style.setProperty('--text-primary', s.textPrimary);
+            root.style.setProperty('--text-secondary', s.textSecondary);
+            root.style.setProperty('--card-bg', hexToRgba(s.cardBg, 92));
+            root.style.setProperty('--radius-lg', s.radius + 'px');
+            root.style.setProperty('--radius-md', Math.round(s.radius * 0.6) + 'px');
+            root.style.setProperty('--radius-sm', Math.round(s.radius * 0.4) + 'px');
+            body.classList.toggle('no-glow', !s.glow);
+            STATE_KEYS.forEach(k => root.style.setProperty('--state-' + k, hexChannels(s.states[k])));
+        }
+        function applyText() {
+            const t = prefs.text;
+            root.style.setProperty('--text-scale', t.scale);
+            body.dataset.density = t.density;
+            const fonts = {
+                inter: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                system: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                mono: "'JetBrains Mono', 'Consolas', monospace"
+            };
+            root.style.setProperty('--font-ui', fonts[t.font] || fonts.inter);
+            root.style.setProperty('--font-num', t.monoNumbers ? "'JetBrains Mono', monospace" : 'var(--font-ui)');
+        }
+        function applyAll() {
+            applyPeek(); applySections(); applyOrder(); applyMetrics(); applyStyle(); applyText();
+            syncEditorUI();
+        }
+
+        // ---- Editor reflection ----
+        function fmtVal(key, v) {
+            if (key === 'scale') return Number(v).toFixed(2) + 'x';
+            if (key === 'bgOpacity' || key === 'photoDim') return Math.round(v) + '%';
+            return Math.round(v) + 'px';
+        }
+        function syncEditorUI() {
+            document.querySelectorAll('.cs-peek-opt').forEach(b => b.classList.toggle('active', b.dataset.peek === prefs.peek));
+            document.querySelectorAll('#cs-toggles input[data-section]').forEach(i => { i.checked = !!prefs.sections[i.dataset.section]; });
+            document.querySelectorAll('.cs-color[data-style]').forEach(i => { if (prefs.style[i.dataset.style]) i.value = prefs.style[i.dataset.style]; });
+            document.querySelectorAll('.cs-color[data-state]').forEach(i => { i.value = prefs.style.states[i.dataset.state]; });
+            document.querySelectorAll('.cs-range[data-style]').forEach(i => { i.value = prefs.style[i.dataset.style]; });
+            document.querySelectorAll('.cs-range[data-text]').forEach(i => { i.value = prefs.text[i.dataset.text]; });
+            document.querySelectorAll('[data-valfor]').forEach(el => {
+                const k = el.dataset.valfor;
+                const v = (k in prefs.style) ? prefs.style[k] : prefs.text[k];
+                if (v !== undefined) el.textContent = fmtVal(k, v);
+            });
+            const glow = document.querySelector('input[data-style="glow"]'); if (glow) glow.checked = !!prefs.style.glow;
+            const mono = document.querySelector('input[data-text="monoNumbers"]'); if (mono) mono.checked = !!prefs.text.monoNumbers;
+            setSegActive('density', prefs.text.density);
+            setSegActive('font', prefs.text.font);
+            setSegActive('telCols', String(prefs.cols.telemetry));
+            setSegActive('navCols', String(prefs.cols.navenv));
+            ['telemetry', 'navenv'].forEach(set => {
+                document.querySelectorAll('[data-metricset="' + set + '"] .cs-chip[data-metric]').forEach(c =>
+                    c.classList.toggle('active', !!prefs.metrics[set][c.dataset.metric]));
+            });
+        }
+        function setSegActive(group, val) {
+            const seg = document.querySelector('.cs-seg[data-seg="' + group + '"]');
+            if (!seg) return;
+            seg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.val === val));
+        }
+
+        // ---- Editor open / close + tabs ----
+        const customizeSheet = document.getElementById('customize-sheet');
+        function openCustomize() { syncEditorUI(); renderSavedList(); customizeSheet.classList.add('open'); customizeSheet.setAttribute('aria-hidden', 'false'); }
+        function closeCustomize() { customizeSheet.classList.remove('open'); customizeSheet.setAttribute('aria-hidden', 'true'); }
+        function selectTab(name) {
+            document.querySelectorAll('.cs-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            document.querySelectorAll('.cs-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+        }
+
+        document.getElementById('ev-gear').addEventListener('click', openCustomize);
+        document.getElementById('cb-edit').addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (currentPhase !== 'expanded') { setPhase('expanded'); setTimeout(openCustomize, 480); }
+            else openCustomize();
+        });
+        document.getElementById('cs-close').addEventListener('click', closeCustomize);
+        document.getElementById('cs-backdrop').addEventListener('click', closeCustomize);
+
+        // Live numeric/colour edits
+        customizeSheet.addEventListener('input', (e) => {
+            const col = e.target.closest('.cs-color');
+            if (col) {
+                if (col.dataset.style) { prefs.style[col.dataset.style] = col.value; applyStyle(); }
+                else if (col.dataset.state) { prefs.style.states[col.dataset.state] = col.value; applyStyle(); }
+                savePrefs(); return;
+            }
+            const rng = e.target.closest('.cs-range');
+            if (rng) {
+                const v = parseFloat(rng.value);
+                if (rng.dataset.style) { prefs.style[rng.dataset.style] = v; applyStyle(); }
+                else if (rng.dataset.text) { prefs.text[rng.dataset.text] = v; applyText(); }
+                const lbl = document.querySelector('[data-valfor="' + (rng.dataset.style || rng.dataset.text) + '"]');
+                if (lbl) lbl.textContent = fmtVal(rng.dataset.style || rng.dataset.text, v);
+                savePrefs(); return;
+            }
+        });
+
+        // Toggles / switches
+        customizeSheet.addEventListener('change', (e) => {
+            const sec = e.target.closest('input[data-section]');
+            if (sec) { prefs.sections[sec.dataset.section] = sec.checked; applySections(); savePrefs(); return; }
+            const glow = e.target.closest('input[data-style="glow"]');
+            if (glow) { prefs.style.glow = glow.checked; applyStyle(); savePrefs(); return; }
+            const mono = e.target.closest('input[data-text="monoNumbers"]');
+            if (mono) { prefs.text.monoNumbers = mono.checked; applyText(); savePrefs(); return; }
+        });
+
+        // Clicks: tabs, segments, peek, metric chips, themes, presets, share, reset, edit
+        customizeSheet.addEventListener('click', (e) => {
+            const tab = e.target.closest('.cs-tab'); if (tab) { selectTab(tab.dataset.tab); return; }
+            const seg = e.target.closest('.cs-seg button'); if (seg) {
+                const group = seg.closest('.cs-seg').dataset.seg, val = seg.dataset.val;
+                if (group === 'density') { prefs.text.density = val; applyText(); }
+                else if (group === 'font') { prefs.text.font = val; applyText(); }
+                else if (group === 'telCols') { prefs.cols.telemetry = parseInt(val, 10); applyCols(); }
+                else if (group === 'navCols') { prefs.cols.navenv = parseInt(val, 10); applyCols(); }
+                savePrefs(); syncEditorUI(); return;
+            }
+            const peek = e.target.closest('.cs-peek-opt'); if (peek) { prefs.peek = peek.dataset.peek; applyPeek(); savePrefs(); syncEditorUI(); return; }
+            const chip = e.target.closest('.cs-chip[data-metric]'); if (chip) {
+                const set = chip.closest('[data-metricset]').dataset.metricset, m = chip.dataset.metric;
+                prefs.metrics[set][m] = !prefs.metrics[set][m]; applyMetrics(); savePrefs(); syncEditorUI(); return;
+            }
+            const theme = e.target.closest('.cs-theme'); if (theme) { applyThemePreset(theme.dataset.theme); return; }
+            const edit = e.target.closest('#cs-edit-layout'); if (edit) { enterEditMode(); return; }
+            const save = e.target.closest('#cs-save-preset'); if (save) { savePresetFlow(); return; }
+            const imp = e.target.closest('#cs-import'); if (imp) { importCode(); return; }
+            const exp = e.target.closest('#cs-export'); if (exp) { exportCode(); return; }
+            const reset = e.target.closest('#cs-reset'); if (reset) { prefs = deepClone(DEFAULTS); savePrefs(); applyAll(); return; }
+            const applyItem = e.target.closest('.cs-saved-item .apply, .cs-saved-item .name');
+            if (applyItem) { applySavedPreset(applyItem.closest('.cs-saved-item').dataset.id); return; }
+            const delItem = e.target.closest('.cs-saved-item .del');
+            if (delItem) { deleteSavedPreset(delItem.closest('.cs-saved-item').dataset.id); return; }
+        });
+
+        function applyThemePreset(name) {
+            const t = THEMES[name]; if (!t) return;
+            Object.assign(prefs.style, t);
+            applyStyle(); savePrefs(); syncEditorUI();
+        }
+
+        // ---- Saved presets ----
+        function loadPresetList() { try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch (e) { return []; } }
+        function savePresetList(list) { try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch (e) {} }
+        function renderSavedList() {
+            const host = document.getElementById('cs-saved-list');
+            if (!host) return;
+            const list = loadPresetList();
+            if (!list.length) { host.innerHTML = '<div class="cs-empty">No saved presets yet.</div>'; return; }
+            host.innerHTML = list.map(it =>
+                `<div class="cs-saved-item" data-id="${it.id}"><span class="name">${(it.name || 'Preset').replace(/[<>&]/g, '')}</span>` +
+                `<button class="apply" title="Apply"><i class="fa-solid fa-check"></i></button>` +
+                `<button class="del" title="Delete"><i class="fa-solid fa-trash"></i></button></div>`).join('');
+        }
+        function savePresetFlow() {
+            const name = (window.prompt('Name this layout preset:', 'My layout') || '').trim();
+            if (!name) return;
+            const list = loadPresetList();
+            list.push({ id: Date.now().toString(36), name, data: deepClone(prefs) });
+            savePresetList(list); renderSavedList();
+        }
+        function applySavedPreset(id) {
+            const it = loadPresetList().find(x => x.id === id);
+            if (!it) return;
+            prefs = coercePrefs(it.data); savePrefs(); applyAll();
+        }
+        function deleteSavedPreset(id) {
+            savePresetList(loadPresetList().filter(x => x.id !== id)); renderSavedList();
+        }
+
+        // ---- Share codes ----
+        function exportCode() {
+            try {
+                const code = btoa(encodeURIComponent(JSON.stringify(prefs)));
+                const input = document.getElementById('cs-code');
+                input.value = code; input.select();
+                if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+                else { try { document.execCommand('copy'); } catch (e) {} }
+            } catch (e) {}
+        }
+        function importCode() {
+            const input = document.getElementById('cs-code');
+            const code = (input.value || '').trim();
+            if (!code) return;
+            try {
+                const parsed = JSON.parse(decodeURIComponent(atob(code)));
+                prefs = coercePrefs(parsed); savePrefs(); applyAll();
+            } catch (e) { input.value = ''; input.placeholder = 'Invalid code'; }
+        }
+
+        // ---- In-place drag reorder (edit mode) ----
+        let editing = false;
+        function setSheetLock(active) { try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_EDIT_MODE', active: !!active }, '*'); } catch (e) {} }
+        function enterEditMode() {
+            if (currentPhase !== 'expanded') setPhase('expanded');
+            editing = true; body.classList.add('editing'); setSheetLock(true); closeCustomize();
+        }
+        function exitEditMode() { editing = false; body.classList.remove('editing'); setSheetLock(false); }
+        document.getElementById('edit-done').addEventListener('click', exitEditMode);
+
+        let drag = null;
+        viewport.addEventListener('pointerdown', (e) => {
+            if (!editing) return;
+            const handle = e.target.closest('.sw-drag-handle');
+            if (!handle) return;
+            const el = handle.closest('.sw-block');
+            if (!el) return;
+            e.preventDefault();
+            const rect = el.getBoundingClientRect();
+            const ph = document.createElement('div');
+            ph.className = 'sw-block sw-placeholder';
+            ph.style.height = rect.height + 'px';
+            el.parentNode.insertBefore(ph, el);
+            el.classList.add('sw-dragging');
+            Object.assign(el.style, { position: 'fixed', zIndex: 60, width: rect.width + 'px', left: rect.left + 'px', top: rect.top + 'px', pointerEvents: 'none' });
+            drag = { el, ph, offsetY: e.clientY - rect.top, pointerId: e.pointerId, handle };
+            try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        });
+        document.addEventListener('pointermove', (e) => {
+            if (!drag) return;
+            e.preventDefault();
+            drag.el.style.top = (e.clientY - drag.offsetY) + 'px';
+            const sibs = [...viewport.querySelectorAll('.sw-block:not(.sw-dragging):not(.sw-placeholder)')];
+            let before = null;
+            for (const s of sibs) { const r = s.getBoundingClientRect(); if (e.clientY < r.top + r.height / 2) { before = s; break; } }
+            if (before) viewport.insertBefore(drag.ph, before); else viewport.appendChild(drag.ph);
+            const vr = viewport.getBoundingClientRect();
+            if (e.clientY < vr.top + 56) viewport.scrollTop -= 10;
+            else if (e.clientY > vr.bottom - 56) viewport.scrollTop += 10;
+        });
+        function endDrag() {
+            if (!drag) return;
+            const { el, ph, handle, pointerId } = drag;
+            viewport.insertBefore(el, ph); ph.remove();
+            el.classList.remove('sw-dragging');
+            ['position', 'zIndex', 'width', 'left', 'top', 'pointerEvents'].forEach(p => el.style[p] = '');
+            try { handle.releasePointerCapture(pointerId); } catch (_) {}
+            drag = null;
+            prefs.order = [...viewport.querySelectorAll('.sw-block')].map(b => b.dataset.block).filter(Boolean);
+            savePrefs();
+        }
+        document.addEventListener('pointerup', endDrag);
+        document.addEventListener('pointercancel', endDrag);
+
+        // Maps an IF flight phase string onto a state-color class. Shared by the
+        // expanded header badge and the collapsed-bar state pill.
+        function phaseStateClass(phase) {
+            const p = (phase || '').toUpperCase();
+            if (p.includes('CRUISE')) return 'state-cruise';
+            if (p.includes('DESCENT')) return 'state-descend';
+            if (p.includes('APPROACH') || p.includes('FINAL') || p.includes('FLARE') || p.includes('LANDING')) return 'state-approach';
+            if (p.includes('PUSHBACK')) return 'state-pushback';
+            if (p.includes('CLIMB') || p.includes('LIFTOFF') || p.includes('TAKEOFF') || p.includes('BOARDING')) return 'state-climb';
+            if (p.includes('TAXI') || p.includes('HOLDING') || p.includes('PARKED') || p.includes('GROUND') || p.includes('LINED UP')) return 'state-ground';
+            return 'state-enroute';
+        }
+
+        applyAll();
+
+        // =========================================================
+        // DATA UPDATE
+        // =========================================================
         window.updateFlightInterface = function(data) {
             if (!data) return;
 
-            // 1. Identity & State
-            updateText('username', (data.username || 'Pilot').toUpperCase());
-            updateText('callsign', data.callsign || 'N/A');
-            document.getElementById('callsign').classList.remove('skeleton');
+            const callsign = data.callsign || 'N/A';
+            updateText('callsign', callsign);
+            updateText('c-callsign', callsign);
+            const pilotName = (data.username || 'Pilot').toUpperCase();
+            updateText('username', pilotName);
+            updateText('c-username', pilotName);
 
-            // Flight Phase Status Badge (Right side)
+            // Flight phase badge — mirrors the full window's detailed flying
+            // states (PUSHBACK, TAXIING, LIFTOFF, FLARE, LANDING ROLLOUT, …).
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
-            
             const badge = document.getElementById('state-badge');
-            badge.className = 'flight-state-badge'; 
+            badge.className = 'flight-state-badge';
+            const stateClass = phaseStateClass(phase);
+            badge.classList.add(stateClass);
 
-            if (phase.includes('CLIMB') || phase.includes('TAKEOFF')) {
-                badge.classList.add('state-climb');
-            } else if (phase.includes('DESCENT') || phase.includes('APPROACH')) {
-                badge.classList.add('state-descend');
-            } else if (phase.includes('CRUISE')) {
-                badge.classList.add('state-cruise');
-            } else {
-                badge.classList.add('state-ground');
+            // Mirror the phase onto the collapsed-bar state pill (Rich/Standard peek).
+            const cState = document.getElementById('c-state');
+            if (cState) {
+                cState.className = 'cb-state ' + stateClass;
+                updateText('c-state-text', phase);
             }
 
-            // 3. SEAT STATUS LOGIC
+            // Phase icon, supplied by the shared classifier.
+            const stateIcon = document.getElementById('state-icon');
+            if (stateIcon && data.phaseIcon) stateIcon.className = 'fa-solid ' + data.phaseIcon + ' state-badge-icon';
+
+            // Seat status — shown in the expanded header and (Rich peek) the bar.
             const seatLabel = document.getElementById('seat-status-label');
-            if (data.pilotState !== undefined) {
+            const cSeat = document.getElementById('c-seat');
+            const seatMap = { 0: ['text-active','ACTIVE'], 1: ['text-auto','AUTO'], 2: ['text-parked','PARKED'], 3: ['text-ap-plus','AP+'] };
+            const seatInfo = (data.pilotState !== undefined) ? seatMap[data.pilotState] : null;
+            if (seatInfo) {
                 seatLabel.style.display = 'inline-block';
-                seatLabel.className = 'seat-mini-label';
-                switch(data.pilotState) {
-                    case 0: // Active
-                        seatLabel.classList.add('text-active');
-                        seatLabel.textContent = 'ACTIVE';
-                        break;
-                    case 1: // AwayInFlight (Auto)
-                        seatLabel.classList.add('text-auto');
-                        seatLabel.textContent = 'AUTO';
-                        break;
-                    case 2: // AwayParked (PARKED, NOT AP+)
-                        seatLabel.classList.add('text-parked');
-                        seatLabel.textContent = 'PARKED';
-                        break;
-                    case 3: // InBackground (AP+)
-                        seatLabel.classList.add('text-ap-plus');
-                        seatLabel.textContent = 'AP+';
-                        break;
-                    default:
-                        seatLabel.style.display = 'none';
-                }
+                seatLabel.className = 'seat-mini-label ' + seatInfo[0];
+                seatLabel.textContent = seatInfo[1];
+                // Clear the inline display so the peek-preset CSS decides whether
+                // the seat pill shows (Rich reveals it; Minimal/Standard keep it hidden).
+                if (cSeat) { cSeat.style.display = ''; cSeat.className = 'cb-seat ' + seatInfo[0]; cSeat.textContent = seatInfo[1]; }
             } else {
                 seatLabel.style.display = 'none';
+                if (cSeat) cSeat.style.display = 'none';
             }
 
-            // 4. Aircraft
+            // Aircraft
             if (data.aircraft) {
-                updateText('ac-name', data.aircraft.aircraftName || 'Unknown Aircraft');
-                updateText('ac-livery', data.aircraft.liveryName || 'Unknown Livery');
+                const acName = data.aircraft.aircraftName || 'Unknown Aircraft';
+                const acLivery = data.aircraft.liveryName || 'Unknown Livery';
+                updateText('ac-name', acName);
+                updateText('ac-livery', acLivery);
                 updateText('ac-reg', data.aircraft.registration || '---');
-            }
-            if (data.images) {
-                if (data.images.url) {
-                    const img = document.getElementById('ac-photo');
-                    if (img.src !== data.images.url) {
-                        img.src = data.images.url;
-                    }
-                }
-                const creditEl = document.getElementById('ac-credit');
-                if (creditEl) {
-                    if (data.images.credit) {
-                        creditEl.textContent = '© ' + data.images.credit;
-                        creditEl.style.display = 'block';
-                    } else {
-                        creditEl.style.display = 'none';
-                    }
+                updateText('c-airline', acLivery);
+                updateText('c-hero-name', acName);
+                updateText('c-hero-livery', acLivery);
+                updateText('c-hero-reg', data.aircraft.registration || '---');
+                const typeChip = document.getElementById('c-actype');
+                if (acName && acName !== 'Unknown Aircraft') {
+                    typeChip.textContent = acName;
+                    typeChip.style.display = 'inline-block';
+                } else {
+                    typeChip.style.display = 'none';
                 }
             }
 
-            // 5. Telemetry
+            // Photo (big hero + small thumb). A multi-photo airframe becomes a
+            // swipeable hero carousel; one photo keeps the single-image hero.
+            if (data.images) {
+                const list = (data.images.list && data.images.list.length)
+                    ? data.images.list
+                    : (data.images.url ? [{ url: data.images.url, credit: data.images.credit || '' }] : []);
+                const heroUrl = list[0] ? list[0].url : '';
+                const heroCredit = list[0] ? list[0].credit : '';
+
+                // Collapsed rich-peek thumbnails always use the first photo.
+                if (heroUrl) {
+                    const thumb = document.getElementById('c-thumb');
+                    if (thumb) thumb.style.backgroundImage = `url('${heroUrl}')`;
+                    const cHero = document.getElementById('c-hero');
+                    if (cHero) cHero.style.backgroundImage = `url('${heroUrl}')`;
+                }
+
+                const creditEl = document.getElementById('ac-credit');
+                const cCredit = document.getElementById('c-hero-credit');
+
+                if (list.length > 1) {
+                    buildSimpleHeroCarousel(list, creditEl); // manages ac-credit per slide
+                } else {
+                    teardownSimpleHeroCarousel();
+                    const img = document.getElementById('ac-photo');
+                    if (heroUrl && img.src !== heroUrl) img.src = heroUrl;
+                    if (heroCredit) { creditEl.textContent = '© ' + heroCredit; creditEl.style.display = 'block'; }
+                    else { creditEl.style.display = 'none'; }
+                }
+
+                // Collapsed-peek credit always reflects the first photo.
+                if (cCredit) {
+                    if (heroCredit) { cCredit.textContent = '© ' + heroCredit; cCredit.style.display = 'block'; }
+                    else { cCredit.style.display = 'none'; }
+                }
+            }
+
+            // Telemetry
             if (data.telemetry) {
                 updateText('val-alt', formatNumber(data.telemetry.altitude));
                 updateText('val-spd', Math.round(data.telemetry.groundSpeed || 0));
-                
                 const vs = Math.round(data.telemetry.verticalSpeed || 0);
                 updateText('val-vs', Math.abs(vs));
-                
                 const vsArrow = document.getElementById('val-vs-arrow');
                 vsArrow.className = 'fa-solid fa-arrow-right vs-arrow';
                 if (vs > 50) vsArrow.classList.add('climbing');
                 else if (vs < -50) vsArrow.classList.add('descending');
                 else vsArrow.className = 'fa-solid fa-minus vs-arrow';
+                updateText('val-hdg', String(Math.round(data.telemetry.heading || 0)).padStart(3, '0'));
 
-                const hdg = Math.round(data.telemetry.heading || 0);
-                updateText('val-hdg', String(hdg).padStart(3, '0'));
+                // Navigation & environment readouts (parity with the full window)
+                const t = data.telemetry;
+                updateText('val-tas', (t.tas != null) ? Math.round(t.tas) : '---');
+                updateText('val-oat', (t.oat != null) ? Math.round(t.oat) : '---');
+                if ((t.windDir != null && t.windSpd != null) && (t.windDir || t.windSpd)) {
+                    updateText('val-wind', `${String(Math.round(t.windDir)).padStart(3, '0')}° / ${Math.round(t.windSpd)}kt`);
+                } else {
+                    updateText('val-wind', '---');
+                }
+                if (t.lat != null && t.lon != null) {
+                    updateText('val-pos', `${Number(t.lat).toFixed(3)}, ${Number(t.lon).toFixed(3)}`);
+                } else {
+                    updateText('val-pos', '---');
+                }
+                updateText('val-nextwp', t.nextWpName || '---');
+                updateText('val-nextwp-dist', t.nextWpDist || '');
             }
 
-            // 6. Route
+            // Route
             if (data.route) {
-                updateText('dep-icao', data.route.originIcao || '---');
-                updateText('dep-time', data.route.originTime || '--:--');
-                updateText('arr-icao', data.route.destIcao || '---');
-                updateText('arr-time', data.route.destTime || '--:--');
+                const r = data.route;
+                updateText('dep-icao', r.originIcao || '---');
+                updateText('arr-icao', r.destIcao || '---');
+                updateText('c-dep-icao', r.originIcao || '---');
+                updateText('c-arr-icao', r.destIcao || '---');
+                setIcaoClickable('dep-icao', r.originIcao);
+                setIcaoClickable('arr-icao', r.destIcao);
+                setIcaoClickable('c-dep-icao', r.originIcao);
+                setIcaoClickable('c-arr-icao', r.destIcao);
 
-                updateFlag('dep-flag', data.route.originCountry);
-                updateFlag('arr-flag', data.route.destCountry);
+                setCity('dep-city', r.originCity);
+                setCity('arr-city', r.destCity);
+                setCity('c-dep-city', r.originCity);
+                setCity('c-arr-city', r.destCity);
 
-                const pct = Math.min(100, Math.max(0, data.route.progress || 0));
-                document.getElementById('route-progress').style.width = `${pct}%`;
-                document.getElementById('route-plane').style.left = `${pct}%`;
+                updateFlag('dep-flag', r.originCountry);
+                updateFlag('arr-flag', r.destCountry);
 
-                updateText('val-ete', data.route.elapsed || '--:--');
-                updateText('val-eta', data.route.eta || '--:--');
-                updateText('val-rem', data.route.ete || '--:--');
+                const pct = Math.min(100, Math.max(0, r.progress || 0));
+                ['route-progress', 'c-progress'].forEach(id => { const el = document.getElementById(id); if (el) el.style.width = pct + '%'; });
+                ['route-plane', 'c-plane'].forEach(id => { const el = document.getElementById(id); if (el) el.style.left = pct + '%'; });
+
+                // Times grid — Scheduled / Actual (dep) + Scheduled / Estimated (arr)
+                renderTimesGrid(r);
+
+                // Distances + elapsed/arrive labels (expanded view)
+                updateText('dist-flown', r.distFlownNm != null ? r.distFlownNm + ' nm' : '');
+                updateText('dist-remaining', r.distRemainingNm != null ? r.distRemainingNm + ' nm' : '');
+                updateText('val-dtg', r.distRemainingNm != null ? r.distRemainingNm : '---');
+                const elapsedAgo = r.elapsed && r.elapsed !== '--:--' ? agoText(r.elapsed) : '--';
+                const arriveIn = r.ete && r.ete !== '--:--' ? 'in ' + r.ete : '--';
+                updateText('elapsed-ago', elapsedAgo);
+                updateText('arrive-in', arriveIn);
+
+                // Collapsed-bar status labels (FR24-style)
+                updateText('c-status-left', r.elapsed && r.elapsed !== '--:--' ? 'Departed ' + agoText(r.elapsed) : 'On the ground');
+                updateText('c-status-right', r.ete && r.ete !== '--:--' ? 'Arriving in ' + r.ete : '--');
             }
 
-            // 7. Waypoints
-            if (data.waypoints && Array.isArray(data.waypoints)) {
-                renderWaypoints(data.waypoints);
-            }
+            // Waypoints
+            if (data.waypoints && Array.isArray(data.waypoints)) renderWaypoints(data.waypoints);
+            else if (data.route && Array.isArray(data.route.waypoints)) renderWaypoints(data.route.waypoints);
+
+            // Speed & altitude history graph
+            lastFlightData = data;
+            renderSpeedAltGraph();
         };
 
+        // Render the Speed & Altitude chart from the last payload's series.
+        // Only worth drawing when expanded (the collapsed bar hides it and the
+        // container has no width), so we also re-run this on expand.
+        let lastFlightData = null;
+        function renderSpeedAltGraph() {
+            if (!window.FlightGraph || currentPhase !== 'expanded') return;
+            const host = document.getElementById('sa-graph');
+            if (!host || !lastFlightData || !lastFlightData.chart) return;
+            window.FlightGraph.render(host, lastFlightData.chart, { height: 180 });
+        }
 
+        // Renders the 2x2 times grid: Scheduled/Actual (dep) + Scheduled/Estimated (arr).
+        // Falls back to the single best-known time, then to the plain origin/eta strings.
+        function renderTimesGrid(r) {
+            const t = r.times || {};
+            const z = (v) => (v && v !== '--:--') ? (v + ' Z') : '--:--';
 
-        // --- NEW: PROFILE UPDATE HANDLER ---
-        // Specifically handles the asynchronous user statistics
+            // Departure column
+            const depSched = t.depScheduled || (r.depInfo && r.depInfo.label === 'SCHEDULED' ? r.depInfo.time : null);
+            const depActual = t.depActual || (r.depInfo && r.depInfo.label === 'ACTUAL' ? r.depInfo.time : null)
+                || (r.depInfo ? r.depInfo.time : null) || r.originTime;
+            setCell('dep-label-1', 'dep-time-1', 'Scheduled', z(depSched));
+            setCell('dep-label-2', 'dep-time-2', 'Actual', z(depActual));
+
+            // Arrival column
+            const arrSched = t.arrScheduled || (r.arrInfo && r.arrInfo.label === 'SCHEDULED' ? r.arrInfo.time : null);
+            const arrEst = t.arrEstimated || (r.arrInfo ? r.arrInfo.time : null) || r.eta;
+            setCell('arr-label-1', 'arr-time-1', 'Scheduled', z(arrSched));
+            setCell('arr-label-2', 'arr-time-2', 'Estimated', z(arrEst));
+
+            // Live green dot on the estimated arrival when we have one.
+            const dot = document.getElementById('arr-dot');
+            if (dot) dot.style.display = (arrEst && arrEst !== '--:--') ? 'inline-block' : 'none';
+        }
+        function setCell(labelId, timeId, label, value) {
+            updateText(labelId, label);
+            updateText(timeId, value);
+        }
+
+        function agoText(hhmm) {
+            const [h, m] = hhmm.split(':').map(Number);
+            if (!h && !m) return 'just now';
+            if (!h) return m + 'm ago';
+            return h + 'h ' + m + 'm ago';
+        }
+
+        const num = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
+
         window.updatePilotProfile = function(profile) {
             if (!profile) return;
+
+            // Pilot identity + Community profile link (mirrors the profile UI).
+            if (profile.username) updateText('prof-username', profile.username);
+            const communityLink = document.getElementById('prof-community-link');
+            if (communityLink) {
+                if (profile.communityUrl) { communityLink.href = profile.communityUrl; communityLink.style.display = 'inline-flex'; }
+                else communityLink.style.display = 'none';
+            }
 
             updateText('prof-grade', profile.grade || 'N/A');
             updateText('prof-atc', profile.atcRank || 'Observer');
             updateText('prof-va', profile.virtualAirline || 'N/A');
-            
-            updateText('prof-xp', typeof profile.xp === 'number' ? profile.xp.toLocaleString() : '---');
+            updateText('prof-xp', num(profile.xp).toLocaleString());
             updateText('prof-total-vio', profile.totalViolations || '0');
-            
-            // Detailed Stats
             if (profile.violationDetails) {
                 updateText('prof-v1', profile.violationDetails.level1 || 0);
                 updateText('prof-v2', profile.violationDetails.level2 || 0);
                 updateText('prof-v3', profile.violationDetails.level3 || 0);
             }
             updateText('prof-last-vio', profile.lastViolationDate || 'None');
-            
-            // These come from the progression logic now
-            updateText('prof-time-90', '---'); 
+            updateText('prof-time-90', '---');
             updateText('prof-land-90', '---');
 
-            // Render Progression Bars
             const progContainer = document.getElementById('progression-list');
-            if (profile.progression && progContainer) {
+            if (Array.isArray(profile.progression) && progContainer) {
                 let html = '';
-                
                 profile.progression.forEach(item => {
-                    let pct = 0;
-                    if(item.target > 0) {
-                        pct = (item.current / item.target) * 100;
-                    }
+                    const current = num(item.current), target = num(item.target);
+                    let pct = target > 0 ? (current / target) * 100 : 0;
                     if (pct > 100) pct = 100;
-
-                    // Fill in 90 day stats into the grid if available in progression
-                    if (item.label.includes('Flight Time')) updateText('prof-time-90', item.current + ' hrs');
-                    if (item.label.includes('Landings')) updateText('prof-land-90', item.current);
-
-                    // Visual Logic
+                    if (item.label.includes('Flight Time')) updateText('prof-time-90', current + ' hrs');
+                    if (item.label.includes('Landings')) updateText('prof-land-90', current);
                     let statusClass = 'neutral';
-                    if (item.type === 'MAX_LIMIT') {
-                        if (item.current > item.target) statusClass = 'failed';
-                        else statusClass = 'success';
-                    } else {
-                        if (item.current >= item.target) statusClass = 'success';
-                    }
-
-                    html += `
-                    <div class="prog-item ${statusClass}">
-                        <div class="prog-label-row">
-                            <span class="prog-name">${item.label}</span>
-                            <span class="prog-nums">${item.current.toLocaleString()} / ${item.target.toLocaleString()}</span>
-                        </div>
-                        <div class="prog-track">
-                            <div class="prog-fill" style="width: ${pct}%"></div>
-                        </div>
-                    </div>`;
+                    if (item.type === 'MAX_LIMIT') statusClass = current > target ? 'failed' : 'success';
+                    else if (current >= target) statusClass = 'success';
+                    html += `<div class="prog-item ${statusClass}">
+                        <div class="prog-label-row"><span class="prog-name">${item.label}</span>
+                        <span class="prog-nums">${current.toLocaleString()} / ${target.toLocaleString()}</span></div>
+                        <div class="prog-track"><div class="prog-fill" style="width:${pct}%"></div></div></div>`;
                 });
                 progContainer.innerHTML = html;
+            }
+        };
+
+        // Graceful fallback when the pilot grade lookup fails — show a state
+        // instead of leaving silent placeholders.
+        window.showPilotProfileError = function(message) {
+            updateText('prof-grade', '--');
+            updateText('prof-atc', 'Unavailable');
+            updateText('prof-va', '—');
+            const progContainer = document.getElementById('progression-list');
+            if (progContainer) {
+                progContainer.innerHTML = `<div style="font-size:11px; color:var(--text-dim); font-style:italic; padding:4px 0;">${message || 'Pilot stats unavailable.'}</div>`;
             }
         };
 
         function renderWaypoints(waypoints) {
             const container = document.getElementById('wp-list');
             if (!waypoints.length) return;
-
-            // Only redraw if significant change to prevent flicker, 
-            // but for simplicity we redraw here as list isn't huge.
-            let html = '';
-            let lastGroup = null;
-
-            waypoints.forEach((wp) => {
-                if (wp.group && wp.group !== lastGroup) {
-                    html += `<div class="wp-group-header">${wp.group}</div>`;
-                    lastGroup = wp.group;
-                }
+            let html = '', lastGroup = null;
+            waypoints.forEach(wp => {
+                if (wp.group && wp.group !== lastGroup) { html += `<div class="wp-group-header">${wp.group}</div>`; lastGroup = wp.group; }
                 const isPassed = wp.passed ? 'passed' : '';
                 const isActive = wp.active ? 'active' : '';
                 const displayInfo = isPassed ? 'PASSED' : (wp.time || '--:--');
-
-                html += `
-                <div class="wp-row ${isPassed} ${isActive}">
-                    <div class="wp-line-connect"></div>
-                    <div class="wp-status"></div>
-                    <div class="wp-data">
-                        <span class="wp-ident">${wp.ident}</span>
-                        <span class="wp-name">${wp.name || ''}</span>
-                    </div>
-                    <span class="wp-ete">${displayInfo}</span>
-                </div>`;
+                html += `<div class="wp-row ${isPassed} ${isActive}">
+                    <div class="wp-line-connect"></div><div class="wp-status"></div>
+                    <div class="wp-data"><span class="wp-ident">${wp.ident}</span><span class="wp-name">${wp.name || ''}</span></div>
+                    <span class="wp-ete">${displayInfo}</span></div>`;
             });
             container.innerHTML = html;
-            
-            // Auto scroll to active leg
             if (container.dataset.scrolled !== 'true') {
                 const activeEl = container.querySelector('.active');
-                if (activeEl) {
-                    setTimeout(() => {
-                        const containerRect = container.getBoundingClientRect();
-                        const activeRect = activeEl.getBoundingClientRect();
-                        const relativeTop = activeRect.top - containerRect.top;
-                        const targetScroll = container.scrollTop + relativeTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
-
-                        container.scrollTo({
-                            top: targetScroll,
-                            behavior: 'smooth'
-                        });
-
-                        container.dataset.scrolled = 'true';
-                    }, 500);
-                }
+                if (activeEl) setTimeout(() => {
+                    const cr = container.getBoundingClientRect(), ar = activeEl.getBoundingClientRect();
+                    container.scrollTo({ top: container.scrollTop + (ar.top - cr.top) - (container.clientHeight / 2) + (activeEl.clientHeight / 2), behavior: 'smooth' });
+                    container.dataset.scrolled = 'true';
+                }, 500);
             }
         }
 
-        // --- NEW HELPER: HEX TO RGBA ---
-        function hexToRgba(hex, alpha) {
-            const r = parseInt(hex.slice(1, 3), 16);
-            const g = parseInt(hex.slice(3, 5), 16);
-            const b = parseInt(hex.slice(5, 7), 16);
-            // Convert 0-100 opacity to 0.0-1.0
-            const a = alpha / 100;
-            return `rgba(${r}, ${g}, ${b}, ${a})`;
-        }
-
-        // --- NEW HELPER: APPLY THEME ---
-        function applyTheme(startHex, endHex, opacity) {
-            const root = document.documentElement;
-            const startRgba = hexToRgba(startHex, opacity);
-            const endRgba = hexToRgba(endHex, opacity);
-            
-            root.style.setProperty('--theme-bg-start', startRgba);
-            root.style.setProperty('--theme-bg-end', endRgba);
-        }
-
-        // --- MESSAGE LISTENER ---
+        // =========================================================
+        // MESSAGES
+        // =========================================================
         window.addEventListener('message', (event) => {
-            // 1. Regular Flight Data (Existing)
-            if (event.data && event.data.type === 'FLIGHT_DATA_UPDATE') {
-                window.updateFlightInterface(event.data.payload);
-                
-                // NEW: Apply theme if sent in payload (Initial Load)
-                if (event.data.payload.theme) {
-                    const t = event.data.payload.theme;
-                    applyTheme(t.start, t.end, t.opacity);
-                }
+            const d = event.data;
+            if (!d) return;
+            if (d.type === 'FLIGHT_DATA_UPDATE') {
+                window.updateFlightInterface(d.payload);
+                // Background/theme is owned by the layout studio (applyStyle), so
+                // the host's per-tick theme payload is intentionally ignored here.
             }
-            
-            // 2. Pilot Profile Data (Existing)
-            if (event.data && event.data.type === 'PILOT_STATS_DATA') {
-                window.updatePilotProfile(event.data.payload.profile);
+            if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload && d.payload.profile);
+            if (d.type === 'PILOT_STATS_ERROR') window.showPilotProfileError(d.message);
+            // Parent can force a phase (e.g. mobile sheet swipe).
+            if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed');
+        });
+
+        // =========================================================
+        // HELPERS
+        // =========================================================
+        function updateText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+        function formatNumber(num) { return num ? Math.round(num).toLocaleString() : '---'; }
+
+        // --- Hero photo carousel (simple window) ---------------------------
+        // When the airframe has more than one community photo, make the hero
+        // swipeable. To keep the photo framed exactly like the single-image
+        // hero (and never cover the name/route overlay), this reuses the
+        // existing #ac-photo <img> and just swaps its src on swipe or dot tap,
+        // adding only small dot indicators on top. Rebuilds only when the photo
+        // set changes (keyed by signature) so live telemetry ticks don't reset
+        // the user's place.
+        function buildSimpleHeroCarousel(list, creditEl) {
+            const container = document.getElementById('hero-container');
+            if (!container) return;
+            const img = document.getElementById('ac-photo');
+
+            const sig = list.map(p => p.url).join('|');
+            const changed = container.dataset.carouselSig !== sig;
+            if (changed) { container.dataset.carouselSig = sig; container.__heroIndex = 0; }
+
+            const setCredit = (i) => {
+                if (!creditEl) return;
+                const c = list[i] && list[i].credit;
+                if (c) { creditEl.textContent = '© ' + c; creditEl.style.display = 'block'; }
+                else { creditEl.style.display = 'none'; }
+            };
+            const show = (i) => {
+                const idx = (i + list.length) % list.length;
+                container.__heroIndex = idx;
+                if (img && img.src !== list[idx].url) img.src = list[idx].url;
+                if (container.__heroDots) container.__heroDots.forEach((d, k) => {
+                    d.style.background = `rgba(255,255,255,${k === idx ? '0.95' : '0.5'})`;
+                });
+                setCredit(idx);
+            };
+            // Persist the pager on the container so the once-wired swipe handler
+            // and telemetry ticks all share the same index (no reset on update).
+            container.__heroAdvance = (dir) => show((container.__heroIndex || 0) + dir);
+
+            if (!changed) return; // same photo set on a live tick — leave it be
+
+            // (Re)build the dot indicators for this photo set.
+            container.querySelector('#ac-hero-dots')?.remove();
+            const dots = document.createElement('div');
+            dots.id = 'ac-hero-dots';
+            dots.style.cssText = 'position:absolute;top:10px;left:0;right:0;z-index:11;display:flex;justify-content:center;gap:6px;';
+            container.__heroDots = list.map((_, i) => {
+                const d = document.createElement('span');
+                d.style.cssText = 'width:6px;height:6px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 3px rgba(0,0,0,.5);';
+                d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
+                dots.appendChild(d);
+                return d;
+            });
+            container.appendChild(dots);
+
+            // Wire swipe once; the handler delegates to the latest pager.
+            if (!container.dataset.swipeWired) {
+                container.dataset.swipeWired = '1';
+                let downX = null, downY = null, moved = false;
+                container.addEventListener('pointerdown', (e) => {
+                    if (e.target.closest('.hero-collapse-btn')) return;
+                    downX = e.clientX; downY = e.clientY; moved = false;
+                });
+                container.addEventListener('pointermove', (e) => {
+                    if (downX == null) return;
+                    if (Math.abs(e.clientX - downX) > 10 && Math.abs(e.clientX - downX) > Math.abs(e.clientY - downY)) moved = true;
+                });
+                container.addEventListener('pointerup', (e) => {
+                    if (downX == null) return;
+                    const dx = e.clientX - downX;
+                    if (moved && Math.abs(dx) > 40 && container.__heroAdvance) container.__heroAdvance(dx < 0 ? 1 : -1);
+                    downX = downY = null; moved = false;
+                });
             }
 
-            // 3. NEW: Real-time Theme Update
-            if (event.data && event.data.type === 'THEME_UPDATE') {
-                const t = event.data.payload;
-                applyTheme(t.start, t.end, t.opacity);
-            }
-        });
-        
-        function updateText(id, text) {
-            const el = document.getElementById(id);
-            if (el) el.textContent = text;
+            show(0);
         }
-        function formatNumber(num) {
-            return num ? Math.round(num).toLocaleString() : '---';
+
+        // Restore the single-image hero (e.g. after switching to a flight with
+        // only one photo).
+        function teardownSimpleHeroCarousel() {
+            const container = document.getElementById('hero-container');
+            if (!container || !container.dataset.carouselSig) return;
+            delete container.dataset.carouselSig;
+            container.querySelector('#ac-hero-dots')?.remove();
+            container.__heroDots = null;
+            container.__heroAdvance = null;
         }
+
+        function setCity(id, city) { const el = document.getElementById(id); if (el) el.textContent = city || ' '; }
         function updateFlag(id, countryCode) {
             const el = document.getElementById(id);
             if (!el) return;
-            if (countryCode) {
-                el.src = `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`;
-                el.style.display = 'block';
-            } else {
-                el.style.display = 'none';
-            }
+            if (countryCode) { el.src = `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`; }
         }
 
-        // --- ON LOAD: REQUEST STATS ---
         window.addEventListener('load', () => {
-            // Ask parent to fetch user stats immediately
             window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*');
         });
-
     </script>
 </body>
 </html>

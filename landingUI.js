@@ -6,7 +6,7 @@ export const LandingUI = {
     _currentServer: 'Expert', 
     _searchCursorIndex: -1,
     _currentMatches: [],
-    _currentResults: { flights: [], airports: [], airlines: [] },
+    _currentResults: { flights: [], users: [], airports: [], airlines: [] },
     _theme: localStorage.getItem('pui-theme') || 'dark',
 
     filterGroups: {
@@ -55,11 +55,12 @@ export const LandingUI = {
         // Fetch theme again just in case it loaded late
         this._theme = localStorage.getItem('pui-theme') || 'dark';
 
-        await this.loadPrefixData(); 
+        await this.loadPrefixData();
         this.injectStyles();
         this.applyMobileOptimizations();
         this.render();
         this.attachListeners();
+        this.applyMobileChrome();
     },
 
     applyMobileOptimizations() {
@@ -67,6 +68,17 @@ export const LandingUI = {
             import('./MobileLandingUI.js').then(m => {
                 m.MobileLandingUI.init(this);
             }).catch(err => console.error("Failed to load Mobile UI:", err));
+        }
+    },
+
+    applyMobileChrome() {
+        if (window.innerWidth <= 768) {
+            // Full rehaul of the LandingUI top header + bottom tab bar with
+            // native iOS chrome. Runs AFTER render() so it can re-host the
+            // already-wired search input + results dropdown.
+            import('./MobileLandingChromeUI.js').then(m => {
+                m.MobileLandingChromeUI.init(this);
+            }).catch(err => console.error("Failed to load Mobile Chrome UI:", err));
         }
     },
 
@@ -92,7 +104,7 @@ export const LandingUI = {
 
         if (!query || query.length < 2) {
             this._currentMatches = [];
-            this._currentResults = { flights: [], airports: [], airlines: [] };
+            this._currentResults = { flights: [], users: [], airports: [], airlines: [] };
             this._searchCursorIndex = -1;
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
@@ -104,19 +116,16 @@ export const LandingUI = {
 
         const results = (typeof window.runGlobalSearch === 'function')
             ? window.runGlobalSearch(query)
-            : { flights: [], airports: [], airlines: [] };
+            : { flights: [], users: [], airports: [], airlines: [] };
 
         this._currentResults = results;
         // Keep flight matches around for keyboard nav (arrows + Enter).
         this._currentMatches = (results.flights || []).map(r => r.feature);
         this._searchCursorIndex = -1;
 
-        const total = (results.flights?.length || 0) + (results.airports?.length || 0) + (results.airlines?.length || 0);
-        if (total > 0 && searchBlade) {
-            searchBlade.classList.add('has-results');
-        } else if (searchBlade) {
-            searchBlade.classList.remove('has-results');
-        }
+        // The Pilots section always carries the offline network-lookup row, so
+        // the dropdown stays open (with that row) even when nothing live matches.
+        if (searchBlade) searchBlade.classList.add('has-results');
 
         this.renderSearchResults(query);
     },
@@ -127,6 +136,42 @@ export const LandingUI = {
         return text.replace(regex, '<span class="premium-highlight">$1</span>');
     },
 
+    // Parse the `position` blob (it can arrive as a JSON string or object) so the
+    // expanded detail can show live speed/heading without re-querying the map.
+    _safePosition(p) {
+        const pos = (typeof p.position === 'string')
+            ? (() => { try { return JSON.parse(p.position); } catch { return {}; } })()
+            : (p.position || {});
+        return pos || {};
+    },
+
+    // Minimal HTML escape for live-data strings (usernames, liveries) rendered
+    // into the dropdown markup.
+    _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+
+    // Two-letter avatar monogram for a username.
+    _initials(name) {
+        const parts = String(name || '?').trim().split(/[\s_\-.]+/).filter(Boolean);
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return String(name || '?').slice(0, 2).toUpperCase();
+    },
+
+    // Coarse flight phase from live telemetry — enough for the status line.
+    _flightStatus(pos, altitude) {
+        const gs = Math.round(pos.gs_kt || pos.speed || 0);
+        const vs = Math.round(pos.vs_fpm || 0);
+        const alt = Math.round(altitude || pos.alt_ft || 0);
+        const altLabel = alt >= 18000 ? `FL${Math.round(alt / 100)}` : `${alt.toLocaleString()} ft`;
+        if (gs < 40) return { label: 'On the ground', icon: 'fa-plane-circle-exclamation', cls: 'is-ground' };
+        if (vs > 300) return { label: `Climbing through ${altLabel}`, icon: 'fa-plane-up', cls: 'is-climb' };
+        if (vs < -300) return { label: `Descending through ${altLabel}`, icon: 'fa-plane-arrival', cls: 'is-descent' };
+        return { label: `Cruising at ${altLabel}`, icon: 'fa-plane', cls: 'is-cruise' };
+    },
+
     _renderFlightRow(entry, idx, query) {
         const f = entry.feature;
         const p = f.properties || {};
@@ -134,25 +179,220 @@ export const LandingUI = {
         const acName = acData.aircraftName || p.aircraftName || '---';
         const lat = f.geometry?.coordinates?.[1];
         const lon = f.geometry?.coordinates?.[0];
+
+        // Extra detail surfaced when the row is expanded.
+        const pos = this._safePosition(p);
+        const username = p.username || 'Anonymous';
+        const livName = acData.liveryName || p.liveryName || '';
+        const reg = acData.registration || p.registration || '';
+        const dep = (p.departureIcao || '').toUpperCase();
+        const arr = (p.arrivalIcao || '').toUpperCase();
+        const spd = Math.round(pos.gs_kt || pos.speed || 0);
+        const hdg = Math.round(pos.heading ?? pos.hdg ?? p.heading ?? 0);
+        const vs = Math.round(pos.vs_fpm || 0);
+        const alt = Math.round(p.altitude || pos.alt_ft || 0);
+        const fid = p.flightId;
+        const status = this._flightStatus(pos, alt);
+        // Escaped form for inline string args (callsign/username can contain quotes).
+        const usernameArg = this._esc(String(username).replace(/'/g, "\\'"));
+
+        const detailItem = (k, v) => `<div class="res-dt"><span class="res-dt-k">${k}</span><span class="res-dt-v">${v}</span></div>`;
+
         return `
-            <div class="premium-result-item ${this._searchCursorIndex === idx ? 'selected' : ''}"
-                 data-index="${idx}"
-                 onclick="LandingUI.executeSearchClick('${p.flightId}', ${lat}, ${lon})">
-                <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
-                <div class="res-info-main">
-                    <div class="res-primary-row">
-                        <span class="res-callsign">${this.highlightText(p.callsign || 'N/A', query)}</span>
-                        <span class="res-pill">${this.highlightText(acName, query)}</span>
+            <div class="premium-flight-wrap" data-flight-wrap="${fid}">
+                <div class="premium-result-item premium-flight-row ${this._searchCursorIndex === idx ? 'selected' : ''}"
+                     data-index="${idx}"
+                     onclick="LandingUI.executeSearchClick('${fid}', ${lat}, ${lon})">
+                    <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
+                    <div class="res-info-main">
+                        <div class="res-primary-row">
+                            <span class="res-callsign">${this.highlightText(this._esc(p.callsign || 'N/A'), query)}</span>
+                            <span class="res-pill">${this.highlightText(this._esc(acName), query)}</span>
+                            ${reg ? `<span class="res-pill res-pill-reg">${this.highlightText(this._esc(reg), query)}</span>` : ''}
+                        </div>
+                        <div class="res-secondary-row">
+                            <span class="res-pilot">${this.highlightText(this._esc(username), query)}</span>
+                        </div>
                     </div>
-                    <div class="res-secondary-row">
-                        <span class="res-pilot">${this.highlightText(p.username || 'Anonymous', query)}</span>
+                    <div class="res-stats">
+                        <span class="res-live-pill"><i class="fa-solid fa-plane"></i> LIVE</span>
+                        <span class="res-altitude">${alt.toLocaleString()}<span>ft</span></span>
                     </div>
+                    <button type="button" class="res-expand-btn" aria-label="More info" aria-expanded="false"
+                            onclick="LandingUI.toggleResultDetail(event)">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
                 </div>
-                <div class="res-stats">
-                    <span class="res-altitude">${Math.round(p.altitude || 0).toLocaleString()}<span>ft</span></span>
+                <div class="res-detail">
+                    <div class="res-detail-inner">
+                        ${reg ? `<div class="res-photo" data-photo-reg="${this._esc(reg)}" hidden>
+                            <img alt="${this._esc(acName)} ${this._esc(reg)}" />
+                            <span class="res-photo-credit"></span>
+                        </div>` : ''}
+                        <div class="res-route-banner">
+                            <div class="res-route-ep">
+                                <span class="res-route-code">${this._esc(dep || '—')}</span>
+                                <span class="res-route-name">${this._esc(entry.depName || 'Departure')}</span>
+                            </div>
+                            <div class="res-route-mid">
+                                <span class="res-route-line"></span>
+                                <i class="fa-solid fa-plane"></i>
+                                <span class="res-route-line"></span>
+                            </div>
+                            <div class="res-route-ep is-arr">
+                                <span class="res-route-code">${this._esc(arr || '—')}</span>
+                                <span class="res-route-name">${this._esc(entry.arrName || 'Arrival')}</span>
+                            </div>
+                        </div>
+                        <div class="res-status-line ${status.cls}">
+                            <i class="fa-solid ${status.icon}"></i>
+                            <span>${status.label}</span>
+                        </div>
+                        <div class="res-detail-grid">
+                            ${detailItem('Altitude', `${alt.toLocaleString()} <span class="res-dt-u">ft</span>`)}
+                            ${detailItem('Ground speed', `${spd} <span class="res-dt-u">kt</span>`)}
+                            ${detailItem('Heading', `${hdg}<span class="res-dt-u">°</span>`)}
+                            ${detailItem('Vert. speed', `${vs.toLocaleString()} <span class="res-dt-u">fpm</span>`)}
+                            ${livName ? detailItem('Airline / Livery', this._esc(livName)) : ''}
+                            ${detailItem('Aircraft', this._esc(acName))}
+                        </div>
+                        <button type="button" class="res-pilot-link" onclick="LandingUI.openUserProfileFromFlight(event, ${idx})">
+                            <span class="res-user-avatar">${this._esc(this._initials(username))}</span>
+                            <span class="res-pilot-link-text">
+                                <span class="res-pilot-link-name">${this._esc(username)}</span>
+                                <span class="res-pilot-link-sub">View pilot profile &amp; stats</span>
+                            </span>
+                            <i class="fa-solid fa-chevron-right res-pilot-link-chev"></i>
+                        </button>
+                        <div class="res-action-bar">
+                            <button type="button" class="res-action-btn is-primary"
+                                    onclick="LandingUI.executeSearchClick('${fid}', ${lat}, ${lon})">
+                                <i class="fa-solid fa-location-arrow"></i>
+                                <span>Show on map</span>
+                            </button>
+                            <button type="button" class="res-action-btn"
+                                    onclick="LandingUI.replayUserFlight(event, '${fid}', '${usernameArg}')">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                                <span>Replay</span>
+                                <span class="res-pro-badge"><i class="fa-solid fa-crown"></i> PRO</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
+    },
+
+    _renderUserRow(entry, idx, query) {
+        const p = entry.feature?.properties || {};
+        const acData = (typeof p.aircraft === 'string') ? (() => { try { return JSON.parse(p.aircraft); } catch { return {}; } })() : (p.aircraft || {});
+        const acName = acData.aircraftName || p.aircraftName || '';
+        const callsign = p.callsign || '';
+        const sub = callsign
+            ? `Flying ${this._esc(callsign)}${acName ? ' · ' + this._esc(acName) : ''}`
+            : 'Connected to the network';
+
+        return `
+            <div class="premium-result-item res-user-row" onclick="LandingUI.openUserProfileFromResult(event, ${idx})">
+                <span class="res-user-avatar">${this._esc(this._initials(entry.username))}</span>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">${this.highlightText(this._esc(entry.username), query)}</span>
+                        <span class="res-live-pill"><i class="fa-solid fa-plane"></i> LIVE</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">${sub}</span>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-right res-user-chev"></i>
+            </div>
+        `;
+    },
+
+    // Persistent footer row of the Pilots section: looks the typed name up on
+    // the network (works for OFFLINE users too — resolved via the backend).
+    _renderUserLookupRow(query) {
+        return `
+            <div class="premium-result-item res-user-lookup-row" onclick="LandingUI.lookupUserProfile(event)">
+                <span class="res-user-avatar is-lookup"><i class="fa-solid fa-magnifying-glass"></i></span>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">Search &ldquo;${this._esc(query)}&rdquo; on the network</span>
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">Find offline pilots by exact community username</span>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-right res-user-chev"></i>
+            </div>
+        `;
+    },
+
+    // Expand/collapse a flight result's detail drawer. Stops propagation so the
+    // chevron tap doesn't also fire the row's fly-to handler.
+    toggleResultDetail(event) {
+        event.stopPropagation();
+        const wrap = event.currentTarget.closest('.premium-flight-wrap');
+        if (!wrap) return;
+        const open = wrap.classList.toggle('detail-open');
+        const btn = wrap.querySelector('.res-expand-btn');
+        if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) this._hydrateResultPhoto(wrap);
+    },
+
+    // Lazily resolve a real aircraft photo for an expanded flight result; reveal
+    // the slot only on a hit so misses leave no broken-image gap.
+    _hydrateResultPhoto(wrap) {
+        const slot = wrap.querySelector('.res-photo[data-photo-reg]');
+        if (!slot || slot.dataset.photoLoaded) return;
+        if (typeof window.InflightAircraftPhoto?.get !== 'function') return;
+        slot.dataset.photoLoaded = '1';
+        const reg = slot.getAttribute('data-photo-reg');
+        window.InflightAircraftPhoto.get(reg).then(photo => {
+            if (!photo) return;
+            // Renders a single image, or a swipeable carousel when the airframe
+            // has more than one photo on file.
+            if (window.InflightAircraftPhoto.render(slot, photo)) slot.hidden = false;
+        });
+    },
+
+    _isPro() {
+        return (typeof window !== 'undefined' && typeof window.isInflightPro === 'function')
+            ? window.isInflightPro()
+            : false;
+    },
+
+    // Open the standard Pro upsell flow (mirrors the rest of the app: AuthUI
+    // modal + a broadcast event other surfaces can hook).
+    _requestProUpgrade(source) {
+        try {
+            window.dispatchEvent(new CustomEvent('pro-upgrade-requested', {
+                bubbles: true, cancelable: true, detail: { source }
+            }));
+        } catch (_) {}
+        try {
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open();
+        } catch (_) {}
+    },
+
+    // Replay a specific pilot's flight straight from the search result.
+    // PRO-gated. The underlying per-user replay capability does not exist yet,
+    // so this is the wired-up entry point: it gates on Pro and hands off to
+    // `window.startUserFlightReplay` once that function is implemented.
+    replayUserFlight(event, flightId, username) {
+        event.stopPropagation();
+        if (!this._isPro()) {
+            this._requestProUpgrade('search-result-replay');
+            return;
+        }
+        // TODO: wire up once per-user flight replay exists. Intended behaviour:
+        // load and play back `username`'s flight `flightId`.
+        if (typeof window.startUserFlightReplay === 'function') {
+            window.startUserFlightReplay(flightId, username);
+            this._closeBladeSearch();
+        } else if (typeof window.showNotification === 'function') {
+            window.showNotification(`Flight replay for ${username || 'this pilot'} is coming soon.`, 'info');
+        }
     },
 
     _renderAirportRow(entry, query) {
@@ -206,19 +446,65 @@ export const LandingUI = {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
 
-        const r = this._currentResults || { flights: [], airports: [], airlines: [] };
-        const total = (r.flights?.length || 0) + (r.airports?.length || 0) + (r.airlines?.length || 0);
+        const r = this._currentResults || { flights: [], users: [], airports: [], airlines: [] };
+        const total = (r.flights?.length || 0) + (r.users?.length || 0) + (r.airports?.length || 0) + (r.airlines?.length || 0);
+
+        // Pilots section always ends with the offline network-lookup row, so
+        // even a zero-hit query still offers a way forward.
+        const pilotRows = [
+            ...(r.users || []).map((e, i) => this._renderUserRow(e, i, query)),
+            this._renderUserLookupRow(query),
+        ];
 
         if (total === 0) {
-            container.innerHTML = `<div class="premium-empty-state"><p>No matches found</p></div>`;
+            container.innerHTML = [
+                `<div class="premium-empty-state"><p>No live matches found</p></div>`,
+                this._renderSection('Pilots', pilotRows),
+            ].join('');
         } else {
             container.innerHTML = [
                 this._renderSection('Live flights', (r.flights || []).map((e, i) => this._renderFlightRow(e, i, query))),
+                this._renderSection('Pilots', pilotRows),
                 this._renderSection('Airports', (r.airports || []).map(e => this._renderAirportRow(e, query))),
                 this._renderSection('Airlines', (r.airlines || []).map(e => this._renderAirlineRow(e, query))),
             ].join('');
         }
         container.classList.add('visible');
+    },
+
+    // ─── Pilot profile entry points ─────────────────────────────────────────
+
+    // Open the full user-profile page for a username (live or offline).
+    openUserProfile(username, userId = null) {
+        if (!username) return;
+        try { window.InflightHaptics?.select?.(); } catch (_) {}
+        this._closeBladeSearch();
+        import('./UserProfileUI.js')
+            .then(m => m.UserProfileUI.open({ username, userId }))
+            .catch(err => console.error('Failed to load UserProfileUI:', err));
+    },
+
+    // From a Pilots-section row (index into the current users results).
+    openUserProfileFromResult(event, idx) {
+        event.stopPropagation();
+        const entry = this._currentResults?.users?.[idx];
+        if (entry) this.openUserProfile(entry.username, entry.userId);
+    },
+
+    // From the pilot link inside an expanded flight result.
+    openUserProfileFromFlight(event, idx) {
+        event.stopPropagation();
+        const p = this._currentResults?.flights?.[idx]?.feature?.properties;
+        if (p?.username) this.openUserProfile(p.username, p.userId || null);
+    },
+
+    // The "Search <query> on the network" row — works for offline users; the
+    // profile page resolves the name via the backend and shows a not-found
+    // state if it doesn't exist.
+    lookupUserProfile(event) {
+        event?.stopPropagation?.();
+        const q = (document.getElementById('blade-search-input')?.value || '').trim();
+        if (q) this.openUserProfile(q);
     },
 
     _closeBladeSearch() {
@@ -231,9 +517,20 @@ export const LandingUI = {
         }
         if (resultsDropdown) resultsDropdown.classList.remove('visible');
         if (searchBlade) searchBlade.classList.remove('has-results');
+        document.getElementById('inflight-tactical-ui')?.classList.remove('mobile-search-active');
+        this._syncSearchActive();
         this._currentMatches = [];
-        this._currentResults = { flights: [], airports: [], airlines: [] };
+        this._currentResults = { flights: [], users: [], airports: [], airlines: [] };
         this._searchCursorIndex = -1;
+    },
+
+    // Toggle the inline clear (✕) button based on whether the field has text.
+    _syncSearchActive() {
+        const searchBlade = document.querySelector('.search-blade');
+        const searchInput = document.getElementById('blade-search-input');
+        if (searchBlade) {
+            searchBlade.classList.toggle('has-text', !!(searchInput && searchInput.value));
+        }
     },
 
     executeSearchClick(id, lat, lon) {
@@ -283,11 +580,16 @@ export const LandingUI = {
                     <div class="top-right-actions">
                         <div class="search-blade">
                             <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
+                            <input type="text" id="blade-search-input" placeholder="Search flights, pilots, airports"
+                                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                   inputmode="search" enterkeyhint="search">
+                            <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
                             <div class="search-shortcut"></div>
                             <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                         </div>
                     </div>
+
+                    <button type="button" id="mobile-search-cancel" class="search-cancel-btn">Cancel</button>
                 </header>
 
                 <div id="filter-modal-overlay" class="modal-overlay">
@@ -348,6 +650,13 @@ export const LandingUI = {
 
                 <div class="utility-nexus">
                     <div class="orb-row">
+                        <div class="nexus-orb-wrapper mobile-only-tab">
+                            <button class="orb-btn" id="mobile-server-tab" aria-label="Server">
+                                <i class="fa-solid fa-server"></i>
+                                <span class="tab-label">Server</span>
+                            </button>
+                        </div>
+
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
                             <div class="weather-spread">
                                 <button class="spread-opt" data-weather="precip"><i class="fa-solid fa-satellite-dish"></i><span class="spread-label">Radar</span></button>
@@ -355,14 +664,23 @@ export const LandingUI = {
                                 <button class="spread-opt" data-weather="clouds"><i class="fa-solid fa-cloud"></i><span class="spread-label">Clouds</span></button>
                                 <button class="spread-opt" data-weather="wind"><i class="fa-solid fa-wind"></i><span class="spread-label">Wind</span></button>
                             </div>
-                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i><span class="tab-label">Weather</span></button>
                         </div>
 
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="filters-preview-tooltip"></div>
                             <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters">
                                 <i class="fa-solid fa-filter"></i>
+                                <span class="tab-label">Filters</span>
                                 <div id="filter-active-dot" class="active-pulse-dot"></div>
+                            </button>
+                        </div>
+
+                        <div class="nexus-orb-wrapper desktop-only-tab">
+                            <button class="orb-btn" id="tile-atc" aria-label="Active ATC">
+                                <i class="fa-solid fa-tower-broadcast"></i>
+                                <span class="tab-label">ATC</span>
+                                <div id="atc-active-dot" class="active-pulse-dot"></div>
                             </button>
                         </div>
 
@@ -370,6 +688,7 @@ export const LandingUI = {
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
                                 <i class="fa-solid fa-gear"></i>
+                                <span class="tab-label">Settings</span>
                             </button>
                         </div>
                     </div>
@@ -427,12 +746,24 @@ export const LandingUI = {
             if (window.innerWidth <= 768) {
                 window.dispatchEvent(new CustomEvent('openMobileUI'));
             } else {
-                toggleModal(true);
+                // Desktop: the tactical filter board now lives in the Global
+                // Settings modal's Filters tab (same board as mobile).
+                window.dispatchEvent(new CustomEvent('openSettings', { detail: { category: 'airspace' } }));
             }
         });
 
         settingsBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openSettings'));
+        });
+
+        // Desktop Active ATC board (mirrors the mobile bottom-bar ATC tab).
+        const atcBtn = document.getElementById('tile-atc');
+        atcBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openAtcBoard'));
+        });
+        window.addEventListener('activeAtcUpdated', (e) => {
+            const dot = document.getElementById('atc-active-dot');
+            if (dot) dot.style.opacity = (e.detail && e.detail.count > 0) ? '1' : '0';
         });
 
         window.addEventListener('keydown', (e) => {
@@ -456,7 +787,48 @@ export const LandingUI = {
             }
         });
 
-        searchInput?.addEventListener('input', (e) => this.handleLocalSearch(e.target.value));
+        searchInput?.addEventListener('input', (e) => {
+            this.handleLocalSearch(e.target.value);
+            this._syncSearchActive();
+        });
+
+        // Mobile: drive the search-active layout off focus (so the Cancel
+        // button can appear and the dropdown can take over the screen).
+        const root = document.getElementById('inflight-tactical-ui');
+        searchInput?.addEventListener('focus', () => {
+            root?.classList.add('mobile-search-active');
+        });
+        // If the field is blurred while still empty (e.g. a tap on the map),
+        // collapse back to the resting bar. A non-empty query stays open so
+        // the keyboard can drop while the user scrolls the results.
+        searchInput?.addEventListener('blur', () => {
+            setTimeout(() => {
+                if (!searchInput.value && document.activeElement !== searchInput) {
+                    this._closeBladeSearch();
+                }
+            }, 120);
+        });
+
+        // Cancel button — use pointerdown so it fires before the input blur
+        // steals the tap, then fully tear the search down.
+        const cancelBtn = document.getElementById('mobile-search-cancel');
+        cancelBtn?.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            this._closeBladeSearch();
+        });
+
+        // Inline clear (the small ✕ inside the field) — keep focus so the
+        // keyboard stays up and the user can immediately retype.
+        const clearBtn = document.getElementById('blade-search-clear');
+        clearBtn?.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+            }
+            this.handleLocalSearch('');
+            this._syncSearchActive();
+        });
 
         filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
@@ -480,6 +852,16 @@ export const LandingUI = {
         serverSelector?.addEventListener('click', (e) => {
             e.stopPropagation();
             serverSelector.classList.toggle('open');
+        });
+
+        // Mobile bottom-bar Server tab → reuse the polished server bottom sheet
+        document.getElementById('mobile-server-tab')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.MobileUIHandler && typeof window.MobileUIHandler.openServerSheet === 'function') {
+                window.MobileUIHandler.openServerSheet();
+            } else {
+                serverSelector?.classList.toggle('open');
+            }
         });
 
         document.querySelectorAll('.server-option').forEach(opt => {
@@ -917,6 +1299,10 @@ export const LandingUI = {
                 margin-left: 10px;
             }
 
+            /* The inline clear (✕) and the Cancel button are mobile-only. */
+            .search-clear-btn { display: none; }
+            .search-cancel-btn { display: none; }
+
             .search-results-dropdown {
                 position: absolute;
                 top: calc(100% + 8px);
@@ -1015,6 +1401,281 @@ export const LandingUI = {
                 font-size: 13px;
             }
 
+            /* ---- Expandable flight result drawer ---- */
+            .premium-flight-wrap { border-radius: 8px; }
+            .premium-flight-wrap + .premium-flight-wrap { margin-top: 2px; }
+            .premium-flight-row { position: relative; }
+            .res-expand-btn {
+                flex: 0 0 auto;
+                width: 30px;
+                height: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-left: 4px;
+                border: none;
+                border-radius: 8px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-muted);
+                cursor: pointer;
+                transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
+            }
+            .res-expand-btn:hover { color: var(--lui-text-main); }
+            .premium-flight-wrap.detail-open .res-expand-btn { transform: rotate(180deg); color: var(--lui-text-main); }
+
+            .res-detail {
+                display: grid;
+                grid-template-rows: 0fr;
+                overflow: hidden;
+                transition: grid-template-rows 0.22s ease;
+            }
+            .res-detail > * { min-height: 0; }
+            .premium-flight-wrap.detail-open .res-detail { grid-template-rows: 1fr; }
+
+            .res-detail-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px 14px;
+                padding: 6px 16px 10px 38px;
+            }
+            .res-dt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .res-dt-k {
+                font-size: 9.5px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--lui-text-dim);
+            }
+            .res-dt-v {
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--lui-text-main);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .res-dt-u { font-weight: 400; color: var(--lui-text-dim); font-size: 11px; }
+            .res-dt-arrow { font-size: 10px; color: var(--lui-text-dim); margin: 0 2px; }
+
+            .res-replay-btn {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 0 8px 8px 38px;
+                padding: 9px 12px;
+                border: 1px solid var(--lui-border-light);
+                border-radius: 10px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-main);
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background 0.15s ease, transform 0.1s ease;
+            }
+            .res-replay-btn:active { transform: scale(0.98); }
+            .res-replay-btn > i { color: var(--lui-accent); font-size: 13px; }
+            .res-replay-label { flex: 1 1 auto; text-align: left; }
+            .res-pro-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 9.5px;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                color: #1a1205;
+                background: linear-gradient(135deg, #fbbf24, #f59e0b);
+                padding: 2px 7px;
+                border-radius: 999px;
+            }
+            .res-pro-badge > i { font-size: 8.5px; }
+
+            /* ---- Rich flight detail card (route banner + status + actions) ---- */
+            .res-detail-inner { display: flex; flex-direction: column; }
+            .res-photo {
+                position: relative;
+                margin: 6px 14px 2px 38px;
+                aspect-ratio: 16 / 9;
+                border-radius: 12px;
+                overflow: hidden;
+                background: var(--lui-hover-bg);
+            }
+            .res-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            .res-photo-credit {
+                position: absolute;
+                right: 7px;
+                bottom: 6px;
+                font-size: 9px;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.85);
+                background: rgba(0, 0, 0, 0.45);
+                padding: 2px 6px;
+                border-radius: 999px;
+            }
+            .res-pill-reg { text-transform: none; }
+            .res-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+            .res-live-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.06em;
+                color: #052e14;
+                background: linear-gradient(135deg, #4ade80, #22c55e);
+                padding: 2px 7px;
+                border-radius: 999px;
+            }
+            .res-live-pill > i { font-size: 8px; }
+
+            .res-route-banner {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 6px 14px 4px 38px;
+                padding: 10px 12px;
+                background: var(--lui-hover-bg);
+                border: 1px solid var(--lui-border-light);
+                border-radius: 12px;
+            }
+            .res-route-ep {
+                flex: 1 1 0;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+            .res-route-ep.is-arr { text-align: right; align-items: flex-end; }
+            .res-route-code {
+                font-size: 17px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                color: var(--lui-text-main);
+            }
+            .res-route-name {
+                font-size: 10.5px;
+                font-weight: 500;
+                color: var(--lui-text-muted);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 100%;
+            }
+            .res-route-mid {
+                flex: 1.2 1 0;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                color: var(--lui-text-dim);
+            }
+            .res-route-mid > i { font-size: 11px; flex: 0 0 auto; }
+            .res-route-line {
+                flex: 1 1 auto;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, var(--lui-border-strong), transparent);
+            }
+
+            .res-status-line {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 4px 14px 2px 38px;
+                font-size: 12px;
+                font-weight: 700;
+                color: #22c55e;
+            }
+            .res-status-line > i { font-size: 11px; }
+            .res-status-line.is-ground { color: var(--lui-text-muted); }
+            .res-status-line.is-climb { color: #38bdf8; }
+            .res-status-line.is-descent { color: #fbbf24; }
+
+            .res-pilot-link {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 6px 14px 0 38px;
+                padding: 8px 12px;
+                border: 1px solid var(--lui-border-light);
+                border-radius: 12px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-main);
+                cursor: pointer;
+                text-align: left;
+                transition: background 0.15s ease, transform 0.1s ease;
+            }
+            .res-pilot-link:active { transform: scale(0.98); }
+            .res-pilot-link-text {
+                flex: 1 1 auto;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+            .res-pilot-link-name {
+                font-size: 13px;
+                font-weight: 700;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .res-pilot-link-sub {
+                font-size: 10.5px;
+                font-weight: 500;
+                color: var(--lui-text-muted);
+            }
+            .res-pilot-link-chev { font-size: 11px; color: var(--lui-text-dim); }
+
+            .res-action-bar {
+                display: flex;
+                gap: 8px;
+                margin: 8px 14px 12px 38px;
+            }
+            .res-action-btn {
+                flex: 1 1 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 10px 12px;
+                border: 1px solid var(--lui-border-light);
+                border-radius: 10px;
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-main);
+                font-size: 12.5px;
+                font-weight: 700;
+                cursor: pointer;
+                transition: background 0.15s ease, transform 0.1s ease;
+            }
+            .res-action-btn:active { transform: scale(0.97); }
+            .res-action-btn > i { font-size: 12px; }
+            .res-action-btn.is-primary {
+                background: var(--lui-accent);
+                border-color: var(--lui-accent);
+                color: #fff;
+            }
+            .res-action-btn .res-pro-badge { margin-left: 2px; }
+
+            /* ---- Pilot rows (live users + offline network lookup) ---- */
+            .res-user-avatar {
+                flex: 0 0 auto;
+                display: grid;
+                place-items: center;
+                width: 34px;
+                height: 34px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+                color: #fff;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+            }
+            .res-user-avatar.is-lookup {
+                background: var(--lui-hover-bg);
+                color: var(--lui-text-muted);
+                border: 1px dashed var(--lui-border-strong);
+                font-size: 12px;
+            }
+            .res-user-chev { font-size: 11px; color: var(--lui-text-dim); }
+
             .blade-results-section + .blade-results-section {
                 border-top: 1px solid var(--lui-border-base);
                 margin-top: 4px;
@@ -1085,6 +1746,14 @@ export const LandingUI = {
             }
 
             .nexus-orb-wrapper { position: relative; }
+            /* Tab labels + Server tab are mobile-only (FR24 bottom bar) */
+            .tab-label { display: none; }
+            .mobile-only-tab { display: none; }
+            /* The ATC orb is desktop-only — mobile has its own ATC tab in the
+               iOS bottom bar (MobileLandingChromeUI). */
+            @media (max-width: 768px) {
+                .desktop-only-tab { display: none !important; }
+            }
             .nexus-preview-tooltip {
                 position: absolute;
                 bottom: calc(100% + 20px);
@@ -1604,6 +2273,265 @@ export const LandingUI = {
                 }
                 .spread-opt i {
                     font-size: 0.8rem !important;
+                }
+            }
+
+            /* ============================================================
+               FR24-style mobile chrome (authoritative overrides — kept last
+               so they win over the legacy mobile rules above)
+               ============================================================ */
+            @media (max-width: 768px) {
+                /* ---------- TOP: native-iOS search bar ---------- *
+                   One frosted bar pinned under the status bar. It holds the
+                   search field; the profile avatar floats at the trailing
+                   edge while idle and is swapped for a "Cancel" button while
+                   searching (the standard iOS search pattern). */
+                .tactical-header {
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                    backdrop-filter: blur(24px) saturate(180%) !important;
+                    border-bottom: 1px solid var(--lui-border-base) !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    pointer-events: none !important;
+                    z-index: 1500 !important;
+                    transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
+                }
+                /* Server moved to the bottom bar — hide it from the top */
+                .tactical-header .top-branding.dropdown { display: none !important; }
+
+                .top-right-actions {
+                    flex: 1 1 auto !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    display: flex !important;
+                    pointer-events: auto !important;
+                }
+                .search-blade {
+                    width: 100% !important;
+                    height: 40px !important;
+                    padding: 0 14px !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 12px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    box-shadow: none !important;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+                }
+                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.9rem !important; }
+                #blade-search-input {
+                    font-size: 16px !important; /* >=16px stops iOS auto-zoom on focus */
+                    flex: 1 1 auto !important;
+                    min-width: 0 !important;
+                    -webkit-appearance: none !important;
+                }
+                #blade-search-input::placeholder { color: var(--lui-text-muted) !important; }
+
+                /* Inline clear (✕) — only once there's text */
+                .search-clear-btn {
+                    display: none;
+                    background: none !important;
+                    border: none !important;
+                    padding: 0 2px !important;
+                    margin: 0 !important;
+                    color: var(--lui-text-gray-2) !important;
+                    font-size: 1rem !important;
+                    line-height: 1 !important;
+                    cursor: pointer;
+                    flex: 0 0 auto !important;
+                }
+                .search-blade.has-text .search-clear-btn { display: block !important; }
+
+                /* Focus / active: the bar pins to the top, full width,
+                   leaving room for the trailing Cancel button. */
+                .mobile-search-active .search-blade,
+                .search-blade:focus-within {
+                    position: fixed !important;
+                    left: 12px !important;
+                    right: 72px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    height: 40px !important;
+                    border-radius: 12px !important;
+                    z-index: 1600 !important;
+                    background: var(--lui-bg-card) !important;
+                    border-color: var(--lui-border-base) !important;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.35) !important;
+                }
+
+                /* Full-screen results sheet under the search bar. */
+                .search-results-dropdown {
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: calc(100vh - env(safe-area-inset-top, 0px) - 56px) !important;
+                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
+                    max-height: none !important;
+                    border-radius: 0 !important;
+                    border: none !important;
+                    padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+                    background: var(--lui-bg-main) !important;
+                    box-shadow: none !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    overscroll-behavior: contain !important;
+                }
+
+                /* ---------- Touch-sized result rows ---------- */
+                .premium-result-item {
+                    min-height: 60px !important;
+                    padding: 10px 16px !important;
+                    gap: 14px !important;
+                    margin-bottom: 0 !important;
+                    border-radius: 0 !important;
+                    border-bottom: 1px solid var(--lui-border-light) !important;
+                }
+                .premium-result-item:active { background: var(--lui-active-bg) !important; }
+                .res-callsign { font-size: 15px !important; }
+                .res-secondary-row { font-size: 13px !important; }
+                .res-meta-icon { font-size: 8px !important; }
+                .blade-results-header {
+                    background: var(--lui-bg-main) !important;
+                    padding: 14px 16px 6px !important;
+                    font-size: 0.62rem !important;
+                }
+
+                /* ---------- TRAILING: profile avatar (idle) ---------- */
+                .auth-nexus {
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    right: 12px !important;
+                    left: auto !important;
+                    bottom: auto !important;
+                    z-index: 1600 !important;
+                    transition: opacity 0.2s ease !important;
+                }
+                .auth-nexus .orb-btn {
+                    width: 40px !important;
+                    height: 40px !important;
+                    border-radius: 50% !important;
+                    font-size: 0.95rem !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    color: var(--lui-text-main) !important;
+                    box-shadow: none !important;
+                }
+                .auth-nexus .orb-btn:active {
+                    transform: scale(0.94) !important;
+                    background: var(--lui-bg-card) !important;
+                }
+
+                /* ---------- TRAILING: Cancel button (searching) ---------- */
+                .search-cancel-btn {
+                    display: block !important;
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    right: 12px !important;
+                    height: 40px !important;
+                    padding: 0 4px !important;
+                    background: none !important;
+                    border: none !important;
+                    color: var(--lui-accent) !important;
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 16px !important;
+                    font-weight: 600 !important;
+                    cursor: pointer;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                    transform: translateX(6px) !important;
+                    transition: opacity 0.2s ease, transform 0.2s ease !important;
+                    z-index: 1601 !important;
+                }
+                .mobile-search-active .search-cancel-btn {
+                    opacity: 1 !important;
+                    pointer-events: auto !important;
+                    transform: translateX(0) !important;
+                }
+
+                /* ---------- BOTTOM: floating tab bar ---------- */
+                .utility-nexus {
+                    position: fixed !important;
+                    left: 50% !important;
+                    right: auto !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+                    transform: translateX(-50%) !important;
+                    pointer-events: none !important;
+                    z-index: 1500 !important;
+                    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
+                }
+                .orb-row {
+                    gap: 2px !important;
+                    align-items: stretch !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(22px) !important;
+                    backdrop-filter: blur(22px) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 22px !important;
+                    padding: 6px !important;
+                    box-shadow: 0 12px 30px rgba(0,0,0,0.45) !important;
+                    pointer-events: auto !important;
+                }
+                .mobile-only-tab { display: block !important; }
+
+                .orb-row .orb-btn {
+                    width: 64px !important;
+                    height: auto !important;
+                    min-height: 48px !important;
+                    border-radius: 14px !important;
+                    background: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    gap: 4px !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-size: 1.05rem !important;
+                    transform: none !important;
+                }
+                .orb-row .orb-btn:hover,
+                .orb-row .orb-btn:active {
+                    transform: none !important;
+                    background: var(--lui-active-bg) !important;
+                    color: var(--lui-accent) !important;
+                }
+                .orb-row .tab-label {
+                    display: block !important;
+                    font-size: 0.62rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.2px !important;
+                    line-height: 1 !important;
+                }
+                .orb-row .active-pulse-dot {
+                    position: absolute !important;
+                    top: 6px !important;
+                    right: 14px !important;
+                    bottom: auto !important;
+                }
+                .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
+
+                /* Slide the tab bar away while searching or when a detail sheet is open */
+                .mobile-search-active .utility-nexus,
+                #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
+                    opacity: 0 !important;
+                    transform: translateX(-50%) translateY(140%) !important;
+                    pointer-events: none !important;
+                }
+                /* Hide the profile avatar while searching (Cancel takes its slot) */
+                .mobile-search-active .auth-nexus {
+                    opacity: 0 !important;
+                    pointer-events: none !important;
                 }
             }
         `;
