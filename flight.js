@@ -2645,7 +2645,7 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             justify-content: space-between; 
-            margin-bottom: -40px;
+            margin-bottom: 0px;
         }
         
         .aircraft-overview-panel::before { 
@@ -2658,7 +2658,7 @@ function injectCustomStyles() {
                 rgba(0, 0, 0, 0.7) 0%, 
                 rgba(0, 0, 0, 0) 35%, 
                 rgba(0, 0, 0, 0.2) 80%, 
-                rgba(24, 24, 27, 1) 100%
+                var(--bg-glass) 100% /* Matches your window background */
             );
         }
         
