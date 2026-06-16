@@ -28,6 +28,8 @@ renderMobileContainer() {
                     </div>
 
                     <div class="sheet-content custom-scroll">
+                        ${this.renderNotificationsSection()}
+
                         <div class="mobile-section-header">Map Style</div>
                         <div class="settings-mobile-grid">
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="dark">Dark</button>
@@ -35,7 +37,7 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="satellite">Satellite</button>
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO Map Styles</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Map Styles</div>
                         <div class="settings-mobile-grid is-pro-feature">
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="outdoors" data-pro="true">Outdoors</button>
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="nav-dark" data-pro="true">Nav Night</button>
@@ -44,14 +46,14 @@ renderMobileContainer() {
                             <button class="m-setting-pill" data-setting="mapStyle" data-value="traffic-day" data-pro="true">Trfc Day</button>
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO 3D Environment</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>3D Environment</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true)}
                             ${this.renderToggle('showBuildings', '3D Buildings', 'fa-city', true)}
                             ${this.renderToggle('showDayNight', 'Day/Night Terminator', 'fa-moon', true)}
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> PRO Base Map Elements</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Base Map Elements</div>
                         <div class="m-settings-list">
                             ${this.renderToggle('showBorders', 'Political Borders', 'fa-earth-americas', true)}
                             ${this.renderToggle('showRoads', 'Roads & Highways', 'fa-road', true)}
@@ -62,7 +64,7 @@ renderMobileContainer() {
                             ${this.renderToggle('showLandUse', 'Parks & Forests', 'fa-tree', true)}
                         </div>
 
-                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> Pro Aircraft Colors</div>
+                        <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">Pro </span>Aircraft Colors</div>
                         <div class="m-settings-list">
                             <div class="m-setting-row is-pro-feature">
                                 <div class="m-row-left">
@@ -155,6 +157,30 @@ renderMobileContainer() {
         document.body.insertAdjacentHTML('beforeend', html);
     },
 
+    renderNotificationsSection() {
+        // Render unconditionally so we can verify from a screenshot whether
+        // the build picked up these changes. The button is a no-op on
+        // non-iOS (handled in the click listener) but the section header
+        // serves as a visible build-stamp.
+        return `
+            <div class="mobile-section-header">Notifications <span class="m-build-tag">v5</span></div>
+            <div class="m-settings-list">
+                <div class="m-setting-row" id="m-notif-row">
+                    <div class="m-row-left">
+                        <i class="fa-solid fa-bell" style="color:#38bdf8;"></i>
+                        <span>Push & Live Activity Alerts</span>
+                    </div>
+                    <div class="m-row-right">
+                        <span id="m-notif-status" class="m-notif-status" data-status="loading">Checking…</span>
+                        <button id="m-notif-enable" class="m-btn m-primary m-notif-cta" type="button">Enable</button>
+                    </div>
+                </div>
+                <p class="m-notif-help" id="m-notif-help">Required for lock-screen flight tracking ("this is my flight") and push alerts.</p>
+                <div class="m-notif-diag" id="m-notif-diag"></div>
+            </div>
+        `;
+    },
+
     renderToggle(id, label, icon, isPro = false) {
         return `
             <div class="m-setting-row ${isPro ? 'is-pro-feature' : ''}">
@@ -209,11 +235,52 @@ refreshProLocks() {
 
         window.addEventListener('openMobileSettings', () => {
             this._isOpen = true;
-            this.refreshProLocks(); 
+            this.refreshProLocks();
             this.syncUIWithState();
+            this.refreshNotificationStatus();
             sheet.classList.add('open');
             overlay.classList.add('visible');
         });
+
+        const notifBtn = document.getElementById('m-notif-enable');
+        if (notifBtn) {
+            notifBtn.addEventListener('click', async () => {
+                const pill = document.getElementById('m-notif-status');
+                const isBlocked = pill && pill.dataset.status === 'denied';
+                notifBtn.disabled = true;
+                const prevLabel = notifBtn.textContent;
+                notifBtn.textContent = '…';
+                try {
+                    if (!window.InflightLiveActivity || typeof window.InflightLiveActivity.requestNotificationPermission !== 'function') {
+                        window.showNotification?.('Native bridge missing. Reinstall the latest TestFlight build.', 'error');
+                        return;
+                    }
+                    if (isBlocked) {
+                        await window.InflightLiveActivity.openSystemSettings?.();
+                    } else {
+                        const res = await window.InflightLiveActivity.requestNotificationPermission({ force: true });
+                        console.log('[Notifications] requestNotificationPermission ->', res);
+                        if (!res || res.ok === false) {
+                            const reason = (res && res.reason) ? String(res.reason) : 'no response';
+                            window.showNotification?.(`Permission request failed: ${reason}`, 'error');
+                        } else if (res.granted === true) {
+                            window.showNotification?.('Notifications enabled.', 'success');
+                        } else if (res.granted === false && res.prompted === false && res.status === 'denied') {
+                            // Already denied — deep-link to Settings on this same tap.
+                            await window.InflightLiveActivity.openSystemSettings?.();
+                        } else if (res.granted === false && res.prompted === true) {
+                            window.showNotification?.('You tapped Don\'t Allow. Re-enable in iOS Settings › Inflight.', 'info');
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Notifications] click handler error:', err);
+                    window.showNotification?.(`Error: ${err && err.message || err}`, 'error');
+                }
+                await this.refreshNotificationStatus();
+                notifBtn.disabled = false;
+                if (notifBtn.textContent === '…') notifBtn.textContent = prevLabel;
+            });
+        }
 
         const closeUI = () => {
             this._isOpen = false;
@@ -226,14 +293,21 @@ refreshProLocks() {
         document.getElementById('mobile-settings-close').addEventListener('click', closeUI);
 
         // --- Pro Feature Intercept Logic ---
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
         sheet.querySelectorAll('.is-pro-feature').forEach(row => {
             row.addEventListener('click', (e) => {
                 if (row.classList.contains('locked')) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
+
+                    if (iosNative) {
+                        // App Store compliance: no in-app upgrade path. The lock
+                        // remains visible but the click is a no-op.
+                        return;
+                    }
+
                     closeUI(); // Smoothly dismiss the settings sheet
-                    
+
                     setTimeout(() => {
                         if (window.initInflightPro) {
                             window.initInflightPro();
@@ -308,6 +382,59 @@ refreshProLocks() {
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
+    },
+
+    async refreshNotificationStatus() {
+        const pill = document.getElementById('m-notif-status');
+        const btn = document.getElementById('m-notif-enable');
+        const diag = document.getElementById('m-notif-diag');
+        if (!pill || !btn) return;
+
+        // Always render the diagnostic — it's tiny and tells us at a glance
+        // whether the Capacitor bridge is actually wired up.
+        if (diag && window.InflightLiveActivity?.diagnose) {
+            try {
+                const d = window.InflightLiveActivity.diagnose();
+                diag.textContent = `Bridge: ${d.capacitor} • plugin=${d.plugin}` +
+                    (d.pluginMethods ? ` • methods: ${d.pluginMethods}` : '');
+            } catch (e) {
+                diag.textContent = 'Bridge: diagnose threw ' + (e && e.message || e);
+            }
+        }
+
+        const hasBridge = !!(window.InflightLiveActivity &&
+            typeof window.InflightLiveActivity.getNotificationPermissionStatus === 'function');
+        if (!hasBridge) {
+            pill.dataset.status = 'unsupported';
+            pill.textContent = 'No bridge';
+            btn.textContent = 'Enable';
+            return;
+        }
+
+        let status = 'unknown';
+        let granted = false;
+        try {
+            const res = await window.InflightLiveActivity.getNotificationPermissionStatus();
+            console.log('[Notifications] status ->', res);
+            if (res) { status = res.status || 'unknown'; granted = !!res.granted; }
+        } catch (err) {
+            console.warn('[Notifications] status failed:', err);
+            status = 'error';
+        }
+        pill.dataset.status = status;
+        if (granted) {
+            pill.textContent = 'Allowed';
+            btn.textContent = 'Re-prompt';
+        } else if (status === 'denied') {
+            pill.textContent = 'Blocked in iOS';
+            btn.textContent = 'Open Settings';
+        } else if (status === 'notDetermined' || status === 'unknown') {
+            pill.textContent = 'Not enabled';
+            btn.textContent = 'Enable';
+        } else {
+            pill.textContent = status;
+            btn.textContent = 'Enable';
+        }
     },
 
     syncUIWithState() {
@@ -408,6 +535,11 @@ refreshProLocks() {
                 .is-pro-feature.locked .pro-lock-badge {
                     display: flex; align-items: center;
                 }
+                /* App Store compliance: never surface PRO tier labels in iOS. */
+                html.ios-native .pro-lock-badge,
+                html.ios-native .is-pro-feature.locked .pro-lock-badge {
+                    display: none !important;
+                }
                 .is-pro-feature.locked .m-switch,
                 .is-pro-feature.locked .m-color-picker {
                     opacity: 0.3;
@@ -443,7 +575,40 @@ refreshProLocks() {
                 .sheet-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); }
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
-                
+
+                .m-notif-cta { width: auto; padding: 8px 14px; font-size: 0.85rem; border-radius: 999px; }
+                .m-notif-cta[disabled] { opacity: 0.6; }
+                .m-notif-status {
+                    font-size: 0.75rem; font-weight: 600; padding: 4px 10px;
+                    border-radius: 999px; margin-right: 8px; letter-spacing: 0.02em;
+                    background: rgba(148,163,184,0.18); color: #cbd5e1;
+                }
+                .m-notif-status[data-status="authorized"],
+                .m-notif-status[data-status="provisional"],
+                .m-notif-status[data-status="ephemeral"] {
+                    background: rgba(34,197,94,0.18); color: #4ade80;
+                }
+                .m-notif-status[data-status="denied"] {
+                    background: rgba(239,68,68,0.18); color: #f87171;
+                }
+                .m-notif-help {
+                    font-size: 0.78rem; color: #94a3b8;
+                    margin: 6px 4px 14px; line-height: 1.4;
+                }
+                .m-build-tag {
+                    font-size: 0.65rem; padding: 2px 6px; margin-left: 6px;
+                    background: rgba(56,189,248,0.18); color: #38bdf8;
+                    border-radius: 999px; letter-spacing: 0.04em;
+                }
+                .m-notif-diag {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size: 0.65rem; color: #64748b;
+                    background: rgba(148,163,184,0.08);
+                    padding: 8px 10px; margin: 4px 4px 14px;
+                    border-radius: 8px; word-break: break-all;
+                    line-height: 1.4;
+                }
+
                 .custom-scroll { overflow-y: auto; flex: 1; }
             }
         `;

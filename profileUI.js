@@ -268,7 +268,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Dossier del Piloto',
             'header.dossier.sub': 'Análisis de carrera y estadísticas de vuelo completas.',
             'header.watchlist.title': 'Lista de Pilotos',
-            'header.watchlist.sub': 'Sigue pilotos en tiempo real y recibe avisos cuando despeguen.',
+            'header.watchlist.sub': 'Sigue pilotos en tiempo real y recibe avisos cuando se conecten.',
             'header.settings.title': 'Ajustes', 'header.settings.sub': 'Gestiona tu perfil y preferencias.',
             'header.dispatch.title': 'Despacho de Vuelo', 'header.traffic.title': 'Tráfico',
             'greet.morning': 'Buenos días', 'greet.afternoon': 'Buenas tardes', 'greet.evening': 'Buenas noches',
@@ -311,7 +311,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Dossiê do Piloto',
             'header.dossier.sub': 'Análise de carreira e estatísticas de voo completas.',
             'header.watchlist.title': 'Lista de Pilotos',
-            'header.watchlist.sub': 'Acompanhe pilotos em tempo real e seja notificado ao decolar.',
+            'header.watchlist.sub': 'Acompanhe pilotos em tempo real e seja notificado quando entrarem em rota.',
             'header.settings.title': 'Configurações', 'header.settings.sub': 'Gerencie seu perfil e preferências.',
             'header.dispatch.title': 'Despacho de Voo', 'header.traffic.title': 'Tráfego',
             'greet.morning': 'Bom dia', 'greet.afternoon': 'Boa tarde', 'greet.evening': 'Boa noite',
@@ -354,7 +354,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Dossier Pilote',
             'header.dossier.sub': 'Analyses de carrière et statistiques de vol détaillées.',
             'header.watchlist.title': 'Suivi de Pilotes',
-            'header.watchlist.sub': 'Suivez des pilotes en temps réel et soyez alerté au décollage.',
+            'header.watchlist.sub': 'Suivez des pilotes en temps réel et soyez alerté à leur connexion.',
             'header.settings.title': 'Paramètres', 'header.settings.sub': 'Gérez votre profil et vos préférences.',
             'header.dispatch.title': 'Dispatch de Vol', 'header.traffic.title': 'Trafic',
             'greet.morning': 'Bonjour', 'greet.afternoon': 'Bon après-midi', 'greet.evening': 'Bonsoir',
@@ -397,7 +397,7 @@ export const ProfileUI = {
             'header.dossier.title': 'Pilotendossier',
             'header.dossier.sub': 'Karriereanalysen und Flugstatistiken.',
             'header.watchlist.title': 'Pilotenliste',
-            'header.watchlist.sub': 'Verfolge Piloten in Echtzeit und werde beim Start benachrichtigt.',
+            'header.watchlist.sub': 'Verfolge Piloten in Echtzeit und werde benachrichtigt, sobald sie online sind.',
             'header.settings.title': 'Einstellungen', 'header.settings.sub': 'Profil und Einstellungen verwalten.',
             'header.dispatch.title': 'Flugdispatch', 'header.traffic.title': 'Verkehr',
             'greet.morning': 'Guten Morgen', 'greet.afternoon': 'Guten Tag', 'greet.evening': 'Guten Abend',
@@ -440,7 +440,7 @@ export const ProfileUI = {
             'header.dossier.title': 'パイロット・ドシエ',
             'header.dossier.sub': 'キャリア分析と詳細な飛行統計。',
             'header.watchlist.title': 'パイロット・ウォッチリスト',
-            'header.watchlist.sub': 'リアルタイムでパイロットを追跡し、離陸時に通知を受け取ります。',
+            'header.watchlist.sub': 'リアルタイムでパイロットを追跡し、接続時に通知を受け取ります。',
             'header.settings.title': '設定', 'header.settings.sub': 'プロファイルと設定を管理します。',
             'header.dispatch.title': 'フライト・ディスパッチ', 'header.traffic.title': '交通',
             'greet.morning': 'おはようございます', 'greet.afternoon': 'こんにちは', 'greet.evening': 'こんばんは',
@@ -595,15 +595,38 @@ init(supabaseClient) {
                     }
                     this._watchedPilotStatus = newStatus;
 
-                    if (this._userPrefs.notification_watchlist_enabled) {
+                    // Watchlist notifications are an account-gated feature:
+                    // skip entirely if the user isn't signed in.
+                    if (this._currentUser && this._userPrefs.notification_watchlist_enabled) {
                         for (const [un, cur] of Object.entries(newStatus)) {
                             const prev = this._prevWatchedStatus[un];
                             if (cur.isLive && prev && !prev.isLive) {
                                 const f = cur.flight;
+                                const who   = f?.username || un;
                                 const route = (f?.departureIcao && f?.arrivalIcao)
                                     ? ` on ${f.departureIcao} → ${f.arrivalIcao}`
                                     : '';
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${f?.username || un}</strong> is now airborne${route}`, 'info');
+                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
+                                try {
+                                    // iOS notification hierarchy:
+                                    //   title   = friend's name (bold)
+                                    //   subtitle= status verb (semibold)
+                                    //   body    = route + aircraft
+                                    const acft = f?.aircraft?.aircraftName || '';
+                                    const bodyParts = [];
+                                    if (f?.departureIcao && f?.arrivalIcao) {
+                                        bodyParts.push(`${f.departureIcao} → ${f.arrivalIcao}`);
+                                    }
+                                    if (acft) bodyParts.push(acft);
+                                    window.InflightLiveActivity?.presentLocalNotification?.({
+                                        title: who,
+                                        subtitle: 'Now online',
+                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just connected',
+                                        identifier: `watchlist-online-${un}`,
+                                        threadIdentifier: 'inflight-watchlist',
+                                        userInfo: { kind: 'watchlist_online', username: un }
+                                    });
+                                } catch (_) { /* best-effort */ }
                             }
                         }
                     }
@@ -2917,7 +2940,7 @@ if (this._activeTab === 'flight-plan') {
                             </div>
                         </div>
 
-                        <div class="pui-card">
+                        <div class="pui-card ios-hide">
                             <div class="pui-card-header"><h3>${this.t('set.billing')}</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-plan-box">
@@ -2965,6 +2988,19 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-arrow-right pui-action-external"></i>
                                     </a>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="pui-card" style="border-color: rgba(239, 68, 68, 0.25);">
+                            <div class="pui-card-header"><h3 style="color: #ef4444;">Danger Zone</h3></div>
+                            <div class="pui-card-body">
+                                <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--pui-text-secondary); line-height: 1.55;">
+                                    Permanently delete your InFlight account and all associated data. This cannot be undone.
+                                </p>
+                                <div id="pui-delete-msg" class="pui-alert" style="display:none; margin: 0 0 14px 0;"></div>
+                                <button class="pui-btn-danger-outline" id="pui-delete-account-btn" style="border-color: rgba(239, 68, 68, 0.5); color: #ef4444;">
+                                    <i class="fa-solid fa-trash"></i> Delete Account
+                                </button>
                             </div>
                         </div>
 
@@ -3045,7 +3081,109 @@ if (this._activeTab === 'flight-plan') {
         });
     },
 
+    // ─── Delete Account (Apple 5.1.1(v) compliance) ──────────────────────────
+    _showDeleteAccountModal() {
+        const existing = document.getElementById('pui-delete-confirm');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-delete-confirm';
+        overlay.className = 'pui-wrapper-layer';
+        overlay.setAttribute('data-theme', this._theme);
+        overlay.setAttribute('data-density', this._density);
+        overlay.style.zIndex = '10010';
+
+        overlay.innerHTML = `
+            <div class="pui-confirm-box pui-fade-in" style="max-width: 460px;">
+                <div class="pui-confirm-header" style="padding-bottom: 8px;">
+                    <div class="pui-confirm-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <h3>Delete Account?</h3>
+                </div>
+                <div class="pui-confirm-body">
+                    <p style="margin: 0 0 14px 0;">
+                        This will <strong>permanently delete</strong> your InFlight account, profile, saved preferences, pinned flights, pilot history, and any other data tied to it.
+                    </p>
+                    <p style="margin: 0 0 14px 0; font-size: 0.85rem; color: var(--pui-text-tertiary);">
+                        If you have an active Pro subscription, cancel it first at <a href="https://inflight.info" target="_blank" style="color: var(--pui-accent);">inflight.info</a> — deleting your account here does not stop a recurring payment.
+                    </p>
+                    <p style="margin: 0 0 8px 0; font-size: 0.85rem;">
+                        Type <strong>DELETE</strong> below to confirm:
+                    </p>
+                    <input type="text" id="pui-delete-confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE" class="pui-input" style="letter-spacing: 0.1em;">
+                    <div id="pui-delete-error" class="pui-alert pui-alert-error" style="display:none; margin: 12px 0 0;"></div>
+                </div>
+                <div class="pui-confirm-actions" style="display: flex; gap: 10px;">
+                    <button class="pui-btn-ghost" id="pui-delete-cancel" style="flex: 1;">Keep My Account</button>
+                    <button class="pui-btn-danger-outline" id="pui-delete-submit" style="flex: 1; border-color: rgba(239, 68, 68, 0.5); color: #ef4444;" disabled>
+                        <i class="fa-solid fa-trash"></i> Delete Forever
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => overlay.classList.add('pui-open'));
+        });
+
+        const cleanup = () => {
+            overlay.classList.remove('pui-open');
+            setTimeout(() => overlay.remove(), 240);
+            document.removeEventListener('keydown', escHandler);
+        };
+        const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+        document.addEventListener('keydown', escHandler);
+
+        const input = document.getElementById('pui-delete-confirm-input');
+        const submitBtn = document.getElementById('pui-delete-submit');
+        const errorBox = document.getElementById('pui-delete-error');
+
+        input.addEventListener('input', () => {
+            submitBtn.disabled = input.value.trim().toUpperCase() !== 'DELETE';
+        });
+        input.focus();
+
+        document.getElementById('pui-delete-cancel').addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        submitBtn.addEventListener('click', async () => {
+            if (input.value.trim().toUpperCase() !== 'DELETE') return;
+            errorBox.style.display = 'none';
+            submitBtn.disabled = true;
+            const originalHtml = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Deleting…';
+
+            try {
+                if (!this._supabase) throw new Error("Auth client unavailable.");
+                const { data, error } = await this._supabase.functions.invoke('delete-user-account', { body: {} });
+                if (error || data?.error) {
+                    throw new Error(error?.message || data?.error || "Failed to delete account.");
+                }
+
+                await this._supabase.auth.signOut();
+                cleanup();
+                if (typeof this.close === 'function') this.close();
+                if (window.Toastify) {
+                    window.Toastify({
+                        text: "Your account has been deleted.",
+                        duration: 5000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "#ef4444" }
+                    }).showToast();
+                }
+            } catch (err) {
+                submitBtn.innerHTML = originalHtml;
+                submitBtn.disabled = false;
+                errorBox.textContent = (err.message || "Failed to delete account.") + " Email inflightCustomer@gmail.com if this keeps failing.";
+                errorBox.style.display = 'flex';
+            }
+        });
+    },
+
 _showCancellationModal() {
+        // App Store compliance: never surface external payment portals in iOS.
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         const existing = document.getElementById('pui-custom-confirm');
         if (existing) existing.remove();
 
@@ -3063,14 +3201,22 @@ _showCancellationModal() {
                     <h3>Cancel Subscription</h3>
                 </div>
                 <div class="pui-confirm-body">
-                    <p style="margin-bottom: 24px;">We will route you to our secure billing portal to manage your Pro Access subscription.</p>
-
+                    <p style="margin-bottom: 24px;">Please select the payment method you used to upgrade to Pro Access. We will route you to the correct secure portal to manage your billing.</p>
+                    
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                         <button class="pui-btn-secondary" id="pui-cancel-stripe-btn" style="padding: 14px; font-size: 0.95rem; justify-content: flex-start; border-color: var(--pui-border-strong);">
                             <i class="fa-brands fa-stripe" style="font-size: 1.8rem; color: #6366f1; width: 40px;"></i>
                             <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
                                 <span>Apple Pay, Google Pay, or Card</span>
                                 <span style="font-size: 0.7rem; color: var(--pui-text-tertiary); font-weight: 500;">Manage via Stripe Billing Portal</span>
+                            </div>
+                        </button>
+
+                        <button class="pui-btn-secondary" id="pui-cancel-paypal-btn" style="padding: 14px; font-size: 0.95rem; justify-content: flex-start; border-color: var(--pui-border-strong);">
+                            <i class="fa-brands fa-paypal" style="font-size: 1.5rem; color: #00457C; width: 40px;"></i>
+                            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                                <span>PayPal</span>
+                                <span style="font-size: 0.7rem; color: var(--pui-text-tertiary); font-weight: 500;">Manage via PayPal AutoPay Settings</span>
                             </div>
                         </button>
                     </div>
@@ -3107,6 +3253,17 @@ _showCancellationModal() {
             if (e.key === 'Escape') cleanup();
         };
         document.addEventListener('keydown', escHandler);
+
+        // --- PAYPAL ROUTE ---
+        document.getElementById('pui-cancel-paypal-btn').addEventListener('click', () => {
+            window.open('https://www.paypal.com/myaccount/autopay/', '_blank');
+            cleanup();
+            this._showMessage(
+                'pui-billing-msg', 
+                'Opened PayPal in a new tab. Please log in to manage your automatic payments.', 
+                'info'
+            );
+        });
 
         // --- STRIPE ROUTE ---
         document.getElementById('pui-cancel-stripe-btn').addEventListener('click', async () => {
@@ -3564,6 +3721,10 @@ const contentRoot = document.getElementById('pui-content');
 
             document.getElementById('pui-billing-cancel-btn')?.addEventListener('click', () => {
                 this._showCancellationModal();
+            });
+
+            document.getElementById('pui-delete-account-btn')?.addEventListener('click', () => {
+                this._showDeleteAccountModal();
             });
         }
 

@@ -3,7 +3,7 @@ const MobileUIHandler = {
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'legacy', // Default is 'legacy' sheet
-        legacyPeekHeight: 280, // Height of the "peek" state for legacy sheet
+        legacyPeekHeight: 320, // Height of the "peek" state for legacy sheet
     },
 
     // --- STATE ---
@@ -298,15 +298,20 @@ disableHudControls() {
         // Selection Event
         sheet.querySelectorAll('.server-opt-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                const newServer = btn.dataset.server;
-                
-                // Update Pill Text
-                const pillText = document.getElementById('mobile-server-name');
-                if (pillText) pillText.textContent = newServer.split(' ')[0];
+                const newServer = btn.dataset.server;       // e.g. "Expert Server"
+                const shortName = newServer.split(' ')[0];   // e.g. "Expert"
 
-                // Trigger Desktop Logic
-                const desktopBtn = document.querySelector(`.server-btn[data-server="${newServer}"]`);
-                if (desktopBtn) desktopBtn.click();
+                // Keep any legacy pill text in sync (no-op if absent)
+                const pillText = document.getElementById('mobile-server-name');
+                if (pillText) pillText.textContent = shortName;
+
+                // Update LandingUI's top-bar label + internal state
+                const landingName = document.getElementById('landing-server-name');
+                if (landingName) landingName.textContent = `${shortName.toUpperCase()} SERVER`;
+                if (window.LandingUI) window.LandingUI._currentServer = shortName;
+
+                // Drive the canonical server switch (mapped + switchServer in flight.js)
+                window.dispatchEvent(new CustomEvent('serverChange', { detail: { server: shortName } }));
 
                 overlay.click(); // Close
             });
@@ -929,6 +934,28 @@ disableHudControls() {
                 z-index: 10; /* Above content */
             }
 
+            /* --- Simple-mode iframe: stretch the sheet + iframe fully ---
+               The default .mobile-legacy-sheet has max-height but no
+               explicit height, so it sizes to its content. The simple
+               window's only child is an iframe with no height attribute
+               or style, which collapses to the browser's ~150px default.
+               Force the sheet to claim the full available viewport and
+               the iframe to fill it, otherwise peek/expanded never
+               stretch out. */
+            .mobile-legacy-sheet:has(> #simple-flight-window-frame) {
+                height: calc(100vh - var(--legacy-top-offset)) !important;
+                height: calc(100dvh - var(--legacy-top-offset)) !important;
+            }
+            .mobile-legacy-sheet > #simple-flight-window-frame {
+                width: 100% !important;
+                height: 100% !important;
+                flex: 1 1 0% !important;
+                min-height: 0 !important;
+                display: block !important;
+                border: none !important;
+                border-radius: 16px 16px 0 0 !important;
+            }
+
             /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
             /* We also use this for AIRPORTS now, as a floating handle */
             .legacy-sheet-handle.simple-mode {
@@ -971,8 +998,59 @@ disableHudControls() {
             }
 
             /* --- Header / Image / Route Bar Overrides --- */
-            .mobile-legacy-sheet .aircraft-overview-panel {
-                /* The handle will wrap this */
+            /* Show the whole aircraft (nose to tail) on the mobile legacy
+               sheet — the inline style on .ac-header-modern in flight.js
+               sets background-size: cover, which over-scales typical
+               16:9 photos in a wider 200 px-tall hero and crops the tail
+               and the back of the plane. !important is required to beat
+               that inline declaration. The image is also anchored to the
+               TOP of the panel so the letterboxed dead space lives at the
+               bottom only — that's where the AC bar sits, so the dead
+               space can fade into the bar instead of being split top/
+               bottom around the photo. */
+            .mobile-legacy-sheet .aircraft-overview-panel,
+            .mobile-legacy-sheet .ac-header-modern {
+                background-size: contain !important;
+                background-repeat: no-repeat !important;
+                background-position: top center !important;
+                background-color: #1c1c1f !important;
+            }
+
+            /* Replace the hero's bottom gradient overlay. The inline
+               default fades to rgba(15,23,42,0.85) (dark navy), which
+               leaves a visible navy band right above the AC bar. Fade
+               instead transparent → gray → AC-bar gray (#3a3a3a) so the
+               bottom of the hero merges into the bar as one continuous
+               low-gray band. */
+            .mobile-legacy-sheet .ac-header-overlay {
+                background: linear-gradient(
+                    to bottom,
+                    transparent 0%,
+                    transparent 45%,
+                    rgba(58, 58, 58, 0.55) 72%,
+                    rgba(58, 58, 58, 0.95) 100%
+                ) !important;
+            }
+
+            /* The blue/navy seam directly under the AC bar is the window
+               itself: .info-window uses rgba(45,45,45,0.9) + a 40 px
+               backdrop blur, which picks up the blue tint of the map
+               underneath and reads as navy through any transparent
+               child. .ac-info-window-tabs has no background of its own,
+               so the blurred window shows through that strip. Plug it
+               with the AC bar's own gray so the strip between the bar
+               and the tab buttons continues the bar visually instead of
+               stepping down to a darker zinc. */
+            .mobile-legacy-sheet .ac-info-window-tabs {
+                background: #3a3a3a !important;
+            }
+            /* Keep the top-right action buttons (pin / bell / replay / share)
+               clickable in legacy mode. The drag handle wrapper sits at
+               z-index 2000 across the middle 50% of the sheet, and on
+               narrow phones the buttons extend left into that zone, so
+               their taps would get swallowed by the handle's grab area. */
+            .mobile-legacy-sheet .overview-actions {
+                z-index: 2001 !important;
             }
             .mobile-legacy-sheet .route-summary-overlay {
                 /* The handle will wrap this */
@@ -1366,15 +1444,27 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         // Since elements were moved from the activeWindow to the HUD DOM, their native click
         // handlers attached via event delegation to activeWindow will no longer fire.
         const handleDesktopProxyClick = (e) => {
+            // The bell is special: clone-and-click doesn't work because the
+            // handler swaps the icon class on the clicked node, and a hidden
+            // clone won't reflect that to the user. Call the extracted bell
+            // handler directly against the visible in-island button.
+            const bellBtn = e.target.closest('.aircraft-window-trackme-btn');
+            if (bellBtn && typeof window.handleTrackmeBellClick === 'function') {
+                e.preventDefault();
+                e.stopPropagation();
+                window.handleTrackmeBellClick(bellBtn);
+                return;
+            }
+
             const actionBtn = e.target.closest('.aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, #plan-this-flight-btn, .profile-toggle-btn');
-            
+
             if (actionBtn && this.activeWindow) {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 // If opening Trip Card or Replay, temporarily hide HUD so it doesn't overlap
                 if (actionBtn.classList.contains('aircraft-window-share-btn') || actionBtn.classList.contains('aircraft-window-replay-btn')) {
-                    this.closeActiveWindow(); 
+                    this.closeActiveWindow();
                 }
 
                 // Trigger the desktop event listener by cloning the button into the original window
@@ -1530,7 +1620,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         if (this.activeMode !== 'hud') return;
         
         // --- [CRITICAL FIX] Do not start dragging if the user is touching an action button ---
-        if (e.target.closest('button, a, .aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, .close-btn, .overview-actions, [role="button"]')) {
+        if (e.target.closest('button, a, .aircraft-window-pin-btn, .aircraft-window-share-btn, .aircraft-window-replay-btn, .aircraft-window-trackme-btn, .close-btn, .overview-actions, [role="button"]')) {
             return; // Let the click event fire naturally
         }
 
@@ -1577,6 +1667,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const interactiveSelectors = [
             '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
             '.aircraft-window-pin-btn', '.aircraft-window-share-btn', '.aircraft-window-replay-btn',
+            '.aircraft-window-trackme-btn',
             '.ac-info-tab-btn'
         ];
         if (e.target.closest(interactiveSelectors.join(', '))) {
