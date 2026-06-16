@@ -130,8 +130,6 @@ function _buildSDF(rgba, w, h, radius, cutoff) {
 async function loadSpriteSheetAndGenerateIcons(map) {
     const spriteUrl = './markers.png';
 
-    const USE_SDF = true;
-
     const img = new Image();
     img.crossOrigin = "Anonymous";
 
@@ -176,22 +174,6 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         const pixelH = Math.floor(hRatio * img.height);
 
         if (pixelW === 0 || pixelH === 0) continue;
-<<<<<<< HEAD
-
-        if (!USE_SDF) {
-            const raw = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
-            const pRatio = pixelW / TARGET_LOGICAL_SIZE;
-            map.addImage(`icon-${iconKey}`, raw, { pixelRatio: pRatio, sdf: false });
-            if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
-                await new Promise(resolve => requestAnimationFrame(resolve));
-                executionStartTime = performance.now();
-            }
-            continue;
-        }
-
-        
-        const pRatio = pixelW / TARGET_LOGICAL_SIZE;
-=======
         if (map.hasImage(`icon-${iconKey}`)) continue;
 
         // High-quality bicubic upscale of the tile, preserving aspect ratio.
@@ -221,7 +203,6 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         const pRatio = Math.max(padW, padH) / TARGET_LOGICAL_SIZE;
 
         map.addImage(`icon-${iconKey}`, sdfImage, { pixelRatio: pRatio, sdf: true });
->>>>>>> 9a67e474d00cabf5de5a659bf8a5fcb10cea1f9f
 
         if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
             await new Promise(resolve => requestAnimationFrame(resolve));
@@ -3229,7 +3210,7 @@ function injectCustomStyles() {
             display: flex; 
             flex-direction: column; 
             justify-content: space-between; 
-            margin-bottom: 0px;
+            margin-bottom: -40px;
         }
         
         .aircraft-overview-panel::before { 
@@ -3242,7 +3223,7 @@ function injectCustomStyles() {
                 rgba(0, 0, 0, 0.7) 0%, 
                 rgba(0, 0, 0, 0) 35%, 
                 rgba(0, 0, 0, 0.2) 80%, 
-                var(--bg-glass) 100% /* Matches your window background */
+                rgba(24, 24, 27, 1) 100%
             );
         }
         
