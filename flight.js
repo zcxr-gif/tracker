@@ -17,6 +17,9 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
+import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
+
+installSlowConnectionMonitor();
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -189,7 +192,13 @@ if ('serviceWorker' in navigator) {
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
-    const CURRENT_SITE_URL = window.location.origin;
+    // iOS/Capacitor app shim: inside the native app the origin is capacitor://,
+    // so relative netlify-function calls must be redirected to production.
+    const PRODUCTION_URL = 'https://inflight.info';
+    const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' ||
+                            window.location.protocol === 'file:' ||
+                            window.location.protocol === 'capacitor:';
+    const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
 
 
     // --- State Variables ---
@@ -317,7 +326,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
 
         if (!isSignedIn) {
             if (typeof showNotification === 'function') {
-                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
             }
             // Surface the signup modal so the user can convert immediately
             if (window.AuthUI && typeof window.AuthUI.open === 'function') {
@@ -343,7 +352,7 @@ window.pinFlight = function(flightId) {
     const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
     if (!isSignedIn) {
         if (typeof showNotification === 'function') {
-            showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+            showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
         }
         if (window.AuthUI && typeof window.AuthUI.open === 'function') {
             window.AuthUI.open('signup');
@@ -1209,10 +1218,10 @@ function injectCustomStyles() {
 .ac-header-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, 
-        rgba(0,0,0,0.2) 0%, 
-        rgba(0,0,0,0.1) 40%, 
-        rgba(15, 23, 42, 0.8) 100%
+    background: linear-gradient(180deg,
+        rgba(0,0,0,0.2) 0%,
+        rgba(0,0,0,0.1) 40%,
+        var(--iw-bg-end) 100%
     );
     z-index: 1;
 }
@@ -2634,17 +2643,19 @@ function injectCustomStyles() {
             }
         }
         
-        .aircraft-overview-panel { 
+        .aircraft-overview-panel {
             position: relative;
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
+            height: 200px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-color: #0b1220;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             margin-bottom: 0px;
         }
         
@@ -3070,8 +3081,9 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--bg-glass);
-            border-bottom: 1px solid var(--border-glass);
+            background: #3a3a3a;
+            border-top: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(0,0,0,0.24);
             padding: 0 20px;
             height: 60px;
         }
@@ -3562,6 +3574,17 @@ function injectCustomStyles() {
             place-items: center;
             transition: all 0.2s ease;
             backdrop-filter: blur(4px);
+            position: relative;
+        }
+
+        /* Extends the tap area to ~44pt (Apple HIG minimum) without changing
+           the visual size. The 32px circular button alone is a fiddly target
+           in portrait, where the identity h1 can also sit close to it. */
+        .hero-btn::before {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
         }
 
         .hero-btn:hover {
@@ -9211,19 +9234,335 @@ async function createAirportInfoWindowHTML(icao) {
     };
 
     // --- Notifications ---
-    function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#001B94" }
-        }).showToast();
+    let iosToastStack = null;
+    let lastToastSignature = '';
+    let lastToastAt = 0;
+    let lastOfflineToastAt = 0;
+
+    const toastMeta = {
+        success: { title: 'Done', icon: 'fa-circle-check' },
+        error: { title: 'Needs Attention', icon: 'fa-circle-exclamation' },
+        warning: { title: 'Heads Up', icon: 'fa-triangle-exclamation' },
+        info: { title: 'InFlight', icon: 'fa-circle-info' },
+        offline: { title: 'Offline Mode', icon: 'fa-wifi' }
+    };
+
+    function normalizeToastType(type) {
+        const normalized = String(type || 'info').toLowerCase();
+        if (normalized === 'warn') return 'warning';
+        if (normalized === 'danger') return 'error';
+        return toastMeta[normalized] ? normalized : 'info';
+    }
+
+    function stripNotificationText(value) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = String(value || '');
+        return (wrapper.textContent || wrapper.innerText || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function isOfflineNow() {
+        return typeof navigator !== 'undefined' && navigator.onLine === false;
+    }
+
+    function isLoadFailureText(text) {
+        const clean = String(text || '').toLowerCase();
+        return /could not load|couldn't load|can't load|failed to load|data retrieval failed|network failure|network error|connection failed|live service connection failed|failed to fetch|request timed out|not available/.test(clean);
+    }
+
+    function ensureIosToastStack() {
+        if (iosToastStack && document.body.contains(iosToastStack)) return iosToastStack;
+
+        if (!document.getElementById('inflight-ios-toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'inflight-ios-toast-styles';
+            style.textContent = `
+                .inflight-ios-toast-stack {
+                    position: fixed;
+                    top: calc(env(safe-area-inset-top, 0px) + 12px);
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: min(390px, calc(100vw - 24px));
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    z-index: 2147483647;
+                    pointer-events: none;
+                }
+                .inflight-ios-toast {
+                    display: grid;
+                    grid-template-columns: 32px minmax(0, 1fr);
+                    gap: 10px;
+                    align-items: center;
+                    min-height: 52px;
+                    padding: 11px 14px;
+                    border-radius: 18px;
+                    background: rgba(28, 28, 30, 0.92);
+                    color: #fff;
+                    border: 1px solid rgba(255,255,255,0.14);
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.34);
+                    backdrop-filter: blur(24px) saturate(170%);
+                    -webkit-backdrop-filter: blur(24px) saturate(170%);
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+                    pointer-events: auto;
+                    cursor: pointer;
+                    opacity: 0;
+                    transform: translateY(-12px) scale(0.985);
+                    transition: opacity 220ms ease, transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .inflight-ios-toast.visible {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+                .inflight-ios-toast.out {
+                    opacity: 0;
+                    transform: translateY(-8px) scale(0.985);
+                }
+                .inflight-ios-toast-icon {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                    display: grid;
+                    place-items: center;
+                    background: rgba(255,255,255,0.12);
+                    color: #d1d5db;
+                    font-size: 15px;
+                }
+                .inflight-ios-toast-success .inflight-ios-toast-icon { color: #34c759; background: rgba(52,199,89,0.14); }
+                .inflight-ios-toast-error .inflight-ios-toast-icon { color: #ff453a; background: rgba(255,69,58,0.14); }
+                .inflight-ios-toast-warning .inflight-ios-toast-icon { color: #ffd60a; background: rgba(255,214,10,0.14); }
+                .inflight-ios-toast-offline .inflight-ios-toast-icon { color: #64d2ff; background: rgba(100,210,255,0.14); }
+                .inflight-ios-toast-copy {
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1px;
+                }
+                .inflight-ios-toast-title {
+                    font-size: 12px;
+                    line-height: 1.2;
+                    font-weight: 700;
+                    letter-spacing: 0;
+                    color: rgba(255,255,255,0.96);
+                }
+                .inflight-ios-toast-message {
+                    font-size: 13px;
+                    line-height: 1.28;
+                    font-weight: 500;
+                    color: rgba(255,255,255,0.72);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                @media (max-width: 480px) {
+                    .inflight-ios-toast-stack {
+                        top: calc(env(safe-area-inset-top, 0px) + 8px);
+                        width: calc(100vw - 20px);
+                    }
+                    .inflight-ios-toast {
+                        border-radius: 16px;
+                    }
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .inflight-ios-toast {
+                        transition: opacity 120ms ease;
+                        transform: none !important;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        iosToastStack = document.createElement('div');
+        iosToastStack.id = 'inflight-ios-toast-stack';
+        iosToastStack.className = 'inflight-ios-toast-stack';
+        document.body.appendChild(iosToastStack);
+        return iosToastStack;
+    }
+
+    function nudgeHaptics(type) {
+        try {
+            const haptics = window.Capacitor?.Plugins?.Haptics;
+            if (!haptics || typeof haptics.impact !== 'function') return;
+            const style = type === 'error' ? 'HEAVY' : type === 'success' ? 'LIGHT' : 'MEDIUM';
+            haptics.impact({ style });
+        } catch (_) {}
+    }
+
+    function showOfflineNotice(force = false) {
+        const now = Date.now();
+        if (!force && now - lastOfflineToastAt < 45000) return;
+        lastOfflineToastAt = now;
+        showNotification('Live data will resume when your connection returns.', 'offline', {
+            title: 'Offline Mode',
+            force: true,
+            bypassOfflineFilter: true,
+            duration: 3600
+        });
+    }
+
+    function showNotification(message, type = 'info', options = {}) {
+        const text = stripNotificationText(message);
+        if (!text) return;
+
+        if (!options.bypassOfflineFilter && isOfflineNow() && isLoadFailureText(text)) {
+            showOfflineNotice();
+            return;
+        }
+
+        const normalizedType = normalizeToastType(type);
+        const now = Date.now();
+        const signature = `${normalizedType}:${text}`;
+        if (!options.force && signature === lastToastSignature && now - lastToastAt < 1500) return;
+        lastToastSignature = signature;
+        lastToastAt = now;
+
+        const stack = ensureIosToastStack();
+        const meta = {
+            ...toastMeta[normalizedType],
+            title: options.title || toastMeta[normalizedType].title
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `inflight-ios-toast inflight-ios-toast-${normalizedType}`;
+        toast.setAttribute('role', normalizedType === 'error' ? 'alert' : 'status');
+
+        const icon = document.createElement('div');
+        icon.className = 'inflight-ios-toast-icon';
+        const iconGlyph = document.createElement('i');
+        iconGlyph.className = `fa-solid ${meta.icon}`;
+        icon.appendChild(iconGlyph);
+
+        const copy = document.createElement('div');
+        copy.className = 'inflight-ios-toast-copy';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'inflight-ios-toast-title';
+        titleEl.textContent = meta.title;
+        const messageEl = document.createElement('div');
+        messageEl.className = 'inflight-ios-toast-message';
+        messageEl.textContent = text;
+        copy.append(titleEl, messageEl);
+
+        toast.append(icon, copy);
+        stack.appendChild(toast);
+
+        const dismiss = () => {
+            toast.classList.add('out');
+            setTimeout(() => toast.remove(), 260);
+        };
+        toast.addEventListener('click', dismiss);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+        nudgeHaptics(normalizedType);
+        setTimeout(dismiss, options.duration || (normalizedType === 'error' ? 4300 : 3200));
     }
 
     window.showGlobalNotification = showNotification;
+    window.InflightConnectionStatus = {
+        isOffline: isOfflineNow,
+        showOfflineNotice
+    };
+
+    window.addEventListener('inflight:notify', (event) => {
+        const detail = event.detail || {};
+        showNotification(detail.message || detail.text || '', detail.type || 'info', detail.options || {});
+    });
+
+    window.addEventListener('offline', () => showOfflineNotice(true));
+    window.addEventListener('online', () => {
+        lastOfflineToastAt = 0;
+        showNotification('Live data is connected again.', 'success', {
+            title: 'Back Online',
+            force: true,
+            duration: 2600
+        });
+    });
+
+    // Build the Live Activity start payload from whatever state we currently have on the
+    // open aircraft info window. Returns null if we don't have enough to fire yet.
+    function buildLiveActivityPayload(flightId) {
+        if (!flightId) return null;
+        const feature = currentMapFeatures[flightId];
+        if (!feature || !feature.properties) return null;
+        const props = feature.properties;
+        const windowEl = document.getElementById('aircraft-info-window');
+        const depIcao = windowEl?.dataset.depIcao || props.depIcao || '';
+        const arrIcao = windowEl?.dataset.arrIcao || props.arrIcao || '';
+        if (!depIcao || !arrIcao || depIcao === 'N/A' || arrIcao === 'N/A') {
+            return null;
+        }
+
+        const filedDepTime = windowEl?.dataset.filedDepTime || '';
+        const filedDuration = parseFloat(windowEl?.dataset.filedDuration || '0');
+        const schedDepMs = filedDepTime ? Date.parse(filedDepTime) : null;
+        const schedArrMs = (schedDepMs && filedDuration > 0)
+            ? schedDepMs + (filedDuration * 60 * 1000)
+            : null;
+
+        // Distance to destination (NM) for the live ETA estimate.
+        let distanceNm = 0;
+        const destLat = airportsData[arrIcao]?.lat;
+        const destLon = airportsData[arrIcao]?.lon;
+        if (destLat != null && destLon != null && props.position?.lat != null) {
+            distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
+        }
+
+        // Total great-circle distance dep → arr. Captured once at start so
+        // the Live Activity progress bar can render distance progress
+        // without recomputing geometry on every refresh.
+        let totalDistanceNm = 0;
+        const depLat = airportsData[depIcao]?.lat;
+        const depLon = airportsData[depIcao]?.lon;
+        if (depLat != null && depLon != null && destLat != null && destLon != null) {
+            totalDistanceNm = getDistanceKm(depLat, depLon, destLat, destLon) / 1.852;
+        }
+        if (totalDistanceNm < distanceNm) totalDistanceNm = distanceNm;
+
+        // Hand the same cascade the in-app card uses (SCHEDULED → ACTUAL →
+        // ESTIMATED) so the lock screen agrees with what's on screen.
+        const cachedTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
+            ? liveTrailCache.get(flightId)
+            : null;
+        const filedPlan = (schedDepMs && filedDuration > 0)
+            ? { dep_time: filedDepTime, duration_minutes: filedDuration }
+            : null;
+        const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
+        const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
+
+        // ETA: prefer the smart cascade's timestamp; fall back to a fresh
+        // gs+distance estimate; finally fall back to scheduled arrival. The
+        // old code's "now + 1h" fallback was producing wildly wrong ETEs
+        // on the lock-screen countdown when the aircraft was slow/taxiing.
+        const gs = props.position?.gs_kt || 0;
+        let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
+        if (!etaMs && distanceNm > 0 && gs > 50) {
+            etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+        }
+        if (!etaMs) etaMs = schedArrMs || (Date.now() + 60 * 60 * 1000);
+
+        // ATD: only ACTUAL counts — the scheduled departure is conveyed
+        // separately. If we don't have GPS history yet, leave it
+        // undefined so the widget shows "scheduledDeparture" verbatim
+        // instead of mislabeling the planned time as the actual takeoff.
+        let atdMs;
+        if (depInfo?.timestamp && depInfo.label === 'ACTUAL') {
+            atdMs = depInfo.timestamp.getTime();
+        }
+
+        return {
+            flightId,
+            callsign: props.callsign || flightId,
+            airlineName: props.liveryName || props.aircraftName || '',
+            departureIcao: depIcao,
+            arrivalIcao: arrIcao,
+            scheduledDeparture: schedDepMs || (atdMs || Date.now()),
+            scheduledArrival: schedArrMs || etaMs,
+            currentEta: etaMs,
+            currentAtd: atdMs,
+            distanceToDestinationNm: distanceNm,
+            totalDistanceNm,
+            isLanded: false
+        };
+    }
+    window.buildLiveActivityPayload = buildLiveActivityPayload;
 
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
@@ -9884,14 +10223,64 @@ function updateTrafficLegendUI() {
 function setupAircraftWindowEvents() {
         if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
 
+        // Bell logic extracted so the mobile sector-ops proxy can call it
+        // directly against the visible button — the desktop click delegation
+        // doesn't see clicks on bells that have been moved into the island.
+        async function handleTrackmeBellClick(trackMeBtn) {
+            if (!trackMeBtn) return;
+            const flightId = trackMeBtn.dataset.flightId || currentFlightInWindow;
+            if (!flightId) return;
+            if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
+                await window.InflightLiveActivity.end({ flightId });
+                showNotification?.('Live Activity stopped.', 'info');
+            } else {
+                await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
+                const prior = window.InflightLiveActivity?.getTrackedFlightId();
+                if (prior && prior !== flightId) {
+                    await window.InflightLiveActivity.end({ flightId: prior });
+                }
+                const payload = (typeof buildLiveActivityPayload === 'function')
+                    ? buildLiveActivityPayload(flightId)
+                    : null;
+                if (!payload) {
+                    showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
+                    return;
+                }
+                const res = await window.InflightLiveActivity.start(payload);
+                if (res?.ok) {
+                    showNotification?.('Tracking on Lock Screen.', 'success');
+                } else if (res?.reason === 'unsupported') {
+                    showNotification?.('Live Activities not available on this device.', 'error');
+                } else {
+                    const reason = (res && res.reason) ? String(res.reason) : 'unknown';
+                    const short = reason.length > 140 ? reason.slice(0, 140) + '…' : reason;
+                    console.error('[LiveActivity] start failed:', res);
+                    showNotification?.(`Could not start Live Activity: ${short}`, 'error');
+                }
+            }
+            const icon = trackMeBtn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-bell');
+                icon.classList.toggle('fa-bell-slash');
+            }
+        }
+        window.handleTrackmeBellClick = handleTrackmeBellClick;
+
         aircraftInfoWindow.addEventListener('click', async (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const pinBtn = e.target.closest('.aircraft-window-pin-btn');
             const shareBtn = e.target.closest('.aircraft-window-share-btn');
             const replayBtn = e.target.closest('.aircraft-window-replay-btn');
+            const trackMeBtn = e.target.closest('.aircraft-window-trackme-btn');
             const tabBtn = e.target.closest('.ac-info-tab-btn');
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+
+            if (trackMeBtn) {
+                e.preventDefault();
+                await handleTrackmeBellClick(trackMeBtn);
+                return;
+            }
 
             if (shareBtn) {
                 e.preventDefault();
@@ -10645,7 +11034,7 @@ const SettingsUI = {
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
         visuals: { label: "Visuals", icon: "fa-eye" },
-        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" },
+        pro_layers: { label: (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Layers" : "Pro Layers", icon: "fa-layer-group" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
@@ -11021,9 +11410,10 @@ renderCategory(catId) {
                     break;
                 case 'visuals':
                     html = '';
-                    
-                    // Only show the ad banner if the user is NOT signed in
-                    if (!isSignedIn) {
+
+                    // Only show the upsell banner if the user is NOT signed in,
+                    // and never on iOS native (App Store rule 3.1.3(b)).
+                    if (!isSignedIn && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
                         html += `
                             <div class="pro-upsell-card" style="
                                 position: relative;
@@ -11130,7 +11520,7 @@ renderCategory(catId) {
 
                             <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
                                 <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
                                 </div>
                                 <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
                             </div>
@@ -11246,7 +11636,7 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
                                 <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                                    <i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>MAP CONTROL
                                 </h4>
                                 <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
                                     High-fidelity map layers and 3D visualization tools.
@@ -11894,21 +12284,6 @@ window.globalNatTracks = natTracks;
             panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
         }
     } finally {
-        // [PERF FIX] Removed the 8-second artificial minimum loader.
-        // The loader now hides as soon as the app is actually ready.
-        //
-        // NOTE: The `mainContentLoader` variable that used to live here was
-        // never declared in this file — referencing it threw a ReferenceError
-        // from inside a `finally` block, which crashed initializeSectorOpsView
-        // on every load and halted the rest of initializeApp (including
-        // SettingsUI.init), making the gear button do nothing.
-        // The actual current loader is `#inflight-pro-loader-overlay`, which
-        // is dismissed elsewhere; we look it up defensively here just in case
-        // a `#main-content-loader` element exists in some build of index.html.
-        const mainContentLoader = document.getElementById('main-content-loader');
-        if (mainContentLoader) {
-            mainContentLoader.classList.remove('active');
-        }
         console.log(`Loading complete in ${Date.now() - window.loadingStartTime}ms.`);
     }
 }
@@ -11939,42 +12314,13 @@ async function setupMapLayersAndFog() {
 }
 
 /**
- * Map-loader gate: keeps a scoped overlay over the map container until
- * Mapbox reports `idle` (all visible tiles at the current zoom loaded
- * and no pending transitions). Industry-standard pattern — users never
- * see a half-loaded globe. Subsequent zooms rely on the constructor's
- * `prefetchZoomDelta` + default crossfade to mask tile transitions, so
- * the loader is NOT re-shown on user-driven zoom.
- */
-let _sectorOpsMapLoaderSafetyTimer = null;
-function showSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el) return;
-    el.classList.remove('is-hidden');
-}
-function hideSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el || el.classList.contains('is-hidden')) return;
-    el.classList.add('is-hidden');
-    if (_sectorOpsMapLoaderSafetyTimer) {
-        clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-        _sectorOpsMapLoaderSafetyTimer = null;
-    }
-}
-
-/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
-        hideSectorOpsMapLoader();
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
-
-    // Reveal the loader before the map starts initializing so the user never
-    // sees the empty container or a half-rendered globe.
-    showSectorOpsMapLoader();
 
     if (sectorOpsMap) {
         sectorOpsMap.remove();
@@ -12010,28 +12356,8 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
-    // --- Loader gate: hide the overlay only once the map is truly ready ---
-    // `idle` fires when every tile in the viewport is loaded, the style is
-    // applied, and there are no pending transitions. This is the canonical
-    // Mapbox readiness signal — used by FlightRadar24 and similar apps.
-    sectorOpsMap.once('idle', () => {
-        hideSectorOpsMapLoader();
-    });
-    // Safety net: if the network stalls or `idle` never fires, reveal the
-    // map anyway after 12s rather than leaving the user staring at a spinner.
-    if (_sectorOpsMapLoaderSafetyTimer) clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-    _sectorOpsMapLoaderSafetyTimer = setTimeout(() => {
-        console.warn('Sector Ops map: idle event never fired within 12s — revealing map anyway.');
-        hideSectorOpsMapLoader();
-    }, 12000);
-
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
-    // Re-cover the map while layers rebuild after a style swap, then drop
-    // the loader on the next idle. Without this, switching between dark/
-    // satellite/etc. exposes a half-themed map for ~300 ms.
-    showSectorOpsMapLoader();
-    sectorOpsMap.once('idle', () => hideSectorOpsMapLoader());
 
     await setupMapLayersAndFog();
 
@@ -12980,9 +13306,37 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
+
+        // Sync the initial flown-path render to whatever the live marker is
+        // actually showing on the map. Two failure modes used to produce a
+        // path that visibly extended past the aircraft icon on first open:
+        //   1. `flightProps.position` is the snapshot from click time, often
+        //      a few hundred ms (sometimes seconds) stale by the time the
+        //      history fetch resolves — using it would anchor the path to
+        //      an older spot than the icon.
+        //   2. The history endpoint can return GPS samples that are newer
+        //      than the latest socket frame the marker has consumed;
+        //      appending them stretches the line past the icon until the
+        //      next socket tick catches the marker up.
+        // Reading the live feature from currentMapFeatures + filtering
+        // trail points to <= marker last_update fixes both.
+        const liveFeature = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        const liveLastUpdateMs = liveFeature?.properties?.last_update
+            ? new Date(liveFeature.properties.last_update).getTime() : null;
+        const livePosition = liveFeature?.geometry?.coordinates
+            ? {
+                lat: liveFeature.geometry.coordinates[1],
+                lon: liveFeature.geometry.coordinates[0],
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+              }
+            : flightProps.position;
+        const trailUpToMarker = (liveLastUpdateMs != null)
+            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
+            : sortedRoutePoints;
+
         // Generate the segmented FeatureCollection using our new function
-        const initialRouteData = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
@@ -13225,20 +13579,6 @@ let totalDistanceNM = 0;
         delete windowEl.dataset.cruiseAltFt;
     }
     
-    // --- Plan Button ---
-    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
-    let planButtonHtml = '';
-    if (hasPlan && simbriefAircraftValue) {
-        planButtonHtml = `
-            <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
-                data-departure="${departureIcao}" 
-                data-arrival="${arrivalIcao}" 
-                data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%; margin-top: 16px;">
-                <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-            </button>`;
-    }
-
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
@@ -13326,9 +13666,9 @@ let totalDistanceNM = 0;
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
-            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 0%, transparent 50%, rgba(15,23,42,0.85) 100%); z-index: 0; pointer-events: none;"></div>
+            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
-                <div class="ac-identity-group" style="max-width: calc(100% - 120px);">
+                <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
                     <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${logoHtml} ${baseProps.callsign}</h1>
                     <div class="ac-sub-identity" style=" font-size: 11px; font-weight: 500; color: #cbd5e1; margin-top: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <span>${aircraftName}</span>
@@ -13342,6 +13682,11 @@ let totalDistanceNM = 0;
     <button id="pin-flight-btn" class="hero-btn aircraft-window-pin-btn" title="Pin Flight">
         <i class="fa-solid fa-thumbtack"></i>
     </button>
+
+    ${(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative() && window.InflightLiveActivity && window.InflightLiveActivity.isSupported()) ? `
+    <button class="hero-btn aircraft-window-trackme-btn" id="trackme-btn-${baseProps.flightId}" data-flight-id="${baseProps.flightId}" title="This is my flight">
+        <i class="fa-solid ${window.InflightLiveActivity.isTrackingFlight(baseProps.flightId) ? 'fa-bell-slash' : 'fa-bell'}"></i>
+    </button>` : ''}
 
     <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
         <i class="fa-solid fa-circle-play"></i>
@@ -13358,6 +13703,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
 
+        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
@@ -13391,16 +13737,19 @@ let totalDistanceNM = 0;
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
+        </div>
 
-    <div class="ac-info-window-tabs" style="padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
-                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
                  </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
                  </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3a3f4a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX}); box-shadow: 0 6px 16px rgba(0,0,0,0.22);"></div>
             </div>
             <button id="ac-dock-toggle-btn" class="ac-dock-toggle-btn" title="Move Window">
     <i class="fa-solid fa-arrows-left-right-to-line"></i>
@@ -13653,39 +14002,55 @@ let totalDistanceNM = 0;
                         </span>
                     </div>
 
-                    <!-- Position grid: LAT / LON / HDG / G·S -->
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
-                        <div style="display: flex; flex-direction: column;">
+                    <!-- Position grid: compact iOS-friendly live flight data -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 12px;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LAT</span>
                             <span id="ac-lat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LON</span>
                             <span id="ac-lon" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
+                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">HDG</span>
                             <span id="ac-heading" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---°</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">G/S</span>
                             <span id="ac-gs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
                         </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
+                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
                     </div>
 
-                    <!-- Atmosphere row: WIND / SAT / TAS -->
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
-                        <div style="display: flex; flex-direction: column;">
+                    <!-- Atmosphere and plan row: WIND / SAT / TAS / CRZ / ALT delta -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">WIND</span>
                             <span id="ac-env-wind" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---/--</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">SAT</span>
                             <span id="ac-env-oat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--°C</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">TAS</span>
                             <span id="ac-tas" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
+                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT Δ</span>
+                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
                     </div>
 
@@ -13756,66 +14121,6 @@ let totalDistanceNM = 0;
                         <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
                     </div>` : ''}
-               </div>
-
-                <!-- ════════════ VERTICAL PROFILE CARD (enhanced VSD with live readouts) ════════════ -->
-                <div class="ac-info-card-bar tech-module vsd-module-container" style="background: #3a3a3a; backdrop-filter: blur(16px); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-                        <span class="tech-module-title" style="font-size: 9px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.2px; display: flex; align-items: center; gap: 8px;">
-                            <i class="fa-solid fa-chart-area" style="color: #38bdf8;"></i> Vertical Profile
-                        </span>
-                        <span class="fms-page-count" style="font-size: 8px; color: #94a3b8; font-weight: 600; letter-spacing: 0.6px;">VSD</span>
-                    </div>
-
-                    <!-- Live readouts: ALT / V·S / CRZ TGT / ALT Δ -->
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px;">
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
-                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
-                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
-                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Δ TGT</span>
-                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                    </div>
-
-                    <!-- The chart (kept identical so existing VSD render code keeps working) -->
-                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false" style="background: rgba(0,0,0,0.25); border-radius: 10px; padding: 8px; border: 1px solid rgba(255,255,255,0.04);">
-                        <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
-                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
-                                    <path id="vsd-profile-path" d="" />
-                                </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                            ${planButtonHtml}
-                        </div>
-                    </div>
-
-                    <!-- Footer: legend + live phase indicator -->
-                    <div class="vsd-footer" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
-                                <div class="dot-plan" style="width: 10px; height: 3px; background: #38bdf8; border-radius: 1px;"></div>
-                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">PLANNED</span>
-                            </div>
-                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
-                                <div class="dot-flown" style="width: 10px; height: 3px; background: #4ade80; border-radius: 1px;"></div>
-                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">FLOWN</span>
-                            </div>
-                        </div>
-                        <span id="ac-vsd-phase" style="font-size: 10px; color: #fbbf24; font-weight: 800; letter-spacing: 0.8px;">${flightPhase}</span>
-                    </div>
                 </div>
             </div>
  
@@ -14405,6 +14710,13 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
 
+    // The Live Activity push used to live here, but it was computing
+    // its own ETA / ATD with a broken fallback ("now + 1h" when the
+    // aircraft was slow) and a typo (filedPlanData.departureTime — the
+    // real field is dep_time). It now lives below, after the same
+    // SCHEDULED/ACTUAL/ESTIMATED cascade the in-app card consumes, so
+    // the lock screen and the card always agree.
+
     // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
     {
         const _gs = baseProps.position.gs_kt || 0;
@@ -14951,6 +15263,53 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     const _depInfoLive = computeDepartureTimeInfo(baseProps, sortedRoutePoints, _cachedFiledPlan, _depIcaoLive);
     const _arrInfoLive = computeArrivalTimeInfo(baseProps, _cachedFiledPlan, distanceToDestNM);
+
+    // --- Live Activity push (iOS Lock Screen / Dynamic Island) ---
+    // Fires only when the user has marked this flight as "mine" via the
+    // bell button. We reuse the same SCHEDULED/ACTUAL/ESTIMATED cascade
+    // the in-app card just consumed (_depInfoLive / _arrInfoLive), so
+    // the lock-screen ETE countdown agrees with the card and the
+    // departure time only shows ACTUAL once we have real GPS history.
+    try {
+        if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
+            const _gsLA = baseProps.position?.gs_kt || 0;
+            const etaMs = _arrInfoLive?.timestamp
+                ? _arrInfoLive.timestamp.getTime()
+                : (distanceToDestNM > 0 && _gsLA > 50
+                    ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
+                    : null);
+            // ATD only counts when we have real GPS history (label
+            // ACTUAL). Otherwise leave it undefined so the widget shows
+            // the scheduled departure verbatim instead of pretending
+            // we know the takeoff time.
+            const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
+                ? _depInfoLive.timestamp.getTime()
+                : undefined;
+            const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
+                                && _gsLA < 40 && distanceToDestNM < 5);
+            // Bail without an update if we genuinely have no ETA value
+            // to send. The Swift `update` defaults a missing ETA to
+            // Date.now(), which would zero out the lock-screen
+            // countdown ("0 min remaining") -- much worse than just
+            // skipping a tick.
+            if (etaMs) {
+                window.InflightLiveActivity.update({
+                    flightId: baseProps.flightId,
+                    currentEta: etaMs,
+                    currentAtd: atdMs,
+                    distanceToDestinationNm: distanceToDestNM,
+                    isLanded
+                });
+            }
+            if (isLanded) {
+                setTimeout(() => {
+                    window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+                }, 30000);
+            }
+        }
+    } catch (laErr) {
+        console.warn('[LiveActivity] update tick failed:', laErr);
+    }
 
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
@@ -15935,7 +16294,7 @@ if (flatMapToggle) {
             const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
             
             if (proModes.includes(mode) && !isSignedIn) {
-                showNotification("This map style requires a Pro account.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "This map style isn't available on this account." : "This map style requires a Pro account.", "error");
                 // Revert the radio UI to current state
                 const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (currentRadio) currentRadio.checked = true;
@@ -16528,309 +16887,3 @@ if (urlParams.get('auth') === 'signup') {
 
     initializeApp();
 });
-
-/**
- * ============================================================================
- * INFLIGHT PRO: V3.2 - INSTANT DEPLOYMENT & HOME INTEGRATION
- * Optimized for maximum execution speed, luxury UX, and frictionless entry.
- * ============================================================================
- */
-(function() {
-    const styleId = 'inflight-pro-loader-styles';
-    const overlayId = 'inflight-pro-loader-overlay';
-
-    // Skip the Pro upsell when arriving from a share link — those users came
-    // to look at one specific flight, so dump them straight into it.
-    function arrivedFromShare() {
-        try {
-            if (typeof window === 'undefined') return false;
-            if (window.location && window.location.search) {
-                const params = new URLSearchParams(window.location.search);
-                if (params.get('flight')) return true;
-            }
-            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('inflight_share_payload')) {
-                return true;
-            }
-        } catch (_) { /* non-fatal */ }
-        return false;
-    }
-
-    function initInflightPro() {
-        if (arrivedFromShare()) return;
-        if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
-
-        // Inject Styles immediately
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.innerHTML = `
-            #inflight-pro-loader-overlay {
-                position: fixed;
-                inset: 0;
-                background: rgba(7, 9, 15, 0.8);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2147483647; /* Maximum possible z-index */
-                font-family: 'Inter', -apple-system, sans-serif;
-                padding: 20px;
-                opacity: 0;
-                animation: proFadeIn 0.5s ease-out forwards;
-            }
-
-            .pro-modal-card {
-                background: #ffffff;
-                width: 440px;
-                max-width: 100%;
-                border-radius: 32px;
-                position: relative;
-                box-shadow: 0 40px 100px -20px rgba(0,0,0,0.5);
-                overflow: hidden;
-                transform: translateY(20px);
-                animation: proSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                display: flex;
-                flex-direction: column;
-            }
-
-            @keyframes proFadeIn { to { opacity: 1; } }
-            @keyframes proSlideUp { to { transform: translateY(0); } }
-
-            .pro-premium-accent {
-                height: 5px;
-                width: 100%;
-                background: linear-gradient(90deg, #2563eb, #7c3aed, #2563eb);
-                background-size: 200% auto;
-                animation: proShine 3s linear infinite;
-            }
-
-            @keyframes proShine { to { background-position: 200% center; } }
-
-            /* Premium Close Button - Now immediately visible */
-            .pro-close-btn {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                width: 34px;
-                height: 34px;
-                border-radius: 50%;
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                color: #64748b;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                z-index: 10;
-                transition: all 0.3s ease;
-            }
-            .pro-close-btn:hover {
-                background: #e2e8f0;
-                color: #0f172a;
-                transform: scale(1.08);
-            }
-
-            .pro-header-section { padding: 40px 32px 10px; text-align: center; }
-            .pro-brand-logo { height: 50px; margin: 0 auto 16px; display: block; }
-            .pro-subtitle { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px; }
-
-            .pro-carousel-viewport { position: relative; height: 160px; margin-top: 15px; }
-            .pro-feature-slide {
-                position: absolute;
-                inset: 0;
-                padding: 0 40px;
-                opacity: 0;
-                transition: 0.5s ease;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-                pointer-events: none;
-            }
-            .pro-feature-slide.active { opacity: 1; pointer-events: auto; }
-
-            .pro-icon-ring {
-                width: 55px; height: 55px; border-radius: 18px;
-                display: flex; align-items: center; justify-content: center;
-                margin-bottom: 15px; font-size: 1.5rem;
-            }
-
-            .pro-feature-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
-            .pro-feature-desc { font-size: 0.95rem; color: #64748b; line-height: 1.5; }
-
-            /* Action Buttons - Redesigned Hierarchy */
-            .pro-action-footer { 
-                padding: 10px 40px 40px; 
-                display: flex; 
-                flex-direction: column; 
-                gap: 12px; 
-            }
-
-            /* Primary CTA is now focused on entering the app seamlessly */
-            .pro-cta-primary {
-                background: #0f172a;
-                color: white;
-                border: none;
-                border-radius: 16px;
-                padding: 18px;
-                font-weight: 700;
-                cursor: pointer;
-                transition: 0.3s;
-                display: flex; align-items: center; justify-content: center; gap: 10px;
-            }
-            .pro-cta-primary:hover { background: #1e293b; transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(15, 23, 42, 0.5); }
-
-            /* Secondary CTA is now the unobtrusive Pro upsell */
-            .pro-cta-secondary {
-                background: #f8fafc;
-                color: #2563eb;
-                border: 1px solid #bfdbfe;
-                border-radius: 16px;
-                padding: 14px;
-                font-weight: 600;
-                font-size: 0.9rem;
-                cursor: pointer;
-                transition: 0.3s;
-                display: flex; align-items: center; justify-content: center; gap: 8px;
-            }
-            .pro-cta-secondary:hover { background: #eff6ff; border-color: #93c5fd; }
-
-            .pro-pagination { display: flex; justify-content: center; gap: 6px; margin: 20px 0; padding: 0 40px; }
-            .pro-segment { height: 4px; flex: 1; background: #f1f5f9; border-radius: 10px; overflow: hidden; }
-            .pro-segment-fill { height: 100%; width: 0%; background: #2563eb; }
-        `;
-        document.head.appendChild(style);
-
-        const overlay = document.createElement('div');
-        overlay.id = overlayId;
-
-        // Render the modal
-        renderModal(overlay);
-    }
-
-    async function renderModal(overlay) {
-        // Fetch session - Note: This is the only async bottleneck
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-            // Minimal splash for logged in / pro users
-            overlay.innerHTML = `<img src="Images/InflightPro.png" style="height:60px; animation: proFadeIn 1s infinite alternate;">`;
-            document.body.appendChild(overlay);
-            setTimeout(() => overlay.remove(), 2500);
-            return;
-        }
-
-        const features = [
-            { icon: 'fa-gauge-high', color: '#2563eb', bg: '#eff6ff', title: 'Live Ops Dashboard', desc: 'Real-time telemetry and smart dispatching.' },
-            { icon: 'fa-satellite-dish', color: '#8b5cf6', bg: '#f5f3ff', title: 'Airspace Intel', desc: '4-hour saturation heatmaps and multi-node tracking.' },
-            { icon: 'fa-file-invoice', color: '#10b981', bg: '#ecfdf5', title: 'Premium Dispatch', desc: 'Digital boarding passes and gate filing.' }
-        ];
-
-        let slidesHtml = features.map((f, i) => `
-            <div class="pro-feature-slide ${i === 0 ? 'active' : ''}">
-                <div class="pro-icon-ring" style="background:${f.bg}; color:${f.color};">
-                    <i class="fa-solid ${f.icon}"></i>
-                </div>
-                <div class="pro-feature-title">${f.title}</div>
-                <div class="pro-feature-desc">${f.desc}</div>
-            </div>
-        `).join('');
-
-        overlay.innerHTML = `
-            <div class="pro-modal-card">
-                <div class="pro-premium-accent"></div>
-                <button class="pro-close-btn" id="pro-close-trigger" aria-label="Close">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-                <div class="pro-header-section">
-                    <img src="Images/InflightPro.png" alt="Logo" class="pro-brand-logo">
-                    <p class="pro-subtitle">Workspace Initializing...</p>
-                </div>
-                <div class="pro-carousel-viewport">${slidesHtml}</div>
-                <div class="pro-pagination">
-                    ${features.map((_, i) => `<div class="pro-segment"><div class="pro-segment-fill" id="pro-fill-${i}"></div></div>`).join('')}
-                </div>
-                <div class="pro-action-footer">
-                    <button class="pro-cta-primary" id="pro-continue-trigger">
-                        Enter Tracker <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                    <button class="pro-cta-secondary" id="pro-signup-trigger">
-                        <i class="fa-solid fa-bolt"></i> Unlock Pro Features
-                    </button>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(overlay);
-        startLogic(overlay, features.length);
-    }
-
-    function startLogic(overlay, count) {
-        let current = 0;
-        let start = Date.now();
-        const duration = 4000;
-        let animationId;
-
-        function step() {
-            const progress = Math.min(((Date.now() - start) / duration) * 100, 100);
-            const fill = document.getElementById(`pro-fill-${current}`);
-            if (fill) fill.style.width = progress + '%';
-
-            if (progress >= 100) {
-                const slides = overlay.querySelectorAll('.pro-feature-slide');
-                if (slides.length > 0) {
-                    slides[current].classList.remove('active');
-                    current = (current + 1) % count;
-                    slides[current].classList.add('active');
-                    start = Date.now();
-                    // Reset all fills
-                    for(let i = 0; i < count; i++) {
-                        const segment = document.getElementById(`pro-fill-${i}`);
-                        if (segment) segment.style.width = i < current ? '100%' : '0%';
-                    }
-                }
-            }
-            animationId = requestAnimationFrame(step);
-        }
-        animationId = requestAnimationFrame(step);
-
-        // Utility to handle clean destruction of the modal
-        const cleanupAndClose = () => {
-            cancelAnimationFrame(animationId);
-            overlay.style.opacity = '0';
-            overlay.style.transition = 'opacity 0.3s ease';
-            setTimeout(() => overlay.remove(), 300);
-        };
-
-        // 1. Immediate Close Button Event
-        const closeBtn = document.getElementById('pro-close-trigger');
-        if (closeBtn) closeBtn.onclick = cleanupAndClose;
-
-        // 2. Primary Action: Enter App Seamlessly
-        const continueBtn = document.getElementById('pro-continue-trigger');
-        if (continueBtn) continueBtn.onclick = cleanupAndClose;
-
-        // 3. Secondary Action: Open Auth Modal
-        const signupBtn = document.getElementById('pro-signup-trigger');
-        if (signupBtn) {
-            signupBtn.onclick = () => {
-                cleanupAndClose();
-                const btn = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
-                if (btn) btn.click();
-                else if (window.AuthUI) window.AuthUI.open('signup');
-            };
-        }
-    }
-
-    // --- CRITICAL SPEED INJECTION ---
-    if (document.body) {
-        initInflightPro();
-    } else {
-        const observer = new MutationObserver((mutations, obs) => {
-            if (document.body) {
-                initInflightPro();
-                obs.disconnect();
-            }
-        });
-        observer.observe(document.documentElement, { childList: true });
-    }
-})();
