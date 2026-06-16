@@ -403,6 +403,25 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                 const endColorInput = document.getElementById('theme-color-end');
                 if (startColorInput) startColorInput.value = '#18181b';
                 if (endColorInput) endColorInput.value = '#18181b';
+            } else if (session?.user) {
+                // --- PRO GATE: Re-evaluate entitlement whenever a session
+                //     appears or changes (email sign-in, OAuth redirect,
+                //     renewal, token refresh, user update).
+                //
+                // refreshProStatus() only runs once at app boot, when a user
+                // who signs in *after* the app has loaded still has no session.
+                // Without re-running it here, window.InflightUser.isPro stays
+                // false for the rest of the page's life, `proStatusChanged`
+                // never fires, and every Pro-gated surface keeps showing the
+                // locked/upsell state even though the account is now Pro.
+                //
+                // Calling it on sign-in fetches profiles.is_pro, updates
+                // window.InflightUser, persists it, and dispatches
+                // `proStatusChanged` so the gated surfaces unlock instantly
+                // without requiring a full page reload.
+                if (typeof window.refreshProStatus === 'function') {
+                    window.refreshProStatus();
+                }
             }
         });
     } catch (err) {
@@ -13844,6 +13863,10 @@ renderCategory(catId) {
                             </div>
                         </div>
 
+                        <div class="settings-section" id="desktop-atc-tag-studio">
+                            ${MobileSettingsUI.renderAtcTagStudio()}
+                        </div>
+
                         <div class="settings-section">
                             <label class="config-header">Flight Plan Routes</label>
                             <div class="settings-mobile-grid">
@@ -13920,6 +13943,17 @@ renderCategory(catId) {
             if (catId === 'map') {
                 const activeCard = container.querySelector(`.m-style-card[data-value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (activeCard) activeCard.classList.add('active');
+            }
+            if (catId === 'overlays') {
+                // Wire + hydrate the shared ATC Tag Studio (same controls as the
+                // mobile sheet; the methods are class-scoped so they drive every
+                // mounted instance). Fresh DOM each render, so the attach guard
+                // never blocks a re-bind.
+                const studio = container.querySelector('#desktop-atc-tag-studio');
+                if (studio) {
+                    MobileSettingsUI.attachAtcTagHandlers(studio);
+                    MobileSettingsUI.syncAtcTagControls();
+                }
             }
             if (!isSignedIn) {
                 // Signed-out users see pro style cards / label themes locked;
@@ -14237,6 +14271,20 @@ if (upgradeBtn) {
                 if (typeof applyAircraftLabelStyle === 'function') applyAircraftLabelStyle();
                 saveFiltersToLocalStorage();
             });
+        });
+
+        // ATC Tag Studio — its controls are bound by MobileSettingsUI, but when
+        // they're locked (signed-out) those handlers no-op. Intercept on capture
+        // so a click anywhere in a locked pro row routes to the upsell instead,
+        // matching the map-style cards and label theme pills above.
+        content?.querySelectorAll('#desktop-atc-tag-studio .is-pro-feature').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (row.classList.contains('locked')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openProUpsell();
+                }
+            }, true);
         });
     }
 };
