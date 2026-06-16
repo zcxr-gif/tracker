@@ -29,6 +29,8 @@ export const MobileLandingChromeUI = {
     _initialized: false,
     _serverSheetOpen: false,
     _weatherSheetOpen: false,
+    _inflightSheetOpen: false,
+    _inflightTicker: null,
     _searchActive: false,
 
     init(parentUI) {
@@ -87,13 +89,23 @@ export const MobileLandingChromeUI = {
         bottomBar.setAttribute('data-theme', this.parent?._theme || 'dark');
         bottomBar.innerHTML = `
             <div class="ios-tabbar-inner">
-                <button type="button" class="ios-tab" data-action="server">
-                    <i class="fa-solid fa-server"></i>
-                    <span class="ios-tab-label">Server</span>
+                <button type="button" class="ios-tab" data-action="inflight">
+                    <span class="ios-tab-iconwrap">
+                        <i class="fa-solid fa-bell"></i>
+                        <span class="ios-tab-badge" id="ios-tab-inflight-dot">0</span>
+                    </span>
+                    <span class="ios-tab-label">Inflight</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="weather">
                     <i class="fa-solid fa-cloud-sun-rain"></i>
                     <span class="ios-tab-label">Weather</span>
+                </button>
+                <button type="button" class="ios-tab" data-action="atc">
+                    <span class="ios-tab-iconwrap">
+                        <i class="fa-solid fa-tower-broadcast"></i>
+                        <span class="ios-tab-badge is-atc" id="ios-tab-atc-dot">0</span>
+                    </span>
+                    <span class="ios-tab-label">ATC</span>
                 </button>
                 <button type="button" class="ios-tab" data-action="filters">
                     <span class="ios-tab-iconwrap">
@@ -162,10 +174,58 @@ export const MobileLandingChromeUI = {
             </div>
         `;
 
+        // --- Inflight tracking sheet (replaces the old Server tab) ---
+        const inflightSheet = document.createElement('div');
+        inflightSheet.id = 'ios-inflight-sheet';
+        inflightSheet.className = 'ios-sheet-root ios-sheet-full ios-inflight-root';
+        inflightSheet.setAttribute('data-theme', this.parent?._theme || 'dark');
+        inflightSheet.innerHTML = `
+            <div class="ios-sheet-backdrop" data-dismiss="inflight"></div>
+            <div class="ios-sheet-card">
+                <div class="ios-fullsheet-grip"></div>
+                <div class="ios-fullsheet-head">
+                    <div class="ios-fullsheet-titles">
+                        <span class="ios-fullsheet-eyebrow">Live Tracking</span>
+                        <span class="ios-fullsheet-title">Inflight</span>
+                    </div>
+                    <div class="ios-fullsheet-head-right">
+                        <span class="ios-inflight-plan" id="ios-inflight-plan"></span>
+                        <button type="button" class="ios-fullsheet-close" data-dismiss="inflight" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div class="ios-inflight-body ios-fullsheet-body" id="ios-inflight-body"></div>
+            </div>
+        `;
+
+        // --- Active ATC sheet (live controller list) ---
+        const atcSheet = document.createElement('div');
+        atcSheet.id = 'ios-atc-sheet';
+        atcSheet.className = 'ios-sheet-root ios-sheet-full ios-atc-root';
+        atcSheet.setAttribute('data-theme', this.parent?._theme || 'dark');
+        atcSheet.innerHTML = `
+            <div class="ios-sheet-backdrop" data-dismiss="atc"></div>
+            <div class="ios-sheet-card">
+                <div class="ios-fullsheet-grip"></div>
+                <div class="ios-fullsheet-head">
+                    <div class="ios-fullsheet-titles">
+                        <span class="ios-fullsheet-eyebrow">Live Network</span>
+                        <span class="ios-fullsheet-title">Active ATC</span>
+                    </div>
+                    <div class="ios-fullsheet-head-right">
+                        <span class="ios-atc-count" id="ios-atc-count">—</span>
+                        <button type="button" class="ios-fullsheet-close" data-dismiss="atc" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div class="ios-atc-body ios-fullsheet-body" id="ios-atc-body"></div>
+            </div>
+        `;
+
         root.appendChild(topBar);
         root.appendChild(bottomBar);
         mapHost.appendChild(serverSheet);
         mapHost.appendChild(weatherPop);
+        mapHost.appendChild(inflightSheet);
+        mapHost.appendChild(atcSheet);
 
         // Move existing search input + clear button into the new shell so
         // every LandingUI handler stays bound.
@@ -195,12 +255,15 @@ export const MobileLandingChromeUI = {
         const root = document.getElementById('inflight-tactical-ui');
 
         // --- Theme follow ---
+        const inflightSheetEl = document.getElementById('ios-inflight-sheet');
         window.addEventListener('puiThemeChanged', (e) => {
             const t = e.detail?.theme || 'dark';
             topBar?.setAttribute('data-theme', t);
             tabBar?.setAttribute('data-theme', t);
             serverSheet?.setAttribute('data-theme', t);
             weatherPop?.setAttribute('data-theme', t);
+            inflightSheetEl?.setAttribute('data-theme', t);
+            document.getElementById('ios-atc-sheet')?.setAttribute('data-theme', t);
         });
 
         // --- Profile ---
@@ -277,10 +340,50 @@ export const MobileLandingChromeUI = {
             const row = e.target.closest('[data-server]');
             if (row) {
                 const val = row.dataset.server;
+                window.InflightHaptics?.select?.();
                 this._selectServer(val);
                 this._closeServerSheet();
             }
         });
+
+        // --- Inflight tracking sheet ---
+        const inflightSheet = document.getElementById('ios-inflight-sheet');
+        inflightSheet?.addEventListener('click', async (e) => {
+            if (e.target.closest('[data-dismiss="inflight"]')) {
+                this._closeInflightSheet();
+                return;
+            }
+            const stopBtn = e.target.closest('[data-stop-flight]');
+            if (stopBtn) {
+                const fid = stopBtn.dataset.stopFlight;
+                stopBtn.disabled = true;
+                try { await window.InflightLiveActivity?.end?.({ flightId: fid }); } catch (_) {}
+                this._renderInflightSheet();
+                this._updateInflightBadge();
+                this._syncMapBellIcons?.(fid, false);
+                return;
+            }
+            const upgradeBtn = e.target.closest('[data-inflight-upgrade]');
+            if (upgradeBtn) {
+                this._closeInflightSheet();
+                try {
+                    if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                        window.AuthUI.open();
+                    }
+                } catch (_) {}
+            }
+        });
+
+        // Keep the tab badge + open sheet in sync as flights start/stop.
+        window.addEventListener('inflightTrackingChanged', () => {
+            this._updateInflightBadge();
+            if (this._inflightSheetOpen) this._renderInflightSheet();
+        });
+        window.addEventListener('proStatusChanged', () => {
+            this._updateInflightBadge();
+            if (this._inflightSheetOpen) this._renderInflightSheet();
+        });
+        this._updateInflightBadge();
 
         // --- Weather popover selection ---
         weatherPop?.addEventListener('click', (e) => {
@@ -293,9 +396,60 @@ export const MobileLandingChromeUI = {
                 const type = row.dataset.weather;
                 const nowActive = !row.classList.contains('is-on');
                 row.classList.toggle('is-on', nowActive);
+                window.InflightHaptics?.select?.();
                 window.dispatchEvent(new CustomEvent('weatherToggle', { detail: { type, isActive: nowActive } }));
             }
         });
+
+        // --- Active ATC sheet: dismiss + tap an airport to fly there ---
+        const atcSheet = document.getElementById('ios-atc-sheet');
+        atcSheet?.addEventListener('click', (e) => {
+            if (e.target.closest('[data-dismiss="atc"]')) {
+                this._closeAtcSheet();
+                return;
+            }
+            // Chevron toggles the controller drawer without flying to the field.
+            const exp = e.target.closest('[data-atc-expand]');
+            if (exp) {
+                e.stopPropagation();
+                const wrap = exp.closest('.ios-atc-awrap');
+                if (wrap) {
+                    const open = wrap.classList.toggle('ctrl-open');
+                    exp.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    // Remember which fields are expanded so a live ATC refresh
+                    // (which rebuilds the board) doesn't snap the drawer shut.
+                    const apt = (this._atcBoard || [])[Number(wrap.dataset.atcWrap)];
+                    if (apt) {
+                        if (!this._atcOpenIcaos) this._atcOpenIcaos = new Set();
+                        if (open) this._atcOpenIcaos.add(apt.icao);
+                        else this._atcOpenIcaos.delete(apt.icao);
+                    }
+                    window.InflightHaptics?.tap?.();
+                }
+                return;
+            }
+            const row = e.target.closest('[data-atc-apt]');
+            if (row) {
+                const idx = Number(row.dataset.atcApt);
+                const apt = (this._atcBoard || [])[idx];
+                if (apt && window.InflightATC && typeof window.InflightATC.focus === 'function') {
+                    window.InflightHaptics?.tap?.();
+                    const ok = window.InflightATC.focus({ airportName: apt.icao, type: 1 });
+                    if (ok) this._closeAtcSheet();
+                }
+            }
+        });
+
+        // Keep the badge + open list fresh as controllers connect / disconnect.
+        window.addEventListener('activeAtcUpdated', () => {
+            this._updateAtcBadge();
+            if (this._atcSheetOpen) this._renderAtcSheet();
+        });
+        this._updateAtcBadge();
+
+        // Swipe-down-to-dismiss on the full sheets (matches Settings).
+        this._attachFullSheetSwipe('ios-atc-sheet', () => this._closeAtcSheet());
+        this._attachFullSheetSwipe('ios-inflight-sheet', () => this._closeInflightSheet());
 
         // --- Server sync (in case other code dispatches serverChange) ---
         window.addEventListener('serverChange', (e) => {
@@ -322,12 +476,19 @@ export const MobileLandingChromeUI = {
        =========================================================== */
     _handleTab(action, btn) {
         this._setActiveTab(btn);
+        window.InflightHaptics?.tap?.();
         switch (action) {
+            case 'inflight':
+                this._openInflightSheet();
+                break;
             case 'server':
                 this._openServerSheet();
                 break;
             case 'weather':
                 this._toggleWeatherSheet();
+                break;
+            case 'atc':
+                this._openAtcSheet();
                 break;
             case 'filters':
                 window.dispatchEvent(new CustomEvent('openMobileUI'));
@@ -387,6 +548,371 @@ export const MobileLandingChromeUI = {
     },
 
     /* ===========================================================
+       Inflight tracking sheet
+       =========================================================== */
+    _la() {
+        return (typeof window !== 'undefined') ? window.InflightLiveActivity : null;
+    },
+    _isPro() {
+        return (typeof window !== 'undefined' && typeof window.isInflightPro === 'function')
+            ? window.isInflightPro()
+            : false;
+    },
+    _trackingLimit() {
+        const la = this._la();
+        if (la && typeof la.getTrackingLimit === 'function') return la.getTrackingLimit();
+        return this._isPro() ? 3 : 1;
+    },
+    _trackedFlights() {
+        const la = this._la();
+        if (la && typeof la.getTrackedFlights === 'function') {
+            try { return la.getTrackedFlights() || []; } catch (_) { return []; }
+        }
+        return [];
+    },
+
+    _openInflightSheet() {
+        const sheet = document.getElementById('ios-inflight-sheet');
+        if (!sheet) return;
+        this._inflightSheetOpen = true;
+        this._renderInflightSheet();
+        sheet.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+        // Live-tick the ETE readouts while the sheet is visible.
+        this._stopInflightTicker();
+        this._inflightTicker = setInterval(() => this._tickInflightTimes(), 1000);
+    },
+    _closeInflightSheet() {
+        const sheet = document.getElementById('ios-inflight-sheet');
+        if (!sheet) return;
+        this._inflightSheetOpen = false;
+        sheet.classList.remove('is-open');
+        document.body.style.overflow = '';
+        this._stopInflightTicker();
+    },
+    _stopInflightTicker() {
+        if (this._inflightTicker) { clearInterval(this._inflightTicker); this._inflightTicker = null; }
+    },
+
+    _eteParts(etaMs) {
+        if (!etaMs) return null;
+        let secs = Math.round((etaMs - Date.now()) / 1000);
+        if (!Number.isFinite(secs)) return null;
+        const overdue = secs < 0;
+        secs = Math.abs(secs);
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return { h, m, overdue, text: `${h}h ${String(m).padStart(2, '0')}m` };
+    },
+    _fmtClock(ms) {
+        if (!ms) return '--:--';
+        try {
+            return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (_) { return '--:--'; }
+    },
+
+    _updateInflightBadge() {
+        const dot = document.getElementById('ios-tab-inflight-dot');
+        if (!dot) return;
+        const count = this._trackedFlights().length;
+        dot.textContent = count > 9 ? '9+' : String(count);
+        dot.classList.toggle('is-on', count > 0);
+    },
+
+    /* ===========================================================
+       Active ATC sheet (live controller list)
+       =========================================================== */
+    _atcFacilitiesLive() {
+        const api = window.InflightATC;
+        return (api && typeof api.getFacilities === 'function') ? api.getFacilities() : [];
+    },
+    _updateAtcBadge() {
+        const dot = document.getElementById('ios-tab-atc-dot');
+        if (!dot) return;
+        const count = this._atcFacilitiesLive().length;
+        dot.textContent = count > 99 ? '99+' : String(count);
+        dot.classList.toggle('is-on', count > 0);
+    },
+    _openAtcSheet() {
+        const sheet = document.getElementById('ios-atc-sheet');
+        if (!sheet) return;
+        this._atcSheetOpen = true;
+        this._renderAtcSheet();
+        sheet.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+    },
+    _closeAtcSheet() {
+        const sheet = document.getElementById('ios-atc-sheet');
+        if (!sheet) return;
+        this._atcSheetOpen = false;
+        sheet.classList.remove('is-open');
+        document.body.style.overflow = '';
+    },
+    // iOS swipe-down-to-dismiss for the full sheets: drag from the grabber or
+    // the title bar to flick the sheet away (the body scrolls normally).
+    _attachFullSheetSwipe(sheetId, closeFn) {
+        const root = document.getElementById(sheetId);
+        if (!root) return;
+        const card = root.querySelector('.ios-sheet-card');
+        const handles = root.querySelectorAll('.ios-fullsheet-grip, .ios-fullsheet-head');
+        if (!card || !handles.length) return;
+        let startY = 0, delta = 0, dragging = false;
+        const start = (e) => {
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = 0; dragging = true;
+            card.style.transition = 'none';
+        };
+        const move = (e) => {
+            if (!dragging) return;
+            const y = e.touches ? e.touches[0].clientY : e.clientY;
+            delta = Math.max(0, y - startY);
+            card.style.transform = `translateY(${delta}px)`;
+        };
+        const end = () => {
+            if (!dragging) return;
+            dragging = false;
+            card.style.transition = '';
+            card.style.transform = '';
+            if (delta > 120) { window.InflightHaptics?.tap?.(); closeFn(); }
+        };
+        handles.forEach(h => {
+            h.addEventListener('touchstart', start, { passive: true });
+            h.addEventListener('touchmove', move, { passive: true });
+            h.addEventListener('touchend', end);
+            h.addEventListener('touchcancel', end);
+        });
+    },
+    _atcEsc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+    },
+    _atcBoardLive() {
+        const api = window.InflightATC;
+        return (api && typeof api.getAirportBoard === 'function') ? api.getAirportBoard() : [];
+    },
+    // The live controllers working a given field, sorted top-down (ATIS →
+    // Center), so the drawer reads like a real frequency strip.
+    _atcControllersFor(icao) {
+        const order = { 7: 0, 3: 1, 0: 2, 1: 3, 4: 4, 5: 5, 6: 6 };
+        return this._atcFacilitiesLive()
+            .filter(f => f && f.airportName === icao)
+            .sort((x, y) => (order[x.type] ?? 9) - (order[y.type] ?? 9));
+    },
+    // Map a position type to a coloured pill class mirroring the board columns.
+    _atcTypePill(type) {
+        const map = {
+            7: ['ATIS', 'atis'], 0: ['Ground', 'gnd'], 3: ['Clearance', 'gnd'],
+            1: ['Tower', 'twr'], 4: ['Approach', 'app'], 5: ['Departure', 'dep'],
+            6: ['Center', 'app']
+        };
+        const [label, cls] = map[type] || ['Unknown', ''];
+        return { label, cls };
+    },
+    // UTC start time, e.g. "14:05Z" — the "since" for a controller's session.
+    _atcStartZulu(startTime) {
+        if (!startTime) return '';
+        const t = new Date(startTime).getTime();
+        if (!Number.isFinite(t)) return '';
+        try {
+            return new Date(t).toLocaleTimeString('en-GB', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
+            }) + 'Z';
+        } catch (_) { return ''; }
+    },
+    _atcDuration(startTime) {
+        const api = window.InflightATC;
+        if (api && typeof api.formatDuration === 'function') {
+            const d = api.formatDuration(startTime);
+            if (d) return d;
+        }
+        return '';
+    },
+    _atcControllerRowHTML(f) {
+        const pill = this._atcTypePill(Number(f.type));
+        const dur = this._atcDuration(f.startTime);
+        const since = this._atcStartZulu(f.startTime);
+        const meta = [dur ? `${dur} online` : '', since ? `since ${since}` : '']
+            .filter(Boolean).join(' · ');
+        return `
+            <div class="ios-atc-ctrl">
+                <span class="ios-atc-ctrl-pill ${pill.cls}">${this._atcEsc(pill.label)}</span>
+                <span class="ios-atc-ctrl-main">
+                    <span class="ios-atc-ctrl-user">${this._atcEsc(f.username || 'Unknown controller')}</span>
+                    ${meta ? `<span class="ios-atc-ctrl-meta">${this._atcEsc(meta)}</span>` : ''}
+                </span>
+                ${dur ? `<span class="ios-atc-ctrl-time"><i class="fa-regular fa-clock"></i> ${this._atcEsc(dur)}</span>` : ''}
+            </div>`;
+    },
+    _atcAirportRowHTML(a, idx) {
+        // Each position column is dimmed by default and lights up when staffed.
+        const col = (label, on, cls) =>
+            `<span class="ios-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
+        const controllers = (a.count > 0) ? this._atcControllersFor(a.icao) : [];
+        const drawer = controllers.length ? `
+                <div class="ios-atc-ctrl-drawer">
+                    <div class="ios-atc-ctrl-head">On frequency now</div>
+                    ${controllers.map(f => this._atcControllerRowHTML(f)).join('')}
+                </div>` : '';
+        const isOpen = controllers.length && this._atcOpenIcaos && this._atcOpenIcaos.has(a.icao);
+        const chevron = controllers.length ? `
+                <button type="button" class="ios-atc-expand" data-atc-expand="${idx}"
+                        aria-label="Show controllers" aria-expanded="${isOpen ? 'true' : 'false'}">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </button>` : '';
+        return `
+            <div class="ios-atc-awrap${isOpen ? ' ctrl-open' : ''}" data-atc-wrap="${idx}">
+                <div class="ios-atc-arow-line">
+                    <button type="button" class="ios-atc-arow" data-atc-apt="${idx}">
+                        <span class="ios-atc-apt">
+                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}</span>
+                            <span class="ios-atc-aptname">${this._atcEsc(a.name || a.icao)}</span>
+                        </span>
+                        <span class="ios-atc-tower">
+                            <i class="fa-solid fa-tower-broadcast"></i>
+                            <span class="ios-atc-num">${a.count}</span>
+                        </span>
+                        <span class="ios-atc-cols">
+                            ${col('ATS', a.atis, 'atis')}
+                            ${col('GND', a.gnd, 'gnd')}
+                            ${col('TWR', a.twr, 'twr')}
+                            ${col('APP', a.app, 'app')}
+                            ${col('DEP', a.dep, 'dep')}
+                        </span>
+                    </button>
+                    ${chevron}
+                </div>
+                ${drawer}
+            </div>`;
+    },
+    _renderAtcSheet() {
+        const body = document.getElementById('ios-atc-body');
+        const countEl = document.getElementById('ios-atc-count');
+        if (!body) return;
+
+        // Airport board — one row per staffed field; keep a stable list so a
+        // row's data-atc-apt maps back to its airport.
+        const board = this._atcBoardLive();
+        this._atcBoard = board;
+
+        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
+
+        if (!board.length) {
+            body.innerHTML = `
+                <div class="ios-inflight-empty">
+                    <i class="fa-solid fa-tower-broadcast"></i>
+                    <p>No controllers online</p>
+                    <span>When ATC connects on this server, every staffed airport appears here — tap one to jump to it.</span>
+                </div>`;
+            return;
+        }
+
+        body.innerHTML = `<div class="ios-atc-board">${board.map((a, i) => this._atcAirportRowHTML(a, i)).join('')}</div>`;
+    },
+
+    // Refresh only the live ETE text nodes (cheap, runs every second while open).
+    _tickInflightTimes() {
+        const body = document.getElementById('ios-inflight-body');
+        if (!body) return;
+        body.querySelectorAll('[data-eta-ms]').forEach(el => {
+            const etaMs = Number(el.dataset.etaMs) || 0;
+            const landed = el.dataset.landed === '1';
+            if (landed) { el.textContent = 'Landed'; return; }
+            const parts = this._eteParts(etaMs);
+            el.textContent = parts ? (parts.overdue ? `${parts.text} over` : `${parts.text} left`) : '—';
+        });
+    },
+
+    _renderInflightSheet() {
+        const body = document.getElementById('ios-inflight-body');
+        const plan = document.getElementById('ios-inflight-plan');
+        if (!body) return;
+
+        const la = this._la();
+        const supported = !!(la && typeof la.isSupported === 'function' && la.isSupported());
+        const isPro = this._isPro();
+        const limit = this._trackingLimit();
+        const flights = this._trackedFlights();
+
+        if (plan) {
+            plan.textContent = `${flights.length}/${limit} · ${isPro ? 'Pro' : 'Free'}`;
+            plan.classList.toggle('is-pro', isPro);
+        }
+
+        if (!supported) {
+            body.innerHTML = `
+                <div class="ios-inflight-empty">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <p>Live Activities aren't available on this device. Track flights on iPhone to see them on your Lock Screen and Dynamic Island.</p>
+                </div>`;
+            return;
+        }
+
+        const rows = flights.map(f => {
+            const route = `${f.departureIcao || '–––'} → ${f.arrivalIcao || '–––'}`;
+            const sub = [f.aircraftType, f.liveryName].filter(Boolean).join(' · ');
+            const nm = (f.distanceToDestinationNm != null && Number.isFinite(f.distanceToDestinationNm))
+                ? `${Math.max(0, Math.round(f.distanceToDestinationNm))} NM` : '';
+            const eteParts = this._eteParts(f.currentEtaMs);
+            const eteText = f.isLanded ? 'Landed' : (eteParts ? (eteParts.overdue ? `${eteParts.text} over` : `${eteParts.text} left`) : '—');
+            const arr = f.currentEtaMs ? `Arr ${this._fmtClock(f.currentEtaMs)}` : '';
+            return `
+                <div class="ios-inflight-row">
+                    <div class="ios-inflight-row-main">
+                        <div class="ios-inflight-row-top">
+                            <span class="ios-inflight-callsign">${this._esc(f.callsign || f.flightId)}</span>
+                            ${f.isLanded ? '<span class="ios-inflight-chip landed">Landed</span>' : '<span class="ios-inflight-chip live">Live</span>'}
+                        </div>
+                        <div class="ios-inflight-route">${this._esc(route)}</div>
+                        ${sub ? `<div class="ios-inflight-sub">${this._esc(sub)}</div>` : ''}
+                        <div class="ios-inflight-metrics">
+                            <span class="ios-inflight-ete" data-eta-ms="${f.currentEtaMs || 0}" data-landed="${f.isLanded ? '1' : '0'}">${this._esc(eteText)}</span>
+                            ${nm ? `<span class="ios-inflight-dot-sep"></span><span>${nm}</span>` : ''}
+                            ${arr ? `<span class="ios-inflight-dot-sep"></span><span>${arr}</span>` : ''}
+                        </div>
+                    </div>
+                    <button type="button" class="ios-inflight-stop" data-stop-flight="${this._esc(String(f.flightId))}" aria-label="Stop tracking">
+                        <i class="fa-solid fa-bell-slash"></i>
+                    </button>
+                </div>`;
+        }).join('');
+
+        const emptyState = `
+            <div class="ios-inflight-empty">
+                <i class="fa-solid fa-bell"></i>
+                <p>You're not tracking any flights yet.</p>
+                <span>Open a flight on the map and tap the <i class="fa-solid fa-bell"></i> bell to follow it on your Lock Screen.</span>
+            </div>`;
+
+        const upsell = (!isPro) ? `
+            <button type="button" class="ios-inflight-upsell" data-inflight-upgrade>
+                <span class="ios-inflight-upsell-icon"><i class="fa-solid fa-crown"></i></span>
+                <span class="ios-inflight-upsell-text">
+                    <span class="ios-inflight-upsell-title">Track up to 3 flights with Pro</span>
+                    <span class="ios-inflight-upsell-sub">Free plan follows one flight at a time</span>
+                </span>
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>` : '';
+
+        body.innerHTML = (flights.length ? `<div class="ios-inflight-list">${rows}</div>` : emptyState) + upsell;
+    },
+
+    _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    // Best-effort: flip any visible track-me bell on the map for this flight.
+    _syncMapBellIcons(flightId, tracking) {
+        document.querySelectorAll(`.aircraft-window-trackme-btn[data-flight-id="${CSS.escape(String(flightId))}"] i`).forEach(icon => {
+            icon.classList.toggle('fa-bell', !tracking);
+            icon.classList.toggle('fa-bell-slash', tracking);
+        });
+    },
+
+    /* ===========================================================
        Weather popover
        =========================================================== */
     _toggleWeatherSheet() {
@@ -411,9 +937,23 @@ export const MobileLandingChromeUI = {
     _syncFilterDot() {
         const dot = document.getElementById('ios-tab-filter-dot');
         if (!dot) return;
-        const count = (this.parent && this.parent._activeFilters)
-            ? Object.keys(this.parent._activeFilters).length
-            : 0;
+        // The Filters tab now drives mapFilters.tactical (via the shared board),
+        // so count active tactical rules. Fall back to the legacy _activeFilters
+        // engine (still used by the desktop landing modal) when tactical is empty.
+        const t = (window.mapFilters && window.mapFilters.tactical) || {};
+        let count = Object.keys(t).filter(k => {
+            const v = t[k];
+            if (v === undefined || v === null) return false;
+            if (typeof v === 'object') {
+                return (v.min !== undefined && v.min !== '') ||
+                       (v.max !== undefined && v.max !== '') ||
+                       (v.icao && v.radiusNm); // airportRadius
+            }
+            return String(v).trim() !== '';
+        }).length;
+        if (count === 0 && this.parent && this.parent._activeFilters) {
+            count = Object.keys(this.parent._activeFilters).length;
+        }
         dot.textContent = count > 9 ? '9+' : String(count);
         dot.classList.toggle('is-on', count > 0);
     },
@@ -702,10 +1242,13 @@ export const MobileLandingChromeUI = {
                 padding: 6px !important;
                 border: 0.5px solid var(--ios-stroke) !important;
                 border-radius: 22px !important;
-                background: var(--ios-bg-deep) !important;
+                /* Near-solid fill: over the busy live map a translucent card left
+                   results barely legible, so we use an opaque surface and keep the
+                   blur only for the soft edge feel. */
+                background: rgba(24, 24, 27, 0.97) !important;
                 -webkit-backdrop-filter: var(--ios-blur) !important;
                 backdrop-filter: var(--ios-blur) !important;
-                box-shadow: var(--ios-shadow) !important;
+                box-shadow: var(--ios-shadow), 0 12px 40px rgba(0, 0, 0, 0.55) !important;
                 overflow-y: auto !important;
                 -webkit-overflow-scrolling: touch !important;
                 overscroll-behavior: contain !important;
@@ -714,7 +1257,8 @@ export const MobileLandingChromeUI = {
                 visibility: visible !important;
             }
             #inflight-tactical-ui[data-theme="light"] #blade-search-results {
-                background: var(--ios-bg-deep) !important;
+                background: rgba(252, 252, 254, 0.98) !important;
+                box-shadow: var(--ios-shadow), 0 12px 40px rgba(0, 0, 0, 0.18) !important;
             }
             /* Hide native scrollbar — iOS aesthetic. */
             #inflight-tactical-ui #blade-search-results::-webkit-scrollbar {
@@ -732,7 +1276,7 @@ export const MobileLandingChromeUI = {
             #inflight-tactical-ui .blade-results-header {
                 position: static !important;
                 background: transparent !important;
-                padding: 10px 12px 4px !important;
+                padding: 8px 12px 3px !important;
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 font-size: 11px !important;
                 font-weight: 600 !important;
@@ -751,11 +1295,12 @@ export const MobileLandingChromeUI = {
                 letter-spacing: 0 !important;
             }
 
-            /* Result rows — flush inside the rounded card, gentle press feedback. */
+            /* Result rows — flush inside the rounded card, gentle press feedback.
+               Compact density so multiple categories fit without scrolling. */
             #inflight-tactical-ui .premium-result-item {
-                min-height: 56px !important;
-                padding: 10px 12px !important;
-                gap: 12px !important;
+                min-height: 50px !important;
+                padding: 9px 12px !important;
+                gap: 11px !important;
                 margin: 0 !important;
                 border: none !important;
                 border-radius: 14px !important;
@@ -813,6 +1358,136 @@ export const MobileLandingChromeUI = {
                 color: var(--ios-text-3) !important;
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
                 font-size: 14px !important;
+            }
+
+            /* ---- Expandable flight result drawer (iOS palette) ---- */
+            #inflight-tactical-ui .premium-flight-wrap.detail-open {
+                background: var(--ios-fill) !important;
+                border-radius: 14px !important;
+            }
+            #inflight-tactical-ui .res-expand-btn {
+                width: 30px !important;
+                height: 30px !important;
+                background: var(--ios-fill) !important;
+                color: var(--ios-text-3) !important;
+                border-radius: 9px !important;
+            }
+            #inflight-tactical-ui .premium-flight-wrap.detail-open .res-expand-btn {
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .res-detail-grid {
+                padding: 4px 14px 12px 40px !important;
+                gap: 9px 14px !important;
+            }
+            #inflight-tactical-ui .res-dt-k {
+                color: var(--ios-text-4) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            #inflight-tactical-ui .res-dt-v {
+                color: var(--ios-text) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            #inflight-tactical-ui .res-dt-u, #inflight-tactical-ui .res-dt-arrow {
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .res-replay-btn {
+                margin: 0 14px 12px 40px !important;
+                padding: 11px 13px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke) !important;
+                border-radius: 12px !important;
+                color: var(--ios-text) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
+            }
+            #inflight-tactical-ui .res-replay-btn:active { background: var(--ios-fill-strong) !important; }
+            #inflight-tactical-ui .res-replay-btn > i { color: var(--ios-accent) !important; }
+
+            /* ---- Rich flight detail card: route banner, status, pilot, actions ----
+               On mobile the expanded detail reads as one full-width inset card,
+               so the 38px desktop indent collapses to the 12px card gutter. */
+            #inflight-tactical-ui .res-photo {
+                margin: 4px 12px 6px !important;
+                border-radius: 14px !important;
+                background: var(--ios-fill) !important;
+            }
+            #inflight-tactical-ui .res-route-banner {
+                margin: 8px 12px 4px !important;
+                padding: 12px 14px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke-soft) !important;
+                border-radius: 14px !important;
+            }
+            #inflight-tactical-ui .res-route-code {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 19px !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .res-route-name {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .res-route-mid { color: var(--ios-text-4) !important; }
+            #inflight-tactical-ui .res-route-line {
+                background: linear-gradient(90deg, transparent, var(--ios-stroke), transparent) !important;
+            }
+            #inflight-tactical-ui .res-status-line {
+                margin: 6px 14px 2px !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            #inflight-tactical-ui .res-pilot-link {
+                margin: 8px 12px 0 !important;
+                padding: 10px 13px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke-soft) !important;
+                border-radius: 14px !important;
+            }
+            #inflight-tactical-ui .res-pilot-link:active { background: var(--ios-fill-strong) !important; }
+            #inflight-tactical-ui .res-pilot-link-name {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 14px !important;
+                color: var(--ios-text) !important;
+            }
+            #inflight-tactical-ui .res-pilot-link-sub {
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                color: var(--ios-text-3) !important;
+            }
+            #inflight-tactical-ui .res-pilot-link-chev { color: var(--ios-text-4) !important; }
+            #inflight-tactical-ui .res-action-bar { margin: 8px 12px 12px !important; }
+            #inflight-tactical-ui .res-action-btn {
+                padding: 12px !important;
+                background: var(--ios-fill) !important;
+                border: 0.5px solid var(--ios-stroke) !important;
+                border-radius: 12px !important;
+                color: var(--ios-text) !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+                font-size: 13.5px !important;
+            }
+            #inflight-tactical-ui .res-action-btn:active { background: var(--ios-fill-strong) !important; }
+            #inflight-tactical-ui .res-action-btn.is-primary {
+                background: var(--ios-accent) !important;
+                border-color: var(--ios-accent) !important;
+                color: #fff !important;
+            }
+            #inflight-tactical-ui .res-detail-grid {
+                padding: 8px 16px 6px !important;
+            }
+
+            /* ---- Pilot rows + offline network lookup ---- */
+            #inflight-tactical-ui .res-user-avatar {
+                width: 36px !important;
+                height: 36px !important;
+                font-size: 12.5px !important;
+            }
+            #inflight-tactical-ui .res-user-avatar.is-lookup {
+                background: var(--ios-fill) !important;
+                color: var(--ios-text-3) !important;
+                border: 1px dashed var(--ios-stroke) !important;
+            }
+            #inflight-tactical-ui .res-user-chev { color: var(--ios-text-4) !important; }
+            #inflight-tactical-ui .res-user-lookup-row .res-callsign {
+                font-weight: 500 !important;
+                color: var(--ios-accent) !important;
             }
 
             /* ============ BOTTOM TAB BAR — native glass stadium ============ */
@@ -1066,6 +1741,317 @@ export const MobileLandingChromeUI = {
                 -webkit-tap-highlight-color: transparent;
             }
             .ios-sheet-cancel:active { background: rgba(50, 50, 52, 0.95); }
+
+            /* ============ FULL-HEIGHT SHEET (Inflight, ATC) ============
+               Presents like the Settings sheet — edge-to-edge, anchored to the
+               bottom, slides up — instead of a floating action-sheet card. */
+            .ios-sheet-full .ios-sheet-card {
+                left: 0; right: 0; bottom: 0;
+                width: 100%; max-width: 100%;
+                height: min(88dvh, 820px);
+                display: flex; flex-direction: column;
+                padding: 0;
+                opacity: 1;
+                transform: translateY(101%);
+                border-radius: 22px 22px 0 0;
+                overflow: hidden;
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                box-shadow: 0 -10px 44px rgba(0, 0, 0, 0.5);
+                transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .ios-sheet-full.is-open .ios-sheet-card { transform: translateY(0); }
+            .ios-fullsheet-grip {
+                flex: 0 0 auto;
+                width: 38px; height: 5px; border-radius: 10px;
+                background: var(--ios-fill-strong);
+                margin: 9px auto 2px;
+                touch-action: none;
+            }
+            .ios-fullsheet-head {
+                flex: 0 0 auto;
+                display: flex; align-items: flex-end; justify-content: space-between;
+                gap: 12px; padding: 8px 20px 14px;
+                border-bottom: 0.5px solid var(--ios-stroke-soft);
+                touch-action: none;
+            }
+            .ios-fullsheet-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .ios-fullsheet-eyebrow {
+                font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+                text-transform: uppercase; color: var(--ios-text-3);
+            }
+            .ios-fullsheet-title {
+                font-size: 26px; font-weight: 800; letter-spacing: -0.5px;
+                color: var(--ios-text); line-height: 1;
+            }
+            .ios-fullsheet-head-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+            .ios-fullsheet-close {
+                width: 30px; height: 30px; border-radius: 50%;
+                border: none; display: grid; place-items: center;
+                background: var(--ios-fill); color: var(--ios-text-2);
+                font-size: 15px; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.15s ease, background-color 0.15s ease;
+            }
+            .ios-fullsheet-close:active { transform: scale(0.9); background: var(--ios-fill-strong); }
+            .ios-fullsheet-body {
+                flex: 1 1 auto; min-height: 0;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+                padding-bottom: max(env(safe-area-inset-bottom, 0px), 18px);
+            }
+            .ios-fullsheet-body::-webkit-scrollbar { width: 0; background: transparent; }
+
+            /* ============ INFLIGHT TRACKING SHEET ============ */
+            .ios-inflight-panel {
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border-radius: 18px;
+                overflow: hidden;
+                box-shadow: var(--ios-shadow);
+            }
+            .ios-inflight-header {
+                display: flex;
+                align-items: flex-end;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 16px 18px 12px;
+                border-bottom: 0.5px solid var(--ios-stroke-soft);
+            }
+            .ios-inflight-titles { display: flex; flex-direction: column; gap: 1px; }
+            .ios-inflight-eyebrow {
+                font-size: 10.5px; font-weight: 600; letter-spacing: 0.6px;
+                text-transform: uppercase; color: var(--ios-text-3);
+            }
+            .ios-inflight-title {
+                font-size: 22px; font-weight: 700; letter-spacing: -0.4px; color: var(--ios-text);
+            }
+            .ios-inflight-plan {
+                flex: 0 0 auto;
+                font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
+                color: var(--ios-text-2);
+                background: var(--ios-fill);
+                padding: 5px 10px; border-radius: 999px;
+            }
+            .ios-inflight-plan.is-pro {
+                color: #1c1c1e;
+                background: linear-gradient(135deg, #ffd60a, #ff9f0a);
+            }
+            .ios-inflight-body {
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+            .ios-inflight-body::-webkit-scrollbar { width: 0; background: transparent; }
+            .ios-inflight-list { display: flex; flex-direction: column; }
+            .ios-inflight-row {
+                display: flex; align-items: center; gap: 12px;
+                padding: 13px 16px;
+            }
+            .ios-inflight-row + .ios-inflight-row { border-top: 0.5px solid var(--ios-stroke-soft); }
+            .ios-inflight-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .ios-inflight-row-top { display: flex; align-items: center; gap: 8px; }
+            .ios-inflight-callsign {
+                font-size: 16px; font-weight: 700; letter-spacing: -0.2px; color: var(--ios-text);
+            }
+            .ios-inflight-chip {
+                font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+                padding: 2px 7px; border-radius: 999px;
+            }
+            .ios-inflight-chip.live { color: var(--ios-success); background: color-mix(in srgb, var(--ios-success) 18%, transparent); }
+            .ios-inflight-chip.landed { color: var(--ios-text-3); background: var(--ios-fill); }
+            .ios-inflight-route {
+                font-size: 14px; font-weight: 600; color: var(--ios-text-2); letter-spacing: 0.2px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-inflight-sub {
+                font-size: 12px; color: var(--ios-text-3);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-inflight-metrics {
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                margin-top: 2px; font-size: 12.5px; font-weight: 500; color: var(--ios-text-2);
+            }
+            .ios-inflight-ete { font-weight: 700; color: var(--ios-accent); font-variant-numeric: tabular-nums; }
+            .ios-inflight-dot-sep {
+                width: 3px; height: 3px; border-radius: 50%;
+                background: var(--ios-text-4); display: inline-block;
+            }
+            .ios-inflight-stop {
+                flex: 0 0 auto; width: 38px; height: 38px;
+                display: grid; place-items: center;
+                border: none; border-radius: 12px;
+                background: var(--ios-fill); color: #ff453a;
+                font-size: 15px; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.15s ease, background-color 0.15s ease;
+            }
+            .ios-inflight-stop:active { transform: scale(0.92); background: var(--ios-fill-strong); }
+            .ios-inflight-stop:disabled { opacity: 0.4; }
+            .ios-inflight-empty {
+                display: flex; flex-direction: column; align-items: center; gap: 8px;
+                padding: 34px 26px; text-align: center;
+            }
+            .ios-inflight-empty > i { font-size: 26px; color: var(--ios-text-4); }
+            .ios-inflight-empty p { margin: 0; font-size: 15px; font-weight: 600; color: var(--ios-text-2); }
+            .ios-inflight-empty span { font-size: 12.5px; color: var(--ios-text-3); line-height: 1.45; }
+            .ios-inflight-empty span i { color: var(--ios-accent); }
+            .ios-inflight-upsell {
+                display: flex; align-items: center; gap: 12px; width: 100%;
+                margin-top: 8px; padding: 14px 16px;
+                background: var(--ios-bg-deep);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border: 0.5px solid var(--ios-stroke);
+                border-radius: 16px; cursor: pointer; text-align: left;
+                color: var(--ios-text);
+                -webkit-tap-highlight-color: transparent;
+            }
+            .ios-inflight-upsell:active { background: var(--ios-bg-elev); }
+            .ios-inflight-upsell-icon {
+                flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+                display: grid; place-items: center; font-size: 15px; color: #1c1c1e;
+                background: linear-gradient(135deg, #ffd60a, #ff9f0a);
+            }
+            .ios-inflight-upsell-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+            .ios-inflight-upsell-title { font-size: 14.5px; font-weight: 600; color: var(--ios-text); }
+            .ios-inflight-upsell-sub { font-size: 12px; color: var(--ios-text-3); }
+            .ios-inflight-upsell > .fa-chevron-right { color: var(--ios-text-4); font-size: 13px; }
+
+            /* ============ ACTIVE ATC SHEET (airport board) ============ */
+            .ios-atc-count {
+                flex: 0 0 auto;
+                font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
+                color: var(--ios-accent);
+                background: var(--ios-accent-soft, rgba(10,132,255,0.14));
+                padding: 5px 11px; border-radius: 999px;
+                font-variant-numeric: tabular-nums;
+            }
+            /* One row per staffed airport: ICAO + name, controller count, and a
+               strip of position columns that light up when that position is open. */
+            .ios-atc-board { display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 4px; }
+            .ios-atc-arow {
+                display: flex; align-items: center; gap: 12px;
+                width: 100%; padding: 13px 14px; text-align: left;
+                background: var(--ios-bg-elev);
+                border: 0.5px solid var(--ios-stroke-soft);
+                border-radius: 14px;
+                color: var(--ios-text); font-family: inherit; cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.12s cubic-bezier(0.16,1,0.3,1);
+            }
+            .ios-atc-arow:active { background: var(--ios-fill); border-color: var(--ios-stroke); transform: scale(0.99); }
+            .ios-atc-apt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .ios-atc-icao { font-size: 18px; font-weight: 800; letter-spacing: -0.3px; color: var(--ios-text); line-height: 1.05; }
+            .ios-atc-aptname {
+                font-size: 12.5px; color: var(--ios-text-3);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-atc-tower { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
+            .ios-atc-tower i { font-size: 14px; color: var(--ios-text-2); }
+            .ios-atc-num { font-size: 15px; font-weight: 700; color: var(--ios-text); font-variant-numeric: tabular-nums; min-width: 10px; }
+            .ios-atc-cols { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; }
+            .ios-atc-col {
+                font-size: 10px; font-weight: 800; letter-spacing: 0.6px;
+                color: var(--ios-text-4); min-width: 30px; text-align: center;
+                transition: color 0.16s ease, text-shadow 0.16s ease;
+            }
+            .ios-atc-col.on.atis { color: #30d158; text-shadow: 0 0 10px rgba(48,209,88,0.45); }
+            .ios-atc-col.on.gnd  { color: #0a84ff; text-shadow: 0 0 10px rgba(10,132,255,0.45); }
+            .ios-atc-col.on.twr  { color: #ff9f0a; text-shadow: 0 0 10px rgba(255,159,10,0.45); }
+            .ios-atc-col.on.app  { color: #bf5af2; text-shadow: 0 0 10px rgba(191,90,242,0.45); }
+            .ios-atc-col.on.dep  { color: #64d2ff; text-shadow: 0 0 10px rgba(100,210,255,0.45); }
+
+            /* ---- Controller dropdown (who's on frequency, and for how long) ---- */
+            .ios-atc-awrap {
+                background: var(--ios-bg-elev);
+                border: 0.5px solid var(--ios-stroke-soft);
+                border-radius: 14px;
+                overflow: hidden;
+            }
+            .ios-atc-awrap.ctrl-open { border-color: var(--ios-stroke); }
+            /* The airport button sits flush inside the wrap now, so strip its own
+               chrome and let the wrapper own the card framing. */
+            .ios-atc-board .ios-atc-arow-line { display: flex; align-items: stretch; }
+            .ios-atc-board .ios-atc-arow {
+                flex: 1 1 auto;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+            }
+            .ios-atc-board .ios-atc-arow:active { background: var(--ios-fill); transform: none; }
+            .ios-atc-expand {
+                flex: 0 0 auto;
+                width: 46px;
+                display: flex; align-items: center; justify-content: center;
+                background: transparent;
+                border: none;
+                border-left: 0.5px solid var(--ios-stroke-soft);
+                color: var(--ios-text-3);
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.2s ease, color 0.16s ease, background-color 0.16s ease;
+            }
+            .ios-atc-expand:active { background: var(--ios-fill); }
+            .ios-atc-awrap.ctrl-open .ios-atc-expand { transform: rotate(180deg); color: var(--ios-text); }
+
+            .ios-atc-ctrl-drawer {
+                display: grid;
+                grid-template-rows: 0fr;
+                transition: grid-template-rows 0.24s ease;
+            }
+            .ios-atc-awrap.ctrl-open .ios-atc-ctrl-drawer { grid-template-rows: 1fr; }
+            .ios-atc-ctrl-drawer > * { min-height: 0; overflow: hidden; }
+            .ios-atc-ctrl-head {
+                padding: 10px 14px 6px;
+                font-size: 10.5px; font-weight: 800; letter-spacing: 0.6px;
+                text-transform: uppercase; color: var(--ios-text-4);
+                border-top: 0.5px solid var(--ios-stroke-soft);
+            }
+            .ios-atc-ctrl {
+                display: flex; align-items: center; gap: 11px;
+                padding: 9px 14px;
+            }
+            .ios-atc-ctrl + .ios-atc-ctrl { border-top: 0.5px solid var(--ios-stroke-soft); }
+            .ios-atc-ctrl-pill {
+                flex: 0 0 auto; min-width: 74px; text-align: center;
+                font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px;
+                padding: 4px 8px; border-radius: 7px;
+                color: var(--ios-text-2);
+                background: var(--ios-fill);
+            }
+            .ios-atc-ctrl-pill.atis { color: #30d158; background: rgba(48,209,88,0.14); }
+            .ios-atc-ctrl-pill.gnd  { color: #0a84ff; background: rgba(10,132,255,0.14); }
+            .ios-atc-ctrl-pill.twr  { color: #ff9f0a; background: rgba(255,159,10,0.14); }
+            .ios-atc-ctrl-pill.app  { color: #bf5af2; background: rgba(191,90,242,0.14); }
+            .ios-atc-ctrl-pill.dep  { color: #64d2ff; background: rgba(100,210,255,0.14); }
+            .ios-atc-ctrl-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+            .ios-atc-ctrl-user {
+                font-size: 14px; font-weight: 600; color: var(--ios-text);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .ios-atc-ctrl-meta { font-size: 11.5px; color: var(--ios-text-3); }
+            .ios-atc-ctrl-time {
+                flex: 0 0 auto; font-size: 12px; font-weight: 600;
+                color: var(--ios-text-2); font-variant-numeric: tabular-nums;
+                display: inline-flex; align-items: center; gap: 4px;
+            }
+            .ios-atc-ctrl-time i { font-size: 10px; color: var(--ios-text-3); }
+
+            /* The ATC tab badge is an online-count, not an alert — tint it accent. */
+            .ios-tab-badge.is-atc { background: var(--ios-accent); box-shadow: 0 1px 3px rgba(10, 132, 255, 0.4); }
+
+            /* Narrow phones: tighten the position columns so the board still fits. */
+            @media (max-width: 430px) {
+                .ios-atc-board { padding: 10px 8px 4px; }
+                .ios-atc-arow { gap: 8px; padding: 12px; }
+                .ios-atc-cols { gap: 5px; }
+                .ios-atc-col { min-width: 26px; font-size: 9.5px; letter-spacing: 0.3px; }
+                .ios-atc-tower i { font-size: 13px; }
+            }
 
             /* ============ WEATHER POPOVER ============ */
             .ios-popover-root {

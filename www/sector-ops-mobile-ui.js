@@ -1,13 +1,55 @@
+/*
+ * =====================================================================
+ * ⚠️  LEGACY / PARTIALLY DEPRECATED — sector-ops-mobile-ui.js
+ * =====================================================================
+ * This is the OLD mobile UI handler ("Sector Ops"). It is NOT the
+ * current landing / map chrome.
+ *
+ * The CURRENT mobile UI is driven by:
+ *   - landingUI.js                  (LandingUI — tactical header + search)
+ *   - MobileLandingChromeUI.js      (iOS bottom tab bar: Inflight / Weather
+ *                                     / Filters / Settings — the live HUD)
+ *   - MobileSettingsUI.js           (the current mobile settings panel,
+ *                                     opened from the Settings tab)
+ *
+ * Only a few helpers in THIS file are still live and called externally:
+ *   isMobile(), isTablet(), openWindow(), closeActiveWindow(),
+ *   openServerSheet() — used to present the aircraft/airport sheets.
+ *
+ * The floating HUD action stack built by injectMobileHudControls()
+ * below (Server pill / Search / Weather / Filters buttons) is LEGACY and
+ * is no longer injected — those controls now live in
+ * MobileLandingChromeUI.js. Do NOT add new map controls (e.g. the 3D
+ * Traffic toggle) here; add them to the current chrome / MobileSettingsUI
+ * instead, or they will never render.
+ * =====================================================================
+ */
 const MobileUIHandler = {
     // --- CONFIGURATION ---
     CONFIG: {
         breakpoint: 992, // The max-width in pixels to trigger mobile view
         defaultMode: 'legacy', // Default is 'legacy' sheet
         legacyPeekHeight: 320, // Height of the "peek" state for legacy sheet
+        simplePeekHeight: 240, // Shorter peek for the simple flight window (hugs its compact bar)
     },
 
     // --- STATE ---
     isMobile: () => window.innerWidth <= MobileUIHandler.CONFIG.breakpoint,
+    // True for iPad / tablet-class devices. iPadOS 13+ masquerades as a Mac,
+    // so fall back to the touch-points heuristic; Android tablets drop the
+    // "Mobile" token from their UA string.
+    isTablet: () => {
+        const ua = navigator.userAgent || '';
+        if (/iPad/.test(ua)) return true;
+        if (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1) return true;
+        if (/Android/.test(ua) && !/Mobile/.test(ua)) return true;
+        return false;
+    },
+    // The compact "peek" bar is a phone-only affordance; iPads jump straight to
+    // the expanded "second state" of the simple flight window.
+    isSimpleSheetExpandedOnly() {
+        return this.isSimpleSheet() && this.isTablet();
+    },
     activeWindow: null, // The *original* hidden info window
     activeMode: 'legacy', // Defaults to legacy
     topWindowEl: null, // HUD Mode: Top window
@@ -122,7 +164,13 @@ disableHudControls() {
 },
 
     /**
-     * [NEW] Injects the floating Server Pill (Top-Left) and Action Stack (Top-Right)
+     * [LEGACY — NO LONGER CALLED] Injects the floating Server Pill (Top-Left)
+     * and Action Stack (Top-Right: Search / Weather / Filters).
+     *
+     * Superseded by MobileLandingChromeUI.js, which renders the current iOS
+     * bottom tab bar. This method is retained only for reference and is not
+     * wired into the boot path. Add new map controls to the current chrome /
+     * MobileSettingsUI.js, not here.
      */
     injectMobileHudControls() {
         const mapContainer = document.getElementById('sector-ops-map-fullscreen');
@@ -872,8 +920,20 @@ disableHudControls() {
             --- [START] NEW CSS for "Legacy Sheet" Mode ---
             ==================================================================== */
 
-            /* This class is applied to the original info-window */
-            .mobile-legacy-sheet {
+            /* This class is applied to the original info-window.
+               The motion rules are scoped as .info-window.mobile-legacy-sheet
+               so they always out-rank the desktop .info-window /
+               .info-window.visible entrance rules in flight.js regardless of
+               which stylesheet gets injected later. Without that the cascade
+               was order-dependent: when the desktop rules won, the sheet
+               inherited their fade + top-right translate/scale entrance and
+               visibly dragged in from the top-right corner before settling
+               at the bottom. The sheet's motion is one axis only — it slides
+               up from below the bottom edge, and back down to close.
+               transform/transition deliberately carry NO !important: the drag
+               handlers track the finger with inline transform/transition
+               while a gesture is in progress, and inline styles must win. */
+            .info-window.mobile-legacy-sheet {
                 /* --- [CRITICAL] Override desktop styles --- */
                 display: flex !important; /* Use flex (from desktop) */
                 position: absolute !important;
@@ -892,22 +952,32 @@ disableHudControls() {
                 z-index: 1045 !important;
                 border-radius: 16px 16px 0 0 !important;
                 box-shadow: 0 -5px 30px rgba(0,0,0,0.4) !important;
-                
+
+                /* --- Neutralize the desktop entrance. The sheet is always
+                   fully opaque and interactive; "hidden" is expressed purely
+                   by the translateY parking it below the viewport. --- */
+                opacity: 1;
+                transform-origin: center bottom;
+                pointer-events: auto;
+
                 /* --- Animation & State --- */
                 will-change: transform;
-                /* Start off-screen */
-                transform: translateY(100%); 
+                /* Resting (closed) state: parked just below the bottom edge */
+                transform: translateY(100%);
                 transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
             }
 
             /* "Peek" State (Default visible state) */
-            .mobile-legacy-sheet.visible.peek {
+            .info-window.mobile-legacy-sheet.visible.peek {
                 transform: translateY(calc(100% - var(--legacy-peek-height)));
             }
 
-/* "Expanded" State */
-            .mobile-legacy-sheet.visible:not(.peek) {
-                transform: translateY(0) !important; 
+            /* "Expanded" State. No !important here — while a drag is in
+               progress the gesture handler positions the sheet with an
+               inline transform, which must out-rank this rule or the sheet
+               won't follow the finger down from the expanded state. */
+            .info-window.mobile-legacy-sheet.visible:not(.peek) {
+                transform: translateY(0);
             }
             
             /* --- [NEW] Drag Handle for Legacy Sheet --- */
@@ -945,6 +1015,9 @@ disableHudControls() {
             .mobile-legacy-sheet:has(> #simple-flight-window-frame) {
                 height: calc(100vh - var(--legacy-top-offset)) !important;
                 height: calc(100dvh - var(--legacy-top-offset)) !important;
+                /* Shorter peek so the compact bar isn't followed by a big
+                   chunk of empty space. Kept in sync with CONFIG.simplePeekHeight. */
+                --legacy-peek-height: 240px;
             }
             .mobile-legacy-sheet > #simple-flight-window-frame {
                 width: 100% !important;
@@ -954,6 +1027,34 @@ disableHudControls() {
                 display: block !important;
                 border: none !important;
                 border-radius: 16px 16px 0 0 !important;
+            }
+
+            /* --- iPad / tablet: present the simple flight window as a centered
+               floating card instead of an edge-to-edge bar. The window's content
+               is laid out for a phone (~380px); stretched across a 768px+ iPad it
+               looked broken — sparse, with truncated route cities and oversized
+               media. Constraining the host to a phone-width card restores the
+               intended layout and matches iPadOS's centered form-sheet style. --- */
+            @media (min-width: 700px) and (max-width: 1024px) {
+                .mobile-legacy-sheet:has(> #simple-flight-window-frame) {
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: min(540px, 92vw) !important;
+                    max-width: 540px !important;
+                    margin-left: auto !important;
+                    margin-right: auto !important;
+                    bottom: max(env(safe-area-inset-bottom, 0px), 14px) !important;
+                    height: min(82dvh, 860px) !important;
+                    max-height: min(82dvh, 860px) !important;
+                    border-radius: 24px !important;
+                    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55) !important;
+                }
+                .mobile-legacy-sheet:has(> #simple-flight-window-frame) > #simple-flight-window-frame {
+                    border-radius: 24px !important;
+                }
+                .mobile-legacy-sheet:has(> #simple-flight-window-frame) .legacy-sheet-handle.simple-mode {
+                    border-radius: 24px 24px 0 0 !important;
+                }
             }
 
             /* --- [UPDATED] Specific styling for SIMPLE MODE handle (Seamless Overlay) --- */
@@ -1131,7 +1232,12 @@ disableHudControls() {
         this.overlayEl.id = 'mobile-window-overlay';
         viewContainer.appendChild(this.overlayEl);
         
-        // 2. Add class to the *original* window
+        // 2. Add class to the *original* window. Strip any stale visibility
+        // state first (the desktop path can re-add 'visible' before routing
+        // here, e.g. on trip-card exit) so the sheet always presents from
+        // its parked position below the bottom edge instead of popping in
+        // already expanded.
+        this.activeWindow.classList.remove('visible', 'peek');
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
         
@@ -1195,14 +1301,21 @@ disableHudControls() {
      */
     observeOriginalWindow(windowElement) {
         if (this.contentObserver) this.contentObserver.disconnect();
-        
-        this.contentObserver = new MutationObserver((mutationsList, obs) => {
+
+        // Populates the active sheet/HUD once the window's content is ready and
+        // animates it in. Returns true once it has run so the caller can stop
+        // waiting. Factored out of the observer below so it can ALSO be fired
+        // for windows whose content is already present. Guarded so it only
+        // ever populates once per observe() call.
+        let populated = false;
+        const tryPopulate = () => {
+            if (populated) return true;
             const mainContent = windowElement.querySelector('.unified-display-main-content');
             const attitudeGroup = mainContent?.querySelector('#attitude_group');
-            
+
             // --- [NEW CHECK] For Simple Window (Iframe) ---
             const simpleIframe = windowElement.querySelector('#simple-flight-window-frame');
-            
+
             // --- [NEW CHECK] For Airport Window ---
             const isAirportWindow = windowElement.id === 'airport-info-window';
             // Airports might have .airport-overview-panel or similar, but generally if they have children, they are ready.
@@ -1212,43 +1325,84 @@ disableHudControls() {
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
             // Condition 2: Simple Iframe is present
             const isSimpleReady = !!simpleIframe;
-            
-            if (isStandardReady || isSimpleReady || isAirportReady) {
-                
-                // --- [NEW] Router ---
-                if (this.activeMode === 'legacy') {
-                    // 1. Populate first (while off-screen)
-                    this.populateLegacySheet(windowElement);
-                    
-                    // 2. NOW, animate it in
-                    if (this.activeWindow) {
-                        setTimeout(() => {
+
+            if (!(isStandardReady || isSimpleReady || isAirportReady)) return false;
+
+            populated = true;
+
+            // --- [NEW] Router ---
+            if (this.activeMode === 'legacy') {
+                // 1. Populate first (while off-screen)
+                this.populateLegacySheet(windowElement);
+
+                // 2. NOW, animate it in
+                if (this.activeWindow) {
+                    setTimeout(() => {
+                        if (this.isSimpleSheetExpandedOnly()) {
+                            // iPad: skip the phone-only peek bar and open
+                            // straight into the expanded "second state".
+                            this.setLegacySheetState('expanded');
+                        } else {
+                            // Size the peek detent to the simple window's saved
+                            // preset (primed on the host before open) so the bar
+                            // opens at the right height immediately.
+                            if (this.isSimpleSheet()) {
+                                this.activeWindow.style.setProperty('--legacy-peek-height', this.getPeekHeight() + 'px');
+                            }
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
-                        }, 10);
-                    }
-
-                } else { // 'hud' mode
-                    // 1. Populate first (while off-screen)
-                    this.populateSplitView(windowElement);
-                    
-                    // 2. NOW, animate them in
-                    setTimeout(() => {
-                        if (this.topWindowEl) this.topWindowEl.classList.add('visible');
-                        if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
-                        this.drawerState = 0; // Set initial state
+                        }
                     }, 10);
                 }
-                
+
+            } else { // 'hud' mode
+                // 1. Populate first (while off-screen)
+                this.populateSplitView(windowElement);
+
+                // 2. NOW, animate them in
+                setTimeout(() => {
+                    if (this.topWindowEl) this.topWindowEl.classList.add('visible');
+                    if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
+                    this.drawerState = 0; // Set initial state
+                }, 10);
+            }
+
+            return true;
+        };
+
+        this.contentObserver = new MutationObserver((mutationsList, obs) => {
+            if (tryPopulate()) {
                 obs.disconnect();
                 this.contentObserver = null;
             }
         });
-        
-        this.contentObserver.observe(windowElement, { 
-            childList: true, 
+
+        this.contentObserver.observe(windowElement, {
+            childList: true,
             subtree: true,
             attributes: true
+        });
+
+        // Safety net for the return-from-overlay case (replay / trip card),
+        // where the window's content — notably the simple-window iframe — is
+        // already in the DOM and will NOT mutate again (the simple window pushes
+        // live updates into the iframe rather than mutating the host), so the
+        // observer above would wait forever and the sheet would never re-animate.
+        //
+        // Deferred to the next frame rather than run synchronously: callers that
+        // are about to rebuild the window (e.g. switching aircraft) reset
+        // innerHTML to a spinner right after openWindow() returns. Running now
+        // would populate against that stale content and prepend a drag handle
+        // that the imminent innerHTML reset would wipe — leaving the sheet
+        // tap-only with no slide handle. By waiting a frame, any such reset (and
+        // the MutationObserver it triggers) wins first; we only step in if the
+        // content is genuinely already settled and the observer never fired.
+        requestAnimationFrame(() => {
+            if (populated || this.activeWindow !== windowElement) return;
+            if (tryPopulate() && this.contentObserver) {
+                this.contentObserver.disconnect();
+                this.contentObserver = null;
+            }
         });
     },
 
@@ -1361,9 +1515,11 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         
         if (this.overlayEl) {
             this.overlayEl.addEventListener('click', () => {
-                if (this.legacySheetState.currentState === 'expanded') {
+                if (this.legacySheetState.currentState === 'expanded'
+                    && !this.isSimpleSheetExpandedOnly()) {
                     this.setLegacySheetState('peek');
                 } else {
+                    // iPad has no peek state to fall back to — dismiss instead.
                     this.closeActiveWindow();
                 }
             });
@@ -1583,9 +1739,58 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
     /**
      * [NEW] Sets the "Legacy Sheet" to a specific state.
      */
+    // Is the simple flight-info iframe the active legacy sheet?
+    isSimpleSheet() {
+        return !!(this.activeWindow && this.activeWindow.querySelector
+            && this.activeWindow.querySelector('#simple-flight-window-frame'));
+    },
+
+    // The simple window hugs its compact bar, so it gets a shorter peek.
+    getPeekHeight() {
+        return this.isSimpleSheet() ? this.CONFIG.simplePeekHeight : this.CONFIG.legacyPeekHeight;
+    },
+
+    // Locks/unlocks the sheet drag gesture while the simple window is in
+    // layout-edit mode (so in-iframe block dragging doesn't drag the sheet).
+    editLocked: false,
+    setEditLock(active) {
+        this.editLocked = !!active;
+        if (active) this.legacySheetState.isDragging = false;
+    },
+
+    // The simple window's peek preset (Minimal/Standard/Rich) reports the height
+    // its collapsed bar needs. Update the detent + the CSS var that positions the
+    // peek transform, and re-snap if we're currently peeking so it's instant.
+    setSimplePeekHeight(px) {
+        const h = Math.max(120, Math.min(parseInt(px, 10) || this.CONFIG.simplePeekHeight, Math.round(window.innerHeight * 0.85)));
+        this.CONFIG.simplePeekHeight = h;
+        if (this.isSimpleSheet() && this.activeWindow) {
+            // Inline custom property wins over the stylesheet's --legacy-peek-height.
+            this.activeWindow.style.setProperty('--legacy-peek-height', h + 'px');
+            if (this.legacySheetState.currentState === 'peek' && !this.isSimpleSheetExpandedOnly()) {
+                this.setLegacySheetState('peek');
+            }
+        }
+    },
+
+    // Keep the iframe's content phase in sync with the host sheet so dragging
+    // the sheet up/down morphs small <-> big info (no tap required).
+    syncSimpleIframePhase(targetState) {
+        if (!this.isSimpleSheet()) return;
+        const iframe = this.activeWindow.querySelector('#simple-flight-window-frame');
+        if (iframe && iframe.contentWindow) {
+            try {
+                iframe.contentWindow.postMessage({
+                    type: 'SET_PHASE',
+                    phase: targetState === 'expanded' ? 'expanded' : 'collapsed'
+                }, '*');
+            } catch (e) {}
+        }
+    },
+
     setLegacySheetState(targetState) { // 'peek', 'expanded', or 'closed'
         if (!this.activeWindow) return;
-        
+
         this.legacySheetState.currentState = targetState;
         this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
         this.activeWindow.style.transform = ''; // Remove inline style from dragging
@@ -1594,19 +1799,26 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
             this.activeWindow.classList.add('visible');
             this.activeWindow.classList.remove('peek');
             if (this.overlayEl) this.overlayEl.classList.add('visible');
-            
+
             const topOffset = parseInt(getComputedStyle(document.documentElement)
             .getPropertyValue('--hud-top-window-height')) || 280;
             const expandedY = topOffset;
 
             this.legacySheetState.currentSheetY = expandedY;
+            this.syncSimpleIframePhase('expanded');
 
         } else if (targetState === 'peek') {
+            // Keep the CSS var that drives the peek transform in sync with the
+            // current detent (the simple window's preset can change it live).
+            if (this.isSimpleSheet()) {
+                this.activeWindow.style.setProperty('--legacy-peek-height', this.getPeekHeight() + 'px');
+            }
             this.activeWindow.classList.add('visible', 'peek');
             if (this.overlayEl) this.overlayEl.classList.remove('visible');
-            
-            const peekY = window.innerHeight - this.CONFIG.legacyPeekHeight;
+
+            const peekY = window.innerHeight - this.getPeekHeight();
             this.legacySheetState.currentSheetY = peekY;
+            this.syncSimpleIframePhase('collapsed');
 
         } else if (targetState === 'closed') {
             this.activeWindow.classList.remove('visible', 'peek');
@@ -1662,7 +1874,10 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
 // --- [NEW] Legacy Sheet Swipe Handlers ---
     handleLegacyTouchStart(e) {
         if (this.activeMode !== 'legacy' || !this.activeWindow) return;
-        
+        // While the simple window is in layout-edit mode, the sheet gesture is
+        // locked so dragging blocks inside the iframe doesn't move the sheet.
+        if (this.editLocked) return;
+
         // Prevent drag if touching a button so clicks work perfectly
         const interactiveSelectors = [
             '.overview-actions', '.close-btn', 'button', 'a', '[role="button"]', 
@@ -1685,7 +1900,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const rect = this.activeWindow.getBoundingClientRect();
         if (this.legacySheetState.currentState === 'peek') {
             // Translate Y is exactly the total height minus the visible peek area
-            this.legacySheetState.startTranslateY = rect.height - this.CONFIG.legacyPeekHeight;
+            this.legacySheetState.startTranslateY = rect.height - this.getPeekHeight();
         } else {
             // Expanded is always at 0 translation
             this.legacySheetState.startTranslateY = 0;
@@ -1732,26 +1947,35 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const deltaY = this.legacySheetState.currentTranslateY - this.legacySheetState.startTranslateY;
 
         // --- SNAPPING LOGIC ---
+        // Pulling up/down brings the two phases back and forth into one another.
+        // We never close just because the sheet was pulled down from expanded;
+        // closing is reserved for a deliberate large pull from the peek state.
         if (this.legacySheetState.currentState === 'peek') {
-            if (deltaY < -40) { 
-                // Swiped UP more than 40px -> Expand to full page
+            if (deltaY < -40) {
+                // Swiped UP -> grow peek into the full window
                 this.setLegacySheetState('expanded');
-            } else if (deltaY > 80) { 
-                // Swiped DOWN more than 80px -> Close the window entirely
+            } else if (deltaY > 140) {
+                // Deliberate large swipe DOWN from peek -> close the window
                 this.closeActiveWindow();
-            } else { 
-                // Didn't swipe far enough -> Snap back to peek
+            } else {
+                // Not far enough -> snap back to peek
                 this.setLegacySheetState('peek');
             }
-        } else { // Was in 'expanded' state
-            if (deltaY > 150) { 
-                // [NEW] Large swipe DOWN more than 150px -> Close entirely ("close it nearly the same")
+        } else if (this.isSimpleSheetExpandedOnly()) {
+            // iPad: there is no peek bar to collapse into, so a deliberate large
+            // swipe DOWN dismisses the window; anything smaller snaps back.
+            if (deltaY > 140) {
                 this.closeActiveWindow();
-            } else if (deltaY > 60) { 
-                // Moderate swipe DOWN -> Shrink back to peek
+            } else {
+                this.setLegacySheetState('expanded');
+            }
+        } else { // Was in 'expanded' state
+            if (deltaY > 60) {
+                // Swiped DOWN -> shrink the full window back into the peek bar
+                // (never close from expanded — pulling just brings peek back)
                 this.setLegacySheetState('peek');
-            } else { 
-                // Didn't swipe far enough -> Snap back to expanded
+            } else {
+                // Not far enough -> snap back to expanded
                 this.setLegacySheetState('expanded');
             }
         }
