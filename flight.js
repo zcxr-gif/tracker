@@ -17,7 +17,9 @@ import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
-import { TopWatchedUsers } from './topWatchedUsers.js';
+import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
+
+installSlowConnectionMonitor();
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -44,166 +46,68 @@ window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
 
 
-// Felzenszwalb-Huttenlocher 1D squared distance transform.
-// f: input, d: output, v/z: scratch. All length-n (z is n+1).
-function _edt1d(f, n, d, v, z) {
-    let k = 0;
-    v[0] = 0;
-    z[0] = -1e20;
-    z[1] = 1e20;
-    for (let q = 1; q < n; q++) {
-        let s;
-        while (true) {
-            const r = v[k];
-            s = ((f[q] + q * q) - (f[r] + r * r)) / (2 * (q - r));
-            if (s > z[k]) break;
-            k--;
-        }
-        k++;
-        v[k] = q;
-        z[k] = s;
-        z[k + 1] = 1e20;
-    }
-    k = 0;
-    for (let q = 0; q < n; q++) {
-        while (z[k + 1] < q) k++;
-        const r = v[k];
-        d[q] = (q - r) * (q - r) + f[r];
-    }
-}
-
-function _edt2d(grid, w, h, scratch) {
-    const { f, d, v, z } = scratch;
-    for (let x = 0; x < w; x++) {
-        for (let y = 0; y < h; y++) f[y] = grid[y * w + x];
-        _edt1d(f, h, d, v, z);
-        for (let y = 0; y < h; y++) grid[y * w + x] = d[y];
-    }
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) f[x] = grid[y * w + x];
-        _edt1d(f, w, d, v, z);
-        for (let x = 0; x < w; x++) grid[y * w + x] = d[x];
-    }
-}
-
-// Build a Mapbox-compatible SDF (edge encoded at alpha=192, cutoff=0.25, radius=8)
-// from a padded RGBA tile. Returns Uint8ClampedArray with R=G=B=255 and A=distance.
-function _buildSDF(rgba, w, h, radius, cutoff) {
-    const n = w * h;
-    const INF = 1e20;
-    const distToInside = new Float64Array(n);
-    const distToOutside = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-        const a = rgba[i * 4 + 3];
-        if (a >= 128) {
-            distToInside[i] = 0;
-            distToOutside[i] = INF;
-        } else {
-            distToInside[i] = INF;
-            distToOutside[i] = 0;
-        }
-    }
-    const maxDim = Math.max(w, h);
-    const scratch = {
-        f: new Float64Array(maxDim),
-        d: new Float64Array(maxDim),
-        v: new Int32Array(maxDim),
-        z: new Float64Array(maxDim + 1),
-    };
-    _edt2d(distToInside, w, h, scratch);
-    _edt2d(distToOutside, w, h, scratch);
-
-    const out = new Uint8ClampedArray(n * 4);
-    for (let i = 0; i < n; i++) {
-        const signed = Math.sqrt(distToInside[i]) - Math.sqrt(distToOutside[i]);
-        let alpha = 255 - 255 * (signed / radius + cutoff);
-        if (alpha < 0) alpha = 0;
-        else if (alpha > 255) alpha = 255;
-        out[i * 4] = 255;
-        out[i * 4 + 1] = 255;
-        out[i * 4 + 2] = 255;
-        out[i * 4 + 3] = alpha;
-    }
-    return out;
-}
-
 async function loadSpriteSheetAndGenerateIcons(map) {
-    const spriteUrl = './markers.png';
+    const spriteUrl = './markers.png'; 
+
+    const USE_SDF = true;
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
-
+    
+    // Await the physical loading of the sprite sheet
     await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
         img.src = spriteUrl;
     });
 
+    // --- GPU ACCELERATED SDF MASKING ---
+    // 1. Master Base Canvas
     const baseCanvas = document.createElement('canvas');
     baseCanvas.width = img.width;
     baseCanvas.height = img.height;
     const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
     baseCtx.drawImage(img, 0, 0);
 
-    // Natural CSS-pixel size when icon-size = 1. Layer scales this down with icon-size.
-    const TARGET_LOGICAL_SIZE = 256;
-    // Resolution we resample each source tile to before computing its SDF.
-    // Source tiles are ~24 px; upscaling to 128 captures the alpha curve with
-    // bicubic precision so the distance field has sub-source-pixel accuracy.
-    const SDF_UPSCALE = 128;
-    // Padding around each tile so the outside gradient isn't clipped.
-    const SDF_PAD = 8;
-    // SDF encoding params matching Mapbox's symbol-sdf shader (edge at alpha 192).
-    const SDF_RADIUS = 8;
-    const SDF_CUTOFF = 0.25;
-
-    const scratchCanvas = document.createElement('canvas');
-    const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true });
-
+    const TARGET_LOGICAL_SIZE = 128; 
     const entries = Object.entries(spriteUVs);
-    const FRAME_BUDGET_MS = 12;
+
+    // --- ADAPTIVE FRAME BUDGETING ---
+    const FRAME_BUDGET_MS = 12; 
     let executionStartTime = performance.now();
 
     for (let i = 0; i < entries.length; i++) {
         const [iconKey, uvRatios] = entries[i];
         const [xRatio, yRatio, wRatio, hRatio] = uvRatios;
-
+        
         const pixelX = Math.floor(xRatio * img.width);
         const pixelY = Math.floor(yRatio * img.height);
         const pixelW = Math.floor(wRatio * img.width);
         const pixelH = Math.floor(hRatio * img.height);
 
         if (pixelW === 0 || pixelH === 0) continue;
-        if (map.hasImage(`icon-${iconKey}`)) continue;
 
-        // High-quality bicubic upscale of the tile, preserving aspect ratio.
-        const aspect = pixelW / pixelH;
-        const sdfW = aspect >= 1 ? SDF_UPSCALE : Math.max(1, Math.round(SDF_UPSCALE * aspect));
-        const sdfH = aspect >= 1 ? Math.max(1, Math.round(SDF_UPSCALE / aspect)) : SDF_UPSCALE;
-        const padW = sdfW + 2 * SDF_PAD;
-        const padH = sdfH + 2 * SDF_PAD;
+        if (!USE_SDF) {
+            const raw = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+            const pRatio = pixelW / TARGET_LOGICAL_SIZE;
+            map.addImage(`icon-${iconKey}`, raw, { pixelRatio: pRatio, sdf: false });
+            if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                executionStartTime = performance.now();
+            }
+            continue;
+        }
 
-        scratchCanvas.width = padW;
-        scratchCanvas.height = padH;
-        scratchCtx.imageSmoothingEnabled = true;
-        scratchCtx.imageSmoothingQuality = 'high';
-        scratchCtx.clearRect(0, 0, padW, padH);
-        scratchCtx.drawImage(
-            baseCanvas,
-            pixelX, pixelY, pixelW, pixelH,
-            SDF_PAD, SDF_PAD, sdfW, sdfH
-        );
-        const tile = scratchCtx.getImageData(0, 0, padW, padH);
+        
+        const pRatio = pixelW / TARGET_LOGICAL_SIZE;
 
-        const sdfData = _buildSDF(tile.data, padW, padH, SDF_RADIUS, SDF_CUTOFF);
-        const sdfImage = { width: padW, height: padH, data: sdfData };
-
-        // pixelRatio maps source pixels to CSS pixels. We want the icon's
-        // longest dimension to occupy TARGET_LOGICAL_SIZE CSS px at icon-size=1.
-        const pRatio = Math.max(padW, padH) / TARGET_LOGICAL_SIZE;
-
-        map.addImage(`icon-${iconKey}`, sdfImage, { pixelRatio: pRatio, sdf: true });
-
+        // Register Base Icon with 'sdf: true' for Native Mapbox GPU Tinting
+        // This replaces the old multi-canvas system and unlocks infinite colors.
+        if (!map.hasImage(`icon-${iconKey}`)) {
+            const baseImageData = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+            map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio, sdf: true });
+        }
+        
         if (performance.now() - executionStartTime > FRAME_BUDGET_MS) {
             await new Promise(resolve => requestAnimationFrame(resolve));
             executionStartTime = performance.now();
@@ -285,12 +189,16 @@ if ('serviceWorker' in navigator) {
 
     // --- Global Configuration ---
     const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-    window.API_BASE_URL = API_BASE_URL;
-    TopWatchedUsers.init(API_BASE_URL);
     const LIVE_FLIGHTS_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/flights';
     const ACARS_USER_API_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/users'; // NEW: For user stats
     let currentServerName = localStorage.getItem('preferredServer') || 'Expert Server';
-    const CURRENT_SITE_URL = window.location.origin;
+    // iOS/Capacitor app shim: inside the native app the origin is capacitor://,
+    // so relative netlify-function calls must be redirected to production.
+    const PRODUCTION_URL = 'https://inflight.info';
+    const IS_LOCAL_OR_APP = window.location.hostname === 'localhost' ||
+                            window.location.protocol === 'file:' ||
+                            window.location.protocol === 'capacitor:';
+    const CURRENT_SITE_URL = IS_LOCAL_OR_APP ? PRODUCTION_URL : window.location.origin;
 
 
     // --- State Variables ---
@@ -418,7 +326,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
 
         if (!isSignedIn) {
             if (typeof showNotification === 'function') {
-                showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
             }
             // Surface the signup modal so the user can convert immediately
             if (window.AuthUI && typeof window.AuthUI.open === 'function') {
@@ -444,7 +352,7 @@ window.pinFlight = function(flightId) {
     const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
     if (!isSignedIn) {
         if (typeof showNotification === 'function') {
-            showNotification("Multi-Track is a Pro feature — sign in to pin flights.", "error");
+            showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
         }
         if (window.AuthUI && typeof window.AuthUI.open === 'function') {
             window.AuthUI.open('signup');
@@ -542,7 +450,6 @@ window.pinFlight = function(flightId) {
         
         if (currentFlightInWindow !== flightId) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(flightId);
-            if (typeof FlownPath3D !== 'undefined') FlownPath3D.clearPath(sectorOpsMap, flightId);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(flightId);
         } else {
             const pinBtn = document.getElementById('pin-flight-btn');
@@ -1311,10 +1218,10 @@ function injectCustomStyles() {
 .ac-header-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, 
-        rgba(0,0,0,0.2) 0%, 
-        rgba(0,0,0,0.1) 40%, 
-        rgba(15, 23, 42, 0.8) 100%
+    background: linear-gradient(180deg,
+        rgba(0,0,0,0.2) 0%,
+        rgba(0,0,0,0.1) 40%,
+        var(--iw-bg-end) 100%
     );
     z-index: 1;
 }
@@ -1482,34 +1389,12 @@ function injectCustomStyles() {
     opacity: 0;
 }
 
-/* Desktop layout.
-   Geometry, colour and typography are all driven by CSS custom properties so
-   the customizer can rewrite the look live. Fallbacks reproduce the original
-   design exactly, so an un-customized card is unchanged. */
+/* Desktop layout */
 #trip-card-takeover {
-    --tc-width: 380px;
-    --tc-radius: 16px;
-    --tc-hero-height: 150px;
-    --tc-pad-x: 18px;
-    --tc-pad-y: 16px;
-    --tc-gap: 14px;
-    --tc-bg: rgba(30, 31, 32, 0.94);
-    --tc-blur: 18px;
-    --tc-border-color: rgba(255, 255, 255, 0.15);
-    --tc-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
-    --tc-accent: #38bdf8;
-    --tc-accent-2: #a855f7;
-    --tc-text: #ffffff;
-    --tc-muted: #9aa0a6;
-    --tc-callsign-size: 1.5rem;
-    --tc-icao-size: 1.5rem;
-    --tc-hero-fade: 1;
-    --tc-enter-y: 24px;
-
     bottom: 24px;
     left: 50%;
-    transform: translateX(-50%) translateY(var(--tc-enter-y));
-    width: var(--tc-width);
+    transform: translateX(-50%) translateY(24px);
+    width: 380px;
     max-width: calc(100vw - 24px);
 }
 #trip-card-takeover.active {
@@ -1519,21 +1404,7 @@ function injectCustomStyles() {
     opacity: 1;
 }
 
-/* Anchor variants (set by the customizer). Center stays the default above. */
-#trip-card-takeover.tc-pos-bottom-left  { left: 24px; transform: translateX(0) translateY(var(--tc-enter-y)); }
-#trip-card-takeover.tc-pos-bottom-left.active  { transform: translateX(0) translateY(0); }
-#trip-card-takeover.tc-pos-bottom-right { left: auto; right: 24px; transform: translateX(0) translateY(var(--tc-enter-y)); }
-#trip-card-takeover.tc-pos-bottom-right.active { transform: translateX(0) translateY(0); }
-#trip-card-takeover.tc-pos-top-center { bottom: auto; top: 24px; transform: translateX(-50%) translateY(calc(-1 * var(--tc-enter-y))); }
-#trip-card-takeover.tc-pos-top-center.active { transform: translateX(-50%) translateY(0); }
-#trip-card-takeover.tc-pos-top-left { bottom: auto; top: 24px; left: 24px; transform: translateX(0) translateY(calc(-1 * var(--tc-enter-y))); }
-#trip-card-takeover.tc-pos-top-left.active { transform: translateX(0) translateY(0); }
-#trip-card-takeover.tc-pos-top-right { bottom: auto; top: 24px; left: auto; right: 24px; transform: translateX(0) translateY(calc(-1 * var(--tc-enter-y))); }
-#trip-card-takeover.tc-pos-top-right.active { transform: translateX(0) translateY(0); }
-/* No-animation mode: kill the entrance slide. */
-#trip-card-takeover.tc-no-anim { transition: opacity 0.2s ease; --tc-enter-y: 0px; }
-
-/* Mobile layout — full-width bottom sheet, flush to the screen edges */
+/* Mobile layout — full-width drawer */
 @media (max-width: 640px) {
     #trip-card-takeover {
         bottom: 0;
@@ -1542,79 +1413,38 @@ function injectCustomStyles() {
         width: 100%;
         max-width: 100%;
         transform: translateY(120%);
-        padding: 0;
+        padding: 0 10px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
         box-sizing: border-box;
     }
     #trip-card-takeover.active {
         transform: translateY(0);
     }
-    .tc-card {
-        border-radius: 20px 20px 0 0;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
-        /* Never exceed the viewport: hero stays put, body scrolls if needed. */
-        max-height: 85vh;
-        display: flex;
-        flex-direction: column;
-        padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-    .tc-card .tc-hero { flex: 0 0 auto; }
-    .tc-card .tc-body {
-        flex: 1 1 auto;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-    /* Drag-handle affordance at the top of the sheet */
-    .tc-hero::before {
-        content: '';
-        position: absolute;
-        top: 8px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 11;
-        width: 40px;
-        height: 4px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.45);
-    }
 }
 
 .tc-card {
-    background: var(--tc-bg, rgba(30, 31, 32, 0.94));
-    border: 1px solid var(--tc-border-color, rgba(255, 255, 255, 0.15));
-    border-radius: var(--tc-radius, 16px);
+    background: linear-gradient(180deg, #11141f 0%, #0a0b10 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
     overflow: hidden;
-    backdrop-filter: blur(var(--tc-blur, 18px));
-    -webkit-backdrop-filter: blur(var(--tc-blur, 18px));
-    box-shadow: var(--tc-shadow, 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05));
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.04);
 }
 
 .tc-hero {
     position: relative;
     width: 100%;
-    height: var(--tc-hero-height, 150px);
-    background: #1e1f20;
+    height: 150px;
+    background: #0f172a;
     overflow: hidden;
 }
-/* When the hero photo is hidden the card collapses to a header-less sheet. */
-.tc-card.tc-no-hero .tc-hero { height: auto; min-height: 0; background: transparent; }
-.tc-card.tc-no-hero .tc-bg-layer,
-.tc-card.tc-no-hero .tc-hero-gradient { display: none; }
-.tc-card.tc-no-hero .tc-hero-overlay {
-    position: static;
-    padding: 14px 96px 0 16px;
-}
-.tc-card.tc-no-hero .tc-callsign,
-.tc-card.tc-no-hero .tc-subtitle { text-shadow: none; }
 @media (max-width: 640px) {
-    .tc-hero { height: var(--tc-hero-height, 130px); }
+    .tc-hero { height: 130px; }
 }
 
 .tc-bg-layer {
     position: absolute;
     inset: 0;
-    background-color: #1e1f20;
+    background-color: #0f172a;
     background-size: cover;
     background-position: center;
     transition: background-image 0.5s ease-in-out;
@@ -1622,10 +1452,8 @@ function injectCustomStyles() {
 .tc-hero-gradient {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgba(30,31,32,0.05) 0%, rgba(30,31,32,0.6) 70%, rgba(30,31,32,1) 100%);
+    background: linear-gradient(to bottom, rgba(15,23,42,0.05) 0%, rgba(17,20,31,0.55) 70%, rgba(17,20,31,1) 100%);
     pointer-events: none;
-    opacity: var(--tc-hero-fade, 1);
-    transition: opacity 0.2s ease;
 }
 
 .tc-exit-btn {
@@ -1633,34 +1461,31 @@ function injectCustomStyles() {
     top: 12px;
     right: 12px;
     z-index: 10;
-    background: rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.5);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255,255,255,0.12);
-    color: #e8eaed;
-    width: 30px;
-    height: 30px;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.8rem;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    font-size: 0.85rem;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
 }
 .tc-exit-btn:hover {
-    background: rgba(255,255,255,0.15);
-    border-color: rgba(255,255,255,0.3);
-    color: #fff;
+    background: rgba(239, 68, 68, 0.85);
+    border-color: rgba(239, 68, 68, 1);
 }
 .tc-exit-btn:active { transform: scale(0.92); }
 
-/* Phase pill (Climb / Cruise / Descent / Ground), top-right beside the
-   close + options buttons (which occupy ~right:12 and right:50). */
-.tc-phase-badge {
+.tc-hero-badge {
     position: absolute;
     top: 12px;
-    right: 88px;
+    left: 12px;
     z-index: 10;
     display: inline-flex;
     align-items: center;
@@ -1672,76 +1497,72 @@ function injectCustomStyles() {
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.12);
     font-size: 0.58rem;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    color: #e8eaed;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #fff;
     text-transform: uppercase;
-    transition: transform 0.3s ease;
 }
-.tc-phase-badge i { font-size: 0.6rem; color: #9aa0a6; transition: transform 0.4s ease; }
-.tc-phase-badge.climb i   { transform: rotate(-35deg); }
-.tc-phase-badge.descent i { transform: rotate(35deg); }
-
-/* Callsign + subtitle overlaid on the hero photo */
-.tc-hero-overlay {
-    position: absolute;
-    left: 16px;
-    right: 16px;
-    bottom: 12px;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-    pointer-events: none;
+.tc-hero-badge .tc-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34,197,94,0.7);
+    animation: tc-pulse 1.5s ease-in-out infinite;
+}
+@keyframes tc-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
 }
 
 .tc-body {
-    padding: var(--tc-pad-y, 16px) var(--tc-pad-x, 18px) calc(var(--tc-pad-y, 16px) + 2px);
+    padding: 16px 18px 18px;
     display: flex;
     flex-direction: column;
-    gap: var(--tc-gap, 14px);
+    gap: 14px;
 }
 
+.tc-title-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
 .tc-callsign {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: var(--tc-callsign-size, 1.5rem);
+    font-size: 1.35rem;
     font-weight: 800;
-    color: var(--tc-text, #fff);
+    color: #fff;
     margin: 0;
     line-height: 1.1;
     letter-spacing: -0.4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-shadow: 0 2px 12px rgba(0,0,0,0.8);
 }
 .tc-subtitle {
     display: flex;
     align-items: center;
     gap: 6px;
     font-size: 0.72rem;
-    color: #9aa0a6;
+    color: #94a3b8;
     font-weight: 500;
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
     overflow: hidden;
-    text-shadow: 0 1px 6px rgba(0,0,0,0.9);
 }
 .tc-pilot {
-    color: #e8eaed;
+    color: #38bdf8;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     white-space: nowrap;
 }
-.tc-divider { color: #6b7177; flex-shrink: 0; }
-.tc-ac-type, .tc-ac-airline {
+.tc-divider { color: #475569; flex-shrink: 0; }
+.tc-ac {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
 }
-.tc-ac-airline { color: #e8eaed; font-weight: 600; }
 
 .tc-route {
     display: grid;
@@ -1768,46 +1589,12 @@ function injectCustomStyles() {
 }
 .tc-icao {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: var(--tc-icao-size, 1.5rem);
+    font-size: 1.5rem;
     font-weight: 800;
-    color: var(--tc-text, #fff);
+    color: #fff;
     line-height: 1;
 }
-.tc-icao-row { display: flex; align-items: center; gap: 6px; line-height: 1; min-width: 0; }
-.tc-route-airport-right .tc-icao-row { flex-direction: row-reverse; }
-.tc-flag { font-size: calc(var(--tc-icao-size, 1.5rem) * 0.85); line-height: 1; flex: 0 0 auto; }
-.tc-flag:empty { display: none; }
-.tc-airport-name {
-    font-size: 0.62rem;
-    font-weight: 600;
-    color: var(--tc-muted, #9aa0a6);
-    max-width: clamp(72px, 26vw, 130px);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.tc-airport-name:empty { display: none; }
-.tc-airport-country {
-    font-size: 0.55rem;
-    font-weight: 700;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.tc-airport-country:empty { display: none; }
-.tc-route-progress { padding: 0 4px; min-width: 90px; display: flex; flex-direction: column; gap: 7px; }
-.tc-progress-meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 0.55rem;
-    font-weight: 600;
-    color: #9aa0a6;
-    white-space: nowrap;
-}
-.tc-progress-meta .tc-eta { color: #e8eaed; font-weight: 700; }
+.tc-route-progress { padding: 0 4px; min-width: 60px; }
 .tc-progress-track {
     position: relative;
     width: 100%;
@@ -1822,150 +1609,51 @@ function injectCustomStyles() {
     left: 0;
     height: 100%;
     width: 0%;
-    background: var(--tc-accent, rgba(255,255,255,0.9));
+    background: linear-gradient(90deg, #38bdf8, #a855f7);
     border-radius: 2px;
-    box-shadow: 0 0 8px color-mix(in srgb, var(--tc-accent, #fff) 50%, transparent);
+    box-shadow: 0 0 8px rgba(56,189,248,0.5);
     transition: width 0.6s ease;
 }
 .tc-plane-icon {
     position: absolute;
     left: 0%;
     transform: translateX(-50%);
-    color: var(--tc-accent, #fff);
+    color: #fff;
     font-size: 12px;
     filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
     transition: left 0.6s ease;
 }
 
-/* Replay-style HUD: four live telemetry readouts in dark cells */
-.tc-hud {
+.tc-stats {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
 }
-.tc-hud-stat {
+.tc-stat {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 6px 4px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
+    gap: 3px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
 }
-.tc-hud-stat label {
-    font-size: 0.5rem;
-    color: #9aa0a6;
-    font-weight: 700;
-    letter-spacing: 0.8px;
+.tc-stat-label {
+    font-size: 0.55rem;
+    color: #64748b;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
-.tc-hud-val {
+.tc-stat-value {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-size: 1rem;
     color: #fff;
     font-weight: 700;
-    line-height: 1;
 }
-.tc-hud-stat small { font-size: 0.5rem; color: #9aa0a6; font-weight: 600; }
-
-/* Collapsible "Flight Profile" toggle — chart is hidden until requested */
-.tc-chart-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 9px 12px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
-    color: #9aa0a6;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.tc-chart-toggle:hover { background: rgba(255,255,255,0.06); color: #e8eaed; }
-.tc-chart-toggle.active { color: #fff; border-color: rgba(255,255,255,0.2); }
-.tc-chart-toggle .tc-chart-caret {
-    margin-left: auto;
-    font-size: 0.7rem;
-    transition: transform 0.3s ease;
-}
-.tc-chart-toggle.active .tc-chart-caret { transform: rotate(180deg); }
-
-.tc-chart-drawer {
-    height: 0;
-    opacity: 0;
-    overflow: hidden;
-    transition: height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease, margin-top 0.3s ease;
-}
-.tc-chart-drawer.expanded {
-    height: 84px;
-    opacity: 1;
-    margin-top: -6px;
-}
-
-/* Live altitude / speed profile sparkline — fills in as the flight is tracked */
-.tc-chart-wrap {
-    position: relative;
-    height: 72px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
-    padding: 6px;
-    overflow: hidden;
-}
-.tc-chart-canvas { width: 100%; height: 100%; display: block; }
-.tc-chart-legend {
-    position: absolute;
-    top: 7px;
-    right: 10px;
-    z-index: 2;
-    display: flex;
-    gap: 10px;
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 0.5rem;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    pointer-events: none;
-}
-.tc-chart-legend span { display: inline-flex; align-items: center; gap: 4px; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
-.tc-legend-alt {
-    background: linear-gradient(90deg, #38bdf8, #a3e635, #f43f5e);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-.tc-legend-spd { color: rgba(255,255,255,0.5); }
-.tc-chart-empty {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.65rem;
-    color: #475569;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    pointer-events: none;
-}
-.tc-chart-wrap.has-data .tc-chart-empty { display: none; }
+.tc-stat-value .tc-alt { color: #38bdf8; }
+.tc-stat-value .tc-spd { color: #fbbf24; }
 .tc-unit { color: #64748b; font-size: 0.7rem; margin-left: 3px; font-weight: 600; }
-
-/* Mobile fit: tighter spacing + slightly smaller readouts so the sheet
-   never overflows and the HUD stays on a single comfortable row. */
-@media (max-width: 640px) {
-    .tc-body { padding: 14px 14px 16px; gap: 12px; }
-    .tc-callsign { font-size: 1.35rem; }
-    .tc-icao { font-size: 1.3rem; }
-    .tc-hud { padding: 9px 4px; gap: 4px; }
-    .tc-hud-val { font-size: 0.95rem; }
-    .tc-hero-overlay { left: 14px; right: 14px; }
-    .tc-phase-badge { right: 84px; padding: 4px 8px; }
-}
 
 .tc-share-btn {
     display: inline-flex;
@@ -1974,7 +1662,7 @@ function injectCustomStyles() {
     gap: 8px;
     width: 100%;
     padding: 12px 20px;
-    background: linear-gradient(135deg, var(--tc-accent, #38bdf8), var(--tc-accent-2, #a855f7));
+    background: linear-gradient(135deg, #38bdf8, #a855f7);
     color: #fff;
     border: none;
     border-radius: 12px;
@@ -1983,7 +1671,7 @@ function injectCustomStyles() {
     font-size: 0.85rem;
     font-weight: 700;
     letter-spacing: 0.3px;
-    box-shadow: 0 8px 24px color-mix(in srgb, var(--tc-accent, #38bdf8) 35%, transparent), inset 0 1px 0 rgba(255,255,255,0.15);
+    box-shadow: 0 8px 24px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
     transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.25s ease;
 }
 .tc-share-btn:hover {
@@ -1992,226 +1680,6 @@ function injectCustomStyles() {
 }
 .tc-share-btn:active { transform: translateY(0); }
 .tc-share-btn i { font-size: 0.95rem; }
-
-/* --- Minimalist customizer trigger: a tiny kebab that reveals a menu --- */
-.tc-menu-wrap { position: absolute; top: 12px; right: 50px; z-index: 12; }
-.tc-menu-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.06);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255,255,255,0.12);
-    color: #e8eaed;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.8rem;
-    opacity: 0.35;
-    transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-}
-.tc-hero:hover .tc-menu-btn { opacity: 1; }
-.tc-menu-btn:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); color: #fff; opacity: 1; }
-/* Anchored to #trip-card-takeover (its transform makes it the containing
-   block) rather than the hero, so the menu escapes the card's overflow:hidden
-   instead of being clipped by it. */
-.tc-menu-pop {
-    position: absolute;
-    top: 48px;
-    right: 50px;
-    z-index: 14;
-    min-width: 150px;
-    background: rgba(20,21,22,0.97);
-    border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.55);
-    padding: 5px;
-    display: none;
-    flex-direction: column;
-    gap: 2px;
-}
-.tc-menu-pop.open { display: flex; }
-.tc-menu-pop button {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    padding: 8px 10px;
-    background: none;
-    border: none;
-    border-radius: 7px;
-    color: #e8eaed;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.78rem;
-    font-weight: 600;
-    text-align: left;
-    cursor: pointer;
-    transition: background 0.12s ease;
-}
-.tc-menu-pop button:hover { background: rgba(255,255,255,0.08); }
-.tc-menu-pop button i { width: 14px; text-align: center; color: #9aa0a6; }
-
-/* --- Customizer panel: docks beside the card (sheet on mobile) --- */
-#tc-customizer {
-    position: fixed;
-    z-index: 10001;
-    width: 340px;
-    max-width: calc(100vw - 24px);
-    max-height: 78vh;
-    bottom: 24px;
-    left: calc(50% + 200px);
-    background: rgba(24,25,26,0.97);
-    border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 16px;
-    box-shadow: 0 24px 70px rgba(0,0,0,0.7);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    display: none;
-    flex-direction: column;
-    overflow: hidden;
-    font-family: 'Inter', sans-serif;
-    color: #e8eaed;
-}
-#tc-customizer.open { display: flex; }
-.tc-cz-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    flex: 0 0 auto;
-}
-.tc-cz-head h3 { margin: 0; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.2px; }
-.tc-cz-head .tc-cz-spacer { margin-left: auto; }
-.tc-cz-head button {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
-    color: #e8eaed;
-    border-radius: 7px;
-    padding: 5px 9px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.15s ease;
-}
-.tc-cz-head button:hover { background: rgba(255,255,255,0.14); }
-.tc-cz-body {
-    padding: 6px 16px 16px;
-    overflow-y: auto;
-    flex: 1 1 auto;
-    -webkit-overflow-scrolling: touch;
-}
-.tc-cz-group { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
-.tc-cz-group:last-child { border-bottom: none; }
-.tc-cz-group > h4 {
-    margin: 0 0 10px;
-    font-size: 0.62rem;
-    font-weight: 800;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: #6b7177;
-}
-.tc-cz-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 6px 0;
-}
-.tc-cz-row label { font-size: 0.8rem; font-weight: 500; color: #d4d6d9; }
-.tc-cz-row input[type="range"] { flex: 1 1 auto; max-width: 150px; accent-color: #38bdf8; cursor: pointer; }
-.tc-cz-row input[type="color"] { width: 34px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; border-radius: 6px; }
-.tc-cz-row select {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
-    color: #e8eaed;
-    border-radius: 7px;
-    padding: 5px 8px;
-    font-size: 0.76rem;
-    font-family: 'Inter', sans-serif;
-    cursor: pointer;
-}
-.tc-cz-val { font-size: 0.7rem; color: #9aa0a6; min-width: 42px; text-align: right; font-family: 'JetBrains Mono', ui-monospace, monospace; }
-/* Toggle switch */
-.tc-cz-switch { position: relative; width: 38px; height: 22px; flex: 0 0 auto; }
-.tc-cz-switch input { opacity: 0; width: 0; height: 0; }
-.tc-cz-track {
-    position: absolute;
-    inset: 0;
-    background: rgba(255,255,255,0.14);
-    border-radius: 999px;
-    transition: background 0.18s ease;
-}
-.tc-cz-track::before {
-    content: '';
-    position: absolute;
-    top: 3px; left: 3px;
-    width: 16px; height: 16px;
-    background: #fff;
-    border-radius: 50%;
-    transition: transform 0.18s ease;
-}
-.tc-cz-switch input:checked + .tc-cz-track { background: #38bdf8; }
-.tc-cz-switch input:checked + .tc-cz-track::before { transform: translateX(16px); }
-.tc-cz-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.tc-cz-presets button {
-    flex: 1 1 auto;
-    min-width: 64px;
-    padding: 7px 6px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 8px;
-    color: #d4d6d9;
-    font-size: 0.72rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-}
-.tc-cz-presets button:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.25); }
-/* Touch devices have no hover, so keep the options trigger visible. */
-@media (hover: none) {
-    .tc-menu-btn { opacity: 0.85; }
-}
-
-@media (max-width: 640px) {
-    #tc-customizer {
-        left: 0; right: 0; bottom: 0;
-        width: 100%; max-width: 100%;
-        border-radius: 18px 18px 0 0;
-        max-height: 58vh;
-    }
-    /* Keep the final rows (the Content toggles) clear of the home indicator. */
-    #tc-customizer .tc-cz-body {
-        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    }
-    /* Drag-handle affordance on the customizer sheet. */
-    .tc-cz-head { position: relative; }
-    .tc-cz-head::before {
-        content: '';
-        position: absolute;
-        top: 6px; left: 50%;
-        transform: translateX(-50%);
-        width: 40px; height: 4px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.4);
-    }
-    /* Bigger tap targets while editing on a phone. */
-    .tc-cz-row { padding: 9px 0; }
-    .tc-cz-row input[type="range"] { height: 24px; }
-    .tc-cz-presets button { padding: 10px 6px; }
-    /* While the customizer sheet is open, pin the card to the top so live
-       edits stay visible above the sheet instead of being covered by it. */
-    #trip-card-takeover.tc-customizing {
-        top: 8px;
-        bottom: auto;
-        transform: translateY(0);
-    }
-    #trip-card-takeover.tc-customizing .tc-card {
-        max-height: 36vh;
-    }
-}
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -2680,34 +2148,10 @@ function injectCustomStyles() {
             transform: translateX(20px);
             pointer-events: none;
         }
-        .info-window.visible {
+        .info-window.visible { 
             opacity: 1;
             transform: translateX(0);
             pointer-events: auto;
-        }
-        /* Light-orange halo shown when the open flight is the single
-           most-watched flight on the network right now. */
-        .info-window.most-watched {
-            border-color: rgba(255, 178, 102, 0.85);
-            box-shadow: 0 20px 50px rgba(0,0,0,0.8),
-                        0 0 24px 4px rgba(255, 178, 102, 0.55),
-                        0 0 60px 16px rgba(255, 178, 102, 0.28);
-            animation: iw-most-watched-pulse 3.2s ease-in-out infinite;
-        }
-        @keyframes iw-most-watched-pulse {
-            0%, 100% {
-                box-shadow: 0 20px 50px rgba(0,0,0,0.8),
-                            0 0 18px 3px rgba(255, 178, 102, 0.42),
-                            0 0 50px 12px rgba(255, 178, 102, 0.22);
-            }
-            50% {
-                box-shadow: 0 20px 50px rgba(0,0,0,0.8),
-                            0 0 30px 6px rgba(255, 178, 102, 0.70),
-                            0 0 74px 20px rgba(255, 178, 102, 0.38);
-            }
-        }
-        @media (prefers-reduced-motion: reduce) {
-            .info-window.most-watched { animation: none; }
         }
         .info-window-header {
             display: flex;
@@ -3199,18 +2643,20 @@ function injectCustomStyles() {
             }
         }
         
-        .aircraft-overview-panel { 
+        .aircraft-overview-panel {
             position: relative;
-            height: 200px; 
-            background-size: cover; 
-            background-position: center; 
-            border-bottom-left-radius: 0; 
-            border-bottom-right-radius: 0; 
-            color: #fff; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
-            margin-bottom: -40px;
+            height: 200px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-color: #0b1220;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            margin-bottom: 0px;
         }
         
         .aircraft-overview-panel::before { 
@@ -3223,7 +2669,7 @@ function injectCustomStyles() {
                 rgba(0, 0, 0, 0.7) 0%, 
                 rgba(0, 0, 0, 0) 35%, 
                 rgba(0, 0, 0, 0.2) 80%, 
-                rgba(24, 24, 27, 1) 100%
+                var(--bg-glass) 100% /* Matches your window background */
             );
         }
         
@@ -3635,8 +3081,9 @@ function injectCustomStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--bg-glass);
-            border-bottom: 1px solid var(--border-glass);
+            background: #3a3a3a;
+            border-top: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(0,0,0,0.24);
             padding: 0 20px;
             height: 60px;
         }
@@ -4127,6 +3574,17 @@ function injectCustomStyles() {
             place-items: center;
             transition: all 0.2s ease;
             backdrop-filter: blur(4px);
+            position: relative;
+        }
+
+        /* Extends the tap area to ~44pt (Apple HIG minimum) without changing
+           the visual size. The 32px circular button alone is a fiddly target
+           in portrait, where the identity h1 can also sit close to it. */
+        .hero-btn::before {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
         }
 
         .hero-btn:hover {
@@ -5469,8 +4927,7 @@ async function trackPilotView(flight) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 pilotUserId: flight.userId,
-                pilotName: flight.username,
-                flightId: flight.flightId || null
+                pilotName: flight.username
             })
         });
     } catch (e) {
@@ -6153,12 +5610,6 @@ async function loadExternalPanelContent() {
 }
 
 
-// Rolling telemetry history for the trip card's live profile sparkline.
-// Reset each time a flight is opened in the card. Capped to keep the trace light.
-let tripCardHistory = [];
-let tripCardLastSampleTs = 0;
-const TRIP_CARD_HISTORY_MAX = 300;
-
 function toggleTripCardMode(active) {
     const takeoverUI = document.getElementById('trip-card-takeover');
     if (!takeoverUI) return;
@@ -6169,154 +5620,64 @@ function toggleTripCardMode(active) {
                 <div class="tc-hero">
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
-                    <div class="tc-phase-badge"><i class="fa-solid fa-plane-up"></i> <span class="tc-phase-text">--</span></div>
-                    <div class="tc-menu-wrap">
-                        <button class="tc-menu-btn" type="button" aria-label="Trip card options" aria-haspopup="true" aria-expanded="false">
-                            <i class="fa-solid fa-ellipsis-vertical"></i>
-                        </button>
-                    </div>
+                    <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
                     <button class="tc-exit-btn" type="button" aria-label="Close trip card">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
-                    <div class="tc-hero-overlay">
+                </div>
+                <div class="tc-body">
+                    <div class="tc-title-row">
                         <h2 class="tc-callsign">---</h2>
                         <div class="tc-subtitle">
                             <span class="tc-pilot">---</span>
-                            <span class="tc-divider tc-div-1">·</span>
-                            <span class="tc-ac-type">---</span>
-                            <span class="tc-divider tc-div-2">·</span>
-                            <span class="tc-ac-airline">---</span>
+                            <span class="tc-divider">·</span>
+                            <span class="tc-ac">---</span>
                         </div>
                     </div>
-                </div>
-                <div class="tc-body">
                     <div class="tc-route">
                         <div class="tc-route-airport">
                             <span class="tc-route-label">From</span>
-                            <span class="tc-icao-row"><span class="tc-flag origin-flag" aria-hidden="true"></span><span class="tc-icao origin">---</span></span>
-                            <span class="tc-airport-name origin-name"></span>
-                            <span class="tc-airport-country origin-country"></span>
+                            <span class="tc-icao origin">---</span>
                         </div>
                         <div class="tc-route-progress">
                             <div class="tc-progress-track">
                                 <div class="tc-progress-bar"></div>
                                 <i class="fa-solid fa-plane tc-plane-icon"></i>
                             </div>
-                            <div class="tc-progress-meta">
-                                <span class="tc-dist-flown">--</span>
-                                <span class="tc-eta">ETA --</span>
-                                <span class="tc-dist-rem">--</span>
-                            </div>
                         </div>
                         <div class="tc-route-airport tc-route-airport-right">
                             <span class="tc-route-label">To</span>
-                            <span class="tc-icao-row"><span class="tc-flag destination-flag" aria-hidden="true"></span><span class="tc-icao destination">---</span></span>
-                            <span class="tc-airport-name destination-name"></span>
-                            <span class="tc-airport-country destination-country"></span>
+                            <span class="tc-icao destination">---</span>
                         </div>
                     </div>
-                    <div class="tc-hud">
-                        <div class="tc-hud-stat" data-stat="alt">
-                            <label>ALT</label>
-                            <span class="tc-hud-val tc-alt">--</span><small>ft</small>
+                    <div class="tc-stats">
+                        <div class="tc-stat">
+                            <span class="tc-stat-label">Altitude</span>
+                            <span class="tc-stat-value"><span class="tc-alt">---</span><span class="tc-unit">ft</span></span>
                         </div>
-                        <div class="tc-hud-stat" data-stat="spd">
-                            <label>GS</label>
-                            <span class="tc-hud-val tc-spd">--</span><small>kt</small>
-                        </div>
-                        <div class="tc-hud-stat" data-stat="hdg">
-                            <label>HDG</label>
-                            <span class="tc-hud-val tc-hdg">--</span><small>°</small>
-                        </div>
-                        <div class="tc-hud-stat" data-stat="vs">
-                            <label>V/S</label>
-                            <span class="tc-hud-val tc-vs">--</span><small>fpm</small>
+                        <div class="tc-stat">
+                            <span class="tc-stat-label">Speed</span>
+                            <span class="tc-stat-value"><span class="tc-spd">---</span><span class="tc-unit">kt</span></span>
                         </div>
                     </div>
-                    <button class="tc-chart-toggle" type="button" aria-expanded="false">
-                        <i class="fa-solid fa-chart-area"></i>
-                        <span>Flight Profile</span>
-                        <i class="fa-solid fa-chevron-down tc-chart-caret"></i>
-                    </button>
-                    <div class="tc-chart-drawer">
-                        <div class="tc-chart-wrap">
-                            <div class="tc-chart-legend">
-                                <span class="tc-legend-alt">ALT</span>
-                                <span class="tc-legend-spd">SPD</span>
-                            </div>
-                            <canvas class="tc-chart-canvas"></canvas>
-                            <div class="tc-chart-empty">Loading flight profile…</div>
-                        </div>
-                    </div>
-                    <button class="tc-share-btn" type="button">
-                        <i class="fa-solid fa-arrow-up-from-bracket"></i> Share this flight
+                    <button class="tc-share-btn" type="button" title="Share this flight">
+                        <i class="fa-solid fa-share-nodes"></i>
+                        <span class="tc-share-btn-label">Share Flight</span>
                     </button>
                 </div>
             </div>
-            <div class="tc-menu-pop" role="menu">
-                <button class="tc-menu-customize" type="button" role="menuitem"><i class="fa-solid fa-sliders"></i> Customize</button>
-                <button class="tc-menu-share" type="button" role="menuitem"><i class="fa-solid fa-arrow-up-from-bracket"></i> Share flight</button>
-            </div>
         `;
 
-        // Seed the profile chart from the flight's recorded history, then let
-        // live ticks extend it. Reset first so a stale trace never lingers.
-        tripCardHistory = [];
-        tripCardLastSampleTs = 0;
-        loadTripCardHistory(currentFlightInWindow);
+        takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', () => {
+            shareCurrentFlight(takeoverUI.querySelector('.tc-share-btn'));
+        });
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
             toggleTripCardMode(false);
         });
 
-        // Flight-profile chart is collapsed by default; reveal it on demand.
-        const chartToggle = takeoverUI.querySelector('.tc-chart-toggle');
-        const chartDrawer = takeoverUI.querySelector('.tc-chart-drawer');
-        chartToggle?.addEventListener('click', () => {
-            const open = chartDrawer.classList.toggle('expanded');
-            chartToggle.classList.toggle('active', open);
-            chartToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-            if (open) {
-                // Canvas has real dimensions only once visible — draw after expand.
-                setTimeout(() => drawTripCardChart(takeoverUI.querySelector('.tc-chart-canvas'), tripCardHistory), 320);
-            }
-        });
-
-        // Minimalist options menu: kebab → { Customize, Share }.
-        const menuBtn = takeoverUI.querySelector('.tc-menu-btn');
-        const menuPop = takeoverUI.querySelector('.tc-menu-pop');
-        menuBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const open = menuPop.classList.toggle('open');
-            menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        });
-        // Close the kebab menu on outside-click. Attached once for the page; it
-        // re-queries the live elements so card re-renders don't leak listeners.
-        if (!window.__tcMenuDismissBound) {
-            window.__tcMenuDismissBound = true;
-            document.addEventListener('click', (e) => {
-                const pop = document.querySelector('#trip-card-takeover .tc-menu-pop');
-                const btn = document.querySelector('#trip-card-takeover .tc-menu-btn');
-                if (pop && !pop.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
-                    pop.classList.remove('open');
-                    btn?.setAttribute('aria-expanded', 'false');
-                }
-            });
-        }
-        takeoverUI.querySelector('.tc-menu-customize')?.addEventListener('click', () => {
-            menuPop?.classList.remove('open');
-            openTripCardCustomizer();
-        });
-        const doShare = () => { menuPop?.classList.remove('open'); shareCurrentFlight(); };
-        takeoverUI.querySelector('.tc-menu-share')?.addEventListener('click', doShare);
-        takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', (e) => shareCurrentFlight(e.currentTarget));
-
-        // Paint the card with the user's saved customizations before showing it.
-        applyTripCardConfig();
-
         takeoverUI.classList.add('active');
-        document.body.classList.add('trip-card-open');
-
+        
         if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
             sectorOpsMap.setFilter('sector-ops-live-flights-layer', ['==', 'flightId', currentFlightInWindow]);
         }
@@ -6334,9 +5695,7 @@ function toggleTripCardMode(active) {
         }
     } else {
         takeoverUI.classList.remove('active');
-        document.body.classList.remove('trip-card-open');
-        if (typeof closeTripCardCustomizer === 'function') closeTripCardCustomizer();
-        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
         if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
             aircraftInfoWindow.classList.add('visible');
             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
@@ -6347,335 +5706,6 @@ function toggleTripCardMode(active) {
 }
 
 window.toggleTripCardMode = toggleTripCardMode;
-
-/* ===================================================================
-   TRIP CARD CUSTOMIZER
-   A per-device (localStorage) customization layer for the trip card.
-   Everything — size, position, colours, fades, fonts and which pieces
-   of content are shown — is driven from a single config object that is
-   applied to the live card via CSS custom properties and classes.
-   =================================================================== */
-
-const TRIP_CARD_CONFIG_KEY = 'tripCardConfig.v1';
-
-const TRIP_CARD_DEFAULTS = {
-    // Layout & size
-    width: 380, heroHeight: 150, radius: 16, padX: 18, padY: 16, gap: 14,
-    position: 'bottom-center',
-    // Surface & colour
-    bgColor: '#1e1f20', bgOpacity: 94, blur: 18,
-    border: true, shadow: true, animate: true,
-    accent: '#38bdf8', accent2: '#a855f7', textColor: '#ffffff',
-    // Typography
-    callsignSize: 1.5, icaoSize: 1.5,
-    // Fades / effects
-    heroFade: 100,
-    // Content visibility
-    showHero: true, showPhase: true, showPilot: true,
-    showAircraft: true, showAirline: true,
-    showRoute: true, showProgress: true, showDistances: true,
-    showFlag: true, showAirportName: true, showCountry: false,
-    statAlt: true, statSpd: true, statHdg: true, statVs: true,
-    showChart: true, showShare: false,
-};
-
-let tripCardConfig = loadTripCardConfig();
-
-function loadTripCardConfig() {
-    try {
-        const raw = localStorage.getItem(TRIP_CARD_CONFIG_KEY);
-        if (raw) return { ...TRIP_CARD_DEFAULTS, ...JSON.parse(raw) };
-    } catch (e) { /* corrupt / unavailable storage — fall back to defaults */ }
-    return { ...TRIP_CARD_DEFAULTS };
-}
-
-function saveTripCardConfig() {
-    try { localStorage.setItem(TRIP_CARD_CONFIG_KEY, JSON.stringify(tripCardConfig)); }
-    catch (e) { /* storage full or blocked — customizations stay session-only */ }
-}
-
-function hexToRgba(hex, opacityPct) {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
-    if (!m) return hex;
-    const a = Math.max(0, Math.min(100, opacityPct == null ? 100 : opacityPct)) / 100;
-    return `rgba(${parseInt(m[1],16)}, ${parseInt(m[2],16)}, ${parseInt(m[3],16)}, ${a})`;
-}
-
-/**
- * Applies the current config to the live trip card. Safe to call at any time
- * (on render, on every customizer tweak); it is a no-op when the card is absent.
- */
-function applyTripCardConfig() {
-    const ui = document.getElementById('trip-card-takeover');
-    if (!ui) return;
-    const c = tripCardConfig;
-    const card = ui.querySelector('.tc-card');
-
-    // --- CSS custom properties (size / colour / type) ---
-    const S = (k, v) => ui.style.setProperty(k, v);
-    S('--tc-width', `${c.width}px`);
-    S('--tc-hero-height', `${c.heroHeight}px`);
-    S('--tc-radius', `${c.radius}px`);
-    S('--tc-pad-x', `${c.padX}px`);
-    S('--tc-pad-y', `${c.padY}px`);
-    S('--tc-gap', `${c.gap}px`);
-    S('--tc-bg', hexToRgba(c.bgColor, c.bgOpacity));
-    S('--tc-blur', `${c.blur}px`);
-    S('--tc-border-color', c.border ? 'rgba(255,255,255,0.15)' : 'transparent');
-    S('--tc-shadow', c.shadow ? '0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(255,255,255,0.05)' : 'none');
-    S('--tc-accent', c.accent);
-    S('--tc-accent-2', c.accent2);
-    S('--tc-text', c.textColor);
-    S('--tc-callsign-size', `${c.callsignSize}rem`);
-    S('--tc-icao-size', `${c.icaoSize}rem`);
-    S('--tc-hero-fade', String(c.heroFade / 100));
-
-    // --- Position & animation classes on the takeover host ---
-    ['tc-pos-bottom-center','tc-pos-bottom-left','tc-pos-bottom-right',
-     'tc-pos-top-center','tc-pos-top-left','tc-pos-top-right']
-        .forEach(cls => ui.classList.remove(cls));
-    ui.classList.add(`tc-pos-${c.position}`);
-    ui.classList.toggle('tc-no-anim', !c.animate);
-
-    if (!card) return;
-
-    // --- Structural toggles on the card ---
-    card.classList.toggle('tc-no-hero', !c.showHero);
-    card.classList.toggle('tc-no-phase', !c.showPhase);
-
-    const setShown = (sel, shown, display = '') => {
-        const el = card.querySelector(sel);
-        if (el) el.style.display = shown ? display : 'none';
-    };
-
-    setShown('.tc-phase-badge', c.showPhase, 'inline-flex');
-    setShown('.tc-route', c.showRoute, 'grid');
-    setShown('.tc-route-progress', c.showProgress, 'flex');
-    setShown('.origin-flag', c.showFlag, '');
-    setShown('.destination-flag', c.showFlag, '');
-    setShown('.origin-name', c.showAirportName, '');
-    setShown('.destination-name', c.showAirportName, '');
-    setShown('.origin-country', c.showCountry, '');
-    setShown('.destination-country', c.showCountry, '');
-    setShown('.tc-progress-meta', c.showDistances, 'flex');
-    setShown('.tc-chart-toggle', c.showChart, 'flex');
-    setShown('.tc-share-btn', c.showShare, 'inline-flex');
-    if (!c.showChart) setShown('.tc-chart-drawer', false);
-
-    // Subtitle line: pilot · aircraft type · airline name. Each part is
-    // independently toggleable; dividers only appear between two visible parts.
-    // Hidden parts collapse, so a divider sitting between them bridges the gap.
-    const subtitle = card.querySelector('.tc-subtitle');
-    if (subtitle) {
-        const pilot = subtitle.querySelector('.tc-pilot');
-        const acType = subtitle.querySelector('.tc-ac-type');
-        const airline = subtitle.querySelector('.tc-ac-airline');
-        const div1 = subtitle.querySelector('.tc-div-1');
-        const div2 = subtitle.querySelector('.tc-div-2');
-        if (pilot) pilot.style.display = c.showPilot ? '' : 'none';
-        if (acType) acType.style.display = c.showAircraft ? '' : 'none';
-        if (airline) airline.style.display = c.showAirline ? '' : 'none';
-        if (div1) div1.style.display = (c.showPilot && c.showAircraft) ? '' : 'none';
-        if (div2) div2.style.display = (c.showAirline && (c.showPilot || c.showAircraft)) ? '' : 'none';
-        subtitle.style.display = (c.showPilot || c.showAircraft || c.showAirline) ? 'flex' : 'none';
-    }
-
-    // --- HUD stats: toggle individually and keep the grid evenly sized ---
-    const hud = card.querySelector('.tc-hud');
-    if (hud) {
-        const map = { alt: c.statAlt, spd: c.statSpd, hdg: c.statHdg, vs: c.statVs };
-        let visible = 0;
-        Object.entries(map).forEach(([k, on]) => {
-            const cell = hud.querySelector(`.tc-hud-stat[data-stat="${k}"]`);
-            if (cell) cell.style.display = on ? 'flex' : 'none';
-            if (on) visible++;
-        });
-        hud.style.gridTemplateColumns = visible ? `repeat(${visible}, 1fr)` : '';
-        hud.style.display = visible ? 'grid' : 'none';
-    }
-}
-window.applyTripCardConfig = applyTripCardConfig;
-
-// Declarative spec for the customizer UI. Each control maps to one config key.
-const TRIP_CARD_CONTROLS = [
-    { group: 'Presets', presets: true },
-    { group: 'Layout & Size', controls: [
-        { key: 'position', type: 'select', label: 'Anchor', options: [
-            ['bottom-center','Bottom center'],['bottom-left','Bottom left'],['bottom-right','Bottom right'],
-            ['top-center','Top center'],['top-left','Top left'],['top-right','Top right'] ] },
-        { key: 'width', type: 'range', label: 'Width', min: 280, max: 520, step: 4, unit: 'px' },
-        { key: 'heroHeight', type: 'range', label: 'Hero height', min: 80, max: 240, step: 2, unit: 'px' },
-        { key: 'padX', type: 'range', label: 'Padding X', min: 6, max: 32, step: 1, unit: 'px' },
-        { key: 'padY', type: 'range', label: 'Padding Y', min: 6, max: 32, step: 1, unit: 'px' },
-        { key: 'gap', type: 'range', label: 'Content gap', min: 4, max: 28, step: 1, unit: 'px' },
-        { key: 'radius', type: 'range', label: 'Corner radius', min: 0, max: 32, step: 1, unit: 'px' },
-    ] },
-    { group: 'Surface & Colour', controls: [
-        { key: 'bgColor', type: 'color', label: 'Background' },
-        { key: 'bgOpacity', type: 'range', label: 'Bg opacity', min: 0, max: 100, step: 1, unit: '%' },
-        { key: 'blur', type: 'range', label: 'Blur', min: 0, max: 30, step: 1, unit: 'px' },
-        { key: 'accent', type: 'color', label: 'Accent' },
-        { key: 'accent2', type: 'color', label: 'Accent 2' },
-        { key: 'textColor', type: 'color', label: 'Text' },
-        { key: 'border', type: 'toggle', label: 'Border' },
-        { key: 'shadow', type: 'toggle', label: 'Drop shadow' },
-        { key: 'animate', type: 'toggle', label: 'Entrance animation' },
-    ] },
-    { group: 'Typography & Fades', controls: [
-        { key: 'callsignSize', type: 'range', label: 'Callsign size', min: 0.9, max: 2.4, step: 0.05, unit: 'rem' },
-        { key: 'icaoSize', type: 'range', label: 'Airport size', min: 0.9, max: 2.4, step: 0.05, unit: 'rem' },
-        { key: 'heroFade', type: 'range', label: 'Hero fade', min: 0, max: 100, step: 1, unit: '%' },
-    ] },
-    { group: 'Content', controls: [
-        { key: 'showHero', type: 'toggle', label: 'Hero photo' },
-        { key: 'showPhase', type: 'toggle', label: 'Phase badge' },
-        { key: 'showPilot', type: 'toggle', label: 'Pilot name' },
-        { key: 'showAircraft', type: 'toggle', label: 'Aircraft type' },
-        { key: 'showAirline', type: 'toggle', label: 'Airline name' },
-        { key: 'showRoute', type: 'toggle', label: 'Route (from/to)' },
-        { key: 'showFlag', type: 'toggle', label: 'Country flags' },
-        { key: 'showAirportName', type: 'toggle', label: 'Airport names' },
-        { key: 'showCountry', type: 'toggle', label: 'Country names' },
-        { key: 'showProgress', type: 'toggle', label: 'Progress bar' },
-        { key: 'showDistances', type: 'toggle', label: 'Distances / ETA' },
-        { key: 'statAlt', type: 'toggle', label: 'Stat · Altitude' },
-        { key: 'statSpd', type: 'toggle', label: 'Stat · Ground speed' },
-        { key: 'statHdg', type: 'toggle', label: 'Stat · Heading' },
-        { key: 'statVs', type: 'toggle', label: 'Stat · Vertical speed' },
-        { key: 'showChart', type: 'toggle', label: 'Flight profile chart' },
-        { key: 'showShare', type: 'toggle', label: 'Share button' },
-    ] },
-];
-
-const TRIP_CARD_PRESETS = {
-    Default: { ...TRIP_CARD_DEFAULTS },
-    Glass: { bgColor: '#0b1220', bgOpacity: 55, blur: 26, border: true, shadow: true,
-             radius: 20, accent: '#38bdf8', accent2: '#a855f7', heroFade: 85 },
-    Solid: { bgColor: '#16181a', bgOpacity: 100, blur: 0, border: true, shadow: true,
-             radius: 12, heroFade: 100 },
-    Minimal: { showPhase: false, showChart: false, showShare: false, showDistances: false,
-               statHdg: false, statVs: false, border: false, shadow: false, bgOpacity: 100,
-               bgColor: '#101113', radius: 10, heroHeight: 110, gap: 10 },
-    Compact: { width: 300, heroHeight: 96, padX: 12, padY: 10, gap: 8, radius: 12,
-               callsignSize: 1.2, icaoSize: 1.2, showChart: false },
-    Tall: { width: 360, heroHeight: 200, padX: 20, padY: 20, gap: 18, radius: 18,
-            showChart: true, showShare: true },
-    Light: { bgColor: '#f4f5f7', bgOpacity: 96, textColor: '#0b0d12', blur: 14,
-             accent: '#2563eb', accent2: '#7c3aed', heroFade: 100 },
-};
-
-function applyTripCardPreset(name) {
-    const preset = TRIP_CARD_PRESETS[name];
-    if (!preset) return;
-    tripCardConfig = name === 'Default'
-        ? { ...TRIP_CARD_DEFAULTS }
-        : { ...tripCardConfig, ...preset };
-    saveTripCardConfig();
-    applyTripCardConfig();
-    syncTripCardCustomizerInputs();
-    updateTripCardRealtime();
-}
-
-function buildTripCardCustomizer() {
-    if (document.getElementById('tc-customizer')) return;
-    const panel = document.createElement('div');
-    panel.id = 'tc-customizer';
-
-    const groupsHtml = TRIP_CARD_CONTROLS.map(g => {
-        if (g.presets) {
-            const btns = Object.keys(TRIP_CARD_PRESETS)
-                .map(n => `<button type="button" data-preset="${n}">${n}</button>`).join('');
-            return `<div class="tc-cz-group"><h4>${g.group}</h4><div class="tc-cz-presets">${btns}</div></div>`;
-        }
-        const rows = g.controls.map(ctrl => {
-            const id = `tc-cz-${ctrl.key}`;
-            if (ctrl.type === 'toggle') {
-                return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
-                    <label class="tc-cz-switch" for="${id}"><input type="checkbox" id="${id}" data-key="${ctrl.key}"><span class="tc-cz-track"></span></label></div>`;
-            }
-            if (ctrl.type === 'color') {
-                return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
-                    <input type="color" id="${id}" data-key="${ctrl.key}"></div>`;
-            }
-            if (ctrl.type === 'select') {
-                const opts = ctrl.options.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-                return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
-                    <select id="${id}" data-key="${ctrl.key}">${opts}</select></div>`;
-            }
-            // range
-            return `<div class="tc-cz-row"><label for="${id}">${ctrl.label}</label>
-                <input type="range" id="${id}" data-key="${ctrl.key}" min="${ctrl.min}" max="${ctrl.max}" step="${ctrl.step}">
-                <span class="tc-cz-val" data-val-for="${ctrl.key}"></span></div>`;
-        }).join('');
-        return `<div class="tc-cz-group"><h4>${g.group}</h4>${rows}</div>`;
-    }).join('');
-
-    panel.innerHTML = `
-        <div class="tc-cz-head">
-            <h3>Customize card</h3>
-            <span class="tc-cz-spacer"></span>
-            <button type="button" class="tc-cz-reset">Reset</button>
-            <button type="button" class="tc-cz-close" aria-label="Close customizer">Done</button>
-        </div>
-        <div class="tc-cz-body">${groupsHtml}</div>
-    `;
-    document.body.appendChild(panel);
-
-    // Wire inputs: each edit mutates config, persists, and re-applies live.
-    panel.querySelectorAll('[data-key]').forEach(input => {
-        const key = input.dataset.key;
-        const ctrl = TRIP_CARD_CONTROLS.flatMap(g => g.controls || []).find(c => c.key === key);
-        const handler = () => {
-            let v;
-            if (input.type === 'checkbox') v = input.checked;
-            else if (input.type === 'range') v = parseFloat(input.value);
-            else v = input.value;
-            tripCardConfig[key] = v;
-            const valEl = panel.querySelector(`[data-val-for="${key}"]`);
-            if (valEl && ctrl) valEl.textContent = `${v}${ctrl.unit || ''}`;
-            saveTripCardConfig();
-            applyTripCardConfig();
-            // A few content/logo toggles need fresh data painted back in.
-            updateTripCardRealtime();
-        };
-        input.addEventListener('input', handler);
-        input.addEventListener('change', handler);
-    });
-
-    panel.querySelectorAll('[data-preset]').forEach(btn => {
-        btn.addEventListener('click', () => applyTripCardPreset(btn.dataset.preset));
-    });
-    panel.querySelector('.tc-cz-reset')?.addEventListener('click', () => applyTripCardPreset('Default'));
-    panel.querySelector('.tc-cz-close')?.addEventListener('click', closeTripCardCustomizer);
-}
-
-// Reflect the current config values into the customizer's inputs.
-function syncTripCardCustomizerInputs() {
-    const panel = document.getElementById('tc-customizer');
-    if (!panel) return;
-    panel.querySelectorAll('[data-key]').forEach(input => {
-        const key = input.dataset.key;
-        const v = tripCardConfig[key];
-        if (input.type === 'checkbox') input.checked = !!v;
-        else input.value = v;
-        const ctrl = TRIP_CARD_CONTROLS.flatMap(g => g.controls || []).find(c => c.key === key);
-        const valEl = panel.querySelector(`[data-val-for="${key}"]`);
-        if (valEl && ctrl) valEl.textContent = `${v}${ctrl.unit || ''}`;
-    });
-}
-
-function openTripCardCustomizer() {
-    buildTripCardCustomizer();
-    syncTripCardCustomizerInputs();
-    document.getElementById('tc-customizer')?.classList.add('open');
-    // On mobile this pins the card to the top so it stays visible above the sheet.
-    document.getElementById('trip-card-takeover')?.classList.add('tc-customizing');
-}
-function closeTripCardCustomizer() {
-    document.getElementById('tc-customizer')?.classList.remove('open');
-    document.getElementById('trip-card-takeover')?.classList.remove('tc-customizing');
-}
-window.openTripCardCustomizer = openTripCardCustomizer;
 
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
@@ -6871,184 +5901,245 @@ function dismissShareLoadingOverlay() {
 
 async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
-
     let params;
-    try { params = new URLSearchParams(window.location.search || ''); }
-    catch (_) { params = new URLSearchParams(); }
-
-    let flightId = params.get('flight');
+    try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
+    const flightId = params.get('flight');
     let sharedServer = params.get('server');
 
-    // Snapshot the share function dropped in sessionStorage before redirecting
-    // here. It carries the flightId, the server the flight is on, and a position
-    // we can open from instantly.
-    let snapshot = null;
+    // Load any sessionStorage handoff the share function dropped for us.
+    let sharePayload = null;
     try {
         const raw = sessionStorage.getItem('inflight_share_payload');
         if (raw) {
             const parsed = JSON.parse(raw);
-            const fresh = !parsed || !parsed.capturedAt || (Date.now() - parsed.capturedAt < 10 * 60 * 1000);
-            if (parsed && fresh && (!flightId || parsed.flightId === flightId)) {
-                snapshot = parsed;
-                flightId = flightId || parsed.flightId;
+            // Only honour payloads recent enough to plausibly still be live,
+            // and only for the flight we actually navigated to.
+            if (parsed && (!flightId || parsed.flightId === flightId) &&
+                (!parsed.capturedAt || Date.now() - parsed.capturedAt < 10 * 60 * 1000)) {
+                sharePayload = parsed;
                 if (!sharedServer && parsed.serverName) sharedServer = parsed.serverName;
             }
             sessionStorage.removeItem('inflight_share_payload');
         }
     } catch (_) { /* private mode etc */ }
 
-    if (!flightId) return;
+    const effectiveFlightId = flightId || sharePayload?.flightId;
+    if (!effectiveFlightId) return;
 
-    // Don't let the Inflight Pro upsell modal steal focus from the shared flight.
+    // Make sure the Inflight Pro upsell modal doesn't steal focus from the
+    // flight info window. Remove it if the IIFE managed to slip it in before
+    // our share check could fire.
     try {
         const proOverlay = document.getElementById('inflight-pro-loader-overlay');
         if (proOverlay) proOverlay.remove();
     } catch (_) { /* non-fatal */ }
 
-    // Strip the share params so a refresh doesn't replay this, and so the URL is
-    // clean once the window is open.
+    // Strip the share params so a refresh doesn't re-trigger and so the URL
+    // stays clean once the window is open.
     try {
         params.delete('flight');
         params.delete('server');
-        const q = params.toString();
-        window.history.replaceState({}, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+        const newQuery = params.toString();
+        const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
+        window.history.replaceState({}, '', newUrl);
     } catch (_) { /* non-fatal */ }
 
-    showShareLoadingOverlay();
+    // A pending payload means the share function couldn't confirm the flight
+    // server-side. We still know the flightId — keep searching client-side.
+    const hasUsableSnapshot = !!(sharePayload && sharePayload.flight);
 
-    // handleAircraftClick needs the info-window element and the live map wired
-    // up. Boot is async, so wait for them — but don't block forever.
-    const waitForApp = async () => {
-        for (let i = 0; i < 150; i++) { // ~30s budget
-            if (typeof handleAircraftClick === 'function' &&
-                document.getElementById('aircraft-info-window') &&
-                typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
+    // Show the loading overlay immediately so the user knows the click worked.
+    // (Skipped if the snapshot is good enough to open instantly below — the
+    // flight info window itself is the feedback in that case.)
+    if (!hasUsableSnapshot) showShareLoadingOverlay();
+
+    // If the share landed us on a different server than the flight is on,
+    // hop over before we start listening. switchServer() resets state cleanly.
+    if (sharedServer && typeof currentServerName !== 'undefined' && sharedServer !== currentServerName) {
+        try {
+            if (typeof switchServer === 'function') switchServer(sharedServer);
+            else {
+                currentServerName = sharedServer;
+                try { localStorage.setItem('preferredServer', sharedServer); } catch (_) {}
+            }
+        } catch (err) {
+            console.warn('consumeShareLinkParam: server switch failed', err);
+        }
+    }
+
+    let opened = false;
+    const openFromFeature = async (feature, { seedCache = true } = {}) => {
+        if (!feature || !feature.properties) return false;
+        try {
+            // Seed currentMapFeatures so the rest of the UI (trip card, traffic
+            // counts, etc.) sees the flight even before the socket catches up.
+            if (seedCache && typeof currentMapFeatures !== 'undefined' &&
+                !currentMapFeatures[effectiveFlightId]) {
+                currentMapFeatures[effectiveFlightId] = feature;
+            }
+            const props = feature.properties;
+            const flightProps = {
+                ...props,
+                position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+                aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+            };
+            if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && feature.geometry?.coordinates) {
+                try { sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true }); } catch (_) {}
+            }
+            const sessionId = (typeof getValidSessionId === 'function') ? await getValidSessionId() : 'default';
+            if (typeof handleAircraftClick === 'function') {
+                await handleAircraftClick(flightProps, sessionId);
+                opened = true;
+                dismissShareLoadingOverlay();
                 return true;
             }
-            await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+            console.warn('consumeShareLinkParam: failed to open flight', err);
         }
         return false;
     };
 
-    const openFlight = async (feature) => {
-        if (!feature || !feature.properties) return false;
-        try {
-            // Seed the cache so the rest of the UI (trip card, counts) sees the
-            // flight even before the socket catches up.
-            if (typeof currentMapFeatures !== 'undefined' && !currentMapFeatures[flightId]) {
-                currentMapFeatures[flightId] = feature;
-            }
-            const p = feature.properties;
-            const flightProps = {
-                ...p,
-                position: typeof p.position === 'string' ? JSON.parse(p.position) : p.position,
-                aircraft: typeof p.aircraft === 'string' ? JSON.parse(p.aircraft) : p.aircraft
-            };
-            if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && feature.geometry && feature.geometry.coordinates) {
-                try { sectorOpsMap.flyTo({ center: feature.geometry.coordinates, zoom: 7, essential: true }); } catch (_) {}
-            }
-            const sessionId = (typeof getValidSessionId === 'function') ? await getValidSessionId() : 'default';
-            await handleAircraftClick(flightProps, sessionId);
-            dismissShareLoadingOverlay();
-            return true;
-        } catch (err) {
-            console.warn('consumeShareLinkParam: open failed', err);
-            return false;
+    // Wait briefly for the DOM bits handleAircraftClick depends on. We don't
+    // want to fire it before #aircraft-info-window exists.
+    const waitForUi = async () => {
+        for (let i = 0; i < 50; i++) { // ~5s budget
+            if (document.getElementById('aircraft-info-window')) return;
+            await new Promise(r => setTimeout(r, 100));
         }
     };
 
-    // Deterministic finder: ask the ACARS REST feed (every IF session) for this
-    // exact flightId. Returns a synthetic feature built from the live data and
-    // hops the client to the correct server when it finds a match. Checks the
-    // hinted server first so the common case is a single request.
-    const findViaRest = async () => {
+    // 1) Open IMMEDIATELY from the share payload if we have one with real
+    //    position data. This is the "the instant the user jumps in" path —
+    //    no waiting on the socket. Pending payloads (no flight body) skip
+    //    this and rely on the polling/retry loop below.
+    if (hasUsableSnapshot) {
+        const synthetic = buildSyntheticFeature(sharePayload.flight, sharePayload.communityImageUrl);
+        if (synthetic) {
+            await waitForUi();
+            await openFromFeature(synthetic);
+        }
+    }
+
+    // Make sure the info-window element exists before we start trying to open
+    // from socket data, so the first hit lands cleanly.
+    if (!opened) await waitForUi();
+
+    // 2) Direct ACARS REST lookup across sessions, retried periodically. A
+    //    fresh flight can take a few seconds to surface in the REST endpoint
+    //    even when the socket already sees it, so one-shot isn't enough.
+    let directHit = null;
+    let directInFlight = false;
+    const tryDirectLookup = async () => {
+        if (directInFlight || directHit || opened) return null;
+        directInFlight = true;
         try {
-            const base = (typeof ACARS_SOCKET_URL !== 'undefined' && ACARS_SOCKET_URL)
-                ? ACARS_SOCKET_URL
-                : 'https://site--acars-backend--6dmjph8ltlhv.code.run';
-            const sRes = await fetch(`${base}/if-sessions`);
-            if (!sRes.ok) return null;
-            const sJson = await sRes.json();
-            const sessions = Array.isArray(sJson && sJson.sessions) ? sJson.sessions : [];
+            const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
+            if (!sessionsRes.ok) return null;
+            const sessionsJson = await sessionsRes.json();
+            const sessions = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : [];
             if (!sessions.length) return null;
 
-            const hint = String(sharedServer || (typeof currentServerName !== 'undefined' ? currentServerName : '') || '')
-                .toLowerCase().split(' ')[0];
+            const target = (typeof currentServerName !== 'undefined' && currentServerName) ? currentServerName.toLowerCase() : '';
             const ordered = [...sessions].sort((a, b) => {
-                const am = hint && String((a && a.name) || '').toLowerCase().includes(hint) ? -1 : 0;
-                const bm = hint && String((b && b.name) || '').toLowerCase().includes(hint) ? -1 : 0;
-                return am - bm;
+                const an = (a?.name || '').toLowerCase();
+                const bn = (b?.name || '').toLowerCase();
+                const aHit = target && an.includes(target.split(' ')[0]) ? -1 : 0;
+                const bHit = target && bn.includes(target.split(' ')[0]) ? -1 : 0;
+                return aHit - bHit;
             });
 
-            for (const s of ordered) {
-                if (!s || !s.id) continue;
-                const fRes = await fetch(`${base}/flights/${s.id}`);
-                if (!fRes.ok) continue;
-                const fJson = await fRes.json();
-                const flights = (fJson && (fJson.flights || fJson.data)) || (Array.isArray(fJson) ? fJson : []);
-                const match = flights.find(f => f && f.flightId === flightId);
-                if (match && match.position && match.position.lat != null && match.position.lon != null) {
-                    if (s.name && typeof switchServer === 'function' &&
-                        typeof currentServerName !== 'undefined' && s.name !== currentServerName) {
-                        switchServer(s.name);
+            for (const session of ordered) {
+                if (!session?.id) continue;
+                if (opened || directHit) return null;
+                try {
+                    const flightsRes = await fetch(`https://site--acars-backend--6dmjph8ltlhv.code.run/flights/${session.id}`);
+                    if (!flightsRes.ok) continue;
+                    const flightsJson = await flightsRes.json();
+                    const flights = flightsJson?.flights || flightsJson?.data || (Array.isArray(flightsJson) ? flightsJson : []);
+                    const match = flights.find(f => f && f.flightId === effectiveFlightId);
+                    if (!match || !match.position || match.position.lat == null || match.position.lon == null) continue;
+
+                    if (session.name && typeof switchServer === 'function' && session.name !== currentServerName) {
+                        switchServer(session.name);
                     }
-                    return buildSyntheticFeature(match, snapshot && snapshot.communityImageUrl);
-                }
+                    directHit = { feature: buildSyntheticFeature(match, sharePayload?.communityImageUrl), server: session.name || '' };
+                    return directHit;
+                } catch (_) { /* try next session */ }
             }
         } catch (err) {
-            console.warn('consumeShareLinkParam: REST lookup failed', err);
+            console.warn('consumeShareLinkParam: direct fetch failed', err);
+        } finally {
+            directInFlight = false;
         }
         return null;
     };
 
-    const appReady = await waitForApp();
+    // Fire the first REST attempt right away so it runs in parallel with the
+    // socket boot. Subsequent attempts are scheduled inside the poll loop.
+    tryDirectLookup();
 
-    // Switch to the hinted server up front so the live socket starts pulling the
-    // right feed in parallel with our REST search.
-    if (sharedServer && typeof switchServer === 'function' &&
-        typeof currentServerName !== 'undefined' && sharedServer !== currentServerName) {
-        try { switchServer(sharedServer); }
-        catch (err) { console.warn('consumeShareLinkParam: server switch failed', err); }
-    }
+    // 3) Poll the live socket cache (primary path once the socket is up) AND
+    //    re-fire the REST lookup every few seconds to catch the case where
+    //    the socket and REST are both lagging.
+    const POLL_INTERVAL_MS = 500;
+    const REST_RETRY_INTERVAL_MS = 4000;
+    const TOTAL_BUDGET_MS = 60000;
+    const startedAt = Date.now();
+    let lastRestAttemptAt = Date.now();
+    let progressed = false;
 
-    // 1) Instant open from the snapshot if it carried a real position.
-    if (appReady && snapshot && snapshot.flight) {
-        const feat = buildSyntheticFeature(snapshot.flight, snapshot.communityImageUrl);
-        if (feat && await openFlight(feat)) return;
-    }
-
-    if (!appReady) {
-        dismissShareLoadingOverlay();
-        if (typeof showNotification === 'function') {
-            showNotification("Couldn't open the app to show this flight — please reload.", 'warning');
+    while (Date.now() - startedAt < TOTAL_BUDGET_MS) {
+        if (opened && (typeof currentMapFeatures !== 'undefined') && currentMapFeatures[effectiveFlightId]) {
+            // Window is up and the socket is now driving updates — we're done.
+            dismissShareLoadingOverlay();
+            return;
         }
-        return;
-    }
 
-    // 2) Deterministic loop: prefer the live socket cache (primary path once the
-    //    socket is up), and fall back to the REST feed every couple seconds to
-    //    catch a flight the socket hasn't surfaced yet.
-    const DEADLINE = Date.now() + 45000;
-    let announcedLive = false;
-    while (Date.now() < DEADLINE) {
-        const cached = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
-        if (cached && cached.properties && await openFlight(cached)) return;
+        const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
+        if (feature && feature.properties && !opened) {
+            await openFromFeature(feature, { seedCache: false });
+            return;
+        }
 
-        const viaRest = await findViaRest();
-        if (viaRest && await openFlight(viaRest)) return;
+        if (directHit && directHit.feature && !opened) {
+            await openFromFeature(directHit.feature);
+            return;
+        }
 
-        if (!announcedLive && typeof currentMapFeatures !== 'undefined' &&
-            Object.keys(currentMapFeatures).length > 0) {
-            announcedLive = true;
+        // Re-try the REST lookup periodically while we wait.
+        if (!directHit && !directInFlight && Date.now() - lastRestAttemptAt >= REST_RETRY_INTERVAL_MS) {
+            lastRestAttemptAt = Date.now();
+            tryDirectLookup();
+        }
+
+        // Once the live feed starts producing features, update the overlay so
+        // the user knows we're actively searching the cache rather than stuck.
+        if (!progressed && typeof currentMapFeatures !== 'undefined' && Object.keys(currentMapFeatures).length > 0) {
+            progressed = true;
             updateShareLoadingOverlay(null, 'Live feed online — locating flight…');
         }
 
-        await new Promise(r => setTimeout(r, 2500));
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
 
-    dismissShareLoadingOverlay();
-    if (typeof showNotification === 'function') {
-        showNotification("Couldn't load this flight — the pilot may have signed off.", 'warning');
+    // 4) Budget exhausted. One last check before declaring defeat.
+    if (!opened) {
+        const lateFeature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
+        if (lateFeature && lateFeature.properties) {
+            await openFromFeature(lateFeature, { seedCache: false });
+        } else if (directHit && directHit.feature) {
+            await openFromFeature(directHit.feature);
+        }
+    }
+
+    // Only warn if we genuinely couldn't open anything. If the snapshot
+    // already put the window up, the user is looking at the flight — don't
+    // contradict that with a "flight ended" toast.
+    if (!opened) {
+        dismissShareLoadingOverlay();
+        if (typeof showNotification === 'function') {
+            showNotification("Couldn't load this flight — the pilot may have signed off.", 'warning');
+        }
     }
 }
 
@@ -7059,25 +6150,6 @@ if (typeof window !== 'undefined') {
     } else {
         window.addEventListener('load', () => setTimeout(consumeShareLinkParam, 0), { once: true });
     }
-}
-
-// ISO 3166-1 alpha-2 → flag emoji via regional indicator symbols.
-function tripCardCountryFlag(iso2) {
-    if (!iso2 || !/^[a-zA-Z]{2}$/.test(iso2)) return '';
-    const cc = iso2.toUpperCase();
-    return String.fromCodePoint(...[...cc].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
-}
-
-let _tripCardRegionNames = null;
-// ISO 3166-1 alpha-2 → English country name (e.g. "GB" → "United Kingdom").
-function tripCardCountryName(iso2) {
-    if (!iso2 || !/^[a-zA-Z]{2}$/.test(iso2)) return '';
-    try {
-        if (!_tripCardRegionNames && typeof Intl !== 'undefined' && Intl.DisplayNames) {
-            _tripCardRegionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-        }
-        return _tripCardRegionNames ? (_tripCardRegionNames.of(iso2.toUpperCase()) || '') : iso2.toUpperCase();
-    } catch (e) { return iso2.toUpperCase(); }
 }
 
 function updateTripCardRealtime() {
@@ -7100,280 +6172,63 @@ function updateTripCardRealtime() {
         }
     }
 
-    const altFt = Math.round(pos.alt_ft || 0);
-    const gsKt = Math.round(pos.gs_kt || 0);
-    const hdgDeg = Math.round(pos.heading_deg || 0);
-    const vsFpm = Math.round(pos.vs_fpm || 0);
-
     ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
     ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
-    ui.querySelector('.tc-alt').textContent = altFt.toLocaleString();
-    ui.querySelector('.tc-spd').textContent = gsKt.toString();
-
-    const hdgEl = ui.querySelector('.tc-hdg');
-    if (hdgEl) hdgEl.textContent = String(hdgDeg).padStart(3, '0');
-
-    const vsEl = ui.querySelector('.tc-vs');
-    if (vsEl) {
-        const sign = vsFpm > 50 ? '+' : '';
-        vsEl.textContent = `${sign}${vsFpm.toLocaleString()}`;
-    }
-
-    // Phase of flight — prefer server-provided phase, otherwise derive from V/S + altitude.
-    const phaseBadge = ui.querySelector('.tc-phase-badge');
-    const phaseText = ui.querySelector('.tc-phase-text');
-    if (phaseBadge && phaseText) {
-        let phase = (props.phase || '').toString().toLowerCase();
-        let key, label;
-        if (gsKt < 40 && altFt < 1500) { key = 'ground'; label = 'On Ground'; }
-        else if (phase.includes('climb') || vsFpm > 350) { key = 'climb'; label = 'Climbing'; }
-        else if (phase.includes('desc') || vsFpm < -350) { key = 'descent'; label = 'Descending'; }
-        else { key = 'cruise'; label = 'Cruise'; }
-        phaseBadge.classList.remove('climb', 'cruise', 'descent', 'ground');
-        phaseBadge.classList.add(key);
-        phaseText.textContent = label;
-    }
-
+    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
+    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0).toString();
+    
     const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
     const acName = acData.aircraftName || props.aircraftName || 'Unknown Type';
     const livName = acData.liveryName || props.liveryName || '';
-
-    const acTypeEl = ui.querySelector('.tc-ac-type');
-    const airlineEl = ui.querySelector('.tc-ac-airline');
-    if (acTypeEl) acTypeEl.textContent = acName;
-    if (airlineEl) airlineEl.textContent = livName || '—';
-    // No airline name available → drop it (and its divider) regardless of config.
-    if (airlineEl && !livName) {
-        airlineEl.style.display = 'none';
-        const div2 = ui.querySelector('.tc-div-2');
-        if (div2) div2.style.display = 'none';
-    }
+    
+    ui.querySelector('.tc-ac').textContent = `${acName} • ${livName}`;
 
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     ui.querySelector('.tc-icao.origin').textContent = dep;
     ui.querySelector('.tc-icao.destination').textContent = arr;
 
-    // Airport name / country flag / country name (each toggleable via the customizer).
-    const setAirportMeta = (which, info) => {
-        const flagEl = ui.querySelector(`.${which}-flag`);
-        const nameEl = ui.querySelector(`.${which}-name`);
-        const ctryEl = ui.querySelector(`.${which}-country`);
-        const cc = info && info.country;
-        if (flagEl) flagEl.textContent = tripCardCountryFlag(cc);
-        if (nameEl) nameEl.textContent = (info && info.name) ? info.name : '';
-        if (ctryEl) ctryEl.textContent = tripCardCountryName(cc);
-    };
-    const depMeta = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[dep] : null;
-    const arrMeta = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[arr] : null;
-    setAirportMeta('origin', depMeta);
-    setAirportMeta('destination', arrMeta);
-
     // Route Progress Bar Logic
     let progressPercent = 0;
-    let totalDistKm = 0;
-    let remainingDistKm = 0;
     if (dep !== '???' && arr !== '???') {
         const depData = typeof airportsData !== 'undefined' ? airportsData[dep] : null;
         const arrData = typeof airportsData !== 'undefined' ? airportsData[arr] : null;
         if (depData && arrData && pos.lat) {
             try {
-                totalDistKm = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
-                remainingDistKm = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
-                if (totalDistKm > 0) {
-                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDistKm / totalDistKm)) * 100));
+                const totalDist = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
+                const remainingDist = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
+                if (totalDist > 0) {
+                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
                 }
             } catch(err) {}
         }
     }
-
+    
     const displayPercent = Math.max(0, Math.min(100, progressPercent));
     const progressBar = ui.querySelector('.tc-progress-bar');
     const planeIcon = ui.querySelector('.tc-plane-icon');
-
+    
     if (progressBar) progressBar.style.width = `${displayPercent}%`;
     if (planeIcon) planeIcon.style.left = `${displayPercent}%`;
 
-    // Distance flown / remaining + ETA based on current ground speed.
-    const NM_PER_KM = 0.539957;
-    const flownEl = ui.querySelector('.tc-dist-flown');
-    const remEl = ui.querySelector('.tc-dist-rem');
-    const etaEl = ui.querySelector('.tc-eta');
-    if (totalDistKm > 0) {
-        const flownNm = Math.max(0, (totalDistKm - remainingDistKm)) * NM_PER_KM;
-        const remNm = Math.max(0, remainingDistKm) * NM_PER_KM;
-        if (flownEl) flownEl.textContent = `${Math.round(flownNm)} nm`;
-        if (remEl) remEl.textContent = `${Math.round(remNm)} nm`;
-        if (etaEl) {
-            if (gsKt > 40 && remNm > 1) {
-                const etaMin = Math.round((remNm / gsKt) * 60);
-                const h = Math.floor(etaMin / 60);
-                const m = etaMin % 60;
-                etaEl.textContent = h > 0 ? `ETA ${h}h ${m}m` : `ETA ${m}m`;
-            } else {
-                etaEl.textContent = remNm <= 1 ? 'Arrived' : 'ETA --';
-            }
-        }
-    } else {
-        if (flownEl) flownEl.textContent = '--';
-        if (remEl) remEl.textContent = '--';
-        if (etaEl) etaEl.textContent = 'ETA --';
-    }
-
-    // Extend the history-seeded profile with live samples. Sample at most once
-    // per second to keep the array light.
-    const nowTs = Date.now();
-    if (nowTs - tripCardLastSampleTs >= 1000) {
-        tripCardLastSampleTs = nowTs;
-        tripCardHistory.push({ alt: altFt, spd: gsKt });
-        if (tripCardHistory.length > TRIP_CARD_HISTORY_MAX) tripCardHistory.shift();
-    }
-    if (ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
-        drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
+    // Airline Logo Handling
+    const words = livName.trim().split(/\s+/);
+    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
+    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+    const logoImg = ui.querySelector('.tc-logo');
+    if (logoImg) {
+        const img = new Image();
+        img.onload = () => {
+            logoImg.src = img.src;
+            logoImg.style.display = 'block';
+        };
+        img.onerror = () => {
+            logoImg.style.display = 'none';
+        };
+        img.src = `Images/airline_logos/${sanitizedLogoName}.png`;
     }
 }
-
-/**
- * Draws the altitude/speed profile sparkline for the trip card, mirroring the
- * flight-replay chart: altitude as a height-coloured trace (blue→lime→rose),
- * speed as a faint dashed white line.
- */
-function drawTripCardChart(canvas, history) {
-    if (!canvas) return;
-    const wrap = canvas.closest('.tc-chart-wrap');
-    if (wrap) wrap.classList.toggle('has-data', history.length >= 1);
-    if (history.length < 1) return;
-
-    // With a single sample, draw a flat line so the chart isn't blank.
-    const data = history.length === 1 ? [history[0], history[0]] : history;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = canvas.clientWidth || 320;
-    const cssH = canvas.clientHeight || 60;
-    if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
-        canvas.width = Math.round(cssW * dpr);
-        canvas.height = Math.round(cssH * dpr);
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
-
-    const padX = 4, padTop = 6, padBottom = 4;
-    const plotW = cssW - padX * 2;
-    const plotH = cssH - padTop - padBottom;
-    const n = data.length;
-
-    const maxAlt = Math.max(1000, ...data.map(p => p.alt));
-    const maxSpd = Math.max(100, ...data.map(p => p.spd));
-
-    const xAt = i => padX + (n === 1 ? plotW : (i / (n - 1)) * plotW);
-    const yAlt = v => padTop + plotH - (v / maxAlt) * plotH;
-    const ySpd = v => padTop + plotH - (v / maxSpd) * plotH;
-
-    // Altitude trace coloured by height like the replay chart:
-    // low = sky blue, mid = lime, high = rose (vertical gradient).
-    const altGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
-    altGrad.addColorStop(0, '#f43f5e'); // top of plot = highest altitude
-    altGrad.addColorStop(0.5, '#a3e635');
-    altGrad.addColorStop(1, '#38bdf8'); // bottom = ground
-
-    // Filled area beneath the altitude trace (faint white)
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAlt(data[0].alt));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(data[i].alt));
-    ctx.lineTo(xAt(n - 1), padTop + plotH);
-    ctx.lineTo(xAt(0), padTop + plotH);
-    ctx.closePath();
-    const fillGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
-    fillGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
-    fillGrad.addColorStop(1, 'rgba(255,255,255,0.01)');
-    ctx.fillStyle = fillGrad;
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAlt(data[0].alt));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAlt(data[i].alt));
-    ctx.strokeStyle = altGrad;
-    ctx.lineWidth = 1.75;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-
-    // Speed: faint white dashed line
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), ySpd(data[0].spd));
-    for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), ySpd(data[i].spd));
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 1.25;
-    ctx.setLineDash([3, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Leading dot on the altitude trace
-    ctx.beginPath();
-    ctx.arc(xAt(n - 1), yAlt(data[n - 1].alt), 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-}
-
-/**
- * Seeds the trip card's profile chart from the flight's recorded history —
- * the same backend `/history` endpoint + in-memory trail that flight replay
- * uses — so the chart reflects the whole flight so far, not just samples
- * collected since the card was opened. Live ticks then extend it.
- */
-async function loadTripCardHistory(flightId) {
-    if (!flightId) return;
-
-    const pickNum = (...c) => { for (const v of c) if (typeof v === 'number' && !isNaN(v)) return v; return null; };
-    const toSample = (p) => {
-        if (!p || typeof p !== 'object') return null;
-        const pos = (p.position && typeof p.position === 'object') ? p.position : p;
-        const alt = pickNum(pos.alt_ft, pos.alt, pos.altitude, p.alt_ft, p.alt, p.altitude);
-        const spd = pickNum(pos.gs_kt, pos.gs, pos.groundSpeed, p.gs_kt, p.gs, p.groundSpeed);
-        if (alt == null && spd == null) return null;
-        let t = NaN;
-        const tc = [pos.time, pos.lastReportMs, pos.timeMs, p.time, p.lastReportMs, p.timeMs,
-                    pos.timestamp, pos.lastReport, p.timestamp, p.lastReport];
-        for (const v of tc) {
-            if (typeof v === 'number' && !isNaN(v)) { t = v; break; }
-            if (typeof v === 'string' && v) { const d = Date.parse(v); if (!isNaN(d)) { t = d; break; } }
-        }
-        return { t: isNaN(t) ? null : t, alt: Math.round(alt || 0), spd: Math.round(spd || 0) };
-    };
-
-    let backend = [];
-    try {
-        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
-        const res = await fetch(historyUrl);
-        const json = res.ok ? await res.json() : null;
-        if (json && json.ok) backend = json.path || json.route || [];
-    } catch (e) { /* fall back to in-memory trail */ }
-
-    // The card may have closed or switched flights while the fetch was in flight.
-    if (currentFlightInWindow !== flightId) return;
-
-    const memory = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
-    const samples = backend.concat(memory).map(toSample).filter(Boolean);
-    samples.sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
-
-    const series = [];
-    for (const s of samples) {
-        const prev = series[series.length - 1];
-        if (!prev || s.t == null || s.t !== prev.t) series.push({ alt: s.alt, spd: s.spd });
-    }
-    if (!series.length) return;
-
-    tripCardHistory = series.slice(-TRIP_CARD_HISTORY_MAX);
-    tripCardLastSampleTs = Date.now();
-
-    const ui = document.getElementById('trip-card-takeover');
-    if (ui && ui.querySelector('.tc-chart-drawer')?.classList.contains('expanded')) {
-        drawTripCardChart(ui.querySelector('.tc-chart-canvas'), tripCardHistory);
-    }
-}
-
+    
 /**
  * Categorized search input handler.
  * Delegates ranking to window.GlobalSearchEngine and renders three sections:
@@ -7620,15 +6475,6 @@ function onSearchResultClick(arg1, arg2, arg3) {
 
     // CRITICAL: Make function globally available to landingUI.js
     window.onSearchResultClick = onSearchResultClick;
-
-    // Open the replay/playback panel for any flightId by pulling its recorded
-    // history from the backend. Used by the Most Tracked panel to let users
-    // jump into a top flight's playback when that pilot isn't live right now.
-    window.openFlightReplayById = async function(flightId, meta = {}) {
-        if (!flightId || typeof FlightReplay === 'undefined' || !sectorOpsMap) return false;
-        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
-        return FlightReplay.open({ map: sectorOpsMap, flightId, historyUrl, meta });
-    };
 
 function _closeSearchAfterPick() {
     const dropdown = document.getElementById('search-results-dropdown');
@@ -7931,28 +6777,6 @@ window.addEventListener('serverChange', (e) => {
     }
 });
 
-/**
- * Rebuilds the 3D flown-path geometry for every flight currently shown in 3D
- * (the open flight + any pinned flights). Must run after a projection change
- * (mercator <-> globe) because the trail geometry is built in projection-specific
- * coordinates, and after a style swap, which drops custom layers entirely.
- */
-function rebuildVisible3DPaths() {
-    if (typeof FlownPath3D === 'undefined' || !sectorOpsMap) return;
-
-    const ids = new Set();
-    if (currentFlightInWindow) ids.add(currentFlightInWindow);
-    if (window.pinnedFlights) window.pinnedFlights.forEach(id => ids.add(id));
-
-    ids.forEach(id => {
-        const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(id)) || [];
-        // Drop the old layer first so stale geometry / the removed custom layer
-        // is fully replaced, then rebuild in the active projection.
-        FlownPath3D.clearPath(sectorOpsMap, id);
-        FlownPath3D.updatePath(sectorOpsMap, id, trail, mapFilters.show3DPath);
-    });
-}
-
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
@@ -7977,7 +6801,14 @@ function updateMapFilters() {
     
     const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
 
-    rebuildVisible3DPaths();
+    if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
+        FlownPath3D.updatePath(
+            sectorOpsMap, 
+            currentFlightInWindow, 
+            liveTrailCache.get(currentFlightInWindow), 
+            mapFilters.show3DPath 
+        );
+    }
 
     if (currentMapStyle !== targetStyle) {
         currentMapStyle = targetStyle;
@@ -8296,7 +7127,6 @@ async function fetchAirportsData() {
         }
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
-        window.airportsData = airportsData;
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
@@ -10404,19 +9234,335 @@ async function createAirportInfoWindowHTML(icao) {
     };
 
     // --- Notifications ---
-    function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#001B94" }
-        }).showToast();
+    let iosToastStack = null;
+    let lastToastSignature = '';
+    let lastToastAt = 0;
+    let lastOfflineToastAt = 0;
+
+    const toastMeta = {
+        success: { title: 'Done', icon: 'fa-circle-check' },
+        error: { title: 'Needs Attention', icon: 'fa-circle-exclamation' },
+        warning: { title: 'Heads Up', icon: 'fa-triangle-exclamation' },
+        info: { title: 'InFlight', icon: 'fa-circle-info' },
+        offline: { title: 'Offline Mode', icon: 'fa-wifi' }
+    };
+
+    function normalizeToastType(type) {
+        const normalized = String(type || 'info').toLowerCase();
+        if (normalized === 'warn') return 'warning';
+        if (normalized === 'danger') return 'error';
+        return toastMeta[normalized] ? normalized : 'info';
+    }
+
+    function stripNotificationText(value) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = String(value || '');
+        return (wrapper.textContent || wrapper.innerText || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function isOfflineNow() {
+        return typeof navigator !== 'undefined' && navigator.onLine === false;
+    }
+
+    function isLoadFailureText(text) {
+        const clean = String(text || '').toLowerCase();
+        return /could not load|couldn't load|can't load|failed to load|data retrieval failed|network failure|network error|connection failed|live service connection failed|failed to fetch|request timed out|not available/.test(clean);
+    }
+
+    function ensureIosToastStack() {
+        if (iosToastStack && document.body.contains(iosToastStack)) return iosToastStack;
+
+        if (!document.getElementById('inflight-ios-toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'inflight-ios-toast-styles';
+            style.textContent = `
+                .inflight-ios-toast-stack {
+                    position: fixed;
+                    top: calc(env(safe-area-inset-top, 0px) + 12px);
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: min(390px, calc(100vw - 24px));
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    z-index: 2147483647;
+                    pointer-events: none;
+                }
+                .inflight-ios-toast {
+                    display: grid;
+                    grid-template-columns: 32px minmax(0, 1fr);
+                    gap: 10px;
+                    align-items: center;
+                    min-height: 52px;
+                    padding: 11px 14px;
+                    border-radius: 18px;
+                    background: rgba(28, 28, 30, 0.92);
+                    color: #fff;
+                    border: 1px solid rgba(255,255,255,0.14);
+                    box-shadow: 0 16px 40px rgba(0,0,0,0.34);
+                    backdrop-filter: blur(24px) saturate(170%);
+                    -webkit-backdrop-filter: blur(24px) saturate(170%);
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+                    pointer-events: auto;
+                    cursor: pointer;
+                    opacity: 0;
+                    transform: translateY(-12px) scale(0.985);
+                    transition: opacity 220ms ease, transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .inflight-ios-toast.visible {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+                .inflight-ios-toast.out {
+                    opacity: 0;
+                    transform: translateY(-8px) scale(0.985);
+                }
+                .inflight-ios-toast-icon {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                    display: grid;
+                    place-items: center;
+                    background: rgba(255,255,255,0.12);
+                    color: #d1d5db;
+                    font-size: 15px;
+                }
+                .inflight-ios-toast-success .inflight-ios-toast-icon { color: #34c759; background: rgba(52,199,89,0.14); }
+                .inflight-ios-toast-error .inflight-ios-toast-icon { color: #ff453a; background: rgba(255,69,58,0.14); }
+                .inflight-ios-toast-warning .inflight-ios-toast-icon { color: #ffd60a; background: rgba(255,214,10,0.14); }
+                .inflight-ios-toast-offline .inflight-ios-toast-icon { color: #64d2ff; background: rgba(100,210,255,0.14); }
+                .inflight-ios-toast-copy {
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1px;
+                }
+                .inflight-ios-toast-title {
+                    font-size: 12px;
+                    line-height: 1.2;
+                    font-weight: 700;
+                    letter-spacing: 0;
+                    color: rgba(255,255,255,0.96);
+                }
+                .inflight-ios-toast-message {
+                    font-size: 13px;
+                    line-height: 1.28;
+                    font-weight: 500;
+                    color: rgba(255,255,255,0.72);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                @media (max-width: 480px) {
+                    .inflight-ios-toast-stack {
+                        top: calc(env(safe-area-inset-top, 0px) + 8px);
+                        width: calc(100vw - 20px);
+                    }
+                    .inflight-ios-toast {
+                        border-radius: 16px;
+                    }
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .inflight-ios-toast {
+                        transition: opacity 120ms ease;
+                        transform: none !important;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        iosToastStack = document.createElement('div');
+        iosToastStack.id = 'inflight-ios-toast-stack';
+        iosToastStack.className = 'inflight-ios-toast-stack';
+        document.body.appendChild(iosToastStack);
+        return iosToastStack;
+    }
+
+    function nudgeHaptics(type) {
+        try {
+            const haptics = window.Capacitor?.Plugins?.Haptics;
+            if (!haptics || typeof haptics.impact !== 'function') return;
+            const style = type === 'error' ? 'HEAVY' : type === 'success' ? 'LIGHT' : 'MEDIUM';
+            haptics.impact({ style });
+        } catch (_) {}
+    }
+
+    function showOfflineNotice(force = false) {
+        const now = Date.now();
+        if (!force && now - lastOfflineToastAt < 45000) return;
+        lastOfflineToastAt = now;
+        showNotification('Live data will resume when your connection returns.', 'offline', {
+            title: 'Offline Mode',
+            force: true,
+            bypassOfflineFilter: true,
+            duration: 3600
+        });
+    }
+
+    function showNotification(message, type = 'info', options = {}) {
+        const text = stripNotificationText(message);
+        if (!text) return;
+
+        if (!options.bypassOfflineFilter && isOfflineNow() && isLoadFailureText(text)) {
+            showOfflineNotice();
+            return;
+        }
+
+        const normalizedType = normalizeToastType(type);
+        const now = Date.now();
+        const signature = `${normalizedType}:${text}`;
+        if (!options.force && signature === lastToastSignature && now - lastToastAt < 1500) return;
+        lastToastSignature = signature;
+        lastToastAt = now;
+
+        const stack = ensureIosToastStack();
+        const meta = {
+            ...toastMeta[normalizedType],
+            title: options.title || toastMeta[normalizedType].title
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `inflight-ios-toast inflight-ios-toast-${normalizedType}`;
+        toast.setAttribute('role', normalizedType === 'error' ? 'alert' : 'status');
+
+        const icon = document.createElement('div');
+        icon.className = 'inflight-ios-toast-icon';
+        const iconGlyph = document.createElement('i');
+        iconGlyph.className = `fa-solid ${meta.icon}`;
+        icon.appendChild(iconGlyph);
+
+        const copy = document.createElement('div');
+        copy.className = 'inflight-ios-toast-copy';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'inflight-ios-toast-title';
+        titleEl.textContent = meta.title;
+        const messageEl = document.createElement('div');
+        messageEl.className = 'inflight-ios-toast-message';
+        messageEl.textContent = text;
+        copy.append(titleEl, messageEl);
+
+        toast.append(icon, copy);
+        stack.appendChild(toast);
+
+        const dismiss = () => {
+            toast.classList.add('out');
+            setTimeout(() => toast.remove(), 260);
+        };
+        toast.addEventListener('click', dismiss);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+        nudgeHaptics(normalizedType);
+        setTimeout(dismiss, options.duration || (normalizedType === 'error' ? 4300 : 3200));
     }
 
     window.showGlobalNotification = showNotification;
+    window.InflightConnectionStatus = {
+        isOffline: isOfflineNow,
+        showOfflineNotice
+    };
+
+    window.addEventListener('inflight:notify', (event) => {
+        const detail = event.detail || {};
+        showNotification(detail.message || detail.text || '', detail.type || 'info', detail.options || {});
+    });
+
+    window.addEventListener('offline', () => showOfflineNotice(true));
+    window.addEventListener('online', () => {
+        lastOfflineToastAt = 0;
+        showNotification('Live data is connected again.', 'success', {
+            title: 'Back Online',
+            force: true,
+            duration: 2600
+        });
+    });
+
+    // Build the Live Activity start payload from whatever state we currently have on the
+    // open aircraft info window. Returns null if we don't have enough to fire yet.
+    function buildLiveActivityPayload(flightId) {
+        if (!flightId) return null;
+        const feature = currentMapFeatures[flightId];
+        if (!feature || !feature.properties) return null;
+        const props = feature.properties;
+        const windowEl = document.getElementById('aircraft-info-window');
+        const depIcao = windowEl?.dataset.depIcao || props.depIcao || '';
+        const arrIcao = windowEl?.dataset.arrIcao || props.arrIcao || '';
+        if (!depIcao || !arrIcao || depIcao === 'N/A' || arrIcao === 'N/A') {
+            return null;
+        }
+
+        const filedDepTime = windowEl?.dataset.filedDepTime || '';
+        const filedDuration = parseFloat(windowEl?.dataset.filedDuration || '0');
+        const schedDepMs = filedDepTime ? Date.parse(filedDepTime) : null;
+        const schedArrMs = (schedDepMs && filedDuration > 0)
+            ? schedDepMs + (filedDuration * 60 * 1000)
+            : null;
+
+        // Distance to destination (NM) for the live ETA estimate.
+        let distanceNm = 0;
+        const destLat = airportsData[arrIcao]?.lat;
+        const destLon = airportsData[arrIcao]?.lon;
+        if (destLat != null && destLon != null && props.position?.lat != null) {
+            distanceNm = getDistanceKm(props.position.lat, props.position.lon, destLat, destLon) / 1.852;
+        }
+
+        // Total great-circle distance dep → arr. Captured once at start so
+        // the Live Activity progress bar can render distance progress
+        // without recomputing geometry on every refresh.
+        let totalDistanceNm = 0;
+        const depLat = airportsData[depIcao]?.lat;
+        const depLon = airportsData[depIcao]?.lon;
+        if (depLat != null && depLon != null && destLat != null && destLon != null) {
+            totalDistanceNm = getDistanceKm(depLat, depLon, destLat, destLon) / 1.852;
+        }
+        if (totalDistanceNm < distanceNm) totalDistanceNm = distanceNm;
+
+        // Hand the same cascade the in-app card uses (SCHEDULED → ACTUAL →
+        // ESTIMATED) so the lock screen agrees with what's on screen.
+        const cachedTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.has(flightId))
+            ? liveTrailCache.get(flightId)
+            : null;
+        const filedPlan = (schedDepMs && filedDuration > 0)
+            ? { dep_time: filedDepTime, duration_minutes: filedDuration }
+            : null;
+        const depInfo = computeDepartureTimeInfo(props, cachedTrail, filedPlan, depIcao);
+        const arrInfo = computeArrivalTimeInfo(props, filedPlan, distanceNm);
+
+        // ETA: prefer the smart cascade's timestamp; fall back to a fresh
+        // gs+distance estimate; finally fall back to scheduled arrival. The
+        // old code's "now + 1h" fallback was producing wildly wrong ETEs
+        // on the lock-screen countdown when the aircraft was slow/taxiing.
+        const gs = props.position?.gs_kt || 0;
+        let etaMs = arrInfo?.timestamp ? arrInfo.timestamp.getTime() : null;
+        if (!etaMs && distanceNm > 0 && gs > 50) {
+            etaMs = Date.now() + (distanceNm / gs) * 3600 * 1000;
+        }
+        if (!etaMs) etaMs = schedArrMs || (Date.now() + 60 * 60 * 1000);
+
+        // ATD: only ACTUAL counts — the scheduled departure is conveyed
+        // separately. If we don't have GPS history yet, leave it
+        // undefined so the widget shows "scheduledDeparture" verbatim
+        // instead of mislabeling the planned time as the actual takeoff.
+        let atdMs;
+        if (depInfo?.timestamp && depInfo.label === 'ACTUAL') {
+            atdMs = depInfo.timestamp.getTime();
+        }
+
+        return {
+            flightId,
+            callsign: props.callsign || flightId,
+            airlineName: props.liveryName || props.aircraftName || '',
+            departureIcao: depIcao,
+            arrivalIcao: arrIcao,
+            scheduledDeparture: schedDepMs || (atdMs || Date.now()),
+            scheduledArrival: schedArrMs || etaMs,
+            currentEta: etaMs,
+            currentAtd: atdMs,
+            distanceToDestinationNm: distanceNm,
+            totalDistanceNm,
+            isLanded: false
+        };
+    }
+    window.buildLiveActivityPayload = buildLiveActivityPayload;
 
     // --- DOM elements ---
     const pilotNameElem = document.getElementById('pilot-name');
@@ -11077,14 +10223,64 @@ function updateTrafficLegendUI() {
 function setupAircraftWindowEvents() {
         if (!aircraftInfoWindow || aircraftInfoWindow.dataset.eventsAttached === 'true') return;
 
+        // Bell logic extracted so the mobile sector-ops proxy can call it
+        // directly against the visible button — the desktop click delegation
+        // doesn't see clicks on bells that have been moved into the island.
+        async function handleTrackmeBellClick(trackMeBtn) {
+            if (!trackMeBtn) return;
+            const flightId = trackMeBtn.dataset.flightId || currentFlightInWindow;
+            if (!flightId) return;
+            if (window.InflightLiveActivity?.isTrackingFlight(flightId)) {
+                await window.InflightLiveActivity.end({ flightId });
+                showNotification?.('Live Activity stopped.', 'info');
+            } else {
+                await window.InflightLiveActivity?.requestNotificationPermission?.({ force: true });
+                const prior = window.InflightLiveActivity?.getTrackedFlightId();
+                if (prior && prior !== flightId) {
+                    await window.InflightLiveActivity.end({ flightId: prior });
+                }
+                const payload = (typeof buildLiveActivityPayload === 'function')
+                    ? buildLiveActivityPayload(flightId)
+                    : null;
+                if (!payload) {
+                    showNotification?.('Could not read flight data yet — try again in a moment.', 'error');
+                    return;
+                }
+                const res = await window.InflightLiveActivity.start(payload);
+                if (res?.ok) {
+                    showNotification?.('Tracking on Lock Screen.', 'success');
+                } else if (res?.reason === 'unsupported') {
+                    showNotification?.('Live Activities not available on this device.', 'error');
+                } else {
+                    const reason = (res && res.reason) ? String(res.reason) : 'unknown';
+                    const short = reason.length > 140 ? reason.slice(0, 140) + '…' : reason;
+                    console.error('[LiveActivity] start failed:', res);
+                    showNotification?.(`Could not start Live Activity: ${short}`, 'error');
+                }
+            }
+            const icon = trackMeBtn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-bell');
+                icon.classList.toggle('fa-bell-slash');
+            }
+        }
+        window.handleTrackmeBellClick = handleTrackmeBellClick;
+
         aircraftInfoWindow.addEventListener('click', async (e) => {
             const closeBtn = e.target.closest('.aircraft-window-close-btn');
             const pinBtn = e.target.closest('.aircraft-window-pin-btn');
             const shareBtn = e.target.closest('.aircraft-window-share-btn');
             const replayBtn = e.target.closest('.aircraft-window-replay-btn');
+            const trackMeBtn = e.target.closest('.aircraft-window-trackme-btn');
             const tabBtn = e.target.closest('.ac-info-tab-btn');
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
+
+            if (trackMeBtn) {
+                e.preventDefault();
+                await handleTrackmeBellClick(trackMeBtn);
+                return;
+            }
 
             if (shareBtn) {
                 e.preventDefault();
@@ -11838,7 +11034,7 @@ const SettingsUI = {
     categories: {
         airspace: { label: "Filters", icon: "fa-tower-broadcast" },
         visuals: { label: "Visuals", icon: "fa-eye" },
-        pro_layers: { label: "Pro Layers", icon: "fa-layer-group" },
+        pro_layers: { label: (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Layers" : "Pro Layers", icon: "fa-layer-group" },
         interface: { label: "Interface", icon: "fa-tablet-screen-button" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
@@ -12214,9 +11410,10 @@ renderCategory(catId) {
                     break;
                 case 'visuals':
                     html = '';
-                    
-                    // Only show the ad banner if the user is NOT signed in
-                    if (!isSignedIn) {
+
+                    // Only show the upsell banner if the user is NOT signed in,
+                    // and never on iOS native (App Store rule 3.1.3(b)).
+                    if (!isSignedIn && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
                         html += `
                             <div class="pro-upsell-card" style="
                                 position: relative;
@@ -12323,7 +11520,7 @@ renderCategory(catId) {
 
                             <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
                                 <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
                                 </div>
                                 <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
                             </div>
@@ -12439,7 +11636,7 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <div class="pro-feature-banner" style="background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), transparent); padding: 12px; border-left: 3px solid #38bdf8; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
                                 <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fa-solid fa-star"></i> PRO MAP CONTROL
+                                    <i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>MAP CONTROL
                                 </h4>
                                 <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #94a3b8;">
                                     High-fidelity map layers and 3D visualization tools.
@@ -13087,21 +12284,6 @@ window.globalNatTracks = natTracks;
             panelContentWrapper.innerHTML = `<p class="error-text" style="padding: 20px;">${error.message}</p>`;
         }
     } finally {
-        // [PERF FIX] Removed the 8-second artificial minimum loader.
-        // The loader now hides as soon as the app is actually ready.
-        //
-        // NOTE: The `mainContentLoader` variable that used to live here was
-        // never declared in this file — referencing it threw a ReferenceError
-        // from inside a `finally` block, which crashed initializeSectorOpsView
-        // on every load and halted the rest of initializeApp (including
-        // SettingsUI.init), making the gear button do nothing.
-        // The actual current loader is `#inflight-pro-loader-overlay`, which
-        // is dismissed elsewhere; we look it up defensively here just in case
-        // a `#main-content-loader` element exists in some build of index.html.
-        const mainContentLoader = document.getElementById('main-content-loader');
-        if (mainContentLoader) {
-            mainContentLoader.classList.remove('active');
-        }
         console.log(`Loading complete in ${Date.now() - window.loadingStartTime}ms.`);
     }
 }
@@ -13132,47 +12314,15 @@ async function setupMapLayersAndFog() {
 }
 
 /**
- * Map-loader gate: keeps a scoped overlay over the map container until
- * Mapbox reports `idle` (all visible tiles at the current zoom loaded
- * and no pending transitions). Industry-standard pattern — users never
- * see a half-loaded globe. Subsequent zooms rely on the constructor's
- * `prefetchZoomDelta` + default crossfade to mask tile transitions, so
- * the loader is NOT re-shown on user-driven zoom.
- */
-let _sectorOpsMapLoaderSafetyTimer = null;
-function showSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el) return;
-    el.classList.remove('is-hidden');
-}
-function hideSectorOpsMapLoader() {
-    const el = document.getElementById('sector-ops-map-loader');
-    if (!el || el.classList.contains('is-hidden')) return;
-    el.classList.add('is-hidden');
-    if (_sectorOpsMapLoaderSafetyTimer) {
-        clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-        _sectorOpsMapLoaderSafetyTimer = null;
-    }
-}
-
-/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
     if (!MAPBOX_ACCESS_TOKEN) {
-        hideSectorOpsMapLoader();
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
 
-    // Reveal the loader before the map starts initializing so the user never
-    // sees the empty container or a half-rendered globe.
-    showSectorOpsMapLoader();
-
     if (sectorOpsMap) {
-        // Tear down 3D path objects + the shared renderer tied to the old GL context
-        // before the map (and its WebGL context) is destroyed.
-        if (typeof FlownPath3D !== 'undefined') FlownPath3D.clearAllPaths(sectorOpsMap);
         sectorOpsMap.remove();
         sectorOpsMap = null;
     }
@@ -13206,28 +12356,8 @@ function initializeSectorOpsMap(centerICAO) {
         // map.getCanvas().toDataURL().
     });
 
-    // --- Loader gate: hide the overlay only once the map is truly ready ---
-    // `idle` fires when every tile in the viewport is loaded, the style is
-    // applied, and there are no pending transitions. This is the canonical
-    // Mapbox readiness signal — used by FlightRadar24 and similar apps.
-    sectorOpsMap.once('idle', () => {
-        hideSectorOpsMapLoader();
-    });
-    // Safety net: if the network stalls or `idle` never fires, reveal the
-    // map anyway after 12s rather than leaving the user staring at a spinner.
-    if (_sectorOpsMapLoaderSafetyTimer) clearTimeout(_sectorOpsMapLoaderSafetyTimer);
-    _sectorOpsMapLoaderSafetyTimer = setTimeout(() => {
-        console.warn('Sector Ops map: idle event never fired within 12s — revealing map anyway.');
-        hideSectorOpsMapLoader();
-    }, 12000);
-
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
-    // Re-cover the map while layers rebuild after a style swap, then drop
-    // the loader on the next idle. Without this, switching between dark/
-    // satellite/etc. exposes a half-themed map for ~300 ms.
-    showSectorOpsMapLoader();
-    sectorOpsMap.once('idle', () => hideSectorOpsMapLoader());
 
     await setupMapLayersAndFog();
 
@@ -13404,11 +12534,7 @@ if (flightProps) {
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
         }
-
-        // 8b. Re-add 3D flown paths — Mapbox drops all custom layers on setStyle,
-        // so without this the 3D trail vanishes after any map-style change.
-        rebuildVisible3DPaths();
-
+        
         // 9. Re-apply aircraft filters
         updateAircraftLayerFilter();
 
@@ -13962,8 +13088,6 @@ function closeAircraftWindow() {
     }
 
     aircraftInfoWindow.classList.remove('visible');
-    aircraftInfoWindow.classList.remove('most-watched');
-    delete aircraftInfoWindow.dataset.flightId;
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
     
     // Clear the map layers using the ID tracker
@@ -14037,24 +13161,18 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
         if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
-            // Also drop the 3D trail of the previous flight — otherwise its tube
-            // orphans on the map after switching to another aircraft.
-            if (typeof FlownPath3D !== 'undefined') FlownPath3D.clearPath(sectorOpsMap, currentFlightInWindow);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
         }
     }
 
     currentFlightInWindow = flightProps.flightId;
     currentAircraftPositionForGeocode = flightProps.position;
-    aircraftInfoWindow.dataset.flightId = flightProps.flightId || '';
 
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
         window.MobileUIHandler.openWindow(aircraftInfoWindow);
     } else {
         aircraftInfoWindow.classList.add('visible');
     }
-
-    updateMostWatchedGlow();
 
     if (typeof aircraftInfoWindowRecallBtn !== 'undefined' && aircraftInfoWindowRecallBtn) {
         aircraftInfoWindowRecallBtn.classList.remove('visible');
@@ -14188,9 +13306,37 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
 
         const flownLayerId = `flown-path-${flightProps.flightId}`;
-        
+
+        // Sync the initial flown-path render to whatever the live marker is
+        // actually showing on the map. Two failure modes used to produce a
+        // path that visibly extended past the aircraft icon on first open:
+        //   1. `flightProps.position` is the snapshot from click time, often
+        //      a few hundred ms (sometimes seconds) stale by the time the
+        //      history fetch resolves — using it would anchor the path to
+        //      an older spot than the icon.
+        //   2. The history endpoint can return GPS samples that are newer
+        //      than the latest socket frame the marker has consumed;
+        //      appending them stretches the line past the icon until the
+        //      next socket tick catches the marker up.
+        // Reading the live feature from currentMapFeatures + filtering
+        // trail points to <= marker last_update fixes both.
+        const liveFeature = (typeof currentMapFeatures !== 'undefined')
+            ? currentMapFeatures[flightProps.flightId] : null;
+        const liveLastUpdateMs = liveFeature?.properties?.last_update
+            ? new Date(liveFeature.properties.last_update).getTime() : null;
+        const livePosition = liveFeature?.geometry?.coordinates
+            ? {
+                lat: liveFeature.geometry.coordinates[1],
+                lon: liveFeature.geometry.coordinates[0],
+                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+              }
+            : flightProps.position;
+        const trailUpToMarker = (liveLastUpdateMs != null)
+            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
+            : sortedRoutePoints;
+
         // Generate the segmented FeatureCollection using our new function
-        const initialRouteData = generateAltitudeColoredRoute(sortedRoutePoints, flightProps.position, plan);
+        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
@@ -14279,8 +13425,6 @@ function closeAircraftWindow() {
     }
 
     aircraftInfoWindow.classList.remove('visible');
-    aircraftInfoWindow.classList.remove('most-watched');
-    delete aircraftInfoWindow.dataset.flightId;
     if (window.MobileUIHandler) window.MobileUIHandler.closeActiveWindow();
     
     // Clear the map layers using the ID tracker ONLY IF NOT PINNED
@@ -14307,24 +13451,6 @@ function closeAircraftWindow() {
         });
     }
 }
-
-// Toggle the light-orange "most watched" glow on the flight info window
-// based on whether the currently-open flight is the network's #1 most-watched
-// flight. Reads the open flightId from the window's dataset so it works
-// independently of any closure state.
-function updateMostWatchedGlow() {
-    const win = document.getElementById('aircraft-info-window');
-    if (!win) return;
-    let mostWatchedId = null;
-    try { mostWatchedId = TopWatchedUsers.getMostWatchedFlightId(); } catch (_) {}
-    const shownId = win.dataset.flightId || null;
-    const on = !!mostWatchedId && shownId === mostWatchedId && win.classList.contains('visible');
-    win.classList.toggle('most-watched', on);
-}
-
-// The most-watched flight changes as the leaderboard refreshes (~every 60s),
-// so re-evaluate the glow whenever it does.
-window.addEventListener('topWatchedChanged', updateMostWatchedGlow);
 
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
@@ -14453,20 +13579,6 @@ let totalDistanceNM = 0;
         delete windowEl.dataset.cruiseAltFt;
     }
     
-    // --- Plan Button ---
-    const simbriefAircraftValue = (typeof findSimbriefAircraftValue === 'function') ? findSimbriefAircraftValue(aircraftName) : null;
-    let planButtonHtml = '';
-    if (hasPlan && simbriefAircraftValue) {
-        planButtonHtml = `
-            <button id="plan-this-flight-btn" class="pilot-stats-toggle-btn" 
-                data-departure="${departureIcao}" 
-                data-arrival="${arrivalIcao}" 
-                data-aircraft="${simbriefAircraftValue}"
-                style="width: 100%; margin-top: 16px;">
-                <i class="fa-solid fa-file-invoice"></i> Plan This Flight
-            </button>`;
-    }
-
     const pilotUsername = baseProps.username || 'N/A';
     const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
 
@@ -14554,9 +13666,9 @@ let totalDistanceNM = 0;
     // --- HTML Construction ---
     windowEl.innerHTML = `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
-            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 0%, transparent 50%, rgba(15,23,42,0.85) 100%); z-index: 0; pointer-events: none;"></div>
+            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
-                <div class="ac-identity-group" style="max-width: calc(100% - 120px);">
+                <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
                     <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${logoHtml} ${baseProps.callsign}</h1>
                     <div class="ac-sub-identity" style=" font-size: 11px; font-weight: 500; color: #cbd5e1; margin-top: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <span>${aircraftName}</span>
@@ -14570,6 +13682,11 @@ let totalDistanceNM = 0;
     <button id="pin-flight-btn" class="hero-btn aircraft-window-pin-btn" title="Pin Flight">
         <i class="fa-solid fa-thumbtack"></i>
     </button>
+
+    ${(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative() && window.InflightLiveActivity && window.InflightLiveActivity.isSupported()) ? `
+    <button class="hero-btn aircraft-window-trackme-btn" id="trackme-btn-${baseProps.flightId}" data-flight-id="${baseProps.flightId}" title="This is my flight">
+        <i class="fa-solid ${window.InflightLiveActivity.isTrackingFlight(baseProps.flightId) ? 'fa-bell-slash' : 'fa-bell'}"></i>
+    </button>` : ''}
 
     <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
         <i class="fa-solid fa-circle-play"></i>
@@ -14586,6 +13703,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
 
+        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
@@ -14619,16 +13737,19 @@ let totalDistanceNM = 0;
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
+        </div>
 
-    <div class="ac-info-window-tabs" style="padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0;">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05); height: 44px;">
-                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-gauge-high"></i> Flight Display
+    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
+                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
                  </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-chart-simple"></i> ${pilotReportTabText}
+                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
                  </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX});"></div>
+                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3a3f4a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX}); box-shadow: 0 6px 16px rgba(0,0,0,0.22);"></div>
             </div>
             <button id="ac-dock-toggle-btn" class="ac-dock-toggle-btn" title="Move Window">
     <i class="fa-solid fa-arrows-left-right-to-line"></i>
@@ -14881,39 +14002,55 @@ let totalDistanceNM = 0;
                         </span>
                     </div>
 
-                    <!-- Position grid: LAT / LON / HDG / G·S -->
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
-                        <div style="display: flex; flex-direction: column;">
+                    <!-- Position grid: compact iOS-friendly live flight data -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 12px;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LAT</span>
                             <span id="ac-lat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">LON</span>
                             <span id="ac-lon" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
+                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">HDG</span>
                             <span id="ac-heading" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---°</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">G/S</span>
                             <span id="ac-gs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
                         </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
+                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
+                        </div>
                     </div>
 
-                    <!-- Atmosphere row: WIND / SAT / TAS -->
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
-                        <div style="display: flex; flex-direction: column;">
+                    <!-- Atmosphere and plan row: WIND / SAT / TAS / CRZ / ALT delta -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">WIND</span>
                             <span id="ac-env-wind" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---/--</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">SAT</span>
                             <span id="ac-env-oat" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--°C</span>
                         </div>
-                        <div style="display: flex; flex-direction: column;">
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
                             <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">TAS</span>
                             <span id="ac-tas" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
+                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT Δ</span>
+                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
                         </div>
                     </div>
 
@@ -14984,66 +14121,6 @@ let totalDistanceNM = 0;
                         <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
                     </div>` : ''}
-               </div>
-
-                <!-- ════════════ VERTICAL PROFILE CARD (enhanced VSD with live readouts) ════════════ -->
-                <div class="ac-info-card-bar tech-module vsd-module-container" style="background: #3a3a3a; backdrop-filter: blur(16px); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-                        <span class="tech-module-title" style="font-size: 9px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.2px; display: flex; align-items: center; gap: 8px;">
-                            <i class="fa-solid fa-chart-area" style="color: #38bdf8;"></i> Vertical Profile
-                        </span>
-                        <span class="fms-page-count" style="font-size: 8px; color: #94a3b8; font-weight: 600; letter-spacing: 0.6px;">VSD</span>
-                    </div>
-
-                    <!-- Live readouts: ALT / V·S / CRZ TGT / ALT Δ -->
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px;">
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">ALT</span>
-                            <span id="ac-alt" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">V/S</span>
-                            <span id="ac-vs" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">CRZ</span>
-                            <span id="ac-cruise-tgt" style="color: #38bdf8; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${cruiseAltText}</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column;">
-                            <span style="color: #94a3b8; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 2px;">Δ TGT</span>
-                            <span id="ac-alt-delta" style="color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                    </div>
-
-                    <!-- The chart (kept identical so existing VSD render code keeps working) -->
-                    <div id="vsd-panel" class="vsd-panel active" data-plan-id="" data-profile-built="false" style="background: rgba(0,0,0,0.25); border-radius: 10px; padding: 8px; border: 1px solid rgba(255,255,255,0.04);">
-                        <div id="vsd-graph-window" class="vsd-graph-window">
-                            <div id="vsd-aircraft-icon"></div>
-                            <div id="vsd-graph-content">
-                                <svg id="vsd-profile-svg" xmlns="http://www.w3.org/2000/svg">
-                                    <path id="vsd-flown-path" d="" />
-                                    <path id="vsd-profile-path" d="" />
-                                </svg>
-                                <div id="vsd-waypoint-labels"></div>
-                            </div>
-                            ${planButtonHtml}
-                        </div>
-                    </div>
-
-                    <!-- Footer: legend + live phase indicator -->
-                    <div class="vsd-footer" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
-                                <div class="dot-plan" style="width: 10px; height: 3px; background: #38bdf8; border-radius: 1px;"></div>
-                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">PLANNED</span>
-                            </div>
-                            <div class="vsd-legend-item" style="display: flex; align-items: center; gap: 6px;">
-                                <div class="dot-flown" style="width: 10px; height: 3px; background: #4ade80; border-radius: 1px;"></div>
-                                <span style="font-size: 8px; color: #94a3b8; font-weight: 700; letter-spacing: 0.6px;">FLOWN</span>
-                            </div>
-                        </div>
-                        <span id="ac-vsd-phase" style="font-size: 10px; color: #fbbf24; font-weight: 800; letter-spacing: 0.8px;">${flightPhase}</span>
-                    </div>
                 </div>
             </div>
  
@@ -15633,6 +14710,13 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
     updateAll('#ac-ete', ete);
 
+    // The Live Activity push used to live here, but it was computing
+    // its own ETA / ATD with a broken fallback ("now + 1h" when the
+    // aircraft was slow) and a typo (filedPlanData.departureTime — the
+    // real field is dep_time). It now lives below, after the same
+    // SCHEDULED/ACTUAL/ESTIMATED cascade the in-app card consumes, so
+    // the lock screen and the card always agree.
+
     // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
     {
         const _gs = baseProps.position.gs_kt || 0;
@@ -16179,6 +15263,53 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     const _depInfoLive = computeDepartureTimeInfo(baseProps, sortedRoutePoints, _cachedFiledPlan, _depIcaoLive);
     const _arrInfoLive = computeArrivalTimeInfo(baseProps, _cachedFiledPlan, distanceToDestNM);
+
+    // --- Live Activity push (iOS Lock Screen / Dynamic Island) ---
+    // Fires only when the user has marked this flight as "mine" via the
+    // bell button. We reuse the same SCHEDULED/ACTUAL/ESTIMATED cascade
+    // the in-app card just consumed (_depInfoLive / _arrInfoLive), so
+    // the lock-screen ETE countdown agrees with the card and the
+    // departure time only shows ACTUAL once we have real GPS history.
+    try {
+        if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
+            const _gsLA = baseProps.position?.gs_kt || 0;
+            const etaMs = _arrInfoLive?.timestamp
+                ? _arrInfoLive.timestamp.getTime()
+                : (distanceToDestNM > 0 && _gsLA > 50
+                    ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
+                    : null);
+            // ATD only counts when we have real GPS history (label
+            // ACTUAL). Otherwise leave it undefined so the widget shows
+            // the scheduled departure verbatim instead of pretending
+            // we know the takeoff time.
+            const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
+                ? _depInfoLive.timestamp.getTime()
+                : undefined;
+            const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
+                                && _gsLA < 40 && distanceToDestNM < 5);
+            // Bail without an update if we genuinely have no ETA value
+            // to send. The Swift `update` defaults a missing ETA to
+            // Date.now(), which would zero out the lock-screen
+            // countdown ("0 min remaining") -- much worse than just
+            // skipping a tick.
+            if (etaMs) {
+                window.InflightLiveActivity.update({
+                    flightId: baseProps.flightId,
+                    currentEta: etaMs,
+                    currentAtd: atdMs,
+                    distanceToDestinationNm: distanceToDestNM,
+                    isLanded
+                });
+            }
+            if (isLanded) {
+                setTimeout(() => {
+                    window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+                }, 30000);
+            }
+        }
+    } catch (laErr) {
+        console.warn('[LiveActivity] update tick failed:', laErr);
+    }
 
     const depCountryCode = airportsData[departureIcao]?.country ? airportsData[departureIcao].country.toLowerCase() : '';
     const arrCountryCode = airportsData[arrivalIcao]?.country ? airportsData[arrivalIcao].country.toLowerCase() : '';
@@ -16988,9 +16119,6 @@ if (flatMapToggle) {
         // Update the Mapbox projection
         if (sectorOpsMap) {
             sectorOpsMap.setProjection(useFlat ? 'mercator' : 'globe');
-            // The 3D path geometry is projection-specific (Mercator vs globe ECEF),
-            // so rebuild it whenever the projection toggles.
-            rebuildVisible3DPaths();
         }
     });
 }
@@ -17166,7 +16294,7 @@ if (flatMapToggle) {
             const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
             
             if (proModes.includes(mode) && !isSignedIn) {
-                showNotification("This map style requires a Pro account.", "error");
+                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "This map style isn't available on this account." : "This map style requires a Pro account.", "error");
                 // Revert the radio UI to current state
                 const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (currentRadio) currentRadio.checked = true;
@@ -17759,309 +16887,3 @@ if (urlParams.get('auth') === 'signup') {
 
     initializeApp();
 });
-
-/**
- * ============================================================================
- * INFLIGHT PRO: V3.2 - INSTANT DEPLOYMENT & HOME INTEGRATION
- * Optimized for maximum execution speed, luxury UX, and frictionless entry.
- * ============================================================================
- */
-(function() {
-    const styleId = 'inflight-pro-loader-styles';
-    const overlayId = 'inflight-pro-loader-overlay';
-
-    // Skip the Pro upsell when arriving from a share link — those users came
-    // to look at one specific flight, so dump them straight into it.
-    function arrivedFromShare() {
-        try {
-            if (typeof window === 'undefined') return false;
-            if (window.location && window.location.search) {
-                const params = new URLSearchParams(window.location.search);
-                if (params.get('flight')) return true;
-            }
-            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('inflight_share_payload')) {
-                return true;
-            }
-        } catch (_) { /* non-fatal */ }
-        return false;
-    }
-
-    function initInflightPro() {
-        if (arrivedFromShare()) return;
-        if (document.getElementById(styleId) || document.getElementById(overlayId)) return;
-
-        // Inject Styles immediately
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.innerHTML = `
-            #inflight-pro-loader-overlay {
-                position: fixed;
-                inset: 0;
-                background: rgba(7, 9, 15, 0.8);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2147483647; /* Maximum possible z-index */
-                font-family: 'Inter', -apple-system, sans-serif;
-                padding: 20px;
-                opacity: 0;
-                animation: proFadeIn 0.5s ease-out forwards;
-            }
-
-            .pro-modal-card {
-                background: #ffffff;
-                width: 440px;
-                max-width: 100%;
-                border-radius: 32px;
-                position: relative;
-                box-shadow: 0 40px 100px -20px rgba(0,0,0,0.5);
-                overflow: hidden;
-                transform: translateY(20px);
-                animation: proSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                display: flex;
-                flex-direction: column;
-            }
-
-            @keyframes proFadeIn { to { opacity: 1; } }
-            @keyframes proSlideUp { to { transform: translateY(0); } }
-
-            .pro-premium-accent {
-                height: 5px;
-                width: 100%;
-                background: linear-gradient(90deg, #2563eb, #7c3aed, #2563eb);
-                background-size: 200% auto;
-                animation: proShine 3s linear infinite;
-            }
-
-            @keyframes proShine { to { background-position: 200% center; } }
-
-            /* Premium Close Button - Now immediately visible */
-            .pro-close-btn {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                width: 34px;
-                height: 34px;
-                border-radius: 50%;
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                color: #64748b;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                z-index: 10;
-                transition: all 0.3s ease;
-            }
-            .pro-close-btn:hover {
-                background: #e2e8f0;
-                color: #0f172a;
-                transform: scale(1.08);
-            }
-
-            .pro-header-section { padding: 40px 32px 10px; text-align: center; }
-            .pro-brand-logo { height: 50px; margin: 0 auto 16px; display: block; }
-            .pro-subtitle { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px; }
-
-            .pro-carousel-viewport { position: relative; height: 160px; margin-top: 15px; }
-            .pro-feature-slide {
-                position: absolute;
-                inset: 0;
-                padding: 0 40px;
-                opacity: 0;
-                transition: 0.5s ease;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-                pointer-events: none;
-            }
-            .pro-feature-slide.active { opacity: 1; pointer-events: auto; }
-
-            .pro-icon-ring {
-                width: 55px; height: 55px; border-radius: 18px;
-                display: flex; align-items: center; justify-content: center;
-                margin-bottom: 15px; font-size: 1.5rem;
-            }
-
-            .pro-feature-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
-            .pro-feature-desc { font-size: 0.95rem; color: #64748b; line-height: 1.5; }
-
-            /* Action Buttons - Redesigned Hierarchy */
-            .pro-action-footer { 
-                padding: 10px 40px 40px; 
-                display: flex; 
-                flex-direction: column; 
-                gap: 12px; 
-            }
-
-            /* Primary CTA is now focused on entering the app seamlessly */
-            .pro-cta-primary {
-                background: #0f172a;
-                color: white;
-                border: none;
-                border-radius: 16px;
-                padding: 18px;
-                font-weight: 700;
-                cursor: pointer;
-                transition: 0.3s;
-                display: flex; align-items: center; justify-content: center; gap: 10px;
-            }
-            .pro-cta-primary:hover { background: #1e293b; transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(15, 23, 42, 0.5); }
-
-            /* Secondary CTA is now the unobtrusive Pro upsell */
-            .pro-cta-secondary {
-                background: #f8fafc;
-                color: #2563eb;
-                border: 1px solid #bfdbfe;
-                border-radius: 16px;
-                padding: 14px;
-                font-weight: 600;
-                font-size: 0.9rem;
-                cursor: pointer;
-                transition: 0.3s;
-                display: flex; align-items: center; justify-content: center; gap: 8px;
-            }
-            .pro-cta-secondary:hover { background: #eff6ff; border-color: #93c5fd; }
-
-            .pro-pagination { display: flex; justify-content: center; gap: 6px; margin: 20px 0; padding: 0 40px; }
-            .pro-segment { height: 4px; flex: 1; background: #f1f5f9; border-radius: 10px; overflow: hidden; }
-            .pro-segment-fill { height: 100%; width: 0%; background: #2563eb; }
-        `;
-        document.head.appendChild(style);
-
-        const overlay = document.createElement('div');
-        overlay.id = overlayId;
-
-        // Render the modal
-        renderModal(overlay);
-    }
-
-    async function renderModal(overlay) {
-        // Fetch session - Note: This is the only async bottleneck
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-            // Minimal splash for logged in / pro users
-            overlay.innerHTML = `<img src="Images/InflightPro.png" style="height:60px; animation: proFadeIn 1s infinite alternate;">`;
-            document.body.appendChild(overlay);
-            setTimeout(() => overlay.remove(), 2500);
-            return;
-        }
-
-        const features = [
-            { icon: 'fa-gauge-high', color: '#2563eb', bg: '#eff6ff', title: 'Live Ops Dashboard', desc: 'Real-time telemetry and smart dispatching.' },
-            { icon: 'fa-satellite-dish', color: '#8b5cf6', bg: '#f5f3ff', title: 'Airspace Intel', desc: '4-hour saturation heatmaps and multi-node tracking.' },
-            { icon: 'fa-file-invoice', color: '#10b981', bg: '#ecfdf5', title: 'Premium Dispatch', desc: 'Digital boarding passes and gate filing.' }
-        ];
-
-        let slidesHtml = features.map((f, i) => `
-            <div class="pro-feature-slide ${i === 0 ? 'active' : ''}">
-                <div class="pro-icon-ring" style="background:${f.bg}; color:${f.color};">
-                    <i class="fa-solid ${f.icon}"></i>
-                </div>
-                <div class="pro-feature-title">${f.title}</div>
-                <div class="pro-feature-desc">${f.desc}</div>
-            </div>
-        `).join('');
-
-        overlay.innerHTML = `
-            <div class="pro-modal-card">
-                <div class="pro-premium-accent"></div>
-                <button class="pro-close-btn" id="pro-close-trigger" aria-label="Close">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-                <div class="pro-header-section">
-                    <img src="Images/InflightPro.png" alt="Logo" class="pro-brand-logo">
-                    <p class="pro-subtitle">Workspace Initializing...</p>
-                </div>
-                <div class="pro-carousel-viewport">${slidesHtml}</div>
-                <div class="pro-pagination">
-                    ${features.map((_, i) => `<div class="pro-segment"><div class="pro-segment-fill" id="pro-fill-${i}"></div></div>`).join('')}
-                </div>
-                <div class="pro-action-footer">
-                    <button class="pro-cta-primary" id="pro-continue-trigger">
-                        Enter Tracker <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                    <button class="pro-cta-secondary" id="pro-signup-trigger">
-                        <i class="fa-solid fa-bolt"></i> Unlock Pro Features
-                    </button>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(overlay);
-        startLogic(overlay, features.length);
-    }
-
-    function startLogic(overlay, count) {
-        let current = 0;
-        let start = Date.now();
-        const duration = 4000;
-        let animationId;
-
-        function step() {
-            const progress = Math.min(((Date.now() - start) / duration) * 100, 100);
-            const fill = document.getElementById(`pro-fill-${current}`);
-            if (fill) fill.style.width = progress + '%';
-
-            if (progress >= 100) {
-                const slides = overlay.querySelectorAll('.pro-feature-slide');
-                if (slides.length > 0) {
-                    slides[current].classList.remove('active');
-                    current = (current + 1) % count;
-                    slides[current].classList.add('active');
-                    start = Date.now();
-                    // Reset all fills
-                    for(let i = 0; i < count; i++) {
-                        const segment = document.getElementById(`pro-fill-${i}`);
-                        if (segment) segment.style.width = i < current ? '100%' : '0%';
-                    }
-                }
-            }
-            animationId = requestAnimationFrame(step);
-        }
-        animationId = requestAnimationFrame(step);
-
-        // Utility to handle clean destruction of the modal
-        const cleanupAndClose = () => {
-            cancelAnimationFrame(animationId);
-            overlay.style.opacity = '0';
-            overlay.style.transition = 'opacity 0.3s ease';
-            setTimeout(() => overlay.remove(), 300);
-        };
-
-        // 1. Immediate Close Button Event
-        const closeBtn = document.getElementById('pro-close-trigger');
-        if (closeBtn) closeBtn.onclick = cleanupAndClose;
-
-        // 2. Primary Action: Enter App Seamlessly
-        const continueBtn = document.getElementById('pro-continue-trigger');
-        if (continueBtn) continueBtn.onclick = cleanupAndClose;
-
-        // 3. Secondary Action: Open Auth Modal
-        const signupBtn = document.getElementById('pro-signup-trigger');
-        if (signupBtn) {
-            signupBtn.onclick = () => {
-                cleanupAndClose();
-                const btn = document.querySelector('.auth-toggle-btn[data-mode="signup"]');
-                if (btn) btn.click();
-                else if (window.AuthUI) window.AuthUI.open('signup');
-            };
-        }
-    }
-
-    // --- CRITICAL SPEED INJECTION ---
-    if (document.body) {
-        initInflightPro();
-    } else {
-        const observer = new MutationObserver((mutations, obs) => {
-            if (document.body) {
-                initInflightPro();
-                obs.disconnect();
-            }
-        });
-        observer.observe(document.documentElement, { childList: true });
-    }
-})();

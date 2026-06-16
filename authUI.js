@@ -109,7 +109,7 @@ export const AuthUI = {
         }
     },
 
-    async open(mode = 'signin') {
+    async open(mode = 'choose') {
         if (!this._supabase) {
             console.error("AuthUI: Supabase client not initialized. Call AuthUI.init(supabase) first.");
             return;
@@ -126,12 +126,15 @@ export const AuthUI = {
                 .eq('id', data.session.user.id)
                 .single();
 
-            if (profile && profile.is_pro === false) {
-                // Subscription is inactive, force them to the premium renewal flow
+            if (profile && profile.is_pro === false && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
+                // Subscription is inactive, force them to the premium renewal flow.
+                // Skipped on iOS native: App Store policy forbids surfacing the
+                // external Stripe/PayPal renewal flow inside the app. Free users
+                // simply enter the app with Pro features locked.
                 this._mode = 'renew';
-                this._tempSignUpData = { 
+                this._tempSignUpData = {
                     email: data.session.user.email,
-                    is_renew: true 
+                    is_renew: true
                 };
             } else {
                 // Active Pro User -> Launch App
@@ -189,6 +192,7 @@ export const AuthUI = {
         const card = document.getElementById('auth-modal-card');
         if (!card) return;
 
+        const isChoose = this._mode === 'choose';
         const isSignIn = this._mode === 'signin';
         const isSignUp = this._mode === 'signup';
         const isPayment = this._mode === 'payment';
@@ -205,13 +209,59 @@ export const AuthUI = {
                 <img src="Images/InflightPro.png" alt="InFlight Pro Logo" class="auth-brand-logo" onerror="this.style.display='none'">
         `;
 
-        if (!showPaymentOptions && !isForgot && !isUpdatePassword) {
+        // ── Choose screen: first step. User picks Log In or Create Account.
+        if (isChoose) {
             html += `
-                <div class="auth-toggle-container">
-                    <div class="auth-toggle-pill">
-                        <button class="auth-toggle-btn ${isSignIn ? 'active' : ''}" data-mode="signin">Sign In</button>
-                        <button class="auth-toggle-btn ${isSignUp ? 'active' : ''}" data-mode="signup">Sign Up</button>
+                    <h3 class="auth-choose-title">Welcome aboard</h3>
+                    <p class="auth-choose-copy">Sign in to your account, or create a new one on the web.</p>
+                </div>
+                <div class="auth-form-body auth-choose-body">
+                    <button class="auth-submit-btn auth-choose-primary" id="auth-choose-login">
+                        <i class="fa-solid fa-right-to-bracket"></i>
+                        <span>Log In</span>
+                    </button>
+                    <button class="auth-choose-secondary" id="auth-choose-signup">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Create Account</span>
+                        <i class="fa-solid fa-arrow-up-right-from-square auth-choose-ext"></i>
+                    </button>
+                    <p class="auth-choose-footer">
+                        New accounts are created at <strong>inflight.info</strong>.
+                    </p>
+                </div>
+            `;
+            card.innerHTML = html;
+            this.attachContentListeners();
+            return;
+        }
+
+        // Sign Up always hands off to the website (web + iOS).
+        if (isSignUp) {
+            html += `</div>
+                <div class="auth-form-body ios-signup-redirect">
+                    <div class="ios-redirect-hero">
+                        <div class="ios-redirect-icon"><i class="fa-solid fa-globe"></i></div>
+                        <h3 class="ios-redirect-title">Create your account online</h3>
+                        <p class="ios-redirect-copy">
+                            New accounts are created on <strong>inflight.info</strong>.
+                            Sign up there, then come back here to sign in.
+                        </p>
                     </div>
+                    <button class="auth-submit-btn" id="auth-open-signup-site">
+                        <i class="fa-solid fa-arrow-up-right-from-square" style="margin-right:8px;"></i>
+                        Open inflight.info
+                    </button>
+                    <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
+                </div>`;
+            card.innerHTML = html;
+            this.attachContentListeners();
+            return;
+        }
+        if (isSignIn) {
+            html += `
+                <div class="auth-payment-header auth-signin-header">
+                    <h3 style="margin: 0; font-size: 1.35rem; font-weight: 700;">Welcome back</h3>
+                    <p style="margin: 6px 0 0; font-size: 0.9rem;">Sign in to continue to InFlight.</p>
                 </div>
             `;
         } else if (isPayment) {
@@ -266,6 +316,10 @@ export const AuthUI = {
                         Secure checkout hosted by <strong>Stripe</strong>
                     </p>
                 </div>
+
+                <div class="payment-or-divider"><span>OR PAY WITH</span></div>
+
+                <div id="paypal-button-container" style="min-height: 50px; margin-bottom: 8px;"></div>
 
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
@@ -323,31 +377,11 @@ export const AuthUI = {
                 <button class="auth-submit-btn" id="auth-submit-update-btn">Save New Password</button>
             `;
         } else {
-            let formFields = '';
-            
-            if (isSignUp) {
-                formFields += `
-                    <div class="auth-premium-notice">
-                        <i class="fa-solid fa-gem auth-premium-icon"></i>
-                        <div class="auth-premium-text">
-                            <strong>InFlight Pro</strong> is $1.99/mo after your <strong>7-day free trial</strong>.
-                        </div>
-                    </div>
-                    <div class="auth-input-group">
-                        <label>Full Name</label>
-                        <div class="auth-field-wrapper">
-                            <i class="fa-solid fa-user auth-field-icon"></i>
-                            <input type="text" id="auth-name" placeholder="John Doe" class="auth-input" required>
-                        </div>
-                    </div>
-                `;
-            }
-
             const storedEmail = localStorage.getItem('inflight_remembered_email');
-            const defaultEmail = isSignIn && storedEmail ? storedEmail : '';
-            const defaultRememberChecked = (isSignIn && storedEmail) || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
+            const defaultEmail = storedEmail || '';
+            const defaultRememberChecked = storedEmail || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
 
-            formFields += `
+            html += `
                 <div class="auth-input-group">
                     <label>Email Address</label>
                     <div class="auth-field-wrapper">
@@ -355,7 +389,7 @@ export const AuthUI = {
                         <input type="email" id="auth-email" placeholder="pilot@example.com" class="auth-input" value="${defaultEmail}" required>
                     </div>
                 </div>
-                
+
                 <div class="auth-input-group">
                     <label>Password</label>
                     <div class="auth-field-wrapper">
@@ -363,40 +397,20 @@ export const AuthUI = {
                         <input type="password" id="auth-password" placeholder="••••••••" class="auth-input" required>
                     </div>
                 </div>
-            `;
 
-            let optionsHtml = '';
-            if (isSignIn) {
-                optionsHtml = `
-                    <div class="auth-options">
-                        <label class="auth-checkbox">
-                            <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
-                            <span>Remember me</span>
-                        </label>
-                        <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
-                    </div>
-                `;
-            } else {
-                optionsHtml = `
-                    <div class="auth-options">
-                        <label class="auth-checkbox">
-                            <input type="checkbox" id="auth-terms" required>
-                            <span>I agree to the <a href="terms.html" target="_blank" class="auth-terms-link">Terms of Use</a> & <a href="privacy.html" target="_blank" class="auth-terms-link">Privacy Policy</a></span>
-                        </label>
-                    </div>
-                `;
-            }
+                <div class="auth-options">
+                    <label class="auth-checkbox">
+                        <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
+                        <span>Remember me</span>
+                    </label>
+                    <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
+                </div>
 
-            const submitText = isSignIn ? "Sign In" : "Start 7-Day Free Trial";
-
-            html += `
-                ${formFields}
-                ${optionsHtml}
-                
                 <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${submitText}</button>
+                <button class="auth-submit-btn" id="auth-submit-btn">Sign In</button>
+                <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
             `;
         }
 
@@ -405,6 +419,7 @@ export const AuthUI = {
         this.attachContentListeners(); 
 
         if (showPaymentOptions) {
+            this.loadPayPalAndRender();
             this.loadStripeAndRender();
         }
     },
@@ -455,7 +470,96 @@ export const AuthUI = {
         }
     },
 
+    async loadPayPalAndRender() {
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
+        if (!window.paypal) {
+            const script = document.createElement('script');
+            script.src = "https://www.paypal.com/sdk/js?client-id=AXjiYt3mjJBEkP4DnnXQLbx_YGlEoJgvtA_Yj-1MSIZFKT91tuFN9NL6HVmlThqqE7ZlazkquLkKleix&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
+            script.async = true;
+            document.body.appendChild(script);
+
+            await new Promise((resolve, reject) => {
+                script.onload = resolve;
+                script.onerror = reject;
+            });
+        }
+
+        const container = document.getElementById('paypal-button-container');
+        if (container) container.innerHTML = ''; 
+
+        window.paypal.Buttons({
+            createSubscription: function(data, actions) {
+                return actions.subscription.create({
+                    'plan_id': 'P-3S33604333332730HNGWPSWA' 
+                });
+            },
+            onApprove: async (paymentData, actions) => {
+                this.hideError();
+                
+                const loadingDiv = document.getElementById('auth-loading-message');
+                const checkoutSection = document.getElementById('stripe-checkout-section');
+                const btnContainer = document.getElementById('paypal-button-container');
+                const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
+
+                if (loadingDiv) loadingDiv.style.display = 'block';
+                if (checkoutSection) checkoutSection.style.display = 'none';
+                if (btnContainer) btnContainer.style.display = 'none';
+                if (backBtn) backBtn.style.display = 'none';
+
+                try {
+                    const payload = {
+                        email: this._tempSignUpData.email,
+                        subscriptionID: paymentData.subscriptionID,
+                        is_renew: this._tempSignUpData.is_renew || false
+                    };
+
+                    if (!payload.is_renew) {
+                        payload.password = this._tempSignUpData.password;
+                        payload.name = this._tempSignUpData.name;
+                    }
+
+                    const { data: result, error: functionError } = await this._supabase.functions.invoke('process-payment', {
+                        body: payload
+                    });
+
+                    if (functionError) {
+                        throw new Error(result?.error || functionError.message || "Payment verification failed.");
+                    }
+
+                    if (!payload.is_renew) {
+                        const { error: loginError } = await this._supabase.auth.signInWithPassword({
+                            email: this._tempSignUpData.email,
+                            password: this._tempSignUpData.password,
+                        });
+
+                        if (loginError) {
+                            throw new Error("Account created, but automatic login failed: " + loginError.message);
+                        }
+                    }
+
+                    const overlay = document.getElementById('auth-modal-overlay');
+                    if (overlay) overlay.classList.remove('open');
+                    this._isOpen = false;
+                    this._tempSignUpData = null;
+                    
+                    this.open(); 
+
+                } catch (err) {
+                    if (loadingDiv) loadingDiv.style.display = 'none';
+                    if (checkoutSection) checkoutSection.style.display = 'block';
+                    if (btnContainer) btnContainer.style.display = 'block';
+                    if (backBtn) backBtn.style.display = 'block';
+                    this.showError(err.message);
+                }
+            },
+            onError: (err) => {
+                this.showError("PayPal encountered an error. Please try again or use a different payment method.");
+            }
+        }).render('#paypal-button-container');
+    },
+
     async loadStripeAndRender() {
+        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         if (!window.Stripe) {
             const script = document.createElement('script');
             script.src = 'https://js.stripe.com/v3/';
@@ -473,10 +577,14 @@ export const AuthUI = {
         this.hideError();
         const loadingDiv = document.getElementById('auth-loading-message');
         const checkoutSection = document.getElementById('stripe-checkout-section');
+        const orDivider = document.querySelector('.payment-or-divider');
+        const paypalContainer = document.getElementById('paypal-button-container');
         const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
 
         if (loadingDiv) loadingDiv.style.display = 'block';
         if (checkoutSection) checkoutSection.style.display = 'none';
+        if (orDivider) orDivider.style.display = 'none';
+        if (paypalContainer) paypalContainer.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
 
         try {
@@ -514,6 +622,8 @@ export const AuthUI = {
             
             if (loadingDiv) loadingDiv.style.display = 'none';
             if (checkoutSection) checkoutSection.style.display = 'block';
+            if (orDivider) orDivider.style.display = 'flex';
+            if (paypalContainer) paypalContainer.style.display = 'block';
             if (backBtn) backBtn.style.display = 'block';
             this.showError(err.message || 'Payment redirection failed. Please try again.');
         }
@@ -534,60 +644,61 @@ export const AuthUI = {
     attachContentListeners() {
         document.getElementById('close-auth-ui')?.addEventListener('click', () => this.close());
 
-        const toggleBtns = document.querySelectorAll('.auth-toggle-btn');
-        toggleBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.switchMode(e.target.dataset.mode);
-            });
+        document.getElementById('auth-choose-login')?.addEventListener('click', () => {
+            this.switchMode('signin');
+        });
+        document.getElementById('auth-choose-signup')?.addEventListener('click', () => {
+            this.switchMode('signup');
+        });
+        document.getElementById('auth-back-to-choose')?.addEventListener('click', () => {
+            this.switchMode('choose');
+        });
+
+        // Signup redirect — open inflight.info. Capacitor routes _system to Safari on iOS.
+        document.getElementById('auth-open-signup-site')?.addEventListener('click', () => {
+            const url = 'https://inflight.info';
+            try {
+                const opener = window.open(url, '_system');
+                if (!opener) window.open(url, '_blank');
+            } catch (e) {
+                window.location.href = url;
+            }
         });
 
         document.getElementById('auth-submit-btn')?.addEventListener('click', async () => {
             this.hideError();
             const email = document.getElementById('auth-email')?.value;
             const password = document.getElementById('auth-password')?.value;
-            const name = document.getElementById('auth-name')?.value || '';
-            
+
             if (!email || !password) {
                 this.showError("Please enter both email and password.");
                 return;
             }
 
-            if (this._mode === 'signup') {
-                const termsCheckbox = document.getElementById('auth-terms');
-                if (termsCheckbox && !termsCheckbox.checked) {
-                    this.showError("Please agree to the Terms of Use and Privacy Policy.");
-                    return; 
-                }
-                
-                this._tempSignUpData = { email, password, name, is_renew: false };
-                this.switchMode('payment');
-                
-            } else if (this._mode === 'signin') {
-                this.setLoading('auth-submit-btn', true, 'Sign In');
-                
-                const { data, error } = await this._supabase.auth.signInWithPassword({
-                    email: email,
-                    password: password,
-                });
+            this.setLoading('auth-submit-btn', true, 'Sign In');
 
-                this.setLoading('auth-submit-btn', false, 'Sign In');
+            const { data, error } = await this._supabase.auth.signInWithPassword({
+                email: email,
+                password: password,
+            });
 
-                if (error) {
-                    this.showError(error.message);
-                } else {
-                    const rememberCheckbox = document.getElementById('auth-remember');
-                    if (rememberCheckbox) {
-                        localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
-                        if (rememberCheckbox.checked) {
-                            localStorage.setItem('inflight_remembered_email', email);
-                        } else {
-                            localStorage.removeItem('inflight_remembered_email');
-                        }
+            this.setLoading('auth-submit-btn', false, 'Sign In');
+
+            if (error) {
+                this.showError(error.message);
+            } else {
+                const rememberCheckbox = document.getElementById('auth-remember');
+                if (rememberCheckbox) {
+                    localStorage.setItem('inflight_remember_preference', rememberCheckbox.checked);
+                    if (rememberCheckbox.checked) {
+                        localStorage.setItem('inflight_remembered_email', email);
+                    } else {
+                        localStorage.removeItem('inflight_remembered_email');
                     }
-
-                    this.close();
-                    this.open();
                 }
+
+                this.close();
+                this.open();
             }
         });
 
@@ -1102,10 +1213,517 @@ export const AuthUI = {
                 color: #6366f1; /* Stripe Blurple */
             }
 
+            .payment-or-divider {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: #64748b;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                margin: 24px 0 16px;
+            }
+
+            .payment-or-divider::before,
+            .payment-or-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: #e2e8f0;
+            }
+
+            /* ── Choose screen (web) ─────────────────────────────────── */
+            .auth-choose-title {
+                margin: 4px 0 6px;
+                color: #0f172a;
+                font-size: 1.5rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+            }
+
+            .auth-choose-copy {
+                margin: 0 auto 4px;
+                color: #64748b;
+                font-size: 0.92rem;
+                line-height: 1.45;
+                max-width: 320px;
+            }
+
+            .auth-choose-body {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                padding-top: 4px;
+            }
+
+            .auth-choose-primary {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                margin-bottom: 0;
+            }
+
+            .auth-choose-primary:hover:not(:disabled) {
+                background: linear-gradient(135deg, #3b82f6, #2563eb);
+                box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.25), 0 4px 6px -2px rgba(37, 99, 235, 0.1);
+            }
+
+            .auth-choose-secondary {
+                width: 100%;
+                background: #f8fafc;
+                color: #0f172a;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 14px;
+                font-size: 0.95rem;
+                font-weight: 600;
+                font-family: inherit;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                position: relative;
+            }
+
+            .auth-choose-secondary:hover {
+                background: #ffffff;
+                border-color: #2563eb;
+                color: #1d4ed8;
+                box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.08);
+                transform: translateY(-1px);
+            }
+
+            .auth-choose-ext {
+                font-size: 0.75rem;
+                opacity: 0.55;
+                margin-left: 2px;
+            }
+
+            .auth-choose-footer {
+                margin: 14px 0 0;
+                text-align: center;
+                color: #94a3b8;
+                font-size: 0.78rem;
+                line-height: 1.4;
+            }
+
+            .auth-choose-footer strong {
+                color: #475569;
+                font-weight: 600;
+            }
+
+            .auth-signin-header {
+                margin-top: 4px;
+                text-align: center;
+                color: #0f172a;
+            }
+
+            .auth-signin-header p {
+                color: #64748b;
+            }
+
             @media (max-width: 480px) {
                 .auth-header-section { padding: 24px 20px 16px; }
                 .auth-form-body { padding: 0 20px 24px; }
                 .auth-modal-card { border-radius: 16px; width: 95%; }
+            }
+
+            /* ============================================================
+               iOS NATIVE — full-screen sheet, vibrancy, system controls.
+               Gated on html.ios-native so the web build is untouched.
+               ============================================================ */
+            html.ios-native .auth-wrapper-layer {
+                background: rgba(0, 0, 0, 0.45) !important;
+                -webkit-backdrop-filter: saturate(180%) blur(20px) !important;
+                backdrop-filter: saturate(180%) blur(20px) !important;
+                align-items: stretch !important;
+                justify-content: stretch !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif !important;
+            }
+            html.ios-native .auth-modal-card {
+                position: fixed !important;
+                left: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                top: env(safe-area-inset-top, 0px) !important;
+                width: 100% !important;
+                max-width: none !important;
+                max-height: none !important;
+                margin: 0 !important;
+                border-radius: 14px 14px 0 0 !important;
+                background: #1c1c1e !important;
+                color: #fff !important;
+                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.55) !important;
+                transform: translateY(40px) !important;
+                opacity: 0 !important;
+                transition: transform 0.36s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease !important;
+                display: flex !important;
+                flex-direction: column !important;
+                overflow: hidden !important;
+            }
+            html.ios-native .auth-wrapper-layer.open .auth-modal-card {
+                transform: translateY(0) !important;
+                opacity: 1 !important;
+            }
+
+            /* Top accent strip — keep on iOS too as a subtle highlight */
+            html.ios-native .auth-premium-accent {
+                background: linear-gradient(90deg, transparent, rgba(10, 132, 255, 0.55), transparent) !important;
+            }
+
+            /* Close button — iOS pill, top-trailing */
+            html.ios-native .auth-close-btn {
+                position: absolute !important;
+                top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                right: 12px !important;
+                width: 30px !important;
+                height: 30px !important;
+                border-radius: 50% !important;
+                background: rgba(120, 120, 128, 0.32) !important;
+                color: rgba(235, 235, 245, 0.85) !important;
+                border: none !important;
+                font-size: 18px !important;
+                line-height: 1 !important;
+                display: grid !important;
+                place-items: center !important;
+                z-index: 5 !important;
+            }
+            html.ios-native .auth-close-btn:active {
+                background: rgba(120, 120, 128, 0.5) !important;
+            }
+
+            /* Header — generous padding for the SF look */
+            html.ios-native .auth-header-section {
+                background: transparent !important;
+                padding: 56px 20px 16px !important;
+                text-align: center !important;
+                border-bottom: none !important;
+            }
+            html.ios-native .auth-brand-logo {
+                width: 60px !important;
+                height: 60px !important;
+                margin: 0 auto 14px !important;
+                border-radius: 14px !important;
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4) !important;
+            }
+
+            /* Segmented control (iOS) */
+            html.ios-native .auth-toggle-container { margin: 6px 0 4px !important; }
+            html.ios-native .auth-toggle-pill {
+                display: inline-flex !important;
+                background: rgba(118, 118, 128, 0.24) !important;
+                border-radius: 9px !important;
+                padding: 2px !important;
+                gap: 0 !important;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15) !important;
+            }
+            html.ios-native .auth-toggle-btn {
+                background: transparent !important;
+                border: none !important;
+                color: rgba(235, 235, 245, 0.85) !important;
+                font-family: inherit !important;
+                font-size: 13px !important;
+                font-weight: 600 !important;
+                padding: 7px 18px !important;
+                border-radius: 7px !important;
+                box-shadow: none !important;
+                transition: background-color 0.2s ease, color 0.2s ease !important;
+                -webkit-tap-highlight-color: transparent !important;
+            }
+            html.ios-native .auth-toggle-btn.active {
+                background: rgba(118, 118, 128, 0.36) !important;
+                color: #fff !important;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 0.5px 0 rgba(255, 255, 255, 0.18) !important;
+            }
+
+            /* Form body — scrollable middle region */
+            html.ios-native .auth-form-body {
+                flex: 1 1 auto !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                padding: 20px 18px calc(env(safe-area-inset-bottom, 0px) + 20px) !important;
+                background: transparent !important;
+            }
+
+            /* Inputs — iOS-rounded, 44pt+, no field icon column */
+            html.ios-native .auth-input-group { margin-bottom: 14px !important; }
+            html.ios-native .auth-input-group label {
+                color: rgba(235, 235, 245, 0.6) !important;
+                font-size: 12px !important;
+                font-weight: 500 !important;
+                letter-spacing: 0.2px !important;
+                text-transform: uppercase !important;
+                margin: 0 4px 6px !important;
+                display: block !important;
+            }
+            html.ios-native .auth-field-wrapper {
+                position: relative !important;
+                background: rgba(118, 118, 128, 0.2) !important;
+                border: none !important;
+                border-radius: 10px !important;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12) !important;
+                padding: 0 12px 0 38px !important;
+            }
+            html.ios-native .auth-field-icon {
+                position: absolute !important;
+                top: 50% !important;
+                left: 12px !important;
+                transform: translateY(-50%) !important;
+                color: rgba(235, 235, 245, 0.55) !important;
+                font-size: 14px !important;
+                pointer-events: none !important;
+            }
+            html.ios-native .auth-input {
+                width: 100% !important;
+                height: 44px !important;
+                background: transparent !important;
+                border: none !important;
+                outline: none !important;
+                color: #fff !important;
+                font-family: inherit !important;
+                font-size: 17px !important;
+                font-weight: 400 !important;
+                letter-spacing: -0.2px !important;
+                padding: 0 !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+            }
+            html.ios-native .auth-input::placeholder {
+                color: rgba(235, 235, 245, 0.4) !important;
+                font-weight: 400 !important;
+            }
+
+            /* Options row */
+            html.ios-native .auth-options {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 12px !important;
+                margin: 6px 4px 18px !important;
+                color: rgba(235, 235, 245, 0.85) !important;
+                font-size: 14px !important;
+            }
+            html.ios-native .auth-checkbox {
+                display: flex !important;
+                align-items: center !important;
+                gap: 8px !important;
+                color: rgba(235, 235, 245, 0.85) !important;
+            }
+            html.ios-native .auth-checkbox input {
+                width: 18px !important;
+                height: 18px !important;
+                accent-color: #0a84ff !important;
+            }
+            html.ios-native .auth-forgot-link {
+                color: #0a84ff !important;
+                text-decoration: none !important;
+                font-weight: 500 !important;
+            }
+            html.ios-native .auth-terms-link {
+                color: #0a84ff !important;
+                text-decoration: none !important;
+            }
+
+            /* Primary submit — full-width iOS blue, 50pt tall */
+            html.ios-native .auth-submit-btn {
+                width: 100% !important;
+                height: 50px !important;
+                padding: 0 !important;
+                border: none !important;
+                border-radius: 12px !important;
+                background: #0a84ff !important;
+                color: #fff !important;
+                font-family: inherit !important;
+                font-size: 17px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+                box-shadow: 0 6px 18px rgba(10, 132, 255, 0.3), inset 0 0.5px 0 rgba(255, 255, 255, 0.18) !important;
+                cursor: pointer !important;
+                -webkit-tap-highlight-color: transparent !important;
+                transition: transform 0.12s ease, background-color 0.2s ease !important;
+            }
+            html.ios-native .auth-submit-btn:active {
+                transform: scale(0.98) !important;
+                background: #0066d1 !important;
+            }
+            html.ios-native .auth-submit-pro { background: #0a84ff !important; }
+
+            /* Back button — plain text iOS blue */
+            html.ios-native .auth-back-btn {
+                width: 100% !important;
+                margin-top: 12px !important;
+                background: transparent !important;
+                border: none !important;
+                color: #0a84ff !important;
+                font-family: inherit !important;
+                font-size: 16px !important;
+                font-weight: 500 !important;
+                padding: 12px !important;
+                -webkit-tap-highlight-color: transparent !important;
+            }
+
+            /* Error / success cards */
+            html.ios-native .auth-error,
+            html.ios-native .auth-success {
+                margin: 8px 0 12px !important;
+                padding: 12px 14px !important;
+                border-radius: 12px !important;
+                font-size: 14px !important;
+                font-weight: 500 !important;
+                border: none !important;
+                text-align: left !important;
+            }
+            html.ios-native .auth-error {
+                background: rgba(255, 69, 58, 0.15) !important;
+                color: #ff6b61 !important;
+            }
+            html.ios-native .auth-success {
+                background: rgba(48, 209, 88, 0.15) !important;
+                color: #30d158 !important;
+            }
+
+            /* Forgot / update-password headers reuse .auth-payment-header */
+            html.ios-native .auth-payment-header {
+                background: transparent !important;
+                padding: 0 4px 6px !important;
+                text-align: center !important;
+            }
+            html.ios-native .auth-payment-header h3 {
+                color: #fff !important;
+                font-family: inherit !important;
+                font-size: 22px !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.4px !important;
+            }
+            html.ios-native .auth-payment-header p {
+                color: rgba(235, 235, 245, 0.6) !important;
+                font-size: 14px !important;
+            }
+
+            /* Hide pricing / Pro / payment UI inside the iOS app */
+            html.ios-native .auth-premium-notice,
+            html.ios-native .stripe-hosted-container,
+            html.ios-native .payment-or-divider,
+            html.ios-native #paypal-button-container,
+            html.ios-native .auth-payment-badges,
+            html.ios-native .stripe-security-notice {
+                display: none !important;
+            }
+
+            /* iOS sign-up redirect view */
+            html.ios-native .ios-signup-redirect { text-align: center; }
+            html.ios-native .ios-redirect-hero {
+                padding: 18px 8px 28px;
+            }
+            html.ios-native .ios-redirect-icon {
+                width: 64px;
+                height: 64px;
+                border-radius: 18px;
+                margin: 0 auto 18px;
+                background: linear-gradient(180deg, rgba(10, 132, 255, 0.28), rgba(10, 132, 255, 0.14));
+                display: grid;
+                place-items: center;
+                color: #0a84ff;
+                font-size: 26px;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.2), 0 8px 20px rgba(10, 132, 255, 0.2);
+            }
+            html.ios-native .ios-redirect-title {
+                margin: 0 0 8px;
+                color: #fff;
+                font-family: inherit;
+                font-size: 22px;
+                font-weight: 700;
+                letter-spacing: -0.4px;
+            }
+            html.ios-native .ios-redirect-copy {
+                margin: 0;
+                color: rgba(235, 235, 245, 0.7);
+                font-size: 15px;
+                line-height: 1.4;
+                padding: 0 6px;
+            }
+            html.ios-native .ios-redirect-copy strong { color: #fff; }
+
+            /* ── Choose screen (iOS native) ──────────────────────────── */
+            html.ios-native .auth-choose-title {
+                color: #fff !important;
+                font-size: 26px !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.4px !important;
+                margin: 6px 0 6px !important;
+            }
+            html.ios-native .auth-choose-copy {
+                color: rgba(235, 235, 245, 0.7) !important;
+                font-size: 15px !important;
+                line-height: 1.4 !important;
+                max-width: 320px !important;
+                margin: 0 auto !important;
+            }
+            html.ios-native .auth-choose-body {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 10px !important;
+                padding-top: 12px !important;
+            }
+            html.ios-native .auth-choose-primary {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 10px !important;
+            }
+            html.ios-native .auth-choose-secondary {
+                width: 100% !important;
+                height: 50px !important;
+                background: rgba(118, 118, 128, 0.24) !important;
+                color: #fff !important;
+                border: none !important;
+                border-radius: 12px !important;
+                font-family: inherit !important;
+                font-size: 17px !important;
+                font-weight: 600 !important;
+                letter-spacing: -0.2px !important;
+                cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 10px !important;
+                box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12) !important;
+                -webkit-tap-highlight-color: transparent !important;
+                transition: transform 0.12s ease, background-color 0.2s ease !important;
+            }
+            html.ios-native .auth-choose-secondary:active {
+                transform: scale(0.98) !important;
+                background: rgba(118, 118, 128, 0.36) !important;
+            }
+            html.ios-native .auth-choose-ext {
+                font-size: 12px !important;
+                opacity: 0.6 !important;
+            }
+            html.ios-native .auth-choose-footer {
+                margin: 18px 0 0 !important;
+                text-align: center !important;
+                color: rgba(235, 235, 245, 0.5) !important;
+                font-size: 13px !important;
+                line-height: 1.4 !important;
+            }
+            html.ios-native .auth-choose-footer strong {
+                color: rgba(235, 235, 245, 0.85) !important;
+                font-weight: 600 !important;
+            }
+
+            html.ios-native .auth-signin-header h3 {
+                color: #fff !important;
+                font-size: 22px !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.4px !important;
+            }
+            html.ios-native .auth-signin-header p {
+                color: rgba(235, 235, 245, 0.6) !important;
+                font-size: 14px !important;
             }
         `;
         

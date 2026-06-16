@@ -55,11 +55,12 @@ export const LandingUI = {
         // Fetch theme again just in case it loaded late
         this._theme = localStorage.getItem('pui-theme') || 'dark';
 
-        await this.loadPrefixData(); 
+        await this.loadPrefixData();
         this.injectStyles();
         this.applyMobileOptimizations();
         this.render();
         this.attachListeners();
+        this.applyMobileChrome();
     },
 
     applyMobileOptimizations() {
@@ -67,6 +68,17 @@ export const LandingUI = {
             import('./MobileLandingUI.js').then(m => {
                 m.MobileLandingUI.init(this);
             }).catch(err => console.error("Failed to load Mobile UI:", err));
+        }
+    },
+
+    applyMobileChrome() {
+        if (window.innerWidth <= 768) {
+            // Full rehaul of the LandingUI top header + bottom tab bar with
+            // native iOS chrome. Runs AFTER render() so it can re-host the
+            // already-wired search input + results dropdown.
+            import('./MobileLandingChromeUI.js').then(m => {
+                m.MobileLandingChromeUI.init(this);
+            }).catch(err => console.error("Failed to load Mobile Chrome UI:", err));
         }
     },
 
@@ -231,9 +243,20 @@ export const LandingUI = {
         }
         if (resultsDropdown) resultsDropdown.classList.remove('visible');
         if (searchBlade) searchBlade.classList.remove('has-results');
+        document.getElementById('inflight-tactical-ui')?.classList.remove('mobile-search-active');
+        this._syncSearchActive();
         this._currentMatches = [];
         this._currentResults = { flights: [], airports: [], airlines: [] };
         this._searchCursorIndex = -1;
+    },
+
+    // Toggle the inline clear (✕) button based on whether the field has text.
+    _syncSearchActive() {
+        const searchBlade = document.querySelector('.search-blade');
+        const searchInput = document.getElementById('blade-search-input');
+        if (searchBlade) {
+            searchBlade.classList.toggle('has-text', !!(searchInput && searchInput.value));
+        }
     },
 
     executeSearchClick(id, lat, lon) {
@@ -283,11 +306,16 @@ export const LandingUI = {
                     <div class="top-right-actions">
                         <div class="search-blade">
                             <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="blade-search-input" placeholder="Quick search..." autocomplete="off">
+                            <input type="text" id="blade-search-input" placeholder="Search flights, airports, airlines"
+                                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                   inputmode="search" enterkeyhint="search">
+                            <button type="button" id="blade-search-clear" class="search-clear-btn" aria-label="Clear search"><i class="fa-solid fa-circle-xmark"></i></button>
                             <div class="search-shortcut"></div>
                             <div id="blade-search-results" class="search-results-dropdown custom-scroll"></div>
                         </div>
                     </div>
+
+                    <button type="button" id="mobile-search-cancel" class="search-cancel-btn">Cancel</button>
                 </header>
 
                 <div id="filter-modal-overlay" class="modal-overlay">
@@ -348,6 +376,13 @@ export const LandingUI = {
 
                 <div class="utility-nexus">
                     <div class="orb-row">
+                        <div class="nexus-orb-wrapper mobile-only-tab">
+                            <button class="orb-btn" id="mobile-server-tab" aria-label="Server">
+                                <i class="fa-solid fa-server"></i>
+                                <span class="tab-label">Server</span>
+                            </button>
+                        </div>
+
                         <div class="weather-nexus-container" id="weather-menu-wrapper">
                             <div class="weather-spread">
                                 <button class="spread-opt" data-weather="precip"><i class="fa-solid fa-satellite-dish"></i><span class="spread-label">Radar</span></button>
@@ -355,13 +390,14 @@ export const LandingUI = {
                                 <button class="spread-opt" data-weather="clouds"><i class="fa-solid fa-cloud"></i><span class="spread-label">Clouds</span></button>
                                 <button class="spread-opt" data-weather="wind"><i class="fa-solid fa-wind"></i><span class="spread-label">Wind</span></button>
                             </div>
-                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i></button>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i><span class="tab-label">Weather</span></button>
                         </div>
 
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="filters-preview-tooltip"></div>
                             <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters">
                                 <i class="fa-solid fa-filter"></i>
+                                <span class="tab-label">Filters</span>
                                 <div id="filter-active-dot" class="active-pulse-dot"></div>
                             </button>
                         </div>
@@ -370,6 +406,7 @@ export const LandingUI = {
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
                                 <i class="fa-solid fa-gear"></i>
+                                <span class="tab-label">Settings</span>
                             </button>
                         </div>
                     </div>
@@ -456,7 +493,48 @@ export const LandingUI = {
             }
         });
 
-        searchInput?.addEventListener('input', (e) => this.handleLocalSearch(e.target.value));
+        searchInput?.addEventListener('input', (e) => {
+            this.handleLocalSearch(e.target.value);
+            this._syncSearchActive();
+        });
+
+        // Mobile: drive the search-active layout off focus (so the Cancel
+        // button can appear and the dropdown can take over the screen).
+        const root = document.getElementById('inflight-tactical-ui');
+        searchInput?.addEventListener('focus', () => {
+            root?.classList.add('mobile-search-active');
+        });
+        // If the field is blurred while still empty (e.g. a tap on the map),
+        // collapse back to the resting bar. A non-empty query stays open so
+        // the keyboard can drop while the user scrolls the results.
+        searchInput?.addEventListener('blur', () => {
+            setTimeout(() => {
+                if (!searchInput.value && document.activeElement !== searchInput) {
+                    this._closeBladeSearch();
+                }
+            }, 120);
+        });
+
+        // Cancel button — use pointerdown so it fires before the input blur
+        // steals the tap, then fully tear the search down.
+        const cancelBtn = document.getElementById('mobile-search-cancel');
+        cancelBtn?.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            this._closeBladeSearch();
+        });
+
+        // Inline clear (the small ✕ inside the field) — keep focus so the
+        // keyboard stays up and the user can immediately retype.
+        const clearBtn = document.getElementById('blade-search-clear');
+        clearBtn?.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+            }
+            this.handleLocalSearch('');
+            this._syncSearchActive();
+        });
 
         filterBtn?.addEventListener('mouseenter', () => this.showPreview('filters'));
         filterBtn?.addEventListener('mouseleave', () => this.hidePreview('filters'));
@@ -480,6 +558,16 @@ export const LandingUI = {
         serverSelector?.addEventListener('click', (e) => {
             e.stopPropagation();
             serverSelector.classList.toggle('open');
+        });
+
+        // Mobile bottom-bar Server tab → reuse the polished server bottom sheet
+        document.getElementById('mobile-server-tab')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.MobileUIHandler && typeof window.MobileUIHandler.openServerSheet === 'function') {
+                window.MobileUIHandler.openServerSheet();
+            } else {
+                serverSelector?.classList.toggle('open');
+            }
         });
 
         document.querySelectorAll('.server-option').forEach(opt => {
@@ -917,6 +1005,10 @@ export const LandingUI = {
                 margin-left: 10px;
             }
 
+            /* The inline clear (✕) and the Cancel button are mobile-only. */
+            .search-clear-btn { display: none; }
+            .search-cancel-btn { display: none; }
+
             .search-results-dropdown {
                 position: absolute;
                 top: calc(100% + 8px);
@@ -1085,6 +1177,9 @@ export const LandingUI = {
             }
 
             .nexus-orb-wrapper { position: relative; }
+            /* Tab labels + Server tab are mobile-only (FR24 bottom bar) */
+            .tab-label { display: none; }
+            .mobile-only-tab { display: none; }
             .nexus-preview-tooltip {
                 position: absolute;
                 bottom: calc(100% + 20px);
@@ -1604,6 +1699,265 @@ export const LandingUI = {
                 }
                 .spread-opt i {
                     font-size: 0.8rem !important;
+                }
+            }
+
+            /* ============================================================
+               FR24-style mobile chrome (authoritative overrides — kept last
+               so they win over the legacy mobile rules above)
+               ============================================================ */
+            @media (max-width: 768px) {
+                /* ---------- TOP: native-iOS search bar ---------- *
+                   One frosted bar pinned under the status bar. It holds the
+                   search field; the profile avatar floats at the trailing
+                   edge while idle and is swapped for a "Cancel" button while
+                   searching (the standard iOS search pattern). */
+                .tactical-header {
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    padding: calc(env(safe-area-inset-top, 0px) + 8px) 64px 8px 12px !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                    backdrop-filter: blur(24px) saturate(180%) !important;
+                    border-bottom: 1px solid var(--lui-border-base) !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    pointer-events: none !important;
+                    z-index: 1500 !important;
+                    transition: padding 0.25s cubic-bezier(0.16,1,0.3,1) !important;
+                }
+                /* Server moved to the bottom bar — hide it from the top */
+                .tactical-header .top-branding.dropdown { display: none !important; }
+
+                .top-right-actions {
+                    flex: 1 1 auto !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    display: flex !important;
+                    pointer-events: auto !important;
+                }
+                .search-blade {
+                    width: 100% !important;
+                    height: 40px !important;
+                    padding: 0 14px !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 12px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    box-shadow: none !important;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+                }
+                .search-blade .search-icon { color: var(--lui-text-gray-1) !important; font-size: 0.9rem !important; }
+                #blade-search-input {
+                    font-size: 16px !important; /* >=16px stops iOS auto-zoom on focus */
+                    flex: 1 1 auto !important;
+                    min-width: 0 !important;
+                    -webkit-appearance: none !important;
+                }
+                #blade-search-input::placeholder { color: var(--lui-text-muted) !important; }
+
+                /* Inline clear (✕) — only once there's text */
+                .search-clear-btn {
+                    display: none;
+                    background: none !important;
+                    border: none !important;
+                    padding: 0 2px !important;
+                    margin: 0 !important;
+                    color: var(--lui-text-gray-2) !important;
+                    font-size: 1rem !important;
+                    line-height: 1 !important;
+                    cursor: pointer;
+                    flex: 0 0 auto !important;
+                }
+                .search-blade.has-text .search-clear-btn { display: block !important; }
+
+                /* Focus / active: the bar pins to the top, full width,
+                   leaving room for the trailing Cancel button. */
+                .mobile-search-active .search-blade,
+                .search-blade:focus-within {
+                    position: fixed !important;
+                    left: 12px !important;
+                    right: 72px !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    width: auto !important;
+                    max-width: none !important;
+                    height: 40px !important;
+                    border-radius: 12px !important;
+                    z-index: 1600 !important;
+                    background: var(--lui-bg-card) !important;
+                    border-color: var(--lui-border-base) !important;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.35) !important;
+                }
+
+                /* Full-screen results sheet under the search bar. */
+                .search-results-dropdown {
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: calc(100vh - env(safe-area-inset-top, 0px) - 56px) !important;
+                    height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px) !important;
+                    max-height: none !important;
+                    border-radius: 0 !important;
+                    border: none !important;
+                    padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+                    background: var(--lui-bg-main) !important;
+                    box-shadow: none !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    overscroll-behavior: contain !important;
+                }
+
+                /* ---------- Touch-sized result rows ---------- */
+                .premium-result-item {
+                    min-height: 60px !important;
+                    padding: 10px 16px !important;
+                    gap: 14px !important;
+                    margin-bottom: 0 !important;
+                    border-radius: 0 !important;
+                    border-bottom: 1px solid var(--lui-border-light) !important;
+                }
+                .premium-result-item:active { background: var(--lui-active-bg) !important; }
+                .res-callsign { font-size: 15px !important; }
+                .res-secondary-row { font-size: 13px !important; }
+                .res-meta-icon { font-size: 8px !important; }
+                .blade-results-header {
+                    background: var(--lui-bg-main) !important;
+                    padding: 14px 16px 6px !important;
+                    font-size: 0.62rem !important;
+                }
+
+                /* ---------- TRAILING: profile avatar (idle) ---------- */
+                .auth-nexus {
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    right: 12px !important;
+                    left: auto !important;
+                    bottom: auto !important;
+                    z-index: 1600 !important;
+                    transition: opacity 0.2s ease !important;
+                }
+                .auth-nexus .orb-btn {
+                    width: 40px !important;
+                    height: 40px !important;
+                    border-radius: 50% !important;
+                    font-size: 0.95rem !important;
+                    background: var(--lui-bg-input) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    color: var(--lui-text-main) !important;
+                    box-shadow: none !important;
+                }
+                .auth-nexus .orb-btn:active {
+                    transform: scale(0.94) !important;
+                    background: var(--lui-bg-card) !important;
+                }
+
+                /* ---------- TRAILING: Cancel button (searching) ---------- */
+                .search-cancel-btn {
+                    display: block !important;
+                    position: fixed !important;
+                    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+                    right: 12px !important;
+                    height: 40px !important;
+                    padding: 0 4px !important;
+                    background: none !important;
+                    border: none !important;
+                    color: var(--lui-accent) !important;
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 16px !important;
+                    font-weight: 600 !important;
+                    cursor: pointer;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                    transform: translateX(6px) !important;
+                    transition: opacity 0.2s ease, transform 0.2s ease !important;
+                    z-index: 1601 !important;
+                }
+                .mobile-search-active .search-cancel-btn {
+                    opacity: 1 !important;
+                    pointer-events: auto !important;
+                    transform: translateX(0) !important;
+                }
+
+                /* ---------- BOTTOM: floating tab bar ---------- */
+                .utility-nexus {
+                    position: fixed !important;
+                    left: 50% !important;
+                    right: auto !important;
+                    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+                    transform: translateX(-50%) !important;
+                    pointer-events: none !important;
+                    z-index: 1500 !important;
+                    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.3s !important;
+                }
+                .orb-row {
+                    gap: 2px !important;
+                    align-items: stretch !important;
+                    background: var(--lui-glass-bg) !important;
+                    -webkit-backdrop-filter: blur(22px) !important;
+                    backdrop-filter: blur(22px) !important;
+                    border: 1px solid var(--lui-border-base) !important;
+                    border-radius: 22px !important;
+                    padding: 6px !important;
+                    box-shadow: 0 12px 30px rgba(0,0,0,0.45) !important;
+                    pointer-events: auto !important;
+                }
+                .mobile-only-tab { display: block !important; }
+
+                .orb-row .orb-btn {
+                    width: 64px !important;
+                    height: auto !important;
+                    min-height: 48px !important;
+                    border-radius: 14px !important;
+                    background: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    gap: 4px !important;
+                    color: var(--lui-text-gray-1) !important;
+                    font-size: 1.05rem !important;
+                    transform: none !important;
+                }
+                .orb-row .orb-btn:hover,
+                .orb-row .orb-btn:active {
+                    transform: none !important;
+                    background: var(--lui-active-bg) !important;
+                    color: var(--lui-accent) !important;
+                }
+                .orb-row .tab-label {
+                    display: block !important;
+                    font-size: 0.62rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.2px !important;
+                    line-height: 1 !important;
+                }
+                .orb-row .active-pulse-dot {
+                    position: absolute !important;
+                    top: 6px !important;
+                    right: 14px !important;
+                    bottom: auto !important;
+                }
+                .weather-nexus-container { flex-direction: column !important; gap: 0 !important; }
+
+                /* Slide the tab bar away while searching or when a detail sheet is open */
+                .mobile-search-active .utility-nexus,
+                #sector-ops-map-fullscreen:has(.mobile-island-bottom.island-active) .utility-nexus {
+                    opacity: 0 !important;
+                    transform: translateX(-50%) translateY(140%) !important;
+                    pointer-events: none !important;
+                }
+                /* Hide the profile avatar while searching (Cancel takes its slot) */
+                .mobile-search-active .auth-nexus {
+                    opacity: 0 !important;
+                    pointer-events: none !important;
                 }
             }
         `;
