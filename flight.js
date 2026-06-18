@@ -16728,7 +16728,7 @@ let totalDistanceNM = 0;
     </button>
 </div>
 
-            <div class="ac-partner-hero" style="position: absolute; bottom: 45px; left: 24px; right: 24px; z-index: 2; display: flex; align-items: flex-end;">
+            <div class="ac-partner-hero" style="position: absolute; bottom: 45px; left: 24px; max-width: calc(55% - 24px); z-index: 2; display: flex; align-items: flex-end;">
                 ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
             </div>
         </div>
