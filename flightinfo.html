@@ -138,6 +138,11 @@
     .fi-va-name { font-size: 11px; font-weight: 700; color: #e2e8f0; }
     .fi-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; }
     .fi-va-note { font-size: 9px; font-weight: 600; color: #fca5a5; }
+    /* Collapsed bar: the partner VA badge gets its own line beneath the aircraft
+       meta so it never competes with the callsign for horizontal space. */
+    .cb-va-row { margin-top: 9px; max-width: 100%; }
+    .cb-va-row .fi-va-chip { max-width: 100%; min-width: 0; }
+    .cb-va-row .fi-va-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-callsign {
         font-size: 22px; font-weight: 900; letter-spacing: -0.5px;
         color: var(--color-gold); line-height: 1;
@@ -608,6 +613,7 @@
     body[data-peek="minimal"] .cb-meta,
     body[data-peek="minimal"] .cb-hero,
     body[data-peek="minimal"] .cb-city,
+    body[data-peek="minimal"] .cb-va-row,
     body[data-peek="minimal"] .cb-prog-labels { display: none; }
     body[data-peek="minimal"] .cb-state { display: inline-flex; }
     body[data-peek="minimal"] .collapsed-bar { gap: 12px; }
@@ -939,7 +945,6 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
-                    <span id="c-va-badge" class="fi-va-badge"></span>
                 </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
@@ -950,6 +955,7 @@
                     <span class="cb-chip" id="c-actype" style="display:none;">---</span>
                     <span class="cb-airline" id="c-airline">Tap for details</span>
                 </div>
+                <span id="c-va-badge" class="fi-va-badge cb-va-row"></span>
             </div>
             <div class="cb-thumb" id="c-thumb"></div>
         </div>
