@@ -10,7 +10,62 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+// The Supabase client library is pulled from a CDN. Browser privacy
+// blockers (e.g. Edge "Tracking Prevention") and CDN hiccups can break a
+// single hard-coded source — and because this was a static `import`, one
+// failed request aborted the whole module and white-screened the tracker.
+// Load it resiliently instead: try several CDNs in turn (esm.sh first,
+// since jsdelivr is the source most commonly blocked), and if every one is
+// unreachable fall back to a harmless stub so the rest of the app still
+// boots (auth-gated features simply stay logged-out) rather than dying.
+const SUPABASE_CDNS = [
+    'https://esm.sh/@supabase/supabase-js@2',
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm',
+    'https://cdn.skypack.dev/@supabase/supabase-js@2',
+];
+let createClient = null;
+for (const cdnUrl of SUPABASE_CDNS) {
+    try {
+        ({ createClient } = await import(/* webpackIgnore: true */ /* @vite-ignore */ cdnUrl));
+        if (typeof createClient === 'function') break;
+    } catch (e) {
+        console.warn(`[supabase] CDN unreachable, trying next: ${cdnUrl}`, e?.message || e);
+    }
+}
+if (typeof createClient !== 'function') {
+    console.error('[supabase] All CDNs blocked — continuing in offline/degraded mode.');
+    // Minimal stand-in so the synchronous createClient(...) call below and the
+    // usual `.auth.*` / `.from(...).select()...` chains resolve harmlessly
+    // instead of throwing and halting page initialization.
+    createClient = () => {
+        const offline = () => Promise.resolve({ data: null, error: { message: 'offline' } });
+        const chain = new Proxy(function () {}, {
+            get(_t, prop) {
+                if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+                    return offline()[prop].bind(offline());
+                }
+                return () => chain;
+            },
+            apply() { return chain; },
+        });
+        return new Proxy({}, {
+            get(_t, prop) {
+                if (prop === 'auth') {
+                    return {
+                        onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+                        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+                        getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+                        signOut: () => Promise.resolve({ error: null }),
+                        signInWithPassword: offline,
+                        signInWithOAuth: offline,
+                        signUp: offline,
+                    };
+                }
+                return () => chain;
+            },
+        });
+    };
+}
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
