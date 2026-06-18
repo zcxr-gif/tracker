@@ -282,6 +282,28 @@
             .va-cs-tag { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; margin-left: 2px; }
             .va-cs-note { font-size: 9px; font-weight: 600; color: #fca5a5; margin-left: 4px; }
 
+            /* Collapsible hero badge: opens full, then shrinks to a logo-only
+               chip a few seconds after the window opens. Hovering (or keyboard
+               focus) re-expands it. Driven by the .va-cs-collapsed class that
+               flight.js toggles on a timer. */
+            .va-cs-info { transition: padding .3s ease, gap .3s ease, background .2s ease, border-color .2s ease; overflow: hidden; }
+            .va-cs-name, .va-cs-note {
+                white-space: nowrap; overflow: hidden;
+                max-width: 320px; opacity: 1;
+                transition: max-width .35s ease, opacity .25s ease, margin .3s ease;
+            }
+            .va-cs-info.va-cs-collapsed { gap: 0; }
+            .va-cs-info.va-cs-collapsed .va-cs-name,
+            .va-cs-info.va-cs-collapsed .va-cs-note {
+                max-width: 0; opacity: 0; margin-left: 0;
+            }
+            .va-cs-info.va-cs-collapsed:hover .va-cs-name,
+            .va-cs-info.va-cs-collapsed:focus-within .va-cs-name,
+            .va-cs-info.va-cs-collapsed:hover .va-cs-note,
+            .va-cs-info.va-cs-collapsed:focus-within .va-cs-note {
+                max-width: 320px; opacity: 1; margin-left: 4px;
+            }
+
             .va-partners-overlay {
                 position: fixed; inset: 0; z-index: 4000;
                 display: flex; justify-content: flex-end;
@@ -347,11 +369,6 @@
     // Airport-window banner
     // ---------------------------------------------------------------------
 
-    // Rotation timer for the airport banner. When several VAs share the same
-    // hub we never stack them all at once — we show one card and quietly cycle
-    // through them so each partner gets fair exposure.
-    let bannerRotateTimer = null;
-
     // Inner markup of one feature card (banner image + logo + meta), styled
     // like the Partners-tab cards rather than the old single-line strip.
     function featureCardInner(ad) {
@@ -376,59 +393,104 @@
             </div>`;
     }
 
+    // Render a (possibly rotating) feature card into a slot. When several VAs
+    // share the slot we never stack them all at once — we show one card and
+    // quietly cycle through them so each partner gets fair exposure. The
+    // rotation timer is stored per-slot so independent slots (e.g. an airport
+    // window and a flight window open at once) never clobber each other.
+    function renderAdFeature(slot, ads) {
+        if (!slot) return;
+        if (slot._adRotateTimer) { clearInterval(slot._adRotateTimer); slot._adRotateTimer = null; }
+        if (!ads || !ads.length) { slot.innerHTML = ''; slot.style.display = 'none'; return; }
+        slot.style.display = '';
+
+        slot.innerHTML = `
+            <div class="va-ad-feature" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
+                <div class="va-ad-feature-card"></div>
+                ${ads.length > 1 ? '<div class="va-ad-dots"></div>' : ''}
+            </div>`;
+        const featureEl = slot.querySelector('.va-ad-feature');
+        const cardEl = slot.querySelector('.va-ad-feature-card');
+        const dotsEl = slot.querySelector('.va-ad-dots');
+
+        let idx = 0;
+        const render = () => {
+            const ad = ads[idx];
+            featureEl.setAttribute('data-va-ad-id', ad.id);
+            cardEl.innerHTML = featureCardInner(ad);
+            if (dotsEl) {
+                dotsEl.innerHTML = ads
+                    .map((_, i) => `<span class="va-ad-dot${i === idx ? ' is-active' : ''}"></span>`)
+                    .join('');
+            }
+        };
+        render();
+
+        featureEl.addEventListener('click', () => openPartners(featureEl.getAttribute('data-va-ad-id')));
+
+        if (ads.length > 1) {
+            slot._adRotateTimer = setInterval(() => {
+                // Stop once the host window (and this slot) is gone.
+                if (!document.body.contains(cardEl)) {
+                    clearInterval(slot._adRotateTimer);
+                    slot._adRotateTimer = null;
+                    return;
+                }
+                cardEl.style.opacity = '0';
+                setTimeout(() => {
+                    idx = (idx + 1) % ads.length;
+                    render();
+                    cardEl.style.opacity = '1';
+                }, 220);
+            }, 6000);
+        }
+    }
+
     async function hydrateAirportBanner(container, icao) {
         injectStyles();
-        if (bannerRotateTimer) { clearInterval(bannerRotateTimer); bannerRotateTimer = null; }
         const root = container || document;
         const slot = root.querySelector ? root.querySelector('#apt-va-banner') : null;
         if (!slot) return;
         try {
             const ads = await banner(icao, { limit: 8 });
-            if (!ads.length) { slot.innerHTML = ''; return; }
-
-            slot.innerHTML = `
-                <div class="va-ad-feature" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
-                    <div class="va-ad-feature-card"></div>
-                    ${ads.length > 1 ? '<div class="va-ad-dots"></div>' : ''}
-                </div>`;
-            const featureEl = slot.querySelector('.va-ad-feature');
-            const cardEl = slot.querySelector('.va-ad-feature-card');
-            const dotsEl = slot.querySelector('.va-ad-dots');
-
-            let idx = 0;
-            const render = () => {
-                const ad = ads[idx];
-                featureEl.setAttribute('data-va-ad-id', ad.id);
-                cardEl.innerHTML = featureCardInner(ad);
-                if (dotsEl) {
-                    dotsEl.innerHTML = ads
-                        .map((_, i) => `<span class="va-ad-dot${i === idx ? ' is-active' : ''}"></span>`)
-                        .join('');
-                }
-            };
-            render();
-
-            featureEl.addEventListener('click', () => openPartners(featureEl.getAttribute('data-va-ad-id')));
-
-            if (ads.length > 1) {
-                bannerRotateTimer = setInterval(() => {
-                    // Stop once the airport window (and this slot) is gone.
-                    if (!document.body.contains(cardEl)) {
-                        clearInterval(bannerRotateTimer);
-                        bannerRotateTimer = null;
-                        return;
-                    }
-                    cardEl.style.opacity = '0';
-                    setTimeout(() => {
-                        idx = (idx + 1) % ads.length;
-                        render();
-                        cardEl.style.opacity = '1';
-                    }, 220);
-                }, 6000);
-            }
+            renderAdFeature(slot, ads);
         } catch (e) {
             // A missing/unreachable ads service must never break the airport panel.
             slot.innerHTML = '';
+            slot.style.display = 'none';
+        }
+    }
+
+    // Flight info window ad: prefer the flight's OWN partner VA (matched by
+    // callsign), and when the callsign isn't a partner fall back to the
+    // partner VAs hubbed at the arrival, then departure airport so the slot is
+    // rarely empty. Renders into a '#ac-va-banner' slot inside the container.
+    async function hydrateFlightBanner(container, opts) {
+        injectStyles();
+        const root = container || document;
+        const slot = root.querySelector ? root.querySelector('#ac-va-banner') : null;
+        if (!slot) return;
+        const o = opts || {};
+        try {
+            await loadDirectory();
+            let ads = [];
+            const own = matchCallsign(o.callsign);
+            if (own) {
+                ads = [own];
+            } else {
+                const codes = [o.arrIcao, o.depIcao]
+                    .map((c) => String(c || '').trim().toUpperCase())
+                    .filter(Boolean);
+                for (const code of codes) {
+                    const hub = await banner(code, { limit: 6 });
+                    if (hub && hub.length) { ads = hub; break; }
+                }
+            }
+            renderAdFeature(slot, ads);
+        } catch (e) {
+            // The ads service must never break the flight window.
+            slot.innerHTML = '';
+            slot.style.display = 'none';
         }
     }
 
@@ -607,6 +669,7 @@
         banner,
         get,
         hydrateAirportBanner,
+        hydrateFlightBanner,
         openPartners,
         closePartners,
         matchCallsign,

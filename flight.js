@@ -16706,7 +16706,6 @@ let totalDistanceNM = 0;
                         <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
                         <span>${liveryName}</span>
                     </div>
-                    ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
                 </div>
             </div>
 
@@ -16729,9 +16728,8 @@ let totalDistanceNM = 0;
     </button>
 </div>
 
-            <div class="phase-badge-hero" style=" position: absolute; bottom: 45px; left: 24px; z-index: 2; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 6px;">
-                <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-                <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
+            <div class="ac-partner-hero" style="position: absolute; bottom: 45px; left: 24px; max-width: calc(55% - 24px); z-index: 2; display: flex; align-items: flex-end;">
+                ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
             </div>
         </div>
 
@@ -16748,6 +16746,10 @@ let totalDistanceNM = 0;
     </div>
             
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
+                <div class="phase-badge-route" style="display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 8px; max-width: 100%;">
+                    <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite; flex-shrink: 0;"></div>
+                    <span id="ac-phase-text" style="font-size: 9px; font-weight: 800; color: #fff; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${flightPhase}</span>
+                </div>
                 <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
 <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
     <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(0deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
@@ -17019,6 +17021,10 @@ let totalDistanceNM = 0;
                     </div>
                 </div>
 
+                <!-- VA partner ad: the flight's own VA, falling back to route-hub
+                     partners. Hidden until hydrated so it adds no empty gap. -->
+                <div id="ac-va-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
+
                 <!-- Hidden legacy elements: FMS-view footer copies their innerHTML/textContent. Keep them so legacy code keeps working. -->
                 <span id="ac-dist" style="display:none;"></span>
                 <span id="ac-ete" style="display:none;"></span>
@@ -17180,7 +17186,39 @@ let totalDistanceNM = 0;
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
+
+        // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
+        // it to a logo-only chip a few seconds after the window opens (hovering or
+        // focusing re-expands it, via CSS). The badge only exists when the flight's
+        // callsign matches a partner VA, so this no-ops otherwise.
+        const partnerBadge = overviewPanel.querySelector('.ac-partner-hero .va-cs-info');
+        if (partnerBadge && partnerBadge.dataset.vaWired !== '1') {
+            partnerBadge.dataset.vaWired = '1';
+            const adId = partnerBadge.getAttribute('data-va-ad-id');
+            if (adId && window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') {
+                const openVa = () => window.InflightVaAds.openPartners(adId);
+                partnerBadge.addEventListener('click', openVa);
+                partnerBadge.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVa(); }
+                });
+            }
+            setTimeout(() => {
+                if (document.body.contains(partnerBadge)) partnerBadge.classList.add('va-cs-collapsed');
+            }, 4000);
+        }
     });
+
+    // In-window VA ad beneath the ND/FMC display: prefer the flight's own VA,
+    // fall back to route-hub partners. Defensive — never blocks the window.
+    if (window.InflightVaAds && typeof window.InflightVaAds.hydrateFlightBanner === 'function') {
+        try {
+            window.InflightVaAds.hydrateFlightBanner(windowEl, {
+                callsign: baseProps.callsign,
+                depIcao: departureIcao,
+                arrIcao: arrivalIcao
+            });
+        } catch (e) { /* ads must never break the flight window */ }
+    }
 
     // --- SENSOR TIMER LOGIC ---
     const updateSensorTimers = () => {
