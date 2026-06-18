@@ -8716,14 +8716,37 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                         const lookupContributors = (Array.isArray(data.imageContributors) && data.imageContributors.length)
                             ? data.imageContributors
                             : [{ name: data.contributorName || 'IF Community', id: data.contributorId || null }];
+
+                        // When an airframe has more than one photo, randomise
+                        // which one is primary (and the carousel order) so repeat
+                        // views aren't always the same shot. URLs and their
+                        // contributors are shuffled together to stay aligned, and
+                        // the result is cached so the pick is stable per airframe
+                        // for this session.
+                        let orderedUrls = lookupUrls;
+                        let orderedContributors = lookupContributors;
+                        if (lookupUrls.length > 1) {
+                            const fallbackContributor = { name: data.contributorName || 'IF Community', id: data.contributorId || null };
+                            const pairs = lookupUrls.map((u, i) => ({
+                                u,
+                                c: lookupContributors[i] || lookupContributors[0] || fallbackContributor
+                            }));
+                            for (let i = pairs.length - 1; i > 0; i--) {
+                                const j = Math.floor(Math.random() * (i + 1));
+                                [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+                            }
+                            orderedUrls = pairs.map((p) => p.u);
+                            orderedContributors = pairs.map((p) => p.c);
+                        }
+
                         const result = {
                             // Legacy single-image fields mirror the first photo so
                             // every existing consumer keeps working untouched.
-                            communityImageUrl: lookupUrls[0],
-                            contributorName: lookupContributors[0]?.name || data.contributorName || 'IF Community',
+                            communityImageUrl: orderedUrls[0],
+                            contributorName: orderedContributors[0]?.name || data.contributorName || 'IF Community',
                             // Full ordered set (up to 3) for the multi-image carousel.
-                            communityImageUrls: lookupUrls,
-                            imageContributors: lookupContributors,
+                            communityImageUrls: orderedUrls,
+                            imageContributors: orderedContributors,
                             tailNumber: data.tailNumber || null
                         };
                         communityAircraftCache.set(key, result); // Cache Success
