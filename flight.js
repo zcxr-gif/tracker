@@ -6962,6 +6962,12 @@ function renderFlightRow(entry) {
 
 function renderAirportRow(entry) {
     const a = entry.airport;
+    const vaCount = (window.InflightVaAds && window.InflightVaAds.partnersForIcao)
+        ? window.InflightVaAds.partnersForIcao(a.icao).length
+        : 0;
+    const vaFlag = vaCount
+        ? `<span class="search-va-flag" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;font-size:0.68rem;font-weight:700;color:#7dd3fc;"><i class="fa-solid fa-handshake-angle"></i> ${vaCount} VA partner${vaCount > 1 ? 's' : ''} hub here</span>`
+        : '';
     return `
         <div class="search-result-item"
              onclick="onAirportSearchResultClick(this)"
@@ -6974,6 +6980,7 @@ function renderAirportRow(entry) {
             <div class="search-result-info">
                 <strong>${escapeHtml(a.icao)} <span style="font-size:0.75rem;color:#9fa8da;font-weight:500;">${escapeHtml(a.country || '')}</span></strong>
                 <small>${escapeHtml(a.name || '')}</small>
+                ${vaFlag}
             </div>
         </div>
     `;
@@ -12499,6 +12506,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         },
         username: flightProps.username,
         callsign: flightProps.callsign,
+        isVAMember: !!flightProps.isVAMember,
+        // Partner VA matched from the callsign (leading word), passed through so
+        // the simple window can show the same badge as the full window.
+        vaPartner: (function () {
+            if (typeof window === 'undefined' || !window.InflightVaAds || !window.InflightVaAds.matchCallsign) return null;
+            const _ad = window.InflightVaAds.matchCallsign(flightProps.callsign);
+            return _ad ? { id: _ad.id, name: _ad.name, logo: _ad.logo } : null;
+        })(),
         // Compact altitude/speed series for the simple window's Speed & Altitude
         // graph (downsampled here so the postMessage payload stays small).
         chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,

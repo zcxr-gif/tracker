@@ -43,6 +43,13 @@
         return /^https?:\/\//i.test(s) ? s : '';
     }
 
+    // Leading callsign word, upper-cased — "Ocean XXVA" / "OceanXXVA" / "Ocean
+    // 123" all reduce to "OCEAN". This is what we advertise against so a VA
+    // whose callsign is "Ocean XXVA" matches any "Ocean …" flight.
+    function firstToken(s) {
+        return String(s || '').trim().toUpperCase().split(/[\s\-_/]+/)[0] || '';
+    }
+
     async function getJSON(url) {
         const res = await fetch(url, { headers: { Accept: 'application/json' } });
         if (!res.ok) throw new Error(`VA-Ads request failed (${res.status})`);
@@ -138,6 +145,7 @@
 
     let directoryPromise = null;
     let directory = null; // [{ code, ad }] sorted longest-code-first
+    let allAds = [];      // every partner ad we pulled (used for hub lookups)
 
     function loadDirectory() {
         if (directoryPromise) return directoryPromise;
@@ -156,24 +164,34 @@
             } catch (e) {
                 // Keep whatever we managed to collect; matching just covers less.
             }
+            allAds = all;
             directory = all
-                .filter((ad) => ad.callsign)
-                .map((ad) => ({ code: ad.callsign, ad }))
+                .map((ad) => ({ code: firstToken(ad.callsign), ad }))
+                .filter((entry) => entry.code)
                 .sort((a, b) => b.code.length - a.code.length);
             return directory;
         })();
         return directoryPromise;
     }
 
-    // Match a flight callsign to a partner VA by its leading code (e.g. a
-    // callsign of "DLVA123" matches the VA whose code is "DLVA"). Longest code
-    // wins; returns the first match. Synchronous — reads the warm cache.
+    // Match a flight callsign to a partner VA by its leading word only (e.g. a
+    // callsign of "Ocean XXVA" or "Ocean 123" matches the VA whose code is
+    // "OCEAN"). Longest code wins; returns the first match. Synchronous — reads
+    // the warm cache.
     function matchCallsign(callsign) {
         if (!directory) { loadDirectory(); return null; }
-        const cs = String(callsign || '').trim().toUpperCase();
-        if (!cs) return null;
-        const hit = directory.find((entry) => cs.startsWith(entry.code));
+        const tok = firstToken(callsign);
+        if (!tok) return null;
+        const hit = directory.find((entry) => tok.startsWith(entry.code));
         return hit ? hit.ad : null;
+    }
+
+    // All partner ads hubbed at an airport (from the cached roster — no extra
+    // request). Used to flag airports in search results.
+    function partnersForIcao(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code || !allAds.length) return [];
+        return allAds.filter((ad) => ad.icao && ad.icao.indexOf(code) !== -1);
     }
 
     // Small inline badge for a callsign-matched partner VA. variant 'hover' is
@@ -322,7 +340,23 @@
                 background: none; border: none; color: #7dd3fc; cursor: pointer; font-weight: 700;
                 font-size: 0.82rem; padding: 0; margin-bottom: 8px; display: inline-flex; gap: 6px; align-items: center;
             }
-        `;
+
+            .va-spotlight {
+                position: fixed; left: 16px; bottom: 16px; z-index: 3500;
+                width: 300px; max-width: calc(100vw - 32px);
+                background: #121212; border: 1px solid rgba(56,189,248,0.3); border-radius: 14px;
+                overflow: hidden; box-shadow: 0 14px 44px rgba(0,0,0,0.55); cursor: pointer;
+                transform: translateY(16px); opacity: 0; transition: transform .3s ease, opacity .3s ease;
+            }
+            .va-spotlight.visible { transform: translateY(0); opacity: 1; }
+            .va-spotlight-banner { height: 70px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); }
+            .va-spotlight-body { display: flex; gap: 10px; padding: 11px 12px; align-items: flex-start; }
+            .va-spotlight-close {
+                position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 7px;
+                border: none; background: rgba(0,0,0,0.5); color: #fff; cursor: pointer; font-size: 0.8rem; z-index: 2;
+            }
+            .va-spotlight-close:hover { background: rgba(0,0,0,0.75); }
+            @media (max-width: 640px) { .va-spotlight { left: 12px; right: 12px; bottom: 84px; width: auto; } }`;
         document.head.appendChild(style);
     }
 
@@ -545,6 +579,86 @@
     }
 
     // ---------------------------------------------------------------------
+    // Occasional partner spotlight (bottom-corner toast)
+    // ---------------------------------------------------------------------
+
+    let spotlightAds = null;
+    let spotlightIdx = 0;
+    let spotlightStarted = false;
+
+    async function getSpotlightAds() {
+        if (spotlightAds) return spotlightAds;
+        try {
+            let res = await list({ featured: true, sort: 'popular', limit: 12 });
+            if (!res.ads.length) res = await list({ sort: 'popular', limit: 12 });
+            spotlightAds = res.ads;
+        } catch (e) {
+            spotlightAds = [];
+        }
+        return spotlightAds;
+    }
+
+    function showSpotlight(ad) {
+        injectStyles();
+        const prev = document.getElementById('va-spotlight');
+        if (prev) prev.remove();
+
+        const logo = ad.logo
+            ? `<img class="va-ad-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+            : `<div class="va-ad-logo"><i class="fa-solid fa-building"></i></div>`;
+        const el = document.createElement('div');
+        el.id = 'va-spotlight';
+        el.className = 'va-spotlight';
+        el.setAttribute('role', 'button');
+        el.innerHTML = `
+            <button class="va-spotlight-close" title="Dismiss" aria-label="Dismiss"><i class="fa-solid fa-xmark"></i></button>
+            ${ad.banner ? `<div class="va-spotlight-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+            <div class="va-spotlight-body">
+                ${logo}
+                <div style="min-width:0; flex:1;">
+                    <div class="va-ad-eyebrow"><i class="fa-solid fa-star"></i> Partner Spotlight</div>
+                    <div class="va-ad-name">${esc(ad.name)}</div>
+                    ${ad.tagline ? `<div class="va-ad-tag">${esc(ad.tagline)}</div>` : ''}
+                </div>
+            </div>`;
+        document.body.appendChild(el);
+        requestAnimationFrame(() => el.classList.add('visible'));
+
+        let dismissTimer = 0;
+        const close = () => {
+            clearTimeout(dismissTimer);
+            el.classList.remove('visible');
+            setTimeout(() => el.remove(), 320);
+        };
+        el.querySelector('.va-spotlight-close').addEventListener('click', (e) => { e.stopPropagation(); close(); });
+        el.addEventListener('click', () => { openPartners(ad.id); close(); });
+        dismissTimer = setTimeout(close, 9000);
+    }
+
+    async function tickSpotlight() {
+        // Never interrupt an open Partners panel, a hidden tab, or stack on a
+        // spotlight that's already showing.
+        if (document.hidden) return;
+        if (overlayEl && overlayEl.classList.contains('visible')) return;
+        if (document.getElementById('va-spotlight')) return;
+        const ads = await getSpotlightAds();
+        if (!ads.length) return;
+        const ad = ads[spotlightIdx % ads.length];
+        spotlightIdx += 1;
+        showSpotlight(ad);
+    }
+
+    function startSpotlight() {
+        if (spotlightStarted) return;
+        spotlightStarted = true;
+        // First spotlight ~45s after load, then roughly every 4 minutes.
+        setTimeout(() => {
+            tickSpotlight();
+            setInterval(tickSpotlight, 4 * 60 * 1000);
+        }, 45000);
+    }
+
+    // ---------------------------------------------------------------------
     // Toolbar launcher
     // ---------------------------------------------------------------------
 
@@ -571,8 +685,19 @@
             const el = e.target.closest && e.target.closest('.va-cs-info[data-va-ad-id]');
             if (el) { e.preventDefault(); openPartners(el.getAttribute('data-va-ad-id')); }
         });
-        // Warm the callsign directory so hover/info badges can resolve instantly.
-        loadDirectory();
+        // The simple flight window lives in an iframe and asks the host (here)
+        // to open a partner when its badge is tapped.
+        window.addEventListener('message', (e) => {
+            const d = e && e.data;
+            if (d && d.type === 'INFLIGHT_OPEN_VA_PARTNER' && d.id) openPartners(d.id);
+        });
+
+        const isTopWindow = (window === window.parent);
+        if (isTopWindow) {
+            // Warm the callsign directory so hover/info badges resolve instantly.
+            loadDirectory();
+            startSpotlight();
+        }
     }
 
     window.InflightVaAds = {
@@ -584,6 +709,7 @@
         closePartners,
         matchCallsign,
         callsignBadgeHTML,
+        partnersForIcao,
         loadDirectory
     };
 })();
