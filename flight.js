@@ -5274,9 +5274,9 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
     const arrNode = routeBar.querySelector('.route-node.end');
     const routeVisualNode = routeBar.querySelector('.route-visual');
 
-    // Flat "departure board" gate: a small grey GATE label stacked over the value.
-    const premiumGateCss = 'margin-top: 10px; display: flex; flex-direction: column; line-height: 1.3;';
-    const gateInnerHtml = (value) => `<span style="color:#64748b; font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase;">GATE</span><span style="color:#cbd5e1; font-size:13px; font-weight:800; font-family:'JetBrains Mono', monospace;">${value}</span>`;
+    // Glass gate chip with a door glyph, matching the route card material.
+    const premiumGateCss = 'margin-top: 12px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #e2e8f0; font-size: 12px; font-weight: 600; width: fit-content;';
+    const gateInnerHtml = (value, icon) => `<i class="fa-solid ${icon}" style="color:#94a3b8; font-size:11px;"></i> Gate ${value}`;
 
     // 2. Inject the Departure Gate HTML
     if (depNode) {
@@ -5290,7 +5290,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
             depGateEl.style.cssText = premiumGateCss;
             depNode.appendChild(depGateEl);
         }
-        depGateEl.innerHTML = gateInnerHtml(filedPlan.dep_gate || '—');
+        depGateEl.innerHTML = gateInnerHtml(filedPlan.dep_gate || '---', 'fa-door-open');
     }
 
     // 3. Inject the Arrival Gate HTML
@@ -5306,7 +5306,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
             arrGateEl.style.cssText = premiumGateCss;
             arrNode.appendChild(arrGateEl);
         }
-        arrGateEl.innerHTML = gateInnerHtml(filedPlan.arr_gate || '—');
+        arrGateEl.innerHTML = gateInnerHtml(filedPlan.arr_gate || '---', 'fa-door-closed');
     }
 
     // 4. Inject Premium Schedule Status Centered
@@ -5406,9 +5406,9 @@ function injectGateInfoUI(departureIcao, flownPath) {
     const routeBar = document.querySelector('.ac-route-info-bar');
     if (!routeBar) return;
 
-    // Flat "departure board" gate: small grey GATE label stacked over the value.
-    const flatGateCss = 'margin-top: 10px; display: flex; flex-direction: column; line-height: 1.3;';
-    const gateInnerHtml = (value) => `<span style="color:#64748b; font-size:8px; font-weight:700; letter-spacing:1px; text-transform:uppercase;">GATE</span><span style="color:#cbd5e1; font-size:13px; font-weight:800; font-family:'JetBrains Mono', monospace;">${value}</span>`;
+    // Glass gate chip with a door glyph, matching the route card material.
+    const flatGateCss = 'margin-top: 12px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #e2e8f0; font-size: 12px; font-weight: 600; width: fit-content;';
+    const gateInnerHtml = (value, icon) => `<i class="fa-solid ${icon}" style="color:#94a3b8; font-size:11px;"></i> Gate ${value}`;
 
     // 1. Locate the left (Departure) and right (Arrival) node containers
     const depNode = routeBar.querySelector('.route-node:not(.end)');
@@ -5424,7 +5424,7 @@ function injectGateInfoUI(departureIcao, flownPath) {
             depGateEl = document.createElement('span');
             depGateEl.id = 'ac-dep-gate';
             depGateEl.style.cssText = flatGateCss;
-            depGateEl.innerHTML = gateInnerHtml('…');
+            depGateEl.innerHTML = gateInnerHtml('…', 'fa-door-open');
             depNode.appendChild(depGateEl);
         }
     }
@@ -5440,7 +5440,7 @@ function injectGateInfoUI(departureIcao, flownPath) {
             arrGateEl = document.createElement('span');
             arrGateEl.id = 'ac-arr-gate';
             arrGateEl.style.cssText = flatGateCss;
-            arrGateEl.innerHTML = gateInnerHtml('—');
+            arrGateEl.innerHTML = gateInnerHtml('---', 'fa-door-closed');
             arrNode.appendChild(arrGateEl);
         }
     }
@@ -5451,11 +5451,11 @@ function injectGateInfoUI(departureIcao, flownPath) {
         const arrGateEl = document.getElementById('ac-arr-gate');
         
         if (depGateEl) {
-            depGateEl.innerHTML = gateInnerHtml(gates.departureGate !== '---' ? gates.departureGate : '—');
+            depGateEl.innerHTML = gateInnerHtml(gates.departureGate !== '---' ? gates.departureGate : '---', 'fa-door-open');
         }
 
         if (arrGateEl) {
-            arrGateEl.innerHTML = gateInnerHtml(gates.arrivalGate && gates.arrivalGate !== '---' ? gates.arrivalGate : '—');
+            arrGateEl.innerHTML = gateInnerHtml(gates.arrivalGate && gates.arrivalGate !== '---' ? gates.arrivalGate : '---', 'fa-door-closed');
         }
     });
 }
@@ -16727,9 +16727,24 @@ let totalDistanceNM = 0;
 
         </div>
 
-        <div class="ac-route-bar-backdrop" style="background: #1f1f1f; position: relative;">
-        <div class="ac-route-info-bar" style=" background: #1f1f1f; margin: -32px 0 0 0; padding: 16px 22px 18px; border: none; border-radius: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-shrink: 0; position: relative; z-index: 5;">
-            <div class="route-node">
+        <div class="ac-route-bar-backdrop" style="background: transparent; position: relative;">
+        <div class="ac-route-info-bar" style=" background: linear-gradient(180deg, rgba(20,22,28,0.74), rgba(15,17,21,0.9)); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); margin: -28px 14px 0 14px; padding: 18px 22px 16px; border: 1px solid rgba(255,255,255,0.09); border-radius: 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-shrink: 0; position: relative; z-index: 5; overflow: hidden; box-shadow: 0 16px 40px rgba(0,0,0,0.45);">
+            <svg class="route-arc" viewBox="0 0 1000 240" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible;">
+                <defs>
+                    <linearGradient id="acArcGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0" stop-color="#0ea5e9"/>
+                        <stop offset="0.5" stop-color="#7dd3fc"/>
+                        <stop offset="1" stop-color="#0ea5e9"/>
+                    </linearGradient>
+                    <filter id="acArcGlow" x="-20%" y="-80%" width="140%" height="260%">
+                        <feGaussianBlur stdDeviation="4" result="b"/>
+                        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                </defs>
+                <path d="M 40 182 C 290 92, 710 92, 960 182" fill="none" stroke="rgba(56,189,248,0.16)" stroke-width="2" stroke-linecap="round"/>
+                <path id="ac-progress-arc" d="M 40 182 C 290 92, 710 92, 960 182" fill="none" stroke="url(#acArcGrad)" stroke-width="2.5" stroke-linecap="round" filter="url(#acArcGlow)" pathLength="100" stroke-dasharray="100" stroke-dashoffset="${(100 - progress).toFixed(1)}"/>
+            </svg>
+            <div class="route-node" style="position: relative; z-index: 1;">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
         <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
             ${departureIcaoHtml}
@@ -16739,28 +16754,13 @@ let totalDistanceNM = 0;
         <span class="time-source-label" id="ac-bar-atd-label" style="color: ${depTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${depTimeInfo.label}</span>
     </div>
             
-            <div class="route-visual" style="flex: 1; max-width: 260px; display: flex; flex-direction: column; align-items: center; gap: 5px; padding-top: 1px;">
-                <i class="fa-solid fa-plane" style="color: #e2e8f0; font-size: 15px; filter: drop-shadow(0 0 6px rgba(56,189,248,0.35));"></i>
-                <div class="phase-badge-route" style="display: inline-flex; align-items: center; gap: 5px;">
-                    <div class="phase-dot" id="ac-phase-dot" style="width: 5px; height: 5px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-                    <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #94a3b8; letter-spacing: 1.2px; text-transform: uppercase;">${flightPhase}</span>
-                </div>
-                <div class="flight-progress-track" style="width: 100%; height: 2px; background: rgba(255,255,255,0.14); border-radius: 2px; position: relative; margin: 5px 0 8px 0;">
-                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: linear-gradient(90deg, #0ea5e9, #38bdf8); height: 100%; border-radius: 2px; transition: width 0.5s ease;"></div>
-                </div>
-                <div style="display: flex; align-items: flex-start; justify-content: center; gap: 26px; width: 100%;">
-                    <div style="text-align: center;">
-                        <div style="font-size: 14px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; line-height: 1;">${Math.round(totalDistanceNM)}</div>
-                        <div style="font-size: 8px; font-weight: 700; color: #64748b; letter-spacing: 1px; margin-top: 4px;">NM</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 14px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; line-height: 1;">${ete}</div>
-                        <div style="font-size: 8px; font-weight: 700; color: #64748b; letter-spacing: 1px; margin-top: 4px;">ETE</div>
-                    </div>
-                </div>
+            <div class="route-visual" style="flex: 1; max-width: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; position: relative; z-index: 1;">
+                <span id="ac-phase-text" style="font-size: 13px; font-weight: 700; color: #cbd5e1; letter-spacing: 2.5px; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0,0,0,0.5);">${flightPhase}</span>
+                <i class="fa-solid fa-plane" style="color: #fff; font-size: 17px; transform: rotate(45deg); filter: drop-shadow(0 0 7px #38bdf8) drop-shadow(0 0 16px rgba(56,189,248,0.65));"></i>
+                <div style="font-size: 13px; font-weight: 700; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; white-space: nowrap; text-shadow: 0 1px 6px rgba(0,0,0,0.5);">${Math.round(totalDistanceNM)} NM <span style="color: #64748b; margin: 0 5px;">•</span> ETE ${ete}</div>
             </div>
 
-            <div class="route-node end" style="text-align: right; align-items: flex-end;">
+            <div class="route-node end" style="text-align: right; align-items: flex-end; position: relative; z-index: 1;">
                 <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
                 <span class="icao-large" style="display: flex; align-items: center; gap: 8px; flex-direction: row-reverse; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
                     ${arrivalIcaoHtml}
@@ -18281,7 +18281,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
     
     }
 
-    styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
+    document.querySelectorAll('#ac-progress-arc').forEach(el => { el.style.strokeDashoffset = (100 - progress).toFixed(1); });
     updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
 
     const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
