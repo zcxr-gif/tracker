@@ -425,7 +425,6 @@ export const MobileSettingsUI = {
             <div class="m-settings-list">
                 ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
                 ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
-                ${this.renderVaFilterRow()}
                 ${this.renderToggle('showGroupFlights', 'Show Group Flights', 'fa-users')}
                 ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
             </div>
@@ -954,28 +953,6 @@ export const MobileSettingsUI = {
                 <div class="m-row-right">
                     <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
                     <input type="color" class="m-color-picker" data-setting="${setting}" value="${value}" data-pro="true">
-                </div>
-            </div>
-        `;
-    },
-
-    // Dropdown that filters the map to a single Virtual Airline (by callsign
-    // code). Options come from window.IFVA_DATABASE (the IFVARB directory).
-    renderVaFilterRow() {
-        const options = (window.IFVA_DATABASE || [])
-            .map(va => `<option value="${va.code}">${va.name}${va.approx ? ' *' : ''}</option>`)
-            .join('');
-        return `
-            <div class="m-setting-row">
-                <div class="m-row-left">
-                    <i class="fa-solid fa-plane-circle-check"></i>
-                    <span>Show VA</span>
-                </div>
-                <div class="m-row-right">
-                    <select class="m-select" data-setting="vaFilter" style="max-width: 150px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 6px 8px; font-size: 0.8rem;">
-                        <option value="">All Airlines</option>
-                        ${options}
-                    </select>
                 </div>
             </div>
         `;

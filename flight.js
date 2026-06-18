@@ -10,9 +10,6 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
-// Populates window.IFVA_DATABASE (the IFVARB Virtual Airline directory) used
-// by the VA filter. Side-effect import — runs before any filter code below.
-import './va-database.js';
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
@@ -652,7 +649,6 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
-        vaFilter: '', // Callsign code of a specific VA to show (e.g. 'DLVA'); '' = all VAs
         showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -8029,13 +8025,6 @@ function updateAircraftLayerFilter() {
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
 
-    // Specific Virtual Airline filter: show only flights whose callsign begins
-    // with the selected VA's registered code (e.g. 'DLVA' matches 'DLVA123').
-    if (mapFilters.vaFilter && mapFilters.vaFilter.trim() !== '') {
-        const vaCode = mapFilters.vaFilter.toUpperCase();
-        filter.push(['==', ['slice', ['upcase', ['get', 'callsign']], 0, vaCode.length], vaCode]);
-    }
-
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
 
@@ -8164,7 +8153,6 @@ function updateAircraftLayerFilter() {
         if (openFiltersBtn) {
             // Check if any filter in mapFilters is true
             const isFilterActive = mapFilters.showVaOnly ||
-                                   !!mapFilters.vaFilter ||
                                    mapFilters.hideAtcMarkers ||
                                    mapFilters.hideNoAtcMarkers; // Use the state object
             openFiltersBtn.classList.toggle('active', isFilterActive);
@@ -10711,6 +10699,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             ${featureStripHtml}
 
             <div style="flex-grow: 1; overflow-y: auto;">
+                <div id="apt-va-banner" class="va-ad-banner-slot"></div>
                 <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
 
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
@@ -14065,15 +14054,6 @@ renderCategory(catId) {
             live3dToggle.addEventListener('change', (e) => setLive3DTraffic(e.target.checked));
         }
 
-        // Virtual Airline Filter Select
-        const vaFilterSelect = document.getElementById('set-va-filter');
-        if (vaFilterSelect) {
-            vaFilterSelect.addEventListener('change', (e) => {
-                update('vaFilter', e.target.value);
-                if (typeof updateToolbarButtonStates === 'function') updateToolbarButtonStates();
-            });
-        }
-
         // Plane Size Input
         const planeSizeInput = document.getElementById('set-plane-size');
         const planeSizeDisplay = document.getElementById('plane-size-display');
@@ -15656,6 +15636,13 @@ async function handleAirportClick(icao, event = null, recenter = false) {
                     const targetContent = contentEl.querySelector(`#${targetId}`);
                     if (targetContent) targetContent.classList.add('active');
                 });
+            }
+
+            // VA-Ads: drop in banner(s) for partner VAs hubbed at this field.
+            // Async + best-effort so an unreachable ads service never blocks
+            // or breaks the airport window.
+            if (window.InflightVaAds && typeof window.InflightVaAds.hydrateAirportBanner === 'function') {
+                window.InflightVaAds.hydrateAirportBanner(contentEl, icao);
             }
         } else if (!windowContentHTML) {
             closeAirportWindow();
