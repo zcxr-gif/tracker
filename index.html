@@ -78,15 +78,8 @@
 
     <link rel="stylesheet" href="panel-styles.css">
 
-    <!-- Toastify is loaded from a CDN with a fallback so a blocked/redirect-looping
-         primary host can't break notifications. unpkg is primary because jsdelivr
-         is the host most often hit by browser tracking-prevention blockers. -->
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/toastify-js@1.12.0/src/toastify.min.css"
-          onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css';">
-    <script type="text/javascript" src="https://unpkg.com/toastify-js@1.12.0/src/toastify.js"
-            onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/toastify-js@1.12.0';document.head.appendChild(s);"></script>
-    <script>/* never let a missing Toastify throw and halt a code path */
-        window.Toastify = window.Toastify || function () { return { showToast: function () {} }; };</script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
