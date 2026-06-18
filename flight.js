@@ -17021,6 +17021,10 @@ let totalDistanceNM = 0;
                     </div>
                 </div>
 
+                <!-- VA partner ad: the flight's own VA, falling back to route-hub
+                     partners. Hidden until hydrated so it adds no empty gap. -->
+                <div id="ac-va-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
+
                 <!-- Hidden legacy elements: FMS-view footer copies their innerHTML/textContent. Keep them so legacy code keeps working. -->
                 <span id="ac-dist" style="display:none;"></span>
                 <span id="ac-ete" style="display:none;"></span>
@@ -17182,7 +17186,39 @@ let totalDistanceNM = 0;
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
+
+        // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
+        // it to a logo-only chip a few seconds after the window opens (hovering or
+        // focusing re-expands it, via CSS). The badge only exists when the flight's
+        // callsign matches a partner VA, so this no-ops otherwise.
+        const partnerBadge = overviewPanel.querySelector('.ac-partner-hero .va-cs-info');
+        if (partnerBadge && partnerBadge.dataset.vaWired !== '1') {
+            partnerBadge.dataset.vaWired = '1';
+            const adId = partnerBadge.getAttribute('data-va-ad-id');
+            if (adId && window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') {
+                const openVa = () => window.InflightVaAds.openPartners(adId);
+                partnerBadge.addEventListener('click', openVa);
+                partnerBadge.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVa(); }
+                });
+            }
+            setTimeout(() => {
+                if (document.body.contains(partnerBadge)) partnerBadge.classList.add('va-cs-collapsed');
+            }, 4000);
+        }
     });
+
+    // In-window VA ad beneath the ND/FMC display: prefer the flight's own VA,
+    // fall back to route-hub partners. Defensive — never blocks the window.
+    if (window.InflightVaAds && typeof window.InflightVaAds.hydrateFlightBanner === 'function') {
+        try {
+            window.InflightVaAds.hydrateFlightBanner(windowEl, {
+                callsign: baseProps.callsign,
+                depIcao: departureIcao,
+                arrIcao: arrivalIcao
+            });
+        } catch (e) { /* ads must never break the flight window */ }
+    }
 
     // --- SENSOR TIMER LOGIC ---
     const updateSensorTimers = () => {
