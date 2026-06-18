@@ -10393,38 +10393,44 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
                 metarString = w.raw;
 
-                if (rawAtisText) {
-                    const atis = parseAtis(rawAtisText);
-                    const infoPill = `<span style="color: #fbbf24; border: 1px solid #fbbf24; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">INFO ${atis.info}</span>`;
-                    const remarksHtml = atis.remarks ? `<div class="apt-mini-footer" title="${atis.remarks}"><i class="fa-solid fa-circle-info"></i> ${atis.remarks}</div>` : '';
-
+                // Unified OPERATIONS card: one module that always shows the
+                // active arrival/departure runways, approach and wind. It uses
+                // live ATIS when the field is broadcasting and otherwise falls
+                // back to a wind-based estimate — clearly badged either way so
+                // the two sources are never mistaken for one another.
+                {
+                    let arrRwy, depRwy, appr, sourcePill, footerHtml;
+                    if (rawAtisText) {
+                        const atis = parseAtis(rawAtisText);
+                        arrRwy = atis.landing || '---';
+                        depRwy = atis.departing || '---';
+                        appr = atis.approach || '---';
+                        sourcePill = `<span style="color:#fbbf24;border:1px solid #fbbf24;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ATIS ${atis.info}</span>`;
+                        const note = atis.remarks
+                            ? `<i class="fa-solid fa-circle-info"></i> ${atis.remarks}`
+                            : `<i class="fa-solid fa-tower-broadcast"></i> Live ATIS${atis.time ? ` · ${atis.time}` : ''}`;
+                        footerHtml = `<div class="apt-mini-footer" title="${atis.remarks || 'Live ATIS'}">${note}</div>`;
+                    } else {
+                        const recs = getRunwayRecommendations(airportRunways, w.wind);
+                        const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/') || '---';
+                        arrRwy = activeRunways;
+                        depRwy = activeRunways;
+                        appr = 'VISUAL';
+                        sourcePill = `<span style="color:#94a3b8;border:1px solid #475569;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ESTIMATED</span>`;
+                        footerHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no live ATIS</div>`;
+                    }
                     atisModuleHtml = `
                     <div class="apt-mini-module">
-                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${infoPill}</div>
-                        <div class="apt-mini-body" style="padding-bottom: ${atis.remarks ? '0' : '10px'};">
+                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> OPERATIONS</span>${sourcePill}</div>
+                        <div class="apt-mini-body" style="padding-bottom: 0;">
                             <div class="stat-grid-compact">
-                                <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${atis.landing}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${atis.departing}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${atis.approach}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">TIME</span><span class="compact-value">${atis.time}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${arrRwy}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${depRwy}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${appr}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color:#fbbf24;">${w.wind}</span></div>
                             </div>
                         </div>
-                        ${remarksHtml}
-                    </div>`;
-                } else {
-                    const recs = getRunwayRecommendations(airportRunways, w.wind);
-                    const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/');
-                    atisModuleHtml = `
-                    <div class="apt-mini-module">
-                        <div class="apt-mini-header"><span><i class="fa-solid fa-calculator"></i> EST. OPS</span><span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span></div>
-                        <div class="apt-mini-body">
-                            <div class="stat-grid-compact">
-                                <div class="compact-stat-box"><span class="compact-label">EST ARR</span><span class="compact-value" style="color: #4ade80;">${activeRunways || '---'}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">EST DEP</span><span class="compact-value" style="color: #38bdf8;">${activeRunways || '---'}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value">${w.wind}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">STATUS</span><span class="compact-value">CALC</span></div>
-                            </div>
-                        </div>
+                        ${footerHtml}
                     </div>`;
                 }
 

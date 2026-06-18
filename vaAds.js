@@ -142,20 +142,11 @@
         style.id = 'va-ads-styles';
         style.textContent = `
             .va-ad-banner-slot { margin: 16px; }
-            .va-ad-banner {
-                display: flex; align-items: center; gap: 12px;
-                padding: 12px 14px; border-radius: 12px; cursor: pointer;
-                border: 1px solid rgba(255,255,255,0.08);
-                background: linear-gradient(135deg, rgba(56,189,248,0.12), rgba(23,23,23,0.55));
-                transition: transform .15s ease, border-color .15s ease;
-            }
-            .va-ad-banner:hover { transform: translateY(-1px); border-color: rgba(56,189,248,0.4); }
-            .va-ad-banner .va-ad-logo {
+            .va-ad-logo {
                 width: 44px; height: 44px; border-radius: 10px; object-fit: cover;
                 background: rgba(0,0,0,0.35); flex: 0 0 auto;
                 display: flex; align-items: center; justify-content: center; color: #7dd3fc;
             }
-            .va-ad-banner .va-ad-meta { min-width: 0; flex: 1; }
             .va-ad-eyebrow {
                 font-size: 0.6rem; font-weight: 800; letter-spacing: .08em;
                 text-transform: uppercase; color: #7dd3fc; display: flex; gap: 8px; align-items: center;
@@ -168,6 +159,22 @@
                 background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.35);
             }
             .va-ad-pill.va-ad-pill-featured { background: rgba(250,204,21,0.15); color: #facc15; border-color: rgba(250,204,21,0.35); }
+
+            .va-ad-feature {
+                position: relative; cursor: pointer; overflow: hidden; border-radius: 14px;
+                border: 1px solid rgba(255,255,255,0.08);
+                background: linear-gradient(135deg, rgba(56,189,248,0.10), rgba(23,23,23,0.55));
+                transition: border-color .15s ease, transform .15s ease;
+            }
+            .va-ad-feature:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-1px); }
+            .va-ad-feature-card { transition: opacity .25s ease; }
+            .va-ad-feature-banner { height: 84px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
+            .va-ad-feature-body { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; }
+            .va-ad-feature-meta { min-width: 0; flex: 1; }
+            .va-ad-feature .va-ad-name { white-space: normal; }
+            .va-ad-dots { display: flex; gap: 5px; justify-content: center; padding: 0 0 10px; }
+            .va-ad-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
+            .va-ad-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
             .va-partners-overlay {
                 position: fixed; inset: 0; z-index: 4000;
@@ -235,37 +242,85 @@
     // Airport-window banner
     // ---------------------------------------------------------------------
 
-    function bannerCardHTML(ad) {
+    // Rotation timer for the airport banner. When several VAs share the same
+    // hub we never stack them all at once — we show one card and quietly cycle
+    // through them so each partner gets fair exposure.
+    let bannerRotateTimer = null;
+
+    // Inner markup of one feature card (banner image + logo + meta), styled
+    // like the Partners-tab cards rather than the old single-line strip.
+    function featureCardInner(ad) {
         const logo = ad.logo
             ? `<img class="va-ad-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
             : `<div class="va-ad-logo"><i class="fa-solid fa-building"></i></div>`;
         const pills = [];
         if (ad.featured) pills.push('<span class="va-ad-pill va-ad-pill-featured">Featured</span>');
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
+        const chips = (ad.tags || []).slice(0, 3).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
         return `
-            <div class="va-ad-banner" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
+            ${ad.banner ? `<div class="va-ad-feature-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+            <div class="va-ad-feature-body">
                 ${logo}
-                <div class="va-ad-meta">
+                <div class="va-ad-feature-meta">
                     <div class="va-ad-eyebrow"><i class="fa-solid fa-handshake-angle"></i> VA Partner ${pills.join(' ')}</div>
                     <div class="va-ad-name">${esc(ad.name)}</div>
                     ${ad.tagline ? `<div class="va-ad-tag">${esc(ad.tagline)}</div>` : ''}
+                    ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
                 </div>
-                <i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4)"></i>
+                <i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>
             </div>`;
     }
 
     async function hydrateAirportBanner(container, icao) {
         injectStyles();
+        if (bannerRotateTimer) { clearInterval(bannerRotateTimer); bannerRotateTimer = null; }
         const root = container || document;
         const slot = root.querySelector ? root.querySelector('#apt-va-banner') : null;
         if (!slot) return;
         try {
-            const ads = await banner(icao, { limit: 3 });
+            const ads = await banner(icao, { limit: 8 });
             if (!ads.length) { slot.innerHTML = ''; return; }
-            slot.innerHTML = ads.map(bannerCardHTML).join('');
-            slot.querySelectorAll('[data-va-ad-id]').forEach((el) => {
-                el.addEventListener('click', () => openPartners(el.getAttribute('data-va-ad-id')));
-            });
+
+            slot.innerHTML = `
+                <div class="va-ad-feature" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
+                    <div class="va-ad-feature-card"></div>
+                    ${ads.length > 1 ? '<div class="va-ad-dots"></div>' : ''}
+                </div>`;
+            const featureEl = slot.querySelector('.va-ad-feature');
+            const cardEl = slot.querySelector('.va-ad-feature-card');
+            const dotsEl = slot.querySelector('.va-ad-dots');
+
+            let idx = 0;
+            const render = () => {
+                const ad = ads[idx];
+                featureEl.setAttribute('data-va-ad-id', ad.id);
+                cardEl.innerHTML = featureCardInner(ad);
+                if (dotsEl) {
+                    dotsEl.innerHTML = ads
+                        .map((_, i) => `<span class="va-ad-dot${i === idx ? ' is-active' : ''}"></span>`)
+                        .join('');
+                }
+            };
+            render();
+
+            featureEl.addEventListener('click', () => openPartners(featureEl.getAttribute('data-va-ad-id')));
+
+            if (ads.length > 1) {
+                bannerRotateTimer = setInterval(() => {
+                    // Stop once the airport window (and this slot) is gone.
+                    if (!document.body.contains(cardEl)) {
+                        clearInterval(bannerRotateTimer);
+                        bannerRotateTimer = null;
+                        return;
+                    }
+                    cardEl.style.opacity = '0';
+                    setTimeout(() => {
+                        idx = (idx + 1) % ads.length;
+                        render();
+                        cardEl.style.opacity = '1';
+                    }, 220);
+                }, 6000);
+            }
         } catch (e) {
             // A missing/unreachable ads service must never break the airport panel.
             slot.innerHTML = '';
