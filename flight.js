@@ -5373,7 +5373,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
         // Schedule status pill mirrors the route card's material (grey, rounded,
         // bordered, soft shadow); the live status color stays on the dot + text.
         statusEl.style.cssText = `
-            margin-top: 14px;
+            margin-top: 0;
             padding: 4px 12px;
             background: #2e3036;
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -16734,10 +16734,6 @@ let totalDistanceNM = 0;
 
         <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
-            <div class="phase-badge-route" style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 10px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.35);">
-                <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-                <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
-            </div>
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
         <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
@@ -16748,15 +16744,29 @@ let totalDistanceNM = 0;
         <span class="time-source-label" id="ac-bar-atd-label" style="color: ${depTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${depTimeInfo.label}</span>
     </div>
             
-            <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-                <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-<div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(0deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
-</div>
+            <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px;">
+                <div class="phase-badge-route" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 20px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.35);">
+                    <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
+                    <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.6px; text-transform: uppercase;">${flightPhase}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
-                    <span>${Math.round(totalDistanceNM)} NM</span>
-                    <span>ETE: ${ete}</span>
+                <div style="display: flex; align-items: center; width: 100%; gap: 7px;">
+                    <div style="width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; box-shadow: 0 0 6px rgba(203,213,225,0.4);"></div>
+                    <div class="flight-progress-track" style="flex: 1; height: 4px; background: rgba(255,255,255,0.12); border-radius: 4px; position: relative;">
+                        <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: linear-gradient(90deg, #0ea5e9, #38bdf8); height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
+                            <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(0deg); color: #fff; font-size: 11px; filter: drop-shadow(0 0 5px #38bdf8);"></i>
+                        </div>
+                    </div>
+                    <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45); flex-shrink: 0;"></div>
+                </div>
+                <div style="display: flex; align-items: stretch; justify-content: center; gap: 8px; width: 100%;">
+                    <div style="flex: 1; text-align: center; background: #2e3036; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 4px 6px;">
+                        <div style="font-size: 12px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${Math.round(totalDistanceNM)}</div>
+                        <div style="font-size: 7px; font-weight: 700; color: #94a3b8; letter-spacing: 1px; margin-top: 2px;">NM</div>
+                    </div>
+                    <div style="flex: 1; text-align: center; background: #2e3036; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 4px 6px;">
+                        <div style="font-size: 12px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">${ete}</div>
+                        <div style="font-size: 7px; font-weight: 700; color: #94a3b8; letter-spacing: 1px; margin-top: 2px;">ETE</div>
+                    </div>
                 </div>
             </div>
 
