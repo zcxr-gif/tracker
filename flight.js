@@ -10,9 +10,6 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
-// Populates window.IFVA_DATABASE (the IFVARB Virtual Airline directory) used
-// by the VA filter. Side-effect import — runs before any filter code below.
-import './va-database.js';
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
@@ -652,7 +649,6 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
-        vaFilter: '', // Callsign code of a specific VA to show (e.g. 'DLVA'); '' = all VAs
         showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -6966,6 +6962,12 @@ function renderFlightRow(entry) {
 
 function renderAirportRow(entry) {
     const a = entry.airport;
+    const vaCount = (window.InflightVaAds && window.InflightVaAds.partnersForIcao)
+        ? window.InflightVaAds.partnersForIcao(a.icao).length
+        : 0;
+    const vaFlag = vaCount
+        ? `<span class="search-va-flag" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;font-size:0.68rem;font-weight:700;color:#7dd3fc;"><i class="fa-solid fa-handshake-angle"></i> ${vaCount} VA partner${vaCount > 1 ? 's' : ''} hub here</span>`
+        : '';
     return `
         <div class="search-result-item"
              onclick="onAirportSearchResultClick(this)"
@@ -6978,6 +6980,7 @@ function renderAirportRow(entry) {
             <div class="search-result-info">
                 <strong>${escapeHtml(a.icao)} <span style="font-size:0.75rem;color:#9fa8da;font-weight:500;">${escapeHtml(a.country || '')}</span></strong>
                 <small>${escapeHtml(a.name || '')}</small>
+                ${vaFlag}
             </div>
         </div>
     `;
@@ -8029,13 +8032,6 @@ function updateAircraftLayerFilter() {
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
 
-    // Specific Virtual Airline filter: show only flights whose callsign begins
-    // with the selected VA's registered code (e.g. 'DLVA' matches 'DLVA123').
-    if (mapFilters.vaFilter && mapFilters.vaFilter.trim() !== '') {
-        const vaCode = mapFilters.vaFilter.toUpperCase();
-        filter.push(['==', ['slice', ['upcase', ['get', 'callsign']], 0, vaCode.length], vaCode]);
-    }
-
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
 
@@ -8164,7 +8160,6 @@ function updateAircraftLayerFilter() {
         if (openFiltersBtn) {
             // Check if any filter in mapFilters is true
             const isFilterActive = mapFilters.showVaOnly ||
-                                   !!mapFilters.vaFilter ||
                                    mapFilters.hideAtcMarkers ||
                                    mapFilters.hideNoAtcMarkers; // Use the state object
             openFiltersBtn.classList.toggle('active', isFilterActive);
@@ -8721,14 +8716,37 @@ function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
                         const lookupContributors = (Array.isArray(data.imageContributors) && data.imageContributors.length)
                             ? data.imageContributors
                             : [{ name: data.contributorName || 'IF Community', id: data.contributorId || null }];
+
+                        // When an airframe has more than one photo, randomise
+                        // which one is primary (and the carousel order) so repeat
+                        // views aren't always the same shot. URLs and their
+                        // contributors are shuffled together to stay aligned, and
+                        // the result is cached so the pick is stable per airframe
+                        // for this session.
+                        let orderedUrls = lookupUrls;
+                        let orderedContributors = lookupContributors;
+                        if (lookupUrls.length > 1) {
+                            const fallbackContributor = { name: data.contributorName || 'IF Community', id: data.contributorId || null };
+                            const pairs = lookupUrls.map((u, i) => ({
+                                u,
+                                c: lookupContributors[i] || lookupContributors[0] || fallbackContributor
+                            }));
+                            for (let i = pairs.length - 1; i > 0; i--) {
+                                const j = Math.floor(Math.random() * (i + 1));
+                                [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+                            }
+                            orderedUrls = pairs.map((p) => p.u);
+                            orderedContributors = pairs.map((p) => p.c);
+                        }
+
                         const result = {
                             // Legacy single-image fields mirror the first photo so
                             // every existing consumer keeps working untouched.
-                            communityImageUrl: lookupUrls[0],
-                            contributorName: lookupContributors[0]?.name || data.contributorName || 'IF Community',
+                            communityImageUrl: orderedUrls[0],
+                            contributorName: orderedContributors[0]?.name || data.contributorName || 'IF Community',
                             // Full ordered set (up to 3) for the multi-image carousel.
-                            communityImageUrls: lookupUrls,
-                            imageContributors: lookupContributors,
+                            communityImageUrls: orderedUrls,
+                            imageContributors: orderedContributors,
                             tailNumber: data.tailNumber || null
                         };
                         communityAircraftCache.set(key, result); // Cache Success
@@ -10405,38 +10423,44 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
                 metarString = w.raw;
 
-                if (rawAtisText) {
-                    const atis = parseAtis(rawAtisText);
-                    const infoPill = `<span style="color: #fbbf24; border: 1px solid #fbbf24; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">INFO ${atis.info}</span>`;
-                    const remarksHtml = atis.remarks ? `<div class="apt-mini-footer" title="${atis.remarks}"><i class="fa-solid fa-circle-info"></i> ${atis.remarks}</div>` : '';
-
+                // Unified OPERATIONS card: one module that always shows the
+                // active arrival/departure runways, approach and wind. It uses
+                // live ATIS when the field is broadcasting and otherwise falls
+                // back to a wind-based estimate — clearly badged either way so
+                // the two sources are never mistaken for one another.
+                {
+                    let arrRwy, depRwy, appr, sourcePill, footerHtml;
+                    if (rawAtisText) {
+                        const atis = parseAtis(rawAtisText);
+                        arrRwy = atis.landing || '---';
+                        depRwy = atis.departing || '---';
+                        appr = atis.approach || '---';
+                        sourcePill = `<span style="color:#fbbf24;border:1px solid #fbbf24;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ATIS ${atis.info}</span>`;
+                        const note = atis.remarks
+                            ? `<i class="fa-solid fa-circle-info"></i> ${atis.remarks}`
+                            : `<i class="fa-solid fa-tower-broadcast"></i> Live ATIS${atis.time ? ` · ${atis.time}` : ''}`;
+                        footerHtml = `<div class="apt-mini-footer" title="${atis.remarks || 'Live ATIS'}">${note}</div>`;
+                    } else {
+                        const recs = getRunwayRecommendations(airportRunways, w.wind);
+                        const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/') || '---';
+                        arrRwy = activeRunways;
+                        depRwy = activeRunways;
+                        appr = 'VISUAL';
+                        sourcePill = `<span style="color:#94a3b8;border:1px solid #475569;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ESTIMATED</span>`;
+                        footerHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no live ATIS</div>`;
+                    }
                     atisModuleHtml = `
                     <div class="apt-mini-module">
-                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${infoPill}</div>
-                        <div class="apt-mini-body" style="padding-bottom: ${atis.remarks ? '0' : '10px'};">
+                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> OPERATIONS</span>${sourcePill}</div>
+                        <div class="apt-mini-body" style="padding-bottom: 0;">
                             <div class="stat-grid-compact">
-                                <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${atis.landing}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${atis.departing}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${atis.approach}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">TIME</span><span class="compact-value">${atis.time}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${arrRwy}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">DEP RWY</span><span class="compact-value" style="color: #38bdf8;">${depRwy}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">APPR</span><span class="compact-value">${appr}</span></div>
+                                <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color:#fbbf24;">${w.wind}</span></div>
                             </div>
                         </div>
-                        ${remarksHtml}
-                    </div>`;
-                } else {
-                    const recs = getRunwayRecommendations(airportRunways, w.wind);
-                    const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/');
-                    atisModuleHtml = `
-                    <div class="apt-mini-module">
-                        <div class="apt-mini-header"><span><i class="fa-solid fa-calculator"></i> EST. OPS</span><span style="color: #94a3b8; border: 1px solid #475569; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">NO ATIS</span></div>
-                        <div class="apt-mini-body">
-                            <div class="stat-grid-compact">
-                                <div class="compact-stat-box"><span class="compact-label">EST ARR</span><span class="compact-value" style="color: #4ade80;">${activeRunways || '---'}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">EST DEP</span><span class="compact-value" style="color: #38bdf8;">${activeRunways || '---'}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value">${w.wind}</span></div>
-                                <div class="compact-stat-box"><span class="compact-label">STATUS</span><span class="compact-value">CALC</span></div>
-                            </div>
-                        </div>
+                        ${footerHtml}
                     </div>`;
                 }
 
@@ -10711,6 +10735,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             ${featureStripHtml}
 
             <div style="flex-grow: 1; overflow-y: auto;">
+                <div id="apt-va-banner" class="va-ad-banner-slot"></div>
                 <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
 
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
@@ -12504,6 +12529,14 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         },
         username: flightProps.username,
         callsign: flightProps.callsign,
+        isVAMember: !!flightProps.isVAMember,
+        // Partner VA matched from the callsign (leading word), passed through so
+        // the simple window can show the same badge as the full window.
+        vaPartner: (function () {
+            if (typeof window === 'undefined' || !window.InflightVaAds || !window.InflightVaAds.matchCallsign) return null;
+            const _ad = window.InflightVaAds.matchCallsign(flightProps.callsign);
+            return _ad ? { id: _ad.id, name: _ad.name, logo: _ad.logo } : null;
+        })(),
         // Compact altitude/speed series for the simple window's Speed & Altitude
         // graph (downsampled here so the postMessage payload stays small).
         chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
@@ -14063,15 +14096,6 @@ renderCategory(catId) {
         const live3dToggle = document.getElementById('set-3d-traffic');
         if (live3dToggle) {
             live3dToggle.addEventListener('change', (e) => setLive3DTraffic(e.target.checked));
-        }
-
-        // Virtual Airline Filter Select
-        const vaFilterSelect = document.getElementById('set-va-filter');
-        if (vaFilterSelect) {
-            vaFilterSelect.addEventListener('change', (e) => {
-                update('vaFilter', e.target.value);
-                if (typeof updateToolbarButtonStates === 'function') updateToolbarButtonStates();
-            });
         }
 
         // Plane Size Input
@@ -15657,6 +15681,13 @@ async function handleAirportClick(icao, event = null, recenter = false) {
                     if (targetContent) targetContent.classList.add('active');
                 });
             }
+
+            // VA-Ads: drop in banner(s) for partner VAs hubbed at this field.
+            // Async + best-effort so an unreachable ads service never blocks
+            // or breaks the airport window.
+            if (window.InflightVaAds && typeof window.InflightVaAds.hydrateAirportBanner === 'function') {
+                window.InflightVaAds.hydrateAirportBanner(contentEl, icao);
+            }
         } else if (!windowContentHTML) {
             closeAirportWindow();
         }
@@ -16675,6 +16706,7 @@ let totalDistanceNM = 0;
                         <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
                         <span>${liveryName}</span>
                     </div>
+                    ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
                 </div>
             </div>
 
@@ -18807,6 +18839,7 @@ function setupFlightHoverPopups() {
                         <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
                         <div class="fr24-ident-group">
                             <span class="fr24-callsign">${callsign}</span>
+                            ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(callsign, { variant: 'hover' }) : ''}
                         </div>
                         <span style="margin-left: auto; font-size: 8.5px; color: #38bdf8; font-weight: 800; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65px;" title="${username}">
                             ${username}

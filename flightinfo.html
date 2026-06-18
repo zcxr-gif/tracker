@@ -125,6 +125,19 @@
     }
     .cb-identity { min-width: 0; flex: 1; }
     .cb-callsign-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    /* Callsign-matched partner VA badge (mirrors the main window). */
+    .fi-va-badge { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .fi-va-badge:empty { display: none; }
+    .fi-va-badge .fi-va-chip {
+        display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+        padding: 3px 8px; border-radius: 8px;
+        background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3);
+    }
+    .fi-va-badge .fi-va-chip:hover { border-color: rgba(56,189,248,0.6); }
+    .fi-va-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; background: rgba(0,0,0,0.3); }
+    .fi-va-name { font-size: 11px; font-weight: 700; color: #e2e8f0; }
+    .fi-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; }
+    .fi-va-note { font-size: 9px; font-weight: 600; color: #fca5a5; }
     .cb-callsign {
         font-size: 22px; font-weight: 900; letter-spacing: -0.5px;
         color: var(--color-gold); line-height: 1;
@@ -926,6 +939,7 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
+                    <span id="c-va-badge" class="fi-va-badge"></span>
                 </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
@@ -985,6 +999,7 @@
             <div class="ev-id-group">
                 <div class="ev-callsign-row">
                     <span class="ev-callsign" id="callsign">----</span>
+                    <span id="va-badge" class="fi-va-badge"></span>
                 </div>
                 <div class="pilot-row" onclick="scrollToProfile()">
                     <i class="fa-solid fa-user-astronaut"></i>
@@ -1854,6 +1869,7 @@
             const callsign = data.callsign || 'N/A';
             updateText('callsign', callsign);
             updateText('c-callsign', callsign);
+            renderVaPartnerBadge(data);
             const pilotName = (data.username || 'Pilot').toUpperCase();
             updateText('username', pilotName);
             updateText('c-username', pilotName);
@@ -2186,6 +2202,31 @@
         // =========================================================
         function updateText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
         function formatNumber(num) { return num ? Math.round(num).toLocaleString() : '---'; }
+
+        // Callsign-matched partner VA badge — the host (parent window) resolves
+        // the match and passes data.vaPartner; here we just render it into both
+        // the collapsed bar and the expanded header.
+        function renderVaPartnerBadge(data) {
+            const p = data && data.vaPartner;
+            const slots = [document.getElementById('va-badge'), document.getElementById('c-va-badge')];
+            if (!p || !p.id) { slots.forEach((s) => { if (s) s.innerHTML = ''; }); return; }
+            const esc = (s) => String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const logo = p.logo
+                ? `<img class="fi-va-logo" src="${esc(p.logo)}" alt="" onerror="this.style.display='none'">`
+                : '';
+            const note = data.isVAMember ? '' : '<span class="fi-va-note">not a registered member</span>';
+            const html = `<span class="fi-va-chip" data-va-id="${esc(p.id)}" title="View ${esc(p.name)}">`
+                + `${logo}<span class="fi-va-name">${esc(p.name)} <span class="fi-va-tag">Partner VA</span></span></span>${note}`;
+            slots.forEach((s) => { if (s) s.innerHTML = html; });
+        }
+        // Tapping the badge asks the host to open that partner's detail.
+        document.addEventListener('click', (e) => {
+            const chip = e.target.closest && e.target.closest('.fi-va-chip[data-va-id]');
+            if (chip) {
+                try { window.parent.postMessage({ type: 'INFLIGHT_OPEN_VA_PARTNER', id: chip.getAttribute('data-va-id') }, '*'); } catch (_) {}
+            }
+        });
 
         // --- Hero photo carousel (simple window) ---------------------------
         // When the airframe has more than one community photo, make the hero
