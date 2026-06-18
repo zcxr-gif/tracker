@@ -76,6 +76,7 @@
                 : []);
         return {
             id: ad.id || ad._id || '',
+            callsign: String(ad.callsign || ad.callsignCode || ad.code || '').trim().toUpperCase(),
             name: ad.name || ad.vaName || ad.title || 'Unknown VA',
             tagline: ad.tagline || ad.slogan || '',
             description: ad.description || ad.desc || '',
@@ -131,6 +132,79 @@
     }
 
     // ---------------------------------------------------------------------
+    // Callsign directory — maps partner VA callsign codes to their ad so a
+    // live flight can be matched to the VA whose code its callsign starts with.
+    // ---------------------------------------------------------------------
+
+    let directoryPromise = null;
+    let directory = null; // [{ code, ad }] sorted longest-code-first
+
+    function loadDirectory() {
+        if (directoryPromise) return directoryPromise;
+        directoryPromise = (async () => {
+            const all = [];
+            try {
+                // A few pages is plenty to cover the partner roster; bail early
+                // once we've seen the last page.
+                for (let page = 1; page <= 3; page++) {
+                    const { ads, pagination } = await list({ limit: 100, page });
+                    all.push(...ads);
+                    if (!ads.length) break;
+                    if (pagination && pagination.totalPages && page >= pagination.totalPages) break;
+                    if (!pagination) break;
+                }
+            } catch (e) {
+                // Keep whatever we managed to collect; matching just covers less.
+            }
+            directory = all
+                .filter((ad) => ad.callsign)
+                .map((ad) => ({ code: ad.callsign, ad }))
+                .sort((a, b) => b.code.length - a.code.length);
+            return directory;
+        })();
+        return directoryPromise;
+    }
+
+    // Match a flight callsign to a partner VA by its leading code (e.g. a
+    // callsign of "DLVA123" matches the VA whose code is "DLVA"). Longest code
+    // wins; returns the first match. Synchronous — reads the warm cache.
+    function matchCallsign(callsign) {
+        if (!directory) { loadDirectory(); return null; }
+        const cs = String(callsign || '').trim().toUpperCase();
+        if (!cs) return null;
+        const hit = directory.find((entry) => cs.startsWith(entry.code));
+        return hit ? hit.ad : null;
+    }
+
+    // Small inline badge for a callsign-matched partner VA. variant 'hover' is
+    // a logo-only chip for the map hover card; 'info' is a logo + name row for
+    // the flight info window, with a membership disclaimer when the pilot is
+    // not flagged as a VA member. Returns '' when there is no match.
+    function callsignBadgeHTML(callsign, opts) {
+        injectStyles();
+        const ad = matchCallsign(callsign);
+        if (!ad) return '';
+        const o = opts || {};
+        const logo = ad.logo
+            ? `<img class="va-cs-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+            : '';
+        if (o.variant === 'hover') {
+            return logo
+                ? `<span class="va-cs-badge va-cs-hover" title="${esc(ad.name)} · partner VA">${logo}</span>`
+                : '';
+        }
+        const disclaimer = o.isMember
+            ? ''
+            : `<span class="va-cs-note">not a registered ${esc(ad.name)} member</span>`;
+        return `
+            <div class="va-cs-badge va-cs-info" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0" title="View ${esc(ad.name)}">
+                ${logo || '<i class="fa-solid fa-handshake-angle" style="color:#7dd3fc"></i>'}
+                <span class="va-cs-name">${esc(ad.name)} <span class="va-cs-tag">Partner VA</span></span>
+                ${disclaimer}
+            </div>`;
+    }
+
+    // ---------------------------------------------------------------------
     // Styles
     // ---------------------------------------------------------------------
 
@@ -175,6 +249,20 @@
             .va-ad-dots { display: flex; gap: 5px; justify-content: center; padding: 0 0 10px; }
             .va-ad-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
             .va-ad-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
+
+            .va-cs-badge { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
+            .va-cs-hover { margin-left: 6px; }
+            .va-cs-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; background: rgba(0,0,0,0.3); flex: 0 0 auto; }
+            .va-cs-info {
+                margin-top: 8px; padding: 5px 9px; border-radius: 8px; cursor: pointer; max-width: 100%;
+                background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(4px);
+                flex-wrap: wrap;
+            }
+            .va-cs-info:hover { border-color: rgba(56,189,248,0.4); }
+            .va-cs-info .va-cs-logo { width: 18px; height: 18px; }
+            .va-cs-name { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+            .va-cs-tag { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; margin-left: 2px; }
+            .va-cs-note { font-size: 9px; font-weight: 600; color: #fca5a5; margin-left: 4px; }
 
             .va-partners-overlay {
                 position: fixed; inset: 0; z-index: 4000;
@@ -477,6 +565,14 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && overlayEl && overlayEl.classList.contains('visible')) closePartners();
         });
+        // Any callsign-match "info" badge (injected into the flight info window)
+        // opens that partner's detail when clicked, wherever it lives.
+        document.addEventListener('click', (e) => {
+            const el = e.target.closest && e.target.closest('.va-cs-info[data-va-ad-id]');
+            if (el) { e.preventDefault(); openPartners(el.getAttribute('data-va-ad-id')); }
+        });
+        // Warm the callsign directory so hover/info badges can resolve instantly.
+        loadDirectory();
     }
 
     window.InflightVaAds = {
@@ -485,6 +581,9 @@
         get,
         hydrateAirportBanner,
         openPartners,
-        closePartners
+        closePartners,
+        matchCallsign,
+        callsignBadgeHTML,
+        loadDirectory
     };
 })();

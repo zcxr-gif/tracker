@@ -16668,6 +16668,7 @@ let totalDistanceNM = 0;
                         <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
                         <span>${liveryName}</span>
                     </div>
+                    ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
                 </div>
             </div>
 
@@ -18800,6 +18801,7 @@ function setupFlightHoverPopups() {
                         <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
                         <div class="fr24-ident-group">
                             <span class="fr24-callsign">${callsign}</span>
+                            ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(callsign, { variant: 'hover' }) : ''}
                         </div>
                         <span style="margin-left: auto; font-size: 8.5px; color: #38bdf8; font-weight: 800; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65px;" title="${username}">
                             ${username}
