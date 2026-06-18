@@ -5274,7 +5274,8 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
     const arrNode = routeBar.querySelector('.route-node.end');
     const routeVisualNode = routeBar.querySelector('.route-visual');
 
-    const premiumGateCss = 'color: #94a3b8; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em; margin-top: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 4px; width: fit-content; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);';
+    // Gate chip mirrors the route card's material (grey, rounded, bordered, soft shadow).
+    const premiumGateCss = 'color: #cbd5e1; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em; margin-top: 8px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); padding: 5px 9px; border-radius: 10px; width: fit-content; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);';
 
     // 2. Inject the Departure Gate HTML
     if (depNode) {
@@ -5369,14 +5370,14 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
             routeVisualNode.appendChild(statusEl);
         }
         
-        // Instrument Panel Telemetry Styling
+        // Schedule status pill mirrors the route card's material (grey, rounded,
+        // bordered, soft shadow); the live status color stays on the dot + text.
         statusEl.style.cssText = `
             margin-top: 14px;
-            padding: 4px 10px 4px 8px;
-            background: rgba(15, 20, 25, 0.45);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-left: 3px solid ${statusColor};
-            border-radius: 4px;
+            padding: 4px 12px;
+            background: #2e3036;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
             color: ${statusColor};
             font-family: 'Inter', system-ui, sans-serif;
             font-size: 0.65rem;
@@ -5389,7 +5390,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
             gap: 8px;
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
             position: relative;
         `;
         
@@ -5425,7 +5426,7 @@ function injectGateInfoUI(departureIcao, flownPath) {
         if (!depGateEl) {
             depGateEl = document.createElement('span');
             depGateEl.id = 'ac-dep-gate';
-            depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 8px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 10px; width: fit-content; display: inline-block; box-shadow: 0 4px 16px rgba(0,0,0,0.35);';
             depGateEl.innerHTML = '<i class="fa-solid fa-door-open"></i> Calc...';
             depNode.appendChild(depGateEl);
         }
@@ -5441,7 +5442,7 @@ function injectGateInfoUI(departureIcao, flownPath) {
         if (!arrGateEl) {
             arrGateEl = document.createElement('span');
             arrGateEl.id = 'ac-arr-gate';
-            arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+            arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 8px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 10px; width: fit-content; display: inline-block; box-shadow: 0 4px 16px rgba(0,0,0,0.35);';
             arrGateEl.innerHTML = '<i class="fa-solid fa-door-closed"></i> ---';
             arrNode.appendChild(arrGateEl);
         }
@@ -16696,7 +16697,7 @@ let totalDistanceNM = 0;
 
     // --- HTML Construction ---
     windowEl.innerHTML = `
-    <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
+    <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 160px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
                 <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
@@ -16729,14 +16730,14 @@ let totalDistanceNM = 0;
     </button>
 </div>
 
-            <div class="phase-badge-hero" style=" position: absolute; bottom: 45px; left: 24px; z-index: 2; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 6px;">
-                <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
-                <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
-            </div>
         </div>
 
         <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
         <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+            <div class="phase-badge-route" style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 10px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.35);">
+                <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite;"></div>
+                <span id="ac-phase-text" style="font-size: 9px; font-weight: 700; color: #fff; letter-spacing: 0.5px;">${flightPhase}</span>
+            </div>
             <div class="route-node">
         <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
         <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
@@ -18424,7 +18425,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 depNode.style.flexDirection = 'column';
                 const depGateEl = document.createElement('span');
                 depGateEl.id = 'ac-dep-gate';
-                depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+                depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 8px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 10px; width: fit-content; display: inline-block; box-shadow: 0 4px 16px rgba(0,0,0,0.35);';
                 depGateEl.innerHTML = '<i class="fa-solid fa-door-open"></i> Loading...';
                 depNode.appendChild(depGateEl);
             }
@@ -18435,7 +18436,7 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
                 arrNode.style.alignItems = 'flex-end';
                 const arrGateEl = document.createElement('span');
                 arrGateEl.id = 'ac-arr-gate';
-                arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
+                arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 8px; background: #2e3036; border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 10px; width: fit-content; display: inline-block; box-shadow: 0 4px 16px rgba(0,0,0,0.35);';
                 arrGateEl.innerHTML = '<i class="fa-solid fa-door-closed"></i> Loading...';
                 arrNode.appendChild(arrGateEl);
             }
