@@ -129,7 +129,7 @@ export const AuthUI = {
             if (profile && profile.is_pro === false && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
                 // Subscription is inactive, force them to the premium renewal flow.
                 // Skipped on iOS native: App Store policy forbids surfacing the
-                // external Stripe/PayPal renewal flow inside the app. Free users
+                // external Stripe renewal flow inside the app. Free users
                 // simply enter the app with Pro features locked.
                 this._mode = 'renew';
                 this._tempSignUpData = {
@@ -213,7 +213,7 @@ export const AuthUI = {
         if (isChoose) {
             html += `
                     <h3 class="auth-choose-title">Welcome aboard</h3>
-                    <p class="auth-choose-copy">Sign in to your account, or create a new one on the web.</p>
+                    <p class="auth-choose-copy">Sign in to your account, or create a new one.</p>
                 </div>
                 <div class="auth-form-body auth-choose-body">
                     <button class="auth-submit-btn auth-choose-primary" id="auth-choose-login">
@@ -223,11 +223,7 @@ export const AuthUI = {
                     <button class="auth-choose-secondary" id="auth-choose-signup">
                         <i class="fa-solid fa-user-plus"></i>
                         <span>Create Account</span>
-                        <i class="fa-solid fa-arrow-up-right-from-square auth-choose-ext"></i>
                     </button>
-                    <p class="auth-choose-footer">
-                        New accounts are created at <strong>inflight.info</strong>.
-                    </p>
                 </div>
             `;
             card.innerHTML = html;
@@ -235,8 +231,9 @@ export const AuthUI = {
             return;
         }
 
-        // Sign Up always hands off to the website (web + iOS).
-        if (isSignUp) {
+        // Sign Up on iOS hands off to the website (App Store policy). On the web
+        // we render a real sign-up form below.
+        if (isSignUp && typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) {
             html += `</div>
                 <div class="auth-form-body ios-signup-redirect">
                     <div class="ios-redirect-hero">
@@ -257,7 +254,14 @@ export const AuthUI = {
             this.attachContentListeners();
             return;
         }
-        if (isSignIn) {
+        if (isSignUp) {
+            html += `
+                <div class="auth-payment-header auth-signin-header">
+                    <h3 style="margin: 0; font-size: 1.35rem; font-weight: 700;">Create your account</h3>
+                    <p style="margin: 6px 0 0; font-size: 0.9rem;">Join InFlight and start tracking.</p>
+                </div>
+            `;
+        } else if (isSignIn) {
             html += `
                 <div class="auth-payment-header auth-signin-header">
                     <h3 style="margin: 0; font-size: 1.35rem; font-weight: 700;">Welcome back</h3>
@@ -267,8 +271,8 @@ export const AuthUI = {
         } else if (isPayment) {
             html += `
                 <div class="auth-payment-header">
-                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Start Your 7-Day Free Trial</h3>
-                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">$1.99/mo after trial ends. Cancel anytime.</p>
+                    <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Subscribe to InFlight Pro</h3>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">$1.99/mo. Cancel anytime.</p>
                 </div>
             `;
         } else if (isRenew) {
@@ -312,14 +316,10 @@ export const AuthUI = {
                     </div>
                     
                     <p class="stripe-security-notice">
-                        <i class="fa-solid fa-shield-halved"></i> 
+                        <i class="fa-solid fa-shield-halved"></i>
                         Secure checkout hosted by <strong>Stripe</strong>
                     </p>
                 </div>
-
-                <div class="payment-or-divider"><span>OR PAY WITH</span></div>
-
-                <div id="paypal-button-container" style="min-height: 50px; margin-bottom: 8px;"></div>
 
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
@@ -378,8 +378,20 @@ export const AuthUI = {
             `;
         } else {
             const storedEmail = localStorage.getItem('inflight_remembered_email');
-            const defaultEmail = storedEmail || '';
-            const defaultRememberChecked = storedEmail || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
+            const defaultEmail = isSignIn && storedEmail ? storedEmail : '';
+            const defaultRememberChecked = (isSignIn && storedEmail) || localStorage.getItem('inflight_remember_preference') !== 'false' ? 'checked' : '';
+
+            if (isSignUp) {
+                html += `
+                    <div class="auth-input-group">
+                        <label>Full Name</label>
+                        <div class="auth-field-wrapper">
+                            <i class="fa-solid fa-user auth-field-icon"></i>
+                            <input type="text" id="auth-name" placeholder="John Doe" class="auth-input" required>
+                        </div>
+                    </div>
+                `;
+            }
 
             html += `
                 <div class="auth-input-group">
@@ -397,19 +409,34 @@ export const AuthUI = {
                         <input type="password" id="auth-password" placeholder="••••••••" class="auth-input" required>
                     </div>
                 </div>
+            `;
 
-                <div class="auth-options">
-                    <label class="auth-checkbox">
-                        <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
-                        <span>Remember me</span>
-                    </label>
-                    <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
-                </div>
+            if (isSignIn) {
+                html += `
+                    <div class="auth-options">
+                        <label class="auth-checkbox">
+                            <input type="checkbox" id="auth-remember" ${defaultRememberChecked}>
+                            <span>Remember me</span>
+                        </label>
+                        <a href="#" class="auth-forgot-link" id="auth-forgot-password">Forgot password?</a>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="auth-options">
+                        <label class="auth-checkbox">
+                            <input type="checkbox" id="auth-terms" required>
+                            <span>I agree to the <a href="terms.html" target="_blank" class="auth-terms-link">Terms of Use</a> & <a href="privacy.html" target="_blank" class="auth-terms-link">Privacy Policy</a></span>
+                        </label>
+                    </div>
+                `;
+            }
 
+            html += `
                 <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn" id="auth-submit-btn">Sign In</button>
+                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${isSignIn ? 'Sign In' : 'Continue'}</button>
                 <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
             `;
         }
@@ -419,7 +446,6 @@ export const AuthUI = {
         this.attachContentListeners(); 
 
         if (showPaymentOptions) {
-            this.loadPayPalAndRender();
             this.loadStripeAndRender();
         }
     },
@@ -470,94 +496,6 @@ export const AuthUI = {
         }
     },
 
-    async loadPayPalAndRender() {
-        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
-        if (!window.paypal) {
-            const script = document.createElement('script');
-            script.src = "https://www.paypal.com/sdk/js?client-id=AXjiYt3mjJBEkP4DnnXQLbx_YGlEoJgvtA_Yj-1MSIZFKT91tuFN9NL6HVmlThqqE7ZlazkquLkKleix&currency=USD&vault=true&intent=subscription&enable-funding=applepay";
-            script.async = true;
-            document.body.appendChild(script);
-
-            await new Promise((resolve, reject) => {
-                script.onload = resolve;
-                script.onerror = reject;
-            });
-        }
-
-        const container = document.getElementById('paypal-button-container');
-        if (container) container.innerHTML = ''; 
-
-        window.paypal.Buttons({
-            createSubscription: function(data, actions) {
-                return actions.subscription.create({
-                    'plan_id': 'P-3S33604333332730HNGWPSWA' 
-                });
-            },
-            onApprove: async (paymentData, actions) => {
-                this.hideError();
-                
-                const loadingDiv = document.getElementById('auth-loading-message');
-                const checkoutSection = document.getElementById('stripe-checkout-section');
-                const btnContainer = document.getElementById('paypal-button-container');
-                const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
-
-                if (loadingDiv) loadingDiv.style.display = 'block';
-                if (checkoutSection) checkoutSection.style.display = 'none';
-                if (btnContainer) btnContainer.style.display = 'none';
-                if (backBtn) backBtn.style.display = 'none';
-
-                try {
-                    const payload = {
-                        email: this._tempSignUpData.email,
-                        subscriptionID: paymentData.subscriptionID,
-                        is_renew: this._tempSignUpData.is_renew || false
-                    };
-
-                    if (!payload.is_renew) {
-                        payload.password = this._tempSignUpData.password;
-                        payload.name = this._tempSignUpData.name;
-                    }
-
-                    const { data: result, error: functionError } = await this._supabase.functions.invoke('process-payment', {
-                        body: payload
-                    });
-
-                    if (functionError) {
-                        throw new Error(result?.error || functionError.message || "Payment verification failed.");
-                    }
-
-                    if (!payload.is_renew) {
-                        const { error: loginError } = await this._supabase.auth.signInWithPassword({
-                            email: this._tempSignUpData.email,
-                            password: this._tempSignUpData.password,
-                        });
-
-                        if (loginError) {
-                            throw new Error("Account created, but automatic login failed: " + loginError.message);
-                        }
-                    }
-
-                    const overlay = document.getElementById('auth-modal-overlay');
-                    if (overlay) overlay.classList.remove('open');
-                    this._isOpen = false;
-                    this._tempSignUpData = null;
-                    
-                    this.open(); 
-
-                } catch (err) {
-                    if (loadingDiv) loadingDiv.style.display = 'none';
-                    if (checkoutSection) checkoutSection.style.display = 'block';
-                    if (btnContainer) btnContainer.style.display = 'block';
-                    if (backBtn) backBtn.style.display = 'block';
-                    this.showError(err.message);
-                }
-            },
-            onError: (err) => {
-                this.showError("PayPal encountered an error. Please try again or use a different payment method.");
-            }
-        }).render('#paypal-button-container');
-    },
-
     async loadStripeAndRender() {
         if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
         if (!window.Stripe) {
@@ -577,14 +515,10 @@ export const AuthUI = {
         this.hideError();
         const loadingDiv = document.getElementById('auth-loading-message');
         const checkoutSection = document.getElementById('stripe-checkout-section');
-        const orDivider = document.querySelector('.payment-or-divider');
-        const paypalContainer = document.getElementById('paypal-button-container');
         const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
 
         if (loadingDiv) loadingDiv.style.display = 'block';
         if (checkoutSection) checkoutSection.style.display = 'none';
-        if (orDivider) orDivider.style.display = 'none';
-        if (paypalContainer) paypalContainer.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
 
         try {
@@ -600,8 +534,7 @@ export const AuthUI = {
                 email: this._tempSignUpData.email,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url: window.location.origin + '?payment=cancel',
-                is_renew: this._tempSignUpData.is_renew || false,
-                trial_days: 7 // Instructs backend to apply trial if eligible
+                is_renew: this._tempSignUpData.is_renew || false
             };
 
             if (!payload.is_renew) {
@@ -622,8 +555,6 @@ export const AuthUI = {
             
             if (loadingDiv) loadingDiv.style.display = 'none';
             if (checkoutSection) checkoutSection.style.display = 'block';
-            if (orDivider) orDivider.style.display = 'flex';
-            if (paypalContainer) paypalContainer.style.display = 'block';
             if (backBtn) backBtn.style.display = 'block';
             this.showError(err.message || 'Payment redirection failed. Please try again.');
         }
@@ -669,9 +600,23 @@ export const AuthUI = {
             this.hideError();
             const email = document.getElementById('auth-email')?.value;
             const password = document.getElementById('auth-password')?.value;
+            const name = document.getElementById('auth-name')?.value || '';
 
             if (!email || !password) {
                 this.showError("Please enter both email and password.");
+                return;
+            }
+
+            if (this._mode === 'signup') {
+                const termsCheckbox = document.getElementById('auth-terms');
+                if (termsCheckbox && !termsCheckbox.checked) {
+                    this.showError("Please agree to the Terms of Use and Privacy Policy.");
+                    return;
+                }
+
+                // Hand off the collected details to the payment step.
+                this._tempSignUpData = { email, password, name, is_renew: false };
+                this.switchMode('payment');
                 return;
             }
 
@@ -1213,25 +1158,6 @@ export const AuthUI = {
                 color: #6366f1; /* Stripe Blurple */
             }
 
-            .payment-or-divider {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                color: #64748b;
-                font-size: 0.7rem;
-                font-weight: 700;
-                letter-spacing: 0.1em;
-                margin: 24px 0 16px;
-            }
-
-            .payment-or-divider::before,
-            .payment-or-divider::after {
-                content: '';
-                flex: 1;
-                height: 1px;
-                background: #e2e8f0;
-            }
-
             /* ── Choose screen (web) ─────────────────────────────────── */
             .auth-choose-title {
                 margin: 4px 0 6px;
@@ -1607,8 +1533,6 @@ export const AuthUI = {
             /* Hide pricing / Pro / payment UI inside the iOS app */
             html.ios-native .auth-premium-notice,
             html.ios-native .stripe-hosted-container,
-            html.ios-native .payment-or-divider,
-            html.ios-native #paypal-button-container,
             html.ios-native .auth-payment-badges,
             html.ios-native .stripe-security-notice {
                 display: none !important;
