@@ -3212,22 +3212,14 @@ _showCancellationModal() {
                     <h3>Cancel Subscription</h3>
                 </div>
                 <div class="pui-confirm-body">
-                    <p style="margin-bottom: 24px;">Please select the payment method you used to upgrade to Pro Access. We will route you to the correct secure portal to manage your billing.</p>
-                    
+                    <p style="margin-bottom: 24px;">We will route you to our secure billing portal to manage or cancel your subscription.</p>
+
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                         <button class="pui-btn-secondary" id="pui-cancel-stripe-btn" style="padding: 14px; font-size: 0.95rem; justify-content: flex-start; border-color: var(--pui-border-strong);">
                             <i class="fa-brands fa-stripe" style="font-size: 1.8rem; color: #6366f1; width: 40px;"></i>
                             <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
                                 <span>Apple Pay, Google Pay, or Card</span>
                                 <span style="font-size: 0.7rem; color: var(--pui-text-tertiary); font-weight: 500;">Manage via Stripe Billing Portal</span>
-                            </div>
-                        </button>
-
-                        <button class="pui-btn-secondary" id="pui-cancel-paypal-btn" style="padding: 14px; font-size: 0.95rem; justify-content: flex-start; border-color: var(--pui-border-strong);">
-                            <i class="fa-brands fa-paypal" style="font-size: 1.5rem; color: #00457C; width: 40px;"></i>
-                            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
-                                <span>PayPal</span>
-                                <span style="font-size: 0.7rem; color: var(--pui-text-tertiary); font-weight: 500;">Manage via PayPal AutoPay Settings</span>
                             </div>
                         </button>
                     </div>
@@ -3264,17 +3256,6 @@ _showCancellationModal() {
             if (e.key === 'Escape') cleanup();
         };
         document.addEventListener('keydown', escHandler);
-
-        // --- PAYPAL ROUTE ---
-        document.getElementById('pui-cancel-paypal-btn').addEventListener('click', () => {
-            window.open('https://www.paypal.com/myaccount/autopay/', '_blank');
-            cleanup();
-            this._showMessage(
-                'pui-billing-msg', 
-                'Opened PayPal in a new tab. Please log in to manage your automatic payments.', 
-                'info'
-            );
-        });
 
         // --- STRIPE ROUTE ---
         document.getElementById('pui-cancel-stripe-btn').addEventListener('click', async () => {
