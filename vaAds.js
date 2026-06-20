@@ -94,7 +94,7 @@
             tags: tags,
             logo: safeUrl(ad.logo || ad.logoUrl || ad.logo_url),
             banner: safeUrl(ad.banner || ad.bannerUrl || ad.banner_url || ad.image),
-            website: safeUrl(ad.website || ad.url || ad.link),
+            website: safeUrl(ad.website || ad.websiteUrl || ad.website_url || ad.url || ad.link),
             discord: safeUrl(ad.discord || ad.discordUrl || ad.discord_url),
             icao: icao.map((c) => String(c).toUpperCase()),
             views: Number(ad.views != null ? ad.views : (ad.viewCount != null ? ad.viewCount : 0)) || 0
