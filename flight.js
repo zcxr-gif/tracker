@@ -16746,16 +16746,16 @@ let totalDistanceNM = 0;
     </div>
             
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-                <div class="flight-progress-track" style="position: relative; height: 20px; background: rgba(15, 20, 25, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);">
-                    <div class="flight-progress-fill" id="ac-progress-bar" style="position: absolute; top: 0; left: 0; bottom: 0; width: ${progress}%; background: ${statusColor}; box-shadow: 0 0 12px ${statusColor}88; transition: width 0.5s ease, background 0.5s ease;"></div>
-                    <div style="position: absolute; inset: 0; display: flex; align-items: center; gap: 6px; padding: 0 10px; z-index: 2; pointer-events: none;">
-                        <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px rgba(0,0,0,0.5); animation: ${statusPulse} 2s infinite; flex-shrink: 0;"></div>
-                        <span id="ac-phase-text" style="font-size: 0.62rem; font-weight: 700; color: #fff; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1; text-shadow: 0 1px 3px rgba(0,0,0,0.9);">${flightPhase}</span>
-                    </div>
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 5px; min-width: 0;">
+                    <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite; flex-shrink: 0;"></div>
+                    <span id="ac-phase-text" style="font-size: 0.62rem; font-weight: 700; color: ${statusColor}; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1;">${flightPhase}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
-                    <span>${Math.round(totalDistanceNM)} NM</span>
-                    <span>ETE: ${ete}</span>
+                <div class="flight-progress-track" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; position: relative; overflow: hidden;">
+                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: ${statusColor}; box-shadow: 0 0 10px ${statusColor}88; height: 100%; border-radius: 3px; transition: width 0.5s ease, background 0.5s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; width: 100%; margin-top: 5px; line-height: 1;">
+                    <span style="font-size: 9px; font-weight: 700; color: #e2e8f0;"><span style="color: #64748b; font-size: 8px; letter-spacing: 0.5px;">DIST </span>${Math.round(totalDistanceNM)} NM</span>
+                    <span style="font-size: 9px; font-weight: 700; color: #e2e8f0;"><span style="color: #64748b; font-size: 8px; letter-spacing: 0.5px;">ETE </span>${ete}</span>
                 </div>
             </div>
 
@@ -18339,14 +18339,17 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     document.querySelectorAll('#ac-phase-text').forEach(el => {
         el.textContent = flightPhase;
+        el.style.color = badgeStatusColor;
     });
     document.querySelectorAll('#ac-phase-dot').forEach(el => {
+        el.style.background = badgeStatusColor;
+        el.style.boxShadow = `0 0 8px ${badgeStatusColor}`;
         el.style.animation = badgeStatusPulse === 'none' ? 'none' : `${badgeStatusPulse} 2s infinite`;
     });
-    // Keep the route-progress fill (which the phase label sits on) coordinated with the flight-state color
+    // Keep the route-progress fill coordinated with the flight-state color
     document.querySelectorAll('#ac-progress-bar').forEach(el => {
         el.style.background = badgeStatusColor;
-        el.style.boxShadow = `0 0 12px ${badgeStatusColor}88`;
+        el.style.boxShadow = `0 0 10px ${badgeStatusColor}88`;
     });
     // VSD card phase chip — color tracks the same palette as the route-bar phase badge
     document.querySelectorAll('#ac-vsd-phase').forEach(el => {
