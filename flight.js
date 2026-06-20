@@ -19837,15 +19837,21 @@ function injectVaHubMarkerStyles() {
     const style = document.createElement('style');
     style.id = 'va-hub-marker-styles';
     style.textContent = `
-        .va-hub-marker {
-            width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+        /* The marker root's transform is owned entirely by Mapbox (it rewrites
+           translate() every frame to keep the pin on its coordinate). So it
+           carries NO size, NO transition and NO transform of its own — a
+           transition here would animate Mapbox's position updates and make the
+           logo drift/lag behind the map. All visuals live on the inner box. */
+        .va-hub-marker { cursor: pointer; will-change: transform; }
+        .va-hub-marker-inner {
+            width: 30px; height: 30px; border-radius: 8px;
             background: rgba(0,0,0,0.55); border: 1.5px solid rgba(125,211,252,0.85);
             box-shadow: 0 2px 8px rgba(0,0,0,0.5); overflow: hidden;
             display: flex; align-items: center; justify-content: center;
             transition: transform .15s ease, border-color .15s ease;
         }
-        .va-hub-marker:hover { transform: scale(1.12); border-color: #7dd3fc; }
-        .va-hub-marker img { width: 100%; height: 100%; object-fit: cover; display: block; }`;
+        .va-hub-marker:hover .va-hub-marker-inner { transform: scale(1.12); border-color: #7dd3fc; }
+        .va-hub-marker-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }`;
     document.head.appendChild(style);
 }
 
@@ -19882,13 +19888,24 @@ function renderVaHubMarkers() {
                 const el = document.createElement('div');
                 el.className = 'va-hub-marker';
                 el.title = `${ad.name} · VA hub`;
-                el.innerHTML = `<img src="${ad.logo}" alt="" onerror="this.parentElement.style.display='none'">`;
+                // Logo lives in an inner box so hover/scale never touches the
+                // root element's Mapbox-managed transform (onerror hides the
+                // whole marker, root included).
+                el.innerHTML = `<div class="va-hub-marker-inner"><img src="${ad.logo}" alt="" onerror="this.closest('.va-hub-marker').style.display='none'"></div>`;
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (VA.openPartners) VA.openPartners(ad.id);
                 });
 
-                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                // anchor 'center' pins the box on the airport coordinate;
+                // viewport alignment keeps it upright and a constant pixel size
+                // at every zoom/pitch/bearing (no scaling, no tilt).
+                const marker = new mapboxgl.Marker({
+                    element: el,
+                    anchor: 'center',
+                    rotationAlignment: 'viewport',
+                    pitchAlignment: 'viewport'
+                })
                     .setLngLat([airport.lon, airport.lat])
                     .addTo(sectorOpsMap);
                 vaHubMarkers.push(marker);
