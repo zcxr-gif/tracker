@@ -194,6 +194,12 @@
         return allAds.filter((ad) => ad.icao && ad.icao.indexOf(code) !== -1);
     }
 
+    // Every partner ad we've cached (after loadDirectory). Used by the tracker
+    // to place opt-in VA hub markers on the live map.
+    function allPartners() {
+        return allAds.slice();
+    }
+
     // Small inline badge for a callsign-matched partner VA. variant 'hover' is
     // a logo-only chip for the map hover card; 'info' is a logo + name row for
     // the flight info window, with a membership disclaimer when the pilot is
@@ -675,6 +681,7 @@
         matchCallsign,
         callsignBadgeHTML,
         partnersForIcao,
+        allPartners,
         loadDirectory
     };
 })();
