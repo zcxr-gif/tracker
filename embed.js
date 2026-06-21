@@ -141,17 +141,22 @@
         }
 
         // Preview path — drive straight from query params (no backend needed).
-        const va = p.get('va');
+        const va = (p.get('va') || '').trim();
         if (!va) {
             throw new Error('Missing embed token. Add ?token=… to the embed URL (or ?va=CODE for a preview).');
         }
+        // A param can appear more than once (e.g. appending &mode=map to a URL
+        // that already had mode=roster). Prefer an explicit "map" anywhere over
+        // the first value, and trim stray whitespace from each candidate.
+        const modes = p.getAll('mode').map(m => m.trim().toLowerCase());
+        const mode = modes.includes('map') ? 'map' : (modes[0] || 'roster');
         return normalizeConfig({
-            va: { code: va, name: p.get('name') || va, logo: p.get('logo') || '' },
+            va: { code: va, name: (p.get('name') || va).trim(), logo: (p.get('logo') || '').trim() },
             callsignPrefixes: p.get('prefixes') ? p.get('prefixes').split(',') : null,
-            mode: p.get('mode') || 'roster',
+            mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
-            mapStyle: p.get('mapStyle') || '',
-            theme: p.get('theme') || '',
+            mapStyle: (p.get('mapStyle') || '').trim(),
+            theme: (p.get('theme') || '').trim(),
             servers: p.get('servers') ? p.get('servers').split(',') : null
         });
     }
@@ -166,7 +171,7 @@
             : [code]
         ).map(firstToken).filter(Boolean);
 
-        let mode = (raw.mode === 'map') ? 'map' : 'roster';
+        let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
         // Map mode silently degrades to roster if no token was issued — better a
         // working list than a broken map.
