@@ -75,6 +75,7 @@
     const SESSIONS_URL  = `${ACARS_BACKEND}/if-sessions`;
     const FLIGHTS_BASE  = `${ACARS_BACKEND}/flights`;
     const RESOLVE_URL   = `${INGDO_BACKEND}/api/embed/resolve`;
+    const VAADS_URL     = `${INGDO_BACKEND}/api/va-ads`;
 
     const REFRESH_MS = 30000;          // live data poll cadence
     const MAPBOX_GL_VERSION = 'v3.9.1'; // CDN version loaded only in map mode
@@ -216,6 +217,28 @@
         };
     }
 
+    // ── Partner VA branding ─────────────────────────────────────────────────────
+    // Pull the VA's real name + logo from the VA-Ads roster (same data the main
+    // tracker uses) so preview embeds — and any token that didn't carry a logo —
+    // still show proper partner branding. Best-effort; never throws.
+    async function resolveVaBranding(code) {
+        try {
+            const data = await getJSON(`${VAADS_URL}?search=${encodeURIComponent(code)}&limit=20`);
+            const arr = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : []);
+            if (!arr.length) return null;
+            // Prefer the ad whose callsign code matches exactly; else first hit.
+            let hit = arr.find(a => firstToken(a.callsign || a.callsignCode || a.code) === code) || arr[0];
+            if (!hit) return null;
+            const rawLogo = hit.logo || hit.logoUrl || hit.logo_url || '';
+            return {
+                name: hit.name || hit.vaName || hit.title || '',
+                logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : ''
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
     // ── Live data ──────────────────────────────────────────────────────────────
     // Does a flight callsign belong to this VA? Same rule as vaAds.matchCallsign:
     // the callsign's leading token must start with one of the VA's prefixes.
@@ -287,7 +310,10 @@
                     <div class="emb-head-name">${esc(cfg.name)}</div>
                     <div class="emb-head-sub"><span class="emb-live-dot"></span> ${count} pilot${count === 1 ? '' : 's'} airborne</div>
                 </div>
-                <a class="emb-brand" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">Inflight</a>
+                <a class="emb-brand" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+                    <span class="emb-brand-by">Powered by</span>
+                    <img class="emb-brand-logo" src="Images/inflight.png" alt="Inflight" onerror="this.outerHTML='Inflight'">
+                </a>
             </div>`;
     }
 
@@ -415,7 +441,23 @@
                         <span><b>${alt}</b> <span class="u">FT</span></span>
                         <span><b>${gs}</b> <span class="u">KTS</span></span>
                     </div>
+                    ${vaChipHTML(_mapState.cfg)}
                 </div>
+            </div>`;
+    }
+
+    // Partner VA badge (logo + name) shown on every tap card so the VA's
+    // branding rides along with each of their pilots.
+    function vaChipHTML(cfg) {
+        if (!cfg) return '';
+        const logo = cfg.logo
+            ? `<img class="fr24-va-logo" src="${esc(cfg.logo)}" alt="" onerror="this.style.display='none'">`
+            : '';
+        return `
+            <div class="fr24-va">
+                ${logo}
+                <span class="fr24-va-name">${esc(cfg.name)}</span>
+                <span class="fr24-va-tag">Partner VA</span>
             </div>`;
     }
 
@@ -571,6 +613,8 @@
         const root = rootEl();
         if (!root) return;
 
+        _mapState.cfg = cfg;   // branding for the tap card
+
         if (!_mapState.map) {
             await loadMapboxGL();
             root.innerHTML = `
@@ -656,6 +700,16 @@
             showError(e.message || 'This embed could not be configured.');
             return;
         }
+        // Fill in the partner VA's name/logo from the VA-Ads roster when they
+        // weren't supplied (e.g. preview embeds, or a token without a logo).
+        if (!cfg.logo || cfg.name === cfg.code) {
+            const brand = await resolveVaBranding(cfg.code);
+            if (brand) {
+                if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
+                if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
+            }
+        }
+
         const root = rootEl();
         root.setAttribute('data-theme', cfg.theme);
         root.classList.add('emb-mode-' + cfg.mode);
