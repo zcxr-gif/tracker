@@ -350,6 +350,11 @@ export const MobileSettingsUI = {
                                 ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
                             </div>
 
+                            <div class="mobile-section-header">Virtual Airlines</div>
+                            <div class="m-settings-list">
+                                ${this.renderToggle('showVaHubMarkers', 'VA Hub Markers', 'fa-handshake-angle')}
+                            </div>
+
                             ${this.renderLegalSection()}
                         </div>
                     </div>
@@ -1442,6 +1447,9 @@ export const MobileSettingsUI = {
                 }
 
                 if (setting === 'showAircraftLabels') this.updateLabelPreview();
+                // VA hub markers aren't a map-filter layer, so refresh their
+                // dedicated DOM marker layer directly when toggled.
+                if (setting === 'showVaHubMarkers' && window.renderVaHubMarkers) window.renderVaHubMarkers();
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });

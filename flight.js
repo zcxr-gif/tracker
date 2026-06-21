@@ -649,6 +649,9 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
+        // Opt-in: drop partner VA logos on their hub airports on the live map.
+        // Off by default; toggled from Settings → VA. See renderVaHubMarkers().
+        showVaHubMarkers: false,
         showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -12771,6 +12774,7 @@ const SettingsUI = {
         labels: { label: "Labels", icon: "fa-tag" },
         overlays: { label: "Overlays", icon: "fa-layer-group" },
         airspace: { label: "Filters", icon: "fa-sliders" },
+        va: { label: "VA", icon: "fa-handshake-angle" },
         theme: { label: "Theme", icon: "fa-palette" }
     },
 
@@ -13936,6 +13940,32 @@ renderCategory(catId) {
                         </div>
                     `;
                     break;
+                case 'va':
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Virtual Airlines</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-handshake-angle"></i> VA Hub Markers</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-va-hub-markers" ${mapFilters.showVaHubMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <p style="margin: 8px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
+                                Show partner virtual airlines' logos pinned to their hub airports on the
+                                live map. Tap a logo to view that VA. Off by default.
+                            </p>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Discover</label>
+                            <button id="set-open-va-partners" class="modal-btn secondary" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
+                                <i class="fa-solid fa-handshake-angle"></i> Browse VA Partners
+                            </button>
+                            <p style="margin: 10px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
+                                Browse the full directory of partner VAs — search by name, region or tag,
+                                and open any VA for its website and Discord.
+                            </p>
+                        </div>
+                    `;
+                    break;
                 case 'theme':
                     html = `
                         <div class="settings-section">
@@ -14090,6 +14120,28 @@ renderCategory(catId) {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
+
+        // VA Hub Markers — opt-in map overlay. Persist the flag, then add/remove
+        // the hub logo markers immediately (it isn't a plain map-filter layer,
+        // so it gets its own refresh rather than going through updateMapFilters).
+        const vaHubToggle = document.getElementById('set-va-hub-markers');
+        if (vaHubToggle) {
+            vaHubToggle.addEventListener('change', (e) => {
+                mapFilters.showVaHubMarkers = e.target.checked;
+                saveFiltersToLocalStorage();
+                if (typeof renderVaHubMarkers === 'function') renderVaHubMarkers();
+            });
+        }
+
+        // Browse VA Partners — opens the partner directory slide-over.
+        const vaPartnersBtn = document.getElementById('set-open-va-partners');
+        if (vaPartnersBtn) {
+            vaPartnersBtn.addEventListener('click', () => {
+                if (window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') {
+                    window.InflightVaAds.openPartners();
+                }
+            });
+        }
 
         // 3D Traffic View — routed through the shared toggle so the map toolbar
         // button stays in sync (it's not a plain mapFilters flag like the rest).
@@ -19772,6 +19824,105 @@ window.addEventListener('proStatusChanged', () => {
     try { window.refreshAtcTagAppearance(); } catch (_) {}
 });
 
+// VA hub markers: opt-in (mapFilters.showVaHubMarkers, off by default) logo
+// pins dropped on each partner VA's hub airport. They live in their own DOM
+// marker layer on sectorOpsMap, independent of the airport/ATC markers, so
+// they survive ATC data polls and only change when the user toggles them.
+let vaHubMarkers = [];
+let vaHubStylesInjected = false;
+
+function injectVaHubMarkerStyles() {
+    if (vaHubStylesInjected || typeof document === 'undefined') return;
+    vaHubStylesInjected = true;
+    const style = document.createElement('style');
+    style.id = 'va-hub-marker-styles';
+    style.textContent = `
+        /* The marker root's transform is owned entirely by Mapbox (it rewrites
+           translate() every frame to keep the pin on its coordinate). So it
+           carries NO size, NO transition and NO transform of its own — a
+           transition here would animate Mapbox's position updates and make the
+           logo drift/lag behind the map. All visuals live on the inner box. */
+        .va-hub-marker { cursor: pointer; will-change: transform; }
+        .va-hub-marker-inner {
+            width: 30px; height: 30px; border-radius: 8px;
+            background: rgba(0,0,0,0.55); border: 1.5px solid rgba(125,211,252,0.85);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5); overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            transition: transform .15s ease, border-color .15s ease;
+        }
+        .va-hub-marker:hover .va-hub-marker-inner { transform: scale(1.12); border-color: #7dd3fc; }
+        .va-hub-marker-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }`;
+    document.head.appendChild(style);
+}
+
+function clearVaHubMarkers() {
+    vaHubMarkers.forEach((m) => { try { m.remove(); } catch (_) {} });
+    vaHubMarkers = [];
+}
+
+function renderVaHubMarkers() {
+    if (!sectorOpsMap) return;
+    clearVaHubMarkers();
+    if (!mapFilters.showVaHubMarkers) return;
+
+    const VA = window.InflightVaAds;
+    if (!VA || typeof VA.allPartners !== 'function') return;
+    injectVaHubMarkerStyles();
+
+    const place = () => {
+        // The user may have toggled it back off while the directory loaded.
+        if (!mapFilters.showVaHubMarkers || !sectorOpsMap) return;
+        const ads = VA.allPartners() || [];
+        // One marker per hub airport (first partner wins) so shared hubs don't
+        // stack overlapping logos on the same point.
+        const seen = new Set();
+        ads.forEach((ad) => {
+            if (!ad || !ad.logo || !Array.isArray(ad.icao)) return;
+            ad.icao.forEach((code) => {
+                const icao = String(code || '').toUpperCase();
+                if (!icao || seen.has(icao)) return;
+                const airport = airportsData[icao];
+                if (!airport || airport.lat == null || airport.lon == null) return;
+                seen.add(icao);
+
+                const el = document.createElement('div');
+                el.className = 'va-hub-marker';
+                el.title = `${ad.name} · VA hub`;
+                // Logo lives in an inner box so hover/scale never touches the
+                // root element's Mapbox-managed transform (onerror hides the
+                // whole marker, root included).
+                el.innerHTML = `<div class="va-hub-marker-inner"><img src="${ad.logo}" alt="" onerror="this.closest('.va-hub-marker').style.display='none'"></div>`;
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (VA.openPartners) VA.openPartners(ad.id);
+                });
+
+                // anchor 'center' pins the box on the airport coordinate;
+                // viewport alignment keeps it upright and a constant pixel size
+                // at every zoom/pitch/bearing (no scaling, no tilt).
+                const marker = new mapboxgl.Marker({
+                    element: el,
+                    anchor: 'center',
+                    rotationAlignment: 'viewport',
+                    pitchAlignment: 'viewport'
+                })
+                    .setLngLat([airport.lon, airport.lat])
+                    .addTo(sectorOpsMap);
+                vaHubMarkers.push(marker);
+            });
+        });
+    };
+
+    // The partner directory warms asynchronously on load; wait for it so the
+    // first paint (e.g. enabling the toggle right after boot) isn't empty.
+    if (typeof VA.loadDirectory === 'function') {
+        Promise.resolve(VA.loadDirectory()).then(place).catch(() => {});
+    } else {
+        place();
+    }
+}
+window.renderVaHubMarkers = renderVaHubMarkers;
+
 // renderAirportMarkers needs a loaded style; when one isn't ready yet the
 // render is queued (once) for the next idle frame instead of being dropped,
 // so settings changes still land "on the fly" instead of waiting for the
@@ -20348,6 +20499,11 @@ async function initializeApp() {
         // Filters orb dot / mobile tab dot) without waiting for the settings
         // UI to be opened first.
         MobileSettingsUI.updateFilterBadge();
+
+        // Paint opt-in VA hub markers if the user has them enabled (no-op when
+        // off, which is the default). The map and airport coords are ready by
+        // now; the partner directory is awaited inside.
+        renderVaHubMarkers();
 
         // Default to true if not explicitly set to 'false'
         const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
