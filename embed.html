@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Active VA Pilots — Inflight</title>
+    <style>
+        /* ─────────────────────────────────────────────────────────────────
+           Inflight VA embed. Self-contained: no external CSS except the
+           Mapbox GL stylesheet, which embed.js injects only in map mode.
+           Themed via [data-theme] on #inflight-embed (set by embed.js).
+           ───────────────────────────────────────────────────────────────── */
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background: transparent;
+        }
+
+        #inflight-embed {
+            --bg: #0b1220;
+            --surface: rgba(255, 255, 255, 0.04);
+            --surface-2: rgba(255, 255, 255, 0.07);
+            --border: rgba(255, 255, 255, 0.10);
+            --text: #f1f5f9;
+            --text-2: rgba(241, 245, 249, 0.65);
+            --text-3: rgba(241, 245, 249, 0.40);
+            --accent: #38bdf8;
+            --live: #4ade80;
+
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100%;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        #inflight-embed[data-theme="light"] {
+            --bg: #ffffff;
+            --surface: rgba(15, 23, 42, 0.03);
+            --surface-2: rgba(15, 23, 42, 0.06);
+            --border: rgba(15, 23, 42, 0.10);
+            --text: #0f172a;
+            --text-2: rgba(15, 23, 42, 0.62);
+            --text-3: rgba(15, 23, 42, 0.40);
+            --accent: #0284c7;
+        }
+
+        /* Header */
+        .emb-head {
+            flex: 0 0 auto;
+            display: flex; align-items: center; gap: 11px;
+            padding: 13px 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .emb-logo {
+            width: 38px; height: 38px; border-radius: 9px; object-fit: cover;
+            flex: 0 0 auto; background: var(--surface-2);
+        }
+        .emb-logo-fallback {
+            display: grid; place-items: center;
+            font-weight: 800; font-size: 14px; letter-spacing: 0.5px;
+            color: var(--accent);
+        }
+        .emb-head-meta { flex: 1 1 auto; min-width: 0; }
+        .emb-head-name {
+            font-weight: 700; font-size: 15px; letter-spacing: -0.2px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emb-head-sub {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 12px; color: var(--text-2); margin-top: 2px;
+        }
+        .emb-live-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--live); flex: 0 0 auto;
+            box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+            animation: emb-pulse 2s infinite;
+        }
+        @keyframes emb-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
+            70%  { box-shadow: 0 0 0 7px rgba(74, 222, 128, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+        }
+        .emb-brand {
+            flex: 0 0 auto;
+            font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px;
+            text-transform: uppercase; text-decoration: none;
+            color: var(--text-3);
+            padding: 4px 8px; border-radius: 999px;
+            border: 1px solid var(--border);
+        }
+        .emb-brand:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* Roster body */
+        .emb-body {
+            flex: 1 1 auto; min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .emb-body::-webkit-scrollbar { width: 8px; }
+        .emb-body::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 8px; }
+        .emb-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 11px 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .emb-row:last-child { border-bottom: none; }
+        .emb-row-main { flex: 1 1 auto; min-width: 0; }
+        .emb-row-top { display: flex; align-items: baseline; gap: 9px; }
+        .emb-callsign { font-weight: 700; font-size: 14.5px; letter-spacing: -0.2px; }
+        .emb-pilot {
+            font-size: 12.5px; color: var(--text-2);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emb-row-ac, .emb-row-route {
+            font-size: 12px; color: var(--text-2); margin-top: 2px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emb-row-route { color: var(--text-3); font-variant-numeric: tabular-nums; }
+        .emb-row-metrics {
+            flex: 0 0 auto; text-align: right;
+            font-size: 11px; color: var(--text-3);
+            display: flex; flex-direction: column; gap: 2px;
+            font-variant-numeric: tabular-nums;
+        }
+        .emb-row-metrics b { color: var(--text); font-weight: 700; font-size: 13px; }
+
+        /* Map body */
+        .emb-map { flex: 1 1 auto; min-height: 0; }
+        .emb-marker { cursor: pointer; line-height: 0; }
+        .emb-pop { font-family: inherit; min-width: 130px; }
+        .emb-pop-cs { font-weight: 800; font-size: 13px; color: #0f172a; }
+        .emb-pop-line { font-size: 11.5px; color: #334155; margin-top: 2px; }
+
+        /* States */
+        .emb-empty, .emb-error {
+            flex: 1 1 auto;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; gap: 6px; padding: 30px 24px;
+        }
+        .emb-empty-icon, .emb-error-icon { font-size: 30px; opacity: 0.5; }
+        .emb-empty p, .emb-error p { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--text); }
+        .emb-empty span { font-size: 12px; color: var(--text-3); }
+        .emb-error p { color: var(--text-2); max-width: 260px; }
+
+        .emb-loading {
+            flex: 1 1 auto; display: grid; place-items: center;
+        }
+        .emb-spinner {
+            width: 26px; height: 26px; border-radius: 50%;
+            border: 3px solid var(--surface-2); border-top-color: var(--accent);
+            animation: emb-spin 0.8s linear infinite;
+        }
+        @keyframes emb-spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="inflight-embed"></div>
+    <script src="embed.js"></script>
+</body>
+</html>
