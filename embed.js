@@ -467,43 +467,200 @@
     const LAYER_ID = 'va-pilots-layer';
     const SPRITE_URL = './markers.png';
 
-    // On-tap flight path layers (flown trail behind + filed plan ahead). Drawn
-    // lazily for the single tapped flight and cleared when its popup closes, so
-    // we only ever load one flight's geometry at a time.
-    const FLOWN_SRC = 'emb-flown-src',   FLOWN_LYR = 'emb-flown-lyr';
-    const PLAN_SRC  = 'emb-plan-src',    PLAN_LYR  = 'emb-plan-lyr';
+    // ── Flight path engine ───────────────────────────────────────────────────
+    // Ported verbatim from flight.js so the embed draws the flown trail and the
+    // filed plan EXACTLY like the main tracker: an altitude-coloured, Catmull-Rom
+    // smoothed, great-circle-densified trail, plus a glowing cyan dashed "Full
+    // Plan" with waypoint dots + labels. Geometry is loaded one flight at a time
+    // (on tap) and cleared when the card closes.
+
+    // On-tap layer ids — one active flight at a time.
+    const FLOWN_SRC  = 'emb-flown-src',  FLOWN_LYR  = 'emb-flown-lyr';
+    const PLAN_SRC   = 'emb-plan-src';
+    const PLAN_GLOW  = 'emb-plan-glow',  PLAN_LINE = 'emb-plan-line';
+    const PLAN_DOTS  = 'emb-plan-dots',  PLAN_LBLS = 'emb-plan-lbls';
 
     function removeFlightPaths(map) {
-        if (!map) return;
-        [FLOWN_LYR, PLAN_LYR].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+        if (!map || !map.getStyle) return;
+        [FLOWN_LYR, PLAN_GLOW, PLAN_LINE, PLAN_DOTS, PLAN_LBLS].forEach(id => {
+            if (map.getLayer(id)) map.removeLayer(id);
+        });
         [FLOWN_SRC, PLAN_SRC].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
     }
 
-    // Flatten an IF flight plan (which can nest waypoints under `children`) into
-    // an ordered [lon, lat] array, skipping null-island placeholders. Mirrors
-    // flight.js flattenWaypointsFromPlan.
-    function flattenPlanWaypoints(items) {
-        const out = [];
-        const walk = (arr) => {
-            if (!Array.isArray(arr)) return;
-            for (const item of arr) {
-                if (Array.isArray(item.children) && item.children.length) {
-                    walk(item.children);
-                } else if (item.location
-                    && typeof item.location.longitude === 'number'
-                    && typeof item.location.latitude === 'number'
-                    && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
-                    out.push([item.location.longitude, item.location.latitude]);
+    // --- Geometry helpers (verbatim from flight.js) ---
+    function getDistanceKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const toRad = Math.PI / 180;
+        const dLat = (lat2 - lat1) * toRad;
+        const dLon = (lon2 - lon1) * toRad;
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function getIntermediatePoint(lat1, lon1, lat2, lon2, fraction) {
+        const toRad = Math.PI / 180;
+        const toDeg = 180 / Math.PI;
+        const lat1Rad = lat1 * toRad, lon1Rad = lon1 * toRad;
+        const lat2Rad = lat2 * toRad, lon2Rad = lon2 * toRad;
+        const d = getDistanceKm(lat1, lon1, lat2, lon2) / 6371;
+        if (d === 0) return { lat: lat1, lon: lon1 };
+        const sinD = Math.sin(d);
+        const a = Math.sin((1 - fraction) * d) / sinD;
+        const b = Math.sin(fraction * d) / sinD;
+        const x = a * Math.cos(lat1Rad) * Math.cos(lon1Rad) + b * Math.cos(lat2Rad) * Math.cos(lon2Rad);
+        const y = a * Math.cos(lat1Rad) * Math.sin(lon1Rad) + b * Math.cos(lat2Rad) * Math.sin(lon2Rad);
+        const z = a * Math.sin(lat1Rad) + b * Math.sin(lat2Rad);
+        return { lat: Math.atan2(z, Math.sqrt(x * x + y * y)) * toDeg, lon: Math.atan2(y, x) * toDeg };
+    }
+
+    function unwrapLineCoordinates(coords) {
+        if (!coords || coords.length < 2) return coords;
+        const newCoords = [coords[0]];
+        let lastLon = coords[0][0];
+        for (let i = 1; i < coords.length; i++) {
+            const [rawLon, lat] = coords[i];
+            let delta = rawLon - (lastLon % 360);
+            if (delta > 180) delta -= 360;
+            if (delta < -180) delta += 360;
+            const newLon = lastLon + delta;
+            newCoords.push([newLon, lat]);
+            lastLon = newLon;
+        }
+        return newCoords;
+    }
+
+    function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
+        if (!coordinates || coordinates.length < 2) return coordinates;
+        const densified = [coordinates[0]];
+        for (let i = 0; i < coordinates.length - 1; i++) {
+            const start = coordinates[i];
+            const end = coordinates[i + 1];
+            const dist = getDistanceKm(start[1], start[0], end[1], end[0]);
+            if (dist > maxSegmentLengthKm) {
+                const steps = Math.ceil(dist / maxSegmentLengthKm);
+                for (let j = 1; j < steps; j++) {
+                    const fraction = j / steps;
+                    const intermediate = getIntermediatePoint(start[1], start[0], end[1], end[0], fraction);
+                    let lon = intermediate.lon;
+                    let prevLon = densified[densified.length - 1][0];
+                    let delta = lon - (prevLon % 360);
+                    while (delta > 180) delta -= 360;
+                    while (delta < -180) delta += 360;
+                    densified.push([prevLon + delta, intermediate.lat]);
+                }
+            }
+            densified.push(end);
+        }
+        return densified;
+    }
+
+    function generateSmoothPath(points, tension = 0.5) {
+        if (points.length < 4) return points;
+        const result = [];
+        const interpolate = (p0, p1, p2, p3, t) => {
+            const t2 = t * t, t3 = t2 * t;
+            return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+        };
+        for (let i = 0; i < points.length - 1; i++) {
+            const p0 = points[i === 0 ? i : i - 1];
+            const p1 = points[i];
+            const p2 = points[i + 1];
+            const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
+            const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
+            const steps = Math.max(24, Math.min(64, Math.ceil(d * 400)));
+            for (let t = 0; t < 1; t += 1 / steps) {
+                result.push({
+                    unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                    lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                    alt: p1.alt + (p2.alt - p1.alt) * t
+                });
+            }
+        }
+        result.push(points[points.length - 1]);
+        return result;
+    }
+
+    function generateAltitudeColoredRoute(trailPoints, currentPosition) {
+        const features = [];
+        const allPoints = [...(trailPoints || [])];
+        if (currentPosition) {
+            allPoints.push({
+                latitude: currentPosition.lat,
+                longitude: currentPosition.lon,
+                altitude: currentPosition.alt_ft || 0
+            });
+        }
+        if (allPoints.length < 2) return { type: 'FeatureCollection', features: [] };
+
+        const unwrappedPoints = [];
+        let prevLon = allPoints[0].longitude || allPoints[0].lon;
+        unwrappedPoints.push({
+            unwrappedLon: prevLon,
+            lat: allPoints[0].latitude || allPoints[0].lat,
+            alt: allPoints[0].altitude || allPoints[0].alt || 0
+        });
+        for (let i = 1; i < allPoints.length; i++) {
+            let lon = allPoints[i].longitude || allPoints[i].lon;
+            const lat = allPoints[i].latitude || allPoints[i].lat;
+            const alt = allPoints[i].altitude || allPoints[i].alt || 0;
+            while (lon - prevLon > 180) lon -= 360;
+            while (prevLon - lon > 180) lon += 360;
+            unwrappedPoints.push({ unwrappedLon: lon, lat, alt });
+            prevLon = lon;
+        }
+
+        const smoothedPoints = unwrappedPoints.length >= 4
+            ? generateSmoothPath(unwrappedPoints, 0.5)
+            : unwrappedPoints;
+
+        for (let i = 0; i < smoothedPoints.length - 1; i++) {
+            const p1 = smoothedPoints[i];
+            const p2 = smoothedPoints[i + 1];
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: [[p1.unwrappedLon, p1.lat], [p2.unwrappedLon, p2.lat]] },
+                properties: { altitude: p1.alt }
+            });
+        }
+        return { type: 'FeatureCollection', features };
+    }
+
+    function flattenWaypointsFromPlan(items) {
+        const waypoints = [];
+        if (!Array.isArray(items)) return waypoints;
+        const extract = (planItems) => {
+            for (const item of planItems) {
+                if (Array.isArray(item.children) && item.children.length > 0) {
+                    extract(item.children);
+                } else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                    waypoints.push([item.location.longitude, item.location.latitude]);
                 }
             }
         };
-        walk(items);
-        return out;
+        extract(items);
+        return waypoints;
     }
 
-    // Fetch the tapped flight's flown trail (history) + filed plan and draw them.
-    // Solid light-blue trail behind the aircraft, dashed magenta plan ahead —
-    // same palette as the main tracker.
+    function getFlatWaypointObjects(items) {
+        const waypoints = [];
+        if (!Array.isArray(items)) return waypoints;
+        const extract = (planItems) => {
+            for (const item of planItems) {
+                if (Array.isArray(item.children) && item.children.length > 0) {
+                    extract(item.children);
+                } else if (item.location && typeof item.location.longitude === 'number' && typeof item.location.latitude === 'number' && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                    waypoints.push(item);
+                }
+            }
+        };
+        extract(items);
+        return waypoints;
+    }
+
+    // Fetch the tapped flight's flown trail + filed plan and draw both, matching
+    // the main tracker's sector-ops rendering exactly.
     async function drawFlightPaths(map, pr, clickedCoords) {
         const flightId = pr.flightId, sessionId = pr.sessionId;
         if (!map || !flightId) return;
@@ -516,40 +673,126 @@
             getJSON(historyUrl).catch(() => null)
         ]);
 
-        // The popup may have been closed (or another flight tapped) while we
-        // awaited — bail rather than drawing a stale path.
+        // Popup may have closed (or another flight tapped) mid-fetch — bail.
         if (!map.getStyle || _mapState.activePathId !== flightId) return;
 
-        // Flown trail.
+        const currentPosition = {
+            lat: clickedCoords[1],
+            lon: clickedCoords[0],
+            alt_ft: Number(pr.altitude) || 0
+        };
+
+        // ── 1. Flown path — altitude-coloured gradient trail ──
         const histArr = (histJson && (histJson.path || histJson.route)) || [];
-        const flown = Array.isArray(histArr)
-            ? histArr
-                .slice()
-                .sort((a, b) => new Date(a.date) - new Date(b.date))
-                .map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude])
-                .filter(c => Number.isFinite(c[0]) && Number.isFinite(c[1]))
+        const trail = Array.isArray(histArr)
+            ? histArr.slice().sort((a, b) => new Date(a.date) - new Date(b.date))
             : [];
-        if (flown.length > 1) {
-            map.addSource(FLOWN_SRC, { type: 'geojson',
-                data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flown } } });
-            map.addLayer({ id: FLOWN_LYR, type: 'line', source: FLOWN_SRC,
-                layout: { 'line-cap': 'round', 'line-join': 'round' },
-                paint: { 'line-color': '#81D4FA', 'line-width': 2.5 } }, LAYER_ID);
+        const routeFeature = generateAltitudeColoredRoute(trail, currentPosition);
+        if (routeFeature.features.length) {
+            map.addSource(FLOWN_SRC, {
+                type: 'geojson',
+                data: routeFeature,
+                lineMetrics: true,   // CRITICAL for gradients
+                tolerance: 0         // Don't simplify segments away at low zoom
+            });
+            map.addLayer({
+                id: FLOWN_LYR,
+                type: 'line',
+                source: FLOWN_SRC,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-width': 4,
+                    'line-opacity': 1,
+                    'line-color': [
+                        'interpolate', ['linear'], ['get', 'altitude'],
+                        0, '#94a3b8',       // Ground / Taxi / Parked (Grey)
+                        3000, '#c084fc',    // Approach / Initial Climb (Purple)
+                        12000, '#f59e0b',   // Lower Descent / Climb (Orange)
+                        20000, '#10b981',   // Climb / High Descent (Green)
+                        30000, '#38bdf8',   // Cruise (Blue)
+                        45000, '#0284c7'    // High Cruise (Darker Blue)
+                    ]
+                }
+            }, LAYER_ID);
         }
 
-        // Filed plan ahead — from the next waypoint onward, anchored at the plane.
+        // ── 2. Filed plan — full route (glow + dashed cyan + waypoint dots/labels) ──
         const plan = planJson && planJson.plan;
-        const items = plan && Array.isArray(plan.flightPlanItems) ? plan.flightPlanItems : [];
-        if (items.length) {
-            const nextIdx = typeof plan.nextWaypointIndex === 'number' ? plan.nextWaypointIndex : 0;
-            const wps = flattenPlanWaypoints(items.slice(nextIdx));
-            const planned = [clickedCoords, ...wps];
-            if (planned.length > 1) {
-                map.addSource(PLAN_SRC, { type: 'geojson',
-                    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: planned } } });
-                map.addLayer({ id: PLAN_LYR, type: 'line', source: PLAN_SRC,
-                    layout: { 'line-cap': 'round', 'line-join': 'round' },
-                    paint: { 'line-color': '#e84393', 'line-width': 2.5, 'line-dasharray': [2, 2] } }, LAYER_ID);
+        if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
+            const allWaypointsForLine = flattenWaypointsFromPlan(plan.flightPlanItems);
+            if (allWaypointsForLine.length >= 2) {
+                const rawWaypoints = flattenWaypointsFromPlan(plan.flightPlanItems);
+                const unwrappedWaypoints = unwrapLineCoordinates(rawWaypoints);
+                const densifiedWaypoints = densifyRoute(unwrappedWaypoints, 100);
+                const waypointObjects = getFlatWaypointObjects(plan.flightPlanItems);
+
+                // Mark the closest waypoint as "active" so prior ones read as passed.
+                let activeWpIndex = 0, minDist = Infinity;
+                waypointObjects.forEach((wp, idx) => {
+                    if (!wp.location) return;
+                    const d = getDistanceKm(currentPosition.lat, currentPosition.lon, wp.location.latitude, wp.location.longitude);
+                    if (d < minDist) { minDist = d; activeWpIndex = idx; }
+                });
+
+                const features = [{
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: densifiedWaypoints }
+                }];
+                waypointObjects.forEach((wp, idx) => {
+                    if (wp.location && wp.location.longitude != null && wp.location.latitude != null) {
+                        features.push({
+                            type: 'Feature',
+                            geometry: { type: 'Point', coordinates: [wp.location.longitude, wp.location.latitude] },
+                            properties: { name: (wp.identifier || wp.name || '').toUpperCase(), isPassed: idx < activeWpIndex }
+                        });
+                    }
+                });
+
+                map.addSource(PLAN_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+
+                map.addLayer({
+                    id: PLAN_GLOW, type: 'line', source: PLAN_SRC,
+                    filter: ['==', '$type', 'LineString'],
+                    paint: { 'line-color': '#06b6d4', 'line-width': 6, 'line-opacity': 0.25, 'line-blur': 4 }
+                }, LAYER_ID);
+
+                map.addLayer({
+                    id: PLAN_LINE, type: 'line', source: PLAN_SRC,
+                    filter: ['==', '$type', 'LineString'],
+                    paint: { 'line-color': '#67e8f9', 'line-width': 2, 'line-opacity': 0.9, 'line-dasharray': [3, 4] }
+                }, LAYER_ID);
+
+                map.addLayer({
+                    id: PLAN_DOTS, type: 'circle', source: PLAN_SRC,
+                    filter: ['==', '$type', 'Point'],
+                    paint: {
+                        'circle-radius': 1.5,
+                        'circle-color': ['case', ['==', ['get', 'isPassed'], true], '#eab308', '#1e1b4b'],
+                        'circle-stroke-width': 1,
+                        'circle-stroke-color': ['case', ['==', ['get', 'isPassed'], true], '#ca8a04', '#67e8f9']
+                    }
+                }, LAYER_ID);
+
+                map.addLayer({
+                    id: PLAN_LBLS, type: 'symbol', source: PLAN_SRC,
+                    filter: ['all', ['==', '$type', 'Point'], ['==', ['get', 'isPassed'], false]],
+                    layout: {
+                        'text-field': ['get', 'name'],
+                        'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                        'text-size': 9,
+                        'text-offset': [0.6, -0.6],
+                        'text-anchor': 'bottom-left',
+                        'text-allow-overlap': false,
+                        'text-ignore-placement': false,
+                        'text-letter-spacing': 0.1
+                    },
+                    paint: {
+                        'text-color': '#fdf4ff',
+                        'text-halo-color': 'rgba(15, 23, 42, 0.9)',
+                        'text-halo-width': 2,
+                        'text-halo-blur': 1
+                    }
+                }, LAYER_ID);
             }
         }
     }
