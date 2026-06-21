@@ -7,8 +7,8 @@
  *
  * The CURRENT mobile UI is driven by:
  *   - landingUI.js                  (LandingUI — tactical header + search)
- *   - MobileLandingChromeUI.js      (iOS bottom tab bar: Inflight / Weather
- *                                     / Filters / Settings — the live HUD)
+ *   - MobileLandingChromeUI.js      (iOS bottom tab bar: Partners / Weather
+ *                                     / ATC / Filters / Settings — the live HUD)
  *   - MobileSettingsUI.js           (the current mobile settings panel,
  *                                     opened from the Settings tab)
  *
