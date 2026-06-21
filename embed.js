@@ -351,6 +351,74 @@
         });
     }
 
+    // ── Tap card (matches the desktop map hover card) ───────────────────────────
+    const LOOKUP_URL = `${INGDO_BACKEND}/api/aircraft/lookup`;
+    const DEFAULT_AC_IMG = '/CommunityPlanes/default.png';
+    const _imgCache = new Map(); // "type|livery" -> Promise<{url, credit}|null>
+
+    // Resolve the community aircraft photo for a type+livery, same endpoint the
+    // share card uses. Cached per airframe; never rejects (returns null).
+    function communityImage(type, livery) {
+        if (!type || !livery) return Promise.resolve(null);
+        const key = `${type}|${livery}`;
+        if (_imgCache.has(key)) return _imgCache.get(key);
+        const pr = getJSON(`${LOOKUP_URL}?type=${encodeURIComponent(type)}&livery=${encodeURIComponent(livery)}`)
+            .then(d => {
+                if (Array.isArray(d)) d = d.length ? d[0] : null;
+                if (!d || !d.imageUrl) return null;
+                return { url: d.imageUrl, credit: d.contributorName || d.contributor || d.credit || 'IF Community' };
+            })
+            .catch(() => null);
+        _imgCache.set(key, pr);
+        return pr;
+    }
+
+    // Airline logo path — same derivation as flight.js's hover card.
+    function airlineLogoPath(livery) {
+        const words = String(livery || '').trim().split(/\s+/);
+        const logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1])
+            ? words[0]
+            : (words[0] + (words[1] ? ' ' + words[1] : ''));
+        const s = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+        return s ? `Images/airline_logos/${s}.png` : '';
+    }
+
+    function fr24CardHTML(pr, imgUrl, credit) {
+        const callsign = pr.callsign || '---';
+        const username = pr.username || 'Unknown';
+        const dep = pr.depIcao || '---';
+        const arr = pr.arrIcao || '---';
+        const alt = Math.round(Number(pr.altitude) || 0).toLocaleString();
+        const gs = Math.round(Number(pr.speed) || 0);
+        const logo = airlineLogoPath(pr.livery);
+        return `
+            <div class="fr24-card-container">
+                <div class="fr24-image-box" style="background-image:url('${esc(imgUrl)}')">
+                    <div class="fr24-image-overlay"></div>
+                    <div class="fr24-copyright">© ${esc(credit || 'IF Community')}</div>
+                </div>
+                <div class="fr24-info-box">
+                    <div class="fr24-header-row">
+                        ${logo ? `<img src="${esc(logo)}" class="fr24-airline-logo" onerror="this.style.display='none'">` : ''}
+                        <div class="fr24-ident-group"><span class="fr24-callsign">${esc(callsign)}</span></div>
+                        <span class="fr24-user" title="${esc(username)}">${esc(username)}</span>
+                    </div>
+                    <div class="fr24-route-premium">
+                        <span class="fr24-route-code" style="color:#f8fafc">${esc(dep)}</span>
+                        <div class="fr24-route-line">
+                            <div class="seg"></div>
+                            <svg class="glyph" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
+                        </div>
+                        <span class="fr24-route-code" style="color:#94a3b8">${esc(arr)}</span>
+                    </div>
+                    <div class="fr24-stats-row">
+                        <span><b>${alt}</b> <span class="u">FT</span></span>
+                        <span><b>${gs}</b> <span class="u">KTS</span></span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
     const SOURCE_ID = 'va-pilots';
     const LAYER_ID = 'va-pilots-layer';
     const SPRITE_URL = './markers.png';
@@ -411,8 +479,12 @@
                         heading: p.heading || 0,
                         callsign: p.callsign || p.flightId || '',
                         username: p.username || '',
-                        route: (p.depIcao || p.arrIcao) ? `${p.depIcao || '—'} → ${p.arrIcao || '—'}` : '',
-                        metrics: `${p.altitude.toLocaleString()} ft · ${p.speed} kt`
+                        depIcao: p.depIcao || '',
+                        arrIcao: p.arrIcao || '',
+                        aircraft: p.aircraft || '',
+                        livery: p.livery || '',
+                        altitude: p.altitude || 0,
+                        speed: p.speed || 0
                     }
                 }))
         };
@@ -456,21 +528,28 @@
             });
         }
 
-        // Click a plane → popup with its flight details.
+        // Tap a plane → FR24-style card, matching the desktop hover card. Opens
+        // instantly with a placeholder photo, then swaps in the real community
+        // aircraft image once the lookup resolves.
         map.on('click', LAYER_ID, (e) => {
             const f = e.features && e.features[0];
             if (!f) return;
             const pr = f.properties || {};
-            new window.mapboxgl.Popup({ offset: 14, closeButton: false })
+            const popup = new window.mapboxgl.Popup({
+                offset: 14, closeButton: false, maxWidth: 'none', className: 'emb-fr24-popup'
+            })
                 .setLngLat(f.geometry.coordinates.slice())
-                .setHTML(`
-                    <div class="emb-pop">
-                        <div class="emb-pop-cs">${esc(pr.callsign)}</div>
-                        ${pr.username ? `<div class="emb-pop-line">${esc(pr.username)}</div>` : ''}
-                        ${pr.route ? `<div class="emb-pop-line">${esc(pr.route)}</div>` : ''}
-                        <div class="emb-pop-line">${esc(pr.metrics)}</div>
-                    </div>`)
+                .setHTML(fr24CardHTML(pr, DEFAULT_AC_IMG))
                 .addTo(map);
+            communityImage(pr.aircraft, pr.livery).then(info => {
+                if (!info || !info.url) return;
+                const el = popup.getElement && popup.getElement();
+                if (!el) return;
+                const box = el.querySelector('.fr24-image-box');
+                if (box) box.style.backgroundImage = `url('${info.url}')`;
+                const cr = el.querySelector('.fr24-copyright');
+                if (cr) cr.textContent = '© ' + info.credit;
+            });
         });
         map.on('mouseenter', LAYER_ID, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', LAYER_ID, () => { map.getCanvas().style.cursor = ''; });
