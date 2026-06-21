@@ -74,6 +74,7 @@
     const ACARS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
     const SESSIONS_URL  = `${ACARS_BACKEND}/if-sessions`;
     const FLIGHTS_BASE  = `${ACARS_BACKEND}/flights`;
+    const HISTORY_BASE  = `${ACARS_BACKEND}/api/flights`;   // flown-trail breadcrumb
     const RESOLVE_URL   = `${INGDO_BACKEND}/api/embed/resolve`;
     const VAADS_URL     = `${INGDO_BACKEND}/api/va-ads`;
 
@@ -248,13 +249,14 @@
         return prefixes.some(pfx => tok.startsWith(pfx));
     }
 
-    function normalizeFlight(f, serverName) {
+    function normalizeFlight(f, serverName, sessionId) {
         const pos = f.position || {};
         const lat = pos.lat ?? pos.latitude;
         const lon = pos.lon ?? pos.longitude;
         const ac = f.aircraft || {};
         return {
             flightId: f.flightId,
+            sessionId: sessionId || '',
             callsign: f.callsign || '',
             username: f.username || f.virtualOrgName || '',
             aircraft: ac.aircraftName || f.aircraftName || '',
@@ -288,7 +290,7 @@
             const flights = fj.flights || fj.data || (Array.isArray(fj) ? fj : []);
             return flights
                 .filter(f => f && callsignMatches(f.callsign, cfg.prefixes))
-                .map(f => normalizeFlight(f, s.name));
+                .map(f => normalizeFlight(f, s.name, s.id));
         }));
 
         const out = [];
@@ -464,6 +466,93 @@
     const SOURCE_ID = 'va-pilots';
     const LAYER_ID = 'va-pilots-layer';
     const SPRITE_URL = './markers.png';
+
+    // On-tap flight path layers (flown trail behind + filed plan ahead). Drawn
+    // lazily for the single tapped flight and cleared when its popup closes, so
+    // we only ever load one flight's geometry at a time.
+    const FLOWN_SRC = 'emb-flown-src',   FLOWN_LYR = 'emb-flown-lyr';
+    const PLAN_SRC  = 'emb-plan-src',    PLAN_LYR  = 'emb-plan-lyr';
+
+    function removeFlightPaths(map) {
+        if (!map) return;
+        [FLOWN_LYR, PLAN_LYR].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+        [FLOWN_SRC, PLAN_SRC].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+    }
+
+    // Flatten an IF flight plan (which can nest waypoints under `children`) into
+    // an ordered [lon, lat] array, skipping null-island placeholders. Mirrors
+    // flight.js flattenWaypointsFromPlan.
+    function flattenPlanWaypoints(items) {
+        const out = [];
+        const walk = (arr) => {
+            if (!Array.isArray(arr)) return;
+            for (const item of arr) {
+                if (Array.isArray(item.children) && item.children.length) {
+                    walk(item.children);
+                } else if (item.location
+                    && typeof item.location.longitude === 'number'
+                    && typeof item.location.latitude === 'number'
+                    && (item.location.latitude !== 0 || item.location.longitude !== 0)) {
+                    out.push([item.location.longitude, item.location.latitude]);
+                }
+            }
+        };
+        walk(items);
+        return out;
+    }
+
+    // Fetch the tapped flight's flown trail (history) + filed plan and draw them.
+    // Solid light-blue trail behind the aircraft, dashed magenta plan ahead —
+    // same palette as the main tracker.
+    async function drawFlightPaths(map, pr, clickedCoords) {
+        const flightId = pr.flightId, sessionId = pr.sessionId;
+        if (!map || !flightId) return;
+
+        const planUrl    = `${FLIGHTS_BASE}/${sessionId || 'default'}/${flightId}/plan`;
+        const historyUrl = `${HISTORY_BASE}/${flightId}/history`;
+
+        const [planJson, histJson] = await Promise.all([
+            getJSON(planUrl).catch(() => null),
+            getJSON(historyUrl).catch(() => null)
+        ]);
+
+        // The popup may have been closed (or another flight tapped) while we
+        // awaited — bail rather than drawing a stale path.
+        if (!map.getStyle || _mapState.activePathId !== flightId) return;
+
+        // Flown trail.
+        const histArr = (histJson && (histJson.path || histJson.route)) || [];
+        const flown = Array.isArray(histArr)
+            ? histArr
+                .slice()
+                .sort((a, b) => new Date(a.date) - new Date(b.date))
+                .map(p => [p.lon ?? p.longitude, p.lat ?? p.latitude])
+                .filter(c => Number.isFinite(c[0]) && Number.isFinite(c[1]))
+            : [];
+        if (flown.length > 1) {
+            map.addSource(FLOWN_SRC, { type: 'geojson',
+                data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flown } } });
+            map.addLayer({ id: FLOWN_LYR, type: 'line', source: FLOWN_SRC,
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': '#81D4FA', 'line-width': 2.5 } }, LAYER_ID);
+        }
+
+        // Filed plan ahead — from the next waypoint onward, anchored at the plane.
+        const plan = planJson && planJson.plan;
+        const items = plan && Array.isArray(plan.flightPlanItems) ? plan.flightPlanItems : [];
+        if (items.length) {
+            const nextIdx = typeof plan.nextWaypointIndex === 'number' ? plan.nextWaypointIndex : 0;
+            const wps = flattenPlanWaypoints(items.slice(nextIdx));
+            const planned = [clickedCoords, ...wps];
+            if (planned.length > 1) {
+                map.addSource(PLAN_SRC, { type: 'geojson',
+                    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: planned } } });
+                map.addLayer({ id: PLAN_LYR, type: 'line', source: PLAN_SRC,
+                    layout: { 'line-cap': 'round', 'line-join': 'round' },
+                    paint: { 'line-color': '#e84393', 'line-width': 2.5, 'line-dasharray': [2, 2] } }, LAYER_ID);
+            }
+        }
+    }
     const SPRITE_TARGET_SIZE = 128;  // matches flight.js loadSpriteSheetAndGenerateIcons
 
     // Same atmosphere the live map uses (flight.js setupMapLayersAndFog) so the
@@ -519,6 +608,8 @@
                     properties: {
                         category: p.category || 'B737',
                         heading: p.heading || 0,
+                        flightId: p.flightId || '',
+                        sessionId: p.sessionId || '',
                         callsign: p.callsign || p.flightId || '',
                         username: p.username || '',
                         depIcao: p.depIcao || '',
@@ -577,12 +668,28 @@
             const f = e.features && e.features[0];
             if (!f) return;
             const pr = f.properties || {};
+            const coords = f.geometry.coordinates.slice();
+
+            // Tapping a new plane replaces any path from the previously open card.
+            removeFlightPaths(map);
+            _mapState.activePathId = pr.flightId || null;
+
             const popup = new window.mapboxgl.Popup({
                 offset: 14, closeButton: false, maxWidth: 'none', className: 'emb-fr24-popup'
             })
-                .setLngLat(f.geometry.coordinates.slice())
+                .setLngLat(coords)
                 .setHTML(fr24CardHTML(pr, DEFAULT_AC_IMG))
                 .addTo(map);
+
+            // Clear the trail/plan when the card is dismissed.
+            popup.on('close', () => {
+                if (_mapState.activePathId === pr.flightId) _mapState.activePathId = null;
+                removeFlightPaths(map);
+            });
+
+            // Lazily fetch + draw this one flight's flown trail and filed plan.
+            drawFlightPaths(map, pr, coords).catch(() => {});
+
             communityImage(pr.aircraft, pr.livery).then(info => {
                 if (!info || !info.url) return;
                 const el = popup.getElement && popup.getElement();
