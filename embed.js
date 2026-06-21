@@ -92,6 +92,32 @@
         return String(s || '').trim().toUpperCase().split(/[\s\-_/]+/)[0] || '';
     }
 
+    // Aircraft name → sprite category. Ported verbatim from flight.js
+    // getAircraftCategory so the embed plots the same silhouette the live map
+    // would for any given airframe. Returns a key that exists in markers.png.
+    function getAircraftCategory(aircraftName) {
+        if (!aircraftName) return 'default';
+        const name = aircraftName.toUpperCase();
+        if (['F-16', 'F-18', 'F-22', 'F-35', 'A-10', 'EUFI'].some(ac => name.includes(ac))) return 'F16';
+        if (['C-130', 'C130', 'AC-130'].some(ac => name.includes(ac))) return 'C130';
+        if (name.includes('C-17') || name.includes('C5')) return 'C17';
+        if (name.includes('A380') || name.includes('A388')) return 'A380';
+        if (name.includes('747')) return 'B747';
+        if (name.includes('777') || name.includes('B77')) return 'B777';
+        if (name.includes('787') || name.includes('B78')) return 'B787';
+        if (name.includes('A350') || name.includes('A359')) return 'A350';
+        if (name.includes('A330') || name.includes('A333') || name.includes('A339')) return 'A330';
+        if (name.includes('DC-10') || name.includes('MD-11')) return 'A330';
+        if (name.includes('737') || name.includes('B73') || name.includes('B38M')) return 'B737';
+        if (name.includes('A320') || name.includes('A321') || name.includes('A319') || name.includes('A20N') || name.includes('A21N')) return 'A320';
+        if (name.includes('757') || name.includes('B75')) return 'B757';
+        if (name.includes('CRJ') || name.includes('E175') || name.includes('E190')) return 'E190';
+        if (name.includes('DASH 8') || name.includes('DH8D') || name.includes('Q400')) return 'DASH8';
+        if (['C172', 'SR22', 'CESSNA', 'SINGLEPROP'].some(ac => name.includes(ac))) return 'SINGLEPROP';
+        if (['EUROCOPTER', 'H60', 'H64', 'CHINOOK', 'LYNX'].some(ac => name.includes(ac))) return 'EUROCOPTER';
+        return 'B737';
+    }
+
     async function getJSON(url, opts) {
         const res = await fetch(url, Object.assign({ headers: { Accept: 'application/json' } }, opts || {}));
         if (!res.ok) {
@@ -212,6 +238,7 @@
             livery: ac.liveryName || f.liveryName || '',
             depIcao: f.departureIcao || '',
             arrIcao: f.arrivalIcao || '',
+            category: getAircraftCategory(ac.aircraftName || f.aircraftName || ''),
             lat: (lat == null ? null : Number(lat)),
             lon: (lon == null ? null : Number(lon)),
             altitude: Math.round(pos.alt_ft || f.altitude || 0),
@@ -324,18 +351,142 @@
         });
     }
 
-    function planeMarkerEl(heading) {
-        const el = document.createElement('div');
-        el.className = 'emb-marker';
-        el.innerHTML =
-            `<svg viewBox="0 0 24 24" width="26" height="26" style="transform:rotate(${heading}deg)">
-                <path fill="#38bdf8" stroke="#0b1220" stroke-width="0.8"
-                    d="M12 2l1.5 7.5L21 12l-7.5 1.2L12 22l-1.5-8.8L3 12l7.5-2.5z"/>
-            </svg>`;
-        return el;
+    const SOURCE_ID = 'va-pilots';
+    const LAYER_ID = 'va-pilots-layer';
+    const SPRITE_URL = './markers.png';
+    const SPRITE_TARGET_SIZE = 128;  // matches flight.js loadSpriteSheetAndGenerateIcons
+
+    // Same atmosphere the live map uses (flight.js setupMapLayersAndFog) so the
+    // globe reads identically — blue horizon, deep-space backdrop, faint stars.
+    const EMBED_FOG = {
+        'color': 'rgb(186, 210, 235)',
+        'high-color': 'rgb(36, 92, 235)',
+        'horizon-blend': 0.02,
+        'space-color': 'rgb(27, 27, 54)',
+        'star-intensity': 0.3
+    };
+
+    // Slice markers.png into per-aircraft Mapbox images (icon-<CATEGORY>), exactly
+    // like the live map does — non-SDF "natural" sprites so they keep their real
+    // colours. Runs once per map; safe to await repeatedly (guards on hasImage).
+    async function loadSpriteIcons(map) {
+        const uvs = window.__EMBED_SPRITE_UVS__;
+        if (!uvs) return; // embed-sprites.js missing → fall back to a circle layer
+        const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.crossOrigin = 'Anonymous';
+            i.onload = () => resolve(i);
+            i.onerror = () => reject(new Error('Failed to load aircraft sprites.'));
+            i.src = SPRITE_URL;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+
+        for (const [key, uv] of Object.entries(uvs)) {
+            if (key.endsWith('_S')) continue; // skip the hover/selected variants
+            const id = `icon-${key}`;
+            if (map.hasImage(id)) continue;
+            const [xR, yR, wR, hR] = uv;
+            const x = Math.floor(xR * img.width), y = Math.floor(yR * img.height);
+            const w = Math.floor(wR * img.width), h = Math.floor(hR * img.height);
+            if (w === 0 || h === 0) continue;
+            const data = ctx.getImageData(x, y, w, h);
+            map.addImage(id, data, { pixelRatio: w / SPRITE_TARGET_SIZE, sdf: false });
+        }
     }
 
-    const _mapState = { map: null, markers: [] };
+    function pilotsToGeoJSON(pilots) {
+        return {
+            type: 'FeatureCollection',
+            features: pilots
+                .filter(p => p.lat != null && p.lon != null)
+                .map(p => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+                    properties: {
+                        category: p.category || 'B737',
+                        heading: p.heading || 0,
+                        callsign: p.callsign || p.flightId || '',
+                        username: p.username || '',
+                        route: (p.depIcao || p.arrIcao) ? `${p.depIcao || '—'} → ${p.arrIcao || '—'}` : '',
+                        metrics: `${p.altitude.toLocaleString()} ft · ${p.speed} kt`
+                    }
+                }))
+        };
+    }
+
+    const _mapState = { map: null, ready: false, hasIcons: false };
+
+    function addPilotLayer(map) {
+        if (map.getSource(SOURCE_ID)) return;
+        map.addSource(SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+        if (_mapState.hasIcons) {
+            // Real aircraft silhouettes, rotated to heading and locked to the map
+            // (so they bank with the globe), mirroring the live traffic layer.
+            map.addLayer({
+                id: LAYER_ID,
+                type: 'symbol',
+                source: SOURCE_ID,
+                layout: {
+                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']],
+                    'icon-size': 0.15,                   // matches the live map's default plane size
+                    'icon-rotate': ['get', 'heading'],
+                    'icon-rotation-alignment': 'map',
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true
+                }
+            });
+        } else {
+            // Sprite sheet unavailable — graceful circle fallback so the map still
+            // shows where pilots are.
+            map.addLayer({
+                id: LAYER_ID,
+                type: 'circle',
+                source: SOURCE_ID,
+                paint: {
+                    'circle-radius': 5,
+                    'circle-color': '#38bdf8',
+                    'circle-stroke-color': '#0b1220',
+                    'circle-stroke-width': 1.5
+                }
+            });
+        }
+
+        // Click a plane → popup with its flight details.
+        map.on('click', LAYER_ID, (e) => {
+            const f = e.features && e.features[0];
+            if (!f) return;
+            const pr = f.properties || {};
+            new window.mapboxgl.Popup({ offset: 14, closeButton: false })
+                .setLngLat(f.geometry.coordinates.slice())
+                .setHTML(`
+                    <div class="emb-pop">
+                        <div class="emb-pop-cs">${esc(pr.callsign)}</div>
+                        ${pr.username ? `<div class="emb-pop-line">${esc(pr.username)}</div>` : ''}
+                        ${pr.route ? `<div class="emb-pop-line">${esc(pr.route)}</div>` : ''}
+                        <div class="emb-pop-line">${esc(pr.metrics)}</div>
+                    </div>`)
+                .addTo(map);
+        });
+        map.on('mouseenter', LAYER_ID, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', LAYER_ID, () => { map.getCanvas().style.cursor = ''; });
+    }
+
+    function fitToPilots(map, pilots) {
+        const pts = pilots.filter(p => p.lat != null && p.lon != null);
+        if (!pts.length) return;
+        if (pts.length === 1) {
+            map.easeTo({ center: [pts[0].lon, pts[0].lat], zoom: 4.5, duration: 700 });
+            return;
+        }
+        const bounds = new window.mapboxgl.LngLatBounds();
+        pts.forEach(p => bounds.extend([p.lon, p.lat]));
+        map.fitBounds(bounds, { padding: 56, maxZoom: 6.5, duration: 700 });
+    }
 
     async function renderMap(cfg, pilots) {
         const root = rootEl();
@@ -347,53 +498,40 @@
                 ${headerHTML(cfg, pilots.length)}
                 <div class="emb-map" id="emb-map"></div>`;
             window.mapboxgl.accessToken = cfg.mapboxToken;   // the VA's OWN token
-            _mapState.map = new window.mapboxgl.Map({
+            const map = new window.mapboxgl.Map({
                 container: 'emb-map',
                 style: cfg.mapStyle,
+                projection: 'globe',                 // match the tracker's globe
                 center: [0, 25],
-                zoom: 1.4,
+                zoom: 1.5,
+                minZoom: 0,
                 attributionControl: true
             });
-            _mapState.map.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-        } else {
-            // Just refresh the header count on subsequent polls.
-            const sub = root.querySelector('.emb-head-sub');
-            if (sub) sub.innerHTML = `<span class="emb-live-dot"></span> ${pilots.length} pilot${pilots.length === 1 ? '' : 's'} airborne`;
+            _mapState.map = map;
+            map.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+
+            map.on('style.load', () => { try { map.setFog(EMBED_FOG); } catch (_) {} });
+
+            // First load: slice sprites, add the source+layer, seed it, fit view.
+            map.once('load', async () => {
+                try { await loadSpriteIcons(map); _mapState.hasIcons = true; }
+                catch (_) { _mapState.hasIcons = false; }
+                addPilotLayer(map);
+                map.getSource(SOURCE_ID).setData(pilotsToGeoJSON(pilots));
+                _mapState.ready = true;
+                fitToPilots(map, pilots);
+            });
+            _mapState._firstFit = true;
+            return;
         }
 
-        const map = _mapState.map;
-        const placeMarkers = () => {
-            _mapState.markers.forEach(m => m.remove());
-            _mapState.markers = [];
-            const bounds = new window.mapboxgl.LngLatBounds();
-            let plotted = 0;
-            pilots.forEach(p => {
-                if (p.lat == null || p.lon == null) return;
-                const popup = new window.mapboxgl.Popup({ offset: 16, closeButton: false })
-                    .setHTML(`
-                        <div class="emb-pop">
-                            <div class="emb-pop-cs">${esc(p.callsign)}</div>
-                            ${p.username ? `<div class="emb-pop-line">${esc(p.username)}</div>` : ''}
-                            ${(p.depIcao || p.arrIcao) ? `<div class="emb-pop-line">${esc(p.depIcao || '—')} → ${esc(p.arrIcao || '—')}</div>` : ''}
-                            <div class="emb-pop-line">${p.altitude.toLocaleString()} ft · ${p.speed} kt</div>
-                        </div>`);
-                const marker = new window.mapboxgl.Marker({ element: planeMarkerEl(p.heading), rotationAlignment: 'map' })
-                    .setLngLat([p.lon, p.lat])
-                    .setPopup(popup)
-                    .addTo(map);
-                _mapState.markers.push(marker);
-                bounds.extend([p.lon, p.lat]);
-                plotted++;
-            });
-            if (plotted === 1) {
-                map.easeTo({ center: bounds.getCenter(), zoom: 5, duration: 600 });
-            } else if (plotted > 1) {
-                map.fitBounds(bounds, { padding: 56, maxZoom: 7, duration: 600 });
-            }
-        };
-
-        if (map.loaded()) placeMarkers();
-        else map.once('load', placeMarkers);
+        // Subsequent polls: refresh header count + live data without re-fitting
+        // the camera (so we don't yank the view while someone is panning).
+        const sub = root.querySelector('.emb-head-sub');
+        if (sub) sub.innerHTML = `<span class="emb-live-dot"></span> ${pilots.length} pilot${pilots.length === 1 ? '' : 's'} airborne`;
+        if (_mapState.ready && _mapState.map.getSource(SOURCE_ID)) {
+            _mapState.map.getSource(SOURCE_ID).setData(pilotsToGeoJSON(pilots));
+        }
     }
 
     // ── Boot + polling ──────────────────────────────────────────────────────────
