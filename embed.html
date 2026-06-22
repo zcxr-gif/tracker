@@ -136,8 +136,10 @@
 
         /* FR24-style tap card — mirrors the desktop map hover card so the embed
            reads the same when a plane is tapped. Always dark, like the tracker. */
-        .emb-fr24-popup .mapboxgl-popup-content { background: transparent; box-shadow: none; padding: 0; border: none; }
-        .emb-fr24-popup .mapboxgl-popup-tip { display: none; }
+        .emb-fr24-popup .mapboxgl-popup-content,
+        .emb-fr24-popup .maplibregl-popup-content { background: transparent; box-shadow: none; padding: 0; border: none; }
+        .emb-fr24-popup .mapboxgl-popup-tip,
+        .emb-fr24-popup .maplibregl-popup-tip { display: none; }
         .fr24-card-container {
             width: 162px; display: flex; flex-direction: column; gap: 3px;
             font-family: inherit;

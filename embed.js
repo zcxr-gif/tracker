@@ -40,8 +40,10 @@
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
  *     "callsignPrefixes": ["OCEAN"],          // optional; defaults to [va.code]
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
- *     "mapboxToken": "pk.eyJ…",               // REQUIRED when mode === "map"; the VA's own token
- *     "mapStyle": "mapbox://styles/mapbox/dark-v11",   // optional
+ *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
+ *     "mapboxToken": "pk.eyJ…",               // the VA's own token (only needed for the mapbox provider)
+ *     "mapStyle": "mapbox://styles/mapbox/dark-v11",   // optional (mapbox provider)
+ *     "freeStyle": "dark",                    // optional (free provider): dark|liberty|bright|positron or a style URL
  *     "theme": "dark",                        // "dark" | "light"  (optional)
  *     "servers": ["Expert"]                   // optional; IF session names to scan (substring match). [] = all
  *   }
@@ -59,7 +61,9 @@
  * params so you can build and demo it today:
  *
  *     embed.html?va=OCEAN&name=Ocean%20Virtual&mode=roster
- *     embed.html?va=OCEAN&name=Ocean%20Virtual&mode=map&mapboxToken=pk.eyJ…
+ *     embed.html?va=OCEAN&name=Ocean%20Virtual&mode=map&mapboxToken=pk.eyJ…   (mapbox)
+ *     embed.html?va=OCEAN&name=Ocean%20Virtual&mode=map                       (free map — no token)
+ *     embed.html?va=OCEAN&name=Ocean%20Virtual&mode=map&provider=free&freeStyle=liberty
  *
  * If a `token` is present it always takes precedence and is resolved via the
  * backend. Direct params are ignored once a token is supplied.
@@ -80,6 +84,21 @@
 
     const REFRESH_MS = 30000;          // live data poll cadence
     const MAPBOX_GL_VERSION = 'v3.9.1'; // CDN version loaded only in map mode
+    const MAPLIBRE_VERSION = '4.7.1';   // free engine — no token required
+
+    // Free, key-less vector styles (OpenFreeMap). Used when a VA has no Mapbox
+    // token, so they're never locked out of the map view.
+    const FREE_STYLES = {
+        dark:     'https://tiles.openfreemap.org/styles/dark',
+        liberty:  'https://tiles.openfreemap.org/styles/liberty',
+        bright:   'https://tiles.openfreemap.org/styles/bright',
+        positron: 'https://tiles.openfreemap.org/styles/positron'
+    };
+    function resolveFreeStyle(s) {
+        const v = String(s || '').trim();
+        if (/^https?:\/\//i.test(v)) return v;            // a full style URL
+        return FREE_STYLES[v.toLowerCase()] || FREE_STYLES.dark;
+    }
 
     // ── Tiny helpers ──────────────────────────────────────────────────────────
     function esc(s) {
@@ -184,6 +203,8 @@
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
             mapStyle: (p.get('mapStyle') || '').trim(),
+            provider: (p.get('provider') || '').trim(),
+            freeStyle: (p.get('freeStyle') || '').trim(),
             theme: (p.get('theme') || '').trim(),
             servers: p.get('servers') ? p.get('servers').split(',') : null
         });
@@ -201,9 +222,23 @@
 
         let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
-        // Map mode silently degrades to roster if no token was issued — better a
-        // working list than a broken map.
-        if (mode === 'map' && !/^pk\./.test(mapboxToken)) mode = 'roster';
+        const hasToken = /^pk\./.test(mapboxToken);
+
+        // Pick the rendering engine. A VA without a Mapbox token isn't locked out
+        // of the map — it falls back to the free, key-less OpenFreeMap source via
+        // MapLibre. An explicit provider param wins, but "mapbox" without a token
+        // still degrades to free rather than breaking.
+        const providerRaw = String(raw.provider || '').trim().toLowerCase();
+        let provider;
+        if (['free', 'osm', 'openfreemap', 'maplibre'].includes(providerRaw)) provider = 'free';
+        else if (providerRaw === 'mapbox') provider = hasToken ? 'mapbox' : 'free';
+        else provider = hasToken ? 'mapbox' : 'free';
+
+        // Map mode is always renderable now (free engine needs no token).
+        const mapStyle = raw.mapStyle || 'mapbox://styles/mapbox/dark-v11';
+        const freeStyle = resolveFreeStyle(
+            raw.freeStyle || (provider === 'free' && !/^mapbox:/i.test(raw.mapStyle || '') ? raw.mapStyle : '')
+        );
 
         return {
             code,
@@ -211,8 +246,10 @@
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
             mode,
+            provider,
             mapboxToken,
-            mapStyle: raw.mapStyle || 'mapbox://styles/mapbox/dark-v11',
+            mapStyle,
+            freeStyle,
             theme: (raw.theme === 'light') ? 'light' : 'dark',
             servers: Array.isArray(raw.servers) ? raw.servers.map(s => String(s).trim()).filter(Boolean) : []
         };
@@ -362,21 +399,43 @@
     }
 
     // ── Map mode ────────────────────────────────────────────────────────────────
+    // The active GL engine global. MapLibre is API-compatible with Mapbox GL for
+    // everything the embed uses (Map, Popup, LngLatBounds, sources/layers,
+    // addImage), so the rest of the code is engine-agnostic via gl().
+    let _glEngine = null;   // 'mapbox' | 'free'
+    function gl() {
+        return _glEngine === 'free' ? window.maplibregl : window.mapboxgl;
+    }
+
     let _mapLoaded = false;
-    function loadMapboxGL() {
-        if (_mapLoaded) return Promise.resolve();
+    function loadScriptOnce(jsUrl, cssUrl, errLabel) {
         return new Promise((resolve, reject) => {
             const css = document.createElement('link');
             css.rel = 'stylesheet';
-            css.href = `https://api.mapbox.com/mapbox-gl-js/${MAPBOX_GL_VERSION}/mapbox-gl.css`;
+            css.href = cssUrl;
             document.head.appendChild(css);
 
             const js = document.createElement('script');
-            js.src = `https://api.mapbox.com/mapbox-gl-js/${MAPBOX_GL_VERSION}/mapbox-gl.js`;
-            js.onload = () => { _mapLoaded = true; resolve(); };
-            js.onerror = () => reject(new Error('Failed to load Mapbox GL JS.'));
+            js.src = jsUrl;
+            js.onload = () => resolve();
+            js.onerror = () => reject(new Error(`Failed to load ${errLabel}.`));
             document.head.appendChild(js);
         });
+    }
+
+    function loadMapEngine(provider) {
+        _glEngine = provider === 'free' ? 'free' : 'mapbox';
+        if (_mapLoaded) return Promise.resolve();
+        const p = _glEngine === 'free'
+            ? loadScriptOnce(
+                `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`,
+                `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`,
+                'MapLibre GL JS')
+            : loadScriptOnce(
+                `https://api.mapbox.com/mapbox-gl-js/${MAPBOX_GL_VERSION}/mapbox-gl.js`,
+                `https://api.mapbox.com/mapbox-gl-js/${MAPBOX_GL_VERSION}/mapbox-gl.css`,
+                'Mapbox GL JS');
+        return p.then(() => { _mapLoaded = true; });
     }
 
     // ── Tap card (matches the desktop map hover card) ───────────────────────────
@@ -786,7 +845,10 @@
                     filter: ['all', ['==', '$type', 'Point'], ['==', ['get', 'isPassed'], false]],
                     layout: {
                         'text-field': ['get', 'name'],
-                        'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                        // Font families differ per engine's glyph set.
+                        'text-font': _glEngine === 'free'
+                            ? ['Noto Sans Regular']
+                            : ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
                         'text-size': 9,
                         'text-offset': [0.6, -0.6],
                         'text-anchor': 'bottom-left',
@@ -974,7 +1036,7 @@
             removeFlightPaths(map);
             _mapState.activePathId = pr.flightId || null;
 
-            const popup = new window.mapboxgl.Popup({
+            const popup = new (gl().Popup)({
                 offset: 14, closeButton: false, maxWidth: 'none', className: 'emb-fr24-popup'
             })
                 .setLngLat(coords)
@@ -1012,7 +1074,7 @@
             map.easeTo({ center: [pts[0].lon, pts[0].lat], zoom: 4.5, duration: 700 });
             return;
         }
-        const bounds = new window.mapboxgl.LngLatBounds();
+        const bounds = new (gl().LngLatBounds)();
         pts.forEach(p => bounds.extend([p.lon, p.lat]));
         map.fitBounds(bounds, { padding: 56, maxZoom: 6.5, duration: 700 });
     }
@@ -1024,22 +1086,28 @@
         _mapState.cfg = cfg;   // branding for the tap card
 
         if (!_mapState.map) {
-            await loadMapboxGL();
+            await loadMapEngine(cfg.provider);
             root.innerHTML = `
                 ${headerHTML(cfg, pilots.length)}
                 <div class="emb-map" id="emb-map"></div>`;
-            window.mapboxgl.accessToken = cfg.mapboxToken;   // the VA's OWN token
-            const map = new window.mapboxgl.Map({
+
+            const isFree = cfg.provider === 'free';
+            const mapOpts = {
                 container: 'emb-map',
-                style: cfg.mapStyle,
-                projection: 'globe',                 // match the tracker's globe
+                style: isFree ? cfg.freeStyle : cfg.mapStyle,
                 center: [0, 25],
                 zoom: 1.5,
                 minZoom: 0,
                 attributionControl: true
-            });
+            };
+            // Globe is a Mapbox feature; the free MapLibre engine renders flat.
+            if (!isFree) {
+                window.mapboxgl.accessToken = cfg.mapboxToken;   // the VA's OWN token
+                mapOpts.projection = 'globe';                    // match the tracker's globe
+            }
+            const map = new (gl().Map)(mapOpts);
             _mapState.map = map;
-            map.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+            map.addControl(new (gl().NavigationControl)({ showCompass: false }), 'top-right');
 
             map.on('style.load', () => { try { map.setFog(EMBED_FOG); } catch (_) {} });
 
