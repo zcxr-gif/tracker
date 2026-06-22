@@ -766,7 +766,7 @@
 
     // Fetch the tapped flight's flown trail + filed plan and draw both, matching
     // the main tracker's sector-ops rendering exactly.
-    async function drawFlightPaths(map, pr, clickedCoords, popup) {
+    async function drawFlightPaths(map, pr, clickedCoords, cardEl) {
         const flightId = pr.flightId, sessionId = pr.sessionId;
         if (!map || !flightId) return;
 
@@ -904,16 +904,16 @@
 
                 // ── Card enrichment: route progress, distance remaining, ETA ──
                 // Pure math on the plan we already fetched — no extra requests.
-                enrichCard(popup, flightId, waypointObjects, activeWpIndex, currentPosition, Number(pr.speed) || 0);
+                enrichCard(cardEl, flightId, waypointObjects, activeWpIndex, currentPosition, Number(pr.speed) || 0);
             }
         }
     }
 
     // Compute along-route progress + remaining distance + ETA from the filed
     // plan and live ground speed, then patch the open tap card in place.
-    function enrichCard(popup, flightId, waypointObjects, activeWpIndex, currentPosition, gs) {
-        if (!popup || _mapState.activePathId !== flightId) return;
-        const el = popup.getElement && popup.getElement();
+    function enrichCard(cardEl, flightId, waypointObjects, activeWpIndex, currentPosition, gs) {
+        if (!cardEl || _mapState.activePathId !== flightId) return;
+        const el = cardEl;
         if (!el) return;
 
         const coords = waypointObjects
@@ -1025,6 +1025,75 @@
 
     const _mapState = { map: null, ready: false, hasIcons: false };
 
+    // ── Docked flight-info panel ────────────────────────────────────────────
+    // Replaces the map popup. Lives inside the embed root and is positioned by
+    // CSS: a bottom sheet on mobile, a side panel on desktop, matching the main
+    // tracker's flight info window. One flight is shown at a time.
+    function ensureDetailPanel(map) {
+        if (_mapState.detailRoot) return _mapState.detailRoot;
+        const root = rootEl();
+        if (!root) return null;
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'emb-detail-backdrop';
+        backdrop.addEventListener('click', () => closeDetail(map));
+
+        const panel = document.createElement('div');
+        panel.className = 'emb-detail';
+        panel.innerHTML =
+            '<div class="emb-detail-grip"></div>' +
+            '<button class="emb-detail-close" type="button" aria-label="Close">&times;</button>' +
+            '<div class="emb-detail-body"></div>';
+        panel.querySelector('.emb-detail-close').addEventListener('click', () => closeDetail(map));
+
+        root.appendChild(backdrop);
+        root.appendChild(panel);
+        _mapState.backdrop = backdrop;
+        _mapState.detailRoot = panel;
+        _mapState.detailBody = panel.querySelector('.emb-detail-body');
+        return panel;
+    }
+
+    function closeDetail(map) {
+        _mapState.activePathId = null;
+        removeFlightPaths(map);
+        if (_mapState.detailRoot) _mapState.detailRoot.classList.remove('open');
+        if (_mapState.backdrop) _mapState.backdrop.classList.remove('open');
+    }
+
+    function openDetail(map, pr, coords) {
+        const panel = ensureDetailPanel(map);
+        if (!panel) return;
+
+        // Opening a new plane replaces any path from the previously open card.
+        removeFlightPaths(map);
+        _mapState.activePathId = pr.flightId || null;
+
+        const body = _mapState.detailBody;
+        body.innerHTML = fr24CardHTML(pr, DEFAULT_AC_IMG);
+        body.scrollTop = 0;
+
+        // Reveal on the next frame so the slide-in transition runs from the
+        // off-screen state rather than snapping straight to open.
+        requestAnimationFrame(() => {
+            panel.classList.add('open');
+            if (_mapState.backdrop) _mapState.backdrop.classList.add('open');
+        });
+
+        // Lazily fetch + draw this flight's flown trail and filed plan, and
+        // enrich the card with progress/ETA from the same data.
+        drawFlightPaths(map, pr, coords, body).catch(() => {});
+
+        communityImage(pr.aircraft, pr.livery).then(info => {
+            if (!info || !info.url) return;
+            if (_mapState.activePathId !== pr.flightId) return;   // card changed mid-fetch
+            const box = body.querySelector('.fr24-image-box');
+            if (box) box.style.backgroundImage = `url('${info.url}')`;
+            const cr = body.querySelector('.fr24-copyright');
+            if (cr) cr.textContent = '© ' + info.credit;
+        });
+    }
+
     function addPilotLayer(map) {
         if (map.getSource(SOURCE_ID)) return;
         map.addSource(SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1061,45 +1130,20 @@
             });
         }
 
-        // Tap a plane → FR24-style card, matching the desktop hover card. Opens
-        // instantly with a placeholder photo, then swaps in the real community
-        // aircraft image once the lookup resolves.
+        // Tap a plane → open the docked flight-info panel (bottom sheet on
+        // mobile, side panel on desktop), mirroring the main tracker's flight
+        // info window instead of a popup pinned to the aircraft.
         map.on('click', LAYER_ID, (e) => {
             const f = e.features && e.features[0];
             if (!f) return;
             const pr = f.properties || {};
             const coords = f.geometry.coordinates.slice();
-
-            // Tapping a new plane replaces any path from the previously open card.
-            removeFlightPaths(map);
-            _mapState.activePathId = pr.flightId || null;
-
-            const popup = new (gl().Popup)({
-                offset: 14, closeButton: false, maxWidth: 'none', className: 'emb-fr24-popup'
-            })
-                .setLngLat(coords)
-                .setHTML(fr24CardHTML(pr, DEFAULT_AC_IMG))
-                .addTo(map);
-
-            // Clear the trail/plan when the card is dismissed.
-            popup.on('close', () => {
-                if (_mapState.activePathId === pr.flightId) _mapState.activePathId = null;
-                removeFlightPaths(map);
-            });
-
-            // Lazily fetch + draw this one flight's flown trail and filed plan,
-            // and enrich the card with progress/ETA from the same data.
-            drawFlightPaths(map, pr, coords, popup).catch(() => {});
-
-            communityImage(pr.aircraft, pr.livery).then(info => {
-                if (!info || !info.url) return;
-                const el = popup.getElement && popup.getElement();
-                if (!el) return;
-                const box = el.querySelector('.fr24-image-box');
-                if (box) box.style.backgroundImage = `url('${info.url}')`;
-                const cr = el.querySelector('.fr24-copyright');
-                if (cr) cr.textContent = '© ' + info.credit;
-            });
+            openDetail(map, pr, coords);
+        });
+        // Tapping empty map (not a plane) dismisses the panel.
+        map.on('click', (e) => {
+            const hits = map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] });
+            if (!hits.length) closeDetail(map);
         });
         map.on('mouseenter', LAYER_ID, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', LAYER_ID, () => { map.getCanvas().style.cursor = ''; });

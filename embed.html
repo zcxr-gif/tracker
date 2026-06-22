@@ -38,6 +38,7 @@
             border: 1px solid var(--border);
             border-radius: 14px;
             overflow: hidden;
+            position: relative;   /* anchor for the docked flight-info panel */
         }
         #inflight-embed[data-theme="light"] {
             --bg: #ffffff;
@@ -134,14 +135,68 @@
         /* Map body */
         .emb-map { flex: 1 1 auto; min-height: 0; }
 
-        /* FR24-style tap card — mirrors the desktop map hover card so the embed
-           reads the same when a plane is tapped. Always dark, like the tracker. */
-        .emb-fr24-popup .mapboxgl-popup-content,
-        .emb-fr24-popup .maplibregl-popup-content { background: transparent; box-shadow: none; padding: 0; border: none; }
-        .emb-fr24-popup .mapboxgl-popup-tip,
-        .emb-fr24-popup .maplibregl-popup-tip { display: none; }
+        /* Docked flight-info panel — replaces the map popup. Slides in like the
+           main tracker's flight info window: a bottom sheet on mobile, a side
+           panel on desktop. The card content (FR24 style) is unchanged. */
+        .emb-detail-backdrop {
+            position: absolute; inset: 0; z-index: 5;
+            background: rgba(2, 6, 23, 0.45);
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.25s ease;
+            display: none;                    /* desktop keeps the map interactive */
+        }
+        .emb-detail {
+            position: absolute; z-index: 6;
+            background: #1c1c1e; color: #fff;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.55);
+            display: flex; flex-direction: column; overflow: hidden;
+            transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+            /* Desktop default: side panel docked to the right, slid off-screen. */
+            top: 0; right: 0; bottom: 0;
+            width: min(320px, 88%);
+            border-left: 1px solid rgba(255,255,255,0.08);
+            transform: translateX(105%);
+        }
+        .emb-detail.open { transform: translateX(0); }
+        .emb-detail-grip { display: none; }
+        .emb-detail-close {
+            position: absolute; top: 8px; right: 8px; z-index: 2;
+            width: 26px; height: 26px; border-radius: 50%;
+            border: none; cursor: pointer;
+            background: rgba(0,0,0,0.45); color: #fff;
+            font-size: 17px; line-height: 1; display: grid; place-items: center;
+        }
+        .emb-detail-close:hover { background: rgba(0,0,0,0.7); }
+        .emb-detail-body {
+            flex: 1 1 auto; min-height: 0; overflow-y: auto;
+            -webkit-overflow-scrolling: touch; padding: 12px;
+        }
+        .emb-detail-body::-webkit-scrollbar { width: 8px; }
+        .emb-detail-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+
+        /* Mobile: bottom sheet that slides up, with a dimming backdrop. */
+        @media (max-width: 640px) {
+            .emb-detail-backdrop { display: block; }
+            .emb-detail-backdrop.open { opacity: 1; pointer-events: auto; }
+            .emb-detail {
+                top: auto; left: 0; right: 0; bottom: 0;
+                width: 100%; max-height: 80%;
+                border-left: none; border-top: 1px solid rgba(255,255,255,0.08);
+                border-radius: 16px 16px 0 0;
+                transform: translateY(105%);
+            }
+            .emb-detail.open { transform: translateY(0); }
+            .emb-detail-grip {
+                display: block; flex: 0 0 auto;
+                width: 36px; height: 4px; border-radius: 999px;
+                background: rgba(255,255,255,0.25); margin: 8px auto 0;
+            }
+        }
+
+        /* FR24-style card — same look as the desktop map hover card, sized to
+           fill the docked panel instead of the old fixed-width popup. */
         .fr24-card-container {
-            width: 162px; display: flex; flex-direction: column; gap: 3px;
+            width: 100%; display: flex; flex-direction: column; gap: 6px;
             font-family: inherit;
         }
         .fr24-image-box {
@@ -190,6 +245,21 @@
         .fr24-va-logo { width: 14px; height: 14px; border-radius: 3px; object-fit: cover; flex: 0 0 auto; background: rgba(255,255,255,0.08); }
         .fr24-va-name { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .fr24-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #7dd3fc; margin-left: auto; flex: 0 0 auto; }
+
+        /* Scale the card up to fill the docked panel (base sizes suit the old popup). */
+        .emb-detail .fr24-image-box { height: 150px; }
+        .emb-detail .fr24-callsign { font-size: 18px; }
+        .emb-detail .fr24-airline-logo { height: 18px; max-width: 48px; }
+        .emb-detail .fr24-user { font-size: 11px; max-width: 130px; }
+        .emb-detail .fr24-route-code { font-size: 13px; }
+        .emb-detail .fr24-meta { font-size: 11px; }
+        .emb-detail .fr24-stat b { font-size: 15px; }
+        .emb-detail .fr24-stat .u { font-size: 8.5px; }
+        .emb-detail .fr24-stat { padding: 6px 2px; }
+        .emb-detail .fr24-actype { font-size: 12px; }
+        .emb-detail .fr24-va-logo { width: 18px; height: 18px; }
+        .emb-detail .fr24-va-name { font-size: 12px; }
+        .emb-detail .fr24-va-tag { font-size: 9px; }
 
         /* States */
         .emb-empty, .emb-error {
