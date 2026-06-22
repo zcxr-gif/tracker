@@ -292,12 +292,26 @@
         return String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
     }
 
+    // Is a suffix tag actually a TAG on this token, not just letters that happen
+    // to end it? A short tag like "VA" ends a huge number of unrelated callsigns
+    // ("MOSKVA", "NOVA", "…VA"), so endsWith alone is far too greedy. A tag only
+    // counts when it is EITHER the whole token (a standalone "VA"), or glued onto
+    // a flight number — i.e. the char immediately before it is a digit ("01VA",
+    // "123EX"). That's exactly how VAs append their tag and nothing else.
+    function tokenHasSuffixTag(token, tag) {
+        if (!token.endsWith(tag)) return false;
+        if (token === tag) return true;                       // standalone tag: "VA"
+        const before = token.charAt(token.length - tag.length - 1);
+        return before >= '0' && before <= '9';                // tag on a number: "01VA"
+    }
+
     // Does a flight callsign belong to this VA? A callsign matches if EITHER rule
     // hits, so a VA can mix styles:
     //   • PREFIX rule  — the leading token starts with one of the VA's prefixes.
     //       prefix "OCEAN"  →  "OCEAN 01", "OCEAN123"
-    //   • SUFFIX rule  — the LAST token ends with one of the VA's suffix tags.
-    //       suffix "EX"  →  "OCEAN 01EX"  AND  "UPS 01EX"
+    //   • SUFFIX rule  — the LAST token carries one of the VA's suffix tags,
+    //     either standalone or glued to a flight number (see tokenHasSuffixTag).
+    //       suffix "EX"  →  "OCEAN 01EX", "UPS 01EX", "UPS EX"   (NOT "APEX")
     //     This lets a VA fly other airlines' callsigns and still be picked up by
     //     their private tag, and lets one VA run several tags (e.g. EX + VA).
     function callsignMatches(callsign, cfg) {
@@ -306,7 +320,7 @@
         const first = tokens[0];
         const last = tokens[tokens.length - 1];
         if (cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p))) return true;
-        if (cfg.suffixes && cfg.suffixes.some(s => s && last.endsWith(s))) return true;
+        if (cfg.suffixes && cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s))) return true;
         return false;
     }
 
