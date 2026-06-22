@@ -418,6 +418,8 @@
         const arr = pr.arrIcao || '---';
         const alt = Math.round(Number(pr.altitude) || 0).toLocaleString();
         const gs = Math.round(Number(pr.speed) || 0);
+        const hdg = Math.round(Number(pr.heading) || 0);
+        const actype = (pr.aircraft || '').toString();
         const logo = airlineLogoPath(pr.livery);
         return `
             <div class="fr24-card-container">
@@ -434,15 +436,21 @@
                     <div class="fr24-route-premium">
                         <span class="fr24-route-code" style="color:#f8fafc">${esc(dep)}</span>
                         <div class="fr24-route-line">
-                            <div class="seg"></div>
-                            <svg class="glyph" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
+                            <div class="seg fr24-prog-fill"></div>
+                            <svg class="glyph fr24-prog-glyph" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
                         </div>
                         <span class="fr24-route-code" style="color:#94a3b8">${esc(arr)}</span>
                     </div>
-                    <div class="fr24-stats-row">
-                        <span><b>${alt}</b> <span class="u">FT</span></span>
-                        <span><b>${gs}</b> <span class="u">KTS</span></span>
+                    <div class="fr24-meta">
+                        <span class="fr24-meta-dist">—</span>
+                        <span class="fr24-meta-eta">ETA —</span>
                     </div>
+                    <div class="fr24-stats-grid">
+                        <div class="fr24-stat"><b>${alt}</b><span class="u">FT</span></div>
+                        <div class="fr24-stat"><b>${gs}</b><span class="u">KTS</span></div>
+                        <div class="fr24-stat"><b>${hdg}°</b><span class="u">HDG</span></div>
+                    </div>
+                    ${actype ? `<div class="fr24-actype" title="${esc(actype)}">${esc(actype)}</div>` : ''}
                     ${vaChipHTML(_mapState.cfg)}
                 </div>
             </div>`;
@@ -661,7 +669,7 @@
 
     // Fetch the tapped flight's flown trail + filed plan and draw both, matching
     // the main tracker's sector-ops rendering exactly.
-    async function drawFlightPaths(map, pr, clickedCoords) {
+    async function drawFlightPaths(map, pr, clickedCoords, popup) {
         const flightId = pr.flightId, sessionId = pr.sessionId;
         if (!map || !flightId) return;
 
@@ -793,9 +801,58 @@
                         'text-halo-blur': 1
                     }
                 }, LAYER_ID);
+
+                // ── Card enrichment: route progress, distance remaining, ETA ──
+                // Pure math on the plan we already fetched — no extra requests.
+                enrichCard(popup, flightId, waypointObjects, activeWpIndex, currentPosition, Number(pr.speed) || 0);
             }
         }
     }
+
+    // Compute along-route progress + remaining distance + ETA from the filed
+    // plan and live ground speed, then patch the open tap card in place.
+    function enrichCard(popup, flightId, waypointObjects, activeWpIndex, currentPosition, gs) {
+        if (!popup || _mapState.activePathId !== flightId) return;
+        const el = popup.getElement && popup.getElement();
+        if (!el) return;
+
+        const coords = waypointObjects
+            .filter(w => w.location && w.location.longitude != null && w.location.latitude != null)
+            .map(w => [w.location.longitude, w.location.latitude]);
+        if (coords.length < 2) return;
+
+        const segKm = (a, b) => getDistanceKm(a[1], a[0], b[1], b[0]);
+        let totalKm = 0;
+        for (let i = 0; i < coords.length - 1; i++) totalKm += segKm(coords[i], coords[i + 1]);
+
+        const idx = Math.min(Math.max(activeWpIndex, 0), coords.length - 1);
+        let remainingKm = segKm([currentPosition.lon, currentPosition.lat], coords[idx]);
+        for (let i = idx; i < coords.length - 1; i++) remainingKm += segKm(coords[i], coords[i + 1]);
+        remainingKm = Math.min(remainingKm, totalKm);
+
+        const flownKm = Math.max(0, totalKm - remainingKm);
+        const progressPct = totalKm > 0 ? Math.max(0, Math.min(100, (flownKm / totalKm) * 100)) : 0;
+        const remainingNm = remainingKm / 1.852;
+
+        const fill = el.querySelector('.fr24-prog-fill');
+        const glyph = el.querySelector('.fr24-prog-glyph');
+        const distEl = el.querySelector('.fr24-meta-dist');
+        const etaEl = el.querySelector('.fr24-meta-eta');
+        if (fill) fill.style.width = progressPct.toFixed(0) + '%';
+        if (glyph) { glyph.style.left = progressPct.toFixed(0) + '%'; }
+        if (distEl) distEl.textContent = `${Math.round(remainingNm).toLocaleString()} NM left`;
+        if (etaEl) {
+            if (gs >= 30 && remainingNm > 1) {
+                const eta = new Date(Date.now() + (remainingNm / gs) * 3600000);
+                const hh = String(eta.getUTCHours()).padStart(2, '0');
+                const mm = String(eta.getUTCMinutes()).padStart(2, '0');
+                etaEl.textContent = `ETA ${hh}:${mm}z`;
+            } else {
+                etaEl.textContent = 'ETA —';
+            }
+        }
+    }
+
     const SPRITE_TARGET_SIZE = 128;  // matches flight.js loadSpriteSheetAndGenerateIcons
 
     // Same atmosphere the live map uses (flight.js setupMapLayersAndFog) so the
@@ -930,8 +987,9 @@
                 removeFlightPaths(map);
             });
 
-            // Lazily fetch + draw this one flight's flown trail and filed plan.
-            drawFlightPaths(map, pr, coords).catch(() => {});
+            // Lazily fetch + draw this one flight's flown trail and filed plan,
+            // and enrich the card with progress/ETA from the same data.
+            drawFlightPaths(map, pr, coords, popup).catch(() => {});
 
             communityImage(pr.aircraft, pr.livery).then(info => {
                 if (!info || !info.url) return;
