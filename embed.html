@@ -154,16 +154,19 @@
         }
         .emb-detail.open { transform: translateX(0); }
         .emb-detail-grip { display: none; }
-        .emb-detail-badge {
-            position: absolute; top: 10px; left: 10px; z-index: 3;
+        /* Partner badge overlaid on the top-left of the aircraft photo. */
+        .fr24-va-badge {
+            position: absolute; top: 6px; left: 6px; z-index: 3;
             display: flex; align-items: center; gap: 6px;
-            padding: 4px 9px; border-radius: 999px;
+            padding: 3px 7px; border-radius: 999px;
             background: rgba(0,0,0,0.32);
             -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.14);
         }
-        .emb-detail-badge img { height: 18px; width: auto; max-width: 70px; object-fit: contain; border-radius: 3px; display: block; }
-        .emb-detail-badge span { font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .fr24-va-badge img { height: 15px; width: auto; max-width: 60px; object-fit: contain; border-radius: 3px; display: block; }
+        .fr24-va-badge span { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+        .emb-detail .fr24-va-badge img { height: 20px; max-width: 80px; }
+        .emb-detail .fr24-va-badge span { font-size: 11px; max-width: 150px; }
         .emb-detail-body {
             flex: 1 1 auto; min-height: 0; overflow-y: auto;
             -webkit-overflow-scrolling: touch; padding: 12px;

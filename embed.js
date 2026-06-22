@@ -522,6 +522,7 @@
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image:url('${esc(imgUrl)}')">
                     <div class="fr24-image-overlay"></div>
+                    ${vaBadgeHTML(_mapState.cfg)}
                     <div class="fr24-copyright">© ${esc(credit || 'IF Community')}</div>
                 </div>
                 <div class="fr24-info-box">
@@ -551,6 +552,16 @@
                     ${poweredByHTML()}
                 </div>
             </div>`;
+    }
+
+    // Partner VA badge — their logo (or name) overlaid on the top-left of the
+    // aircraft photo, on a faint see-through pill so it reads over the image.
+    function vaBadgeHTML(cfg) {
+        if (!cfg) return '';
+        const inner = cfg.logo
+            ? `<img src="${esc(cfg.logo)}" alt="${esc(cfg.name || '')}" onerror="this.style.display='none'">`
+            : (cfg.name ? `<span>${esc(cfg.name)}</span>` : '');
+        return inner ? `<div class="fr24-va-badge">${inner}</div>` : '';
     }
 
     // "Powered by Inflight" footer shown at the bottom of every tap card, with
@@ -1029,18 +1040,10 @@
         const root = rootEl();
         if (!root) return null;
 
-        // Partner VA badge — their logo (or name) on the top-left, on a faint
-        // see-through pill so it reads over the card image.
-        const cfg = _mapState.cfg || {};
-        const badge = cfg.logo
-            ? `<img src="${esc(cfg.logo)}" alt="${esc(cfg.name || '')}" onerror="this.style.display='none'">`
-            : (cfg.name ? `<span>${esc(cfg.name)}</span>` : '');
-
         const panel = document.createElement('div');
         panel.className = 'emb-detail';
         panel.innerHTML =
             '<div class="emb-detail-grip"></div>' +
-            (badge ? `<div class="emb-detail-badge">${badge}</div>` : '') +
             '<div class="emb-detail-body"></div>';
 
         root.appendChild(panel);
