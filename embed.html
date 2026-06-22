@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Active VA Pilots — Inflight</title>
+    <style>
+        /* ─────────────────────────────────────────────────────────────────
+           Inflight VA embed. Self-contained: no external CSS except the
+           Mapbox GL stylesheet, which embed.js injects only in map mode.
+           Themed via [data-theme] on #inflight-embed (set by embed.js).
+           ───────────────────────────────────────────────────────────────── */
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background: transparent;
+        }
+
+        #inflight-embed {
+            --bg: #0b1220;
+            --surface: rgba(255, 255, 255, 0.04);
+            --surface-2: rgba(255, 255, 255, 0.07);
+            --border: rgba(255, 255, 255, 0.10);
+            --text: #f1f5f9;
+            --text-2: rgba(241, 245, 249, 0.65);
+            --text-3: rgba(241, 245, 249, 0.40);
+            --accent: #38bdf8;
+            --live: #4ade80;
+
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100%;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        #inflight-embed[data-theme="light"] {
+            --bg: #ffffff;
+            --surface: rgba(15, 23, 42, 0.03);
+            --surface-2: rgba(15, 23, 42, 0.06);
+            --border: rgba(15, 23, 42, 0.10);
+            --text: #0f172a;
+            --text-2: rgba(15, 23, 42, 0.62);
+            --text-3: rgba(15, 23, 42, 0.40);
+            --accent: #0284c7;
+        }
+
+        /* Header */
+        .emb-head {
+            flex: 0 0 auto;
+            display: flex; align-items: center; gap: 11px;
+            padding: 13px 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .emb-logo {
+            width: 38px; height: 38px; border-radius: 9px; object-fit: cover;
+            flex: 0 0 auto; background: var(--surface-2);
+        }
+        .emb-logo-fallback {
+            display: grid; place-items: center;
+            font-weight: 800; font-size: 14px; letter-spacing: 0.5px;
+            color: var(--accent);
+        }
+        .emb-head-meta { flex: 1 1 auto; min-width: 0; }
+        .emb-head-name {
+            font-weight: 700; font-size: 15px; letter-spacing: -0.2px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emb-head-sub {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 12px; color: var(--text-2); margin-top: 2px;
+        }
+        .emb-live-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--live); flex: 0 0 auto;
+            box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+            animation: emb-pulse 2s infinite;
+        }
+        @keyframes emb-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
+            70%  { box-shadow: 0 0 0 7px rgba(74, 222, 128, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+        }
+        .emb-brand {
+            flex: 0 0 auto;
+            display: flex; align-items: center; gap: 6px;
+            text-decoration: none; color: var(--text-3);
+            padding: 4px 8px; border-radius: 999px;
+            border: 1px solid var(--border);
+        }
+        .emb-brand:hover { border-color: var(--accent); }
+        .emb-brand-by { font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; color: var(--text-3); }
+        .emb-brand-logo { height: 15px; width: auto; display: block; }
+
+        /* Roster body */
+        .emb-body {
+            flex: 1 1 auto; min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .emb-body::-webkit-scrollbar { width: 8px; }
+        .emb-body::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 8px; }
+        .emb-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 11px 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .emb-row:last-child { border-bottom: none; }
+        .emb-row-main { flex: 1 1 auto; min-width: 0; }
+        .emb-row-top { display: flex; align-items: baseline; gap: 9px; }
+        .emb-callsign { font-weight: 700; font-size: 14.5px; letter-spacing: -0.2px; }
+        .emb-pilot {
+            font-size: 12.5px; color: var(--text-2);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emb-row-ac, .emb-row-route {
+            font-size: 12px; color: var(--text-2); margin-top: 2px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emb-row-route { color: var(--text-3); font-variant-numeric: tabular-nums; }
+        .emb-row-metrics {
+            flex: 0 0 auto; text-align: right;
+            font-size: 11px; color: var(--text-3);
+            display: flex; flex-direction: column; gap: 2px;
+            font-variant-numeric: tabular-nums;
+        }
+        .emb-row-metrics b { color: var(--text); font-weight: 700; font-size: 13px; }
+
+        /* Map body */
+        .emb-map { flex: 1 1 auto; min-height: 0; }
+
+        /* FR24-style tap card — mirrors the desktop map hover card so the embed
+           reads the same when a plane is tapped. Always dark, like the tracker. */
+        .emb-fr24-popup .mapboxgl-popup-content,
+        .emb-fr24-popup .maplibregl-popup-content { background: transparent; box-shadow: none; padding: 0; border: none; }
+        .emb-fr24-popup .mapboxgl-popup-tip,
+        .emb-fr24-popup .maplibregl-popup-tip { display: none; }
+        .fr24-card-container {
+            width: 162px; display: flex; flex-direction: column; gap: 3px;
+            font-family: inherit;
+        }
+        .fr24-image-box {
+            height: 62px; width: 100%; background-color: #2c2c2e;
+            background-size: cover; background-position: center;
+            border-radius: 6px; position: relative;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4); overflow: hidden;
+        }
+        .fr24-copyright {
+            position: absolute; bottom: 3px; left: 6px;
+            color: rgba(255,255,255,0.7); font-size: 7px; font-weight: 500;
+            text-shadow: 0 1px 2px rgba(0,0,0,1); z-index: 2;
+        }
+        .fr24-image-overlay {
+            position: absolute; inset: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
+        }
+        .fr24-info-box {
+            background-color: #2c2c2e; border-radius: 6px; padding: 6px 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            display: flex; flex-direction: column; gap: 4px; color: #fff;
+        }
+        .fr24-header-row { display: flex; align-items: center; gap: 6px; }
+        .fr24-airline-logo { height: 14px; width: auto; max-width: 35px; object-fit: contain; border-radius: 1px; }
+        .fr24-ident-group { display: flex; align-items: center; gap: 4px; }
+        .fr24-callsign { font-size: 13px; font-weight: 700; color: #fff; line-height: 1; }
+        .fr24-user { margin-left: auto; font-size: 8.5px; color: #38bdf8; font-weight: 800;
+            text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65px; }
+        .fr24-route-premium { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 5px 0 4px 0; }
+        .fr24-route-code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 10.5px; letter-spacing: 0.5px; }
+        .fr24-route-line { flex-grow: 1; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; display: flex; align-items: center; }
+        .fr24-route-line .seg { position: absolute; left: 0; top: 0; height: 100%; width: 50%;
+            background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, #38bdf8 100%); border-radius: 2px; box-shadow: 0 0 6px rgba(56,189,248,0.5); }
+        .fr24-route-line .glyph { position: absolute; left: 50%; transform: translateX(-50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); z-index: 2; }
+        .fr24-stats-row { display: flex; justify-content: space-between; font-size: 10px; color: #98989d; font-weight: 600; margin-top: 1px; }
+        .fr24-stats-row .u { font-size: 8px; }
+        .fr24-stats-row i { font-size: 8px; margin-right: 3px; }
+        .fr24-meta { display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; font-weight: 700; color: #cbd5e1; letter-spacing: 0.02em; margin: 0 0 1px; }
+        .fr24-meta-eta { color: #67e8f9; }
+        .fr24-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+        .fr24-stat { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.04); border-radius: 5px; padding: 3px 2px; }
+        .fr24-stat b { font-size: 11px; color: #fff; font-weight: 800; line-height: 1.15; }
+        .fr24-stat .u { font-size: 7px; color: #98989d; font-weight: 700; letter-spacing: 0.04em; }
+        .fr24-actype { font-size: 9px; color: #94a3b8; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+        .fr24-va { display: flex; align-items: center; gap: 5px; margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.08); }
+        .fr24-va-logo { width: 14px; height: 14px; border-radius: 3px; object-fit: cover; flex: 0 0 auto; background: rgba(255,255,255,0.08); }
+        .fr24-va-name { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fr24-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #7dd3fc; margin-left: auto; flex: 0 0 auto; }
+
+        /* States */
+        .emb-empty, .emb-error {
+            flex: 1 1 auto;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; gap: 6px; padding: 30px 24px;
+        }
+        .emb-empty-icon, .emb-error-icon { font-size: 30px; opacity: 0.5; }
+        .emb-empty p, .emb-error p { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--text); }
+        .emb-empty span { font-size: 12px; color: var(--text-3); }
+        .emb-error p { color: var(--text-2); max-width: 260px; }
+
+        .emb-loading {
+            flex: 1 1 auto; display: grid; place-items: center;
+        }
+        .emb-spinner {
+            width: 26px; height: 26px; border-radius: 50%;
+            border: 3px solid var(--surface-2); border-top-color: var(--accent);
+            animation: emb-spin 0.8s linear infinite;
+        }
+        @keyframes emb-spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="inflight-embed"></div>
+    <!-- Aircraft sprite UV map (map mode only); sets window.__EMBED_SPRITE_UVS__ -->
+    <script src="embed-sprites.js"></script>
+    <script src="embed.js"></script>
+</body>
+</html>
