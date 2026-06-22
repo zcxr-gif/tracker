@@ -38,7 +38,8 @@
  *   {
  *     "ok": true,
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
- *     "callsignPrefixes": ["OCEAN"],          // optional; defaults to [va.code]
+ *     "callsignPrefixes": ["OCEAN"],          // optional; leading-token prefixes. defaults to [va.code]
+ *     "callsignSuffixes": ["EX", "VA"],       // optional; match the LAST token ending with these (e.g. "OCEAN 01EX", "UPS 01EX")
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
  *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
  *     "mapboxToken": "pk.eyJ…",               // the VA's own token (only needed for the mapbox provider)
@@ -200,6 +201,7 @@
         return normalizeConfig({
             va: { code: va, name: (p.get('name') || va).trim(), logo: (p.get('logo') || '').trim() },
             callsignPrefixes: p.get('prefixes') ? p.get('prefixes').split(',') : null,
+            callsignSuffixes: p.get('suffixes') ? p.get('suffixes').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
             mapStyle: (p.get('mapStyle') || '').trim(),
@@ -219,6 +221,12 @@
             ? raw.callsignPrefixes
             : [code]
         ).map(firstToken).filter(Boolean);
+
+        // Optional suffix tags: match on the LAST callsign token ending with these
+        // (e.g. "EX", "01VA"). Uppercased, whitespace stripped. Empty = prefix-only.
+        const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
+            .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
+            .filter(Boolean);
 
         let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
@@ -245,6 +253,7 @@
             name: va.name || code,
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
+            suffixes,
             mode,
             provider,
             mapboxToken,
@@ -278,12 +287,27 @@
     }
 
     // ── Live data ──────────────────────────────────────────────────────────────
-    // Does a flight callsign belong to this VA? Same rule as vaAds.matchCallsign:
-    // the callsign's leading token must start with one of the VA's prefixes.
-    function callsignMatches(callsign, prefixes) {
-        const tok = firstToken(callsign);
-        if (!tok) return false;
-        return prefixes.some(pfx => tok.startsWith(pfx));
+    // Split a callsign into its uppercased tokens ("OCEAN 01EX" → ["OCEAN","01EX"]).
+    function callsignTokens(callsign) {
+        return String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+    }
+
+    // Does a flight callsign belong to this VA? A callsign matches if EITHER rule
+    // hits, so a VA can mix styles:
+    //   • PREFIX rule  — the leading token starts with one of the VA's prefixes.
+    //       prefix "OCEAN"  →  "OCEAN 01", "OCEAN123"
+    //   • SUFFIX rule  — the LAST token ends with one of the VA's suffix tags.
+    //       suffix "EX"  →  "OCEAN 01EX"  AND  "UPS 01EX"
+    //     This lets a VA fly other airlines' callsigns and still be picked up by
+    //     their private tag, and lets one VA run several tags (e.g. EX + VA).
+    function callsignMatches(callsign, cfg) {
+        const tokens = callsignTokens(callsign);
+        if (!tokens.length) return false;
+        const first = tokens[0];
+        const last = tokens[tokens.length - 1];
+        if (cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p))) return true;
+        if (cfg.suffixes && cfg.suffixes.some(s => s && last.endsWith(s))) return true;
+        return false;
     }
 
     function normalizeFlight(f, serverName, sessionId) {
@@ -326,7 +350,7 @@
             const fj = await getJSON(`${FLIGHTS_BASE}/${s.id}`);
             const flights = fj.flights || fj.data || (Array.isArray(fj) ? fj : []);
             return flights
-                .filter(f => f && callsignMatches(f.callsign, cfg.prefixes))
+                .filter(f => f && callsignMatches(f.callsign, cfg))
                 .map(f => normalizeFlight(f, s.name, s.id));
         }));
 
