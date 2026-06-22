@@ -548,24 +548,19 @@
                         <div class="fr24-stat"><b>${hdg}°</b><span class="u">HDG</span></div>
                     </div>
                     ${actype ? `<div class="fr24-actype" title="${esc(actype)}">${esc(actype)}</div>` : ''}
-                    ${vaChipHTML(_mapState.cfg)}
+                    ${poweredByHTML()}
                 </div>
             </div>`;
     }
 
-    // Partner VA badge (logo + name) shown on every tap card so the VA's
-    // branding rides along with each of their pilots.
-    function vaChipHTML(cfg) {
-        if (!cfg) return '';
-        const logo = cfg.logo
-            ? `<img class="fr24-va-logo" src="${esc(cfg.logo)}" alt="" onerror="this.style.display='none'">`
-            : '';
+    // "Powered by Inflight" footer shown at the bottom of every tap card, with
+    // our small logo — replaces the per-card partner-VA chip.
+    function poweredByHTML() {
         return `
-            <div class="fr24-va">
-                ${logo}
-                <span class="fr24-va-name">${esc(cfg.name)}</span>
-                <span class="fr24-va-tag">Partner VA</span>
-            </div>`;
+            <a class="fr24-powered" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+                <span class="fr24-powered-by">Powered by</span>
+                <img class="fr24-powered-logo" src="Images/inflight.png" alt="Inflight" onerror="this.outerHTML='Inflight'">
+            </a>`;
     }
 
     const SOURCE_ID = 'va-pilots';

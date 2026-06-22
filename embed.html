@@ -241,10 +241,11 @@
         .fr24-stat b { font-size: 11px; color: #fff; font-weight: 800; line-height: 1.15; }
         .fr24-stat .u { font-size: 7px; color: #98989d; font-weight: 700; letter-spacing: 0.04em; }
         .fr24-actype { font-size: 9px; color: #94a3b8; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
-        .fr24-va { display: flex; align-items: center; gap: 5px; margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.08); }
-        .fr24-va-logo { width: 14px; height: 14px; border-radius: 3px; object-fit: cover; flex: 0 0 auto; background: rgba(255,255,255,0.08); }
-        .fr24-va-name { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .fr24-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #7dd3fc; margin-left: auto; flex: 0 0 auto; }
+        .fr24-powered { display: flex; align-items: center; justify-content: center; gap: 5px;
+            margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08);
+            text-decoration: none; }
+        .fr24-powered-by { font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; color: rgba(255,255,255,0.45); }
+        .fr24-powered-logo { height: 14px; width: auto; display: block; }
 
         /* Scale the card up to fill the docked panel (base sizes suit the old popup). */
         .emb-detail .fr24-image-box { height: 150px; }
@@ -257,9 +258,8 @@
         .emb-detail .fr24-stat .u { font-size: 8.5px; }
         .emb-detail .fr24-stat { padding: 6px 2px; }
         .emb-detail .fr24-actype { font-size: 12px; }
-        .emb-detail .fr24-va-logo { width: 18px; height: 18px; }
-        .emb-detail .fr24-va-name { font-size: 12px; }
-        .emb-detail .fr24-va-tag { font-size: 9px; }
+        .emb-detail .fr24-powered-by { font-size: 10px; }
+        .emb-detail .fr24-powered-logo { height: 17px; }
 
         /* States */
         .emb-empty, .emb-error {
