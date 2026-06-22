@@ -693,47 +693,6 @@
         return result;
     }
 
-    // Scrub teleport/garbage fixes out of a flown trail. Infinite Flight history
-    // occasionally drops in a sample at a random lat/lon, which makes the trail
-    // shoot off across the map and back. We drop any point that's invalid, at
-    // (0,0), or implies an impossible speed from the last good point (or, when
-    // timestamps are missing, an impossible single jump). Dropped points are
-    // simply skipped, so the trail reconnects the good points either side of the
-    // gap and keeps building from there.
-    function sanitizeTrailPoints(points) {
-        const MAX_SPEED_KMH = 4000;   // generous ceiling for any IF aircraft
-        const MAX_JUMP_KM   = 200;    // fallback when two fixes share/lack a time
-
-        const valid = [];
-        for (const p of (points || [])) {
-            const lat = Number(p.latitude ?? p.lat);
-            const lon = Number(p.longitude ?? p.lon);
-            if (!isFinite(lat) || !isFinite(lon)) continue;
-            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
-            if (lat === 0 && lon === 0) continue;
-            valid.push(p);
-        }
-        if (valid.length < 2) return valid;
-
-        const out = [valid[0]];
-        let lastLat = Number(valid[0].latitude ?? valid[0].lat);
-        let lastLon = Number(valid[0].longitude ?? valid[0].lon);
-        let lastTime = Date.parse(valid[0].date);
-        for (let i = 1; i < valid.length; i++) {
-            const p = valid[i];
-            const lat = Number(p.latitude ?? p.lat);
-            const lon = Number(p.longitude ?? p.lon);
-            const t = Date.parse(p.date);
-            const dist = getDistanceKm(lastLat, lastLon, lat, lon);
-            const dtH = (isFinite(lastTime) && isFinite(t) && t > lastTime) ? (t - lastTime) / 3600000 : 0;
-            const teleport = dtH > 0 ? (dist / dtH) > MAX_SPEED_KMH : dist > MAX_JUMP_KM;
-            if (teleport) continue;             // drop the bad fix, keep last good as the anchor
-            out.push(p);
-            lastLat = lat; lastLon = lon; lastTime = t;
-        }
-        return out;
-    }
-
     function generateAltitudeColoredRoute(trailPoints, currentPosition) {
         const features = [];
         const allPoints = [...(trailPoints || [])];
@@ -837,7 +796,7 @@
         // ── 1. Flown path — altitude-coloured gradient trail ──
         const histArr = (histJson && (histJson.path || histJson.route)) || [];
         const trail = Array.isArray(histArr)
-            ? sanitizeTrailPoints(histArr.slice().sort((a, b) => new Date(a.date) - new Date(b.date)))
+            ? histArr.slice().sort((a, b) => new Date(a.date) - new Date(b.date))
             : [];
         const routeFeature = generateAltitudeColoredRoute(trail, currentPosition);
         if (routeFeature.features.length) {
