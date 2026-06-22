@@ -1029,13 +1029,19 @@
         const root = rootEl();
         if (!root) return null;
 
+        // Partner VA badge — their logo (or name) on the top-left, on a faint
+        // see-through pill so it reads over the card image.
+        const cfg = _mapState.cfg || {};
+        const badge = cfg.logo
+            ? `<img src="${esc(cfg.logo)}" alt="${esc(cfg.name || '')}" onerror="this.style.display='none'">`
+            : (cfg.name ? `<span>${esc(cfg.name)}</span>` : '');
+
         const panel = document.createElement('div');
         panel.className = 'emb-detail';
         panel.innerHTML =
             '<div class="emb-detail-grip"></div>' +
-            '<button class="emb-detail-close" type="button" aria-label="Close">&times;</button>' +
+            (badge ? `<div class="emb-detail-badge">${badge}</div>` : '') +
             '<div class="emb-detail-body"></div>';
-        panel.querySelector('.emb-detail-close').addEventListener('click', () => closeDetail(map));
 
         root.appendChild(panel);
         _mapState.detailRoot = panel;

@@ -154,14 +154,16 @@
         }
         .emb-detail.open { transform: translateX(0); }
         .emb-detail-grip { display: none; }
-        .emb-detail-close {
-            position: absolute; top: 8px; right: 8px; z-index: 2;
-            width: 26px; height: 26px; border-radius: 50%;
-            border: none; cursor: pointer;
-            background: rgba(0,0,0,0.45); color: #fff;
-            font-size: 17px; line-height: 1; display: grid; place-items: center;
+        .emb-detail-badge {
+            position: absolute; top: 10px; left: 10px; z-index: 3;
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 9px; border-radius: 999px;
+            background: rgba(0,0,0,0.32);
+            -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.14);
         }
-        .emb-detail-close:hover { background: rgba(0,0,0,0.7); }
+        .emb-detail-badge img { height: 18px; width: auto; max-width: 70px; object-fit: contain; border-radius: 3px; display: block; }
+        .emb-detail-badge span { font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
         .emb-detail-body {
             flex: 1 1 auto; min-height: 0; overflow-y: auto;
             -webkit-overflow-scrolling: touch; padding: 12px;
