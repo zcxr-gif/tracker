@@ -137,14 +137,9 @@
 
         /* Docked flight-info panel — replaces the map popup. Slides in like the
            main tracker's flight info window: a bottom sheet on mobile, a side
-           panel on desktop. The card content (FR24 style) is unchanged. */
-        .emb-detail-backdrop {
-            position: absolute; inset: 0; z-index: 5;
-            background: rgba(2, 6, 23, 0.45);
-            opacity: 0; pointer-events: none;
-            transition: opacity 0.25s ease;
-            display: none;                    /* desktop keeps the map interactive */
-        }
+           panel on desktop. The card content (FR24 style) is unchanged. The map
+           stays fully visible (no dimming overlay); the tapped plane is panned
+           into the area the panel leaves uncovered. */
         .emb-detail {
             position: absolute; z-index: 6;
             background: #1c1c1e; color: #fff;
@@ -174,10 +169,8 @@
         .emb-detail-body::-webkit-scrollbar { width: 8px; }
         .emb-detail-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
 
-        /* Mobile: bottom sheet that slides up, with a dimming backdrop. */
+        /* Mobile: bottom sheet that slides up from the bottom. */
         @media (max-width: 640px) {
-            .emb-detail-backdrop { display: block; }
-            .emb-detail-backdrop.open { opacity: 1; pointer-events: auto; }
             .emb-detail {
                 top: auto; left: 0; right: 0; bottom: 0;
                 width: 100%; max-height: 80%;

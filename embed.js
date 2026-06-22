@@ -1029,10 +1029,6 @@
         const root = rootEl();
         if (!root) return null;
 
-        const backdrop = document.createElement('div');
-        backdrop.className = 'emb-detail-backdrop';
-        backdrop.addEventListener('click', () => closeDetail(map));
-
         const panel = document.createElement('div');
         panel.className = 'emb-detail';
         panel.innerHTML =
@@ -1041,9 +1037,7 @@
             '<div class="emb-detail-body"></div>';
         panel.querySelector('.emb-detail-close').addEventListener('click', () => closeDetail(map));
 
-        root.appendChild(backdrop);
         root.appendChild(panel);
-        _mapState.backdrop = backdrop;
         _mapState.detailRoot = panel;
         _mapState.detailBody = panel.querySelector('.emb-detail-body');
         return panel;
@@ -1053,7 +1047,27 @@
         _mapState.activePathId = null;
         removeFlightPaths(map);
         if (_mapState.detailRoot) _mapState.detailRoot.classList.remove('open');
-        if (_mapState.backdrop) _mapState.backdrop.classList.remove('open');
+    }
+
+    // Pan the tapped plane into the part of the map the panel doesn't cover, so
+    // it's never hidden behind the flight info window — the visible-area centre
+    // is left of true centre on desktop (side panel) and above it on mobile
+    // (bottom sheet). offset is in pixels relative to the map's real centre.
+    function panToVisible(map, coords) {
+        const panel = _mapState.detailRoot;
+        if (!map || !map.getContainer) return;
+        const mapEl = map.getContainer();
+        const mw = mapEl.clientWidth, mh = mapEl.clientHeight;
+        const isMobile = window.matchMedia('(max-width: 640px)').matches;
+        let offset = [0, 0];
+        if (isMobile) {
+            const sheetH = (panel && panel.offsetHeight) || mh * 0.6;
+            offset = [0, -sheetH / 2];
+        } else {
+            const panelW = (panel && panel.offsetWidth) || Math.min(320, mw * 0.88);
+            offset = [-panelW / 2, 0];
+        }
+        try { map.easeTo({ center: coords, offset, duration: 600 }); } catch (_) {}
     }
 
     function openDetail(map, pr, coords) {
@@ -1069,10 +1083,11 @@
         body.scrollTop = 0;
 
         // Reveal on the next frame so the slide-in transition runs from the
-        // off-screen state rather than snapping straight to open.
+        // off-screen state rather than snapping straight to open, then pan the
+        // plane into the area the panel leaves visible (measured once laid out).
         requestAnimationFrame(() => {
             panel.classList.add('open');
-            if (_mapState.backdrop) _mapState.backdrop.classList.add('open');
+            panToVisible(map, coords);
         });
 
         // Lazily fetch + draw this flight's flown trail and filed plan, and
