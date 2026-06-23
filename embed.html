@@ -248,22 +248,41 @@
         .fr24-powered-by { font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; color: rgba(255,255,255,0.45); }
         .fr24-powered-logo { height: 14px; width: auto; display: block; }
 
-        /* Scale the card up to fill the docked panel (base sizes suit the old popup). */
-        .emb-detail-body { padding: 14px; }
-        .emb-detail .fr24-card-container { gap: 8px; }
-        .emb-detail .fr24-image-box { height: 180px; }
-        .emb-detail .fr24-info-box { padding: 10px 12px; gap: 6px; }
-        .emb-detail .fr24-callsign { font-size: 21px; }
-        .emb-detail .fr24-airline-logo { height: 20px; max-width: 54px; }
-        .emb-detail .fr24-user { font-size: 12px; max-width: 150px; }
-        .emb-detail .fr24-route-code { font-size: 15px; }
-        .emb-detail .fr24-meta { font-size: 12px; }
-        .emb-detail .fr24-stat b { font-size: 18px; }
-        .emb-detail .fr24-stat .u { font-size: 9px; }
-        .emb-detail .fr24-stat { padding: 8px 2px; }
-        .emb-detail .fr24-actype { font-size: 13px; }
+        /* Scale the card to fill the docked panel (base sizes suit the old
+           popup). These are the mobile-friendly sizes; desktop bumps up below. */
+        .emb-detail-body { padding: 12px; }
+        .emb-detail .fr24-card-container { gap: 6px; }
+        .emb-detail .fr24-image-box { height: 150px; }
+        .emb-detail .fr24-info-box { padding: 9px 11px; gap: 5px; }
+        .emb-detail .fr24-callsign { font-size: 17px; }
+        .emb-detail .fr24-airline-logo { height: 17px; max-width: 46px; }
+        .emb-detail .fr24-user { font-size: 11px; max-width: 130px; }
+        .emb-detail .fr24-route-code { font-size: 13px; }
+        .emb-detail .fr24-meta { font-size: 11px; }
+        .emb-detail .fr24-stat b { font-size: 15px; }
+        .emb-detail .fr24-stat .u { font-size: 8.5px; }
+        .emb-detail .fr24-stat { padding: 6px 2px; }
+        .emb-detail .fr24-actype { font-size: 12px; }
         .emb-detail .fr24-powered-by { font-size: 10px; }
-        .emb-detail .fr24-powered-logo { height: 18px; }
+        .emb-detail .fr24-powered-logo { height: 17px; }
+
+        /* Desktop: the panel is wider, so size the card up a bit more. */
+        @media (min-width: 641px) {
+            .emb-detail-body { padding: 14px; }
+            .emb-detail .fr24-card-container { gap: 8px; }
+            .emb-detail .fr24-image-box { height: 180px; }
+            .emb-detail .fr24-info-box { padding: 10px 12px; gap: 6px; }
+            .emb-detail .fr24-callsign { font-size: 21px; }
+            .emb-detail .fr24-airline-logo { height: 20px; max-width: 54px; }
+            .emb-detail .fr24-user { font-size: 12px; max-width: 150px; }
+            .emb-detail .fr24-route-code { font-size: 15px; }
+            .emb-detail .fr24-meta { font-size: 12px; }
+            .emb-detail .fr24-stat b { font-size: 18px; }
+            .emb-detail .fr24-stat .u { font-size: 9px; }
+            .emb-detail .fr24-stat { padding: 8px 2px; }
+            .emb-detail .fr24-actype { font-size: 13px; }
+            .emb-detail .fr24-powered-logo { height: 18px; }
+        }
 
         /* VA hub markers — a small, fixed-size pin + ICAO tag. */
         .emb-hub { position: relative; width: 12px; height: 12px; cursor: pointer; }
