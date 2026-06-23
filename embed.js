@@ -38,8 +38,8 @@
  *   {
  *     "ok": true,
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
- *     "callsignPrefixes": ["OCEAN"],          // optional; leading-token prefixes. defaults to [va.code]
- *     "callsignSuffixes": ["EX", "VA"],       // optional tags; when set, a flight must match a declared prefix AND carry the tag (e.g. prefix "ACA" + "VA" → "ACA001VA")
+ *     "callsignPrefixes": ["Air Canada"],     // optional; full airline/callsign names (spaces ok). defaults to [va.code]
+ *     "callsignSuffixes": ["EX", "VA"],       // optional tags; when set, a flight must match a declared prefix AND carry the tag (e.g. prefix "Air Canada" + "VA" → "Air Canada 001VA")
  *     "hubs": ["KJFK", "KBOS"],               // optional; hub ICAOs plotted as clickable airport-info markers (map mode). also accepts "icao"/"hub". defaults from VA-Ads.
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
  *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
@@ -219,14 +219,20 @@
         const code = firstToken(va.code || va.callsign || '');
         if (!code) throw new Error('Embed config is missing a VA callsign code.');
 
+        // Prefixes are the full airline/callsign name the VA flies under, NOT just
+        // the first word — IF callsigns are the spoken name, e.g. "Air Canada 001VA"
+        // (tokens AIR / CANADA / 001VA). We compact each prefix (strip spaces and
+        // separators) so "Air Canada" → "AIRCANADA" and matches the whole airline,
+        // not every callsign that merely starts with "AIR".
         const prefixes = (Array.isArray(raw.callsignPrefixes) && raw.callsignPrefixes.length
             ? raw.callsignPrefixes
             : [code]
-        ).map(firstToken).filter(Boolean);
+        ).map(compactCallsign).filter(Boolean);
 
         // Optional suffix tags. When set, matching requires a declared prefix AND
-        // one of these tags on the LAST callsign token (e.g. prefix "ACA" + tag
-        // "VA" → "ACA001VA"). Uppercased, whitespace stripped. Empty = prefix-only.
+        // one of these tags on the LAST callsign token (e.g. prefix "Air Canada" +
+        // tag "VA" → "Air Canada 001VA"). Uppercased, whitespace stripped.
+        // Empty = prefix-only.
         const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
             .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
             .filter(Boolean);
@@ -307,6 +313,13 @@
         return String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
     }
 
+    // Uppercased with every separator removed, so multi-word airline names line up
+    // regardless of spacing: "Air Canada 001VA" → "AIRCANADA001VA", "Air Canada"
+    // → "AIRCANADA". Used to match a VA's full callsign prefix against a flight.
+    function compactCallsign(callsign) {
+        return String(callsign || '').toUpperCase().replace(/[\s\-_/]+/g, '');
+    }
+
     // Is a suffix tag actually a TAG on this token, not just letters that happen
     // to end it? A short tag like "VA" ends a huge number of unrelated callsigns
     // ("MOSKVA", "NOVA", "…VA"), so endsWith alone is far too greedy. A tag only
@@ -320,17 +333,21 @@
         return before >= '0' && before <= '9';                // tag on a number: "01VA"
     }
 
-    // Does a flight callsign belong to this VA?
+    // Does a flight callsign belong to this VA? Prefixes are matched against the
+    // WHOLE leading callsign (separators removed), so a full airline name like
+    // "Air Canada" matches "Air Canada 001VA" and only Air Canada — not Air France
+    // or any other callsign that merely starts with "AIR".
     //
-    //   • No suffix tags configured  →  PREFIX-ONLY. The leading token must start
-    //     with one of the VA's declared prefixes.
-    //       prefix "OCEAN"  →  "OCEAN 01", "OCEAN123"
+    //   • No suffix tags configured  →  PREFIX-ONLY. The compacted callsign must
+    //     start with one of the VA's declared prefixes.
+    //       prefix "AIRCANADA"  →  "Air Canada 001", "Air Canada 12"
     //
     //   • Suffix tags configured  →  PREFIX **AND** TAG. The flight only belongs
-    //     to the VA when BOTH hold: the leading token starts with a declared
+    //     to the VA when BOTH hold: the compacted callsign starts with a declared
     //     prefix/airline, AND the last token carries one of the VA's suffix tags.
-    //       prefix "ACA", suffix "VA"  →  "ACA001VA" ✓ ,  "ACA001" ✗ (no tag),
-    //                                      "UAL045VA" ✗ (airline not declared)
+    //       prefix "AIRCANADA", suffix "VA"
+    //         → "Air Canada 001VA" ✓ ,  "Air Canada 001" ✗ (no tag),
+    //           "United 045VA"     ✗ (airline not declared)
     //     A bare suffix never matches on its own, so a short tag like "VA" can no
     //     longer sweep up every unrelated callsign that happens to end in it — the
     //     VA must declare which airline prefixes they fly that tag under. To run
@@ -338,10 +355,10 @@
     function callsignMatches(callsign, cfg) {
         const tokens = callsignTokens(callsign);
         if (!tokens.length) return false;
-        const first = tokens[0];
+        const compact = tokens.join('');          // uppercased, separators removed
         const last = tokens[tokens.length - 1];
 
-        const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p)));
+        const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)));
 
         // Prefix-only mode (no tags) — unchanged.
         if (!cfg.suffixes || !cfg.suffixes.length) return prefixHit;
