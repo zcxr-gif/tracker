@@ -376,8 +376,16 @@
                 }
                 .va-partners-head { padding: 6px 20px 12px; touch-action: none; }
                 .va-partners-head h2 { font-size: 1.7rem; }
-                .va-partners-body { gap: 10px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
-                .va-ad-card-banner { height: 72px; }
+                .va-partners-body { gap: 8px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
+                /* Compact list rows — drop the big banner so many more VAs fit
+                   on screen (logo + name + tagline only). */
+                .va-ad-card-banner { display: none; }
+                .va-ad-card { border-radius: 12px; }
+                .va-ad-card-body { padding: 10px 12px; align-items: center; gap: 11px; }
+                .va-ad-card-body .va-ad-logo { width: 38px; height: 38px; }
+                .va-ad-card-title { font-size: 0.9rem; }
+                .va-ad-card-sub { margin-top: 1px; }
+                .va-ad-chips { margin-top: 5px; }
             }
             .va-ad-card {
                 border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden;
