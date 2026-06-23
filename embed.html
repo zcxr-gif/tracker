@@ -274,11 +274,22 @@
             transition: background .15s ease, transform .15s ease;
         }
         .emb-hub:hover .emb-hub-pin { background: #7dd3fc; transform: scale(1.15); }
-        .emb-hub-tag {
+        .emb-hub-label {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
-            font-size: 9px; font-weight: 800; letter-spacing: 0.3px; color: #e0f2fe;
-            background: rgba(11,18,32,0.85); padding: 1px 5px; border-radius: 5px;
-            white-space: nowrap; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+        }
+        .emb-hub-icao {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 9.5px; font-weight: 800; letter-spacing: 0.3px; color: #e0f2fe;
+            background: rgba(11,18,32,0.85); padding: 1px 6px; border-radius: 5px;
+            white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+        .emb-hub-flag { width: 13px; height: 9px; border-radius: 1px; object-fit: cover; display: block; flex: 0 0 auto; }
+        .emb-hub-name {
+            font-size: 8.5px; font-weight: 700; color: #cbd5e1; line-height: 1.2;
+            background: rgba(11,18,32,0.78); padding: 1px 5px; border-radius: 4px;
+            max-width: 150px; text-align: center; white-space: normal;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.9);
         }
 
         /* Hub on/off toggle (map control) */

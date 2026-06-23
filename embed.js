@@ -1247,9 +1247,20 @@
             const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
             const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
             if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
+            const name = (apt && apt.name) || '';
+            const country = (apt && apt.country && (apt.country.isoCode || apt.country.code)) || (apt && apt.country) || '';
+            const cc = String(country || '').toLowerCase();
+            const flag = /^[a-z]{2}$/.test(cc)
+                ? `<img class="emb-hub-flag" src="https://flagcdn.com/w20/${cc}.png" alt="" onerror="this.style.display='none'">`
+                : '';
             const el = document.createElement('div');
             el.className = 'emb-hub';
-            el.innerHTML = `<span class="emb-hub-pin"></span><span class="emb-hub-tag">${esc(icao)}</span>`;
+            el.innerHTML =
+                `<span class="emb-hub-pin"></span>` +
+                `<div class="emb-hub-label">` +
+                    `<div class="emb-hub-icao">${flag}<span>${esc(icao)}</span></div>` +
+                    (name ? `<div class="emb-hub-name">${esc(name)}</div>` : '') +
+                `</div>`;
             el.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 openAirportDetail(map, icao, [Number(lon), Number(lat)]);
