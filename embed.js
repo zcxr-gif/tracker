@@ -39,7 +39,7 @@
  *     "ok": true,
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
  *     "callsignPrefixes": ["OCEAN"],          // optional; leading-token prefixes. defaults to [va.code]
- *     "callsignSuffixes": ["EX", "VA"],       // optional; match the LAST token ending with these (e.g. "OCEAN 01EX", "UPS 01EX")
+ *     "callsignSuffixes": ["EX", "VA"],       // optional tags; when set, a flight must match a declared prefix AND carry the tag (e.g. prefix "ACA" + "VA" → "ACA001VA")
  *     "hubs": ["KJFK", "KBOS"],               // optional; hub ICAOs plotted as clickable airport-info markers (map mode). also accepts "icao"/"hub". defaults from VA-Ads.
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
  *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
@@ -224,8 +224,9 @@
             : [code]
         ).map(firstToken).filter(Boolean);
 
-        // Optional suffix tags: match on the LAST callsign token ending with these
-        // (e.g. "EX", "01VA"). Uppercased, whitespace stripped. Empty = prefix-only.
+        // Optional suffix tags. When set, matching requires a declared prefix AND
+        // one of these tags on the LAST callsign token (e.g. prefix "ACA" + tag
+        // "VA" → "ACA001VA"). Uppercased, whitespace stripped. Empty = prefix-only.
         const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
             .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
             .filter(Boolean);
@@ -319,23 +320,35 @@
         return before >= '0' && before <= '9';                // tag on a number: "01VA"
     }
 
-    // Does a flight callsign belong to this VA? A callsign matches if EITHER rule
-    // hits, so a VA can mix styles:
-    //   • PREFIX rule  — the leading token starts with one of the VA's prefixes.
+    // Does a flight callsign belong to this VA?
+    //
+    //   • No suffix tags configured  →  PREFIX-ONLY. The leading token must start
+    //     with one of the VA's declared prefixes.
     //       prefix "OCEAN"  →  "OCEAN 01", "OCEAN123"
-    //   • SUFFIX rule  — the LAST token carries one of the VA's suffix tags,
-    //     either standalone or glued to a flight number (see tokenHasSuffixTag).
-    //       suffix "EX"  →  "OCEAN 01EX", "UPS 01EX", "UPS EX"   (NOT "APEX")
-    //     This lets a VA fly other airlines' callsigns and still be picked up by
-    //     their private tag, and lets one VA run several tags (e.g. EX + VA).
+    //
+    //   • Suffix tags configured  →  PREFIX **AND** TAG. The flight only belongs
+    //     to the VA when BOTH hold: the leading token starts with a declared
+    //     prefix/airline, AND the last token carries one of the VA's suffix tags.
+    //       prefix "ACA", suffix "VA"  →  "ACA001VA" ✓ ,  "ACA001" ✗ (no tag),
+    //                                      "UAL045VA" ✗ (airline not declared)
+    //     A bare suffix never matches on its own, so a short tag like "VA" can no
+    //     longer sweep up every unrelated callsign that happens to end in it — the
+    //     VA must declare which airline prefixes they fly that tag under. To run
+    //     the tag across several airlines, list each airline in callsignPrefixes.
     function callsignMatches(callsign, cfg) {
         const tokens = callsignTokens(callsign);
         if (!tokens.length) return false;
         const first = tokens[0];
         const last = tokens[tokens.length - 1];
-        if (cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p))) return true;
-        if (cfg.suffixes && cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s))) return true;
-        return false;
+
+        const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p)));
+
+        // Prefix-only mode (no tags) — unchanged.
+        if (!cfg.suffixes || !cfg.suffixes.length) return prefixHit;
+
+        // Tag mode — require the declared prefix AND the tag together.
+        const suffixHit = cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s));
+        return prefixHit && suffixHit;
     }
 
     function normalizeFlight(f, serverName, sessionId) {
