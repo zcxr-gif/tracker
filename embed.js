@@ -40,6 +40,7 @@
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
  *     "callsignPrefixes": ["OCEAN"],          // optional; leading-token prefixes. defaults to [va.code]
  *     "callsignSuffixes": ["EX", "VA"],       // optional; match the LAST token ending with these (e.g. "OCEAN 01EX", "UPS 01EX")
+ *     "hubs": ["KJFK", "KBOS"],               // optional; hub ICAOs plotted as clickable airport-info markers (map mode). also accepts "icao"/"hub". defaults from VA-Ads.
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
  *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
  *     "mapboxToken": "pk.eyJ…",               // the VA's own token (only needed for the mapbox provider)
@@ -202,6 +203,7 @@
             va: { code: va, name: (p.get('name') || va).trim(), logo: (p.get('logo') || '').trim() },
             callsignPrefixes: p.get('prefixes') ? p.get('prefixes').split(',') : null,
             callsignSuffixes: p.get('suffixes') ? p.get('suffixes').split(',') : null,
+            hubs: p.get('hubs') ? p.get('hubs').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
             mapStyle: (p.get('mapStyle') || '').trim(),
@@ -248,12 +250,19 @@
             raw.freeStyle || (provider === 'free' && !/^mapbox:/i.test(raw.mapStyle || '') ? raw.mapStyle : '')
         );
 
+        // Hub airports (ICAO list) — accepts hubs / icao / hub, array or CSV.
+        const hubsRaw = raw.hubs != null ? raw.hubs : (raw.icao != null ? raw.icao : raw.hub);
+        const hubs = (Array.isArray(hubsRaw) ? hubsRaw
+            : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
+            .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
+
         return {
             code,
             name: va.name || code,
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
             suffixes,
+            hubs,
             mode,
             provider,
             mapboxToken,
@@ -277,9 +286,14 @@
             let hit = arr.find(a => firstToken(a.callsign || a.callsignCode || a.code) === code) || arr[0];
             if (!hit) return null;
             const rawLogo = hit.logo || hit.logoUrl || hit.logo_url || '';
+            const hubsRaw = hit.icao != null ? hit.icao : (hit.hubs != null ? hit.hubs : hit.hub);
+            const hubs = (Array.isArray(hubsRaw) ? hubsRaw
+                : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
+                .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
             return {
                 name: hit.name || hit.vaName || hit.title || '',
-                logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : ''
+                logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : '',
+                hubs
             };
         } catch (_) {
             return null;
@@ -292,12 +306,26 @@
         return String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
     }
 
+    // Is a suffix tag actually a TAG on this token, not just letters that happen
+    // to end it? A short tag like "VA" ends a huge number of unrelated callsigns
+    // ("MOSKVA", "NOVA", "…VA"), so endsWith alone is far too greedy. A tag only
+    // counts when it is EITHER the whole token (a standalone "VA"), or glued onto
+    // a flight number — i.e. the char immediately before it is a digit ("01VA",
+    // "123EX"). That's exactly how VAs append their tag and nothing else.
+    function tokenHasSuffixTag(token, tag) {
+        if (!token.endsWith(tag)) return false;
+        if (token === tag) return true;                       // standalone tag: "VA"
+        const before = token.charAt(token.length - tag.length - 1);
+        return before >= '0' && before <= '9';                // tag on a number: "01VA"
+    }
+
     // Does a flight callsign belong to this VA? A callsign matches if EITHER rule
     // hits, so a VA can mix styles:
     //   • PREFIX rule  — the leading token starts with one of the VA's prefixes.
     //       prefix "OCEAN"  →  "OCEAN 01", "OCEAN123"
-    //   • SUFFIX rule  — the LAST token ends with one of the VA's suffix tags.
-    //       suffix "EX"  →  "OCEAN 01EX"  AND  "UPS 01EX"
+    //   • SUFFIX rule  — the LAST token carries one of the VA's suffix tags,
+    //     either standalone or glued to a flight number (see tokenHasSuffixTag).
+    //       suffix "EX"  →  "OCEAN 01EX", "UPS 01EX", "UPS EX"   (NOT "APEX")
     //     This lets a VA fly other airlines' callsigns and still be picked up by
     //     their private tag, and lets one VA run several tags (e.g. EX + VA).
     function callsignMatches(callsign, cfg) {
@@ -306,7 +334,7 @@
         const first = tokens[0];
         const last = tokens[tokens.length - 1];
         if (cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p))) return true;
-        if (cfg.suffixes && cfg.suffixes.some(s => s && last.endsWith(s))) return true;
+        if (cfg.suffixes && cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s))) return true;
         return false;
     }
 
@@ -508,6 +536,7 @@
             <div class="fr24-card-container">
                 <div class="fr24-image-box" style="background-image:url('${esc(imgUrl)}')">
                     <div class="fr24-image-overlay"></div>
+                    ${vaBadgeHTML(_mapState.cfg)}
                     <div class="fr24-copyright">© ${esc(credit || 'IF Community')}</div>
                 </div>
                 <div class="fr24-info-box">
@@ -534,24 +563,29 @@
                         <div class="fr24-stat"><b>${hdg}°</b><span class="u">HDG</span></div>
                     </div>
                     ${actype ? `<div class="fr24-actype" title="${esc(actype)}">${esc(actype)}</div>` : ''}
-                    ${vaChipHTML(_mapState.cfg)}
+                    ${poweredByHTML()}
                 </div>
             </div>`;
     }
 
-    // Partner VA badge (logo + name) shown on every tap card so the VA's
-    // branding rides along with each of their pilots.
-    function vaChipHTML(cfg) {
+    // Partner VA badge — their logo (or name) overlaid on the top-left of the
+    // aircraft photo, on a faint see-through pill so it reads over the image.
+    function vaBadgeHTML(cfg) {
         if (!cfg) return '';
-        const logo = cfg.logo
-            ? `<img class="fr24-va-logo" src="${esc(cfg.logo)}" alt="" onerror="this.style.display='none'">`
-            : '';
+        const inner = cfg.logo
+            ? `<img src="${esc(cfg.logo)}" alt="${esc(cfg.name || '')}" onerror="this.style.display='none'">`
+            : (cfg.name ? `<span>${esc(cfg.name)}</span>` : '');
+        return inner ? `<div class="fr24-va-badge">${inner}</div>` : '';
+    }
+
+    // "Powered by Inflight" footer shown at the bottom of every tap card, with
+    // our small logo — replaces the per-card partner-VA chip.
+    function poweredByHTML() {
         return `
-            <div class="fr24-va">
-                ${logo}
-                <span class="fr24-va-name">${esc(cfg.name)}</span>
-                <span class="fr24-va-tag">Partner VA</span>
-            </div>`;
+            <a class="fr24-powered" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+                <span class="fr24-powered-by">Powered by</span>
+                <img class="fr24-powered-logo" src="Images/inflight.png" alt="Inflight" onerror="this.outerHTML='Inflight'">
+            </a>`;
     }
 
     const SOURCE_ID = 'va-pilots';
@@ -752,7 +786,7 @@
 
     // Fetch the tapped flight's flown trail + filed plan and draw both, matching
     // the main tracker's sector-ops rendering exactly.
-    async function drawFlightPaths(map, pr, clickedCoords, popup) {
+    async function drawFlightPaths(map, pr, clickedCoords, cardEl) {
         const flightId = pr.flightId, sessionId = pr.sessionId;
         if (!map || !flightId) return;
 
@@ -890,16 +924,16 @@
 
                 // ── Card enrichment: route progress, distance remaining, ETA ──
                 // Pure math on the plan we already fetched — no extra requests.
-                enrichCard(popup, flightId, waypointObjects, activeWpIndex, currentPosition, Number(pr.speed) || 0);
+                enrichCard(cardEl, flightId, waypointObjects, activeWpIndex, currentPosition, Number(pr.speed) || 0);
             }
         }
     }
 
     // Compute along-route progress + remaining distance + ETA from the filed
     // plan and live ground speed, then patch the open tap card in place.
-    function enrichCard(popup, flightId, waypointObjects, activeWpIndex, currentPosition, gs) {
-        if (!popup || _mapState.activePathId !== flightId) return;
-        const el = popup.getElement && popup.getElement();
+    function enrichCard(cardEl, flightId, waypointObjects, activeWpIndex, currentPosition, gs) {
+        if (!cardEl || _mapState.activePathId !== flightId) return;
+        const el = cardEl;
         if (!el) return;
 
         const coords = waypointObjects
@@ -1011,6 +1045,373 @@
 
     const _mapState = { map: null, ready: false, hasIcons: false };
 
+    // ── Docked flight-info panel ────────────────────────────────────────────
+    // Replaces the map popup. Lives inside the embed root and is positioned by
+    // CSS: a bottom sheet on mobile, a side panel on desktop, matching the main
+    // tracker's flight info window. One flight is shown at a time.
+    function ensureDetailPanel(map) {
+        if (_mapState.detailRoot) return _mapState.detailRoot;
+        // Anchor inside the map container (which sits BELOW the header) so the
+        // panel never overlaps the VA header bar.
+        const host = (map && map.getContainer && map.getContainer()) || rootEl();
+        if (!host) return null;
+
+        const panel = document.createElement('div');
+        panel.className = 'emb-detail';
+        panel.innerHTML =
+            '<div class="emb-detail-grip"></div>' +
+            '<div class="emb-detail-body"></div>';
+
+        host.appendChild(panel);
+        _mapState.detailRoot = panel;
+        _mapState.detailBody = panel.querySelector('.emb-detail-body');
+        return panel;
+    }
+
+    function closeDetail(map) {
+        _mapState.activePathId = null;
+        _mapState.activeAptIcao = null;
+        removeFlightPaths(map);
+        if (_mapState.detailRoot) _mapState.detailRoot.classList.remove('open');
+    }
+
+    // Pan the tapped plane into the part of the map the panel doesn't cover, so
+    // it's never hidden behind the flight info window — the visible-area centre
+    // is left of true centre on desktop (side panel) and above it on mobile
+    // (bottom sheet). offset is in pixels relative to the map's real centre.
+    function panToVisible(map, coords) {
+        const panel = _mapState.detailRoot;
+        if (!map || !map.getContainer) return;
+        const mapEl = map.getContainer();
+        const mw = mapEl.clientWidth, mh = mapEl.clientHeight;
+        const isMobile = window.matchMedia('(max-width: 640px)').matches;
+        let offset = [0, 0];
+        if (isMobile) {
+            const sheetH = (panel && panel.offsetHeight) || mh * 0.6;
+            offset = [0, -sheetH / 2];
+        } else {
+            const panelW = (panel && panel.offsetWidth) || Math.min(320, mw * 0.88);
+            offset = [-panelW / 2, 0];
+        }
+        try { map.easeTo({ center: coords, offset, duration: 600 }); } catch (_) {}
+    }
+
+    function openDetail(map, pr, coords) {
+        const panel = ensureDetailPanel(map);
+        if (!panel) return;
+
+        // Opening a new plane replaces any path from the previously open card.
+        removeFlightPaths(map);
+        _mapState.activePathId = pr.flightId || null;
+        _mapState.activeAptIcao = null;   // a flight tap supersedes any open airport
+
+        const body = _mapState.detailBody;
+        body.innerHTML = fr24CardHTML(pr, DEFAULT_AC_IMG);
+        body.scrollTop = 0;
+
+        // Reveal on the next frame so the slide-in transition runs from the
+        // off-screen state rather than snapping straight to open, then pan the
+        // plane into the area the panel leaves visible (measured once laid out).
+        requestAnimationFrame(() => {
+            panel.classList.add('open');
+            panToVisible(map, coords);
+        });
+
+        // Lazily fetch + draw this flight's flown trail and filed plan, and
+        // enrich the card with progress/ETA from the same data.
+        drawFlightPaths(map, pr, coords, body).catch(() => {});
+
+        communityImage(pr.aircraft, pr.livery).then(info => {
+            if (!info || !info.url) return;
+            if (_mapState.activePathId !== pr.flightId) return;   // card changed mid-fetch
+            const box = body.querySelector('.fr24-image-box');
+            if (box) box.style.backgroundImage = `url('${info.url}')`;
+            const cr = body.querySelector('.fr24-copyright');
+            if (cr) cr.textContent = '© ' + info.credit;
+        });
+    }
+
+    // ── VA hub markers + airport info window ─────────────────────────────────
+    // Plot a clickable marker at each of the VA's hub airports. Tapping one opens
+    // the docked panel with that field's live data (basic info, METAR, ops/ATIS,
+    // traffic) — the same shape the main tracker's airport window shows, pulled
+    // from the same backend endpoints.
+    const _aptCache = new Map();   // ICAO -> Promise<airport|null>
+    let _aptSessionId;             // cached session id for live airport queries
+
+    function airportInfo(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return Promise.resolve(null);
+        if (_aptCache.has(code)) return _aptCache.get(code);
+        const pr = getJSON(`${ACARS_BACKEND}/api/airport/${encodeURIComponent(code)}`)
+            .then(j => (j && j.ok && j.airport) ? j.airport : null)
+            .catch(() => null);
+        _aptCache.set(code, pr);
+        return pr;
+    }
+
+    async function getAptSessionId(cfg) {
+        if (_aptSessionId !== undefined) return _aptSessionId;
+        _aptSessionId = null;
+        try {
+            const sj = await getJSON(SESSIONS_URL);
+            let sessions = (sj && Array.isArray(sj.sessions)) ? sj.sessions : [];
+            if (cfg && cfg.servers && cfg.servers.length) {
+                const wanted = cfg.servers.map(s => s.toLowerCase());
+                const f = sessions.filter(s => wanted.some(w => String(s.name || '').toLowerCase().includes(w)));
+                if (f.length) sessions = f;
+            }
+            const exp = sessions.find(s => /expert/i.test(String(s.name || '')));
+            _aptSessionId = ((exp || sessions[0]) || {}).id || null;
+        } catch (_) {}
+        return _aptSessionId;
+    }
+
+    // Minimal METAR parse — flight category + the four headline fields.
+    function parseMetarLite(raw) {
+        const s = String(raw || '').trim();
+        if (!s || /no metar|not found|^404/i.test(s)) return null;
+        let cat = 'VFR', color = '#4ade80';
+        if (/\bLIFR\b/.test(s)) { cat = 'LIFR'; color = '#c084fc'; }
+        else if (/\bIFR\b/.test(s)) { cat = 'IFR'; color = '#f87171'; }
+        else if (/\bMVFR\b/.test(s)) { cat = 'MVFR'; color = '#60a5fa'; }
+        const w = s.match(/\b(VRB|\d{3})(\d{2})(?:G\d{2})?KT\b/);
+        const wind = w ? `${w[1]}/${w[2]}kt` : '—';
+        let vis = '—';
+        if (/\bCAVOK\b/.test(s) || /\b9999\b/.test(s)) vis = '10+ km';
+        else {
+            const sm = s.match(/\b(\d{1,2})SM\b/);
+            const m = s.match(/\s(\d{4})\s/);
+            if (sm) vis = sm[1] + ' SM';
+            else if (m) vis = Number(m[1]) >= 1000 ? (Number(m[1]) / 1000) + ' km' : m[1] + ' m';
+        }
+        const tm = s.match(/\b(M?\d{2})\/(M?\d{2})\b/);
+        const temp = tm ? tm[1].replace('M', '-') + '°' : '—';
+        let qnh = '—';
+        const q = s.match(/\bQ(\d{4})\b/), a = s.match(/\bA(\d{4})\b/);
+        if (q) qnh = q[1]; else if (a) qnh = (Number(a[1]) / 100).toFixed(2) + 'inHg';
+        return { cat, color, wind, vis, temp, qnh, raw: s };
+    }
+
+    // ATIS parse — same field extraction as the main tracker's parseAtis.
+    function parseAtisLite(text) {
+        if (!text) return null;
+        const info = (text.match(/information\s+([A-Z])/i) || [])[1];
+        const time = (text.match(/(\d{4})\s*Z/i) || [])[1];
+        const ext = (str) => { if (!str) return '—'; const m = str.match(/\d{2}[LRC]?/g); return m ? m.join('/') : '—'; };
+        const landing = ext((text.match(/Landing\s+([^,.]+)/i) || [])[1]);
+        const departing = ext((text.match(/Departing\s+([^,.]+)/i) || [])[1]);
+        const appM = text.match(/expect\s+(.*?)\s+approach/i);
+        const appr = appM ? appM[1].toUpperCase().replace('VISUAL', 'VIS') : 'VIS';
+        return { info: info ? info.toUpperCase() : '?', time: time ? time + 'Z' : '', landing, departing, appr };
+    }
+
+    function fetchMetar(icao) {
+        return fetch(`https://metar.vatsim.net/metar.php?id=${encodeURIComponent(icao)}`)
+            .then(r => r.ok ? r.text() : null)
+            .then(t => parseMetarLite(t))
+            .catch(() => null);
+    }
+
+    // Live inbound/outbound counts (and how many are this VA's pilots) + ATIS.
+    async function airportLive(cfg, icao) {
+        const out = { inbound: 0, outbound: 0, vaCount: 0, atis: null };
+        const sid = await getAptSessionId(cfg);
+        if (!sid) return out;
+        const base = `${ACARS_BACKEND}/api/live/airport/${sid}/${encodeURIComponent(icao)}`;
+        try {
+            const [status, atis] = await Promise.all([
+                fetch(`${base}/status`).then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${base}/atis`).then(r => r.ok ? r.json() : null).catch(() => null)
+            ]);
+            if (status && status.ok && status.status) {
+                const inb = status.status.inboundFlights || [];
+                const oub = status.status.outboundFlights || [];
+                out.inbound = inb.length;
+                out.outbound = oub.length;
+                out.vaCount = [...inb, ...oub].filter(f => f && callsignMatches(f.callsign, cfg)).length;
+            }
+            if (atis && atis.ok && atis.atis) out.atis = parseAtisLite(atis.atis);
+        } catch (_) {}
+        return out;
+    }
+
+    // Build the hub markers once (lazily, on first enable). Each is a small
+    // fixed-size pin + ICAO tag that opens the airport window when tapped.
+    async function buildHubMarkers(map, cfg) {
+        if (_mapState.hubsBuilt || !cfg || !cfg.hubs || !cfg.hubs.length) return;
+        _mapState.hubsBuilt = true;
+        _mapState.hubMarkers = [];
+        for (const icao of cfg.hubs) {
+            const apt = await airportInfo(icao);
+            const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
+            const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
+            if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
+            const name = (apt && apt.name) || '';
+            const country = (apt && apt.country && (apt.country.isoCode || apt.country.code)) || (apt && apt.country) || '';
+            const cc = String(country || '').toLowerCase();
+            const flag = /^[a-z]{2}$/.test(cc)
+                ? `<img class="emb-hub-flag" src="https://flagcdn.com/w20/${cc}.png" alt="" onerror="this.style.display='none'">`
+                : '';
+            const el = document.createElement('div');
+            el.className = 'emb-hub';
+            el.innerHTML =
+                `<span class="emb-hub-pin"></span>` +
+                `<div class="emb-hub-label">` +
+                    `<div class="emb-hub-icao">${flag}<span>${esc(icao)}</span></div>` +
+                    (name ? `<div class="emb-hub-name">${esc(name)}</div>` : '') +
+                `</div>`;
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openAirportDetail(map, icao, [Number(lon), Number(lat)]);
+            });
+            try {
+                const marker = new (gl().Marker)({ element: el, anchor: 'center' })
+                    .setLngLat([Number(lon), Number(lat)])
+                    .addTo(map);
+                _mapState.hubMarkers.push(marker);
+            } catch (_) {}
+        }
+        // Honour the current toggle state for freshly-built markers.
+        applyHubVisibility();
+    }
+
+    function applyHubVisibility() {
+        (_mapState.hubMarkers || []).forEach((m) => {
+            const el = m.getElement && m.getElement();
+            if (el) el.style.display = _mapState.hubsVisible ? '' : 'none';
+        });
+    }
+
+    async function setHubsVisible(map, cfg, on) {
+        _mapState.hubsVisible = on;
+        if (_mapState.hubsBtn) {
+            _mapState.hubsBtn.classList.toggle('is-on', on);
+            _mapState.hubsBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        if (on && !_mapState.hubsBuilt) await buildHubMarkers(map, cfg);
+        else applyHubVisibility();
+    }
+
+    // A small map control button that toggles the hub markers. Off by default.
+    function makeHubsControl(map, cfg) {
+        const container = document.createElement('div');
+        container.className = 'mapboxgl-ctrl maplibregl-ctrl emb-hubs-ctrl';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'emb-hubs-toggle';
+        btn.setAttribute('aria-pressed', 'false');
+        btn.innerHTML = `<span class="emb-hubs-dot"></span><span>Hubs</span>`;
+        btn.addEventListener('click', () => setHubsVisible(map, cfg, !_mapState.hubsVisible));
+        container.appendChild(btn);
+        _mapState.hubsBtn = btn;
+        return {
+            onAdd() { return container; },
+            onRemove() { container.remove(); }
+        };
+    }
+
+    function openAirportDetail(map, icao, coords) {
+        const panel = ensureDetailPanel(map);
+        if (!panel) return;
+
+        removeFlightPaths(map);
+        _mapState.activePathId = null;
+        _mapState.activeAptIcao = icao;
+
+        const body = _mapState.detailBody;
+        body.innerHTML = airportCardHTML(icao, null);
+        body.scrollTop = 0;
+        requestAnimationFrame(() => {
+            panel.classList.add('open');
+            panToVisible(map, coords);
+        });
+
+        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao)])
+            .then(([apt, metar, live]) => {
+                if (_mapState.activeAptIcao !== icao) return;   // panel changed mid-fetch
+                body.innerHTML = airportCardHTML(icao, { apt, metar, live });
+            })
+            .catch(() => {
+                if (_mapState.activeAptIcao === icao) body.innerHTML = airportCardHTML(icao, { error: true });
+            });
+    }
+
+    function airportCardHTML(icao, data) {
+        if (!data) {
+            return `<div class="emb-apt"><div class="emb-apt-head"><div style="min-width:0">
+                <div class="emb-apt-icao">${esc(icao)}</div>
+                <div class="emb-apt-name">Loading airport…</div></div></div></div>`;
+        }
+        if (data.error) {
+            return `<div class="emb-apt"><div class="emb-apt-head"><div style="min-width:0">
+                <div class="emb-apt-icao">${esc(icao)}</div>
+                <div class="emb-apt-name">Couldn’t load airport data.</div></div></div>
+                ${poweredByHTML()}</div>`;
+        }
+        const apt = data.apt || {}, metar = data.metar, live = data.live || {};
+        const name = apt.name || icao;
+        const city = apt.city || '';
+        const country = (apt.country && (apt.country.isoCode || apt.country.code)) || apt.country || '';
+        const cc = String(country || '').toLowerCase();
+        const flag = /^[a-z]{2}$/.test(cc)
+            ? `<img class="emb-apt-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">`
+            : '';
+        const loc = [city, String(country || '').toUpperCase()].filter(Boolean).join(', ');
+        const elev = (apt.elevation != null) ? `${Math.round(apt.elevation)} ft` : '';
+        const sub = [loc, elev].filter(Boolean).join(' · ');
+
+        const metarMod = metar ? `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>METAR</span><span class="emb-apt-pill" style="color:${metar.color};border-color:${metar.color}">${metar.cat}</span></div>
+                <div class="emb-apt-grid">
+                    <div class="emb-apt-cell"><span class="l">Wind</span><span class="v">${esc(metar.wind)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Vis</span><span class="v">${esc(metar.vis)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Temp</span><span class="v">${esc(metar.temp)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">QNH</span><span class="v">${esc(metar.qnh)}</span></div>
+                </div>
+                <div class="emb-apt-metar-raw">${esc(metar.raw)}</div>
+            </div>` : `
+            <div class="emb-apt-mod"><div class="emb-apt-mod-h"><span>METAR</span></div>
+                <div class="emb-apt-sub" style="margin:0">Weather unavailable.</div></div>`;
+
+        const atis = live.atis;
+        const opsMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Operations</span>${atis
+                    ? `<span class="emb-apt-pill" style="color:#fbbf24;border-color:#fbbf24">ATIS ${esc(atis.info)}</span>`
+                    : `<span class="emb-apt-pill" style="color:#94a3b8;border-color:#475569">NO ATIS</span>`}</div>
+                ${atis ? `<div class="emb-apt-grid" style="grid-template-columns:repeat(3,1fr)">
+                    <div class="emb-apt-cell"><span class="l">Arr Rwy</span><span class="v" style="color:#4ade80">${esc(atis.landing)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Dep Rwy</span><span class="v" style="color:#38bdf8">${esc(atis.departing)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Appr</span><span class="v">${esc(atis.appr)}</span></div>
+                </div>` : `<div class="emb-apt-sub" style="margin:0">No live ATIS broadcasting.</div>`}
+            </div>`;
+
+        const trafficMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Traffic</span></div>
+                <div class="emb-apt-grid" style="grid-template-columns:repeat(3,1fr)">
+                    <div class="emb-apt-cell"><span class="l">Inbound</span><span class="v">${live.inbound || 0}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Outbound</span><span class="v">${live.outbound || 0}</span></div>
+                    <div class="emb-apt-cell"><span class="l">VA Pilots</span><span class="v" style="color:#7dd3fc">${live.vaCount || 0}</span></div>
+                </div>
+            </div>`;
+
+        return `
+            <div class="emb-apt">
+                <div class="emb-apt-head">${flag}<div style="min-width:0">
+                    <div class="emb-apt-icao">${esc(icao)}</div>
+                    <div class="emb-apt-name">${esc(name)}</div>
+                    ${sub ? `<div class="emb-apt-sub">${esc(sub)}</div>` : ''}
+                </div></div>
+                ${metarMod}
+                ${opsMod}
+                ${trafficMod}
+                ${poweredByHTML()}
+            </div>`;
+    }
+
     function addPilotLayer(map) {
         if (map.getSource(SOURCE_ID)) return;
         map.addSource(SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1047,45 +1448,20 @@
             });
         }
 
-        // Tap a plane → FR24-style card, matching the desktop hover card. Opens
-        // instantly with a placeholder photo, then swaps in the real community
-        // aircraft image once the lookup resolves.
+        // Tap a plane → open the docked flight-info panel (bottom sheet on
+        // mobile, side panel on desktop), mirroring the main tracker's flight
+        // info window instead of a popup pinned to the aircraft.
         map.on('click', LAYER_ID, (e) => {
             const f = e.features && e.features[0];
             if (!f) return;
             const pr = f.properties || {};
             const coords = f.geometry.coordinates.slice();
-
-            // Tapping a new plane replaces any path from the previously open card.
-            removeFlightPaths(map);
-            _mapState.activePathId = pr.flightId || null;
-
-            const popup = new (gl().Popup)({
-                offset: 14, closeButton: false, maxWidth: 'none', className: 'emb-fr24-popup'
-            })
-                .setLngLat(coords)
-                .setHTML(fr24CardHTML(pr, DEFAULT_AC_IMG))
-                .addTo(map);
-
-            // Clear the trail/plan when the card is dismissed.
-            popup.on('close', () => {
-                if (_mapState.activePathId === pr.flightId) _mapState.activePathId = null;
-                removeFlightPaths(map);
-            });
-
-            // Lazily fetch + draw this one flight's flown trail and filed plan,
-            // and enrich the card with progress/ETA from the same data.
-            drawFlightPaths(map, pr, coords, popup).catch(() => {});
-
-            communityImage(pr.aircraft, pr.livery).then(info => {
-                if (!info || !info.url) return;
-                const el = popup.getElement && popup.getElement();
-                if (!el) return;
-                const box = el.querySelector('.fr24-image-box');
-                if (box) box.style.backgroundImage = `url('${info.url}')`;
-                const cr = el.querySelector('.fr24-copyright');
-                if (cr) cr.textContent = '© ' + info.credit;
-            });
+            openDetail(map, pr, coords);
+        });
+        // Tapping empty map (not a plane) dismisses the panel.
+        map.on('click', (e) => {
+            const hits = map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] });
+            if (!hits.length) closeDetail(map);
         });
         map.on('mouseenter', LAYER_ID, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', LAYER_ID, () => { map.getCanvas().style.cursor = ''; });
@@ -1131,7 +1507,12 @@
             }
             const map = new (gl().Map)(mapOpts);
             _mapState.map = map;
-            map.addControl(new (gl().NavigationControl)({ showCompass: false }), 'top-right');
+            map.addControl(new (gl().NavigationControl)({ showCompass: false }), 'top-left');
+            // Hub markers are opt-in (off by default) via this toggle.
+            _mapState.hubsVisible = false;
+            if (cfg.hubs && cfg.hubs.length) {
+                map.addControl(makeHubsControl(map, cfg), 'top-left');
+            }
 
             map.on('style.load', () => { try { map.setFog(EMBED_FOG); } catch (_) {} });
 
@@ -1202,11 +1583,12 @@
         }
         // Fill in the partner VA's name/logo from the VA-Ads roster when they
         // weren't supplied (e.g. preview embeds, or a token without a logo).
-        if (!cfg.logo || cfg.name === cfg.code) {
+        if (!cfg.logo || cfg.name === cfg.code || !cfg.hubs.length) {
             const brand = await resolveVaBranding(cfg.code);
             if (brand) {
                 if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
                 if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
+                if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
             }
         }
 

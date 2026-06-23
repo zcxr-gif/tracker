@@ -311,7 +311,7 @@
             }
 
             .va-partners-overlay {
-                position: fixed; inset: 0; z-index: 4000;
+                position: fixed; inset: 0; z-index: 5050;
                 display: flex; justify-content: flex-end;
                 background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
                 opacity: 0; pointer-events: none; transition: opacity .2s ease;
@@ -320,27 +320,73 @@
             .va-partners-panel {
                 width: min(440px, 100%); height: 100%; display: flex; flex-direction: column;
                 background: #121212; border-left: 1px solid rgba(255,255,255,0.08);
-                transform: translateX(20px); transition: transform .2s ease;
+                transform: translateX(20px); transition: transform .25s cubic-bezier(0.16,1,0.3,1);
             }
             .va-partners-overlay.visible .va-partners-panel { transform: translateX(0); }
+            .va-partners-grip { display: none; }
             .va-partners-head {
-                display: flex; align-items: center; gap: 10px; padding: 18px 18px 12px;
+                display: flex; align-items: flex-end; justify-content: space-between;
+                gap: 12px; padding: 18px 18px 14px; flex: 0 0 auto;
                 border-bottom: 1px solid rgba(255,255,255,0.06);
             }
-            .va-partners-head h2 { font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0; flex: 1; }
+            .va-partners-titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            .va-partners-eyebrow {
+                font-size: 11px; font-weight: 700; letter-spacing: .6px;
+                text-transform: uppercase; color: rgba(255,255,255,0.45);
+            }
+            .va-partners-head h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; color: #fff; margin: 0; line-height: 1; }
             .va-partners-close {
                 background: rgba(255,255,255,0.06); border: none; color: #fff; cursor: pointer;
-                width: 34px; height: 34px; border-radius: 9px; font-size: 0.95rem;
+                width: 34px; height: 34px; border-radius: 50%; font-size: 0.95rem;
+                display: grid; place-items: center; flex: 0 0 auto;
             }
             .va-partners-close:hover { background: rgba(255,255,255,0.12); }
-            .va-partners-search { padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+            .va-partners-search { padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.06); flex: 0 0 auto; }
             .va-partners-search input {
                 width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 10px;
                 background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.12);
                 color: #fff; font-size: 0.85rem;
             }
-            .va-partners-body { flex: 1; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+            .va-partners-body {
+                flex: 1 1 auto; min-height: 0; overflow-y: auto;
+                -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+                padding: 14px 18px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 18px);
+                display: flex; flex-direction: column; gap: 12px;
+            }
             .va-partners-empty { color: rgba(255,255,255,0.55); text-align: center; padding: 40px 10px; font-size: 0.9rem; }
+
+            /* Mobile: present as a bottom sheet that slides up, matching the other
+               iOS tabs (server / weather / ATC) instead of a right slide-over.
+               Taller sheet + clipped-tab-bar padding so the whole VA list scrolls. */
+            @media (max-width: 768px) {
+                .va-partners-overlay { justify-content: center; align-items: flex-end; }
+                .va-partners-panel {
+                    width: 100%; max-width: 100%;
+                    height: min(90dvh, 880px);
+                    border-left: none; border-radius: 22px 22px 0 0;
+                    transform: translateY(101%);
+                    transition: transform .42s cubic-bezier(0.16,1,0.3,1);
+                    box-shadow: 0 -10px 44px rgba(0,0,0,0.5);
+                }
+                .va-partners-overlay.visible .va-partners-panel { transform: translateY(0); }
+                .va-partners-grip {
+                    display: block; flex: 0 0 auto;
+                    width: 38px; height: 5px; border-radius: 10px;
+                    background: rgba(255,255,255,0.22); margin: 9px auto 2px; touch-action: none;
+                }
+                .va-partners-head { padding: 6px 20px 12px; touch-action: none; }
+                .va-partners-head h2 { font-size: 1.7rem; }
+                .va-partners-body { gap: 8px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
+                /* Compact list rows — drop the big banner so many more VAs fit
+                   on screen (logo + name + tagline only). */
+                .va-ad-card-banner { display: none; }
+                .va-ad-card { border-radius: 12px; }
+                .va-ad-card-body { padding: 10px 12px; align-items: center; gap: 11px; }
+                .va-ad-card-body .va-ad-logo { width: 38px; height: 38px; }
+                .va-ad-card-title { font-size: 0.9rem; }
+                .va-ad-card-sub { margin-top: 1px; }
+                .va-ad-chips { margin-top: 5px; }
+            }
             .va-ad-card {
                 border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden;
                 background: rgba(255,255,255,0.03); cursor: pointer; transition: border-color .15s ease, transform .15s ease;
@@ -513,8 +559,12 @@
         overlayEl.className = 'va-partners-overlay';
         overlayEl.innerHTML = `
             <div class="va-partners-panel" role="dialog" aria-label="VA Partners">
+                <div class="va-partners-grip"></div>
                 <div class="va-partners-head">
-                    <h2>VA Partners</h2>
+                    <div class="va-partners-titles">
+                        <span class="va-partners-eyebrow">Network</span>
+                        <h2>VA Partners</h2>
+                    </div>
                     <button class="va-partners-close" title="Close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="va-partners-search">
@@ -535,7 +585,43 @@
             clearTimeout(t);
             t = setTimeout(() => loadPartnersList(input.value.trim()), 280);
         });
+
+        attachSheetSwipe();
         return overlayEl;
+    }
+
+    // Swipe the grip/header down to dismiss the bottom sheet on mobile, matching
+    // the other iOS tabs. No-op on desktop (where the panel is a side slide-over).
+    function attachSheetSwipe() {
+        const panel = overlayEl.querySelector('.va-partners-panel');
+        const handles = overlayEl.querySelectorAll('.va-partners-grip, .va-partners-head');
+        if (!panel || !handles.length) return;
+        const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+        let startY = 0, dy = 0, dragging = false;
+        const onStart = (e) => {
+            if (!isMobile()) return;
+            dragging = true; dy = 0;
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            panel.style.transition = 'none';
+        };
+        const onMove = (e) => {
+            if (!dragging) return;
+            const y = e.touches ? e.touches[0].clientY : e.clientY;
+            dy = Math.max(0, y - startY);
+            panel.style.transform = `translateY(${dy}px)`;
+        };
+        const onEnd = () => {
+            if (!dragging) return;
+            dragging = false;
+            panel.style.transition = '';
+            panel.style.transform = '';
+            if (dy > 90) closePartners();
+        };
+        handles.forEach((h) => {
+            h.addEventListener('touchstart', onStart, { passive: true });
+            h.addEventListener('touchmove', onMove, { passive: true });
+            h.addEventListener('touchend', onEnd);
+        });
     }
 
     function cardHTML(ad) {
