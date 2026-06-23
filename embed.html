@@ -146,11 +146,14 @@
             box-shadow: 0 8px 40px rgba(0,0,0,0.55);
             display: flex; flex-direction: column; overflow: hidden;
             transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-            /* Desktop default: side panel docked to the right, slid off-screen. */
-            top: 0; right: 0; bottom: 0;
-            width: min(320px, 88%);
-            border-left: 1px solid rgba(255,255,255,0.08);
-            transform: translateX(105%);
+            /* Desktop default: floating card docked to the top-right, sized to its
+               content (not a full-height rail), slid off-screen to the right. */
+            top: 14px; right: 14px; bottom: auto;
+            width: min(320px, calc(100% - 28px));
+            max-height: calc(100% - 28px);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 16px;
+            transform: translateX(calc(100% + 20px));
         }
         .emb-detail.open { transform: translateX(0); }
         .emb-detail-grip { display: none; }
