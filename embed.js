@@ -1236,9 +1236,11 @@
         return out;
     }
 
-    async function addHubMarkers(map, cfg) {
-        if (_mapState.hubsAdded || !cfg || !cfg.hubs || !cfg.hubs.length) return;
-        _mapState.hubsAdded = true;
+    // Build the hub markers once (lazily, on first enable). Each is a small
+    // fixed-size pin + ICAO tag that opens the airport window when tapped.
+    async function buildHubMarkers(map, cfg) {
+        if (_mapState.hubsBuilt || !cfg || !cfg.hubs || !cfg.hubs.length) return;
+        _mapState.hubsBuilt = true;
         _mapState.hubMarkers = [];
         for (const icao of cfg.hubs) {
             const apt = await airportInfo(icao);
@@ -1247,18 +1249,55 @@
             if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
             const el = document.createElement('div');
             el.className = 'emb-hub';
-            el.innerHTML = `<span class="emb-hub-dot"></span><span>${esc(icao)}</span>`;
+            el.innerHTML = `<span class="emb-hub-pin"></span><span class="emb-hub-tag">${esc(icao)}</span>`;
             el.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 openAirportDetail(map, icao, [Number(lon), Number(lat)]);
             });
             try {
-                const marker = new (gl().Marker)({ element: el, anchor: 'bottom' })
+                const marker = new (gl().Marker)({ element: el, anchor: 'center' })
                     .setLngLat([Number(lon), Number(lat)])
                     .addTo(map);
                 _mapState.hubMarkers.push(marker);
             } catch (_) {}
         }
+        // Honour the current toggle state for freshly-built markers.
+        applyHubVisibility();
+    }
+
+    function applyHubVisibility() {
+        (_mapState.hubMarkers || []).forEach((m) => {
+            const el = m.getElement && m.getElement();
+            if (el) el.style.display = _mapState.hubsVisible ? '' : 'none';
+        });
+    }
+
+    async function setHubsVisible(map, cfg, on) {
+        _mapState.hubsVisible = on;
+        if (_mapState.hubsBtn) {
+            _mapState.hubsBtn.classList.toggle('is-on', on);
+            _mapState.hubsBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        if (on && !_mapState.hubsBuilt) await buildHubMarkers(map, cfg);
+        else applyHubVisibility();
+    }
+
+    // A small map control button that toggles the hub markers. Off by default.
+    function makeHubsControl(map, cfg) {
+        const container = document.createElement('div');
+        container.className = 'mapboxgl-ctrl maplibregl-ctrl emb-hubs-ctrl';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'emb-hubs-toggle';
+        btn.setAttribute('aria-pressed', 'false');
+        btn.innerHTML = `<span class="emb-hubs-dot"></span><span>Hubs</span>`;
+        btn.addEventListener('click', () => setHubsVisible(map, cfg, !_mapState.hubsVisible));
+        container.appendChild(btn);
+        _mapState.hubsBtn = btn;
+        return {
+            onAdd() { return container; },
+            onRemove() { container.remove(); }
+        };
     }
 
     function openAirportDetail(map, icao, coords) {
@@ -1458,6 +1497,11 @@
             const map = new (gl().Map)(mapOpts);
             _mapState.map = map;
             map.addControl(new (gl().NavigationControl)({ showCompass: false }), 'top-left');
+            // Hub markers are opt-in (off by default) via this toggle.
+            _mapState.hubsVisible = false;
+            if (cfg.hubs && cfg.hubs.length) {
+                map.addControl(makeHubsControl(map, cfg), 'top-left');
+            }
 
             map.on('style.load', () => { try { map.setFog(EMBED_FOG); } catch (_) {} });
 
@@ -1469,7 +1513,6 @@
                 map.getSource(SOURCE_ID).setData(pilotsToGeoJSON(pilots));
                 _mapState.ready = true;
                 fitToPilots(map, pilots);
-                addHubMarkers(map, cfg).catch(() => {});
             });
             _mapState._firstFit = true;
             return;
