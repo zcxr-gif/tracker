@@ -40,6 +40,7 @@
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
  *     "callsignPrefixes": ["OCEAN"],          // optional; leading-token prefixes. defaults to [va.code]
  *     "callsignSuffixes": ["EX", "VA"],       // optional; match the LAST token ending with these (e.g. "OCEAN 01EX", "UPS 01EX")
+ *     "hubs": ["KJFK", "KBOS"],               // optional; hub ICAOs plotted as clickable airport-info markers (map mode). also accepts "icao"/"hub". defaults from VA-Ads.
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
  *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
  *     "mapboxToken": "pk.eyJ…",               // the VA's own token (only needed for the mapbox provider)
@@ -202,6 +203,7 @@
             va: { code: va, name: (p.get('name') || va).trim(), logo: (p.get('logo') || '').trim() },
             callsignPrefixes: p.get('prefixes') ? p.get('prefixes').split(',') : null,
             callsignSuffixes: p.get('suffixes') ? p.get('suffixes').split(',') : null,
+            hubs: p.get('hubs') ? p.get('hubs').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
             mapStyle: (p.get('mapStyle') || '').trim(),
@@ -248,12 +250,19 @@
             raw.freeStyle || (provider === 'free' && !/^mapbox:/i.test(raw.mapStyle || '') ? raw.mapStyle : '')
         );
 
+        // Hub airports (ICAO list) — accepts hubs / icao / hub, array or CSV.
+        const hubsRaw = raw.hubs != null ? raw.hubs : (raw.icao != null ? raw.icao : raw.hub);
+        const hubs = (Array.isArray(hubsRaw) ? hubsRaw
+            : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
+            .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
+
         return {
             code,
             name: va.name || code,
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
             suffixes,
+            hubs,
             mode,
             provider,
             mapboxToken,
@@ -277,9 +286,14 @@
             let hit = arr.find(a => firstToken(a.callsign || a.callsignCode || a.code) === code) || arr[0];
             if (!hit) return null;
             const rawLogo = hit.logo || hit.logoUrl || hit.logo_url || '';
+            const hubsRaw = hit.icao != null ? hit.icao : (hit.hubs != null ? hit.hubs : hit.hub);
+            const hubs = (Array.isArray(hubsRaw) ? hubsRaw
+                : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
+                .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
             return {
                 name: hit.name || hit.vaName || hit.title || '',
-                logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : ''
+                logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : '',
+                hubs
             };
         } catch (_) {
             return null;
@@ -1056,6 +1070,7 @@
 
     function closeDetail(map) {
         _mapState.activePathId = null;
+        _mapState.activeAptIcao = null;
         removeFlightPaths(map);
         if (_mapState.detailRoot) _mapState.detailRoot.classList.remove('open');
     }
@@ -1088,6 +1103,7 @@
         // Opening a new plane replaces any path from the previously open card.
         removeFlightPaths(map);
         _mapState.activePathId = pr.flightId || null;
+        _mapState.activeAptIcao = null;   // a flight tap supersedes any open airport
 
         const body = _mapState.detailBody;
         body.innerHTML = fr24CardHTML(pr, DEFAULT_AC_IMG);
@@ -1113,6 +1129,237 @@
             const cr = body.querySelector('.fr24-copyright');
             if (cr) cr.textContent = '© ' + info.credit;
         });
+    }
+
+    // ── VA hub markers + airport info window ─────────────────────────────────
+    // Plot a clickable marker at each of the VA's hub airports. Tapping one opens
+    // the docked panel with that field's live data (basic info, METAR, ops/ATIS,
+    // traffic) — the same shape the main tracker's airport window shows, pulled
+    // from the same backend endpoints.
+    const _aptCache = new Map();   // ICAO -> Promise<airport|null>
+    let _aptSessionId;             // cached session id for live airport queries
+
+    function airportInfo(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return Promise.resolve(null);
+        if (_aptCache.has(code)) return _aptCache.get(code);
+        const pr = getJSON(`${ACARS_BACKEND}/api/airport/${encodeURIComponent(code)}`)
+            .then(j => (j && j.ok && j.airport) ? j.airport : null)
+            .catch(() => null);
+        _aptCache.set(code, pr);
+        return pr;
+    }
+
+    async function getAptSessionId(cfg) {
+        if (_aptSessionId !== undefined) return _aptSessionId;
+        _aptSessionId = null;
+        try {
+            const sj = await getJSON(SESSIONS_URL);
+            let sessions = (sj && Array.isArray(sj.sessions)) ? sj.sessions : [];
+            if (cfg && cfg.servers && cfg.servers.length) {
+                const wanted = cfg.servers.map(s => s.toLowerCase());
+                const f = sessions.filter(s => wanted.some(w => String(s.name || '').toLowerCase().includes(w)));
+                if (f.length) sessions = f;
+            }
+            const exp = sessions.find(s => /expert/i.test(String(s.name || '')));
+            _aptSessionId = ((exp || sessions[0]) || {}).id || null;
+        } catch (_) {}
+        return _aptSessionId;
+    }
+
+    // Minimal METAR parse — flight category + the four headline fields.
+    function parseMetarLite(raw) {
+        const s = String(raw || '').trim();
+        if (!s || /no metar|not found|^404/i.test(s)) return null;
+        let cat = 'VFR', color = '#4ade80';
+        if (/\bLIFR\b/.test(s)) { cat = 'LIFR'; color = '#c084fc'; }
+        else if (/\bIFR\b/.test(s)) { cat = 'IFR'; color = '#f87171'; }
+        else if (/\bMVFR\b/.test(s)) { cat = 'MVFR'; color = '#60a5fa'; }
+        const w = s.match(/\b(VRB|\d{3})(\d{2})(?:G\d{2})?KT\b/);
+        const wind = w ? `${w[1]}/${w[2]}kt` : '—';
+        let vis = '—';
+        if (/\bCAVOK\b/.test(s) || /\b9999\b/.test(s)) vis = '10+ km';
+        else {
+            const sm = s.match(/\b(\d{1,2})SM\b/);
+            const m = s.match(/\s(\d{4})\s/);
+            if (sm) vis = sm[1] + ' SM';
+            else if (m) vis = Number(m[1]) >= 1000 ? (Number(m[1]) / 1000) + ' km' : m[1] + ' m';
+        }
+        const tm = s.match(/\b(M?\d{2})\/(M?\d{2})\b/);
+        const temp = tm ? tm[1].replace('M', '-') + '°' : '—';
+        let qnh = '—';
+        const q = s.match(/\bQ(\d{4})\b/), a = s.match(/\bA(\d{4})\b/);
+        if (q) qnh = q[1]; else if (a) qnh = (Number(a[1]) / 100).toFixed(2) + 'inHg';
+        return { cat, color, wind, vis, temp, qnh, raw: s };
+    }
+
+    // ATIS parse — same field extraction as the main tracker's parseAtis.
+    function parseAtisLite(text) {
+        if (!text) return null;
+        const info = (text.match(/information\s+([A-Z])/i) || [])[1];
+        const time = (text.match(/(\d{4})\s*Z/i) || [])[1];
+        const ext = (str) => { if (!str) return '—'; const m = str.match(/\d{2}[LRC]?/g); return m ? m.join('/') : '—'; };
+        const landing = ext((text.match(/Landing\s+([^,.]+)/i) || [])[1]);
+        const departing = ext((text.match(/Departing\s+([^,.]+)/i) || [])[1]);
+        const appM = text.match(/expect\s+(.*?)\s+approach/i);
+        const appr = appM ? appM[1].toUpperCase().replace('VISUAL', 'VIS') : 'VIS';
+        return { info: info ? info.toUpperCase() : '?', time: time ? time + 'Z' : '', landing, departing, appr };
+    }
+
+    function fetchMetar(icao) {
+        return fetch(`https://metar.vatsim.net/metar.php?id=${encodeURIComponent(icao)}`)
+            .then(r => r.ok ? r.text() : null)
+            .then(t => parseMetarLite(t))
+            .catch(() => null);
+    }
+
+    // Live inbound/outbound counts (and how many are this VA's pilots) + ATIS.
+    async function airportLive(cfg, icao) {
+        const out = { inbound: 0, outbound: 0, vaCount: 0, atis: null };
+        const sid = await getAptSessionId(cfg);
+        if (!sid) return out;
+        const base = `${ACARS_BACKEND}/api/live/airport/${sid}/${encodeURIComponent(icao)}`;
+        try {
+            const [status, atis] = await Promise.all([
+                fetch(`${base}/status`).then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${base}/atis`).then(r => r.ok ? r.json() : null).catch(() => null)
+            ]);
+            if (status && status.ok && status.status) {
+                const inb = status.status.inboundFlights || [];
+                const oub = status.status.outboundFlights || [];
+                out.inbound = inb.length;
+                out.outbound = oub.length;
+                out.vaCount = [...inb, ...oub].filter(f => f && callsignMatches(f.callsign, cfg)).length;
+            }
+            if (atis && atis.ok && atis.atis) out.atis = parseAtisLite(atis.atis);
+        } catch (_) {}
+        return out;
+    }
+
+    async function addHubMarkers(map, cfg) {
+        if (_mapState.hubsAdded || !cfg || !cfg.hubs || !cfg.hubs.length) return;
+        _mapState.hubsAdded = true;
+        _mapState.hubMarkers = [];
+        for (const icao of cfg.hubs) {
+            const apt = await airportInfo(icao);
+            const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
+            const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
+            if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
+            const el = document.createElement('div');
+            el.className = 'emb-hub';
+            el.innerHTML = `<span class="emb-hub-dot"></span><span>${esc(icao)}</span>`;
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openAirportDetail(map, icao, [Number(lon), Number(lat)]);
+            });
+            try {
+                const marker = new (gl().Marker)({ element: el, anchor: 'bottom' })
+                    .setLngLat([Number(lon), Number(lat)])
+                    .addTo(map);
+                _mapState.hubMarkers.push(marker);
+            } catch (_) {}
+        }
+    }
+
+    function openAirportDetail(map, icao, coords) {
+        const panel = ensureDetailPanel(map);
+        if (!panel) return;
+
+        removeFlightPaths(map);
+        _mapState.activePathId = null;
+        _mapState.activeAptIcao = icao;
+
+        const body = _mapState.detailBody;
+        body.innerHTML = airportCardHTML(icao, null);
+        body.scrollTop = 0;
+        requestAnimationFrame(() => {
+            panel.classList.add('open');
+            panToVisible(map, coords);
+        });
+
+        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao)])
+            .then(([apt, metar, live]) => {
+                if (_mapState.activeAptIcao !== icao) return;   // panel changed mid-fetch
+                body.innerHTML = airportCardHTML(icao, { apt, metar, live });
+            })
+            .catch(() => {
+                if (_mapState.activeAptIcao === icao) body.innerHTML = airportCardHTML(icao, { error: true });
+            });
+    }
+
+    function airportCardHTML(icao, data) {
+        if (!data) {
+            return `<div class="emb-apt"><div class="emb-apt-head"><div style="min-width:0">
+                <div class="emb-apt-icao">${esc(icao)}</div>
+                <div class="emb-apt-name">Loading airport…</div></div></div></div>`;
+        }
+        if (data.error) {
+            return `<div class="emb-apt"><div class="emb-apt-head"><div style="min-width:0">
+                <div class="emb-apt-icao">${esc(icao)}</div>
+                <div class="emb-apt-name">Couldn’t load airport data.</div></div></div>
+                ${poweredByHTML()}</div>`;
+        }
+        const apt = data.apt || {}, metar = data.metar, live = data.live || {};
+        const name = apt.name || icao;
+        const city = apt.city || '';
+        const country = (apt.country && (apt.country.isoCode || apt.country.code)) || apt.country || '';
+        const cc = String(country || '').toLowerCase();
+        const flag = /^[a-z]{2}$/.test(cc)
+            ? `<img class="emb-apt-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">`
+            : '';
+        const loc = [city, String(country || '').toUpperCase()].filter(Boolean).join(', ');
+        const elev = (apt.elevation != null) ? `${Math.round(apt.elevation)} ft` : '';
+        const sub = [loc, elev].filter(Boolean).join(' · ');
+
+        const metarMod = metar ? `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>METAR</span><span class="emb-apt-pill" style="color:${metar.color};border-color:${metar.color}">${metar.cat}</span></div>
+                <div class="emb-apt-grid">
+                    <div class="emb-apt-cell"><span class="l">Wind</span><span class="v">${esc(metar.wind)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Vis</span><span class="v">${esc(metar.vis)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Temp</span><span class="v">${esc(metar.temp)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">QNH</span><span class="v">${esc(metar.qnh)}</span></div>
+                </div>
+                <div class="emb-apt-metar-raw">${esc(metar.raw)}</div>
+            </div>` : `
+            <div class="emb-apt-mod"><div class="emb-apt-mod-h"><span>METAR</span></div>
+                <div class="emb-apt-sub" style="margin:0">Weather unavailable.</div></div>`;
+
+        const atis = live.atis;
+        const opsMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Operations</span>${atis
+                    ? `<span class="emb-apt-pill" style="color:#fbbf24;border-color:#fbbf24">ATIS ${esc(atis.info)}</span>`
+                    : `<span class="emb-apt-pill" style="color:#94a3b8;border-color:#475569">NO ATIS</span>`}</div>
+                ${atis ? `<div class="emb-apt-grid" style="grid-template-columns:repeat(3,1fr)">
+                    <div class="emb-apt-cell"><span class="l">Arr Rwy</span><span class="v" style="color:#4ade80">${esc(atis.landing)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Dep Rwy</span><span class="v" style="color:#38bdf8">${esc(atis.departing)}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Appr</span><span class="v">${esc(atis.appr)}</span></div>
+                </div>` : `<div class="emb-apt-sub" style="margin:0">No live ATIS broadcasting.</div>`}
+            </div>`;
+
+        const trafficMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Traffic</span></div>
+                <div class="emb-apt-grid" style="grid-template-columns:repeat(3,1fr)">
+                    <div class="emb-apt-cell"><span class="l">Inbound</span><span class="v">${live.inbound || 0}</span></div>
+                    <div class="emb-apt-cell"><span class="l">Outbound</span><span class="v">${live.outbound || 0}</span></div>
+                    <div class="emb-apt-cell"><span class="l">VA Pilots</span><span class="v" style="color:#7dd3fc">${live.vaCount || 0}</span></div>
+                </div>
+            </div>`;
+
+        return `
+            <div class="emb-apt">
+                <div class="emb-apt-head">${flag}<div style="min-width:0">
+                    <div class="emb-apt-icao">${esc(icao)}</div>
+                    <div class="emb-apt-name">${esc(name)}</div>
+                    ${sub ? `<div class="emb-apt-sub">${esc(sub)}</div>` : ''}
+                </div></div>
+                ${metarMod}
+                ${opsMod}
+                ${trafficMod}
+                ${poweredByHTML()}
+            </div>`;
     }
 
     function addPilotLayer(map) {
@@ -1222,6 +1469,7 @@
                 map.getSource(SOURCE_ID).setData(pilotsToGeoJSON(pilots));
                 _mapState.ready = true;
                 fitToPilots(map, pilots);
+                addHubMarkers(map, cfg).catch(() => {});
             });
             _mapState._firstFit = true;
             return;
@@ -1281,11 +1529,12 @@
         }
         // Fill in the partner VA's name/logo from the VA-Ads roster when they
         // weren't supplied (e.g. preview embeds, or a token without a logo).
-        if (!cfg.logo || cfg.name === cfg.code) {
+        if (!cfg.logo || cfg.name === cfg.code || !cfg.hubs.length) {
             const brand = await resolveVaBranding(cfg.code);
             if (brand) {
                 if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
                 if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
+                if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
             }
         }
 

@@ -265,6 +265,41 @@
         .emb-detail .fr24-powered-by { font-size: 10px; }
         .emb-detail .fr24-powered-logo { height: 18px; }
 
+        /* VA hub markers on the map */
+        .emb-hub {
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 9px; border-radius: 999px; cursor: pointer;
+            background: rgba(13,18,32,0.85); border: 1px solid rgba(56,189,248,0.55);
+            color: #e0f2fe; font-size: 11px; font-weight: 800; letter-spacing: 0.4px;
+            white-space: nowrap; box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+            -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+            transition: border-color .15s ease, transform .15s ease;
+        }
+        .emb-hub:hover { border-color: #38bdf8; transform: translateY(-1px); }
+        .emb-hub-dot { width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 6px #38bdf8; flex: 0 0 auto; }
+
+        /* Airport info window (shown in the docked panel for VA hubs) */
+        .emb-apt { display: flex; flex-direction: column; gap: 10px; color: #fff; }
+        .emb-apt-head { display: flex; align-items: center; gap: 11px; }
+        .emb-apt-flag { width: 28px; height: 20px; border-radius: 3px; object-fit: cover; flex: 0 0 auto; background: rgba(255,255,255,0.08); }
+        .emb-apt-icao { font-size: 22px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
+        .emb-apt-name { font-size: 12.5px; color: rgba(255,255,255,0.82); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .emb-apt-sub { font-size: 10.5px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+        .emb-apt-mod { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 9px 11px; }
+        .emb-apt-mod-h {
+            font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+            color: rgba(255,255,255,0.55); display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px;
+        }
+        .emb-apt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .emb-apt-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .emb-apt-cell .l { font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: .04em; }
+        .emb-apt-cell .v { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .emb-apt-pill { font-size: 8.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px; border: 1px solid; }
+        .emb-apt-metar-raw {
+            font-family: ui-monospace, 'JetBrains Mono', monospace; font-size: 9.5px;
+            color: rgba(255,255,255,0.5); line-height: 1.45; word-break: break-word; margin-top: 7px;
+        }
+
         /* States */
         .emb-empty, .emb-error {
             flex: 1 1 auto;
