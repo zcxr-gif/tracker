@@ -378,9 +378,11 @@
                 .va-partners-head h2 { font-size: 1.7rem; }
                 .va-partners-body { gap: 10px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
                 /* Keep the banner hero on mobile too (slightly shorter) instead of
-                   the old cramped bars. Details still live in the dropdown. */
-                .va-ad-card-banner { height: 116px; }
-                .va-ad-card-title { font-size: 0.95rem; }
+                   the old cramped bars. Details still live in the dropdown. The
+                   extra .va-partners-body qualifier lifts specificity above the
+                   base .va-ad-card-* rules that follow this block in source. */
+                .va-partners-body .va-ad-card-banner { height: 116px; }
+                .va-partners-body .va-ad-card-title { font-size: 0.95rem; }
             }
             .va-ad-card {
                 border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden;
