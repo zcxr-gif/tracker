@@ -1037,8 +1037,10 @@
     // tracker's flight info window. One flight is shown at a time.
     function ensureDetailPanel(map) {
         if (_mapState.detailRoot) return _mapState.detailRoot;
-        const root = rootEl();
-        if (!root) return null;
+        // Anchor inside the map container (which sits BELOW the header) so the
+        // panel never overlaps the VA header bar.
+        const host = (map && map.getContainer && map.getContainer()) || rootEl();
+        if (!host) return null;
 
         const panel = document.createElement('div');
         panel.className = 'emb-detail';
@@ -1046,7 +1048,7 @@
             '<div class="emb-detail-grip"></div>' +
             '<div class="emb-detail-body"></div>';
 
-        root.appendChild(panel);
+        host.appendChild(panel);
         _mapState.detailRoot = panel;
         _mapState.detailBody = panel.querySelector('.emb-detail-body');
         return panel;
@@ -1208,7 +1210,7 @@
             }
             const map = new (gl().Map)(mapOpts);
             _mapState.map = map;
-            map.addControl(new (gl().NavigationControl)({ showCompass: false }), 'top-right');
+            map.addControl(new (gl().NavigationControl)({ showCompass: false }), 'top-left');
 
             map.on('style.load', () => { try { map.setFog(EMBED_FOG); } catch (_) {} });
 

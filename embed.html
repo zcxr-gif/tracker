@@ -149,11 +149,11 @@
             /* Desktop default: floating card docked to the top-right, sized to its
                content (not a full-height rail), slid off-screen to the right. */
             top: 14px; right: 14px; bottom: auto;
-            width: min(320px, calc(100% - 28px));
+            width: min(380px, calc(100% - 28px));
             max-height: calc(100% - 28px);
             border: 1px solid rgba(255,255,255,0.10);
             border-radius: 16px;
-            transform: translateX(calc(100% + 20px));
+            transform: translateX(calc(100% + 24px));
         }
         .emb-detail.open { transform: translateX(0); }
         .emb-detail-grip { display: none; }
@@ -249,18 +249,21 @@
         .fr24-powered-logo { height: 14px; width: auto; display: block; }
 
         /* Scale the card up to fill the docked panel (base sizes suit the old popup). */
-        .emb-detail .fr24-image-box { height: 150px; }
-        .emb-detail .fr24-callsign { font-size: 18px; }
-        .emb-detail .fr24-airline-logo { height: 18px; max-width: 48px; }
-        .emb-detail .fr24-user { font-size: 11px; max-width: 130px; }
-        .emb-detail .fr24-route-code { font-size: 13px; }
-        .emb-detail .fr24-meta { font-size: 11px; }
-        .emb-detail .fr24-stat b { font-size: 15px; }
-        .emb-detail .fr24-stat .u { font-size: 8.5px; }
-        .emb-detail .fr24-stat { padding: 6px 2px; }
-        .emb-detail .fr24-actype { font-size: 12px; }
+        .emb-detail-body { padding: 14px; }
+        .emb-detail .fr24-card-container { gap: 8px; }
+        .emb-detail .fr24-image-box { height: 180px; }
+        .emb-detail .fr24-info-box { padding: 10px 12px; gap: 6px; }
+        .emb-detail .fr24-callsign { font-size: 21px; }
+        .emb-detail .fr24-airline-logo { height: 20px; max-width: 54px; }
+        .emb-detail .fr24-user { font-size: 12px; max-width: 150px; }
+        .emb-detail .fr24-route-code { font-size: 15px; }
+        .emb-detail .fr24-meta { font-size: 12px; }
+        .emb-detail .fr24-stat b { font-size: 18px; }
+        .emb-detail .fr24-stat .u { font-size: 9px; }
+        .emb-detail .fr24-stat { padding: 8px 2px; }
+        .emb-detail .fr24-actype { font-size: 13px; }
         .emb-detail .fr24-powered-by { font-size: 10px; }
-        .emb-detail .fr24-powered-logo { height: 17px; }
+        .emb-detail .fr24-powered-logo { height: 18px; }
 
         /* States */
         .emb-empty, .emb-error {
