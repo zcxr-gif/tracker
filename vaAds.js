@@ -220,10 +220,18 @@
     function isCallsignMember(callsign, ad) {
         const va = ad || matchCallsign(callsign);
         if (!va) return false;
-        const tag = vaTag(va);
-        if (!tag) return false;
         const lt = lastToken(callsign);
-        return lt.length > tag.length && lt.endsWith(tag);
+        if (!lt) return false;
+        const tag = vaTag(va);
+        // When the VA declares its tag in its own callsign (e.g. "Ocean XXVA"),
+        // require the flight to carry exactly that tag.
+        if (tag) return lt.length > tag.length && lt.endsWith(tag);
+        // Otherwise the VA's stored callsign carries no tag template, so we
+        // can't know the exact tag — treat any alphabetic suffix appended to
+        // the flight number as the member tag ("001VA"/"12V" → member,
+        // "500" → not). The digit requirement keeps plain airline flight
+        // numbers from counting.
+        return /[0-9][A-Z]+$/.test(lt);
     }
 
     // All partner ads hubbed at an airport (from the cached roster — no extra
