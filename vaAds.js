@@ -343,6 +343,53 @@
             .va-ad-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
             .va-ad-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
+            /* Flight-window hero banner: grand but soft, blends into the panel. */
+            .va-ad-feature.va-ad-feature-flight {
+                border: none; background: none; border-radius: 16px;
+            }
+            .va-ad-feature.va-ad-feature-flight:hover { transform: translateY(-1px); }
+            .va-ad-feature.va-ad-feature-flight .va-ad-dots { padding-top: 8px; }
+            .va-fb {
+                position: relative; min-height: 116px; border-radius: 16px; overflow: hidden;
+                display: flex; align-items: flex-end;
+                background-size: cover; background-position: center;
+                background-color: rgba(56,189,248,0.06);
+                border: 1px solid rgba(255,255,255,0.07);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+            }
+            .va-fb-nobanner { background-image: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(23,23,23,0.65)); }
+            /* Soft scrim fades the image into the dark window toward the bottom. */
+            .va-fb-scrim {
+                position: absolute; inset: 0;
+                background: linear-gradient(180deg, rgba(20,22,28,0.04) 0%, rgba(20,22,28,0.42) 52%, rgba(20,22,28,0.90) 100%);
+            }
+            .va-fb-content {
+                position: relative; z-index: 1; width: 100%;
+                display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+            }
+            .va-fb-logo {
+                width: 42px; height: 42px; border-radius: 11px; object-fit: cover; flex: 0 0 auto;
+                background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;
+                color: #7dd3fc; box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+            }
+            .va-fb-text { min-width: 0; flex: 1; }
+            .va-fb-eyebrow {
+                font-size: 0.56rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+                color: #7dd3fc; display: flex; gap: 6px; align-items: center; margin-bottom: 1px;
+                text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+            }
+            .va-fb-name {
+                font-weight: 800; color: #fff; font-size: 1.02rem; line-height: 1.15;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                text-shadow: 0 2px 6px rgba(0,0,0,0.7);
+            }
+            .va-fb-tag {
+                font-size: 0.72rem; color: rgba(255,255,255,0.8); margin-top: 1px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+            }
+            .va-fb-chev { color: rgba(255,255,255,0.55); align-self: center; flex: 0 0 auto; }
+
             .va-cs-badge { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
             .va-cs-hover { margin-left: 6px; }
             .va-cs-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; background: rgba(0,0,0,0.3); flex: 0 0 auto; }
@@ -516,19 +563,47 @@
             </div>`;
     }
 
+    // Flight-window banner: a "grand but soft" hero card — a sizable banner
+    // image with the VA's logo/name overlaid, and a gradient scrim that melts
+    // the image into the dark flight window so it reads as part of the panel
+    // rather than a bolted-on ad. Falls back to a soft brand gradient when the
+    // VA has no banner image.
+    function flightBannerInner(ad) {
+        const logo = ad.logo
+            ? `<img class="va-fb-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+            : `<div class="va-fb-logo"><i class="fa-solid fa-building"></i></div>`;
+        const hasBanner = !!ad.banner;
+        return `
+            <div class="va-fb${hasBanner ? '' : ' va-fb-nobanner'}"${hasBanner ? ` style="background-image:url('${esc(ad.banner)}')"` : ''}>
+                <div class="va-fb-scrim"></div>
+                <div class="va-fb-content">
+                    ${logo}
+                    <div class="va-fb-text">
+                        <div class="va-fb-eyebrow"><i class="fa-solid fa-handshake-angle"></i> Partner VA</div>
+                        <div class="va-fb-name">${esc(ad.name)}</div>
+                        ${ad.tagline ? `<div class="va-fb-tag">${esc(ad.tagline)}</div>` : ''}
+                    </div>
+                    <i class="fa-solid fa-chevron-right va-fb-chev"></i>
+                </div>
+            </div>`;
+    }
+
     // Render a (possibly rotating) feature card into a slot. When several VAs
     // share the slot we never stack them all at once — we show one card and
     // quietly cycle through them so each partner gets fair exposure. The
     // rotation timer is stored per-slot so independent slots (e.g. an airport
     // window and a flight window open at once) never clobber each other.
-    function renderAdFeature(slot, ads) {
+    function renderAdFeature(slot, ads, opts) {
         if (!slot) return;
+        const o = opts || {};
+        const cardInner = o.inner || featureCardInner;
+        const featureClass = o.featureClass ? ` ${o.featureClass}` : '';
         if (slot._adRotateTimer) { clearInterval(slot._adRotateTimer); slot._adRotateTimer = null; }
         if (!ads || !ads.length) { slot.innerHTML = ''; slot.style.display = 'none'; return; }
         slot.style.display = '';
 
         slot.innerHTML = `
-            <div class="va-ad-feature" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
+            <div class="va-ad-feature${featureClass}" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
                 <div class="va-ad-feature-card"></div>
                 ${ads.length > 1 ? '<div class="va-ad-dots"></div>' : ''}
             </div>`;
@@ -540,7 +615,7 @@
         const render = () => {
             const ad = ads[idx];
             featureEl.setAttribute('data-va-ad-id', ad.id);
-            cardEl.innerHTML = featureCardInner(ad);
+            cardEl.innerHTML = cardInner(ad);
             if (dotsEl) {
                 dotsEl.innerHTML = ads
                     .map((_, i) => `<span class="va-ad-dot${i === idx ? ' is-active' : ''}"></span>`)
@@ -609,7 +684,7 @@
                     if (hub && hub.length) { ads = hub; break; }
                 }
             }
-            renderAdFeature(slot, ads);
+            renderAdFeature(slot, ads, { inner: flightBannerInner, featureClass: 'va-ad-feature-flight' });
         } catch (e) {
             // The ads service must never break the flight window.
             slot.innerHTML = '';
