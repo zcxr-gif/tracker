@@ -343,27 +343,6 @@
             .va-ad-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
             .va-ad-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
-            /* Flight-window VA banner — just the image, sized + radiused to sit
-               inside the tab bar as part of the switcher control surface. */
-            .va-hero { position: relative; cursor: pointer; border-radius: 12px; transition: transform .15s ease; }
-            .va-hero:hover { transform: translateY(-1px); }
-            .va-hero:hover .va-hero-media { border-color: rgba(56,189,248,0.4); }
-            .va-hero-card { transition: opacity .25s ease; }
-            .va-hero-media {
-                height: 76px; border-radius: 12px; overflow: hidden;
-                background-size: cover; background-position: center;
-                border: 1px solid rgba(255,255,255,0.08);
-                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-                display: flex; align-items: center; justify-content: center;
-                transition: border-color .15s ease;
-            }
-            .va-hero-nobg { background-image: linear-gradient(135deg, rgba(56,189,248,0.20), rgba(36,39,47,0.92)); }
-            .va-hero-fallback-logo { height: 40px; max-width: 60%; object-fit: contain; opacity: 0.95; }
-            .va-hero-nobg i { color: #7dd3fc; font-size: 22px; opacity: 0.85; }
-            .va-hero-dots { display: flex; gap: 5px; justify-content: center; padding: 6px 0 0; }
-            .va-hero-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
-            .va-hero-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
-
             .va-cs-badge { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
             .va-cs-hover { margin-left: 6px; }
             .va-cs-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; background: rgba(0,0,0,0.3); flex: 0 0 auto; }
@@ -639,97 +618,6 @@
     }
 
     // ---------------------------------------------------------------------
-    // Flight-window HERO banner — a separate, self-contained "grand but soft"
-    // banner that is independent of the #ac-va-banner card. It renders a
-    // sizable banner image with the VA logo/name overlaid and a gradient scrim
-    // that melts the image into the dark flight window. Own slot (#ac-va-hero),
-    // own rotation, own styles — it does not touch renderAdFeature.
-    // ---------------------------------------------------------------------
-
-    function heroInner(ad) {
-        // Just the banner image — no overlay/text. Only called for ads that
-        // have a banner (hydrateFlightHero filters out banner-less VAs).
-        return `<div class="va-hero-media" style="background-image:url('${esc(ad.banner)}')"></div>`;
-    }
-
-    // Render the hero into its slot, rotating softly through multiple ads.
-    // Independent of renderAdFeature so the old banner is never affected.
-    function renderHero(slot, ads) {
-        if (!slot) return;
-        if (slot._heroTimer) { clearInterval(slot._heroTimer); slot._heroTimer = null; }
-        if (!ads || !ads.length) { slot.innerHTML = ''; slot.style.display = 'none'; return; }
-        slot.style.display = '';
-        slot.innerHTML = `
-            <div class="va-hero" role="button" tabindex="0" data-va-ad-id="${esc(ads[0].id)}">
-                <div class="va-hero-card"></div>
-                ${ads.length > 1 ? '<div class="va-hero-dots"></div>' : ''}
-            </div>`;
-        const heroEl = slot.querySelector('.va-hero');
-        const cardEl = slot.querySelector('.va-hero-card');
-        const dotsEl = slot.querySelector('.va-hero-dots');
-
-        let idx = 0;
-        const render = () => {
-            const ad = ads[idx];
-            heroEl.setAttribute('data-va-ad-id', ad.id);
-            cardEl.innerHTML = heroInner(ad);
-            if (dotsEl) {
-                dotsEl.innerHTML = ads
-                    .map((_, i) => `<span class="va-hero-dot${i === idx ? ' is-active' : ''}"></span>`)
-                    .join('');
-            }
-        };
-        render();
-        heroEl.addEventListener('click', () => openPartners(heroEl.getAttribute('data-va-ad-id')));
-        heroEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPartners(heroEl.getAttribute('data-va-ad-id')); }
-        });
-
-        if (ads.length > 1) {
-            slot._heroTimer = setInterval(() => {
-                if (!document.body.contains(cardEl)) { clearInterval(slot._heroTimer); slot._heroTimer = null; return; }
-                cardEl.style.opacity = '0';
-                setTimeout(() => { idx = (idx + 1) % ads.length; render(); cardEl.style.opacity = '1'; }, 220);
-            }, 6000);
-        }
-    }
-
-    // Hydrate the hero slot (#ac-va-hero): prefer the flight's own partner VA,
-    // fall back to arrival/departure hub partners — same selection as the card.
-    async function hydrateFlightHero(container, opts) {
-        injectStyles();
-        const root = container || document;
-        const slot = root.querySelector ? root.querySelector('#ac-va-hero') : null;
-        if (!slot) return;
-        const o = opts || {};
-        try {
-            await loadDirectory();
-            let ads = [];
-            const own = matchCallsign(o.callsign);
-            if (own) {
-                ads = [own];
-            } else {
-                const codes = [o.arrIcao, o.depIcao]
-                    .map((c) => String(c || '').trim().toUpperCase())
-                    .filter(Boolean);
-                for (const code of codes) {
-                    const hub = await banner(code, { limit: 6 });
-                    if (hub && hub.length) { ads = hub; break; }
-                }
-            }
-            // This hero is the banner image only — so only show VAs that
-            // actually have one. No banner image → render nothing (rather than
-            // a dark placeholder box). The #ac-va-banner card below still
-            // covers banner-less VAs.
-            ads = (ads || []).filter((a) => a && a.banner);
-            renderHero(slot, ads);
-        } catch (e) {
-            slot.innerHTML = '';
-            slot.style.display = 'none';
-        }
-    }
-
-    // ---------------------------------------------------------------------
     // Partners slide-over
     // ---------------------------------------------------------------------
 
@@ -945,7 +833,6 @@
         get,
         hydrateAirportBanner,
         hydrateFlightBanner,
-        hydrateFlightHero,
         openPartners,
         closePartners,
         matchCallsign,
