@@ -38,8 +38,8 @@
  *   {
  *     "ok": true,
  *     "va":   { "code": "OCEAN", "name": "Ocean Virtual", "logo": "https://…" },
- *     "callsignPrefixes": ["OCEAN"],          // optional; leading-token prefixes. defaults to [va.code]
- *     "callsignSuffixes": ["EX", "VA"],       // optional; match the LAST token ending with these (e.g. "OCEAN 01EX", "UPS 01EX")
+ *     "callsignPrefixes": ["Air Canada"],     // optional; full airline/callsign names (spaces ok). defaults to [va.code]
+ *     "callsignSuffixes": ["EX", "VA"],       // optional tags; when set, a flight must match a declared prefix AND carry the tag (e.g. prefix "Air Canada" + "VA" → "Air Canada 001VA")
  *     "hubs": ["KJFK", "KBOS"],               // optional; hub ICAOs plotted as clickable airport-info markers (map mode). also accepts "icao"/"hub". defaults from VA-Ads.
  *     "mode": "map",                          // "map" | "roster"  (default "roster")
  *     "provider": "mapbox",                   // "mapbox" | "free"  (optional; auto: free when no token)
@@ -219,13 +219,20 @@
         const code = firstToken(va.code || va.callsign || '');
         if (!code) throw new Error('Embed config is missing a VA callsign code.');
 
+        // Prefixes are the full airline/callsign name the VA flies under, NOT just
+        // the first word — IF callsigns are the spoken name, e.g. "Air Canada 001VA"
+        // (tokens AIR / CANADA / 001VA). We compact each prefix (strip spaces and
+        // separators) so "Air Canada" → "AIRCANADA" and matches the whole airline,
+        // not every callsign that merely starts with "AIR".
         const prefixes = (Array.isArray(raw.callsignPrefixes) && raw.callsignPrefixes.length
             ? raw.callsignPrefixes
             : [code]
-        ).map(firstToken).filter(Boolean);
+        ).map(compactCallsign).filter(Boolean);
 
-        // Optional suffix tags: match on the LAST callsign token ending with these
-        // (e.g. "EX", "01VA"). Uppercased, whitespace stripped. Empty = prefix-only.
+        // Optional suffix tags. When set, matching requires a declared prefix AND
+        // one of these tags on the LAST callsign token (e.g. prefix "Air Canada" +
+        // tag "VA" → "Air Canada 001VA"). Uppercased, whitespace stripped.
+        // Empty = prefix-only.
         const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
             .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
             .filter(Boolean);
@@ -306,6 +313,13 @@
         return String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
     }
 
+    // Uppercased with every separator removed, so multi-word airline names line up
+    // regardless of spacing: "Air Canada 001VA" → "AIRCANADA001VA", "Air Canada"
+    // → "AIRCANADA". Used to match a VA's full callsign prefix against a flight.
+    function compactCallsign(callsign) {
+        return String(callsign || '').toUpperCase().replace(/[\s\-_/]+/g, '');
+    }
+
     // Is a suffix tag actually a TAG on this token, not just letters that happen
     // to end it? A short tag like "VA" ends a huge number of unrelated callsigns
     // ("MOSKVA", "NOVA", "…VA"), so endsWith alone is far too greedy. A tag only
@@ -319,23 +333,39 @@
         return before >= '0' && before <= '9';                // tag on a number: "01VA"
     }
 
-    // Does a flight callsign belong to this VA? A callsign matches if EITHER rule
-    // hits, so a VA can mix styles:
-    //   • PREFIX rule  — the leading token starts with one of the VA's prefixes.
-    //       prefix "OCEAN"  →  "OCEAN 01", "OCEAN123"
-    //   • SUFFIX rule  — the LAST token carries one of the VA's suffix tags,
-    //     either standalone or glued to a flight number (see tokenHasSuffixTag).
-    //       suffix "EX"  →  "OCEAN 01EX", "UPS 01EX", "UPS EX"   (NOT "APEX")
-    //     This lets a VA fly other airlines' callsigns and still be picked up by
-    //     their private tag, and lets one VA run several tags (e.g. EX + VA).
+    // Does a flight callsign belong to this VA? Prefixes are matched against the
+    // WHOLE leading callsign (separators removed), so a full airline name like
+    // "Air Canada" matches "Air Canada 001VA" and only Air Canada — not Air France
+    // or any other callsign that merely starts with "AIR".
+    //
+    //   • No suffix tags configured  →  PREFIX-ONLY. The compacted callsign must
+    //     start with one of the VA's declared prefixes.
+    //       prefix "AIRCANADA"  →  "Air Canada 001", "Air Canada 12"
+    //
+    //   • Suffix tags configured  →  PREFIX **AND** TAG. The flight only belongs
+    //     to the VA when BOTH hold: the compacted callsign starts with a declared
+    //     prefix/airline, AND the last token carries one of the VA's suffix tags.
+    //       prefix "AIRCANADA", suffix "VA"
+    //         → "Air Canada 001VA" ✓ ,  "Air Canada 001" ✗ (no tag),
+    //           "United 045VA"     ✗ (airline not declared)
+    //     A bare suffix never matches on its own, so a short tag like "VA" can no
+    //     longer sweep up every unrelated callsign that happens to end in it — the
+    //     VA must declare which airline prefixes they fly that tag under. To run
+    //     the tag across several airlines, list each airline in callsignPrefixes.
     function callsignMatches(callsign, cfg) {
         const tokens = callsignTokens(callsign);
         if (!tokens.length) return false;
-        const first = tokens[0];
+        const compact = tokens.join('');          // uppercased, separators removed
         const last = tokens[tokens.length - 1];
-        if (cfg.prefixes && cfg.prefixes.some(p => p && first.startsWith(p))) return true;
-        if (cfg.suffixes && cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s))) return true;
-        return false;
+
+        const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)));
+
+        // Prefix-only mode (no tags) — unchanged.
+        if (!cfg.suffixes || !cfg.suffixes.length) return prefixHit;
+
+        // Tag mode — require the declared prefix AND the tag together.
+        const suffixHit = cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s));
+        return prefixHit && suffixHit;
     }
 
     function normalizeFlight(f, serverName, sessionId) {
@@ -1388,14 +1418,36 @@
                 </div>` : `<div class="emb-apt-sub" style="margin:0">No live ATIS broadcasting.</div>`}
             </div>`;
 
+        // This VA's own pilots inbound to this field, taken from the live roster we
+        // already fetched (filtered to the VA), so we have full callsign/route/pilot
+        // detail rather than the bare flight IDs the airport-status endpoint returns.
+        const vaName = (_mapState.cfg && _mapState.cfg.name) || 'VA';
+        const vaInbound = (_mapState.pilots || []).filter(p =>
+            p && p.arrIcao && String(p.arrIcao).toUpperCase() === String(icao).toUpperCase());
+
         const trafficMod = `
             <div class="emb-apt-mod">
                 <div class="emb-apt-mod-h"><span>Traffic</span></div>
                 <div class="emb-apt-grid" style="grid-template-columns:repeat(3,1fr)">
                     <div class="emb-apt-cell"><span class="l">Inbound</span><span class="v">${live.inbound || 0}</span></div>
                     <div class="emb-apt-cell"><span class="l">Outbound</span><span class="v">${live.outbound || 0}</span></div>
-                    <div class="emb-apt-cell"><span class="l">VA Pilots</span><span class="v" style="color:#7dd3fc">${live.vaCount || 0}</span></div>
+                    <div class="emb-apt-cell"><span class="l">VA Inbound</span><span class="v" style="color:#7dd3fc">${vaInbound.length}</span></div>
                 </div>
+            </div>`;
+
+        const VA_INBOUND_MAX = 20;
+        const vaInboundMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Inbound ${esc(vaName)} Pilots</span><span class="emb-apt-pill" style="color:#7dd3fc;border-color:#7dd3fc">${vaInbound.length}</span></div>
+                ${vaInbound.length
+                    ? `<div class="emb-apt-valist">${vaInbound.slice(0, VA_INBOUND_MAX).map(p => `
+                        <div class="emb-apt-vapilot">
+                            <span class="cs">${esc(p.callsign || '—')}</span>
+                            <span class="rt">${esc(p.depIcao || '???')} → ${esc(icao)}</span>
+                            ${p.username ? `<span class="pl">${esc(p.username)}</span>` : ''}
+                        </div>`).join('')}${vaInbound.length > VA_INBOUND_MAX
+                            ? `<div class="emb-apt-vamore">+${vaInbound.length - VA_INBOUND_MAX} more inbound</div>` : ''}</div>`
+                    : `<div class="emb-apt-sub" style="margin:0">No ${esc(vaName)} pilots inbound right now.</div>`}
             </div>`;
 
         return `
@@ -1408,6 +1460,7 @@
                 ${metarMod}
                 ${opsMod}
                 ${trafficMod}
+                ${vaInboundMod}
                 ${poweredByHTML()}
             </div>`;
     }
@@ -1483,7 +1536,8 @@
         const root = rootEl();
         if (!root) return;
 
-        _mapState.cfg = cfg;   // branding for the tap card
+        _mapState.cfg = cfg;       // branding for the tap card
+        _mapState.pilots = pilots; // VA's live pilots — used for the airport window's inbound list
 
         if (!_mapState.map) {
             await loadMapEngine(cfg.provider);

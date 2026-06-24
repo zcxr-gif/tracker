@@ -119,7 +119,8 @@ The widget also accepts direct query params so you can build and demo it now. A
 /embed.html?va=OCEAN&name=Ocean%20Virtual&mode=map&mapboxToken=pk.eyJ…
 
 # Optional extras
-&prefixes=OCEAN,OCN          # extra callsign prefixes to match
+&prefixes=Air%20Canada,OCEAN # full airline/callsign names this VA flies under
+&suffixes=VA,EX             # tags; when set, a flight must match a prefix AND carry a tag
 &servers=Expert              # restrict to a server (substring of IF session name)
 &theme=light
 &logo=https://.../logo.png
@@ -132,10 +133,20 @@ The widget also accepts direct query params so you can build and demo it now. A
 - Sessions: `GET https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions`
 - Flights:  `GET https://site--acars-backend--6dmjph8ltlhv.code.run/flights/:sessionId`
 
-A pilot is matched to the VA when their callsign's **leading word** starts with
-one of the VA's `callsignPrefixes` — identical to `vaAds.js` `matchCallsign`,
-so the embed and the tracker agree on who belongs to a VA. The widget polls
-every 30s and pauses while the tab is hidden.
+A pilot is matched to the VA by their callsign:
+
+- **Prefix** — the callsign (spaces/separators ignored) starts with one of the
+  VA's `callsignPrefixes`. These are the **full** airline/callsign names the VA
+  flies under, e.g. `Air Canada` matches `Air Canada 001` (and only Air Canada,
+  not Air France). Defaults to `[va.code]`.
+- **Suffix tags** — optional `callsignSuffixes` (e.g. `VA`, `EX`). When a VA
+  supplies tags, a flight must match a declared prefix **AND** carry one of the
+  tags on its last token (e.g. `Air Canada 001VA`). A bare tag like `VA` never
+  matches on its own, so unrelated callsigns that merely end in `VA` are not
+  swept in. To fly a tag across several airlines, list each airline in
+  `callsignPrefixes`.
+
+The widget polls every 30s and pauses while the tab is hidden.
 
 ---
 

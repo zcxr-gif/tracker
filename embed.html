@@ -348,6 +348,23 @@
             font-family: ui-monospace, 'JetBrains Mono', monospace; font-size: 9.5px;
             color: rgba(255,255,255,0.5); line-height: 1.45; word-break: break-word; margin-top: 7px;
         }
+        /* Inbound VA pilots list inside the airport window. */
+        .emb-apt-valist { display: flex; flex-direction: column; gap: 5px; }
+        .emb-apt-vapilot {
+            display: flex; align-items: baseline; gap: 8px;
+            padding: 6px 8px; border-radius: 8px; background: rgba(125,211,252,0.06);
+            border: 1px solid rgba(125,211,252,0.14);
+        }
+        .emb-apt-vapilot .cs { font-size: 12px; font-weight: 800; color: #7dd3fc; flex: 0 0 auto; }
+        .emb-apt-vapilot .rt {
+            font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.55);
+            font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto;
+        }
+        .emb-apt-vapilot .pl {
+            font-size: 11px; color: rgba(255,255,255,0.7); margin-left: auto;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+        }
+        .emb-apt-vamore { font-size: 10px; color: rgba(255,255,255,0.45); text-align: center; padding-top: 2px; }
 
         /* States */
         .emb-empty, .emb-error {
