@@ -43,11 +43,30 @@
         return /^https?:\/\//i.test(s) ? s : '';
     }
 
-    // Leading callsign word, upper-cased — "Ocean XXVA" / "OceanXXVA" / "Ocean
-    // 123" all reduce to "OCEAN". This is what we advertise against so a VA
-    // whose callsign is "Ocean XXVA" matches any "Ocean …" flight.
-    function firstToken(s) {
-        return String(s || '').trim().toUpperCase().split(/[\s\-_/]+/)[0] || '';
+    // A callsign with all separators removed, upper-cased — "Air Canada 001VA"
+    // → "AIRCANADA001VA", "Ocean XXVA" → "OCEANXXVA".
+    function compactCallsign(s) {
+        return String(s || '').trim().toUpperCase().replace(/[\s\-_/]+/g, '');
+    }
+
+    // True when a callsign token is a flight-number / placeholder / tag rather
+    // than part of the airline name: "001", "001VA", "XXVA"/"XX" (placeholder),
+    // or a short standalone tag word like "VA". Airline-name words ("CANADA",
+    // "AIRWAYS") are kept.
+    function isFlightNumberToken(t) {
+        return /[0-9]/.test(t) || /^X+[A-Z]*$/.test(t) || /^[A-Z]{1,3}$/.test(t);
+    }
+
+    // The VA's matching code — the airline-name portion of its callsign,
+    // compacted. The trailing flight-number/tag token is dropped so a VA whose
+    // callsign is "Air Canada 001VA" advertises as "AIRCANADA" (not just "AIR",
+    // which used to swallow Air India / Airbus / Air France). Single-token codes
+    // like "DLVA" are kept whole.
+    function vaCodeFromCallsign(s) {
+        const parts = String(s || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+        if (!parts.length) return '';
+        if (parts.length >= 2 && isFlightNumberToken(parts[parts.length - 1])) parts.pop();
+        return parts.join('');
     }
 
     async function getJSON(url) {
@@ -166,7 +185,7 @@
             }
             allAds = all;
             directory = all
-                .map((ad) => ({ code: firstToken(ad.callsign), ad }))
+                .map((ad) => ({ code: vaCodeFromCallsign(ad.callsign), ad }))
                 .filter((entry) => entry.code)
                 .sort((a, b) => b.code.length - a.code.length);
             return directory;
@@ -174,15 +193,16 @@
         return directoryPromise;
     }
 
-    // Match a flight callsign to a partner VA by its leading word only (e.g. a
-    // callsign of "Ocean XXVA" or "Ocean 123" matches the VA whose code is
-    // "OCEAN"). Longest code wins; returns the first match. Synchronous — reads
-    // the warm cache.
+    // Match a flight callsign to a partner VA by its full airline-name code
+    // (e.g. "Air Canada 001VA" matches the VA coded "AIRCANADA", but "Air India
+    // 123" / "Airbus …" do not). The flight callsign is compacted and tested
+    // against each VA code as a prefix; longest code wins so the most specific
+    // VA matches first. Synchronous — reads the warm cache.
     function matchCallsign(callsign) {
         if (!directory) { loadDirectory(); return null; }
-        const tok = firstToken(callsign);
-        if (!tok) return null;
-        const hit = directory.find((entry) => tok.startsWith(entry.code));
+        const compact = compactCallsign(callsign);
+        if (!compact) return null;
+        const hit = directory.find((entry) => compact.startsWith(entry.code));
         return hit ? hit.ad : null;
     }
 
