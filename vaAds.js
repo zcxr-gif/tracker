@@ -186,6 +186,54 @@
         return hit ? hit.ad : null;
     }
 
+    // Trailing word of a callsign, upper-cased — the flight-number+tag part.
+    // "Air Canada 001VA" → "001VA", "OceanXXVA" → "OCEANXXVA".
+    function lastToken(s) {
+        const parts = String(s || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : '';
+    }
+
+    // The VA's callsign tag — the suffix a member appends to their flight
+    // number, derived from the VA's declared callsign. The tag is the trailing
+    // letters of the last token after its number/placeholder run:
+    //   "Ocean XXVA"        → "VA"   (XX is the flight-number placeholder)
+    //   "Air Canada 001VA"  → "VA"
+    //   "Delta VA"          → "VA"   (tag declared as its own word)
+    //   "Ocean"             → ""     (no tag declared — membership unknowable)
+    function vaTag(ad) {
+        const lt = lastToken(ad && ad.callsign);
+        if (!lt) return '';
+        const m = lt.match(/^[0-9X]+([A-Z]+)$/);   // <number/placeholder><TAG>
+        if (m) return m[1];
+        // Tag declared as a separate short word (and not the airline name itself).
+        const parts = String(ad.callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+        if (parts.length >= 2 && /^[A-Z]{1,3}$/.test(lt)) return lt;
+        return '';
+    }
+
+    // Does this flight callsign mark the pilot as a registered member of the
+    // matched VA? Mirrors the embed's prefix+tag filtering: the callsign must
+    // match the VA (leading word, via matchCallsign) AND carry the VA's tag on
+    // its flight-number token. "Air Canada 001VA" → member; "Air Canada 500" →
+    // matched as a partner but not a registered member. Pass the already-matched
+    // ad to avoid a second directory lookup; otherwise it is resolved here.
+    function isCallsignMember(callsign, ad) {
+        const va = ad || matchCallsign(callsign);
+        if (!va) return false;
+        const lt = lastToken(callsign);
+        if (!lt) return false;
+        const tag = vaTag(va);
+        // When the VA declares its tag in its own callsign (e.g. "Ocean XXVA"),
+        // require the flight to carry exactly that tag.
+        if (tag) return lt.length > tag.length && lt.endsWith(tag);
+        // Otherwise the VA's stored callsign carries no tag template, so we
+        // can't know the exact tag — treat any alphabetic suffix appended to
+        // the flight number as the member tag ("001VA"/"12V" → member,
+        // "500" → not). The digit requirement keeps plain airline flight
+        // numbers from counting.
+        return /[0-9][A-Z]+$/.test(lt);
+    }
+
     // All partner ads hubbed at an airport (from the cached roster — no extra
     // request). Used to flag airports in search results.
     function partnersForIcao(icao) {
@@ -217,14 +265,17 @@
                 ? `<span class="va-cs-badge va-cs-hover" title="${esc(ad.name)} · partner VA">${logo}</span>`
                 : '';
         }
-        const disclaimer = o.isMember
-            ? ''
+        // Registered member when the caller already knows it, or when the
+        // callsign itself carries the VA's tag (e.g. "Air Canada 001VA").
+        const member = o.isMember || isCallsignMember(callsign, ad);
+        const note = member
+            ? `<span class="va-cs-note va-cs-member"><i class="fa-solid fa-circle-check"></i> Registered ${esc(ad.name)} member</span>`
             : `<span class="va-cs-note">not a registered ${esc(ad.name)} member</span>`;
         return `
             <div class="va-cs-badge va-cs-info" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0" title="View ${esc(ad.name)}">
                 ${logo || '<i class="fa-solid fa-handshake-angle" style="color:#7dd3fc"></i>'}
                 <span class="va-cs-name">${esc(ad.name)} <span class="va-cs-tag">Partner VA</span></span>
-                ${disclaimer}
+                ${note}
             </div>`;
     }
 
@@ -287,6 +338,8 @@
             .va-cs-name { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
             .va-cs-tag { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; margin-left: 2px; }
             .va-cs-note { font-size: 9px; font-weight: 600; color: #fca5a5; margin-left: 4px; }
+            .va-cs-note.va-cs-member { color: #4ade80; }
+            .va-cs-note.va-cs-member i { margin-right: 2px; }
 
             /* Collapsible hero badge: opens full, then shrinks to a logo-only
                chip a few seconds after the window opens. Hovering (or keyboard
@@ -765,6 +818,7 @@
         openPartners,
         closePartners,
         matchCallsign,
+        isCallsignMember,
         callsignBadgeHTML,
         partnersForIcao,
         allPartners,

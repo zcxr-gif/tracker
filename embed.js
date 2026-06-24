@@ -1284,6 +1284,25 @@
     const _aptCache = new Map();   // ICAO -> Promise<airport|null>
     let _aptSessionId;             // cached session id for live airport queries
 
+    // Flags are derived from the ICAO location indicator, NOT from any
+    // country field the live API hands back — that field is frequently wrong
+    // (e.g. Infinite Flight reports the wrong country for some fields), which
+    // produced mismatched flags. ICAO prefixes are a fixed, standardised
+    // scheme, so the first two letters of an airport's ICAO code reliably
+    // identify the country. This lookup was generated from the bundled
+    // airports.json by taking the dominant ISO-2 country per ICAO prefix.
+    // A handful of two-letter prefixes span more than one country, so those
+    // are disambiguated by a small set of three-letter overrides.
+    const _ICAO_CC2 = {AA:"AQ",AG:"SB",AN:"NR",AQ:"AQ",AY:"PG",BG:"GL",BI:"IS",BK:"XK",CB:"CA",CH:"CA",CM:"CA",CR:"CA",CW:"CA",CY:"CA",CZ:"CA",DA:"DZ",DB:"BJ",DF:"BF",DG:"GH",DI:"CI",DN:"NG",DR:"NE",DT:"TN",DX:"TG",EB:"BE",ED:"DE",EE:"EE",EF:"FI",EG:"GB",EH:"NL",EI:"IE",EK:"DK",EL:"LU",EN:"NO",EP:"PL",ES:"SE",ET:"DE",EV:"LV",EY:"LT",FA:"ZA",FB:"BW",FC:"CG",FD:"SZ",FE:"CF",FG:"GQ",FH:"SH",FI:"MU",FJ:"IO",FK:"CM",FL:"ZM",FM:"MG",FN:"AO",FO:"GA",FP:"ST",FQ:"MZ",FS:"SC",FT:"TD",FV:"ZW",FW:"MW",FX:"LS",FY:"NA",FZ:"CD",GA:"ML",GB:"GM",GC:"ES",GE:"ES",GF:"SL",GG:"GW",GL:"LR",GM:"MA",GO:"SN",GQ:"MR",GU:"GN",GV:"CV",HA:"ET",HB:"BI",HC:"SO",HD:"DJ",HE:"EG",HH:"ER",HJ:"SS",HK:"KE",HL:"LY",HR:"RW",HS:"SD",HT:"TZ",HU:"UG",KA:"US",KB:"US",KC:"US",KD:"US",KE:"US",KF:"US",KG:"US",KH:"US",KI:"US",KJ:"US",KK:"US",KL:"US",KM:"US",KN:"US",KO:"US",KP:"US",KR:"US",KS:"US",KT:"US",KU:"US",KV:"US",KW:"US",KX:"US",KY:"US",KZ:"US",LA:"AL",LB:"BG",LC:"CY",LD:"HR",LE:"ES",LF:"FR",LG:"GR",LH:"HU",LI:"IT",LJ:"SI",LK:"CZ",LL:"IL",LM:"MT",LN:"MC",LO:"AT",LP:"PT",LQ:"BA",LR:"RO",LS:"CH",LT:"TR",LU:"MD",LW:"MK",LX:"GI",LY:"RS",LZ:"SK",MB:"TC",MD:"DO",ME:"CR",MG:"GT",MH:"HN",MK:"JM",ML:"MH",MM:"MX",MN:"NI",MP:"PA",MR:"CR",MS:"SV",MT:"HT",MU:"CU",MW:"KY",MY:"BS",MZ:"BZ",NC:"CK",NF:"FJ",NG:"KI",NI:"NU",NL:"WF",NS:"WS",NT:"PF",NV:"VU",NW:"NC",NZ:"NZ",OA:"AF",OB:"BH",OE:"SA",OI:"IR",OJ:"JO",OK:"KW",OL:"LB",OM:"AE",OO:"OM",OP:"PK",OR:"IQ",OS:"SY",OT:"QA",OY:"YE",PA:"US",PC:"KI",PF:"US",PG:"MP",PH:"US",PK:"MH",PL:"KI",PM:"UM",PP:"US",PR:"PH",PT:"FM",PW:"UM",RC:"TW",RJ:"JP",RK:"KR",RO:"JP",RP:"PH",SA:"AR",SB:"BR",SC:"CL",SD:"BR",SE:"EC",SF:"FK",SG:"PY",SH:"CL",SI:"BR",SJ:"BR",SK:"CO",SL:"BO",SM:"SR",SN:"BR",SO:"GF",SP:"PE",SQ:"CO",SS:"BR",SU:"UY",SV:"VE",SW:"BR",SY:"GY",TA:"AG",TB:"BB",TD:"DM",TF:"GP",TG:"GD",TI:"VI",TJ:"PR",TK:"KN",TL:"LC",TN:"BQ",TQ:"AI",TR:"MS",TT:"TT",TU:"VG",TV:"VC",TX:"BM",UA:"KZ",UB:"AZ",UC:"KG",UD:"AM",UE:"RU",UG:"GE",UH:"RU",UI:"RU",UK:"UA",UL:"RU",UM:"BY",UN:"RU",UO:"RU",UP:"UA",UR:"RU",US:"RU",UT:"UZ",UU:"RU",UW:"RU",VA:"IN",VC:"LK",VD:"KH",VE:"IN",VG:"BD",VH:"HK",VI:"IN",VL:"LA",VM:"MO",VN:"NP",VO:"IN",VQ:"BT",VR:"MV",VT:"TH",VV:"VN",VY:"MM",WA:"ID",WB:"MY",WI:"ID",WM:"MY",WP:"TL",WR:"ID",WS:"SG",YA:"AU",YB:"AU",YC:"AU",YD:"AU",YE:"AU",YF:"AU",YG:"AU",YH:"AU",YI:"AU",YJ:"AU",YK:"AU",YL:"AU",YM:"AU",YN:"AU",YO:"AU",YP:"AU",YQ:"AU",YR:"AU",YS:"AU",YT:"AU",YU:"AU",YV:"AU",YW:"AU",YX:"AU",YY:"AU",YZ:"AU",ZB:"CN",ZG:"CN",ZH:"CN",ZJ:"CN",ZK:"KP",ZL:"CN",ZM:"MN",ZP:"CN",ZS:"CN",ZU:"CN",ZW:"CN",ZY:"CN"};
+    const _ICAO_CC3 = {FME:"RE",FMZ:"TF",HSB:"SS",HSR:"SS",HST:"SS",HSW:"SS",HSY:"SS",MLL:"CR",NFT:"TO",NST:"AS",PGU:"GU",PLP:"UM",PTR:"PW",SOM:"PE",UAB:"KG",UAF:"KG",UMK:"RU",UTA:"TM",UTD:"TJ"};
+
+    // ISO-2 country code for an ICAO airport identifier, or '' if unknown.
+    function countryFromIcao(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!/^[A-Z]{4}$/.test(code)) return '';
+        return _ICAO_CC3[code.slice(0, 3)] || _ICAO_CC2[code.slice(0, 2)] || '';
+    }
+
     function airportInfo(icao) {
         const code = String(icao || '').trim().toUpperCase();
         if (!code) return Promise.resolve(null);
@@ -1393,8 +1412,7 @@
             const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
             if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
             const name = (apt && apt.name) || '';
-            const country = (apt && apt.country && (apt.country.isoCode || apt.country.code)) || (apt && apt.country) || '';
-            const cc = String(country || '').toLowerCase();
+            const cc = countryFromIcao(icao).toLowerCase();
             const flag = /^[a-z]{2}$/.test(cc)
                 ? `<img class="emb-hub-flag" src="https://flagcdn.com/w20/${cc}.png" alt="" onerror="this.style.display='none'">`
                 : '';
@@ -1497,12 +1515,11 @@
         const apt = data.apt || {}, metar = data.metar, live = data.live || {};
         const name = apt.name || icao;
         const city = apt.city || '';
-        const country = (apt.country && (apt.country.isoCode || apt.country.code)) || apt.country || '';
-        const cc = String(country || '').toLowerCase();
+        const cc = countryFromIcao(icao).toLowerCase();
         const flag = /^[a-z]{2}$/.test(cc)
             ? `<img class="emb-apt-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">`
             : '';
-        const loc = [city, String(country || '').toUpperCase()].filter(Boolean).join(', ');
+        const loc = [city, cc.toUpperCase()].filter(Boolean).join(', ');
         const elev = (apt.elevation != null) ? `${Math.round(apt.elevation)} ft` : '';
         const sub = [loc, elev].filter(Boolean).join(' · ');
 
