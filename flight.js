@@ -16782,7 +16782,7 @@ let totalDistanceNM = 0;
 
     // --- HTML Construction ---
     windowEl.innerHTML = `
-    <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 200px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
+    <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; height: auto; min-height: 220px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
                 <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
@@ -16814,7 +16814,7 @@ let totalDistanceNM = 0;
     </button>
 </div>
 
-            <div class="ac-partner-hero" style="position: absolute; bottom: 45px; left: 24px; max-width: calc(55% - 24px); z-index: 2; display: flex; align-items: flex-end;">
+            <div class="ac-partner-hero" style="position: relative; margin: auto 24px 45px 24px; max-width: calc(100% - 48px); z-index: 2; display: flex; align-items: flex-end;">
                 ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
             </div>
         </div>
