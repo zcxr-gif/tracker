@@ -16859,7 +16859,8 @@ let totalDistanceNM = 0;
         </div>
         </div>
 
-    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+            <div class="ac-tabs-row" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%;">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
@@ -16874,15 +16875,16 @@ let totalDistanceNM = 0;
             <button id="ac-dock-toggle-btn" class="ac-dock-toggle-btn" title="Move Window">
     <i class="fa-solid fa-arrows-left-right-to-line"></i>
 </button>
+            </div>
+
+            <!-- VA partner banner, integrated into the tab bar so it reads as
+                 part of the switcher rather than a floating card. Just the
+                 banner image, no overlay. Hidden until hydrated. -->
+            <div id="ac-va-hero" class="va-hero-slot" style="display: none;"></div>
     </div>
 
     <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px; display: ${flightDataDisplay};">
-
-                <!-- VA partner HERO banner (separate from #ac-va-banner below):
-                     grand-but-soft, hidden until hydrated so it adds no empty gap. -->
-                <div id="ac-va-hero" class="va-hero-slot" style="margin: 0 0 2px; display: none;"></div>
-
                 <div class="pfd-and-location-grid">
                      <div class="pfd-main-panel">
                       <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">

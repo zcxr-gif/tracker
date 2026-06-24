@@ -343,48 +343,24 @@
             .va-ad-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
             .va-ad-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
-            /* Flight-window HERO banner — grand but soft, blends into the panel. */
-            .va-hero { position: relative; cursor: pointer; border-radius: 16px; transition: transform .15s ease; }
+            /* Flight-window VA banner — just the image, sized + radiused to sit
+               inside the tab bar as part of the switcher control surface. */
+            .va-hero { position: relative; cursor: pointer; border-radius: 12px; transition: transform .15s ease; }
             .va-hero:hover { transform: translateY(-1px); }
+            .va-hero:hover .va-hero-media { border-color: rgba(56,189,248,0.4); }
             .va-hero-card { transition: opacity .25s ease; }
             .va-hero-media {
-                position: relative; min-height: 120px; border-radius: 16px; overflow: hidden;
-                display: flex; align-items: flex-end;
-                background-size: cover; background-position: center; background-color: rgba(56,189,248,0.06);
-                border: 1px solid rgba(255,255,255,0.07); box-shadow: 0 12px 32px rgba(0,0,0,0.38);
+                height: 76px; border-radius: 12px; overflow: hidden;
+                background-size: cover; background-position: center;
+                border: 1px solid rgba(255,255,255,0.08);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+                display: flex; align-items: center; justify-content: center;
+                transition: border-color .15s ease;
             }
-            .va-hero-nobg { background-image: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(23,23,23,0.65)); }
-            .va-hero-scrim {
-                position: absolute; inset: 0;
-                background: linear-gradient(180deg, rgba(20,22,28,0.03) 0%, rgba(20,22,28,0.40) 50%, rgba(20,22,28,0.90) 100%);
-            }
-            .va-hero-content {
-                position: relative; z-index: 1; width: 100%;
-                display: flex; align-items: center; gap: 12px; padding: 14px 16px;
-            }
-            .va-hero-logo {
-                width: 44px; height: 44px; border-radius: 12px; object-fit: cover; flex: 0 0 auto;
-                background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;
-                color: #7dd3fc; box-shadow: 0 3px 12px rgba(0,0,0,0.5);
-            }
-            .va-hero-text { min-width: 0; flex: 1; }
-            .va-hero-eyebrow {
-                font-size: 0.56rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
-                color: #7dd3fc; display: flex; gap: 6px; align-items: center; margin-bottom: 1px;
-                text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-            }
-            .va-hero-name {
-                font-weight: 800; color: #fff; font-size: 1.05rem; line-height: 1.15;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                text-shadow: 0 2px 6px rgba(0,0,0,0.75);
-            }
-            .va-hero-tag {
-                font-size: 0.72rem; color: rgba(255,255,255,0.82); margin-top: 1px;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                text-shadow: 0 1px 3px rgba(0,0,0,0.7);
-            }
-            .va-hero-chev { color: rgba(255,255,255,0.55); align-self: center; flex: 0 0 auto; }
-            .va-hero-dots { display: flex; gap: 5px; justify-content: center; padding: 8px 0 2px; }
+            .va-hero-nobg { background-image: linear-gradient(135deg, rgba(56,189,248,0.20), rgba(36,39,47,0.92)); }
+            .va-hero-fallback-logo { height: 40px; max-width: 60%; object-fit: contain; opacity: 0.95; }
+            .va-hero-nobg i { color: #7dd3fc; font-size: 22px; opacity: 0.85; }
+            .va-hero-dots { display: flex; gap: 5px; justify-content: center; padding: 6px 0 0; }
             .va-hero-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
             .va-hero-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
@@ -671,23 +647,16 @@
     // ---------------------------------------------------------------------
 
     function heroInner(ad) {
+        // Just the banner image — no overlay/text. When a VA has no banner
+        // image, fall back to a soft gradient with the logo centred (still no
+        // text), so the strip never looks broken.
+        if (ad.banner) {
+            return `<div class="va-hero-media" style="background-image:url('${esc(ad.banner)}')"></div>`;
+        }
         const logo = ad.logo
-            ? `<img class="va-hero-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
-            : `<div class="va-hero-logo"><i class="fa-solid fa-building"></i></div>`;
-        const hasBanner = !!ad.banner;
-        return `
-            <div class="va-hero-media${hasBanner ? '' : ' va-hero-nobg'}"${hasBanner ? ` style="background-image:url('${esc(ad.banner)}')"` : ''}>
-                <div class="va-hero-scrim"></div>
-                <div class="va-hero-content">
-                    ${logo}
-                    <div class="va-hero-text">
-                        <div class="va-hero-eyebrow"><i class="fa-solid fa-handshake-angle"></i> Partner VA</div>
-                        <div class="va-hero-name">${esc(ad.name)}</div>
-                        ${ad.tagline ? `<div class="va-hero-tag">${esc(ad.tagline)}</div>` : ''}
-                    </div>
-                    <i class="fa-solid fa-chevron-right va-hero-chev"></i>
-                </div>
-            </div>`;
+            ? `<img class="va-hero-fallback-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+            : `<i class="fa-solid fa-handshake-angle"></i>`;
+        return `<div class="va-hero-media va-hero-nobg">${logo}</div>`;
     }
 
     // Render the hero into its slot, rotating softly through multiple ads.
