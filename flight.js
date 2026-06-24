@@ -8372,7 +8372,12 @@ async function fetchAirportsData() {
 
 
 function getAircraftCategory(aircraftName) {
-    if (!aircraftName) return 'default';
+    // When the API gives us no aircraft type, fall back to the generic B737
+    // silhouette (the default that exists in the sprite sheet) so the flight
+    // still gets a plane icon instead of a missing-image blank. 'default' was
+    // returned here previously, but there is no 'icon-default' sprite, so those
+    // flights rendered with no icon at all.
+    if (!aircraftName) return 'B737';
     const name = aircraftName.toUpperCase();
 
     // 1. Military / Fighters
