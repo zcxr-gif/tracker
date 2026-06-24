@@ -1418,14 +1418,36 @@
                 </div>` : `<div class="emb-apt-sub" style="margin:0">No live ATIS broadcasting.</div>`}
             </div>`;
 
+        // This VA's own pilots inbound to this field, taken from the live roster we
+        // already fetched (filtered to the VA), so we have full callsign/route/pilot
+        // detail rather than the bare flight IDs the airport-status endpoint returns.
+        const vaName = (_mapState.cfg && _mapState.cfg.name) || 'VA';
+        const vaInbound = (_mapState.pilots || []).filter(p =>
+            p && p.arrIcao && String(p.arrIcao).toUpperCase() === String(icao).toUpperCase());
+
         const trafficMod = `
             <div class="emb-apt-mod">
                 <div class="emb-apt-mod-h"><span>Traffic</span></div>
                 <div class="emb-apt-grid" style="grid-template-columns:repeat(3,1fr)">
                     <div class="emb-apt-cell"><span class="l">Inbound</span><span class="v">${live.inbound || 0}</span></div>
                     <div class="emb-apt-cell"><span class="l">Outbound</span><span class="v">${live.outbound || 0}</span></div>
-                    <div class="emb-apt-cell"><span class="l">VA Pilots</span><span class="v" style="color:#7dd3fc">${live.vaCount || 0}</span></div>
+                    <div class="emb-apt-cell"><span class="l">VA Inbound</span><span class="v" style="color:#7dd3fc">${vaInbound.length}</span></div>
                 </div>
+            </div>`;
+
+        const VA_INBOUND_MAX = 20;
+        const vaInboundMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Inbound ${esc(vaName)} Pilots</span><span class="emb-apt-pill" style="color:#7dd3fc;border-color:#7dd3fc">${vaInbound.length}</span></div>
+                ${vaInbound.length
+                    ? `<div class="emb-apt-valist">${vaInbound.slice(0, VA_INBOUND_MAX).map(p => `
+                        <div class="emb-apt-vapilot">
+                            <span class="cs">${esc(p.callsign || '—')}</span>
+                            <span class="rt">${esc(p.depIcao || '???')} → ${esc(icao)}</span>
+                            ${p.username ? `<span class="pl">${esc(p.username)}</span>` : ''}
+                        </div>`).join('')}${vaInbound.length > VA_INBOUND_MAX
+                            ? `<div class="emb-apt-vamore">+${vaInbound.length - VA_INBOUND_MAX} more inbound</div>` : ''}</div>`
+                    : `<div class="emb-apt-sub" style="margin:0">No ${esc(vaName)} pilots inbound right now.</div>`}
             </div>`;
 
         return `
@@ -1438,6 +1460,7 @@
                 ${metarMod}
                 ${opsMod}
                 ${trafficMod}
+                ${vaInboundMod}
                 ${poweredByHTML()}
             </div>`;
     }
@@ -1513,7 +1536,8 @@
         const root = rootEl();
         if (!root) return;
 
-        _mapState.cfg = cfg;   // branding for the tap card
+        _mapState.cfg = cfg;       // branding for the tap card
+        _mapState.pilots = pilots; // VA's live pilots — used for the airport window's inbound list
 
         if (!_mapState.map) {
             await loadMapEngine(cfg.provider);
