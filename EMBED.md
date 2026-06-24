@@ -73,6 +73,7 @@ Implement this endpoint to validate the token and return the VA's embed config.
   "mapboxToken": "pk.eyJ…",          // REQUIRED when mode == "map" — the VA's OWN token
   "mapStyle": "mapbox://styles/mapbox/dark-v11",  // optional
   "theme": "dark",                   // "dark" | "light"  (optional)
+  "accent": "#1e3a8a",               // optional; brand colour for the header. Omit to auto-derive from the logo
   "servers": ["Expert"]              // optional; IF session names to scan (substring). [] = all
 }
 ```
@@ -124,7 +125,25 @@ The widget also accepts direct query params so you can build and demo it now. A
 &servers=Expert              # restrict to a server (substring of IF session name)
 &theme=light
 &logo=https://.../logo.png
+&color=%231e3a8a             # force the header brand colour (hex). Omit to auto-derive from the logo
 ```
+
+---
+
+## Header brand colours (automatic)
+
+The header — the VA logo, the VA name, the "N pilots airborne" line and the
+"Powered by Inflight" chip — takes on the **VA's own brand colour**:
+
+- **Auto** (default): the widget samples the VA's logo for its dominant, most
+  vivid colour and paints the header with it. Text and borders are recomputed
+  for contrast (WCAG luminance) so the name/count stay legible, and the corner
+  Inflight wordmark swaps between its dark and light versions to suit. If the
+  logo can't be read (cross-origin / tainted canvas) the header keeps the
+  default theme look.
+- **Explicit**: set `accent` in the resolved config (or `?color=#hex` /
+  `?accent=#hex` in preview) to force a specific header colour; it overrides the
+  sampled one.
 
 ---
 

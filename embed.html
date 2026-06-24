@@ -29,6 +29,16 @@
             --accent: #38bdf8;
             --live: #4ade80;
 
+            /* Header palette. Defaults keep the original transparent header;
+               embed.js overrides these at runtime once it derives a brand
+               colour from the VA's logo (or an explicit colour from config),
+               and picks --head-text for contrast so nothing blends in. */
+            --head-bg: transparent;
+            --head-text: var(--text);
+            --head-text-2: var(--text-2);
+            --head-text-3: var(--text-3);
+            --head-border: var(--border);
+
             display: flex;
             flex-direction: column;
             height: 100vh;
@@ -56,8 +66,12 @@
             flex: 0 0 auto;
             display: flex; align-items: center; gap: 11px;
             padding: 13px 15px;
-            border-bottom: 1px solid var(--border);
+            background: var(--head-bg);
+            color: var(--head-text);
+            border-bottom: 1px solid var(--head-border);
+            transition: background-color .35s ease, color .35s ease, border-color .35s ease;
         }
+        .emb-head-name { color: var(--head-text); }
         .emb-logo {
             width: 38px; height: 38px; border-radius: 9px; object-fit: cover;
             flex: 0 0 auto; background: var(--surface-2);
@@ -65,7 +79,7 @@
         .emb-logo-fallback {
             display: grid; place-items: center;
             font-weight: 800; font-size: 14px; letter-spacing: 0.5px;
-            color: var(--accent);
+            color: var(--head-text);
         }
         .emb-head-meta { flex: 1 1 auto; min-width: 0; }
         .emb-head-name {
@@ -74,7 +88,7 @@
         }
         .emb-head-sub {
             display: flex; align-items: center; gap: 6px;
-            font-size: 12px; color: var(--text-2); margin-top: 2px;
+            font-size: 12px; color: var(--head-text-2); margin-top: 2px;
         }
         .emb-live-dot {
             width: 7px; height: 7px; border-radius: 50%;
@@ -90,12 +104,13 @@
         .emb-brand {
             flex: 0 0 auto;
             display: flex; align-items: center; gap: 6px;
-            text-decoration: none; color: var(--text-3);
+            text-decoration: none; color: var(--head-text-2);
             padding: 4px 8px; border-radius: 999px;
-            border: 1px solid var(--border);
+            border: 1px solid var(--head-border);
+            transition: border-color .2s ease, color .2s ease;
         }
-        .emb-brand:hover { border-color: var(--accent); }
-        .emb-brand-by { font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; color: var(--text-3); }
+        .emb-brand:hover { border-color: currentColor; }
+        .emb-brand-by { font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; color: var(--head-text-3); }
         .emb-brand-logo { height: 15px; width: auto; display: block; }
 
         /* Roster body */

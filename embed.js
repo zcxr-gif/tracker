@@ -210,6 +210,7 @@
             provider: (p.get('provider') || '').trim(),
             freeStyle: (p.get('freeStyle') || '').trim(),
             theme: (p.get('theme') || '').trim(),
+            accent: (p.get('color') || p.get('accent') || '').trim(),
             servers: p.get('servers') ? p.get('servers').split(',') : null
         });
     }
@@ -276,6 +277,11 @@
             mapStyle,
             freeStyle,
             theme: (raw.theme === 'light') ? 'light' : 'dark',
+            // Optional explicit brand colour. When set it overrides the colour we
+            // would otherwise sample from the logo. Stored normalised, or '' if
+            // none/unparseable. The chosen wordmark is filled in at boot.
+            brandColor: (() => { const c = parseColor(raw.accent || raw.brandColor || raw.color || ''); return c ? rgbCss(c) : ''; })(),
+            brandLogo: '',
             servers: Array.isArray(raw.servers) ? raw.servers.map(s => String(s).trim()).filter(Boolean) : []
         };
     }
@@ -419,11 +425,120 @@
         return out;
     }
 
+    // ── Brand colour theming ────────────────────────────────────────────────────
+    // The header (VA logo + name + "N pilots airborne" + the Powered-by chip) can
+    // adopt the VA's own brand colour. We derive that colour from the VA's logo
+    // (or take an explicit one from config), then compute text/border colours for
+    // guaranteed contrast so nothing blends into the new background.
+    const BRAND_LOGO_DARK_TEXT  = 'Images/inflight.png';        // dark wordmark → use on a LIGHT header
+    const BRAND_LOGO_LIGHT_TEXT = 'Images/inflight-light.png';  // light wordmark → use on a DARK header
+
+    // Parse "#rgb" / "#rrggbb" / "rgb()/rgba()" → {r,g,b}, else null.
+    function parseColor(str) {
+        if (!str) return null;
+        const s = String(str).trim();
+        let m = /^#([0-9a-f]{3})$/i.exec(s);
+        if (m) {
+            const h = m[1];
+            return { r: parseInt(h[0] + h[0], 16), g: parseInt(h[1] + h[1], 16), b: parseInt(h[2] + h[2], 16) };
+        }
+        m = /^#([0-9a-f]{6})$/i.exec(s);
+        if (m) return { r: parseInt(m[1].slice(0, 2), 16), g: parseInt(m[1].slice(2, 4), 16), b: parseInt(m[1].slice(4, 6), 16) };
+        m = /^rgba?\(([^)]+)\)$/i.exec(s);
+        if (m) {
+            const p = m[1].split(',').map(x => parseFloat(x));
+            if (p.length >= 3 && p.slice(0, 3).every(n => !isNaN(n))) return { r: p[0], g: p[1], b: p[2] };
+        }
+        return null;
+    }
+
+    function rgbCss(c, a) {
+        const r = Math.round(c.r), g = Math.round(c.g), b = Math.round(c.b);
+        return a == null ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    // WCAG relative luminance (0 = black … 1 = white).
+    function luminance(c) {
+        const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    }
+    // A bright background wants dark text; otherwise white text reads best.
+    function bgIsLight(c) { return luminance(c) > 0.45; }
+
+    // Pull a representative brand colour out of an image. Loads it cross-origin,
+    // samples a downscaled copy, and favours the most saturated, mid-bright pixels
+    // (a logo is usually a vivid mark on white/transparent). Resolves null when the
+    // image can't be read (tainted canvas, load/timeout error, no vivid colour) so
+    // callers fall back to the default header.
+    function extractDominantColor(url) {
+        return new Promise((resolve) => {
+            if (!url) return resolve(null);
+            let done = false;
+            const finish = (v) => { if (!done) { done = true; resolve(v); } };
+            const timer = setTimeout(() => finish(null), 3500);
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onerror = () => { clearTimeout(timer); finish(null); };
+            img.onload = () => {
+                clearTimeout(timer);
+                try {
+                    const S = 48;
+                    const cv = document.createElement('canvas');
+                    cv.width = S; cv.height = S;
+                    const ctx = cv.getContext('2d', { willReadFrequently: true });
+                    ctx.drawImage(img, 0, 0, S, S);
+                    const data = ctx.getImageData(0, 0, S, S).data;
+                    let best = null, bestScore = -1;
+                    let sr = 0, sg = 0, sb = 0, sw = 0;   // saturation-weighted average (fallback)
+                    for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                        if (a < 128) continue;                          // transparent
+                        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                        const sat = max === 0 ? 0 : (max - min) / max;
+                        const light = (max + min) / 510;                // 0..1
+                        if (light > 0.95 || light < 0.06) continue;     // near-white / near-black
+                        const w = sat * sat;
+                        sr += r * w; sg += g * w; sb += b * w; sw += w;
+                        const score = sat * (1 - Math.abs(light - 0.5));  // vivid + mid-bright
+                        if (score > bestScore) { bestScore = score; best = { r, g, b }; }
+                    }
+                    if (best && bestScore > 0.08) return finish(best);
+                    if (sw > 0) return finish({ r: sr / sw, g: sg / sw, b: sb / sw });
+                    finish(null);
+                } catch (_) { finish(null); }
+            };
+            img.src = url;
+        });
+    }
+
+    // Write the header palette derived from `baseColor` onto the embed root as CSS
+    // variables, and return which Inflight wordmark keeps the corner legible. With
+    // no brand colour we leave the defaults and just pick the wordmark for the
+    // active light/dark theme.
+    function applyHeaderTheme(root, baseColor) {
+        if (!root) return BRAND_LOGO_LIGHT_TEXT;
+        if (!baseColor) {
+            const isDark = root.getAttribute('data-theme') !== 'light';
+            return isDark ? BRAND_LOGO_LIGHT_TEXT : BRAND_LOGO_DARK_TEXT;
+        }
+        const light = bgIsLight(baseColor);
+        const text = light ? { r: 15, g: 23, b: 42 } : { r: 255, g: 255, b: 255 };
+        const s = root.style;
+        s.setProperty('--head-bg', rgbCss(baseColor));
+        s.setProperty('--head-text', rgbCss(text));
+        s.setProperty('--head-text-2', rgbCss(text, light ? 0.66 : 0.80));
+        s.setProperty('--head-text-3', rgbCss(text, light ? 0.45 : 0.60));
+        s.setProperty('--head-border', rgbCss(text, light ? 0.16 : 0.24));
+        s.setProperty('--accent', rgbCss(baseColor));
+        return light ? BRAND_LOGO_DARK_TEXT : BRAND_LOGO_LIGHT_TEXT;
+    }
+
     // ── Shared chrome ───────────────────────────────────────────────────────────
     function headerHTML(cfg, count) {
         const logo = cfg.logo
             ? `<img class="emb-logo" src="${esc(cfg.logo)}" alt="" onerror="this.style.display='none'">`
             : `<div class="emb-logo emb-logo-fallback">${esc(cfg.code.slice(0, 2))}</div>`;
+        const brandLogo = cfg.brandLogo || BRAND_LOGO_LIGHT_TEXT;
         return `
             <div class="emb-head">
                 ${logo}
@@ -433,7 +548,7 @@
                 </div>
                 <a class="emb-brand" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
                     <span class="emb-brand-by">Powered by</span>
-                    <img class="emb-brand-logo" src="Images/inflight.png" alt="Inflight" onerror="this.outerHTML='Inflight'">
+                    <img class="emb-brand-logo" src="${esc(brandLogo)}" alt="Inflight" onerror="this.outerHTML='Inflight'">
                 </a>
             </div>`;
     }
@@ -1649,6 +1764,15 @@
         const root = rootEl();
         root.setAttribute('data-theme', cfg.theme);
         root.classList.add('emb-mode-' + cfg.mode);
+
+        // Colour the header from the VA's brand: an explicit colour wins, else we
+        // sample the logo. applyHeaderTheme also derives contrasting text colours
+        // and picks the Inflight wordmark that stays legible on the result.
+        let brand = parseColor(cfg.brandColor);
+        if (!brand && cfg.logo) {
+            try { brand = await extractDominantColor(cfg.logo); } catch (_) { brand = null; }
+        }
+        cfg.brandLogo = applyHeaderTheme(root, brand);
 
         await tick(cfg);
         // Pause polling while the tab is hidden to save the VA's bandwidth/loads.
