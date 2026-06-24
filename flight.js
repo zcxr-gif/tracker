@@ -16878,6 +16878,11 @@ let totalDistanceNM = 0;
 
     <div class="unified-display-main-content">
             <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px; display: ${flightDataDisplay};">
+
+                <!-- VA partner HERO banner (separate from #ac-va-banner below):
+                     grand-but-soft, hidden until hydrated so it adds no empty gap. -->
+                <div id="ac-va-hero" class="va-hero-slot" style="margin: 0 0 2px; display: none;"></div>
+
                 <div class="pfd-and-location-grid">
                      <div class="pfd-main-panel">
                       <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
@@ -17299,6 +17304,18 @@ let totalDistanceNM = 0;
     if (window.InflightVaAds && typeof window.InflightVaAds.hydrateFlightBanner === 'function') {
         try {
             window.InflightVaAds.hydrateFlightBanner(windowEl, {
+                callsign: baseProps.callsign,
+                depIcao: departureIcao,
+                arrIcao: arrivalIcao
+            });
+        } catch (e) { /* ads must never break the flight window */ }
+    }
+
+    // Grand-but-soft hero banner at the top of the flight-data tab — a separate
+    // element from the #ac-va-banner card above; same VA selection.
+    if (window.InflightVaAds && typeof window.InflightVaAds.hydrateFlightHero === 'function') {
+        try {
+            window.InflightVaAds.hydrateFlightHero(windowEl, {
                 callsign: baseProps.callsign,
                 depIcao: departureIcao,
                 arrIcao: arrivalIcao

@@ -343,52 +343,50 @@
             .va-ad-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
             .va-ad-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
-            /* Flight-window hero banner: grand but soft, blends into the panel. */
-            .va-ad-feature.va-ad-feature-flight {
-                border: none; background: none; border-radius: 16px;
-            }
-            .va-ad-feature.va-ad-feature-flight:hover { transform: translateY(-1px); }
-            .va-ad-feature.va-ad-feature-flight .va-ad-dots { padding-top: 8px; }
-            .va-fb {
-                position: relative; min-height: 116px; border-radius: 16px; overflow: hidden;
+            /* Flight-window HERO banner — grand but soft, blends into the panel. */
+            .va-hero { position: relative; cursor: pointer; border-radius: 16px; transition: transform .15s ease; }
+            .va-hero:hover { transform: translateY(-1px); }
+            .va-hero-card { transition: opacity .25s ease; }
+            .va-hero-media {
+                position: relative; min-height: 120px; border-radius: 16px; overflow: hidden;
                 display: flex; align-items: flex-end;
-                background-size: cover; background-position: center;
-                background-color: rgba(56,189,248,0.06);
-                border: 1px solid rgba(255,255,255,0.07);
-                box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+                background-size: cover; background-position: center; background-color: rgba(56,189,248,0.06);
+                border: 1px solid rgba(255,255,255,0.07); box-shadow: 0 12px 32px rgba(0,0,0,0.38);
             }
-            .va-fb-nobanner { background-image: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(23,23,23,0.65)); }
-            /* Soft scrim fades the image into the dark window toward the bottom. */
-            .va-fb-scrim {
+            .va-hero-nobg { background-image: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(23,23,23,0.65)); }
+            .va-hero-scrim {
                 position: absolute; inset: 0;
-                background: linear-gradient(180deg, rgba(20,22,28,0.04) 0%, rgba(20,22,28,0.42) 52%, rgba(20,22,28,0.90) 100%);
+                background: linear-gradient(180deg, rgba(20,22,28,0.03) 0%, rgba(20,22,28,0.40) 50%, rgba(20,22,28,0.90) 100%);
             }
-            .va-fb-content {
+            .va-hero-content {
                 position: relative; z-index: 1; width: 100%;
                 display: flex; align-items: center; gap: 12px; padding: 14px 16px;
             }
-            .va-fb-logo {
-                width: 42px; height: 42px; border-radius: 11px; object-fit: cover; flex: 0 0 auto;
+            .va-hero-logo {
+                width: 44px; height: 44px; border-radius: 12px; object-fit: cover; flex: 0 0 auto;
                 background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;
-                color: #7dd3fc; box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+                color: #7dd3fc; box-shadow: 0 3px 12px rgba(0,0,0,0.5);
             }
-            .va-fb-text { min-width: 0; flex: 1; }
-            .va-fb-eyebrow {
+            .va-hero-text { min-width: 0; flex: 1; }
+            .va-hero-eyebrow {
                 font-size: 0.56rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
                 color: #7dd3fc; display: flex; gap: 6px; align-items: center; margin-bottom: 1px;
                 text-shadow: 0 1px 3px rgba(0,0,0,0.6);
             }
-            .va-fb-name {
-                font-weight: 800; color: #fff; font-size: 1.02rem; line-height: 1.15;
+            .va-hero-name {
+                font-weight: 800; color: #fff; font-size: 1.05rem; line-height: 1.15;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                text-shadow: 0 2px 6px rgba(0,0,0,0.7);
+                text-shadow: 0 2px 6px rgba(0,0,0,0.75);
             }
-            .va-fb-tag {
-                font-size: 0.72rem; color: rgba(255,255,255,0.8); margin-top: 1px;
+            .va-hero-tag {
+                font-size: 0.72rem; color: rgba(255,255,255,0.82); margin-top: 1px;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                 text-shadow: 0 1px 3px rgba(0,0,0,0.7);
             }
-            .va-fb-chev { color: rgba(255,255,255,0.55); align-self: center; flex: 0 0 auto; }
+            .va-hero-chev { color: rgba(255,255,255,0.55); align-self: center; flex: 0 0 auto; }
+            .va-hero-dots { display: flex; gap: 5px; justify-content: center; padding: 8px 0 2px; }
+            .va-hero-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.3); transition: background .2s ease, transform .2s ease; }
+            .va-hero-dot.is-active { background: #7dd3fc; transform: scale(1.3); }
 
             .va-cs-badge { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
             .va-cs-hover { margin-left: 6px; }
@@ -563,47 +561,19 @@
             </div>`;
     }
 
-    // Flight-window banner: a "grand but soft" hero card — a sizable banner
-    // image with the VA's logo/name overlaid, and a gradient scrim that melts
-    // the image into the dark flight window so it reads as part of the panel
-    // rather than a bolted-on ad. Falls back to a soft brand gradient when the
-    // VA has no banner image.
-    function flightBannerInner(ad) {
-        const logo = ad.logo
-            ? `<img class="va-fb-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
-            : `<div class="va-fb-logo"><i class="fa-solid fa-building"></i></div>`;
-        const hasBanner = !!ad.banner;
-        return `
-            <div class="va-fb${hasBanner ? '' : ' va-fb-nobanner'}"${hasBanner ? ` style="background-image:url('${esc(ad.banner)}')"` : ''}>
-                <div class="va-fb-scrim"></div>
-                <div class="va-fb-content">
-                    ${logo}
-                    <div class="va-fb-text">
-                        <div class="va-fb-eyebrow"><i class="fa-solid fa-handshake-angle"></i> Partner VA</div>
-                        <div class="va-fb-name">${esc(ad.name)}</div>
-                        ${ad.tagline ? `<div class="va-fb-tag">${esc(ad.tagline)}</div>` : ''}
-                    </div>
-                    <i class="fa-solid fa-chevron-right va-fb-chev"></i>
-                </div>
-            </div>`;
-    }
-
     // Render a (possibly rotating) feature card into a slot. When several VAs
     // share the slot we never stack them all at once — we show one card and
     // quietly cycle through them so each partner gets fair exposure. The
     // rotation timer is stored per-slot so independent slots (e.g. an airport
     // window and a flight window open at once) never clobber each other.
-    function renderAdFeature(slot, ads, opts) {
+    function renderAdFeature(slot, ads) {
         if (!slot) return;
-        const o = opts || {};
-        const cardInner = o.inner || featureCardInner;
-        const featureClass = o.featureClass ? ` ${o.featureClass}` : '';
         if (slot._adRotateTimer) { clearInterval(slot._adRotateTimer); slot._adRotateTimer = null; }
         if (!ads || !ads.length) { slot.innerHTML = ''; slot.style.display = 'none'; return; }
         slot.style.display = '';
 
         slot.innerHTML = `
-            <div class="va-ad-feature${featureClass}" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
+            <div class="va-ad-feature" data-va-ad-id="${esc(ads[0].id)}" role="button" tabindex="0">
                 <div class="va-ad-feature-card"></div>
                 ${ads.length > 1 ? '<div class="va-ad-dots"></div>' : ''}
             </div>`;
@@ -615,7 +585,7 @@
         const render = () => {
             const ad = ads[idx];
             featureEl.setAttribute('data-va-ad-id', ad.id);
-            cardEl.innerHTML = cardInner(ad);
+            cardEl.innerHTML = featureCardInner(ad);
             if (dotsEl) {
                 dotsEl.innerHTML = ads
                     .map((_, i) => `<span class="va-ad-dot${i === idx ? ' is-active' : ''}"></span>`)
@@ -684,9 +654,109 @@
                     if (hub && hub.length) { ads = hub; break; }
                 }
             }
-            renderAdFeature(slot, ads, { inner: flightBannerInner, featureClass: 'va-ad-feature-flight' });
+            renderAdFeature(slot, ads);
         } catch (e) {
             // The ads service must never break the flight window.
+            slot.innerHTML = '';
+            slot.style.display = 'none';
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Flight-window HERO banner — a separate, self-contained "grand but soft"
+    // banner that is independent of the #ac-va-banner card. It renders a
+    // sizable banner image with the VA logo/name overlaid and a gradient scrim
+    // that melts the image into the dark flight window. Own slot (#ac-va-hero),
+    // own rotation, own styles — it does not touch renderAdFeature.
+    // ---------------------------------------------------------------------
+
+    function heroInner(ad) {
+        const logo = ad.logo
+            ? `<img class="va-hero-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+            : `<div class="va-hero-logo"><i class="fa-solid fa-building"></i></div>`;
+        const hasBanner = !!ad.banner;
+        return `
+            <div class="va-hero-media${hasBanner ? '' : ' va-hero-nobg'}"${hasBanner ? ` style="background-image:url('${esc(ad.banner)}')"` : ''}>
+                <div class="va-hero-scrim"></div>
+                <div class="va-hero-content">
+                    ${logo}
+                    <div class="va-hero-text">
+                        <div class="va-hero-eyebrow"><i class="fa-solid fa-handshake-angle"></i> Partner VA</div>
+                        <div class="va-hero-name">${esc(ad.name)}</div>
+                        ${ad.tagline ? `<div class="va-hero-tag">${esc(ad.tagline)}</div>` : ''}
+                    </div>
+                    <i class="fa-solid fa-chevron-right va-hero-chev"></i>
+                </div>
+            </div>`;
+    }
+
+    // Render the hero into its slot, rotating softly through multiple ads.
+    // Independent of renderAdFeature so the old banner is never affected.
+    function renderHero(slot, ads) {
+        if (!slot) return;
+        if (slot._heroTimer) { clearInterval(slot._heroTimer); slot._heroTimer = null; }
+        if (!ads || !ads.length) { slot.innerHTML = ''; slot.style.display = 'none'; return; }
+        slot.style.display = '';
+        slot.innerHTML = `
+            <div class="va-hero" role="button" tabindex="0" data-va-ad-id="${esc(ads[0].id)}">
+                <div class="va-hero-card"></div>
+                ${ads.length > 1 ? '<div class="va-hero-dots"></div>' : ''}
+            </div>`;
+        const heroEl = slot.querySelector('.va-hero');
+        const cardEl = slot.querySelector('.va-hero-card');
+        const dotsEl = slot.querySelector('.va-hero-dots');
+
+        let idx = 0;
+        const render = () => {
+            const ad = ads[idx];
+            heroEl.setAttribute('data-va-ad-id', ad.id);
+            cardEl.innerHTML = heroInner(ad);
+            if (dotsEl) {
+                dotsEl.innerHTML = ads
+                    .map((_, i) => `<span class="va-hero-dot${i === idx ? ' is-active' : ''}"></span>`)
+                    .join('');
+            }
+        };
+        render();
+        heroEl.addEventListener('click', () => openPartners(heroEl.getAttribute('data-va-ad-id')));
+        heroEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPartners(heroEl.getAttribute('data-va-ad-id')); }
+        });
+
+        if (ads.length > 1) {
+            slot._heroTimer = setInterval(() => {
+                if (!document.body.contains(cardEl)) { clearInterval(slot._heroTimer); slot._heroTimer = null; return; }
+                cardEl.style.opacity = '0';
+                setTimeout(() => { idx = (idx + 1) % ads.length; render(); cardEl.style.opacity = '1'; }, 220);
+            }, 6000);
+        }
+    }
+
+    // Hydrate the hero slot (#ac-va-hero): prefer the flight's own partner VA,
+    // fall back to arrival/departure hub partners — same selection as the card.
+    async function hydrateFlightHero(container, opts) {
+        injectStyles();
+        const root = container || document;
+        const slot = root.querySelector ? root.querySelector('#ac-va-hero') : null;
+        if (!slot) return;
+        const o = opts || {};
+        try {
+            await loadDirectory();
+            let ads = [];
+            const own = matchCallsign(o.callsign);
+            if (own) {
+                ads = [own];
+            } else {
+                const codes = [o.arrIcao, o.depIcao]
+                    .map((c) => String(c || '').trim().toUpperCase())
+                    .filter(Boolean);
+                for (const code of codes) {
+                    const hub = await banner(code, { limit: 6 });
+                    if (hub && hub.length) { ads = hub; break; }
+                }
+            }
+            renderHero(slot, ads);
+        } catch (e) {
             slot.innerHTML = '';
             slot.style.display = 'none';
         }
@@ -908,6 +978,7 @@
         get,
         hydrateAirportBanner,
         hydrateFlightBanner,
+        hydrateFlightHero,
         openPartners,
         closePartners,
         matchCallsign,
