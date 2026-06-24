@@ -242,16 +242,14 @@
         if (!va) return false;
         const lt = lastToken(callsign);
         if (!lt) return false;
-        const tag = vaTag(va);
-        // When the VA declares its tag in its own callsign (e.g. "Ocean XXVA"),
-        // require the flight to carry exactly that tag.
-        if (tag) return lt.length > tag.length && lt.endsWith(tag);
-        // Otherwise the VA's stored callsign carries no tag template, so we
-        // can't know the exact tag — treat any alphabetic suffix appended to
-        // the flight number as the member tag ("001VA"/"12V" → member,
-        // "500" → not). The digit requirement keeps plain airline flight
-        // numbers from counting.
-        return /[0-9][A-Z]+$/.test(lt);
+        // Use the VA's declared tag when it has one (e.g. "Ocean XXVA" → "VA");
+        // otherwise fall back to the standard "VA" suffix that denotes a virtual
+        // airline member. We must match a specific tag, not just "any trailing
+        // letters" — otherwise an unrelated suffix like "Air Canada 108AC" (the
+        // pilot's own "AC", not a membership tag) would wrongly count as a
+        // member. "Air Canada 001VA" → member; "108AC"/"500" → not.
+        const tag = vaTag(va) || 'VA';
+        return lt.length > tag.length && lt.endsWith(tag);
     }
 
     // All partner ads hubbed at an airport (from the cached roster — no extra
