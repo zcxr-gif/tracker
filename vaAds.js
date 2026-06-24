@@ -376,29 +376,71 @@
                 }
                 .va-partners-head { padding: 6px 20px 12px; touch-action: none; }
                 .va-partners-head h2 { font-size: 1.7rem; }
-                .va-partners-body { gap: 8px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
-                /* Compact list rows — drop the big banner so many more VAs fit
-                   on screen (logo + name + tagline only). */
-                .va-ad-card-banner { display: none; }
-                .va-ad-card { border-radius: 12px; }
-                .va-ad-card-body { padding: 10px 12px; align-items: center; gap: 11px; }
-                .va-ad-card-body .va-ad-logo { width: 38px; height: 38px; }
-                .va-ad-card-title { font-size: 0.9rem; }
-                .va-ad-card-sub { margin-top: 1px; }
-                .va-ad-chips { margin-top: 5px; }
+                .va-partners-body { gap: 10px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
+                /* Keep the banner hero on mobile too (slightly shorter) instead of
+                   the old cramped bars. Details still live in the dropdown. The
+                   extra .va-partners-body qualifier lifts specificity above the
+                   base .va-ad-card-* rules that follow this block in source. */
+                .va-partners-body .va-ad-card-banner { height: 116px; }
+                .va-partners-body .va-ad-card-title { font-size: 0.95rem; }
             }
             .va-ad-card {
-                border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden;
-                background: rgba(255,255,255,0.03); cursor: pointer; transition: border-color .15s ease, transform .15s ease;
+                border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden;
+                background: rgba(255,255,255,0.03); transition: border-color .15s ease;
             }
-            .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
-            .va-ad-card-banner { height: 92px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
+            .va-ad-card:hover { border-color: rgba(56,189,248,0.4); }
+            .va-ad-card.is-open { border-color: rgba(56,189,248,0.45); }
+
+            /* Banner is the hero of every partner row — the list reads as a stack
+               of full-width banners instead of cramped logo+text bars. */
+            .va-ad-card-banner {
+                position: relative; height: 128px; cursor: pointer;
+                background-size: cover; background-position: center;
+                background-color: rgba(56,189,248,0.08);
+                display: flex; align-items: flex-end;
+            }
+            .va-ad-card-banner.is-placeholder {
+                background-image: linear-gradient(135deg, rgba(56,189,248,0.28), rgba(23,23,23,0.65));
+            }
+            .va-ad-card-banner::after {
+                content: ''; position: absolute; inset: 0; pointer-events: none;
+                background: linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.12) 58%, rgba(0,0,0,0));
+            }
+            .va-ad-card-headline {
+                position: relative; z-index: 1; width: 100%;
+                display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+            }
+            .va-ad-card-title {
+                flex: 1; min-width: 0; color: #fff; font-weight: 800; font-size: 1rem;
+                line-height: 1.2; text-shadow: 0 1px 4px rgba(0,0,0,0.85);
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            }
+            .va-ad-card-toggle {
+                flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+                background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.22);
+                color: #fff; display: grid; place-items: center; cursor: pointer; font-size: 0.8rem;
+                transition: transform .25s ease, background .15s ease;
+            }
+            .va-ad-card-toggle:hover { background: rgba(0,0,0,0.7); }
+            .va-ad-card.is-open .va-ad-card-toggle { transform: rotate(180deg); }
+
+            /* Collapsible drawer — the small logo + details "pop out" on expand.
+               grid-template-rows 0fr→1fr animates height without a fixed max. */
+            .va-ad-card-drawer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
+            .va-ad-card.is-open .va-ad-card-drawer { grid-template-rows: 1fr; }
+            .va-ad-card-drawer-inner { overflow: hidden; min-height: 0; }
             .va-ad-card-body { padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
-            .va-ad-card-body .va-ad-logo { width: 40px; height: 40px; }
-            .va-ad-card-title { font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .va-ad-card-body .va-ad-logo { width: 44px; height: 44px; }
             .va-ad-card-sub { font-size: 0.78rem; color: rgba(255,255,255,0.6); margin-top: 2px; }
             .va-ad-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
             .va-ad-chip { font-size: 0.62rem; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); border-radius: 999px; padding: 2px 8px; }
+            .va-ad-card-detail {
+                margin-top: 10px; background: rgba(56,189,248,0.15); color: #7dd3fc;
+                border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; cursor: pointer;
+                font-weight: 700; font-size: 0.78rem; padding: 6px 12px;
+                display: inline-flex; align-items: center; gap: 7px;
+            }
+            .va-ad-card-detail:hover { background: rgba(56,189,248,0.25); }
 
             .va-ad-detail-banner { height: 140px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); border-radius: 14px; }
             .va-ad-detail h3 { color: #fff; font-size: 1.2rem; font-weight: 800; margin: 14px 0 4px; }
@@ -624,6 +666,10 @@
         });
     }
 
+    // A partner row is now a full-width banner hero. The VA name (and any
+    // pills) sit on a gradient scrim over the banner; the logo + meta that used
+    // to be crammed into a one-line bar live in an optional dropdown drawer that
+    // the user expands by tapping the banner / chevron.
     function cardHTML(ad) {
         const logo = ad.logo
             ? `<img class="va-ad-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
@@ -633,24 +679,52 @@
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
         const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
         const chips = (ad.tags || []).slice(0, 4).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
+        const bannerStyle = ad.banner ? ` style="background-image:url('${esc(ad.banner)}')"` : '';
+        const bannerCls = ad.banner ? 'va-ad-card-banner' : 'va-ad-card-banner is-placeholder';
         return `
-            <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
-                ${ad.banner ? `<div class="va-ad-card-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
-                <div class="va-ad-card-body">
-                    ${logo}
-                    <div style="min-width:0; flex:1;">
-                        <div class="va-ad-card-title">${esc(ad.name)} ${pills.join(' ')}</div>
-                        ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
-                        ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
-                        ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
+            <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}">
+                <div class="${bannerCls}"${bannerStyle} role="button" tabindex="0" aria-expanded="false">
+                    <div class="va-ad-card-headline">
+                        <span class="va-ad-card-title">${esc(ad.name)} ${pills.join(' ')}</span>
+                        <button class="va-ad-card-toggle" type="button" aria-label="Show details" title="Show details">
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="va-ad-card-drawer">
+                    <div class="va-ad-card-drawer-inner">
+                        <div class="va-ad-card-body">
+                            ${logo}
+                            <div style="min-width:0; flex:1;">
+                                ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
+                                ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
+                                ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
+                                <button class="va-ad-card-detail" type="button">View partner <i class="fa-solid fa-arrow-right"></i></button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>`;
     }
 
     function bindCards(body) {
-        body.querySelectorAll('[data-va-ad-id]').forEach((el) => {
-            el.addEventListener('click', () => showDetail(el.getAttribute('data-va-ad-id')));
+        body.querySelectorAll('.va-ad-card').forEach((card) => {
+            const id = card.getAttribute('data-va-ad-id');
+            const banner = card.querySelector('.va-ad-card-banner');
+            const toggleOpen = () => {
+                const open = card.classList.toggle('is-open');
+                if (banner) banner.setAttribute('aria-expanded', open ? 'true' : 'false');
+            };
+            if (banner) {
+                // The chevron lives inside the banner, so a tap anywhere on the
+                // banner just opens/closes the dropdown.
+                banner.addEventListener('click', (e) => { e.preventDefault(); toggleOpen(); });
+                banner.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(); }
+                });
+            }
+            const detail = card.querySelector('.va-ad-card-detail');
+            if (detail) detail.addEventListener('click', (e) => { e.stopPropagation(); showDetail(id); });
         });
     }
 
