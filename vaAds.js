@@ -647,16 +647,9 @@
     // ---------------------------------------------------------------------
 
     function heroInner(ad) {
-        // Just the banner image — no overlay/text. When a VA has no banner
-        // image, fall back to a soft gradient with the logo centred (still no
-        // text), so the strip never looks broken.
-        if (ad.banner) {
-            return `<div class="va-hero-media" style="background-image:url('${esc(ad.banner)}')"></div>`;
-        }
-        const logo = ad.logo
-            ? `<img class="va-hero-fallback-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
-            : `<i class="fa-solid fa-handshake-angle"></i>`;
-        return `<div class="va-hero-media va-hero-nobg">${logo}</div>`;
+        // Just the banner image — no overlay/text. Only called for ads that
+        // have a banner (hydrateFlightHero filters out banner-less VAs).
+        return `<div class="va-hero-media" style="background-image:url('${esc(ad.banner)}')"></div>`;
     }
 
     // Render the hero into its slot, rotating softly through multiple ads.
@@ -724,6 +717,11 @@
                     if (hub && hub.length) { ads = hub; break; }
                 }
             }
+            // This hero is the banner image only — so only show VAs that
+            // actually have one. No banner image → render nothing (rather than
+            // a dark placeholder box). The #ac-va-banner card below still
+            // covers banner-less VAs.
+            ads = (ads || []).filter((a) => a && a.banner);
             renderHero(slot, ads);
         } catch (e) {
             slot.innerHTML = '';
