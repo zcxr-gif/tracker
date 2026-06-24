@@ -185,7 +185,7 @@ function applyTrafficHighlighting() {
 }
 
 function getIconImageExpression() {
-    const cat = ['coalesce', ['get', 'category'], 'B737'];
+    const cat = ['coalesce', ['get', 'category'], 'B777'];
 
     // mapFilters lives inside the DOMContentLoaded closure; this helper is at
     // module scope and only runs after init, so read it off window.
@@ -246,7 +246,7 @@ function planeNeedsTintExpr() {
 // icon-image for the SDF/tinted layer: the recolorable silhouette for the
 // planes that need a color, '' (nothing) for everyone else.
 function getTintedIconImageExpression() {
-    const cat = ['coalesce', ['get', 'category'], 'B737'];
+    const cat = ['coalesce', ['get', 'category'], 'B777'];
     const sdf = ['concat', 'icon-', cat];
     if (tintsAllAircraft()) return sdf;                 // colored mode: tint all
     return ['case', planeNeedsTintExpr(), sdf, ''];     // white mode: only the few
@@ -255,14 +255,14 @@ function getTintedIconImageExpression() {
 // icon-image for the non-SDF/natural layer: the full-detail sprite for the
 // un-highlighted bulk, '' (nothing) for the planes the SDF layer owns.
 function getNaturalIconImageExpression() {
-    const cat = ['coalesce', ['get', 'category'], 'B737'];
+    const cat = ['coalesce', ['get', 'category'], 'B777'];
     const nat = ['concat', 'icon-', cat, '-nat'];
     if (tintsAllAircraft()) return '';                  // colored mode: SDF owns all
     return ['case', planeNeedsTintExpr(), '', nat];     // white mode: bulk only
 }
 
 function getHoverIconImageExpression() {
-    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737'], '_S'];
+    return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777'], '_S'];
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -8371,13 +8371,15 @@ async function fetchAirportsData() {
     }
 
 
+// Generic plane used whenever we don't know the aircraft type — e.g. when the
+// API isn't returning aircraft/livery data. B777 exists in the sprite sheet
+// (icon-B777 / icon-B777-nat / icon-B777_S) so the flight still drops a plane
+// icon instead of rendering blank. ('default' was used before, but there is no
+// 'icon-default' sprite, so those flights showed nothing.)
+const GENERIC_AIRCRAFT_CATEGORY = 'B777';
+
 function getAircraftCategory(aircraftName) {
-    // When the API gives us no aircraft type, fall back to the generic B737
-    // silhouette (the default that exists in the sprite sheet) so the flight
-    // still gets a plane icon instead of a missing-image blank. 'default' was
-    // returned here previously, but there is no 'icon-default' sprite, so those
-    // flights rendered with no icon at all.
-    if (!aircraftName) return 'B737';
+    if (!aircraftName) return GENERIC_AIRCRAFT_CATEGORY;
     const name = aircraftName.toUpperCase();
 
     // 1. Military / Fighters
@@ -8407,7 +8409,7 @@ function getAircraftCategory(aircraftName) {
     if (['C172', 'SR22', 'CESSNA', 'SINGLEPROP'].some(ac => name.includes(ac))) return 'SINGLEPROP';
     if (['EUROCOPTER', 'H60', 'H64', 'CHINOOK', 'LYNX'].some(ac => name.includes(ac))) return 'EUROCOPTER';
 
-    return 'B737'; // Default fallback that exists in your sprite sheet
+    return GENERIC_AIRCRAFT_CATEGORY; // Unrecognised type → generic plane
 }
 
 // Expose for the ATC replay module (atcReplay.js) so historical flights reuse
@@ -11876,7 +11878,7 @@ function setupAircraftWindowEvents() {
                         callsign: props.callsign,
                         depIcao: props.departureIcao,
                         arrIcao: props.arrivalIcao,
-                        category: props.category || 'B737',
+                        category: props.category || 'B777',
                         aircraftName: (typeof props.aircraft === 'string'
                             ? (() => { try { return JSON.parse(props.aircraft).aircraftName; } catch { return ''; } })()
                             : props.aircraft?.aircraftName) || ''
