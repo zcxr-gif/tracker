@@ -7769,36 +7769,60 @@ async function toggleWeatherLayer(show) {
 }
 
 /**
- * --- Cloud Cover Layer ---
- * Free, key-less infrared-satellite cloud imagery from RainViewer (same API
- * already used for the precip radar). Clamped maxzoom for smooth upscaling and
- * drawn beneath the aircraft layer so planes stay readable.
+ * --- NASA GIBS raster overlays (free, key-less) ---
+ * GIBS (Global Imagery Browse Services) powers NASA Worldview and serves
+ * standard XYZ raster tiles in Web-Mercator with no API key. We use it for
+ * several overlays that have no good key-less tile source otherwise.
+ *
+ * Tiles are images, so they aren't subject to CORS for display. Each product
+ * has a max native zoom (`level`); beyond it Mapbox stretches smoothly.
  */
-async function toggleCloudLayer(show) {
+const GIBS_OVERLAYS = {
+    clouds: {
+        product: 'MODIS_Terra_CorrectedReflectance_TrueColor',
+        ext: 'jpg', level: 9, opacity: 0.6, daysAgo: 1
+    },
+    snow: {
+        product: 'MODIS_Terra_NDSI_Snow_Cover',
+        ext: 'png', level: 8, opacity: 0.8, daysAgo: 1
+    },
+    fires: {
+        product: 'MODIS_Terra_Thermal_Anomalies_All',
+        ext: 'png', level: 7, opacity: 0.9, daysAgo: 1
+    },
+    aerosol: {
+        product: 'MODIS_Combined_Value_Added_AOD',
+        ext: 'png', level: 6, opacity: 0.65, daysAgo: 1
+    }
+};
+const gibsLayerAdded = {};
+
+// Most-recent reliably-complete UTC date for a daily GIBS product.
+function gibsDateUTC(daysAgo) {
+    const d = new Date(Date.now() - (daysAgo || 0) * 86400000);
+    return d.toISOString().slice(0, 10);
+}
+
+function toggleGibsLayer(key, show) {
     if (!sectorOpsMap) return;
+    const cfg = GIBS_OVERLAYS[key];
+    if (!cfg) return;
 
-    const SOURCE_ID = 'rainviewer-satellite-source';
-    const LAYER_ID = 'rainviewer-satellite-layer';
+    const SOURCE_ID = `gibs-${key}-source`;
+    const LAYER_ID = `gibs-${key}-layer`;
 
-    if (show && !isCloudLayerAdded) {
+    if (show && !gibsLayerAdded[key]) {
         try {
-            const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-            const data = await res.json();
-            const host = data.host;
-            const frames = data.satellite && data.satellite.infrared;
-            if (!frames || !frames.length) {
-                showNotification('Cloud imagery is temporarily unavailable.', 'info');
-                return;
-            }
-            const path = frames[frames.length - 1].path;
-            // 512 = retina, colour scheme 0 (IR), 0_0 = smooth, no snow.
-            const tileUrl = `${host}${path}/512/{z}/{x}/{y}/0/0_0.png`;
+            const date = gibsDateUTC(cfg.daysAgo);
+            const tileUrl = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/` +
+                `${cfg.product}/default/${date}/GoogleMapsCompatible_Level${cfg.level}/` +
+                `{z}/{y}/{x}.${cfg.ext}`;
 
             sectorOpsMap.addSource(SOURCE_ID, {
                 'type': 'raster',
                 'tiles': [tileUrl],
-                'tileSize': 512,
-                'maxzoom': 6   // satellite is coarse; stretch smoothly past z6
+                'tileSize': 256,
+                'maxzoom': cfg.level
             });
 
             const beneath = sectorOpsMap.getLayer('sector-ops-live-flights-layer')
@@ -7808,24 +7832,34 @@ async function toggleCloudLayer(show) {
                 'type': 'raster',
                 'source': SOURCE_ID,
                 'paint': {
-                    'raster-opacity': 0.55,
+                    'raster-opacity': cfg.opacity,
                     'raster-resampling': 'linear',
                     'raster-fade-duration': 0
                 }
             }, beneath);
 
-            isCloudLayerAdded = true;
-            console.log('Cloud (IR satellite) layer added.');
+            gibsLayerAdded[key] = true;
+            console.log(`GIBS ${key} layer added (${cfg.product}).`);
         } catch (error) {
-            console.error('Failed to init cloud layer:', error);
-            showNotification('Could not load cloud data.', 'error');
+            console.error(`Failed to init GIBS ${key} layer:`, error);
+            showNotification('Could not load that weather layer.', 'error');
         }
-    } else if (isCloudLayerAdded) {
+    } else if (gibsLayerAdded[key]) {
         const visibility = show ? 'visible' : 'none';
         if (sectorOpsMap.getLayer(LAYER_ID)) {
             sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', visibility);
         }
     }
+}
+
+/**
+ * --- Cloud Cover Layer ---
+ * NASA GIBS true-colour satellite imagery (clouds read as white). Replaces the
+ * old RainViewer satellite feed, which became patron-only for free users.
+ */
+function toggleCloudLayer(show) {
+    toggleGibsLayer('clouds', show);
+    isCloudLayerAdded = gibsLayerAdded.clouds || isCloudLayerAdded;
 }
 
 /**
@@ -7852,6 +7886,119 @@ function toggleWindLayer(show) {
         console.log('Animated wind layer started.');
     } else if (windParticleLayer) {
         windParticleLayer.stop();
+    }
+}
+
+/**
+ * --- Weather Inspector (tap-for-forecast) ---
+ * When enabled, tapping anywhere on the map fetches a rich point forecast from
+ * the free, key-less Open-Meteo API and shows it in a popup.
+ */
+let weatherInspectorOn = false;
+let weatherInspectorHandler = null;
+
+const WMO_DESC = {
+    0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Rime fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+    56: 'Freezing drizzle', 57: 'Freezing drizzle', 61: 'Light rain', 63: 'Rain',
+    65: 'Heavy rain', 66: 'Freezing rain', 67: 'Freezing rain', 71: 'Light snow',
+    73: 'Snow', 75: 'Heavy snow', 77: 'Snow grains', 80: 'Light showers',
+    81: 'Showers', 82: 'Violent showers', 85: 'Snow showers', 86: 'Snow showers',
+    95: 'Thunderstorm', 96: 'Thunderstorm w/ hail', 99: 'Thunderstorm w/ hail'
+};
+
+function degToCompass(deg) {
+    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return dirs[Math.round(((deg % 360) / 22.5)) % 16];
+}
+
+function toggleWeatherInspector(show) {
+    if (!sectorOpsMap) return;
+    if (show && !weatherInspectorOn) {
+        weatherInspectorOn = true;
+        sectorOpsMap.getCanvas().style.cursor = 'crosshair';
+        weatherInspectorHandler = (e) => {
+            // Ignore taps that land on interactive features (aircraft / airports).
+            const hits = sectorOpsMap.queryRenderedFeatures(e.point);
+            const onFeature = hits.some(f => f.layer && /flight|airport|marker|sector-ops/i.test(f.layer.id || ''));
+            if (onFeature) return;
+            showWeatherInspectorPopup(e.lngLat);
+        };
+        sectorOpsMap.on('click', weatherInspectorHandler);
+        showNotification('Tap anywhere on the map for a forecast.', 'info');
+    } else if (!show && weatherInspectorOn) {
+        weatherInspectorOn = false;
+        sectorOpsMap.getCanvas().style.cursor = '';
+        if (weatherInspectorHandler) sectorOpsMap.off('click', weatherInspectorHandler);
+        weatherInspectorHandler = null;
+    }
+}
+
+async function showWeatherInspectorPopup(lngLat) {
+    const lat = lngLat.lat.toFixed(3);
+    const lon = lngLat.lng.toFixed(3);
+    const popup = new mapboxgl.Popup({ maxWidth: '290px', closeButton: true })
+        .setLngLat(lngLat)
+        .setHTML('<div style="color:#222;padding:8px;font:0.85rem system-ui;">Loading forecast…</div>')
+        .addTo(sectorOpsMap);
+
+    try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+            `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,` +
+            `weather_code,cloud_cover,surface_pressure,visibility,wind_speed_10m,` +
+            `wind_direction_10m,wind_gusts_10m` +
+            `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+            `&timezone=auto&wind_speed_unit=kn&forecast_days=3`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
+        const c = d.current || {};
+        const desc = WMO_DESC[c.weather_code] != null ? WMO_DESC[c.weather_code] : '—';
+        const visKm = (c.visibility != null) ? (c.visibility / 1000).toFixed(0) + ' km' : '—';
+        const wind = (c.wind_speed_10m != null)
+            ? `${Math.round(c.wind_speed_10m)} kt ${degToCompass(c.wind_direction_10m)}` +
+              (c.wind_gusts_10m != null ? ` (G${Math.round(c.wind_gusts_10m)})` : '')
+            : '—';
+
+        let days = '';
+        const dd = d.daily;
+        if (dd && dd.time) {
+            for (let i = 0; i < dd.time.length; i++) {
+                const dname = new Date(dd.time[i]).toLocaleDateString(undefined, { weekday: 'short' });
+                days += `<tr>
+                    <td style="padding:2px 6px;">${dname}</td>
+                    <td style="padding:2px 6px;color:#888;">${WMO_DESC[dd.weather_code[i]] || ''}</td>
+                    <td style="padding:2px 6px;text-align:right;">${Math.round(dd.temperature_2m_min[i])}° / <strong>${Math.round(dd.temperature_2m_max[i])}°</strong></td>
+                    <td style="padding:2px 6px;text-align:right;color:#1c86d6;">${dd.precipitation_probability_max[i] != null ? dd.precipitation_probability_max[i] + '%' : ''}</td>
+                </tr>`;
+            }
+        }
+
+        const row = (label, val) =>
+            `<div style="display:flex;justify-content:space-between;gap:12px;padding:1px 0;">
+                <span style="color:#666;">${label}</span><span><strong>${val}</strong></span></div>`;
+
+        popup.setHTML(`
+            <div style="color:#222;padding:8px 10px;font:0.82rem system-ui;min-width:230px;">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid #eee;padding-bottom:6px;margin-bottom:6px;">
+                    <span style="font-size:1.6rem;font-weight:700;">${c.temperature_2m != null ? Math.round(c.temperature_2m) + '°C' : '—'}</span>
+                    <span style="text-align:right;color:#555;">${desc}</span>
+                </div>
+                ${row('Feels like', c.apparent_temperature != null ? Math.round(c.apparent_temperature) + '°C' : '—')}
+                ${row('Wind', wind)}
+                ${row('Humidity', c.relative_humidity_2m != null ? c.relative_humidity_2m + '%' : '—')}
+                ${row('Cloud cover', c.cloud_cover != null ? c.cloud_cover + '%' : '—')}
+                ${row('Pressure', c.surface_pressure != null ? Math.round(c.surface_pressure) + ' hPa' : '—')}
+                ${row('Visibility', visKm)}
+                ${row('Precip', c.precipitation != null ? c.precipitation + ' mm' : '—')}
+                ${days ? `<table style="width:100%;margin-top:7px;border-top:1px solid #eee;border-collapse:collapse;font-size:0.78rem;">${days}</table>` : ''}
+                <div style="margin-top:6px;color:#aaa;font-size:0.68rem;">${lat}, ${lon} · Open-Meteo</div>
+            </div>
+        `);
+    } catch (err) {
+        console.warn('Weather inspector fetch failed:', err.message);
+        popup.setHTML('<div style="color:#222;padding:8px;font:0.85rem system-ui;">Forecast unavailable for this spot.</div>');
     }
 }
 
@@ -14925,19 +15072,47 @@ const AtcBoardUI = {
                                 </label>
                             </li>
                             <li class="weather-toggle-item">
-                                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
+                                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind (animated)</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="weather-toggle-wind">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-snowflake"></i> Snow &amp; Ice</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-snow">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-fire"></i> Active Fires</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-fires">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-smog"></i> Dust &amp; Aerosol</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-aerosol">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-hand-pointer"></i> Tap for Forecast</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-inspector">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </li>
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> Layers use free public sources —
-                            rain &amp; cloud imagery from RainViewer, animated wind
-                            from Open-Meteo, SIGMETs from NOAA. Data is indicative,
-                            not for operational use.
+                            <strong>Note:</strong> Free public sources — rain radar
+                            (RainViewer), clouds / snow / fires / aerosol (NASA GIBS),
+                            animated wind &amp; tap-for-forecast (Open-Meteo), hazards
+                            (NOAA). Indicative only, not for operational use.
                         </div>
                     </div>
                 </div>
@@ -15457,13 +15632,17 @@ function onAtcDataReceived(newAtcData) {
             toggleWeatherLayer(true);
         }
 
-        // 5. Re-apply Clouds
-        if (document.getElementById('weather-toggle-clouds')?.checked) {
-            isCloudLayerAdded = false; // Force re-creation
-            toggleCloudLayer(true);
-        }
+        // 5. Re-apply GIBS overlays (clouds / snow / fires / aerosol).
+        // setStyle drops custom sources, so clear the added-flags and re-add.
+        ['clouds', 'snow', 'fires', 'aerosol'].forEach((key) => {
+            gibsLayerAdded[key] = false;
+            if (document.getElementById(`weather-toggle-${key}`)?.checked) {
+                toggleGibsLayer(key, true);
+            }
+        });
+        isCloudLayerAdded = false;
 
-        // 6. Re-apply Wind
+        // 6. Re-apply Wind (canvas overlay survives setStyle, just ensure running)
         if (document.getElementById('weather-toggle-wind')?.checked) {
             isWindLayerAdded = false; // Force re-creation
             toggleWindLayer(true);
@@ -19445,8 +19624,20 @@ function processRawPilotData(gradeInfo) {
             if (typeof toggleWindLayer === 'function') toggleWindLayer(isActive);
             else showNotification("Wind layer currently unavailable", "info");
             break;
+        case 'snow':
+            toggleGibsLayer('snow', isActive);
+            break;
+        case 'fires':
+            toggleGibsLayer('fires', isActive);
+            break;
+        case 'aerosol':
+            toggleGibsLayer('aerosol', isActive);
+            break;
+        case 'inspector':
+            toggleWeatherInspector(isActive);
+            break;
     }
-    
+
     // Optional: Keep the old toolbar button synced if it exists
     updateWeatherToolbarButtonState(); 
 });
@@ -19490,8 +19681,20 @@ function processRawPilotData(gradeInfo) {
                     case 'weather-toggle-wind':
                         toggleWindLayer(isChecked);
                         break;
+                    case 'weather-toggle-snow':
+                        toggleGibsLayer('snow', isChecked);
+                        break;
+                    case 'weather-toggle-fires':
+                        toggleGibsLayer('fires', isChecked);
+                        break;
+                    case 'weather-toggle-aerosol':
+                        toggleGibsLayer('aerosol', isChecked);
+                        break;
+                    case 'weather-toggle-inspector':
+                        toggleWeatherInspector(isChecked);
+                        break;
                 }
-                
+
                 // Update the toolbar button's active state
                 // This assumes updateWeatherToolbarButtonState() checks all boxes including the new SIGMET one
                 const openWeatherBtn = document.getElementById('open-weather-settings-btn');
