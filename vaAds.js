@@ -78,11 +78,15 @@
     }
 
     // True when a callsign token is a flight-number / placeholder / tag rather
-    // than part of the airline name: "001", "001VA", "XXVA"/"XX" (placeholder),
-    // or a short standalone tag word like "VA". Airline-name words ("CANADA",
-    // "AIRWAYS") are kept.
+    // than part of the airline name: "001", "001VA", "XXVA"/"##UA"/"XX"
+    // (placeholders), or a short standalone tag word like "VA". The flight
+    // number may be written as real digits OR as a placeholder run of "X" or
+    // "#" — VAs commonly register a template callsign like "United ##UA", and
+    // the "##" must be recognised as the number slot so the token is dropped
+    // and the code reduces to the airline name "UNITED". Airline-name words
+    // ("CANADA", "AIRWAYS") are kept.
     function isFlightNumberToken(t) {
-        return /[0-9]/.test(t) || /^X+[A-Z]*$/.test(t) || /^[A-Z]{1,3}$/.test(t);
+        return /[0-9]/.test(t) || /^[X#]+[A-Z]*$/.test(t) || /^[A-Z]{1,3}$/.test(t);
     }
 
     // The VA's matching code — the airline-name portion of its callsign,
@@ -260,13 +264,14 @@
     // number, derived from the VA's declared callsign. The tag is the trailing
     // letters of the last token after its number/placeholder run:
     //   "Ocean XXVA"        → "VA"   (XX is the flight-number placeholder)
+    //   "United ##UA"       → "UA"   (## is the flight-number placeholder)
     //   "Air Canada 001VA"  → "VA"
     //   "Delta VA"          → "VA"   (tag declared as its own word)
     //   "Ocean"             → ""     (no tag declared — membership unknowable)
     function vaTag(ad) {
         const lt = lastToken(ad && ad.callsign);
         if (!lt) return '';
-        const m = lt.match(/^[0-9X]+([A-Z]+)$/);   // <number/placeholder><TAG>
+        const m = lt.match(/^[0-9X#]+([A-Z]+)$/);  // <number/placeholder><TAG>
         if (m) return m[1];
         // Tag declared as a separate short word (and not the airline name itself).
         const parts = String(ad.callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
