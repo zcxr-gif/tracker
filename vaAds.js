@@ -335,6 +335,18 @@
             }
             .va-ad-feature:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-1px); }
             .va-ad-feature-card { transition: opacity .25s ease; }
+
+            /* Full, uncropped VA banner — the whole artwork the VA uploaded,
+               sized to the slot width at its natural aspect ratio rather than
+               clipped into a strip. Shown in addition to the compact ad card. */
+            .va-ad-full {
+                position: relative; cursor: pointer; overflow: hidden; border-radius: 14px;
+                border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03);
+                transition: border-color .15s ease, transform .15s ease;
+            }
+            .va-ad-full:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-1px); }
+            .va-ad-full-img { display: block; width: 100%; height: auto; transition: opacity .25s ease; }
+            .va-ad-full .va-ad-dots { padding-top: 8px; }
             .va-ad-feature-banner { height: 84px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
             .va-ad-feature-body { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; }
             .va-ad-feature-meta { min-width: 0; flex: 1; }
@@ -569,6 +581,69 @@
         }
     }
 
+    // Render the full, uncropped banner artwork for one (or several rotating)
+    // VAs into a slot. Unlike renderAdFeature this shows just the banner image
+    // at its natural aspect ratio — nothing is clipped — and clicking it opens
+    // that partner. Ads without a banner image are skipped; the slot hides
+    // entirely when none of them have one. The rotation timer is stored per-slot
+    // so independent slots never clobber each other.
+    function renderFullBanner(slot, ads) {
+        if (!slot) return;
+        if (slot._adRotateTimer) { clearInterval(slot._adRotateTimer); slot._adRotateTimer = null; }
+        const withBanner = (ads || []).filter((ad) => ad && ad.banner);
+        if (!withBanner.length) { slot.innerHTML = ''; slot.style.display = 'none'; return; }
+        slot.style.display = '';
+
+        slot.innerHTML = `
+            <div class="va-ad-full" data-va-ad-id="${esc(withBanner[0].id)}" role="button" tabindex="0">
+                <img class="va-ad-full-img" src="" alt="">
+                ${withBanner.length > 1 ? '<div class="va-ad-dots"></div>' : ''}
+            </div>`;
+        const fullEl = slot.querySelector('.va-ad-full');
+        const imgEl = slot.querySelector('.va-ad-full-img');
+        const dotsEl = slot.querySelector('.va-ad-dots');
+
+        let idx = 0;
+        const render = () => {
+            const ad = withBanner[idx];
+            fullEl.setAttribute('data-va-ad-id', ad.id);
+            fullEl.setAttribute('title', `View ${ad.name}`);
+            imgEl.src = ad.banner;
+            imgEl.alt = `${ad.name} banner`;
+            if (dotsEl) {
+                dotsEl.innerHTML = withBanner
+                    .map((_, i) => `<span class="va-ad-dot${i === idx ? ' is-active' : ''}"></span>`)
+                    .join('');
+            }
+        };
+        render();
+
+        // A broken banner URL collapses the slot rather than leaving a gap.
+        imgEl.addEventListener('error', () => {
+            if (slot._adRotateTimer) { clearInterval(slot._adRotateTimer); slot._adRotateTimer = null; }
+            slot.innerHTML = '';
+            slot.style.display = 'none';
+        });
+
+        fullEl.addEventListener('click', () => openPartners(fullEl.getAttribute('data-va-ad-id')));
+
+        if (withBanner.length > 1) {
+            slot._adRotateTimer = setInterval(() => {
+                if (!document.body.contains(imgEl)) {
+                    clearInterval(slot._adRotateTimer);
+                    slot._adRotateTimer = null;
+                    return;
+                }
+                imgEl.style.opacity = '0';
+                setTimeout(() => {
+                    idx = (idx + 1) % withBanner.length;
+                    render();
+                    imgEl.style.opacity = '1';
+                }, 220);
+            }, 6000);
+        }
+    }
+
     async function hydrateAirportBanner(container, icao) {
         injectStyles();
         const root = container || document;
@@ -592,7 +667,8 @@
         injectStyles();
         const root = container || document;
         const slot = root.querySelector ? root.querySelector('#ac-va-banner') : null;
-        if (!slot) return;
+        const fullSlot = root.querySelector ? root.querySelector('#ac-va-full-banner') : null;
+        if (!slot && !fullSlot) return;
         const o = opts || {};
         try {
             await loadDirectory();
@@ -610,10 +686,11 @@
                 }
             }
             renderAdFeature(slot, ads);
+            renderFullBanner(fullSlot, ads);
         } catch (e) {
             // The ads service must never break the flight window.
-            slot.innerHTML = '';
-            slot.style.display = 'none';
+            if (slot) { slot.innerHTML = ''; slot.style.display = 'none'; }
+            if (fullSlot) { fullSlot.innerHTML = ''; fullSlot.style.display = 'none'; }
         }
     }
 
