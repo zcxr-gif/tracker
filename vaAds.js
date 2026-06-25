@@ -53,7 +53,26 @@
     // uses one at all, are an extra suffix on the flight number ("United 123VA")
     // and only refine membership — they are never the thing we match the VA on.
     function compactCallsign(s) {
-        return String(s || '').trim().toUpperCase().replace(/[\s\-_/]+/g, '');
+        return stripWeightClass(callsignParts(s)).join('');
+    }
+
+    // Split a callsign into its uppercased, separator-free tokens.
+    function callsignParts(s) {
+        return String(s || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+    }
+
+    // Weight-class words a pilot appends for heavy/super aircraft — "United 2UA
+    // Heavy", "Lufthansa 400 Super". They are spoken wake-turbulence categories,
+    // never part of the airline name or the VA tag, so they are peeled off the
+    // END of a callsign before the leading name and trailing flight-number/tag
+    // token are read. Otherwise the last token reads "HEAVY"/"SUPER" and a member
+    // flying a heavy is wrongly treated as not carrying the VA's tag — i.e. shown
+    // as "not a registered member" even though they clearly are.
+    const WEIGHT_CLASS = new Set(['HEAVY', 'SUPER']);
+    function stripWeightClass(tokens) {
+        const t = tokens.slice();
+        while (t.length > 1 && WEIGHT_CLASS.has(t[t.length - 1])) t.pop();
+        return t;
     }
 
     // The compacted-callsign offsets that land on a real WORD boundary of the
@@ -65,7 +84,7 @@
     // every "United ###" callsign. The full word "UNITED" must match the full
     // word, not the first three letters of it.
     function callsignBoundaries(callsign) {
-        const tokens = String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+        const tokens = stripWeightClass(callsignParts(callsign));
         const bounds = new Set();
         let acc = '';
         for (const t of tokens) {
@@ -256,7 +275,7 @@
     // Trailing word of a callsign, upper-cased — the flight-number+tag part.
     // "Air Canada 001VA" → "001VA", "OceanXXVA" → "OCEANXXVA".
     function lastToken(s) {
-        const parts = String(s || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+        const parts = stripWeightClass(callsignParts(s));
         return parts.length ? parts[parts.length - 1] : '';
     }
 

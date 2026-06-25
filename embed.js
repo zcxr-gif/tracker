@@ -326,6 +326,19 @@
         return String(callsign || '').toUpperCase().replace(/[\s\-_/]+/g, '');
     }
 
+    // Weight-class words a pilot appends for heavy/super aircraft — "United 2UA
+    // Heavy" / "Lufthansa 400 Super". They are spoken wake-turbulence categories,
+    // not part of the airline name or the VA tag, so they are peeled off the END
+    // of the callsign before the trailing flight-number/tag token is read. Without
+    // this a member flying a heavy reads its last token as "HEAVY"/"SUPER", fails
+    // the suffix-tag test, and is wrongly dropped from the VA roster.
+    const WEIGHT_CLASS_SUFFIXES = new Set(['HEAVY', 'SUPER']);
+    function stripWeightClass(tokens) {
+        const t = tokens.slice();
+        while (t.length > 1 && WEIGHT_CLASS_SUFFIXES.has(t[t.length - 1])) t.pop();
+        return t;
+    }
+
     // Is a suffix tag actually a TAG on this token, not just letters that happen
     // to end it? A short tag like "VA" ends a huge number of unrelated callsigns
     // ("MOSKVA", "NOVA", "…VA"), so endsWith alone is far too greedy. A tag only
@@ -359,7 +372,7 @@
     //     VA must declare which airline prefixes they fly that tag under. To run
     //     the tag across several airlines, list each airline in callsignPrefixes.
     function callsignMatches(callsign, cfg) {
-        const tokens = callsignTokens(callsign);
+        const tokens = stripWeightClass(callsignTokens(callsign));
         if (!tokens.length) return false;
         const compact = tokens.join('');          // uppercased, separators removed
         const last = tokens[tokens.length - 1];
