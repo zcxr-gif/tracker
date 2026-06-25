@@ -17107,12 +17107,6 @@ let totalDistanceNM = 0;
                     </div>
                 </div>
 
-                <!-- Full VA banner artwork: the flight's own VA (or route-hub
-                     partner), shown uncropped at its natural aspect ratio. This
-                     is separate from the compact ad card below. Hidden until
-                     hydrated so it adds no empty gap. -->
-                <div id="ac-va-full-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
-
                 <!-- VA partner ad: the flight's own VA, falling back to route-hub
                      partners. Hidden until hydrated so it adds no empty gap. -->
                 <div id="ac-va-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
@@ -17252,6 +17246,12 @@ let totalDistanceNM = 0;
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
                     </div>` : ''}
                 </div>
+
+                <!-- Full VA banner artwork: the flight's own VA (or route-hub
+                     partner), shown uncropped at its natural aspect ratio. Kept
+                     at the foot of the overview, away from the compact ad card
+                     up top. Hidden until hydrated so it adds no empty gap. -->
+                <div id="ac-va-full-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
             </div>
  
             <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
