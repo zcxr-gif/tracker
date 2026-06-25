@@ -51,6 +51,7 @@ To embed it on their site, they paste this iframe:
 | `mapStyle`   | `mapbox://styles/mapbox/dark-v11`         | Mapbox style URL (mapbox provider). |
 | `freeStyle`  | `dark` \| `liberty` \| `bright` \| `positron` \| URL | Free style (free provider). Defaults to `dark`. |
 | `theme`      | `dark` or `light`                         | UI chrome theme. |
+| `color`      | `%230B5FFF` (= `#0B5FFF`)                  | Explicit header colour (hex or `rgb()`). Omit to auto-derive it from the logo. Alias: `accent`. |
 | `servers`    | `Expert`                                  | IF session names to scan (substring match). Empty = all. |
 
 > **Free vs Mapbox:** if you don't pass a `mapboxToken`, the map automatically
@@ -114,12 +115,20 @@ so you can lock a token to one or more domains.
   "mapStyle": "mapbox://styles/mapbox/dark-v11",
   "freeStyle": "dark",
   "theme": "dark",
+  "brandColor": "#0B5FFF",
   "servers": ["Expert"]
 }
 ```
 
 Every field except `va.code` is optional and falls back to a sensible default.
 Omit `mapboxToken` (or set `provider:"free"`) to serve the free map.
+
+> **Header colour:** set `brandColor` (hex `#rrggbb`/`#rgb` or `rgb()`) to pin the
+> top header to a fixed brand colour — the widget derives contrasting text,
+> border, and Inflight wordmark automatically. **Omit it** and the widget
+> samples the dominant colour from the VA's logo instead, which is approximate
+> and can shift between loads (and falls back to the default theme if the logo
+> can't be read cross-origin). Aliases accepted by the widget: `accent`, `color`.
 
 **Failure — return the right status so the widget shows a clear message:**
 
@@ -165,6 +174,7 @@ const EMBED_CONFIGS = {
     mapboxToken: 'pk.eyJ...the-vas-own-token...',
     mapStyle: 'mapbox://styles/mapbox/dark-v11',
     theme: 'dark',
+    brandColor: '#0B5FFF', // explicit header colour; omit to auto-derive from the logo
     servers: ['Expert'],
     // Optional allow-list of sites that may embed this token. Empty/undefined = any.
     allowedOrigins: ['https://oceanva.org', 'https://www.oceanva.org'],
@@ -204,6 +214,7 @@ router.get('/api/embed/resolve', (req, res) => {
     mapStyle: cfg.mapStyle || 'mapbox://styles/mapbox/dark-v11',
     freeStyle: cfg.freeStyle || 'dark',
     theme: cfg.theme || 'dark',
+    brandColor: cfg.brandColor || '', // header colour; '' lets the widget sample the logo
     servers: cfg.servers || [],
   });
 });

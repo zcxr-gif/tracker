@@ -115,12 +115,16 @@
         return String(s || '').trim().toUpperCase().split(/[\s\-_/]+/)[0] || '';
     }
 
-    // Aircraft name → sprite category. Ported verbatim from flight.js
-    // getAircraftCategory so the embed plots the same silhouette the live map
-    // would for any given airframe. Returns a key that exists in markers.png.
+    // Aircraft name → sprite category. Mirrors flight.js getAircraftCategory so the
+    // embed plots the same silhouette the live map would for any given airframe.
+    // Returns a key that exists in markers.png. When IF reports no/"unknown"
+    // aircraft (or a type we don't have a silhouette for) we fall back to the 777
+    // — a generic, recognisable airliner — rather than an absent 'default' sprite.
     function getAircraftCategory(aircraftName) {
-        if (!aircraftName) return 'default';
+        const UNKNOWN = 'B777';
+        if (!aircraftName) return UNKNOWN;
         const name = aircraftName.toUpperCase();
+        if (name === 'UNKNOWN' || name === 'N/A') return UNKNOWN;
         if (['F-16', 'F-18', 'F-22', 'F-35', 'A-10', 'EUFI'].some(ac => name.includes(ac))) return 'F16';
         if (['C-130', 'C130', 'AC-130'].some(ac => name.includes(ac))) return 'C130';
         if (name.includes('C-17') || name.includes('C5')) return 'C17';
@@ -138,7 +142,7 @@
         if (name.includes('DASH 8') || name.includes('DH8D') || name.includes('Q400')) return 'DASH8';
         if (['C172', 'SR22', 'CESSNA', 'SINGLEPROP'].some(ac => name.includes(ac))) return 'SINGLEPROP';
         if (['EUROCOPTER', 'H60', 'H64', 'CHINOOK', 'LYNX'].some(ac => name.includes(ac))) return 'EUROCOPTER';
-        return 'B737';
+        return UNKNOWN;
     }
 
     async function getJSON(url, opts) {
@@ -326,6 +330,19 @@
         return String(callsign || '').toUpperCase().replace(/[\s\-_/]+/g, '');
     }
 
+    // Weight-class words a pilot appends for heavy/super aircraft — "United 2UA
+    // Heavy" / "Lufthansa 400 Super". They are spoken wake-turbulence categories,
+    // not part of the airline name or the VA tag, so they are peeled off the END
+    // of the callsign before the trailing flight-number/tag token is read. Without
+    // this a member flying a heavy reads its last token as "HEAVY"/"SUPER", fails
+    // the suffix-tag test, and is wrongly dropped from the VA roster.
+    const WEIGHT_CLASS_SUFFIXES = new Set(['HEAVY', 'SUPER']);
+    function stripWeightClass(tokens) {
+        const t = tokens.slice();
+        while (t.length > 1 && WEIGHT_CLASS_SUFFIXES.has(t[t.length - 1])) t.pop();
+        return t;
+    }
+
     // Is a suffix tag actually a TAG on this token, not just letters that happen
     // to end it? A short tag like "VA" ends a huge number of unrelated callsigns
     // ("MOSKVA", "NOVA", "…VA"), so endsWith alone is far too greedy. A tag only
@@ -359,7 +376,7 @@
     //     VA must declare which airline prefixes they fly that tag under. To run
     //     the tag across several airlines, list each airline in callsignPrefixes.
     function callsignMatches(callsign, cfg) {
-        const tokens = callsignTokens(callsign);
+        const tokens = stripWeightClass(callsignTokens(callsign));
         if (!tokens.length) return false;
         const compact = tokens.join('');          // uppercased, separators removed
         const last = tokens[tokens.length - 1];
@@ -1609,7 +1626,7 @@
                 type: 'symbol',
                 source: SOURCE_ID,
                 layout: {
-                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']],
+                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777']],
                     'icon-size': 0.15,                   // matches the live map's default plane size
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
@@ -1737,7 +1754,7 @@
 
     function showLoading() {
         const root = rootEl();
-        if (root) root.innerHTML = `<div class="emb-loading"><div class="emb-spinner"></div></div>`;
+        if (root) root.innerHTML = `<div class="emb-loading"><img class="emb-loading-logo" src="Images/inflight-light.png" alt="Inflight" onerror="this.outerHTML='<span class=&quot;emb-loading-text&quot;>Inflight</span>'"></div>`;
     }
 
     async function tick(cfg) {
