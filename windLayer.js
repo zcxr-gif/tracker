@@ -290,10 +290,9 @@
             const moving = this._moving;
 
             if (moving) {
-                // Camera is moving. The trail buffer lives in screen space and
-                // would smear against the ground, so wipe it every frame and draw
-                // particles locked to their ground positions (no advection) — they
-                // rotate rigidly with the globe instead of swimming over it.
+                // Camera is moving. Trails are painted in screen space and would
+                // smear against the ground, so wipe the canvas each frame — the
+                // wind keeps flowing, it just loses its comet tails until idle.
                 ctx.clearRect(0, 0, w, h);
             } else {
                 // Idle: fade previous trails toward transparent for the comet look
@@ -312,7 +311,6 @@
 
             const k = this.o.pxPerMs;
             const margin = 40;
-            const dot = Math.max(this.o.lineWidth, 1);
 
             // Adjust the count if the viewport was resized.
             const target = this._targetCount();
@@ -322,9 +320,7 @@
             for (let idx = 0; idx < this.particles.length; idx++) {
                 const p = this.particles[idx];
                 const wind = this._sample(p.lon, p.lat);
-                // Don't recycle on age while the camera moves — keep them put so
-                // they ride the globe steadily.
-                if (!wind || (!moving && p.age++ > this.o.particleLife)) {
+                if (!wind || p.age++ > this.o.particleLife) {
                     this.particles[idx] = this._newParticle(false);
                     continue;
                 }
@@ -336,19 +332,12 @@
                     continue;
                 }
 
-                if (moving) {
-                    // Ground-locked marker — position only, no wind advection.
-                    ctx.fillStyle = colorForSpeed(wind.spd);
-                    ctx.fillRect(p0.x, p0.y, dot, dot);
-                    continue;
-                }
-
                 // Pixel-space velocity -> consistent on-screen speed at any zoom.
                 const x1 = p0.x + wind.u * k;
                 const y1 = p0.y - wind.v * k; // screen y is down; +v is north (up)
 
                 // Advance the ground position by reprojecting the new screen point
-                // so particles stay glued to the map while idle-animating.
+                // so particles stay glued to the map while panning/zooming.
                 const next = this.map.unproject([x1, y1]);
                 p.lon = next.lng;
                 p.lat = next.lat;
