@@ -17009,8 +17009,14 @@ let totalDistanceNM = 0;
                                 </svg>
                             </div>
                          </div>
-                    </div> 
-                    
+
+                        <!-- Full VA banner artwork: the flight's own VA (or
+                             route-hub partner), shown uncropped at its natural
+                             aspect ratio, directly under the PFD. Hidden until
+                             hydrated so it adds no empty gap. -->
+                        <div id="ac-va-full-banner" class="va-ad-banner-slot" style="margin: 8px 0 0; display: none;"></div>
+                    </div>
+
                 <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
     <div class="modern-status-card" style="background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 12px; position: relative; overflow: hidden; backdrop-filter: blur(12px); flex: 1; display: flex; flex-direction: column; justify-content: center;">
         <div class="status-glow" style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: ${psColor}; filter: blur(35px); opacity: 0.2;"></div>
@@ -17057,12 +17063,6 @@ let totalDistanceNM = 0;
     </div>
 </div>
                 </div>
-
-                <!-- Full VA banner artwork: the flight's own VA (or route-hub
-                     partner), shown uncropped at its natural aspect ratio.
-                     Sits directly under the PFD, with the pilot-state block.
-                     Hidden until hydrated so it adds no empty gap. -->
-                <div id="ac-va-full-banner" class="va-ad-banner-slot" style="margin: 8px 0 0; display: none;"></div>
 
                 <div class="nd-full-width-section">
                     <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
