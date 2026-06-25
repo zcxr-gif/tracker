@@ -2104,9 +2104,74 @@
             .inflight-splash-logo { height: 102px; }
         }
 
+        /* Partner VA strip pinned to the bottom of the splash. Hidden until
+           the roster resolves; fades in so it never pops in jarringly. */
+        .inflight-splash-partners {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: max(30px, env(safe-area-inset-bottom));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            padding: 0 20px;
+            opacity: 0;
+            animation: inflight-splash-partners-in 700ms ease-out forwards;
+        }
+        .inflight-splash-partners-label {
+            font: 600 11px/1 'Inter', system-ui, sans-serif;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.42);
+        }
+        /* Static "sponsor wall" — every partner laid out at once in a centered
+           multi-row grid, fully visible the moment the splash paints (no scroll
+           that needs time on screen). */
+        .inflight-splash-partners-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 14px 22px;
+            max-width: min(720px, 92vw);
+        }
+        /* Round "coin" badges — each logo centred inside a circle. */
+        .inflight-splash-partners-row img,
+        .inflight-splash-partners-row .vp-name {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            flex: 0 0 auto;
+            box-sizing: border-box;
+        }
+        .inflight-splash-partners-row img {
+            object-fit: contain;
+            padding: 6px;
+            background: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+        }
+        .inflight-splash-partners-row .vp-name {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font: 700 15px/1 'Inter', system-ui, sans-serif;
+            color: #e9eaec;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+        }
+        @keyframes inflight-splash-partners-in { to { opacity: 1; } }
+        @media (max-width: 480px) {
+            .inflight-splash-partners-row img,
+            .inflight-splash-partners-row .vp-name { width: 42px; height: 42px; }
+            .inflight-splash-partners-row { gap: 12px 14px; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
-            .inflight-splash-logo, .inflight-splash-logo-wrap::before {
+            .inflight-splash-logo, .inflight-splash-logo-wrap::before,
+            .inflight-splash-partners, .inflight-splash-partners-row {
                 animation-duration: 0.001s !important;
                 animation-delay: 0s !important;
                 animation-iteration-count: 1 !important;
@@ -2132,6 +2197,10 @@
             <div class="inflight-splash-logo-wrap">
                 <img src="Images/inflight.png" alt="Inflight" class="inflight-splash-logo" id="inflight-splash-logo">
             </div>
+        </div>
+        <div class="inflight-splash-partners" id="inflight-splash-partners" hidden aria-hidden="true">
+            <span class="inflight-splash-partners-label">Our Partner VAs</span>
+            <div class="inflight-splash-partners-row" id="inflight-splash-partners-row"></div>
         </div>
     </div>
     <script>
@@ -2174,8 +2243,8 @@
             } catch (_) { /* non-fatal */ }
 
             var dismissed     = false;
-            var minVisibleMs  = 700;   // Brief breath so the logo doesn't flash off
-            var maxVisibleMs  = 5000;  // Safety net if `load` never fires
+            var minVisibleMs  = 3000;  // Linger so partner VAs load + settle cleanly
+            var maxVisibleMs  = 6000;  // Safety net if `load` never fires
             var start         = Date.now();
 
             function dismiss() {
@@ -2195,6 +2264,61 @@
                 window.addEventListener('load', dismiss, { once: true });
             }
             setTimeout(dismiss, maxVisibleMs);
+        })();
+    </script>
+    <script>
+        // Populate the splash's "Our Partner VAs" strip from the cached partner
+        // roster (window.InflightVaAds.allPartners()). vaAds.js warms the roster
+        // on load; we poll briefly because it loads after this markup and the
+        // data arrives over the network. Fails silently — if no partners resolve
+        // in time, the strip just stays hidden.
+        (function () {
+            var strip = document.getElementById('inflight-splash-partners');
+            var row   = document.getElementById('inflight-splash-partners-row');
+            if (!strip || !row) return;
+
+            var MAX = 24, tries = 0; // keep the wall tidy; show the rest in-app
+            function esc(s) {
+                return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+                });
+            }
+            function render(list) {
+                var seen = {}, items = [];
+                for (var i = 0; i < list.length && items.length < MAX; i++) {
+                    var ad = list[i];
+                    if (!ad || !ad.name) continue;
+                    var key = String(ad.name).toLowerCase();
+                    if (seen[key]) continue;
+                    seen[key] = 1;
+                    if (ad.logo) {
+                        items.push('<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
+                            '" title="' + esc(ad.name) + '" onerror="this.remove()">');
+                    } else {
+                        var initials = String(ad.name).trim().split(/\s+/)
+                            .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+                        items.push('<span class="vp-name" title="' + esc(ad.name) + '">' +
+                            esc(initials) + '</span>');
+                    }
+                }
+                if (!items.length) return false;
+                row.innerHTML = items.join('');
+                strip.hidden = false;
+                strip.removeAttribute('aria-hidden');
+                return true;
+            }
+
+            var t = setInterval(function () {
+                tries++;
+                try {
+                    var api = window.InflightVaAds;
+                    if (api && typeof api.allPartners === 'function') {
+                        var list = api.allPartners();
+                        if (list && list.length && render(list)) { clearInterval(t); return; }
+                    }
+                } catch (_) { /* ignore */ }
+                if (tries > 40) clearInterval(t); // ~6s safety
+            }, 150);
         })();
     </script>
 
@@ -2242,6 +2366,7 @@
     <script src="sb.js"></script>
     <script src="mapAnimator.js" type="module"></script>
     <script src="weather.js"></script>
+    <script src="windLayer.js"></script>
     <script src="haptics.js"></script>
     <script src="vaAds.js"></script>
     <script src="sector-ops-mobile-ui.js" defer></script>

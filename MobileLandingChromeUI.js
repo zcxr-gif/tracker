@@ -18,10 +18,14 @@ const SERVER_META = {
 };
 
 const WEATHER_LAYERS = [
-    { id: 'precip',  label: 'Precipitation', sub: 'Live radar + intensity', icon: 'fa-satellite-dish' },
-    { id: 'sigmets', label: 'SIGMETs',       sub: 'Significant weather',    icon: 'fa-triangle-exclamation' },
-    { id: 'clouds',  label: 'Clouds',        sub: 'Coverage overlay',       icon: 'fa-cloud' },
-    { id: 'wind',    label: 'Winds Aloft',   sub: 'Direction + speed',      icon: 'fa-wind' },
+    { id: 'precip',    label: 'Precipitation', sub: 'Live radar + intensity', icon: 'fa-satellite-dish' },
+    { id: 'sigmets',   label: 'SIGMETs',       sub: 'Significant weather',     icon: 'fa-triangle-exclamation' },
+    { id: 'clouds',    label: 'Clouds',        sub: 'Satellite coverage',      icon: 'fa-cloud' },
+    { id: 'wind',      label: 'Wind',          sub: 'Animated flow',           icon: 'fa-wind' },
+    { id: 'snow',      label: 'Snow & Ice',    sub: 'Snow / ice cover',        icon: 'fa-snowflake' },
+    { id: 'fires',     label: 'Active Fires',  sub: 'Thermal hotspots',        icon: 'fa-fire' },
+    { id: 'aerosol',   label: 'Dust & Aerosol',sub: 'Haze / air quality',      icon: 'fa-smog' },
+    { id: 'inspector', label: 'Tap for Forecast', sub: 'Tap map for details',  icon: 'fa-hand-pointer' },
 ];
 
 export const MobileLandingChromeUI = {

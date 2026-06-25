@@ -7709,11 +7709,17 @@ async function toggleWeatherLayer(show) {
         try {
             // 1. Fetch official configuration
             const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+            if (!res.ok) throw new Error('RainViewer HTTP ' + res.status);
             const data = await res.json();
-            const host = data.host; 
-            
+            const host = data.host;
+            const frames = data.radar && data.radar.past;
+            if (!host || !frames || !frames.length) {
+                showNotification('Rain radar is temporarily unavailable.', 'info');
+                return;
+            }
+
             // Get the very latest frame
-            const latestFrame = data.radar.past[data.radar.past.length - 1];
+            const latestFrame = frames[frames.length - 1];
             const path = latestFrame.path;
 
             // --- SETTINGS ---
@@ -7763,6 +7769,317 @@ async function toggleWeatherLayer(show) {
 }
 
 /**
+ * --- NASA GIBS raster overlays (free, key-less) ---
+ * GIBS (Global Imagery Browse Services) powers NASA Worldview and serves
+ * standard XYZ raster tiles in Web-Mercator with no API key. We use it for
+ * several overlays that have no good key-less tile source otherwise.
+ *
+ * Tiles are images, so they aren't subject to CORS for display. Each product
+ * has a max native zoom (`level`); beyond it Mapbox stretches smoothly.
+ */
+const GIBS_OVERLAYS = {
+    clouds: {
+        // VIIRS has a much wider swath than MODIS, so its daily mosaic is nearly
+        // gap-free (MODIS left diagonal "slices" of missing data near the equator).
+        product: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',
+        ext: 'jpg', level: 9, opacity: 0.6, daysAgo: 1
+    },
+    snow: {
+        product: 'MODIS_Terra_NDSI_Snow_Cover',
+        ext: 'png', level: 8, opacity: 0.8, daysAgo: 1
+    },
+    fires: {
+        product: 'MODIS_Terra_Thermal_Anomalies_All',
+        ext: 'png', level: 7, opacity: 0.9, daysAgo: 1
+    },
+    aerosol: {
+        product: 'MODIS_Combined_Value_Added_AOD',
+        ext: 'png', level: 6, opacity: 0.65, daysAgo: 1
+    }
+};
+const gibsLayerAdded = {};
+
+// Most-recent reliably-complete UTC date for a daily GIBS product.
+function gibsDateUTC(daysAgo) {
+    const d = new Date(Date.now() - (daysAgo || 0) * 86400000);
+    return d.toISOString().slice(0, 10);
+}
+
+function toggleGibsLayer(key, show) {
+    if (!sectorOpsMap) return;
+    const cfg = GIBS_OVERLAYS[key];
+    if (!cfg) return;
+
+    const SOURCE_ID = `gibs-${key}-source`;
+    const LAYER_ID = `gibs-${key}-layer`;
+
+    if (show && !gibsLayerAdded[key]) {
+        try {
+            const date = gibsDateUTC(cfg.daysAgo);
+            const tileUrl = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/` +
+                `${cfg.product}/default/${date}/GoogleMapsCompatible_Level${cfg.level}/` +
+                `{z}/{y}/{x}.${cfg.ext}`;
+
+            sectorOpsMap.addSource(SOURCE_ID, {
+                'type': 'raster',
+                'tiles': [tileUrl],
+                'tileSize': 256,
+                'maxzoom': cfg.level
+            });
+
+            const beneath = sectorOpsMap.getLayer('sector-ops-live-flights-layer')
+                ? 'sector-ops-live-flights-layer' : undefined;
+            sectorOpsMap.addLayer({
+                'id': LAYER_ID,
+                'type': 'raster',
+                'source': SOURCE_ID,
+                'paint': {
+                    'raster-opacity': cfg.opacity,
+                    'raster-resampling': 'linear',
+                    'raster-fade-duration': 0
+                }
+            }, beneath);
+
+            gibsLayerAdded[key] = true;
+            console.log(`GIBS ${key} layer added (${cfg.product}).`);
+        } catch (error) {
+            console.error(`Failed to init GIBS ${key} layer:`, error);
+            showNotification('Could not load that weather layer.', 'error');
+        }
+    } else if (gibsLayerAdded[key]) {
+        const visibility = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(LAYER_ID)) {
+            sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', visibility);
+        }
+    }
+}
+
+/**
+ * --- Cloud Cover Layer ---
+ * NASA GIBS true-colour satellite imagery (clouds read as white). Replaces the
+ * old RainViewer satellite feed, which became patron-only for free users.
+ */
+function toggleCloudLayer(show) {
+    toggleGibsLayer('clouds', show);
+    isCloudLayerAdded = gibsLayerAdded.clouds || isCloudLayerAdded;
+}
+
+/**
+ * --- Animated Wind Layer ---
+ * Particle-flow wind ("Windy" style) powered by windLayer.js, fed by the
+ * free, key-less Open-Meteo API. The heavy lifting lives in the
+ * WindParticleLayer engine; here we just create / show / hide it.
+ */
+let windParticleLayer = null;
+
+function toggleWindLayer(show) {
+    if (!sectorOpsMap) return;
+
+    if (show) {
+        if (typeof window.WindParticleLayer !== 'function') {
+            showNotification('Wind engine not loaded.', 'error');
+            return;
+        }
+        if (!windParticleLayer) {
+            windParticleLayer = new window.WindParticleLayer(sectorOpsMap);
+        }
+        windParticleLayer.start();
+        isWindLayerAdded = true;
+        console.log('Animated wind layer started.');
+    } else if (windParticleLayer) {
+        windParticleLayer.stop();
+    }
+}
+
+/**
+ * --- Weather Inspector (tap-for-forecast) ---
+ * When enabled, tapping anywhere on the map fetches a rich point forecast from
+ * the free, key-less Open-Meteo API and shows it in a popup.
+ */
+let weatherInspectorOn = false;
+let weatherInspectorHandler = null;
+
+const WMO_DESC = {
+    0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Rime fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+    56: 'Freezing drizzle', 57: 'Freezing drizzle', 61: 'Light rain', 63: 'Rain',
+    65: 'Heavy rain', 66: 'Freezing rain', 67: 'Freezing rain', 71: 'Light snow',
+    73: 'Snow', 75: 'Heavy snow', 77: 'Snow grains', 80: 'Light showers',
+    81: 'Showers', 82: 'Violent showers', 85: 'Snow showers', 86: 'Snow showers',
+    95: 'Thunderstorm', 96: 'Thunderstorm w/ hail', 99: 'Thunderstorm w/ hail'
+};
+
+function degToCompass(deg) {
+    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return dirs[Math.round(((deg % 360) / 22.5)) % 16];
+}
+
+function toggleWeatherInspector(show) {
+    if (!sectorOpsMap) return;
+    if (show && !weatherInspectorOn) {
+        weatherInspectorOn = true;
+        sectorOpsMap.getCanvas().style.cursor = 'crosshair';
+        weatherInspectorHandler = (e) => {
+            // Ignore taps that land on interactive features (aircraft / airports).
+            const hits = sectorOpsMap.queryRenderedFeatures(e.point);
+            const onFeature = hits.some(f => f.layer && /flight|airport|marker|sector-ops/i.test(f.layer.id || ''));
+            if (onFeature) return;
+            showWeatherInspectorPopup(e.lngLat);
+        };
+        sectorOpsMap.on('click', weatherInspectorHandler);
+        showNotification('Tap anywhere on the map for a forecast.', 'info');
+    } else if (!show && weatherInspectorOn) {
+        weatherInspectorOn = false;
+        sectorOpsMap.getCanvas().style.cursor = '';
+        if (weatherInspectorHandler) sectorOpsMap.off('click', weatherInspectorHandler);
+        weatherInspectorHandler = null;
+        hideInspectorCard();
+    }
+}
+
+// Custom forecast card — a bottom sheet on mobile, a floating card on desktop.
+// Built as our own DOM (not a Mapbox popup) so it has a solid, readable
+// background and large touch targets instead of inheriting the app's
+// transparent popup styling.
+function ensureInspectorCard() {
+    let card = document.getElementById('weather-inspector-card');
+    if (card) return card;
+
+    if (!document.getElementById('weather-inspector-styles')) {
+        const st = document.createElement('style');
+        st.id = 'weather-inspector-styles';
+        st.textContent = `
+            #weather-inspector-backdrop{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.45);display:none;}
+            #weather-inspector-backdrop.visible{display:block;}
+            @media (min-width:769px){#weather-inspector-backdrop{display:none !important;}}
+            #weather-inspector-card{position:fixed;z-index:100001;display:none;overflow:hidden;
+                background:#13171c;color:#eef2f6;border:1px solid rgba(255,255,255,.12);
+                box-shadow:0 16px 48px rgba(0,0,0,.55);
+                font:14px/1.35 system-ui,-apple-system,'Inter',sans-serif;}
+            #weather-inspector-card.visible{display:block;}
+            #weather-inspector-card .wi-head{display:flex;align-items:flex-start;justify-content:space-between;
+                gap:12px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);}
+            #weather-inspector-card .wi-temp{font-size:2.1rem;font-weight:700;line-height:1;}
+            #weather-inspector-card .wi-desc{color:#9aa6b2;font-size:.9rem;margin-top:4px;}
+            #weather-inspector-card .wi-close{flex:0 0 auto;background:rgba(255,255,255,.1);border:none;
+                color:#eef2f6;width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer;line-height:1;}
+            #weather-inspector-card .wi-close:active{background:rgba(255,255,255,.2);}
+            #weather-inspector-card .wi-body{padding:8px 18px 16px;}
+            #weather-inspector-card .wi-row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;
+                border-bottom:1px solid rgba(255,255,255,.06);}
+            #weather-inspector-card .wi-row span:first-child{color:#9aa6b2;}
+            #weather-inspector-card .wi-row span:last-child{font-weight:600;}
+            #weather-inspector-card .wi-days{margin-top:12px;width:100%;border-collapse:collapse;font-size:.85rem;}
+            #weather-inspector-card .wi-days td{padding:8px 4px;border-top:1px solid rgba(255,255,255,.07);}
+            #weather-inspector-card .wi-foot{color:#67727d;font-size:.72rem;padding:0 18px 16px;}
+            @media (min-width:769px){#weather-inspector-card{top:84px;right:16px;width:340px;border-radius:16px;}}
+            @media (max-width:768px){#weather-inspector-card{left:0;right:0;bottom:0;border-radius:20px 20px 0 0;
+                max-height:78vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+                padding-bottom:env(safe-area-inset-bottom);animation:wiSlideUp .26s cubic-bezier(.2,.8,.2,1);}
+                #weather-inspector-card .wi-temp{font-size:2.4rem;}
+                #weather-inspector-card .wi-row{padding:11px 0;font-size:1rem;}}
+            @keyframes wiSlideUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+        `;
+        document.head.appendChild(st);
+    }
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'weather-inspector-backdrop';
+    backdrop.addEventListener('click', hideInspectorCard);
+    document.body.appendChild(backdrop);
+
+    card = document.createElement('div');
+    card.id = 'weather-inspector-card';
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.wi-close')) hideInspectorCard();
+    });
+    document.body.appendChild(card);
+    return card;
+}
+
+function hideInspectorCard() {
+    const c = document.getElementById('weather-inspector-card');
+    if (c) c.classList.remove('visible');
+    const b = document.getElementById('weather-inspector-backdrop');
+    if (b) b.classList.remove('visible');
+}
+
+async function showWeatherInspectorPopup(lngLat) {
+    const lat = lngLat.lat.toFixed(3);
+    const lon = lngLat.lng.toFixed(3);
+    const card = ensureInspectorCard();
+    const backdrop = document.getElementById('weather-inspector-backdrop');
+    card.classList.add('visible');
+    if (backdrop) backdrop.classList.add('visible');
+    card.innerHTML = `<div class="wi-body" style="text-align:center;color:#9aa6b2;padding:32px 18px;">Loading forecast…</div>`;
+
+    try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+            `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,` +
+            `weather_code,cloud_cover,surface_pressure,visibility,wind_speed_10m,` +
+            `wind_direction_10m,wind_gusts_10m` +
+            `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+            `&timezone=auto&wind_speed_unit=kn&forecast_days=3`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
+        const c = d.current || {};
+        const desc = WMO_DESC[c.weather_code] != null ? WMO_DESC[c.weather_code] : '—';
+        const visKm = (c.visibility != null) ? (c.visibility / 1000).toFixed(0) + ' km' : '—';
+        const wind = (c.wind_speed_10m != null)
+            ? `${Math.round(c.wind_speed_10m)} kt ${degToCompass(c.wind_direction_10m)}` +
+              (c.wind_gusts_10m != null ? ` (G${Math.round(c.wind_gusts_10m)})` : '')
+            : '—';
+
+        let days = '';
+        const dd = d.daily;
+        if (dd && dd.time) {
+            for (let i = 0; i < dd.time.length; i++) {
+                const dname = new Date(dd.time[i]).toLocaleDateString(undefined, { weekday: 'short' });
+                days += `<tr>
+                    <td>${dname}</td>
+                    <td style="color:#9aa6b2;">${WMO_DESC[dd.weather_code[i]] || ''}</td>
+                    <td style="text-align:right;">${Math.round(dd.temperature_2m_min[i])}° / <strong>${Math.round(dd.temperature_2m_max[i])}°</strong></td>
+                    <td style="text-align:right;color:#4aa8ff;">${dd.precipitation_probability_max[i] != null ? dd.precipitation_probability_max[i] + '%' : ''}</td>
+                </tr>`;
+            }
+        }
+
+        const row = (label, val) =>
+            `<div class="wi-row"><span>${label}</span><span>${val}</span></div>`;
+
+        card.innerHTML = `
+            <div class="wi-head">
+                <div>
+                    <div class="wi-temp">${c.temperature_2m != null ? Math.round(c.temperature_2m) + '°C' : '—'}</div>
+                    <div class="wi-desc">${desc}</div>
+                </div>
+                <button class="wi-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="wi-body">
+                ${row('Feels like', c.apparent_temperature != null ? Math.round(c.apparent_temperature) + '°C' : '—')}
+                ${row('Wind', wind)}
+                ${row('Humidity', c.relative_humidity_2m != null ? c.relative_humidity_2m + '%' : '—')}
+                ${row('Cloud cover', c.cloud_cover != null ? c.cloud_cover + '%' : '—')}
+                ${row('Pressure', c.surface_pressure != null ? Math.round(c.surface_pressure) + ' hPa' : '—')}
+                ${row('Visibility', visKm)}
+                ${row('Precip', c.precipitation != null ? c.precipitation + ' mm' : '—')}
+                ${days ? `<table class="wi-days">${days}</table>` : ''}
+            </div>
+            <div class="wi-foot">${lat}, ${lon} · Open-Meteo</div>
+        `;
+    } catch (err) {
+        console.warn('Weather inspector fetch failed:', err.message);
+        card.innerHTML = `
+            <div class="wi-head">
+                <div class="wi-desc" style="margin-top:0;">Forecast unavailable for this spot.</div>
+                <button class="wi-close" aria-label="Close">&times;</button>
+            </div>`;
+    }
+}
+
+/**
  * --- [NEW] SIGMET Vector Layer (Volanta Style) ---
  * Fetches active aviation hazards (Turbulence, Icing, Convection).
  */
@@ -7775,11 +8092,33 @@ async function toggleSigmetLayer(show) {
     const FILL_LAYER_ID = 'aviation-sigmet-fill';
     const LINE_LAYER_ID = 'aviation-sigmet-outline';
 
+    // Hazard-code -> colour. AWC uses short codes (TS, TURB, ICE, …), and the
+    // US AIRMET feed adds a few more (CONVECTIVE, IFR, MTN OBSCN). Map both.
+    const HAZARD_COLOR = [
+        'match', ['get', 'hazard'],
+        ['TS', 'TSGR', 'TC', 'CONVECTIVE'], '#ff3b30', // storms / convective
+        ['TURB'], '#ff9500',                            // turbulence
+        ['ICE', 'ICING'], '#00bfff',                    // icing
+        ['MTW'], '#bf5af2',                             // mountain wave
+        ['VA', 'ASH'], '#8e8e93',                       // volcanic ash
+        ['IFR', 'MTN OBSCN'], '#34c759',                // IFR / obscuration
+        ['DS', 'SS'], '#d4a017',                        // dust / sand
+        '#888888'                                       // fallback
+    ];
+
     if (show && !isSigmetLayerAdded) {
         try {
-            // Fetch GeoJSON from NOAA Aviation Weather Center
-            const response = await fetch('https://aviationweather.gov/api/data/isigmet?format=geojson');
+            // Fetch via our CORS-enabled Netlify proxy (the AWC API itself sends
+            // no CORS headers). The proxy merges international SIGMETs + US
+            // AIRMET/SIGMETs into one FeatureCollection.
+            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/sigmets`);
+            if (!response.ok) throw new Error('SIGMET proxy HTTP ' + response.status);
             const geojson = await response.json();
+
+            if (!geojson || !Array.isArray(geojson.features) || geojson.features.length === 0) {
+                showNotification('No active SIGMETs or AIRMETs right now.', 'info');
+                return; // leave flag false so a later toggle re-checks
+            }
 
             sectorOpsMap.addSource(SOURCE_ID, {
                 'type': 'geojson',
@@ -7792,17 +8131,10 @@ async function toggleSigmetLayer(show) {
                 'type': 'fill',
                 'source': SOURCE_ID,
                 'paint': {
-                    'fill-color': [
-                        'match',
-                        ['get', 'hazard'],
-                        'CONVECTIVE', '#ff0000', // Red for storms
-                        'TURB', '#ffa500',       // Orange for turbulence
-                        'ICING', '#00bfff',      // Blue for icing
-                        '#888888'                // Fallback
-                    ],
+                    'fill-color': HAZARD_COLOR,
                     'fill-opacity': 0.20
                 }
-            }, 'sector-ops-live-flights-layer'); 
+            }, 'sector-ops-live-flights-layer');
 
             // 2. Outline Layer (Solid Lines)
             sectorOpsMap.addLayer({
@@ -7810,39 +8142,38 @@ async function toggleSigmetLayer(show) {
                 'type': 'line',
                 'source': SOURCE_ID,
                 'paint': {
-                    'line-color': [
-                        'match',
-                        ['get', 'hazard'],
-                        'CONVECTIVE', '#ff0000',
-                        'TURB', '#ffa500',
-                        'ICING', '#00bfff',
-                        '#888888'
-                    ],
+                    'line-color': HAZARD_COLOR,
                     'line-width': 1.5,
                     'line-opacity': 0.8
                 }
             }, 'sector-ops-live-flights-layer');
 
             // 3. Click interaction for details
-            sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
-                const props = e.features[0].properties;
-                new mapboxgl.Popup()
-                    .setLngLat(e.lngLat)
-                    .setHTML(`
-                        <div style="color:#333; padding:5px;">
-                            <strong>${props.hazard || 'SIGMET'}</strong><br>
-                            <span style="font-size: 0.8em; color: #555;">${props.rawSigmet || 'No details'}</span>
-                        </div>
-                    `)
-                    .addTo(sectorOpsMap);
-            });
+            if (!sectorOpsMap.__sigmetClickBound) {
+                sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
+                    const props = e.features[0].properties || {};
+                    const title = [props.qualifier, props.hazard].filter(Boolean).join(' ') || 'Advisory';
+                    const detail = props.rawSigmet || props.rawAirSigmet ||
+                        [props.firName, props.icaoId].filter(Boolean).join(' • ') || 'No details';
+                    new mapboxgl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`
+                            <div style="color:#333; padding:5px; max-width:240px;">
+                                <strong>${title}</strong><br>
+                                <span style="font-size: 0.8em; color: #555;">${detail}</span>
+                            </div>
+                        `)
+                        .addTo(sectorOpsMap);
+                });
+                sectorOpsMap.__sigmetClickBound = true;
+            }
 
             isSigmetLayerAdded = true;
-            console.log('SIGMET vector layer added.');
+            console.log(`SIGMET/AIRMET layer added (${geojson.features.length} features).`);
 
         } catch (error) {
             console.error('Failed to load SIGMETs:', error);
-            // Fallback notification or silent fail
+            showNotification('Could not load aviation hazards.', 'error');
         }
 
     } else if (isSigmetLayerAdded) {
@@ -14818,17 +15149,47 @@ const AtcBoardUI = {
                                 </label>
                             </li>
                             <li class="weather-toggle-item">
-                                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind Speed</span>
+                                <span class="weather-toggle-label"><i class="fa-solid fa-wind"></i> Wind (animated)</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="weather-toggle-wind">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-snowflake"></i> Snow &amp; Ice</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-snow">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-fire"></i> Active Fires</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-fires">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-smog"></i> Dust &amp; Aerosol</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-aerosol">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </li>
+                            <li class="weather-toggle-item">
+                                <span class="weather-toggle-label"><i class="fa-solid fa-hand-pointer"></i> Tap for Forecast</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="weather-toggle-inspector">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </li>
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> ONLY rain radar is provided.
-                            Other radars (sigmets, clouds, wind) are not available.
+                            <strong>Note:</strong> Free public sources — rain radar
+                            (RainViewer), clouds / snow / fires / aerosol (NASA GIBS),
+                            animated wind &amp; tap-for-forecast (Open-Meteo), hazards
+                            (NOAA). Indicative only, not for operational use.
                         </div>
                     </div>
                 </div>
@@ -15348,13 +15709,17 @@ function onAtcDataReceived(newAtcData) {
             toggleWeatherLayer(true);
         }
 
-        // 5. Re-apply Clouds
-        if (document.getElementById('weather-toggle-clouds')?.checked) {
-            isCloudLayerAdded = false; // Force re-creation
-            toggleCloudLayer(true);
-        }
+        // 5. Re-apply GIBS overlays (clouds / snow / fires / aerosol).
+        // setStyle drops custom sources, so clear the added-flags and re-add.
+        ['clouds', 'snow', 'fires', 'aerosol'].forEach((key) => {
+            gibsLayerAdded[key] = false;
+            if (document.getElementById(`weather-toggle-${key}`)?.checked) {
+                toggleGibsLayer(key, true);
+            }
+        });
+        isCloudLayerAdded = false;
 
-        // 6. Re-apply Wind
+        // 6. Re-apply Wind (canvas overlay survives setStyle, just ensure running)
         if (document.getElementById('weather-toggle-wind')?.checked) {
             isWindLayerAdded = false; // Force re-creation
             toggleWindLayer(true);
@@ -19336,8 +19701,20 @@ function processRawPilotData(gradeInfo) {
             if (typeof toggleWindLayer === 'function') toggleWindLayer(isActive);
             else showNotification("Wind layer currently unavailable", "info");
             break;
+        case 'snow':
+            toggleGibsLayer('snow', isActive);
+            break;
+        case 'fires':
+            toggleGibsLayer('fires', isActive);
+            break;
+        case 'aerosol':
+            toggleGibsLayer('aerosol', isActive);
+            break;
+        case 'inspector':
+            toggleWeatherInspector(isActive);
+            break;
     }
-    
+
     // Optional: Keep the old toolbar button synced if it exists
     updateWeatherToolbarButtonState(); 
 });
@@ -19381,8 +19758,20 @@ function processRawPilotData(gradeInfo) {
                     case 'weather-toggle-wind':
                         toggleWindLayer(isChecked);
                         break;
+                    case 'weather-toggle-snow':
+                        toggleGibsLayer('snow', isChecked);
+                        break;
+                    case 'weather-toggle-fires':
+                        toggleGibsLayer('fires', isChecked);
+                        break;
+                    case 'weather-toggle-aerosol':
+                        toggleGibsLayer('aerosol', isChecked);
+                        break;
+                    case 'weather-toggle-inspector':
+                        toggleWeatherInspector(isChecked);
+                        break;
                 }
-                
+
                 // Update the toolbar button's active state
                 // This assumes updateWeatherToolbarButtonState() checks all boxes including the new SIGMET one
                 const openWeatherBtn = document.getElementById('open-weather-settings-btn');

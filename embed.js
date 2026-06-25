@@ -102,6 +102,21 @@
         return FREE_STYLES[v.toLowerCase()] || FREE_STYLES.dark;
     }
 
+    // Is the chosen basemap a light/white one? On those, the natural-colour plane
+    // silhouettes wash out, so we switch to black SDF planes instead. Checks the
+    // free style name, then the Mapbox style URL, then the declared theme.
+    function isLightBasemap(cfg) {
+        const free = String(cfg.freeStyle || '').toLowerCase();
+        if (free) {
+            if (/(positron|bright|liberty|light)/.test(free)) return true;
+            if (/dark/.test(free)) return false;
+        }
+        const ms = String(cfg.mapStyle || '').toLowerCase();
+        if (/(light|positron|bright|liberty)/.test(ms)) return true;
+        if (/(dark|night|satellite)/.test(ms)) return false;
+        return cfg.theme === 'light';
+    }
+
     // ── Tiny helpers ──────────────────────────────────────────────────────────
     function esc(s) {
         return String(s == null ? '' : s)
@@ -1176,6 +1191,12 @@
             if (w === 0 || h === 0) continue;
             const data = ctx.getImageData(x, y, w, h);
             map.addImage(id, data, { pixelRatio: w / SPRITE_TARGET_SIZE, sdf: false });
+            // SDF twin (icon-<KEY>-sdf): same silhouette but tintable via
+            // icon-color, used to draw black planes on light/white basemaps.
+            const sdfId = `${id}-sdf`;
+            if (!map.hasImage(sdfId)) {
+                map.addImage(sdfId, data, { pixelRatio: w / SPRITE_TARGET_SIZE, sdf: true });
+            }
         }
     }
 
@@ -1620,20 +1641,28 @@
 
         if (_mapState.hasIcons) {
             // Real aircraft silhouettes, rotated to heading and locked to the map
-            // (so they bank with the globe), mirroring the live traffic layer.
-            map.addLayer({
+            // (so they bank with the globe), mirroring the live traffic layer. On a
+            // light/white basemap the natural sprites wash out, so use the SDF twin
+            // tinted black instead.
+            const light = !!_mapState.lightBasemap;
+            const base = ['coalesce', ['get', 'category'], 'B777'];
+            const layer = {
                 id: LAYER_ID,
                 type: 'symbol',
                 source: SOURCE_ID,
                 layout: {
-                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777']],
+                    'icon-image': light
+                        ? ['concat', 'icon-', base, '-sdf']
+                        : ['concat', 'icon-', base],
                     'icon-size': 0.15,                   // matches the live map's default plane size
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true
                 }
-            });
+            };
+            if (light) layer.paint = { 'icon-color': '#0b0f14' }; // black planes on white
+            map.addLayer(layer);
         } else {
             // Sprite sheet unavailable — graceful circle fallback so the map still
             // shows where pilots are.
@@ -1723,6 +1752,7 @@
             map.once('load', async () => {
                 try { await loadSpriteIcons(map); _mapState.hasIcons = true; }
                 catch (_) { _mapState.hasIcons = false; }
+                _mapState.lightBasemap = isLightBasemap(cfg);
                 addPilotLayer(map);
                 map.getSource(SOURCE_ID).setData(pilotsToGeoJSON(pilots));
                 _mapState.ready = true;
