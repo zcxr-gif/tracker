@@ -7779,7 +7779,9 @@ async function toggleWeatherLayer(show) {
  */
 const GIBS_OVERLAYS = {
     clouds: {
-        product: 'MODIS_Terra_CorrectedReflectance_TrueColor',
+        // VIIRS has a much wider swath than MODIS, so its daily mosaic is nearly
+        // gap-free (MODIS left diagonal "slices" of missing data near the equator).
+        product: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',
         ext: 'jpg', level: 9, opacity: 0.6, daysAgo: 1
     },
     snow: {
