@@ -7763,6 +7763,93 @@ async function toggleWeatherLayer(show) {
 }
 
 /**
+ * --- Cloud Cover Layer ---
+ * Free, key-less infrared-satellite cloud imagery from RainViewer (same API
+ * already used for the precip radar). Clamped maxzoom for smooth upscaling and
+ * drawn beneath the aircraft layer so planes stay readable.
+ */
+async function toggleCloudLayer(show) {
+    if (!sectorOpsMap) return;
+
+    const SOURCE_ID = 'rainviewer-satellite-source';
+    const LAYER_ID = 'rainviewer-satellite-layer';
+
+    if (show && !isCloudLayerAdded) {
+        try {
+            const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+            const data = await res.json();
+            const host = data.host;
+            const frames = data.satellite && data.satellite.infrared;
+            if (!frames || !frames.length) {
+                showNotification('Cloud imagery is temporarily unavailable.', 'info');
+                return;
+            }
+            const path = frames[frames.length - 1].path;
+            // 512 = retina, colour scheme 0 (IR), 0_0 = smooth, no snow.
+            const tileUrl = `${host}${path}/512/{z}/{x}/{y}/0/0_0.png`;
+
+            sectorOpsMap.addSource(SOURCE_ID, {
+                'type': 'raster',
+                'tiles': [tileUrl],
+                'tileSize': 512,
+                'maxzoom': 6   // satellite is coarse; stretch smoothly past z6
+            });
+
+            const beneath = sectorOpsMap.getLayer('sector-ops-live-flights-layer')
+                ? 'sector-ops-live-flights-layer' : undefined;
+            sectorOpsMap.addLayer({
+                'id': LAYER_ID,
+                'type': 'raster',
+                'source': SOURCE_ID,
+                'paint': {
+                    'raster-opacity': 0.55,
+                    'raster-resampling': 'linear',
+                    'raster-fade-duration': 0
+                }
+            }, beneath);
+
+            isCloudLayerAdded = true;
+            console.log('Cloud (IR satellite) layer added.');
+        } catch (error) {
+            console.error('Failed to init cloud layer:', error);
+            showNotification('Could not load cloud data.', 'error');
+        }
+    } else if (isCloudLayerAdded) {
+        const visibility = show ? 'visible' : 'none';
+        if (sectorOpsMap.getLayer(LAYER_ID)) {
+            sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', visibility);
+        }
+    }
+}
+
+/**
+ * --- Animated Wind Layer ---
+ * Particle-flow wind ("Windy" style) powered by windLayer.js, fed by the
+ * free, key-less Open-Meteo API. The heavy lifting lives in the
+ * WindParticleLayer engine; here we just create / show / hide it.
+ */
+let windParticleLayer = null;
+
+function toggleWindLayer(show) {
+    if (!sectorOpsMap) return;
+
+    if (show) {
+        if (typeof window.WindParticleLayer !== 'function') {
+            showNotification('Wind engine not loaded.', 'error');
+            return;
+        }
+        if (!windParticleLayer) {
+            windParticleLayer = new window.WindParticleLayer(sectorOpsMap);
+        }
+        windParticleLayer.start();
+        isWindLayerAdded = true;
+        console.log('Animated wind layer started.');
+    } else if (windParticleLayer) {
+        windParticleLayer.stop();
+    }
+}
+
+/**
  * --- [NEW] SIGMET Vector Layer (Volanta Style) ---
  * Fetches active aviation hazards (Turbulence, Icing, Convection).
  */
@@ -14827,8 +14914,10 @@ const AtcBoardUI = {
                         </ul>
                         <div class="weather-disclaimer-note">
                             <i class="fa-solid fa-server"></i>
-                            <strong>Note:</strong> ONLY rain radar is provided.
-                            Other radars (sigmets, clouds, wind) are not available.
+                            <strong>Note:</strong> Layers use free public sources —
+                            rain &amp; cloud imagery from RainViewer, animated wind
+                            from Open-Meteo, SIGMETs from NOAA. Data is indicative,
+                            not for operational use.
                         </div>
                     </div>
                 </div>
