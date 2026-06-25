@@ -53,7 +53,7 @@
                 gridCols: 14,
                 gridRows: 9,
                 maxParticles: 2600,
-                pxPerMs: 0.65,        // screen px travelled per (m/s) per frame
+                pxPerMs: 0.30,        // screen px travelled per (m/s) per frame
                 fadeOpacity: 0.93,    // trail persistence when idle (near 1 = long tails)
                 fadeOpacityMoving: 0.55, // short trails while the camera moves (less smear)
                 particleLife: 90,     // frames before a particle is recycled
