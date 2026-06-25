@@ -54,7 +54,8 @@
                 gridRows: 9,
                 maxParticles: 2600,
                 pxPerMs: 0.65,        // screen px travelled per (m/s) per frame
-                fadeOpacity: 0.93,    // trail persistence (closer to 1 = longer tails)
+                fadeOpacity: 0.93,    // trail persistence when idle (near 1 = long tails)
+                fadeOpacityMoving: 0.55, // short trails while the camera moves (less smear)
                 particleLife: 90,     // frames before a particle is recycled
                 lineWidth: 1.35,
                 refetchDebounceMs: 600,
@@ -289,20 +290,16 @@
             const w = this._cssW, h = this._cssH;
             const moving = this._moving;
 
-            if (moving) {
-                // Camera is moving. Trails are painted in screen space and would
-                // smear against the ground, so wipe the canvas each frame — the
-                // wind keeps flowing, it just loses its comet tails until idle.
-                ctx.clearRect(0, 0, w, h);
-            } else {
-                // Idle: fade previous trails toward transparent for the comet look
-                // while keeping the canvas see-through over the map.
-                ctx.save();
-                ctx.globalCompositeOperation = 'destination-in';
-                ctx.fillStyle = `rgba(0,0,0,${this.o.fadeOpacity})`;
-                ctx.fillRect(0, 0, w, h);
-                ctx.restore();
-            }
+            // Fade previous trails toward transparent. While the camera moves we
+            // fade much harder so trails are too short to smear against the moving
+            // ground, but still long enough to read as continuous motion (instead
+            // of looking frozen). Idle keeps long comet tails.
+            const fade = moving ? this.o.fadeOpacityMoving : this.o.fadeOpacity;
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-in';
+            ctx.fillStyle = `rgba(0,0,0,${fade})`;
+            ctx.fillRect(0, 0, w, h);
+            ctx.restore();
 
             if (!this.field) return; // nothing to draw yet
 
