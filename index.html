@@ -2125,19 +2125,30 @@
             text-transform: uppercase;
             color: rgba(255, 255, 255, 0.42);
         }
+        /* Marquee viewport — clips the track and fades both edges so logos
+           glide in and out instead of hard-cutting at the border. */
+        .inflight-splash-partners-marquee {
+            position: relative;
+            overflow: hidden;
+            width: min(680px, 92vw);
+            -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+                    mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+        }
+        /* The track holds the roster twice over; translating it by -50% loops
+           seamlessly. width:max-content lets it size to its content. */
         .inflight-splash-partners-row {
             display: flex;
             align-items: center;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 16px 20px;
-            max-width: min(560px, 88vw);
+            gap: 34px;
+            width: max-content;
+            animation: inflight-splash-partners-scroll 32s linear infinite;
         }
         .inflight-splash-partners-row img {
             height: 30px;
-            max-width: 100px;
+            max-width: 110px;
             object-fit: contain;
             opacity: 0.88;
+            flex: 0 0 auto;
         }
         .inflight-splash-partners-row .vp-name {
             font: 600 12px/1 'Inter', system-ui, sans-serif;
@@ -2145,17 +2156,23 @@
             padding: 7px 11px;
             border: 1px solid rgba(255, 255, 255, 0.14);
             border-radius: 8px;
+            white-space: nowrap;
+            flex: 0 0 auto;
         }
         @keyframes inflight-splash-partners-in { to { opacity: 1; } }
+        @keyframes inflight-splash-partners-scroll {
+            from { transform: translateX(0); }
+            to   { transform: translateX(-50%); }
+        }
         @media (max-width: 480px) {
-            .inflight-splash-partners-row img { height: 24px; max-width: 78px; }
-            .inflight-splash-partners-row { gap: 12px 16px; }
+            .inflight-splash-partners-row img { height: 24px; max-width: 84px; }
+            .inflight-splash-partners-row { gap: 24px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
             .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-            .inflight-splash-partners {
+            .inflight-splash-partners, .inflight-splash-partners-row {
                 animation-duration: 0.001s !important;
                 animation-delay: 0s !important;
                 animation-iteration-count: 1 !important;
@@ -2184,7 +2201,9 @@
         </div>
         <div class="inflight-splash-partners" id="inflight-splash-partners" hidden aria-hidden="true">
             <span class="inflight-splash-partners-label">Our Partner VAs</span>
-            <div class="inflight-splash-partners-row" id="inflight-splash-partners-row"></div>
+            <div class="inflight-splash-partners-marquee">
+                <div class="inflight-splash-partners-row" id="inflight-splash-partners-row"></div>
+            </div>
         </div>
     </div>
     <script>
@@ -2261,7 +2280,7 @@
             var row   = document.getElementById('inflight-splash-partners-row');
             if (!strip || !row) return;
 
-            var MAX = 8, tries = 0;
+            var tries = 0;
             function esc(s) {
                 return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
                     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -2269,7 +2288,7 @@
             }
             function render(list) {
                 var seen = {}, items = [];
-                for (var i = 0; i < list.length && items.length < MAX; i++) {
+                for (var i = 0; i < list.length; i++) {
                     var ad = list[i];
                     if (!ad || !ad.name) continue;
                     var key = String(ad.name).toLowerCase();
@@ -2283,7 +2302,11 @@
                     }
                 }
                 if (!items.length) return false;
-                row.innerHTML = items.join('');
+                // Duplicate the roster so the -50% marquee scroll loops seamlessly,
+                // and scale the speed to the count so it always glides at a steady
+                // pace no matter how many partners there are.
+                row.innerHTML = items.join('') + items.join('');
+                row.style.animationDuration = Math.max(18, items.length * 2.4) + 's';
                 strip.hidden = false;
                 strip.removeAttribute('aria-hidden');
                 return true;
