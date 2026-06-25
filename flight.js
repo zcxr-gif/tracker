@@ -16264,44 +16264,98 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
  * Smoothes a path using Catmull-Rom Splines with high-fidelity resolution.
  * Makes aircraft turns look "smooth as hell" by increasing interpolation steps.
  */
-function generateSmoothPath(points, tension = 0.5) {
+function generateSmoothPath(points, alpha = 0.5) {
+    // --- Centripetal Catmull-Rom (alpha = 0.5) ---
+    // The previous implementation used a *uniform* Catmull-Rom spline. Uniform
+    // parameterization assumes every sample is equally spaced, which flight
+    // trails never are (data gaps, varying ground speed, dropped pings). When a
+    // short segment sits next to a long one, the uniform spline overshoots and
+    // throws out cusps and self-intersecting loops — that's the "extreme weird
+    // turns" where the line whips off into hairpins the aircraft never flew.
+    //
+    // Centripetal parameterization (alpha = 0.5) is the textbook cure: it is
+    // mathematically guaranteed to produce no cusps and no self-intersections
+    // within a segment, so the curve stays glued to the actual sample points and
+    // only gently rounds the corners. (Yuksel, Schaefer & Keyser, 2011.)
     if (points.length < 4) return points;
+
+    // Drop consecutive duplicate samples so chord lengths are strictly positive
+    // (a zero-length chord would collapse the knot spacing and re-introduce the
+    // very singularity we're trying to avoid).
+    const EPS = 1e-9;
+    const pts = [points[0]];
+    for (let i = 1; i < points.length; i++) {
+        const prev = pts[pts.length - 1];
+        const cur = points[i];
+        const dx = cur.unwrappedLon - prev.unwrappedLon;
+        const dy = cur.lat - prev.lat;
+        if (dx * dx + dy * dy > EPS * EPS) pts.push(cur);
+    }
+    if (pts.length < 4) return pts;
+
     const result = [];
-    const interpolate = (p0, p1, p2, p3, t) => {
-        const t2 = t * t;
-        const t3 = t2 * t;
-        // Standard Catmull-Rom Spline formula
-        return 0.5 * (
-            (2 * p1) +
-            (-p0 + p2) * t +
-            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-        );
+
+    // Chord length raised to the alpha power = the knot spacing between two
+    // points. alpha=0 -> uniform (overshoots), alpha=1 -> chordal, alpha=0.5 ->
+    // centripetal (the well-behaved middle ground).
+    const knotGap = (a, b) => {
+        const dx = b.unwrappedLon - a.unwrappedLon;
+        const dy = b.lat - a.lat;
+        return Math.pow(Math.sqrt(dx * dx + dy * dy), alpha);
     };
 
-    for (let i = 0; i < points.length - 1; i++) {
-        const p0 = points[i === 0 ? i : i - 1];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
+    // Linear blend of a and b mapped onto the [ta, tb] knot interval, evaluated
+    // at knot t. Used by the Barry–Goldman pyramidal form below.
+    const remap = (a, b, ta, tb, t) => a + (b - a) * ((t - ta) / (tb - ta));
+
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        // Reflect the missing neighbour at the ends so all four control points
+        // are distinct and the knot vector stays strictly increasing (a plain
+        // duplicate would create a zero-width knot interval -> divide by zero).
+        const p0 = i === 0
+            ? { unwrappedLon: 2 * p1.unwrappedLon - p2.unwrappedLon, lat: 2 * p1.lat - p2.lat, alt: p1.alt }
+            : pts[i - 1];
+        const p3 = i + 2 >= pts.length
+            ? { unwrappedLon: 2 * p2.unwrappedLon - p1.unwrappedLon, lat: 2 * p2.lat - p1.lat, alt: p2.alt }
+            : pts[i + 2];
+
+        const t0 = 0;
+        const t1 = t0 + knotGap(p0, p1);
+        const t2 = t1 + knotGap(p1, p2);
+        const t3 = t2 + knotGap(p2, p3);
 
         // --- Resolution: dense enough that consecutive segment angles are imperceptible (~3°) ---
-        // For typical IF trail spacing (~0.01–0.05° between samples), the old formula
-        // collapsed to floor(d*2) = 0, clamped to a paltry 2 steps — so smooth curves
-        // were being sampled as 2-point chords. We now guarantee a minimum of 24 steps,
-        // and scale up generously for long inter-sample gaps (e.g. early-flight cold trails).
+        // We guarantee a minimum of 24 steps and scale up for long inter-sample
+        // gaps (e.g. early-flight cold trails), capped so we never explode count.
         const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-        const steps = Math.max(24, Math.min(64, Math.ceil(d * 400))); 
-        
-        for (let t = 0; t < 1; t += 1 / steps) {
+        const steps = Math.max(24, Math.min(64, Math.ceil(d * 400)));
+
+        // Barry–Goldman recursive evaluation of the non-uniform Catmull-Rom
+        // segment, applied per coordinate.
+        const eval1d = (q0, q1, q2, q3, t) => {
+            const a1 = remap(q0, q1, t0, t1, t);
+            const a2 = remap(q1, q2, t1, t2, t);
+            const a3 = remap(q2, q3, t2, t3, t);
+            const b1 = remap(a1, a2, t0, t2, t);
+            const b2 = remap(a2, a3, t1, t3, t);
+            return remap(b1, b2, t1, t2, t);
+        };
+
+        for (let s = 0; s < steps; s++) {
+            const u = s / steps;            // 0..1 within the p1 -> p2 segment
+            const t = t1 + (t2 - t1) * u;   // mapped into the knot interval
             result.push({
-                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-                alt: p1.alt + (p2.alt - p1.alt) * t
+                unwrappedLon: eval1d(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                lat: eval1d(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                // Altitude stays linear per segment so the altitude->colour
+                // mapping never overshoots into a colour the aircraft never hit.
+                alt: p1.alt + (p2.alt - p1.alt) * u
             });
         }
     }
-    result.push(points[points.length - 1]);
+    result.push(pts[pts.length - 1]);
     return result;
 }
 
