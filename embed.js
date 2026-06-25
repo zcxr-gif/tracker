@@ -1750,7 +1750,7 @@
 
     function showLoading() {
         const root = rootEl();
-        if (root) root.innerHTML = `<div class="emb-loading"><div class="emb-spinner"></div></div>`;
+        if (root) root.innerHTML = `<div class="emb-loading"><img class="emb-loading-logo" src="Images/inflight-light.png" alt="Inflight" onerror="this.outerHTML='<span class=&quot;emb-loading-text&quot;>Inflight</span>'"></div>`;
     }
 
     async function tick(cfg) {
