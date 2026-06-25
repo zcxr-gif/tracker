@@ -15877,6 +15877,48 @@ function generateSmoothPath(points, alpha = 0.5) {
     return result;
 }
 
+/**
+ * Pulls the tail end of a flown path back by ~gapPx screen-pixels so the trail
+ * visibly ends *behind* the aircraft icon instead of running through or past it.
+ * Pixel-based (via map.project) so the gap looks consistent at every zoom level.
+ * Operates on {unwrappedLon, lat, alt} points and interpolates the cut point so
+ * the altitude→colour mapping stays correct. Returns the path untouched if the
+ * map isn't ready or the path is shorter than the requested gap.
+ */
+function trimFlownPathTail(points, map, gapPx) {
+    if (!map || typeof map.project !== 'function' || !Array.isArray(points) || points.length < 2 || gapPx <= 0) {
+        return points;
+    }
+    let remaining = gapPx;
+    for (let i = points.length - 1; i > 0; i--) {
+        let a, b;
+        try {
+            a = map.project({ lng: points[i].unwrappedLon, lat: points[i].lat });
+            b = map.project({ lng: points[i - 1].unwrappedLon, lat: points[i - 1].lat });
+        } catch (_) {
+            return points;
+        }
+        const segLen = Math.hypot(a.x - b.x, a.y - b.y);
+        if (segLen >= remaining) {
+            const f = remaining / segLen; // fraction back from points[i] toward points[i-1]
+            const cut = {
+                unwrappedLon: points[i].unwrappedLon + (points[i - 1].unwrappedLon - points[i].unwrappedLon) * f,
+                lat: points[i].lat + (points[i - 1].lat - points[i].lat) * f,
+                alt: points[i].alt + (points[i - 1].alt - points[i].alt) * f
+            };
+            return points.slice(0, i).concat(cut);
+        }
+        remaining -= segLen;
+    }
+    // Whole path is shorter than the requested gap (plane just appeared / barely
+    // moved) — leave it alone so the trail doesn't vanish.
+    return points;
+}
+
+// Screen-pixel gap kept between the end of the flown path and the live dot, so
+// the trail connects to the back of the aircraft icon rather than overshooting it.
+const FLOWN_PATH_TAIL_TRIM_PX = 16;
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
@@ -15926,11 +15968,15 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         ? generateSmoothPath(unwrappedPoints, 0.5)
         : unwrappedPoints;
 
+    // End the trail a fixed pixel gap behind the live position so it connects to
+    // the back of the aircraft icon instead of poking out past it.
+    const renderPoints = trimFlownPathTail(smoothedPoints, sectorOpsMap, FLOWN_PATH_TAIL_TRIM_PX);
+
     // Create a distinct LineString feature for EVERY segment so each can be colored
     // by its own altitude property via the layer's interpolate expression.
-    for (let i = 0; i < smoothedPoints.length - 1; i++) {
-        const p1 = smoothedPoints[i];
-        const p2 = smoothedPoints[i + 1];
+    for (let i = 0; i < renderPoints.length - 1; i++) {
+        const p1 = renderPoints[i];
+        const p2 = renderPoints[i + 1];
 
         features.push({
             type: 'Feature',

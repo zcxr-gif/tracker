@@ -8,10 +8,14 @@ export const FlownPath3D = {
     font: null,
     
     // Performance Constants
-    MAX_POINTS: 5000, 
-    SAMPLES_PER_POINT: 8, 
-    RADIAL_SEGMENTS: 6,   
+    MAX_POINTS: 5000,
+    SAMPLES_PER_POINT: 8,
+    RADIAL_SEGMENTS: 6,
     BASE_THICKNESS: 0.0000035,
+
+    // Screen-pixel gap kept between the end of the 3D tube and the live position,
+    // so the trail ends behind the aircraft icon rather than overshooting it.
+    TAIL_TRIM_PX: 16,
 
     // Altitude Color Config (Feet)
     ALTITUDE_STOPS: [
@@ -155,16 +159,58 @@ export const FlownPath3D = {
         };
     },
 
+    /**
+     * Pulls the tube's tail back ~gapPx screen-pixels so it ends behind the
+     * aircraft icon instead of overshooting it. Pixel-based (via map.project) so
+     * the gap is consistent at every zoom; interpolates the cut point's altitude
+     * so the colour gradient stays correct. Returns the trail untouched if the
+     * map isn't ready or the trail is shorter than the requested gap.
+     */
+    _trimTrailTail(map, trailData, gapPx) {
+        if (!map || typeof map.project !== 'function' || !Array.isArray(trailData) || trailData.length < 2 || !gapPx) {
+            return trailData;
+        }
+        const lng = p => (p.longitude != null ? p.longitude : p.lon);
+        const lat = p => (p.latitude != null ? p.latitude : p.lat);
+        const alt = p => ((p.altitude != null ? p.altitude : p.alt) || 0);
+        let remaining = gapPx;
+        for (let i = trailData.length - 1; i > 0; i--) {
+            let a, b;
+            try {
+                a = map.project({ lng: lng(trailData[i]), lat: lat(trailData[i]) });
+                b = map.project({ lng: lng(trailData[i - 1]), lat: lat(trailData[i - 1]) });
+            } catch (_) {
+                return trailData;
+            }
+            const segLen = Math.hypot(a.x - b.x, a.y - b.y);
+            if (segLen >= remaining) {
+                const f = remaining / segLen; // fraction back from [i] toward [i-1]
+                const cut = {
+                    longitude: lng(trailData[i]) + (lng(trailData[i - 1]) - lng(trailData[i])) * f,
+                    latitude: lat(trailData[i]) + (lat(trailData[i - 1]) - lat(trailData[i])) * f,
+                    altitude: alt(trailData[i]) + (alt(trailData[i - 1]) - alt(trailData[i])) * f
+                };
+                return trailData.slice(0, i).concat(cut);
+            }
+            remaining -= segLen;
+        }
+        return trailData;
+    },
+
     _updateGeometry(map, flightId, trailData) {
         if (!trailData || trailData.length < 2) return;
-        
+
         const THREE = window.THREE;
         const layerObj = this.flightObjects[flightId];
         if (!layerObj) return;
 
+        // Trim the tail so the tube ends behind the live aircraft icon.
+        trailData = this._trimTrailTail(map, trailData, this.TAIL_TRIM_PX);
+        if (trailData.length < 2) return;
+
         const points = [];
-        const rawAltitudes = []; 
-        
+        const rawAltitudes = [];
+
         trailData.forEach((p) => {
             const alt = p.altitude || p.alt || 0;
             const altMeters = alt * 0.3048; 
