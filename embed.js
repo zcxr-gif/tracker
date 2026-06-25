@@ -115,12 +115,16 @@
         return String(s || '').trim().toUpperCase().split(/[\s\-_/]+/)[0] || '';
     }
 
-    // Aircraft name → sprite category. Ported verbatim from flight.js
-    // getAircraftCategory so the embed plots the same silhouette the live map
-    // would for any given airframe. Returns a key that exists in markers.png.
+    // Aircraft name → sprite category. Mirrors flight.js getAircraftCategory so the
+    // embed plots the same silhouette the live map would for any given airframe.
+    // Returns a key that exists in markers.png. When IF reports no/"unknown"
+    // aircraft (or a type we don't have a silhouette for) we fall back to the 777
+    // — a generic, recognisable airliner — rather than an absent 'default' sprite.
     function getAircraftCategory(aircraftName) {
-        if (!aircraftName) return 'default';
+        const UNKNOWN = 'B777';
+        if (!aircraftName) return UNKNOWN;
         const name = aircraftName.toUpperCase();
+        if (name === 'UNKNOWN' || name === 'N/A') return UNKNOWN;
         if (['F-16', 'F-18', 'F-22', 'F-35', 'A-10', 'EUFI'].some(ac => name.includes(ac))) return 'F16';
         if (['C-130', 'C130', 'AC-130'].some(ac => name.includes(ac))) return 'C130';
         if (name.includes('C-17') || name.includes('C5')) return 'C17';
@@ -138,7 +142,7 @@
         if (name.includes('DASH 8') || name.includes('DH8D') || name.includes('Q400')) return 'DASH8';
         if (['C172', 'SR22', 'CESSNA', 'SINGLEPROP'].some(ac => name.includes(ac))) return 'SINGLEPROP';
         if (['EUROCOPTER', 'H60', 'H64', 'CHINOOK', 'LYNX'].some(ac => name.includes(ac))) return 'EUROCOPTER';
-        return 'B737';
+        return UNKNOWN;
     }
 
     async function getJSON(url, opts) {
@@ -1622,7 +1626,7 @@
                 type: 'symbol',
                 source: SOURCE_ID,
                 layout: {
-                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']],
+                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777']],
                     'icon-size': 0.15,                   // matches the live map's default plane size
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
