@@ -2233,7 +2233,7 @@
             } catch (_) { /* non-fatal */ }
 
             var dismissed     = false;
-            var minVisibleMs  = 2000;  // Linger a beat so partner VAs have time to show
+            var minVisibleMs  = 3000;  // Linger so partner VAs load + settle cleanly
             var maxVisibleMs  = 6000;  // Safety net if `load` never fires
             var start         = Date.now();
 
