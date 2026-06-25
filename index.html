@@ -2136,26 +2136,36 @@
             gap: 14px 22px;
             max-width: min(720px, 92vw);
         }
-        .inflight-splash-partners-row img {
-            height: 28px;
-            max-width: 96px;
-            object-fit: contain;
-            opacity: 0.88;
+        /* Round "coin" badges — each logo centred inside a circle. */
+        .inflight-splash-partners-row img,
+        .inflight-splash-partners-row .vp-name {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
             flex: 0 0 auto;
+            box-sizing: border-box;
+        }
+        .inflight-splash-partners-row img {
+            object-fit: contain;
+            padding: 6px;
+            background: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
         }
         .inflight-splash-partners-row .vp-name {
-            font: 600 12px/1 'Inter', system-ui, sans-serif;
-            color: rgba(255, 255, 255, 0.62);
-            padding: 7px 11px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 8px;
-            white-space: nowrap;
-            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font: 700 15px/1 'Inter', system-ui, sans-serif;
+            color: #e9eaec;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.22);
         }
         @keyframes inflight-splash-partners-in { to { opacity: 1; } }
         @media (max-width: 480px) {
-            .inflight-splash-partners-row img { height: 22px; max-width: 74px; }
-            .inflight-splash-partners-row { gap: 11px 16px; }
+            .inflight-splash-partners-row img,
+            .inflight-splash-partners-row .vp-name { width: 42px; height: 42px; }
+            .inflight-splash-partners-row { gap: 12px 14px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -2285,7 +2295,10 @@
                         items.push('<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
                             '" title="' + esc(ad.name) + '" onerror="this.remove()">');
                     } else {
-                        items.push('<span class="vp-name">' + esc(ad.name) + '</span>');
+                        var initials = String(ad.name).trim().split(/\s+/)
+                            .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+                        items.push('<span class="vp-name" title="' + esc(ad.name) + '">' +
+                            esc(initials) + '</span>');
                     }
                 }
                 if (!items.length) return false;
