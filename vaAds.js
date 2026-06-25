@@ -45,16 +45,48 @@
 
     // A callsign with all separators removed, upper-cased — "Air Canada 001VA"
     // → "AIRCANADA001VA", "Ocean XXVA" → "OCEANXXVA".
+    //
+    // NOTE on Infinite Flight callsigns: pilots fly under the FULL airline
+    // callsign, e.g. "United 123" / "American 456" — NOT a short VA code like
+    // "UVAL" or "AAL". So a partner VA is matched on the leading airline name
+    // of that full callsign ("UNITED"), never on a short tag. Tags, when a VA
+    // uses one at all, are an extra suffix on the flight number ("United 123VA")
+    // and only refine membership — they are never the thing we match the VA on.
     function compactCallsign(s) {
         return String(s || '').trim().toUpperCase().replace(/[\s\-_/]+/g, '');
     }
 
+    // The compacted-callsign offsets that land on a real WORD boundary of the
+    // callsign: the end of each space-separated token, plus the letter→digit
+    // seam inside a glued token ("UNITED123" → after "UNITED"). A partner code
+    // must line up with one of these. Without this, the raw substring match
+    // below lets a shorter airline whose name is only a FRAGMENT of a longer
+    // one hijack the flight — e.g. a VA coded "UNI" (Uni Air) would swallow
+    // every "United ###" callsign. The full word "UNITED" must match the full
+    // word, not the first three letters of it.
+    function callsignBoundaries(callsign) {
+        const tokens = String(callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
+        const bounds = new Set();
+        let acc = '';
+        for (const t of tokens) {
+            const seam = t.match(/^([A-Z]+)\d/); // airline letters then a flight number
+            if (seam) bounds.add((acc + seam[1]).length);
+            acc += t;
+            bounds.add(acc.length);
+        }
+        return bounds;
+    }
+
     // True when a callsign token is a flight-number / placeholder / tag rather
-    // than part of the airline name: "001", "001VA", "XXVA"/"XX" (placeholder),
-    // or a short standalone tag word like "VA". Airline-name words ("CANADA",
-    // "AIRWAYS") are kept.
+    // than part of the airline name: "001", "001VA", "XXVA"/"##UA"/"XX"
+    // (placeholders), or a short standalone tag word like "VA". The flight
+    // number may be written as real digits OR as a placeholder run of "X" or
+    // "#" — VAs commonly register a template callsign like "United ##UA", and
+    // the "##" must be recognised as the number slot so the token is dropped
+    // and the code reduces to the airline name "UNITED". Airline-name words
+    // ("CANADA", "AIRWAYS") are kept.
     function isFlightNumberToken(t) {
-        return /[0-9]/.test(t) || /^X+[A-Z]*$/.test(t) || /^[A-Z]{1,3}$/.test(t);
+        return /[0-9]/.test(t) || /^[X#]+[A-Z]*$/.test(t) || /^[A-Z]{1,3}$/.test(t);
     }
 
     // The VA's matching code — the airline-name portion of its callsign,
@@ -62,10 +94,18 @@
     // callsign is "Air Canada 001VA" advertises as "AIRCANADA" (not just "AIR",
     // which used to swallow Air India / Airbus / Air France). Single-token codes
     // like "DLVA" are kept whole.
+    //
+    // A trailing "VIRTUAL" descriptor is also dropped: members fly the real
+    // airline callsign ("United 123"), never "United Virtual 123", so a partner
+    // registered as "United Virtual" must still resolve to "UNITED" and match
+    // the flights that simply read "United". Otherwise its code ("UNITEDVIRTUAL")
+    // never lines up with any real callsign and the flight falls through to some
+    // other VA — the "callsign says United but it picks something else" bug.
     function vaCodeFromCallsign(s) {
         const parts = String(s || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
         if (!parts.length) return '';
         if (parts.length >= 2 && isFlightNumberToken(parts[parts.length - 1])) parts.pop();
+        if (parts.length >= 2 && parts[parts.length - 1] === 'VIRTUAL') parts.pop();
         return parts.join('');
     }
 
@@ -197,12 +237,19 @@
     // (e.g. "Air Canada 001VA" matches the VA coded "AIRCANADA", but "Air India
     // 123" / "Airbus …" do not). The flight callsign is compacted and tested
     // against each VA code as a prefix; longest code wins so the most specific
-    // VA matches first. Synchronous — reads the warm cache.
+    // VA matches first.
+    //
+    // The prefix must end on a callsign WORD boundary (see callsignBoundaries),
+    // so the VA's full airline name has to match the flight's full airline name —
+    // "UNITED" matches "United 123" but a fragment like "UNI" (Uni Air) cannot
+    // grab it. Synchronous — reads the warm cache.
     function matchCallsign(callsign) {
         if (!directory) { loadDirectory(); return null; }
         const compact = compactCallsign(callsign);
         if (!compact) return null;
-        const hit = directory.find((entry) => compact.startsWith(entry.code));
+        const bounds = callsignBoundaries(callsign);
+        const hit = directory.find((entry) =>
+            compact.startsWith(entry.code) && bounds.has(entry.code.length));
         return hit ? hit.ad : null;
     }
 
@@ -217,13 +264,14 @@
     // number, derived from the VA's declared callsign. The tag is the trailing
     // letters of the last token after its number/placeholder run:
     //   "Ocean XXVA"        → "VA"   (XX is the flight-number placeholder)
+    //   "United ##UA"       → "UA"   (## is the flight-number placeholder)
     //   "Air Canada 001VA"  → "VA"
     //   "Delta VA"          → "VA"   (tag declared as its own word)
     //   "Ocean"             → ""     (no tag declared — membership unknowable)
     function vaTag(ad) {
         const lt = lastToken(ad && ad.callsign);
         if (!lt) return '';
-        const m = lt.match(/^[0-9X]+([A-Z]+)$/);   // <number/placeholder><TAG>
+        const m = lt.match(/^[0-9X#]+([A-Z]+)$/);  // <number/placeholder><TAG>
         if (m) return m[1];
         // Tag declared as a separate short word (and not the airline name itself).
         const parts = String(ad.callsign || '').trim().toUpperCase().split(/[\s\-_/]+/).filter(Boolean);
