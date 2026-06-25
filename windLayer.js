@@ -68,8 +68,12 @@
             this._fetchTimer = null;
             this._fetchAbort = null;
             this._destroyed = false;
+            this._moving = false;     // true while the camera is panning/zooming/rotating
 
-            this._onMoveEnd = this._scheduleFetch.bind(this);
+            // While the camera moves we freeze advection and clear each frame so
+            // the screen-space trail buffer can't smear against the ground.
+            this._onMoveStart = () => { this._moving = true; };
+            this._onMoveEnd = () => { this._moving = false; this._scheduleFetch(); };
             this._onResize = this._resize.bind(this);
         }
 
@@ -80,6 +84,7 @@
             this._buildCanvas();
             this._resize();
             this._spawnParticles();
+            this.map.on('movestart', this._onMoveStart);
             this.map.on('moveend', this._onMoveEnd);
             this.map.on('resize', this._onResize);
             window.addEventListener('resize', this._onResize);
@@ -94,6 +99,7 @@
             this._raf = null;
             if (this._fetchTimer) clearTimeout(this._fetchTimer);
             if (this._fetchAbort) this._fetchAbort.abort();
+            this.map.off('movestart', this._onMoveStart);
             this.map.off('moveend', this._onMoveEnd);
             this.map.off('resize', this._onResize);
             window.removeEventListener('resize', this._onResize);
@@ -280,21 +286,33 @@
             const ctx = this.ctx;
             if (!ctx) return;
 
-            // Fade existing trails toward transparent (keeps canvas see-through).
-            ctx.save();
-            ctx.globalCompositeOperation = 'destination-in';
-            ctx.fillStyle = `rgba(0,0,0,${this.o.fadeOpacity})`;
-            ctx.fillRect(0, 0, this._cssW, this._cssH);
-            ctx.restore();
+            const w = this._cssW, h = this._cssH;
+            const moving = this._moving;
+
+            if (moving) {
+                // Camera is moving. The trail buffer lives in screen space and
+                // would smear against the ground, so wipe it every frame and draw
+                // particles locked to their ground positions (no advection) — they
+                // rotate rigidly with the globe instead of swimming over it.
+                ctx.clearRect(0, 0, w, h);
+            } else {
+                // Idle: fade previous trails toward transparent for the comet look
+                // while keeping the canvas see-through over the map.
+                ctx.save();
+                ctx.globalCompositeOperation = 'destination-in';
+                ctx.fillStyle = `rgba(0,0,0,${this.o.fadeOpacity})`;
+                ctx.fillRect(0, 0, w, h);
+                ctx.restore();
+            }
 
             if (!this.field) return; // nothing to draw yet
 
             ctx.lineWidth = this.o.lineWidth;
             ctx.lineCap = 'round';
 
-            const w = this._cssW, h = this._cssH;
             const k = this.o.pxPerMs;
             const margin = 40;
+            const dot = Math.max(this.o.lineWidth, 1);
 
             // Adjust the count if the viewport was resized.
             const target = this._targetCount();
@@ -304,7 +322,9 @@
             for (let idx = 0; idx < this.particles.length; idx++) {
                 const p = this.particles[idx];
                 const wind = this._sample(p.lon, p.lat);
-                if (!wind || p.age++ > this.o.particleLife) {
+                // Don't recycle on age while the camera moves — keep them put so
+                // they ride the globe steadily.
+                if (!wind || (!moving && p.age++ > this.o.particleLife)) {
                     this.particles[idx] = this._newParticle(false);
                     continue;
                 }
@@ -316,12 +336,19 @@
                     continue;
                 }
 
+                if (moving) {
+                    // Ground-locked marker — position only, no wind advection.
+                    ctx.fillStyle = colorForSpeed(wind.spd);
+                    ctx.fillRect(p0.x, p0.y, dot, dot);
+                    continue;
+                }
+
                 // Pixel-space velocity -> consistent on-screen speed at any zoom.
                 const x1 = p0.x + wind.u * k;
                 const y1 = p0.y - wind.v * k; // screen y is down; +v is north (up)
 
                 // Advance the ground position by reprojecting the new screen point
-                // so particles stay glued to the map while panning/zooming.
+                // so particles stay glued to the map while idle-animating.
                 const next = this.map.unproject([x1, y1]);
                 p.lon = next.lng;
                 p.lat = next.lat;
