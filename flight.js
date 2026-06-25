@@ -7709,11 +7709,17 @@ async function toggleWeatherLayer(show) {
         try {
             // 1. Fetch official configuration
             const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+            if (!res.ok) throw new Error('RainViewer HTTP ' + res.status);
             const data = await res.json();
-            const host = data.host; 
-            
+            const host = data.host;
+            const frames = data.radar && data.radar.past;
+            if (!host || !frames || !frames.length) {
+                showNotification('Rain radar is temporarily unavailable.', 'info');
+                return;
+            }
+
             // Get the very latest frame
-            const latestFrame = data.radar.past[data.radar.past.length - 1];
+            const latestFrame = frames[frames.length - 1];
             const path = latestFrame.path;
 
             // --- SETTINGS ---
@@ -7862,11 +7868,33 @@ async function toggleSigmetLayer(show) {
     const FILL_LAYER_ID = 'aviation-sigmet-fill';
     const LINE_LAYER_ID = 'aviation-sigmet-outline';
 
+    // Hazard-code -> colour. AWC uses short codes (TS, TURB, ICE, …), and the
+    // US AIRMET feed adds a few more (CONVECTIVE, IFR, MTN OBSCN). Map both.
+    const HAZARD_COLOR = [
+        'match', ['get', 'hazard'],
+        ['TS', 'TSGR', 'TC', 'CONVECTIVE'], '#ff3b30', // storms / convective
+        ['TURB'], '#ff9500',                            // turbulence
+        ['ICE', 'ICING'], '#00bfff',                    // icing
+        ['MTW'], '#bf5af2',                             // mountain wave
+        ['VA', 'ASH'], '#8e8e93',                       // volcanic ash
+        ['IFR', 'MTN OBSCN'], '#34c759',                // IFR / obscuration
+        ['DS', 'SS'], '#d4a017',                        // dust / sand
+        '#888888'                                       // fallback
+    ];
+
     if (show && !isSigmetLayerAdded) {
         try {
-            // Fetch GeoJSON from NOAA Aviation Weather Center
-            const response = await fetch('https://aviationweather.gov/api/data/isigmet?format=geojson');
+            // Fetch via our CORS-enabled Netlify proxy (the AWC API itself sends
+            // no CORS headers). The proxy merges international SIGMETs + US
+            // AIRMET/SIGMETs into one FeatureCollection.
+            const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/sigmets`);
+            if (!response.ok) throw new Error('SIGMET proxy HTTP ' + response.status);
             const geojson = await response.json();
+
+            if (!geojson || !Array.isArray(geojson.features) || geojson.features.length === 0) {
+                showNotification('No active SIGMETs or AIRMETs right now.', 'info');
+                return; // leave flag false so a later toggle re-checks
+            }
 
             sectorOpsMap.addSource(SOURCE_ID, {
                 'type': 'geojson',
@@ -7879,17 +7907,10 @@ async function toggleSigmetLayer(show) {
                 'type': 'fill',
                 'source': SOURCE_ID,
                 'paint': {
-                    'fill-color': [
-                        'match',
-                        ['get', 'hazard'],
-                        'CONVECTIVE', '#ff0000', // Red for storms
-                        'TURB', '#ffa500',       // Orange for turbulence
-                        'ICING', '#00bfff',      // Blue for icing
-                        '#888888'                // Fallback
-                    ],
+                    'fill-color': HAZARD_COLOR,
                     'fill-opacity': 0.20
                 }
-            }, 'sector-ops-live-flights-layer'); 
+            }, 'sector-ops-live-flights-layer');
 
             // 2. Outline Layer (Solid Lines)
             sectorOpsMap.addLayer({
@@ -7897,39 +7918,38 @@ async function toggleSigmetLayer(show) {
                 'type': 'line',
                 'source': SOURCE_ID,
                 'paint': {
-                    'line-color': [
-                        'match',
-                        ['get', 'hazard'],
-                        'CONVECTIVE', '#ff0000',
-                        'TURB', '#ffa500',
-                        'ICING', '#00bfff',
-                        '#888888'
-                    ],
+                    'line-color': HAZARD_COLOR,
                     'line-width': 1.5,
                     'line-opacity': 0.8
                 }
             }, 'sector-ops-live-flights-layer');
 
             // 3. Click interaction for details
-            sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
-                const props = e.features[0].properties;
-                new mapboxgl.Popup()
-                    .setLngLat(e.lngLat)
-                    .setHTML(`
-                        <div style="color:#333; padding:5px;">
-                            <strong>${props.hazard || 'SIGMET'}</strong><br>
-                            <span style="font-size: 0.8em; color: #555;">${props.rawSigmet || 'No details'}</span>
-                        </div>
-                    `)
-                    .addTo(sectorOpsMap);
-            });
+            if (!sectorOpsMap.__sigmetClickBound) {
+                sectorOpsMap.on('click', FILL_LAYER_ID, (e) => {
+                    const props = e.features[0].properties || {};
+                    const title = [props.qualifier, props.hazard].filter(Boolean).join(' ') || 'Advisory';
+                    const detail = props.rawSigmet || props.rawAirSigmet ||
+                        [props.firName, props.icaoId].filter(Boolean).join(' • ') || 'No details';
+                    new mapboxgl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`
+                            <div style="color:#333; padding:5px; max-width:240px;">
+                                <strong>${title}</strong><br>
+                                <span style="font-size: 0.8em; color: #555;">${detail}</span>
+                            </div>
+                        `)
+                        .addTo(sectorOpsMap);
+                });
+                sectorOpsMap.__sigmetClickBound = true;
+            }
 
             isSigmetLayerAdded = true;
-            console.log('SIGMET vector layer added.');
+            console.log(`SIGMET/AIRMET layer added (${geojson.features.length} features).`);
 
         } catch (error) {
             console.error('Failed to load SIGMETs:', error);
-            // Fallback notification or silent fail
+            showNotification('Could not load aviation hazards.', 'error');
         }
 
     } else if (isSigmetLayerAdded) {
