@@ -204,8 +204,15 @@ export const FlownPath3D = {
         const layerObj = this.flightObjects[flightId];
         if (!layerObj) return;
 
-        // Trim the tail so the tube ends behind the live aircraft icon.
+        // Trim the curve's terminal bulge (which overshot the aircraft icon),
+        // then reconnect to the live position so the tube still meets the plane.
+        // Re-adding the live point as the strict last vertex keeps the tube from
+        // extending past it while closing the gap the trim opened up.
+        const livePoint = trailData[trailData.length - 1];
         trailData = this._trimTrailTail(map, trailData, this.TAIL_TRIM_PX);
+        if (trailData[trailData.length - 1] !== livePoint) {
+            trailData = trailData.concat([livePoint]);
+        }
         if (trailData.length < 2) return;
 
         const points = [];

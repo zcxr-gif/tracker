@@ -16450,9 +16450,17 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         ? generateSmoothPath(unwrappedPoints, 0.5)
         : unwrappedPoints;
 
-    // End the trail a fixed pixel gap behind the live position so it connects to
-    // the back of the aircraft icon instead of poking out past it.
+    // Trim the curve's terminal bulge (the bit that overshot the aircraft icon),
+    // then reconnect to the live position with a straight final leg so the trail
+    // still meets the plane. A straight segment can't bow past the icon the way
+    // the smoothed curve did, so we get "connected" without re-introducing the
+    // overshoot.
     const renderPoints = trimFlownPathTail(smoothedPoints, sectorOpsMap, FLOWN_PATH_TAIL_TRIM_PX);
+    const livePoint = unwrappedPoints[unwrappedPoints.length - 1];
+    const tail = renderPoints[renderPoints.length - 1];
+    if (livePoint && (!tail || tail.unwrappedLon !== livePoint.unwrappedLon || tail.lat !== livePoint.lat)) {
+        renderPoints.push(livePoint);
+    }
 
     // Create a distinct LineString feature for EVERY segment so each can be colored
     // by its own altitude property via the layer's interpolate expression.
