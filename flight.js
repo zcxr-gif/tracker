@@ -7934,16 +7934,85 @@ function toggleWeatherInspector(show) {
         sectorOpsMap.getCanvas().style.cursor = '';
         if (weatherInspectorHandler) sectorOpsMap.off('click', weatherInspectorHandler);
         weatherInspectorHandler = null;
+        hideInspectorCard();
     }
+}
+
+// Custom forecast card — a bottom sheet on mobile, a floating card on desktop.
+// Built as our own DOM (not a Mapbox popup) so it has a solid, readable
+// background and large touch targets instead of inheriting the app's
+// transparent popup styling.
+function ensureInspectorCard() {
+    let card = document.getElementById('weather-inspector-card');
+    if (card) return card;
+
+    if (!document.getElementById('weather-inspector-styles')) {
+        const st = document.createElement('style');
+        st.id = 'weather-inspector-styles';
+        st.textContent = `
+            #weather-inspector-backdrop{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.45);display:none;}
+            #weather-inspector-backdrop.visible{display:block;}
+            @media (min-width:769px){#weather-inspector-backdrop{display:none !important;}}
+            #weather-inspector-card{position:fixed;z-index:100001;display:none;overflow:hidden;
+                background:#13171c;color:#eef2f6;border:1px solid rgba(255,255,255,.12);
+                box-shadow:0 16px 48px rgba(0,0,0,.55);
+                font:14px/1.35 system-ui,-apple-system,'Inter',sans-serif;}
+            #weather-inspector-card.visible{display:block;}
+            #weather-inspector-card .wi-head{display:flex;align-items:flex-start;justify-content:space-between;
+                gap:12px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);}
+            #weather-inspector-card .wi-temp{font-size:2.1rem;font-weight:700;line-height:1;}
+            #weather-inspector-card .wi-desc{color:#9aa6b2;font-size:.9rem;margin-top:4px;}
+            #weather-inspector-card .wi-close{flex:0 0 auto;background:rgba(255,255,255,.1);border:none;
+                color:#eef2f6;width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer;line-height:1;}
+            #weather-inspector-card .wi-close:active{background:rgba(255,255,255,.2);}
+            #weather-inspector-card .wi-body{padding:8px 18px 16px;}
+            #weather-inspector-card .wi-row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;
+                border-bottom:1px solid rgba(255,255,255,.06);}
+            #weather-inspector-card .wi-row span:first-child{color:#9aa6b2;}
+            #weather-inspector-card .wi-row span:last-child{font-weight:600;}
+            #weather-inspector-card .wi-days{margin-top:12px;width:100%;border-collapse:collapse;font-size:.85rem;}
+            #weather-inspector-card .wi-days td{padding:8px 4px;border-top:1px solid rgba(255,255,255,.07);}
+            #weather-inspector-card .wi-foot{color:#67727d;font-size:.72rem;padding:0 18px 16px;}
+            @media (min-width:769px){#weather-inspector-card{top:84px;right:16px;width:340px;border-radius:16px;}}
+            @media (max-width:768px){#weather-inspector-card{left:0;right:0;bottom:0;border-radius:20px 20px 0 0;
+                max-height:78vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+                padding-bottom:env(safe-area-inset-bottom);animation:wiSlideUp .26s cubic-bezier(.2,.8,.2,1);}
+                #weather-inspector-card .wi-temp{font-size:2.4rem;}
+                #weather-inspector-card .wi-row{padding:11px 0;font-size:1rem;}}
+            @keyframes wiSlideUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+        `;
+        document.head.appendChild(st);
+    }
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'weather-inspector-backdrop';
+    backdrop.addEventListener('click', hideInspectorCard);
+    document.body.appendChild(backdrop);
+
+    card = document.createElement('div');
+    card.id = 'weather-inspector-card';
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.wi-close')) hideInspectorCard();
+    });
+    document.body.appendChild(card);
+    return card;
+}
+
+function hideInspectorCard() {
+    const c = document.getElementById('weather-inspector-card');
+    if (c) c.classList.remove('visible');
+    const b = document.getElementById('weather-inspector-backdrop');
+    if (b) b.classList.remove('visible');
 }
 
 async function showWeatherInspectorPopup(lngLat) {
     const lat = lngLat.lat.toFixed(3);
     const lon = lngLat.lng.toFixed(3);
-    const popup = new mapboxgl.Popup({ maxWidth: '290px', closeButton: true })
-        .setLngLat(lngLat)
-        .setHTML('<div style="color:#222;padding:8px;font:0.85rem system-ui;">Loading forecast…</div>')
-        .addTo(sectorOpsMap);
+    const card = ensureInspectorCard();
+    const backdrop = document.getElementById('weather-inspector-backdrop');
+    card.classList.add('visible');
+    if (backdrop) backdrop.classList.add('visible');
+    card.innerHTML = `<div class="wi-body" style="text-align:center;color:#9aa6b2;padding:32px 18px;">Loading forecast…</div>`;
 
     try {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
@@ -7969,24 +8038,26 @@ async function showWeatherInspectorPopup(lngLat) {
             for (let i = 0; i < dd.time.length; i++) {
                 const dname = new Date(dd.time[i]).toLocaleDateString(undefined, { weekday: 'short' });
                 days += `<tr>
-                    <td style="padding:2px 6px;">${dname}</td>
-                    <td style="padding:2px 6px;color:#888;">${WMO_DESC[dd.weather_code[i]] || ''}</td>
-                    <td style="padding:2px 6px;text-align:right;">${Math.round(dd.temperature_2m_min[i])}° / <strong>${Math.round(dd.temperature_2m_max[i])}°</strong></td>
-                    <td style="padding:2px 6px;text-align:right;color:#1c86d6;">${dd.precipitation_probability_max[i] != null ? dd.precipitation_probability_max[i] + '%' : ''}</td>
+                    <td>${dname}</td>
+                    <td style="color:#9aa6b2;">${WMO_DESC[dd.weather_code[i]] || ''}</td>
+                    <td style="text-align:right;">${Math.round(dd.temperature_2m_min[i])}° / <strong>${Math.round(dd.temperature_2m_max[i])}°</strong></td>
+                    <td style="text-align:right;color:#4aa8ff;">${dd.precipitation_probability_max[i] != null ? dd.precipitation_probability_max[i] + '%' : ''}</td>
                 </tr>`;
             }
         }
 
         const row = (label, val) =>
-            `<div style="display:flex;justify-content:space-between;gap:12px;padding:1px 0;">
-                <span style="color:#666;">${label}</span><span><strong>${val}</strong></span></div>`;
+            `<div class="wi-row"><span>${label}</span><span>${val}</span></div>`;
 
-        popup.setHTML(`
-            <div style="color:#222;padding:8px 10px;font:0.82rem system-ui;min-width:230px;">
-                <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid #eee;padding-bottom:6px;margin-bottom:6px;">
-                    <span style="font-size:1.6rem;font-weight:700;">${c.temperature_2m != null ? Math.round(c.temperature_2m) + '°C' : '—'}</span>
-                    <span style="text-align:right;color:#555;">${desc}</span>
+        card.innerHTML = `
+            <div class="wi-head">
+                <div>
+                    <div class="wi-temp">${c.temperature_2m != null ? Math.round(c.temperature_2m) + '°C' : '—'}</div>
+                    <div class="wi-desc">${desc}</div>
                 </div>
+                <button class="wi-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="wi-body">
                 ${row('Feels like', c.apparent_temperature != null ? Math.round(c.apparent_temperature) + '°C' : '—')}
                 ${row('Wind', wind)}
                 ${row('Humidity', c.relative_humidity_2m != null ? c.relative_humidity_2m + '%' : '—')}
@@ -7994,13 +8065,17 @@ async function showWeatherInspectorPopup(lngLat) {
                 ${row('Pressure', c.surface_pressure != null ? Math.round(c.surface_pressure) + ' hPa' : '—')}
                 ${row('Visibility', visKm)}
                 ${row('Precip', c.precipitation != null ? c.precipitation + ' mm' : '—')}
-                ${days ? `<table style="width:100%;margin-top:7px;border-top:1px solid #eee;border-collapse:collapse;font-size:0.78rem;">${days}</table>` : ''}
-                <div style="margin-top:6px;color:#aaa;font-size:0.68rem;">${lat}, ${lon} · Open-Meteo</div>
+                ${days ? `<table class="wi-days">${days}</table>` : ''}
             </div>
-        `);
+            <div class="wi-foot">${lat}, ${lon} · Open-Meteo</div>
+        `;
     } catch (err) {
         console.warn('Weather inspector fetch failed:', err.message);
-        popup.setHTML('<div style="color:#222;padding:8px;font:0.85rem system-ui;">Forecast unavailable for this spot.</div>');
+        card.innerHTML = `
+            <div class="wi-head">
+                <div class="wi-desc" style="margin-top:0;">Forecast unavailable for this spot.</div>
+                <button class="wi-close" aria-label="Close">&times;</button>
+            </div>`;
     }
 }
 
