@@ -284,7 +284,7 @@ export const MobileSettingsUI = {
                             <div class="mobile-section-header">Projection &amp; 3D</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('useFlatMap', 'Flat Map Projection', 'fa-map')}
-                                ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true)}
+                                ${this.renderToggle('showTerrain', '3D Terrain (Elevation)', 'fa-mountain', true, true)}
                                 ${this.renderToggle('showBuildings', '3D Buildings', 'fa-city', true)}
                                 ${this.renderToggle('showDayNight', 'Day/Night Terminator', 'fa-moon', true)}
                             </div>
@@ -995,9 +995,9 @@ export const MobileSettingsUI = {
         return `${val}`;
     },
 
-    renderToggle(id, label, icon, isPro = false) {
+    renderToggle(id, label, icon, isPro = false, requiresPro = false) {
         return `
-            <div class="m-setting-row ${isPro ? 'is-pro-feature' : ''}">
+            <div class="m-setting-row ${isPro ? 'is-pro-feature' : ''}" ${requiresPro ? 'data-requires-pro="true"' : ''}>
                 <div class="m-row-left">
                     <i class="fa-solid ${icon}" ${isPro ? 'style="color: #fbbf24;"' : ''}></i>
                     <span>${label}</span>
@@ -1027,11 +1027,17 @@ export const MobileSettingsUI = {
 
     refreshProLocks() {
         const isSignedIn = this.isSignedIn();
+        const isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
         const container = document.getElementById('mobile-settings-nexus');
         if (!container) return;
 
         container.querySelectorAll('.is-pro-feature').forEach(row => {
-            if (!isSignedIn) {
+            // Most pro features unlock on sign-in. Rows flagged data-requires-pro
+            // (e.g. 3D Terrain) need the actual Pro entitlement, so they stay
+            // locked for signed-in non-Pro users too.
+            const needsEntitlement = row.dataset.requiresPro === 'true';
+            const unlocked = needsEntitlement ? isPro : isSignedIn;
+            if (!unlocked) {
                 row.classList.add('locked');
             } else {
                 row.classList.remove('locked');
@@ -1702,7 +1708,14 @@ export const MobileSettingsUI = {
         container.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input):not(.m-atc-input)').forEach(input => {
             const isPro = input.dataset.pro === 'true';
             if (isPro) {
-                input.checked = !!(filters.proMapConfig && filters.proMapConfig[input.dataset.setting]);
+                const row = input.closest('.m-setting-row');
+                // Entitlement-gated rows (3D Terrain) read as off unless the user
+                // is actually Pro — terrain is force-disabled for everyone else.
+                const requiresPro = row && row.dataset.requiresPro === 'true';
+                const hasEntitlement = !requiresPro
+                    || !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
+                input.checked = hasEntitlement
+                    && !!(filters.proMapConfig && filters.proMapConfig[input.dataset.setting]);
             } else {
                 input.checked = !!filters[input.dataset.setting];
             }

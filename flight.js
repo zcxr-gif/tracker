@@ -376,7 +376,7 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                     showLabels: true,
                     showPois: false,
                     showWaterLabels: true,
-                    showTerrain: true,
+                    showTerrain: false,   // 3D terrain is Pro-only
                     showAirportLayout: true,
                     showLandUse: true
                 };
@@ -5654,9 +5654,11 @@ function refreshTerrainMode() {
         });
     } else {
         removeTerrainMode(sectorOpsMap, {
-            // If the Pro 3D-terrain toggle is on it shares the DEM source, so
-            // hand elevation back to it instead of clearing the terrain.
-            keepDemTerrain: !!(mapFilters.proMapConfig && mapFilters.proMapConfig.showTerrain)
+            // If the Pro 3D-terrain toggle is on (and the user is actually Pro)
+            // it shares the DEM source, so hand elevation back to it instead of
+            // clearing the terrain.
+            keepDemTerrain: !!(mapFilters.proMapConfig && mapFilters.proMapConfig.showTerrain
+                && window.isInflightPro && window.isInflightPro())
         });
     }
 }
@@ -11494,8 +11496,10 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
 function updatePro3DLayers() {
     if (!sectorOpsMap) return;
     
-    // 1. Update Elevation (Terrain)
-    if (mapFilters.proMapConfig.showTerrain) {
+    // 1. Update Elevation (Terrain) — Pro-only. Even if a stored config has
+    //    showTerrain on (e.g. a lapsed subscriber, or a default), non-Pro
+    //    users never get the 3D elevation; the toggle is locked for them too.
+    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro()) {
         if (!sectorOpsMap.getSource('mapbox-dem')) {
             sectorOpsMap.addSource('mapbox-dem', {
                 'type': 'raster-dem',
@@ -13888,6 +13892,8 @@ renderCategory(catId) {
 
             // Check if the user is currently signed in
             const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
+            // 3D terrain is a Pro-only entitlement (not just sign-in gated).
+            const isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
 
             let html = '';
 
@@ -14010,14 +14016,14 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-map"></i> Flat Map Projection</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-flat-map" ${mapFilters.useFlatMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
+                            <div class="settings-row is-pro-feature ${!isPro ? 'locked' : ''}" id="pro-terrain-row">
+                                <div class="row-label"><i class="fa-solid fa-mountain"></i> 3D Terrain (Elevation)${!isPro ? ' <span class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.55rem; margin-right:3px;"></i>PRO</span>' : ''}</div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="pro-toggle-terrain" ${(isPro && mapFilters.proMapConfig.showTerrain) ? 'checked' : ''} ${!isPro ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
                             <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
-                                <div class="settings-row">
-                                    <div class="row-label"><i class="fa-solid fa-mountain"></i> 3D Terrain (Elevation)</div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="pro-toggle-terrain" ${mapFilters.proMapConfig.showTerrain ? 'checked' : ''} ${!isSignedIn ? 'disabled' : ''}>
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </div>
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-city"></i> 3D Buildings</div>
                                     <label class="toggle-switch">
@@ -14727,6 +14733,19 @@ if (upgradeBtn) {
                 }
             }, true);
         });
+
+        // 3D Terrain is Pro-only: a click on the locked row routes to the
+        // upsell instead of toggling (the input is disabled for non-Pro).
+        const terrainRow = content?.querySelector('#pro-terrain-row');
+        if (terrainRow) {
+            terrainRow.addEventListener('click', (e) => {
+                if (terrainRow.classList.contains('locked')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openProUpsell();
+                }
+            }, true);
+        }
     }
 };
 
@@ -20251,6 +20270,9 @@ window.refreshAtcTagAppearance = function () {
 // reflect what the (re)authenticated user last saved.
 window.addEventListener('proStatusChanged', () => {
     try { window.refreshAtcTagAppearance(); } catch (_) {}
+    // 3D terrain is Pro-gated and resolves async at boot, so re-sync the
+    // elevation layer once entitlement is known (and on any later change).
+    try { if (typeof updatePro3DLayers === 'function') updatePro3DLayers(); } catch (_) {}
 });
 
 // VA hub markers: opt-in (mapFilters.showVaHubMarkers, off by default) logo
