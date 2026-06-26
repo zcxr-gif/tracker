@@ -16360,41 +16360,71 @@ function generateSmoothPath(points, alpha = 0.5) {
 }
 
 /**
- * Pulls the tail end of a flown path back by ~gapPx screen-pixels so the trail
- * visibly ends *behind* the aircraft icon instead of running through or past it.
- * Pixel-based (via map.project) so the gap looks consistent at every zoom level.
- * Operates on {unwrappedLon, lat, alt} points and interpolates the cut point so
- * the altitude→colour mapping stays correct. Returns the path untouched if the
- * map isn't ready or the path is shorter than the requested gap.
+ * Cleans up the tail of a flown path so it connects to the aircraft icon without
+ * ever poking *past* it.
+ *
+ * The smoothed curve can bulge forward of the live position near the plane (the
+ * overshoot gets deeper on sharp turns / long segments, which is why a fixed
+ * arc-length trim only held up "for a while"). So instead of trimming a fixed
+ * distance, we drop every trailing point that isn't at least `gapPx` screen-px
+ * *behind* the live position along the aircraft's heading, then reconnect the
+ * remaining body straight to the live point. Because that final leg is a single
+ * straight line running purely backwards from the plane, no part of it can sit
+ * ahead of the icon — regardless of how deep the curve's bulge was.
+ *
+ * Pixel/heading based (via map.project) so it's correct at any zoom, rotation or
+ * pitch. Returns the path untouched if the map isn't ready.
  */
-function trimFlownPathTail(points, map, gapPx) {
+function trimFlownPathTail(points, map, gapPx, headingDeg) {
     if (!map || typeof map.project !== 'function' || !Array.isArray(points) || points.length < 2 || gapPx <= 0) {
         return points;
     }
-    let remaining = gapPx;
-    for (let i = points.length - 1; i > 0; i--) {
-        let a, b;
-        try {
-            a = map.project({ lng: points[i].unwrappedLon, lat: points[i].lat });
-            b = map.project({ lng: points[i - 1].unwrappedLon, lat: points[i - 1].lat });
-        } catch (_) {
-            return points;
+    const live = points[points.length - 1];
+    let liveScreen, headVec;
+    try {
+        liveScreen = map.project({ lng: live.unwrappedLon, lat: live.lat });
+        // Forward (screen-space) unit vector the aircraft is travelling along.
+        let ahead;
+        if (Number.isFinite(headingDeg)) {
+            const r = Math.PI / 180;
+            const h = headingDeg * r;
+            const dLat = Math.cos(h) * 0.0008;
+            const dLon = (Math.sin(h) * 0.0008) / Math.max(0.2, Math.cos(live.lat * r));
+            ahead = map.project({ lng: live.unwrappedLon + dLon, lat: live.lat + dLat });
+        } else {
+            // No heading supplied: derive direction from the last segment that
+            // spans at least gapPx, then reflect it forward through the plane.
+            let acc = 0, ref = null, prev = liveScreen;
+            for (let i = points.length - 2; i >= 0; i--) {
+                const s = map.project({ lng: points[i].unwrappedLon, lat: points[i].lat });
+                acc += Math.hypot(s.x - prev.x, s.y - prev.y);
+                prev = s;
+                if (acc >= gapPx) { ref = s; break; }
+            }
+            if (!ref) return points; // too short to judge a direction
+            ahead = { x: 2 * liveScreen.x - ref.x, y: 2 * liveScreen.y - ref.y };
         }
-        const segLen = Math.hypot(a.x - b.x, a.y - b.y);
-        if (segLen >= remaining) {
-            const f = remaining / segLen; // fraction back from points[i] toward points[i-1]
-            const cut = {
-                unwrappedLon: points[i].unwrappedLon + (points[i - 1].unwrappedLon - points[i].unwrappedLon) * f,
-                lat: points[i].lat + (points[i - 1].lat - points[i].lat) * f,
-                alt: points[i].alt + (points[i - 1].alt - points[i].alt) * f
-            };
-            return points.slice(0, i).concat(cut);
-        }
-        remaining -= segLen;
+        const vx = ahead.x - liveScreen.x, vy = ahead.y - liveScreen.y;
+        const vlen = Math.hypot(vx, vy) || 1;
+        headVec = { x: vx / vlen, y: vy / vlen };
+    } catch (_) {
+        return points;
     }
-    // Whole path is shorter than the requested gap (plane just appeared / barely
-    // moved) — leave it alone so the trail doesn't vanish.
-    return points;
+    // Walk back from the end to the first point that's >= gapPx behind the plane.
+    let cutIdx = -1;
+    for (let i = points.length - 2; i >= 0; i--) {
+        let s;
+        try { s = map.project({ lng: points[i].unwrappedLon, lat: points[i].lat }); }
+        catch (_) { return points; }
+        const proj = (s.x - liveScreen.x) * headVec.x + (s.y - liveScreen.y) * headVec.y;
+        if (proj <= -gapPx) { cutIdx = i; break; }
+    }
+    if (cutIdx < 0) {
+        // Whole trail sits within gapPx of the plane (just appeared / barely
+        // moved) — draw a short straight stub so nothing overshoots.
+        return [points[0], live];
+    }
+    return points.slice(0, cutIdx + 1).concat(live);
 }
 
 // Screen-pixel gap kept between the end of the flown path and the live dot, so
@@ -16450,17 +16480,13 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         ? generateSmoothPath(unwrappedPoints, 0.5)
         : unwrappedPoints;
 
-    // Trim the curve's terminal bulge (the bit that overshot the aircraft icon),
-    // then reconnect to the live position with a straight final leg so the trail
-    // still meets the plane. A straight segment can't bow past the icon the way
-    // the smoothed curve did, so we get "connected" without re-introducing the
-    // overshoot.
-    const renderPoints = trimFlownPathTail(smoothedPoints, sectorOpsMap, FLOWN_PATH_TAIL_TRIM_PX);
-    const livePoint = unwrappedPoints[unwrappedPoints.length - 1];
-    const tail = renderPoints[renderPoints.length - 1];
-    if (livePoint && (!tail || tail.unwrappedLon !== livePoint.unwrappedLon || tail.lat !== livePoint.lat)) {
-        renderPoints.push(livePoint);
-    }
+    // Drop any trailing curve that bulges toward/past the aircraft icon and
+    // reconnect straight to the live position, so the trail meets the plane
+    // without ever overshooting it (see trimFlownPathTail).
+    const liveHeadingDeg = currentPosition && Number.isFinite(currentPosition.heading_deg)
+        ? currentPosition.heading_deg
+        : NaN;
+    const renderPoints = trimFlownPathTail(smoothedPoints, sectorOpsMap, FLOWN_PATH_TAIL_TRIM_PX, liveHeadingDeg);
 
     // Create a distinct LineString feature for EVERY segment so each can be colored
     // by its own altitude property via the layer's interpolate expression.

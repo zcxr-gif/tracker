@@ -160,11 +160,13 @@ export const FlownPath3D = {
     },
 
     /**
-     * Pulls the tube's tail back ~gapPx screen-pixels so it ends behind the
-     * aircraft icon instead of overshooting it. Pixel-based (via map.project) so
-     * the gap is consistent at every zoom; interpolates the cut point's altitude
-     * so the colour gradient stays correct. Returns the trail untouched if the
-     * map isn't ready or the trail is shorter than the requested gap.
+     * Drops trailing trail points that would let the tube bulge toward/past the
+     * aircraft icon, then reconnects straight to the live position. Rather than
+     * trimming a fixed distance (which the curve's overshoot can exceed on sharp
+     * turns), it removes every point that isn't at least gapPx screen-px *behind*
+     * the live position along the aircraft heading, so the final span runs purely
+     * backwards from the plane and can't overshoot it. Returns the trail untouched
+     * if the map isn't ready.
      */
     _trimTrailTail(map, trailData, gapPx) {
         if (!map || typeof map.project !== 'function' || !Array.isArray(trailData) || trailData.length < 2 || !gapPx) {
@@ -172,29 +174,44 @@ export const FlownPath3D = {
         }
         const lng = p => (p.longitude != null ? p.longitude : p.lon);
         const lat = p => (p.latitude != null ? p.latitude : p.lat);
-        const alt = p => ((p.altitude != null ? p.altitude : p.alt) || 0);
-        let remaining = gapPx;
-        for (let i = trailData.length - 1; i > 0; i--) {
-            let a, b;
-            try {
-                a = map.project({ lng: lng(trailData[i]), lat: lat(trailData[i]) });
-                b = map.project({ lng: lng(trailData[i - 1]), lat: lat(trailData[i - 1]) });
-            } catch (_) {
-                return trailData;
+        const live = trailData[trailData.length - 1];
+        const headingDeg = Number.isFinite(live.track) ? live.track
+            : (Number.isFinite(live.heading_deg) ? live.heading_deg : NaN);
+        let liveScreen, headVec;
+        try {
+            liveScreen = map.project({ lng: lng(live), lat: lat(live) });
+            let ahead;
+            if (Number.isFinite(headingDeg)) {
+                const r = Math.PI / 180, h = headingDeg * r;
+                const dLat = Math.cos(h) * 0.0008;
+                const dLon = (Math.sin(h) * 0.0008) / Math.max(0.2, Math.cos(lat(live) * r));
+                ahead = map.project({ lng: lng(live) + dLon, lat: lat(live) + dLat });
+            } else {
+                let acc = 0, ref = null, prev = liveScreen;
+                for (let i = trailData.length - 2; i >= 0; i--) {
+                    const s = map.project({ lng: lng(trailData[i]), lat: lat(trailData[i]) });
+                    acc += Math.hypot(s.x - prev.x, s.y - prev.y); prev = s;
+                    if (acc >= gapPx) { ref = s; break; }
+                }
+                if (!ref) return trailData;
+                ahead = { x: 2 * liveScreen.x - ref.x, y: 2 * liveScreen.y - ref.y };
             }
-            const segLen = Math.hypot(a.x - b.x, a.y - b.y);
-            if (segLen >= remaining) {
-                const f = remaining / segLen; // fraction back from [i] toward [i-1]
-                const cut = {
-                    longitude: lng(trailData[i]) + (lng(trailData[i - 1]) - lng(trailData[i])) * f,
-                    latitude: lat(trailData[i]) + (lat(trailData[i - 1]) - lat(trailData[i])) * f,
-                    altitude: alt(trailData[i]) + (alt(trailData[i - 1]) - alt(trailData[i])) * f
-                };
-                return trailData.slice(0, i).concat(cut);
-            }
-            remaining -= segLen;
+            const vx = ahead.x - liveScreen.x, vy = ahead.y - liveScreen.y;
+            const vlen = Math.hypot(vx, vy) || 1;
+            headVec = { x: vx / vlen, y: vy / vlen };
+        } catch (_) {
+            return trailData;
         }
-        return trailData;
+        let cutIdx = -1;
+        for (let i = trailData.length - 2; i >= 0; i--) {
+            let s;
+            try { s = map.project({ lng: lng(trailData[i]), lat: lat(trailData[i]) }); }
+            catch (_) { return trailData; }
+            const proj = (s.x - liveScreen.x) * headVec.x + (s.y - liveScreen.y) * headVec.y;
+            if (proj <= -gapPx) { cutIdx = i; break; }
+        }
+        if (cutIdx < 0) return [trailData[0], live];
+        return trailData.slice(0, cutIdx + 1).concat([live]);
     },
 
     _updateGeometry(map, flightId, trailData) {
@@ -204,15 +221,9 @@ export const FlownPath3D = {
         const layerObj = this.flightObjects[flightId];
         if (!layerObj) return;
 
-        // Trim the curve's terminal bulge (which overshot the aircraft icon),
-        // then reconnect to the live position so the tube still meets the plane.
-        // Re-adding the live point as the strict last vertex keeps the tube from
-        // extending past it while closing the gap the trim opened up.
-        const livePoint = trailData[trailData.length - 1];
+        // Drop trailing curve that would overshoot the aircraft icon and reconnect
+        // straight to the live position (see _trimTrailTail).
         trailData = this._trimTrailTail(map, trailData, this.TAIL_TRIM_PX);
-        if (trailData[trailData.length - 1] !== livePoint) {
-            trailData = trailData.concat([livePoint]);
-        }
         if (trailData.length < 2) return;
 
         const points = [];
