@@ -8,10 +8,14 @@ export const FlownPath3D = {
     font: null,
     
     // Performance Constants
-    MAX_POINTS: 5000, 
-    SAMPLES_PER_POINT: 8, 
-    RADIAL_SEGMENTS: 6,   
+    MAX_POINTS: 5000,
+    SAMPLES_PER_POINT: 8,
+    RADIAL_SEGMENTS: 6,
     BASE_THICKNESS: 0.0000035,
+
+    // Screen-pixel gap kept between the end of the 3D tube and the live position,
+    // so the trail ends behind the aircraft icon rather than overshooting it.
+    TAIL_TRIM_PX: 16,
 
     // Altitude Color Config (Feet)
     ALTITUDE_STOPS: [
@@ -155,16 +159,76 @@ export const FlownPath3D = {
         };
     },
 
+    /**
+     * Drops trailing trail points that would let the tube bulge toward/past the
+     * aircraft icon, then reconnects straight to the live position. Rather than
+     * trimming a fixed distance (which the curve's overshoot can exceed on sharp
+     * turns), it removes every point that isn't at least gapPx screen-px *behind*
+     * the live position along the aircraft heading, so the final span runs purely
+     * backwards from the plane and can't overshoot it. Returns the trail untouched
+     * if the map isn't ready.
+     */
+    _trimTrailTail(map, trailData, gapPx) {
+        if (!map || typeof map.project !== 'function' || !Array.isArray(trailData) || trailData.length < 2 || !gapPx) {
+            return trailData;
+        }
+        const lng = p => (p.longitude != null ? p.longitude : p.lon);
+        const lat = p => (p.latitude != null ? p.latitude : p.lat);
+        const live = trailData[trailData.length - 1];
+        const headingDeg = Number.isFinite(live.track) ? live.track
+            : (Number.isFinite(live.heading_deg) ? live.heading_deg : NaN);
+        let liveScreen, headVec;
+        try {
+            liveScreen = map.project({ lng: lng(live), lat: lat(live) });
+            let ahead;
+            if (Number.isFinite(headingDeg)) {
+                const r = Math.PI / 180, h = headingDeg * r;
+                const dLat = Math.cos(h) * 0.0008;
+                const dLon = (Math.sin(h) * 0.0008) / Math.max(0.2, Math.cos(lat(live) * r));
+                ahead = map.project({ lng: lng(live) + dLon, lat: lat(live) + dLat });
+            } else {
+                let acc = 0, ref = null, prev = liveScreen;
+                for (let i = trailData.length - 2; i >= 0; i--) {
+                    const s = map.project({ lng: lng(trailData[i]), lat: lat(trailData[i]) });
+                    acc += Math.hypot(s.x - prev.x, s.y - prev.y); prev = s;
+                    if (acc >= gapPx) { ref = s; break; }
+                }
+                if (!ref) return trailData;
+                ahead = { x: 2 * liveScreen.x - ref.x, y: 2 * liveScreen.y - ref.y };
+            }
+            const vx = ahead.x - liveScreen.x, vy = ahead.y - liveScreen.y;
+            const vlen = Math.hypot(vx, vy) || 1;
+            headVec = { x: vx / vlen, y: vy / vlen };
+        } catch (_) {
+            return trailData;
+        }
+        let cutIdx = -1;
+        for (let i = trailData.length - 2; i >= 0; i--) {
+            let s;
+            try { s = map.project({ lng: lng(trailData[i]), lat: lat(trailData[i]) }); }
+            catch (_) { return trailData; }
+            const proj = (s.x - liveScreen.x) * headVec.x + (s.y - liveScreen.y) * headVec.y;
+            if (proj <= -gapPx) { cutIdx = i; break; }
+        }
+        if (cutIdx < 0) return [trailData[0], live];
+        return trailData.slice(0, cutIdx + 1).concat([live]);
+    },
+
     _updateGeometry(map, flightId, trailData) {
         if (!trailData || trailData.length < 2) return;
-        
+
         const THREE = window.THREE;
         const layerObj = this.flightObjects[flightId];
         if (!layerObj) return;
 
+        // Drop trailing curve that would overshoot the aircraft icon and reconnect
+        // straight to the live position (see _trimTrailTail).
+        trailData = this._trimTrailTail(map, trailData, this.TAIL_TRIM_PX);
+        if (trailData.length < 2) return;
+
         const points = [];
-        const rawAltitudes = []; 
-        
+        const rawAltitudes = [];
+
         trailData.forEach((p) => {
             const alt = p.altitude || p.alt || 0;
             const altMeters = alt * 0.3048; 
