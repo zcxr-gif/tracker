@@ -2822,7 +2822,9 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 await this._supabase.auth.signOut();
                 cleanup();
                 this.close();
-                if (window.Toastify) {
+                if (typeof window.showGlobalNotification === 'function') {
+                    window.showGlobalNotification("Your account has been deleted.", 'info', 5000);
+                } else if (window.Toastify) {
                     window.Toastify({
                         text: "Your account has been deleted.",
                         duration: 5000,

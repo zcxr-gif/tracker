@@ -11192,16 +11192,133 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     };
 
     // --- Notifications ---
-    function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#27272a" }
-        }).showToast();
+    // Polished, app-native toast. Replaces the old flat Toastify pop-ups (solid
+    // green/red/grey rectangles with a close ✕) with a glass card that matches
+    // the rest of the UI. The public API is unchanged (window.showGlobalNotification)
+    // so every existing caller is upgraded for free. Type is one of
+    // 'success' | 'error' | 'warn' | 'info' (default).
+    function ensureToastLayer() {
+        let layer = document.getElementById('inflight-toast-layer');
+        if (layer) return layer;
+
+        if (!document.getElementById('inflight-toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'inflight-toast-styles';
+            style.textContent = `
+                #inflight-toast-layer {
+                    position: fixed;
+                    top: calc(env(safe-area-inset-top, 0px) + 16px);
+                    left: 50%;
+                    transform: translateX(-50%);
+                    z-index: 100000;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 10px;
+                    pointer-events: none;
+                    width: max-content;
+                    max-width: min(92vw, 440px);
+                }
+                .inflight-toast {
+                    display: flex;
+                    align-items: center;
+                    gap: 11px;
+                    width: 100%;
+                    padding: 12px 16px 12px 13px;
+                    border-radius: 14px;
+                    background: rgba(20, 22, 28, 0.72);
+                    -webkit-backdrop-filter: blur(20px) saturate(160%);
+                    backdrop-filter: blur(20px) saturate(160%);
+                    border: 0.5px solid rgba(255, 255, 255, 0.12);
+                    box-shadow: 0 12px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08);
+                    color: #f4f4f5;
+                    font-family: inherit;
+                    font-size: 14px;
+                    font-weight: 500;
+                    line-height: 1.4;
+                    letter-spacing: -0.2px;
+                    pointer-events: auto;
+                    cursor: pointer;
+                    opacity: 0;
+                    transform: translateY(-12px) scale(0.97);
+                    transition: opacity .28s cubic-bezier(.16,1,.3,1), transform .28s cubic-bezier(.16,1,.3,1);
+                }
+                .inflight-toast.in  { opacity: 1; transform: translateY(0) scale(1); }
+                .inflight-toast.out { opacity: 0; transform: translateY(-10px) scale(0.97); }
+                .inflight-toast__icon {
+                    flex: 0 0 auto;
+                    width: 24px; height: 24px;
+                    display: grid; place-items: center;
+                    border-radius: 50%;
+                    font-size: 12px;
+                }
+                .inflight-toast__msg { flex: 1 1 auto; min-width: 0; }
+                .inflight-toast--success .inflight-toast__icon { background: rgba(34,197,94,.16);  color: #4ade80; }
+                .inflight-toast--error   .inflight-toast__icon { background: rgba(239,68,68,.16);  color: #f87171; }
+                .inflight-toast--warn    .inflight-toast__icon { background: rgba(245,158,11,.16); color: #fbbf24; }
+                .inflight-toast--info    .inflight-toast__icon { background: rgba(56,189,248,.16); color: #38bdf8; }
+                @media (prefers-reduced-motion: reduce) {
+                    .inflight-toast,
+                    .inflight-toast.in,
+                    .inflight-toast.out { transition: opacity .2s ease; transform: none; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        layer = document.createElement('div');
+        layer.id = 'inflight-toast-layer';
+        (document.body || document.documentElement).appendChild(layer);
+        return layer;
+    }
+
+    function showNotification(message, type = 'info', duration = 3400) {
+        try {
+            const layer = ensureToastLayer();
+            const normalized = type === 'warning' ? 'warn' : type;
+            const kind = ['success', 'error', 'warn', 'info'].includes(normalized) ? normalized : 'info';
+            const icons = { success: 'fa-check', error: 'fa-xmark', warn: 'fa-exclamation', info: 'fa-info' };
+
+            const toast = document.createElement('div');
+            toast.className = `inflight-toast inflight-toast--${kind}`;
+            toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+
+            const icon = document.createElement('span');
+            icon.className = 'inflight-toast__icon';
+            icon.innerHTML = `<i class="fa-solid ${icons[kind]}"></i>`;
+
+            const msg = document.createElement('span');
+            msg.className = 'inflight-toast__msg';
+            // textContent (not innerHTML) — matches the old Toastify behaviour of
+            // escaping the message, so caller-supplied text can never inject markup.
+            msg.textContent = message;
+
+            toast.appendChild(icon);
+            toast.appendChild(msg);
+
+            let removed = false;
+            let timer;
+            const dismiss = () => {
+                if (removed) return;
+                removed = true;
+                clearTimeout(timer);
+                toast.classList.remove('in');
+                toast.classList.add('out');
+                setTimeout(() => toast.remove(), 300);
+            };
+            toast.addEventListener('click', dismiss);
+
+            layer.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.add('in'));
+            timer = setTimeout(dismiss, Math.max(1200, duration));
+        } catch (_) {
+            // Last-ditch fallback so a notification is never silently lost.
+            if (typeof window.Toastify === 'function') {
+                try {
+                    window.Toastify({ text: message, duration: 3000, gravity: 'top', position: 'center' }).showToast();
+                } catch (_) {}
+            }
+        }
     }
 
     window.showGlobalNotification = showNotification;

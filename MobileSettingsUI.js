@@ -1457,6 +1457,10 @@ export const MobileSettingsUI = {
                 // dedicated DOM marker layer directly when toggled.
                 if (setting === 'showVaHubMarkers' && window.renderVaHubMarkers) window.renderVaHubMarkers();
                 if (window.updateMapFilters) window.updateMapFilters();
+                // Persist the change so it survives a reload. Without this the
+                // toggle only applied for the current session (e.g. ATC
+                // Boundaries turned back on every time the site was reopened).
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
             });
         });
 
