@@ -582,6 +582,11 @@
             .va-ad-apply:active { transform: translateY(0); filter: brightness(0.98); }
             .va-ad-apply i { font-size: 0.9em; }
             .va-ad-apply-lg { padding: 12px 22px; font-size: 0.92rem; border-radius: 13px; }
+            .va-ad-apply-sm {
+                align-self: center; flex: 0 0 auto; white-space: nowrap;
+                padding: 7px 12px; font-size: 0.72rem; border-radius: 9px;
+                box-shadow: 0 1px 7px rgba(250,204,21,0.2);
+            }
 
             .va-ad-detail-banner { height: 150px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); border-radius: 16px; }
             .va-ad-detail h3 { color: #fff; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; margin: 14px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -615,6 +620,13 @@
         if (ad.featured) pills.push('<span class="va-ad-pill va-ad-pill-featured">Featured</span>');
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
         const chips = (ad.tags || []).slice(0, 3).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
+        // Small yellow CTA → the VA's website (or Discord). Rendered as a real
+        // link with data-no-detail so the card's own click (open partner) is
+        // skipped. Falls back to the chevron when the VA has no link to apply at.
+        const applyHref = ad.website || ad.discord || '';
+        const cta = applyHref
+            ? `<a class="va-ad-apply va-ad-apply-sm" href="${esc(applyHref)}" target="_blank" rel="noopener noreferrer" data-no-detail><i class="fa-solid fa-paper-plane"></i> Apply Now</a>`
+            : `<i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>`;
         return `
             ${ad.banner ? `<div class="va-ad-feature-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
             <div class="va-ad-feature-body">
@@ -625,7 +637,7 @@
                     ${ad.tagline ? `<div class="va-ad-tag">${esc(ad.tagline)}</div>` : ''}
                     ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
                 </div>
-                <i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>
+                ${cta}
             </div>`;
     }
 
@@ -662,7 +674,11 @@
         };
         render();
 
-        featureEl.addEventListener('click', () => openPartners(featureEl.getAttribute('data-va-ad-id')));
+        featureEl.addEventListener('click', (e) => {
+            // Let the Apply Now CTA navigate on its own instead of opening the overlay.
+            if (e.target.closest('[data-no-detail]')) return;
+            openPartners(featureEl.getAttribute('data-va-ad-id'));
+        });
 
         if (ads.length > 1) {
             slot._adRotateTimer = setInterval(() => {
