@@ -20411,15 +20411,27 @@ function injectVaHubMarkerStyles() {
            transition here would animate Mapbox's position updates and make the
            logo drift/lag behind the map. All visuals live on the inner box. */
         .va-hub-marker { cursor: pointer; will-change: transform; }
+        /* VAs that share a hub airport sit side by side in one marker so none
+           of them get hidden behind another. */
+        .va-hub-cluster { display: flex; align-items: center; gap: 3px; }
         .va-hub-marker-inner {
-            width: 30px; height: 30px; border-radius: 8px;
+            width: 30px; height: 30px; border-radius: 8px; flex: 0 0 auto;
             background: rgba(0,0,0,0.55); border: 1.5px solid rgba(125,211,252,0.85);
             box-shadow: 0 2px 8px rgba(0,0,0,0.5); overflow: hidden;
             display: flex; align-items: center; justify-content: center;
             transition: transform .15s ease, border-color .15s ease;
         }
-        .va-hub-marker:hover .va-hub-marker-inner { transform: scale(1.12); border-color: #7dd3fc; }
-        .va-hub-marker-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }`;
+        .va-hub-marker-inner:hover { transform: scale(1.12); border-color: #7dd3fc; }
+        .va-hub-marker-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .va-hub-more {
+            min-width: 24px; height: 30px; padding: 0 6px; border-radius: 8px; flex: 0 0 auto;
+            background: rgba(0,0,0,0.62); border: 1.5px solid rgba(125,211,252,0.85);
+            color: #e0f2fe; font-size: 0.72rem; font-weight: 800;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            transition: transform .15s ease, border-color .15s ease;
+        }
+        .va-hub-more:hover { transform: scale(1.08); border-color: #7dd3fc; }`;
     document.head.appendChild(style);
 }
 
@@ -20441,43 +20453,79 @@ function renderVaHubMarkers() {
         // The user may have toggled it back off while the directory loaded.
         if (!mapFilters.showVaHubMarkers || !sectorOpsMap) return;
         const ads = VA.allPartners() || [];
-        // One marker per hub airport (first partner wins) so shared hubs don't
-        // stack overlapping logos on the same point.
-        const seen = new Set();
+        // Group partners by hub airport so VAs that share a hub all appear
+        // (side by side in one marker) instead of the first one hiding the
+        // rest. Previously a `seen` set kept only the first VA per airport,
+        // which is why multiple VAs at the same hub lost all but one.
+        const byIcao = new Map();
         ads.forEach((ad) => {
             if (!ad || !ad.logo || !Array.isArray(ad.icao)) return;
             ad.icao.forEach((code) => {
                 const icao = String(code || '').toUpperCase();
-                if (!icao || seen.has(icao)) return;
+                if (!icao) return;
                 const airport = airportsData[icao];
                 if (!airport || airport.lat == null || airport.lon == null) return;
-                seen.add(icao);
+                if (!byIcao.has(icao)) byIcao.set(icao, { airport, hubAds: [] });
+                const entry = byIcao.get(icao);
+                // Guard against the same VA being listed twice for one hub.
+                if (!entry.hubAds.some((a) => a.id === ad.id)) entry.hubAds.push(ad);
+            });
+        });
 
-                const el = document.createElement('div');
-                el.className = 'va-hub-marker';
-                el.title = `${ad.name} · VA hub`;
-                // Logo lives in an inner box so hover/scale never touches the
-                // root element's Mapbox-managed transform (onerror hides the
-                // whole marker, root included).
-                el.innerHTML = `<div class="va-hub-marker-inner"><img src="${ad.logo}" alt="" onerror="this.closest('.va-hub-marker').style.display='none'"></div>`;
-                el.addEventListener('click', (e) => {
+        // How many logos to show before collapsing the rest into a +N chip.
+        const MAX_LOGOS = 3;
+        byIcao.forEach(({ airport, hubAds }) => {
+            if (!hubAds.length) return;
+
+            const el = document.createElement('div');
+            el.className = 'va-hub-marker';
+
+            const cluster = document.createElement('div');
+            cluster.className = 'va-hub-cluster';
+
+            // Each logo lives in its own inner box so hover/scale never touches
+            // the root's Mapbox-managed transform, and a broken image hides only
+            // that one box rather than the whole cluster.
+            hubAds.slice(0, MAX_LOGOS).forEach((ad) => {
+                const box = document.createElement('div');
+                box.className = 'va-hub-marker-inner';
+                box.title = `${ad.name} · VA hub`;
+                box.innerHTML = `<img src="${ad.logo}" alt="" onerror="this.closest('.va-hub-marker-inner').style.display='none'">`;
+                box.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (VA.openPartners) VA.openPartners(ad.id);
                 });
-
-                // anchor 'center' pins the box on the airport coordinate;
-                // viewport alignment keeps it upright and a constant pixel size
-                // at every zoom/pitch/bearing (no scaling, no tilt).
-                const marker = new mapboxgl.Marker({
-                    element: el,
-                    anchor: 'center',
-                    rotationAlignment: 'viewport',
-                    pitchAlignment: 'viewport'
-                })
-                    .setLngLat([airport.lon, airport.lat])
-                    .addTo(sectorOpsMap);
-                vaHubMarkers.push(marker);
+                cluster.appendChild(box);
             });
+
+            // Overflow chip → opens the full partners list.
+            const extra = hubAds.length - MAX_LOGOS;
+            if (extra > 0) {
+                const more = document.createElement('div');
+                more.className = 'va-hub-more';
+                more.title = `${extra} more VA${extra === 1 ? '' : 's'} hubbed here`;
+                more.textContent = `+${extra}`;
+                more.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (VA.openPartners) VA.openPartners();
+                });
+                cluster.appendChild(more);
+            }
+
+            el.appendChild(cluster);
+
+            // anchor 'center' pins the cluster on the airport coordinate;
+            // viewport alignment keeps it upright and a constant pixel size
+            // at every zoom/pitch/bearing (no scaling, no tilt).
+            const marker = new mapboxgl.Marker({
+                element: el,
+                anchor: 'center',
+                rotationAlignment: 'viewport',
+                pitchAlignment: 'viewport'
+            })
+                .setLngLat([airport.lon, airport.lat])
+                .addTo(sectorOpsMap);
+            vaHubMarkers.push(marker);
         });
     };
 
