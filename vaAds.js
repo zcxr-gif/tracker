@@ -527,37 +527,76 @@
                 .va-partners-head { padding: 6px 20px 12px; touch-action: none; }
                 .va-partners-head h2 { font-size: 1.7rem; }
                 .va-partners-body { gap: 8px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 96px); }
-                /* Compact list rows — drop the big banner so many more VAs fit
-                   on screen (logo + name + tagline only). */
-                .va-ad-card-banner { display: none; }
-                .va-ad-card { border-radius: 12px; }
-                .va-ad-card-body { padding: 10px 12px; align-items: center; gap: 11px; }
-                .va-ad-card-body .va-ad-logo { width: 38px; height: 38px; }
-                .va-ad-card-title { font-size: 0.9rem; }
-                .va-ad-card-sub { margin-top: 1px; }
-                .va-ad-chips { margin-top: 5px; }
+                /* Slightly tighter cards on phones so more VAs fit, but keep the
+                   banner + Apply Now CTA for the richer redesigned look. */
+                .va-ad-card { border-radius: 14px; }
+                .va-ad-card-banner { height: 76px; }
+                .va-ad-card-body { padding: 12px 13px 13px; }
+                .va-ad-card-top .va-ad-logo { width: 42px; height: 42px; }
+                .va-ad-card-title { font-size: 0.95rem; }
+                .va-ad-chips { margin-top: 7px; }
+            }
+            .va-partners-count {
+                font-size: 0.72rem; font-weight: 700; color: rgba(255,255,255,0.45);
+                letter-spacing: 0; vertical-align: middle; margin-left: 4px;
             }
             .va-ad-card {
-                border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden;
-                background: rgba(255,255,255,0.03); cursor: pointer; transition: border-color .15s ease, transform .15s ease;
+                position: relative; flex: 0 0 auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden;
+                background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
+                cursor: pointer; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
             }
-            .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
-            .va-ad-card-banner { height: 92px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
-            .va-ad-card-body { padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
-            .va-ad-card-body .va-ad-logo { width: 40px; height: 40px; }
-            .va-ad-card-title { font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-            .va-ad-card-sub { font-size: 0.78rem; color: rgba(255,255,255,0.6); margin-top: 2px; }
-            .va-ad-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-            .va-ad-chip { font-size: 0.62rem; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); border-radius: 999px; padding: 2px 8px; }
+            .va-ad-card:hover { border-color: rgba(56,189,248,0.45); transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,0.35); }
+            .va-ad-card:focus-visible { outline: 2px solid rgba(56,189,248,0.6); outline-offset: 2px; }
+            .va-ad-card-banner {
+                position: relative; height: 96px; background-size: cover; background-position: center;
+                background-color: rgba(56,189,248,0.08);
+            }
+            .va-ad-card-banner::after {
+                content: ''; position: absolute; inset: 0;
+                background: linear-gradient(180deg, rgba(18,18,18,0) 35%, rgba(18,18,18,0.85) 100%);
+            }
+            .va-ad-card-body { padding: 13px 15px 15px; display: flex; flex-direction: column; }
+            .va-ad-card-top { display: flex; gap: 12px; align-items: flex-start; }
+            .va-ad-card-top .va-ad-logo { width: 44px; height: 44px; border-radius: 11px; }
+            .va-ad-card-meta { min-width: 0; flex: 1; }
+            .va-ad-card-title { font-weight: 800; color: #fff; font-size: 0.98rem; letter-spacing: -0.2px; line-height: 1.2; }
+            .va-ad-card-sub { font-size: 0.76rem; color: rgba(255,255,255,0.55); margin-top: 3px; }
+            .va-ad-card-pills { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; flex: 0 0 auto; }
+            .va-ad-card-tagline { font-size: 0.82rem; color: rgba(255,255,255,0.72); margin-top: 10px; line-height: 1.45; }
+            .va-ad-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+            .va-ad-chip { font-size: 0.62rem; font-weight: 600; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); border-radius: 999px; padding: 3px 9px; }
+            .va-ad-card-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+            .va-ad-card-actions .va-ad-apply { flex: 1 1 auto; }
 
-            .va-ad-detail-banner { height: 140px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); border-radius: 14px; }
-            .va-ad-detail h3 { color: #fff; font-size: 1.2rem; font-weight: 800; margin: 14px 0 4px; }
+            /* Yellow "Apply Now" CTA — every VA links straight to its website. */
+            .va-ad-apply {
+                display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+                text-decoration: none; cursor: pointer; white-space: nowrap;
+                padding: 9px 16px; border-radius: 11px; border: none;
+                font-weight: 800; font-size: 0.82rem; letter-spacing: 0.01em;
+                color: #1a1206; background: linear-gradient(135deg, #fde047, #facc15);
+                box-shadow: 0 2px 10px rgba(250,204,21,0.22);
+                transition: transform .12s ease, box-shadow .15s ease, filter .15s ease;
+            }
+            .va-ad-apply:hover { transform: translateY(-1px); filter: brightness(1.04); box-shadow: 0 6px 18px rgba(250,204,21,0.34); }
+            .va-ad-apply:active { transform: translateY(0); filter: brightness(0.98); }
+            .va-ad-apply i { font-size: 0.9em; }
+            .va-ad-apply-lg { padding: 12px 22px; font-size: 0.92rem; border-radius: 13px; }
+            .va-ad-apply-sm {
+                align-self: center; flex: 0 0 auto; white-space: nowrap;
+                padding: 7px 12px; font-size: 0.72rem; border-radius: 9px;
+                box-shadow: 0 1px 7px rgba(250,204,21,0.2);
+            }
+
+            .va-ad-detail-banner { height: 150px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); border-radius: 16px; }
+            .va-ad-detail h3 { color: #fff; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; margin: 14px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
             .va-ad-detail p.desc { color: rgba(255,255,255,0.75); font-size: 0.88rem; line-height: 1.55; white-space: pre-wrap; }
-            .va-ad-detail .va-ad-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+            .va-ad-detail .va-ad-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; align-items: center; }
             .va-ad-btn {
                 display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
-                padding: 9px 14px; border-radius: 10px; font-weight: 700; font-size: 0.82rem;
+                padding: 10px 15px; border-radius: 11px; font-weight: 700; font-size: 0.82rem;
                 background: rgba(56,189,248,0.15); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35);
+                transition: background .15s ease;
             }
             .va-ad-btn:hover { background: rgba(56,189,248,0.25); }
             .va-ad-back {
@@ -581,6 +620,13 @@
         if (ad.featured) pills.push('<span class="va-ad-pill va-ad-pill-featured">Featured</span>');
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
         const chips = (ad.tags || []).slice(0, 3).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
+        // Small yellow CTA → the VA's website (or Discord). Rendered as a real
+        // link with data-no-detail so the card's own click (open partner) is
+        // skipped. Falls back to the chevron when the VA has no link to apply at.
+        const applyHref = ad.website || ad.discord || '';
+        const cta = applyHref
+            ? `<a class="va-ad-apply va-ad-apply-sm" href="${esc(applyHref)}" target="_blank" rel="noopener noreferrer" data-no-detail><i class="fa-solid fa-paper-plane"></i> Apply Now</a>`
+            : `<i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>`;
         return `
             ${ad.banner ? `<div class="va-ad-feature-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
             <div class="va-ad-feature-body">
@@ -591,7 +637,7 @@
                     ${ad.tagline ? `<div class="va-ad-tag">${esc(ad.tagline)}</div>` : ''}
                     ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
                 </div>
-                <i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>
+                ${cta}
             </div>`;
     }
 
@@ -628,7 +674,11 @@
         };
         render();
 
-        featureEl.addEventListener('click', () => openPartners(featureEl.getAttribute('data-va-ad-id')));
+        featureEl.addEventListener('click', (e) => {
+            // Let the Apply Now CTA navigate on its own instead of opening the overlay.
+            if (e.target.closest('[data-no-detail]')) return;
+            openPartners(featureEl.getAttribute('data-va-ad-id'));
+        });
 
         if (ads.length > 1) {
             slot._adRotateTimer = setInterval(() => {
@@ -778,7 +828,7 @@
                 <div class="va-partners-head">
                     <div class="va-partners-titles">
                         <span class="va-partners-eyebrow">Network</span>
-                        <h2>VA Partners</h2>
+                        <h2>VA Partners <span class="va-partners-count"></span></h2>
                     </div>
                     <button class="va-partners-close" title="Close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
@@ -798,7 +848,13 @@
         let t = 0;
         input.addEventListener('input', () => {
             clearTimeout(t);
-            t = setTimeout(() => loadPartnersList(input.value.trim()), 280);
+            // Filter the already-loaded roster client-side so search is instant
+            // and reliable (the old server-side `search` param could come back
+            // empty and make the whole list look broken).
+            t = setTimeout(() => {
+                if (partnersCache) renderPartners(input.value.trim());
+                else loadPartnersList(input.value.trim());
+            }, 120);
         });
 
         attachSheetSwipe();
@@ -839,6 +895,21 @@
         });
     }
 
+    // The yellow "Apply Now" CTA. Every VA gets one: it opens the VA's own
+    // website (preferred) or Discord in a new tab. When a VA has neither link
+    // we still render the button, falling back to that VA's detail view so it
+    // is never a dead end. `data-no-detail` stops the card's own click handler
+    // from also firing when the CTA is an anchor.
+    function applyButtonHTML(ad, opts) {
+        const big = opts && opts.large ? ' va-ad-apply-lg' : '';
+        const href = ad.website || ad.discord || '';
+        const label = '<i class="fa-solid fa-paper-plane"></i> Apply Now';
+        if (href) {
+            return `<a class="va-ad-apply${big}" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-no-detail>${label}</a>`;
+        }
+        return `<button type="button" class="va-ad-apply${big}" data-apply-detail="${esc(ad.id)}">${label}</button>`;
+    }
+
     function cardHTML(ad) {
         const logo = ad.logo
             ? `<img class="va-ad-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
@@ -849,39 +920,97 @@
         const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
         const chips = (ad.tags || []).slice(0, 4).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
         return `
-            <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
+            <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0" aria-label="${esc(ad.name)} — view details">
                 ${ad.banner ? `<div class="va-ad-card-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
                 <div class="va-ad-card-body">
-                    ${logo}
-                    <div style="min-width:0; flex:1;">
-                        <div class="va-ad-card-title">${esc(ad.name)} ${pills.join(' ')}</div>
-                        ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
-                        ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
-                        ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
+                    <div class="va-ad-card-top">
+                        ${logo}
+                        <div class="va-ad-card-meta">
+                            <div class="va-ad-card-title">${esc(ad.name)}</div>
+                            ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
+                        </div>
+                        ${pills.length ? `<div class="va-ad-card-pills">${pills.join('')}</div>` : ''}
+                    </div>
+                    ${ad.tagline ? `<div class="va-ad-card-tagline">${esc(ad.tagline)}</div>` : ''}
+                    ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
+                    <div class="va-ad-card-actions">
+                        ${applyButtonHTML(ad)}
                     </div>
                 </div>
             </div>`;
     }
 
     function bindCards(body) {
-        body.querySelectorAll('[data-va-ad-id]').forEach((el) => {
-            el.addEventListener('click', () => showDetail(el.getAttribute('data-va-ad-id')));
+        body.querySelectorAll('.va-ad-card[data-va-ad-id]').forEach((el) => {
+            const open = () => showDetail(el.getAttribute('data-va-ad-id'));
+            el.addEventListener('click', (e) => {
+                // Let the Apply Now anchor handle its own navigation.
+                if (e.target.closest('[data-no-detail]')) return;
+                open();
+            });
+            el.addEventListener('keydown', (e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('[data-no-detail]')) {
+                    e.preventDefault();
+                    open();
+                }
+            });
+        });
+        // Apply Now buttons for VAs without a website/Discord open their profile.
+        body.querySelectorAll('[data-apply-detail]').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showDetail(btn.getAttribute('data-apply-detail'));
+            });
         });
     }
 
+    // Reflect the visible partner count in the header.
+    function updateCount(n) {
+        const el = overlayEl && overlayEl.querySelector('.va-partners-count');
+        if (el) el.textContent = n ? `· ${n}` : '';
+    }
+
+    // Render the partner roster from the in-memory cache, filtered by `search`.
+    // Keeps the same data wiring (the roster is fetched once via list()), but
+    // does the matching client-side so it is instant and never returns a
+    // misleading empty list from the backend.
+    function renderPartners(search) {
+        const body = overlayEl.querySelector('.va-partners-body');
+        if (!body) return;
+        const q = (search || '').trim().toLowerCase();
+        let ads = (partnersCache || []).slice();
+        if (q) {
+            ads = ads.filter((ad) => {
+                const hay = [
+                    ad.name, ad.region, ad.type, ad.tagline,
+                    (ad.tags || []).join(' '), (ad.icao || []).join(' ')
+                ].filter(Boolean).join(' ').toLowerCase();
+                return hay.includes(q);
+            });
+        }
+        // Featured first, otherwise keep server (popularity) order.
+        ads.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+        updateCount(ads.length);
+        if (!ads.length) {
+            body.innerHTML = q
+                ? `<div class="va-partners-empty">No partners match “${esc(search.trim())}”.</div>`
+                : `<div class="va-partners-empty">No partners found.</div>`;
+            return;
+        }
+        body.innerHTML = ads.map(cardHTML).join('');
+        bindCards(body);
+    }
+
+    let partnersCache = null;
+
     async function loadPartnersList(search) {
         const body = overlayEl.querySelector('.va-partners-body');
+        if (partnersCache) { renderPartners(search); return; }
         body.innerHTML = `<div class="va-partners-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading partners…</div>`;
         try {
-            const { ads } = await list({ sort: 'popular', limit: 50, search: search || undefined });
-            if (!ads.length) {
-                body.innerHTML = `<div class="va-partners-empty">No partners found.</div>`;
-                return;
-            }
-            // Featured first, otherwise keep server order.
-            ads.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
-            body.innerHTML = ads.map(cardHTML).join('');
-            bindCards(body);
+            const { ads } = await list({ sort: 'popular', limit: 50 });
+            partnersCache = ads || [];
+            renderPartners(search);
         } catch (e) {
             body.innerHTML = `<div class="va-partners-empty">Couldn't load partners right now.</div>`;
         }
@@ -899,8 +1028,11 @@
             const sub = [ad.type, ad.region, ad.icao.join(', ')].filter(Boolean).join(' · ');
             const chips = (ad.tags || []).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
             const actions = [];
-            if (ad.website) actions.push(`<a class="va-ad-btn" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
-            if (ad.discord) actions.push(`<a class="va-ad-btn" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
+            // Primary yellow CTA → the VA's website (or Discord). Rendered as a
+            // real link, so it only appears when there's somewhere to send the user.
+            if (ad.website || ad.discord) actions.push(applyButtonHTML(ad, { large: true }));
+            // Keep Discord as a secondary link when the CTA already used the website.
+            if (ad.website && ad.discord) actions.push(`<a class="va-ad-btn" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
             body.innerHTML = `
                 <div class="va-ad-detail">
                     <button class="va-ad-back"><i class="fa-solid fa-arrow-left"></i> All partners</button>
@@ -913,7 +1045,10 @@
                     ${actions.length ? `<div class="va-ad-actions">${actions.join('')}</div>` : ''}
                 </div>`;
             const back = body.querySelector('.va-ad-back');
-            if (back) back.addEventListener('click', () => loadPartnersList(''));
+            if (back) back.addEventListener('click', () => {
+                const input = overlayEl.querySelector('.va-partners-search input');
+                loadPartnersList(input ? input.value.trim() : '');
+            });
         } catch (e) {
             body.innerHTML = `<div class="va-partners-empty">Couldn't load this partner.</div>`;
         }

@@ -415,8 +415,56 @@
             0%, 100% { opacity: 0.32; transform: scale(0.985); }
             50%      { opacity: 1;    transform: scale(1); }
         }
+
+        /* VA-branded loader: the partner's logo + name with an "Official Tracker"
+           eyebrow, so the wait clearly reads as this VA's own tracker. Pieces
+           ease up in a gentle stagger and a sleek bar streams underneath. */
+        .emb-loading-va { flex-direction: column; gap: 16px; padding: 24px; }
+        .emb-loading-card {
+            display: flex; align-items: center; gap: 14px; max-width: 100%;
+            animation: emb-loading-rise .5s cubic-bezier(.16, 1, .3, 1) both;
+        }
+        .emb-loading-va-logo {
+            width: 54px; height: 54px; flex: 0 0 auto; border-radius: 14px; object-fit: cover;
+            background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        }
+        .emb-loading-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: left; }
+        .emb-loading-eyebrow {
+            font-size: 10.5px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: #7dd3fc;
+        }
+        .emb-loading-va-name {
+            font-size: 18px; font-weight: 800; letter-spacing: -0.2px; color: #f1f5f9; line-height: 1.15;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
+        }
+        .emb-loading-bar {
+            width: 132px; height: 3px; border-radius: 999px; overflow: hidden;
+            background: rgba(255, 255, 255, 0.10);
+            animation: emb-loading-rise .5s cubic-bezier(.16, 1, .3, 1) both .06s;
+        }
+        .emb-loading-bar span {
+            display: block; width: 38%; height: 100%; border-radius: inherit;
+            background: linear-gradient(90deg, transparent, #7dd3fc, transparent);
+            animation: emb-loading-slide 1.15s ease-in-out infinite;
+        }
+        .emb-loading-powered {
+            font-size: 11px; font-weight: 600; letter-spacing: 0.3px; color: rgba(241, 245, 249, 0.42);
+            animation: emb-loading-rise .5s cubic-bezier(.16, 1, .3, 1) both .12s;
+        }
+        @keyframes emb-loading-rise { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes emb-loading-slide { 0% { transform: translateX(-135%); } 100% { transform: translateX(330%); } }
+
+        /* One-shot fade-in of the live content as it replaces the loader. The
+           class is removed right after the first paint so later roster refreshes
+           don't re-flash. */
+        @keyframes emb-content-in { from { opacity: 0; } to { opacity: 1; } }
+        #inflight-embed.emb-content-in > * { animation: emb-content-in .4s ease both; }
+
         @media (prefers-reduced-motion: reduce) {
             .emb-loading-logo, .emb-loading-text { animation: none; opacity: 0.85; }
+            .emb-loading-card, .emb-loading-bar, .emb-loading-powered,
+            #inflight-embed.emb-content-in > * { animation: none; opacity: 1; }
+            .emb-loading-bar span { animation: none; width: 100%; }
         }
     </style>
 </head>
