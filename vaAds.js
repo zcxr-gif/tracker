@@ -541,7 +541,7 @@
                 letter-spacing: 0; vertical-align: middle; margin-left: 4px;
             }
             .va-ad-card {
-                position: relative; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden;
+                position: relative; flex: 0 0 auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden;
                 background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
                 cursor: pointer; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
             }
