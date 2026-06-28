@@ -1782,9 +1782,34 @@
             </div>`;
     }
 
-    function showLoading() {
+    // The boot loader. Called first with no args (generic Inflight splash,
+    // before we know the VA), then again once config resolves with the VA's
+    // { name, logo, code } so the wait reads as that VA's official tracker.
+    function showLoading(branding) {
         const root = rootEl();
-        if (root) root.innerHTML = `<div class="emb-loading"><img class="emb-loading-logo" src="Images/inflight-light.png" alt="Inflight" onerror="this.outerHTML='<span class=&quot;emb-loading-text&quot;>Inflight</span>'"></div>`;
+        if (!root) return;
+        const b = branding || {};
+        const hasName = b.name && b.name !== b.code;
+        if (b.logo || hasName) {
+            const logo = b.logo
+                ? `<img class="emb-loading-va-logo" src="${esc(b.logo)}" alt="" onerror="this.style.display='none'">`
+                : '';
+            const name = hasName ? `<span class="emb-loading-va-name">${esc(b.name)}</span>` : '';
+            root.innerHTML = `
+                <div class="emb-loading emb-loading-va">
+                    <div class="emb-loading-card">
+                        ${logo}
+                        <div class="emb-loading-meta">
+                            <span class="emb-loading-eyebrow">Official Tracker</span>
+                            ${name}
+                        </div>
+                    </div>
+                    <div class="emb-loading-bar"><span></span></div>
+                    <div class="emb-loading-powered">Powered by Inflight</div>
+                </div>`;
+            return;
+        }
+        root.innerHTML = `<div class="emb-loading"><img class="emb-loading-logo" src="Images/inflight-light.png" alt="Inflight" onerror="this.outerHTML='<span class=&quot;emb-loading-text&quot;>Inflight</span>'"></div>`;
     }
 
     async function tick(cfg) {
@@ -1838,7 +1863,13 @@
         }
         cfg.brandLogo = applyHeaderTheme(root, brand);
 
+        // Re-show the loader, now branded with the VA's logo + name, so the
+        // remaining wait reads as "this VA's official tracker" instead of a
+        // generic splash. Fade the live content in over it on first paint.
+        showLoading({ name: cfg.name, logo: cfg.logo, code: cfg.code });
+        root.classList.add('emb-content-in');
         await tick(cfg);
+        setTimeout(() => root.classList.remove('emb-content-in'), 520);
         // Pause polling while the tab is hidden to save the VA's bandwidth/loads.
         let timer = setInterval(() => { if (!document.hidden) tick(cfg); }, REFRESH_MS);
         document.addEventListener('visibilitychange', () => {
