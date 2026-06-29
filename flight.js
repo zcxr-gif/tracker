@@ -14254,6 +14254,10 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <label class="config-header">ATC &amp; Airports</label>
                             <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-draw-polygon"></i> ATC Boundaries</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-classic-airport-tags" ${mapFilters.useClassicAirportTags ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
@@ -14268,6 +14272,27 @@ renderCategory(catId) {
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-headset"></i> Hide ATC Markers</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-hide-atc-markers" ${mapFilters.hideAtcMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Terrain Awareness</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-mountain-sun"></i> Terrain Elevation Map</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-terrain-mode" ${mapFilters.showTerrainMode ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-triangle-exclamation"></i> Altitude Coloring (TAWS)</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-taws-enabled" ${mapFilters.terrainTawsEnabled ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                    <div class="row-label"><i class="fa-solid fa-gauge-high"></i> Planned Altitude</div>
+                                    <span id="taws-altitude-display" style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 800; font-size: 0.9rem;">
+                                        ${(Number(mapFilters.terrainTawsAltitude) || 10000).toLocaleString()} ft
+                                    </span>
+                                </div>
+                                <input type="range" id="set-taws-altitude" min="0" max="45000" step="500" value="${Number(mapFilters.terrainTawsAltitude) || 10000}" style="width: 100%;">
                             </div>
                         </div>
 
@@ -14470,7 +14495,10 @@ renderCategory(catId) {
             'set-show-unstaffed': 'showUnstaffedAirports',
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
-            'set-simple-window': 'useSimpleFlightWindow'
+            'set-simple-window': 'useSimpleFlightWindow',
+            'set-atc-boundaries': 'showAtcBoundaries',
+            'set-terrain-mode': 'showTerrainMode',
+            'set-taws-enabled': 'terrainTawsEnabled'
         };
 
         // --- 3. Attach Pro Layer Listeners ---
@@ -14532,6 +14560,19 @@ renderCategory(catId) {
                 const val = parseFloat(e.target.value);
                 planeSizeDisplay.textContent = Math.round(val * 100) + '%';
                 update('planeIconSize', val);
+            });
+        }
+
+        // TAWS Planned-Altitude slider — the elevation map recolors relative to
+        // this altitude when Altitude Coloring is on. update() runs through
+        // updateMapFilters(), which calls refreshTerrainMode() to re-render.
+        const tawsAltInput = document.getElementById('set-taws-altitude');
+        const tawsAltDisplay = document.getElementById('taws-altitude-display');
+        if (tawsAltInput && tawsAltDisplay) {
+            tawsAltInput.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value, 10) || 0;
+                tawsAltDisplay.textContent = `${val.toLocaleString()} ft`;
+                update('terrainTawsAltitude', val);
             });
         }
 
