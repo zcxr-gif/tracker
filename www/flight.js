@@ -13943,6 +13943,9 @@ renderCategory(catId) {
             if (catId === 'map') {
                 const activeCard = container.querySelector(`.m-style-card[data-value="${mapFilters.mapStyle || 'dark'}"]`);
                 if (activeCard) activeCard.classList.add('active');
+                // Render the live style-preview snapshots (replaces the Mapbox
+                // Static Images API; see MobileSettingsUI.generateStylePreview).
+                MobileSettingsUI.hydrateStylePreviews(container);
             }
             if (catId === 'overlays') {
                 // Wire + hydrate the shared ATC Tag Studio (same controls as the

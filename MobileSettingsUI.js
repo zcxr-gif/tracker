@@ -204,32 +204,103 @@ export const MobileSettingsUI = {
         this.attachMobileListeners();
     },
 
-    // Builds a Mapbox Static Images URL for a style preview. Falls back to a
-    // CSS gradient (handled in renderMapStyleCards) when no token is present.
-    getStylePreviewUrl(value) {
+    // Session cache of generated preview data URLs + a promise chain that
+    // serialises generation (see generateStylePreview).
+    _stylePreviewCache: {},
+    _stylePreviewQueue: null,
+
+    // Produces a style-preview thumbnail by snapshotting a short-lived,
+    // offscreen Mapbox GL map — deliberately NOT the Mapbox Static Images API,
+    // which is a separately-billed endpoint we no longer depend on. The mini
+    // map renders from the same vector/raster tiles the live map already uses.
+    // Resolves to a PNG data URL, or null when previews can't be produced (no
+    // token / no WebGL). Generations are serialised so we never hold more than
+    // one extra WebGL context at a time, and each result is cached for the
+    // session. Falls back to the style's gradient (see renderMapStyleCards).
+    generateStylePreview(value) {
         const def = MAP_STYLE_DEFS[value];
         const token = (typeof mapboxgl !== 'undefined' && mapboxgl.accessToken) || window.MAPBOX_ACCESS_TOKEN;
-        if (!def || !token) return null;
-        // Centered over the North Atlantic at a low zoom — recognisable land +
-        // water so each style's palette reads clearly in the thumbnail.
-        const view = '-30,40,1.6,0';
-        return `https://api.mapbox.com/styles/v1/${def.owner}/${def.id}/static/${view}/240x150@2x` +
-               `?access_token=${token}&attribution=false&logo=false`;
+        if (!def || !token || typeof mapboxgl === 'undefined') return Promise.resolve(null);
+        if (this._stylePreviewCache[value]) return Promise.resolve(this._stylePreviewCache[value]);
+
+        const run = () => new Promise(resolve => {
+            const host = document.createElement('div');
+            host.setAttribute('aria-hidden', 'true');
+            host.style.cssText = 'position:absolute;left:-9999px;top:0;width:240px;height:150px;pointer-events:none;';
+            document.body.appendChild(host);
+
+            let map = null, done = false, timer = null;
+            const finish = (dataUrl) => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                try { if (map) map.remove(); } catch (e) {}
+                host.remove();
+                if (dataUrl) this._stylePreviewCache[value] = dataUrl;
+                resolve(dataUrl || null);
+            };
+            const capture = () => {
+                // preserveDrawingBuffer keeps the GL backbuffer readable.
+                try { finish(map.getCanvas().toDataURL('image/png')); }
+                catch (e) { finish(null); }
+            };
+
+            try {
+                map = new mapboxgl.Map({
+                    container: host,
+                    // Centered over the North Atlantic at a low zoom — recognisable
+                    // land + water so each style's palette reads clearly.
+                    style: `mapbox://styles/${def.owner}/${def.id}`,
+                    center: [-30, 40],
+                    zoom: 1.6,
+                    interactive: false,
+                    attributionControl: false,
+                    preserveDrawingBuffer: true,
+                    fadeDuration: 0,
+                    trackResize: false
+                });
+            } catch (e) { finish(null); return; }
+
+            map.on('idle', capture);
+            map.on('error', () => finish(null));
+            // Safety net: capture whatever has rendered (and free the context)
+            // if a slow tile load never reaches 'idle'.
+            timer = setTimeout(capture, 8000);
+        });
+
+        const next = (this._stylePreviewQueue || Promise.resolve()).then(run, run);
+        this._stylePreviewQueue = next;
+        return next;
+    },
+
+    // Swaps gradient style-preview thumbs for real snapshots in-place. Call
+    // after the cards are mounted (mobile sheet open / desktop Map panel).
+    // Idempotent: each thumb is marked done so re-opening doesn't re-render
+    // maps; a failed render clears the mark so a later open can retry.
+    hydrateStylePreviews(root) {
+        const scope = root || document;
+        scope.querySelectorAll('.m-style-thumb[data-style-preview]:not([data-preview-done])').forEach(thumb => {
+            const value = thumb.dataset.stylePreview;
+            const def = MAP_STYLE_DEFS[value];
+            if (!def) return;
+            thumb.dataset.previewDone = '1';
+            this.generateStylePreview(value).then(dataUrl => {
+                if (!dataUrl) { delete thumb.dataset.previewDone; return; }
+                thumb.style.backgroundImage = `url('${dataUrl}'), ${def.fallback}`;
+            });
+        });
     },
 
     renderMapStyleCards(values) {
         return values.map(value => {
             const def = MAP_STYLE_DEFS[value];
-            const url = this.getStylePreviewUrl(value);
-            // Layer the real thumbnail over the gradient so a failed/blocked
-            // image request degrades gracefully to the style's color identity.
-            const bg = url
-                ? `background-image:url('${url}'), ${def.fallback}; background-size:cover; background-position:center;`
-                : `background:${def.fallback};`;
+            // Render on the style's gradient; hydrateStylePreviews() later
+            // layers a real snapshot over it, so a blocked/failed render
+            // degrades gracefully to the style's color identity.
             return `
                 <button class="m-style-card ${def.pro ? 'is-pro-feature' : ''}"
                         data-setting="mapStyle" data-value="${value}" ${def.pro ? 'data-pro="true"' : ''} type="button">
-                    <span class="m-style-thumb" style="${bg}">
+                    <span class="m-style-thumb" data-style-preview="${value}" style="background:${def.fallback}; background-size:cover; background-position:center;">
                         ${def.pro ? '<span class="m-style-pro"><i class="fa-solid fa-lock"></i></span>' : ''}
                         <span class="m-style-check"><i class="fa-solid fa-check"></i></span>
                     </span>
@@ -1372,6 +1443,9 @@ export const MobileSettingsUI = {
             this.syncUIWithState();
             sheet.classList.add('open');
             overlay.classList.add('visible');
+            // Token/WebGL are ready by the time the sheet is opened; render the
+            // live style-preview snapshots now rather than at init.
+            this.hydrateStylePreviews(sheet);
         });
 
         // Tab switching
