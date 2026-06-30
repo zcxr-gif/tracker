@@ -10,6 +10,9 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
+// Supabase client, pinned to the v2 major so jsDelivr serves a stable,
+// cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
@@ -30,39 +33,6 @@ console.log(
     "color: #cbd5e1; font-size: 12px; font-style: italic;"
 );
 
-
-// --- Supabase client (loaded resiliently from CDN) --------------------
-// flight.js is a module script, so a failed *static* import of the Supabase
-// bundle aborts the whole module and strands users on a blank, "stuck"
-// screen. Pin the major version (jsDelivr then serves a known, cacheable
-// build instead of an unpinned "latest" that can 404 on a rebuild) and load
-// it via a catchable dynamic import so a CDN hiccup shows a retry prompt
-// rather than silently killing the app.
-const SUPABASE_CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-
-function showAppLoadError(message) {
-    if (document.getElementById('app-load-error')) return;
-    const el = document.createElement('div');
-    el.id = 'app-load-error';
-    el.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0a1628;color:#e2e8f0;font-family:system-ui,sans-serif;padding:24px;text-align:center;';
-    el.innerHTML = `
-        <div style="max-width:340px;">
-            <div style="font-size:2.5rem;margin-bottom:12px;">⚠️</div>
-            <div style="font-size:1.05rem;font-weight:700;margin-bottom:8px;">Couldn’t finish loading</div>
-            <div style="font-size:0.85rem;color:#94a3b8;line-height:1.5;margin-bottom:18px;">${message}</div>
-            <button onclick="location.reload()" style="background:#38bdf8;color:#06243a;border:none;border-radius:8px;padding:10px 22px;font-size:0.9rem;font-weight:700;cursor:pointer;">Retry</button>
-        </div>`;
-    (document.body || document.documentElement).appendChild(el);
-}
-
-let createClient;
-try {
-    ({ createClient } = await import(SUPABASE_CDN));
-} catch (err) {
-    console.error('[boot] Supabase client failed to load from CDN:', err);
-    showAppLoadError('A required component failed to load. Please check your connection and try again.');
-    throw err; // halt boot — the overlay explains why instead of a blank screen
-}
 
 const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
