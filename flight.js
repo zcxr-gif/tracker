@@ -4395,6 +4395,152 @@ function injectCustomStyles() {
             overflow: hidden;
         }
 
+        /* --- Airport weather "instrument panel" (glass-cockpit look) --- */
+        .apt-wx-panel {
+            margin: 0 16px 12px;
+            padding: 14px;
+            background: linear-gradient(160deg, #1e4d86 0%, #163d6b 100%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: var(--radius-md);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+        }
+
+        .wx-tile-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .wx-tile {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .wx-tile-chip {
+            border-radius: 8px;
+            padding: 10px 6px;
+            text-align: center;
+            font-family: var(--font-data);
+            font-size: 1rem;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1.15;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .wx-tile-sub {
+            text-align: center;
+            font-size: 0.7rem;
+            color: rgba(226, 232, 240, 0.85);
+            font-weight: 600;
+        }
+
+        .wx-gauges {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .wx-gauge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wx-gauge-svg {
+            width: 100%;
+            max-width: 190px;
+            height: auto;
+            aspect-ratio: 1 / 1;
+        }
+
+        .wx-rwy-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .wx-rwy-pill {
+            font-family: var(--font-data);
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: rgba(226, 232, 240, 0.6);
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid transparent;
+            border-radius: 9px;
+            padding: 6px 12px;
+        }
+
+        .wx-rwy-pill.active {
+            color: #fff;
+            background: rgba(0, 0, 0, 0.1);
+            border-color: rgba(255, 255, 255, 0.55);
+        }
+
+        .wx-cloud-chart {
+            position: relative;
+            height: 130px;
+            margin-top: 16px;
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .wx-cloud-grid {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px dashed rgba(255, 255, 255, 0.12);
+        }
+
+        .wx-cloud-grid span {
+            position: absolute;
+            left: 4px;
+            top: -8px;
+            font-size: 0.62rem;
+            color: rgba(226, 232, 240, 0.55);
+            font-family: var(--font-data);
+        }
+
+        .wx-cloud-layer {
+            position: absolute;
+            left: 28%;
+            right: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transform: translateY(-50%);
+            color: #fff;
+        }
+
+        .wx-cloud-layer .fa-cloud { font-size: 1.4rem; opacity: 0.9; }
+
+        .wx-cloud-tag {
+            margin-left: auto;
+            font-family: var(--font-data);
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            border-radius: 8px;
+            padding: 3px 8px;
+        }
+
+        .wx-cloud-clear {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            text-align: center;
+            color: rgba(226, 232, 240, 0.7);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
         .apt-mini-header {
             background: var(--bg-subtle);
             padding: 6px 10px;
@@ -6065,6 +6211,173 @@ function getRunwayRecommendations(runways, windStr) {
 
     // Sort by score (descending) and return top 4
     return recommendations.sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+/**
+ * Builds the airport "instrument panel" — the at-a-glance weather block
+ * styled after a glass-cockpit EFB: a grid of condition tiles, a compass
+ * rose with the favoured runway and wind arrow drawn on it, a wind-speed
+ * dial, a runway selector and a cloud-altitude profile.
+ *
+ * @param {object} w        Parsed METAR (see WeatherService.parseMetar)
+ * @param {Array}  runways  Runway records for the field (runwaysData[icao])
+ * @param {string} category Flight category (VFR/MVFR/IFR/LIFR)
+ * @param {string} catColor Colour associated with the category
+ * @returns {string} HTML for the panel.
+ */
+function buildAirportWxPanel(w, runways, category, catColor) {
+    const openRwys = (runways || []).filter(r => !r.closed && r.le_ident);
+
+    // --- Favoured runway (for the compass diagram + active pill) ----------
+    const recs = getRunwayRecommendations(openRwys, w.wind);
+    const favored = recs[0] || null;
+    let rwyHeading = null, rwyLeId = '', rwyHeId = '';
+    if (favored) {
+        for (const r of openRwys) {
+            if (r.le_ident === favored.ident && r.le_heading_degT != null) { rwyHeading = r.le_heading_degT; rwyLeId = r.le_ident; rwyHeId = r.he_ident || ''; break; }
+            if (r.he_ident === favored.ident && r.he_heading_degT != null) { rwyHeading = r.he_heading_degT; rwyLeId = r.he_ident; rwyHeId = r.le_ident || ''; break; }
+        }
+    }
+    if (rwyHeading == null) {
+        const withH = openRwys.filter(r => r.le_heading_degT != null).sort((a, b) => (b.length_ft || 0) - (a.length_ft || 0));
+        if (withH[0]) { rwyHeading = withH[0].le_heading_degT; rwyLeId = withH[0].le_ident; rwyHeId = withH[0].he_ident || ''; }
+    }
+
+    const sin = d => Math.sin(d * Math.PI / 180);
+    const cos = d => Math.cos(d * Math.PI / 180);
+
+    // --- Compass rose ------------------------------------------------------
+    const C = 100, R = 94;
+    let ticks = '';
+    for (let d = 0; d < 360; d += 10) {
+        const major = d % 30 === 0;
+        const r2 = R - (major ? 13 : 7);
+        ticks += `<line x1="${(C + R * sin(d)).toFixed(1)}" y1="${(C - R * cos(d)).toFixed(1)}" x2="${(C + r2 * sin(d)).toFixed(1)}" y2="${(C - r2 * cos(d)).toFixed(1)}" stroke="rgba(255,255,255,${major ? 0.55 : 0.25})" stroke-width="${major ? 2 : 1}"/>`;
+    }
+    const labelMap = { 0: 'N', 30: '3', 60: '6', 90: 'E', 120: '12', 150: '15', 180: 'S', 210: '21', 240: '24', 270: 'W', 300: '30', 330: '33' };
+    let roseLabels = '';
+    for (const deg in labelMap) {
+        const lr = R - 28;
+        roseLabels += `<text x="${(C + lr * sin(deg)).toFixed(1)}" y="${(C - lr * cos(deg)).toFixed(1)}" fill="rgba(226,232,240,0.85)" font-size="14" font-weight="700" text-anchor="middle" dominant-baseline="central">${labelMap[deg]}</text>`;
+    }
+
+    // Runway drawn through the centre, rotated to its true heading.
+    let runwaySvg = '';
+    if (rwyHeading != null) {
+        const half = 58, w2 = 9;
+        runwaySvg = `
+            <g transform="rotate(${rwyHeading.toFixed(1)} ${C} ${C})">
+                <rect x="${C - w2}" y="${C - half}" width="${w2 * 2}" height="${half * 2}" rx="3" fill="#0b1f33" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                <line x1="${C}" y1="${C - half + 8}" x2="${C}" y2="${C + half - 8}" stroke="#fff" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.8"/>
+                <g stroke="#fff" stroke-width="1.5" opacity="0.9">
+                    ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C - half + 1}" x2="${C + o}" y2="${C - half + 7}"/>`).join('')}
+                    ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C + half - 1}" x2="${C + o}" y2="${C + half - 7}"/>`).join('')}
+                </g>
+            </g>`;
+    }
+
+    // Wind arrow: sits at the bearing the wind blows FROM, pointing inward.
+    let windArrow = '';
+    if (w.windDir != null && w.windSpeed > 0) {
+        windArrow = `
+            <g transform="rotate(${(w.windDir - 180).toFixed(1)} ${C} ${C})">
+                <path d="M ${C} ${C + 40} L ${C - 9} ${C + 62} L ${C - 3.5} ${C + 62} L ${C - 3.5} ${C + 84} L ${C + 3.5} ${C + 84} L ${C + 3.5} ${C + 62} L ${C + 9} ${C + 62} Z" fill="#fff"/>
+            </g>`;
+    }
+
+    const compassSvg = `
+        <svg viewBox="0 0 200 200" class="wx-gauge-svg" aria-label="Runway and wind direction">
+            ${ticks}${roseLabels}${runwaySvg}${windArrow}
+        </svg>`;
+
+    // --- Wind-speed dial (0–45 kt, 270° sweep) ----------------------------
+    const WMAX = 45, WC = 100, WR = 80;
+    const bearing = v => 180 + (Math.min(v, WMAX) / WMAX) * 270;
+    let dialTicks = '', dialLabels = '';
+    for (let v = 0; v <= WMAX; v += 5) {
+        const b = bearing(v);
+        dialTicks += `<line x1="${(WC + WR * sin(b)).toFixed(1)}" y1="${(WC - WR * cos(b)).toFixed(1)}" x2="${(WC + (WR - 9) * sin(b)).toFixed(1)}" y2="${(WC - (WR - 9) * cos(b)).toFixed(1)}" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>`;
+        const lr = WR - 24;
+        dialLabels += `<text x="${(WC + lr * sin(b)).toFixed(1)}" y="${(WC - lr * cos(b)).toFixed(1)}" fill="rgba(226,232,240,0.8)" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">${v}</text>`;
+    }
+    const nb = bearing(w.windSpeed || 0);
+    const windDial = `
+        <svg viewBox="0 0 200 200" class="wx-gauge-svg" aria-label="Wind speed">
+            ${dialTicks}${dialLabels}
+            <text x="${WC}" y="${WC - 26}" fill="rgba(226,232,240,0.7)" font-size="13" font-weight="700" text-anchor="middle">kt</text>
+            <line x1="${WC}" y1="${WC}" x2="${(WC + (WR - 10) * sin(nb)).toFixed(1)}" y2="${(WC - (WR - 10) * cos(nb)).toFixed(1)}" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
+            <circle cx="${WC}" cy="${WC}" r="7" fill="#0b1f33" stroke="#fff" stroke-width="2"/>
+        </svg>`;
+
+    // --- Condition tiles ---------------------------------------------------
+    const good = '#3a9d5d';
+    const tile = (chipColor, chipHtml, sub) => `
+        <div class="wx-tile">
+            <div class="wx-tile-chip" style="background:${chipColor};">${chipHtml}</div>
+            <div class="wx-tile-sub">${sub}</div>
+        </div>`;
+
+    const windChip = w.windSpeed > 0 ? `${w.windSpeed} kt` : 'Calm';
+    const windSub = w.windVariable ? 'Variable' : (w.windDir != null ? `${String(w.windDir).padStart(3, '0')}°` : 'Calm');
+    const ceilChip = w.ceiling != null ? `${w.ceiling.toLocaleString()} ft` : 'None';
+    const ceilColor = (w.ceiling == null || w.ceiling >= 3000) ? good : '#1d4170';
+    const visColor = (w.visibilityMeters == null || w.visibilityMeters >= 8000) ? good : '#1d4170';
+    const altChip = w.altimeterInHg != null ? `${w.altimeterInHg.toFixed(2)} inHg` : (w.altimeterHpa != null ? `${w.altimeterHpa} hPa` : '—');
+    const tempChip = w.tempC != null ? `${w.tempC}°C` : (w.temp || '—');
+    const condIcon = (() => {
+        const c = w.clouds && w.clouds[0] ? w.clouds[0].cover : null;
+        if (c === 'OVC' || c === 'BKN') return 'fa-cloud';
+        if (c === 'FEW' || c === 'SCT') return 'fa-cloud-sun';
+        return 'fa-sun';
+    })();
+
+    const tiles = `
+        <div class="wx-tile-grid">
+            ${tile(catColor && category !== 'VFR' ? catColor : good, category || 'VFR', 'No warnings')}
+            ${tile('#1d4170', `<i class="fa-solid ${condIcon}" style="color:#fcd34d;margin-right:6px;"></i>${tempChip}`, w.conditionLabel || 'Conditions')}
+            ${tile(good, windChip, windSub)}
+            ${tile(visColor, w.visibility || '—', 'Visibility')}
+            ${tile(ceilColor, ceilChip, 'Ceiling')}
+            ${tile('#1d4170', altChip, 'Altimeter')}
+        </div>`;
+
+    // --- Runway selector pills --------------------------------------------
+    const pillsHtml = openRwys.map(r => {
+        const name = r.he_ident ? `${r.le_ident}/${r.he_ident}` : r.le_ident;
+        const active = favored && (favored.ident === r.le_ident || favored.ident === r.he_ident);
+        return `<div class="wx-rwy-pill${active ? ' active' : ''}">${name}</div>`;
+    }).join('');
+    const runwayBar = pillsHtml ? `<div class="wx-rwy-bar">${pillsHtml}</div>` : '';
+
+    // --- Cloud-altitude profile -------------------------------------------
+    const MAXALT = 20000;
+    const gridLines = [20000, 15000, 10000, 5000].map(alt => {
+        const top = (1 - alt / MAXALT) * 100;
+        return `<div class="wx-cloud-grid" style="top:${top}%;"><span>${(alt / 1000)},000</span></div>`;
+    }).join('');
+    const cloudMarkers = (w.clouds || []).filter(c => c.base != null && c.base <= MAXALT).map(c => {
+        const top = (1 - Math.min(c.base, MAXALT) / MAXALT) * 100;
+        return `<div class="wx-cloud-layer" style="top:${Math.max(top, 2)}%;">
+                    <i class="fa-solid fa-cloud"></i>
+                    <span class="wx-cloud-tag">${c.cover} ${c.base.toLocaleString()}</span>
+                </div>`;
+    }).join('');
+    const cloudChart = `
+        <div class="wx-cloud-chart">
+            ${gridLines}
+            ${cloudMarkers || '<div class="wx-cloud-clear">Sky clear</div>'}
+        </div>`;
+
+    return `
+        <div class="apt-wx-panel">
+            ${tiles}
+            <div class="wx-gauges">
+                <div class="wx-gauge">${compassSvg}</div>
+                <div class="wx-gauge">${windDial}</div>
+            </div>
+            ${runwayBar}
+            ${cloudChart}
+        </div>`;
 }
 
 /**
@@ -10834,16 +11147,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     </div>`;
                 }
 
-                weatherModuleHtml = `
-                <div class="apt-mini-module">
-                    <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> METAR</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span></div>
-                    <div class="apt-mini-body"><div class="stat-grid-compact">
-                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
-                    </div></div>
-                </div>`;
+                weatherModuleHtml = buildAirportWxPanel(w, airportRunways, flightCategory, catColor);
             }
         } catch (err) {
             weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
@@ -11106,7 +11410,8 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
             <div style="flex-grow: 1; overflow-y: auto;">
                 <div id="apt-va-banner" class="va-ad-banner-slot"></div>
-                <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
+                ${weatherModuleHtml}
+                <div class="apt-dashboard-grid">${atisModuleHtml}</div>
 
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                     <div class="apt-tabs-header">
