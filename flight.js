@@ -989,49 +989,79 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
 // --- PREMIUM CLOUD SYNC ENGINE ---
     let cloudSyncTimeout = null;
 
-    async function saveFiltersToLocalStorage() {
+    // Pushes the current mapFilters to the user's cloud profile (Pro only).
+    // Factored out so both the debounced save and the immediate flush below
+    // can reuse it.
+    async function pushFiltersToCloud() {
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userId = sessionData?.session?.user?.id;
+            if (!userId) return;
+
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', userId)
+                .single();
+
+            if (profile && profile.is_pro) {
+                const { error } = await supabase
+                    .from('profiles')
+                    .update({ map_filters: mapFilters })
+                    .eq('id', userId);
+
+                if (!error) {
+                    console.log("☁️ Premium Settings Synced to Cloud.");
+                } else {
+                    console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
+                }
+            }
+        } catch (err) {
+            console.warn("Cloud sync interrupted:", err);
+        }
+    }
+
+    // Persist filters. localStorage is always committed instantly; the cloud
+    // write is debounced to avoid hammering the DB during rapid UI toggles.
+    // Pass `true` (or { immediate: true }) for actions that must not be lost
+    // if the user navigates away before the debounce fires — e.g. Reset
+    // Filters. Otherwise the stale cloud copy wins on the next load and the
+    // filters appear to "come back" even though they were cleared locally.
+    async function saveFiltersToLocalStorage(options) {
+        const immediate = options === true || (options && options.immediate);
         try {
             // 1. Instant Local Commit (Zero Latency UI)
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
 
-            // 2. Debounced Cloud Sync for Pro Users
-            const { data: sessionData } = await supabase.auth.getSession();
-            if (sessionData?.session?.user) {
-                const userId = sessionData.session.user.id;
-                
-                // Clear existing timeout to prevent database hammering during rapid UI toggles
-                if (cloudSyncTimeout) clearTimeout(cloudSyncTimeout);
-                
-                cloudSyncTimeout = setTimeout(async () => {
-                    try {
-                        const { data: profile } = await supabase
-                            .from('profiles')
-                            .select('is_pro')
-                            .eq('id', userId)
-                            .single();
-
-                        if (profile && profile.is_pro) {
-                            const { error } = await supabase
-                                .from('profiles')
-                                .update({ map_filters: mapFilters })
-                                .eq('id', userId);
-                                
-                            if (!error) {
-                                console.log("☁️ Premium Settings Synced to Cloud.");
-                            } else {
-                                console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("Cloud sync interrupted:", err);
-                    }
+            // 2. Cloud Sync for Pro Users (immediate, or debounced)
+            if (cloudSyncTimeout) { clearTimeout(cloudSyncTimeout); cloudSyncTimeout = null; }
+            if (immediate) {
+                await pushFiltersToCloud();
+            } else {
+                cloudSyncTimeout = setTimeout(() => {
+                    cloudSyncTimeout = null;
+                    pushFiltersToCloud();
                 }, 1200); // 1.2s Debounce for silky smooth performance
             }
         } catch (e) {
             console.warn("Could not save filters locally.", e);
         }
     }
+
+    // Best-effort flush of a pending cloud sync when the page is hidden or
+    // unloaded, so a debounced edit isn't lost (and then resurrected from the
+    // stale cloud copy on the next visit). No-op when nothing is pending.
+    function flushPendingCloudSync() {
+        if (!cloudSyncTimeout) return;
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = null;
+        pushFiltersToCloud();
+    }
+    window.addEventListener('pagehide', flushPendingCloudSync);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingCloudSync();
+    });
 
     async function loadFiltersFromLocalStorage() {
         // 1. Instant Local Paint

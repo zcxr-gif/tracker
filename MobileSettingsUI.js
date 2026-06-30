@@ -1217,7 +1217,10 @@ export const MobileSettingsUI = {
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
         }
         if (window.updateMapFilters) window.updateMapFilters();
-        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        // Flush to the cloud immediately (not via the debounce) so a reset
+        // can't be lost if the user leaves before it syncs — otherwise the
+        // stale cloud copy resurrects the filters on the next visit.
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage(true);
         this.updateFilterBadge();
     },
 
