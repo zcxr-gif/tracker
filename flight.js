@@ -720,10 +720,12 @@ let mapFilters = {
         // the classic DOM airport tags.
         useClassicAirportTags: false,
         hideNoAtcMarkers: false,
-        // ATC sector (FIR) boundary overlay. When on, active controllers'
-        // FIR boundaries are drawn on the map; when off, they stay hidden
-        // even while ATC is online. See applyAtcBoundaryVisibility().
-        showAtcBoundaries: true,
+        // ATC sector (FIR) boundary overlay. Opt-in: off by default. When on,
+        // only the sectors that currently have a Center controller online light
+        // up (border + faint fill) — the full FIR network is never drawn. When
+        // off, nothing is shown even while ATC is online. See
+        // applyAtcBoundaryVisibility() and updateActiveSectors().
+        showAtcBoundaries: false,
         // Terrain Awareness mode (free for everyone). showTerrainMode draws the
         // hypsometric elevation map + hillshade; terrainTawsEnabled switches the
         // colouring to be relative to terrainTawsAltitude (ft). See
@@ -5808,15 +5810,17 @@ async function initializeMapBoundaries(map) {
             }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer — the FULL FIR boundary network, drawn as clean
-        // thin lines. The lines look the same whether or not a sector is
-        // staffed; whether they show at all is controlled by the
+        // 3. fir-borders Layer — clean thin boundary lines, scoped to the SAME
+        // staffed sectors as fir-fills (updateActiveSectors() applies the
+        // filter). Starts empty so the full FIR network is never drawn; only
+        // live centers light up. Whether it shows at all is gated by the
         // showAtcBoundaries toggle (see applyAtcBoundaryVisibility).
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
                 type: 'line',
                 source: 'fir-boundaries',
+                filter: ['==', 'id', 'none-active'],
                 paint: {
                     'line-color': borderColor,
                     'line-width': 0.8,
@@ -5840,7 +5844,7 @@ async function initializeMapBoundaries(map) {
 function applyAtcBoundaryVisibility(map) {
     const target = map || sectorOpsMap;
     if (!target) return;
-    const vis = (mapFilters.showAtcBoundaries === false) ? 'none' : 'visible';
+    const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
     ['fir-fills', 'fir-borders'].forEach(id => {
         if (target.getLayer(id)) {
             target.setLayoutProperty(id, 'visibility', vis);
@@ -14622,7 +14626,7 @@ renderCategory(catId) {
                             <label class="config-header">ATC &amp; Airports</label>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-draw-polygon"></i> ATC Boundaries</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
