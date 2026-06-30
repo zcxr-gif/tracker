@@ -736,6 +736,10 @@ let mapFilters = {
         },
         useFlatMap: false,
         useSimpleFlightWindow: false,
+        // Auto-advance the aircraft photo carousel (with a soft crossfade) in
+        // both the regular and simple flight windows. On by default; the
+        // "Auto-Cycle Photos" toggle turns it off. See buildHeroPhotoCarousel().
+        autoCyclePhotos: true,
         planeIconSize: 0.15,
         themeStartColor: '#18181b',
         themeEndColor: '#18181b',
@@ -14674,6 +14678,10 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-window-maximize"></i> Simple Flight Info</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-simple-window" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
                         </div>
                     `;
                     break;
@@ -14837,6 +14845,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-simple-window': 'useSimpleFlightWindow',
+            'set-auto-cycle-photos': 'autoCyclePhotos',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
             'set-taws-enabled': 'terrainTawsEnabled'
@@ -17215,13 +17224,27 @@ function closeAircraftWindow() {
 // -photo hero already uses — and just swaps the source on swipe or dot tap. The
 // only things added on top are small dot indicators and a per-photo credit,
 // placed in the empty lower strip so nothing existing is hidden.
+// How long each aircraft photo is shown before the carousel softly advances.
+const HERO_PHOTO_CYCLE_MS = 5000;
+
 function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!panel) return;
+    // A previous open may have left an auto-cycle timer running on a now-detached
+    // panel; clear it so we never accumulate stacked timers across reopens.
+    if (window.__heroAutoTimer) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
     // Re-render replaces innerHTML, so any prior carousel is already gone; this
     // guard just avoids double-building within a single render pass.
     if (panel.dataset.heroCarousel === '1') return;
     if (!Array.isArray(photos) || photos.length < 2) return;
     panel.dataset.heroCarousel = '1';
+
+    // Soft crossfade layer: sits directly above the panel's base background but
+    // below the gradient overlay (z-index 0, painted first) and all text, so the
+    // incoming photo fades in over the outgoing one without touching the UI.
+    // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
+    const fadeLayer = document.createElement('div');
+    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:0;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+    panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
     dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
@@ -17240,10 +17263,27 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
 
     let index = 0;
+    let fadeCommit = null;
     const show = (i) => {
-        index = (i + photos.length) % photos.length;
-        panel.style.backgroundImage = `url('${photos[index].src}'), url('${fallbackPath}')`;
-        panel.dataset.currentPath = photos[index].src;
+        const next = (i + photos.length) % photos.length;
+        const src = photos[next].src;
+        // Crossfade: paint the incoming photo on the fade layer, fade it in,
+        // then commit it to the panel background and reset the layer instantly
+        // (no transition) so it's invisible and ready for the next swap.
+        if (next !== index) {
+            if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
+            fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+            requestAnimationFrame(() => { fadeLayer.style.opacity = '1'; });
+            fadeCommit = setTimeout(() => {
+                panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                fadeLayer.style.transition = 'none';
+                fadeLayer.style.opacity = '0';
+                requestAnimationFrame(() => { fadeLayer.style.transition = 'opacity .6s ease'; });
+                fadeCommit = null;
+            }, 600);
+        }
+        index = next;
+        panel.dataset.currentPath = src;
         dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
         const n = photos[index].photographer;
         credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
@@ -17252,6 +17292,25 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
 
     panel.appendChild(dots);
     panel.appendChild(credit);
+
+    // --- Auto-advance (soft) -------------------------------------------------
+    // Cycle through the photos on a timer so users don't have to swipe/drag —
+    // gated by the "Auto-Cycle Photos" setting. Pause while the pointer is over
+    // the hero (so people can look at a shot) and briefly after manual paging.
+    let paused = false;
+    const autoOn = !(typeof mapFilters !== 'undefined' && mapFilters.autoCyclePhotos === false);
+    const startAuto = () => {
+        if (!autoOn || window.__heroAutoTimer) return;
+        window.__heroAutoTimer = setInterval(() => {
+            if (!paused && document.body.contains(panel)) show(index + 1);
+            else if (!document.body.contains(panel)) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
+        }, HERO_PHOTO_CYCLE_MS);
+    };
+    if (autoOn) {
+        panel.addEventListener('mouseenter', () => { paused = true; });
+        panel.addEventListener('mouseleave', () => { paused = false; });
+        startAuto();
+    }
 
     // Horizontal swipe to page through photos. Pointer events cover both touch
     // (iOS) and mouse; taps on the hero buttons are ignored so they still work.
