@@ -2249,8 +2249,11 @@
                 fadeImg = document.createElement('img');
                 fadeImg.id = 'ac-photo-fade';
                 fadeImg.className = 'hero-img';
-                fadeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;opacity:0;transition:opacity .6s ease;z-index:1;pointer-events:none;';
-                container.appendChild(fadeImg);
+                // No z-index, inserted right after the base photo: it overlays
+                // the (in-flow) base image but stays below the dim, name/route
+                // overlay, credit and dots, so the fade never covers the UI.
+                fadeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+                img.insertAdjacentElement('afterend', fadeImg);
             }
 
             const sig = list.map(p => p.url).join('|');

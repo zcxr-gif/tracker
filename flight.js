@@ -17238,12 +17238,13 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!Array.isArray(photos) || photos.length < 2) return;
     panel.dataset.heroCarousel = '1';
 
-    // Soft crossfade layer: sits directly above the panel's base background but
-    // below the gradient overlay (z-index 0, painted first) and all text, so the
-    // incoming photo fades in over the outgoing one without touching the UI.
+    // Soft crossfade layer. z-index:-1 keeps it directly above the panel's own
+    // background photo but BELOW every child (the gradient overlay, the
+    // callsign/aircraft text, badges, buttons, dots) — positioned or not — so
+    // the incoming photo fades in without ever covering the UI.
     // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
     const fadeLayer = document.createElement('div');
-    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:0;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
     panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
