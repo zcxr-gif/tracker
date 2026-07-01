@@ -147,14 +147,18 @@ export function updateActiveSectors(map, layerId, atcData) {
     }
 
     // --- HIGHLIGHT STAFFED SECTORS -------------------------------------------
-    // The full FIR boundary network is drawn by the always-on 'fir-borders'
-    // line layer (set up in initializeMapBoundaries). All we do on each refresh
-    // is give the sectors that currently have a controller online a faint
-    // translucent tint, so staffed airspace reads at a glance. No red overlays,
-    // no text labels — those were the ugly, broken parts of the old behaviour.
+    // Only sectors that currently have a Center controller online light up:
+    // the same active-sector filter is applied to BOTH the fill tint and the
+    // boundary lines, so the full FIR network is never drawn — just the live
+    // centers. No red overlays, no text labels.
     map.setFilter(layerId, filterExpression);
     map.setPaintProperty(layerId, 'fill-color', '#22c55e');
     map.setPaintProperty(layerId, 'fill-opacity', activeIds.length ? 0.12 : 0);
+
+    // Scope the boundary lines to the same staffed sectors.
+    if (map.getLayer('fir-borders')) {
+        map.setFilter('fir-borders', filterExpression);
+    }
 
     // Remove the legacy red label layer if an older build left it behind.
     if (map.getLayer('fir-active-labels')) {
@@ -168,7 +172,8 @@ export function updateActiveSectors(map, layerId, atcData) {
     }
 
     // Respect the user's ATC-boundaries toggle for both overlay layers.
-    const boundariesOn = !(window.mapFilters && window.mapFilters.showAtcBoundaries === false);
+    // Opt-in: hidden unless the flag is explicitly truthy.
+    const boundariesOn = !!(window.mapFilters && window.mapFilters.showAtcBoundaries);
     ['fir-fills', 'fir-borders'].forEach(id => {
         if (map.getLayer(id)) {
             map.setLayoutProperty(id, 'visibility', boundariesOn ? 'visible' : 'none');

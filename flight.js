@@ -10,7 +10,9 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+// Supabase client, pinned to the v2 major so jsDelivr serves a stable,
+// cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
@@ -32,8 +34,8 @@ console.log(
 );
 
 
-const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co'; 
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U'; 
+const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // 1. Initialize Desktop Dashboard
@@ -688,10 +690,12 @@ let mapFilters = {
         // the classic DOM airport tags.
         useClassicAirportTags: false,
         hideNoAtcMarkers: false,
-        // ATC sector (FIR) boundary overlay. When on, active controllers'
-        // FIR boundaries are drawn on the map; when off, they stay hidden
-        // even while ATC is online. See applyAtcBoundaryVisibility().
-        showAtcBoundaries: true,
+        // ATC sector (FIR) boundary overlay. Opt-in: off by default. When on,
+        // only the sectors that currently have a Center controller online light
+        // up (border + faint fill) — the full FIR network is never drawn. When
+        // off, nothing is shown even while ATC is online. See
+        // applyAtcBoundaryVisibility() and updateActiveSectors().
+        showAtcBoundaries: false,
         // Terrain Awareness mode (free for everyone). showTerrainMode draws the
         // hypsometric elevation map + hillshade; terrainTawsEnabled switches the
         // colouring to be relative to terrainTawsAltitude (ft). See
@@ -732,6 +736,10 @@ let mapFilters = {
         },
         useFlatMap: false,
         useSimpleFlightWindow: false,
+        // Auto-advance the aircraft photo carousel (with a soft crossfade) in
+        // both the regular and simple flight windows. On by default; the
+        // "Auto-Cycle Photos" toggle turns it off. See buildHeroPhotoCarousel().
+        autoCyclePhotos: true,
         planeIconSize: 0.15,
         themeStartColor: '#18181b',
         themeEndColor: '#18181b',
@@ -957,49 +965,79 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
 // --- PREMIUM CLOUD SYNC ENGINE ---
     let cloudSyncTimeout = null;
 
-    async function saveFiltersToLocalStorage() {
+    // Pushes the current mapFilters to the user's cloud profile (Pro only).
+    // Factored out so both the debounced save and the immediate flush below
+    // can reuse it.
+    async function pushFiltersToCloud() {
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userId = sessionData?.session?.user?.id;
+            if (!userId) return;
+
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', userId)
+                .single();
+
+            if (profile && profile.is_pro) {
+                const { error } = await supabase
+                    .from('profiles')
+                    .update({ map_filters: mapFilters })
+                    .eq('id', userId);
+
+                if (!error) {
+                    console.log("☁️ Premium Settings Synced to Cloud.");
+                } else {
+                    console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
+                }
+            }
+        } catch (err) {
+            console.warn("Cloud sync interrupted:", err);
+        }
+    }
+
+    // Persist filters. localStorage is always committed instantly; the cloud
+    // write is debounced to avoid hammering the DB during rapid UI toggles.
+    // Pass `true` (or { immediate: true }) for actions that must not be lost
+    // if the user navigates away before the debounce fires — e.g. Reset
+    // Filters. Otherwise the stale cloud copy wins on the next load and the
+    // filters appear to "come back" even though they were cleared locally.
+    async function saveFiltersToLocalStorage(options) {
+        const immediate = options === true || (options && options.immediate);
         try {
             // 1. Instant Local Commit (Zero Latency UI)
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
 
-            // 2. Debounced Cloud Sync for Pro Users
-            const { data: sessionData } = await supabase.auth.getSession();
-            if (sessionData?.session?.user) {
-                const userId = sessionData.session.user.id;
-                
-                // Clear existing timeout to prevent database hammering during rapid UI toggles
-                if (cloudSyncTimeout) clearTimeout(cloudSyncTimeout);
-                
-                cloudSyncTimeout = setTimeout(async () => {
-                    try {
-                        const { data: profile } = await supabase
-                            .from('profiles')
-                            .select('is_pro')
-                            .eq('id', userId)
-                            .single();
-
-                        if (profile && profile.is_pro) {
-                            const { error } = await supabase
-                                .from('profiles')
-                                .update({ map_filters: mapFilters })
-                                .eq('id', userId);
-                                
-                            if (!error) {
-                                console.log("☁️ Premium Settings Synced to Cloud.");
-                            } else {
-                                console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("Cloud sync interrupted:", err);
-                    }
+            // 2. Cloud Sync for Pro Users (immediate, or debounced)
+            if (cloudSyncTimeout) { clearTimeout(cloudSyncTimeout); cloudSyncTimeout = null; }
+            if (immediate) {
+                await pushFiltersToCloud();
+            } else {
+                cloudSyncTimeout = setTimeout(() => {
+                    cloudSyncTimeout = null;
+                    pushFiltersToCloud();
                 }, 1200); // 1.2s Debounce for silky smooth performance
             }
         } catch (e) {
             console.warn("Could not save filters locally.", e);
         }
     }
+
+    // Best-effort flush of a pending cloud sync when the page is hidden or
+    // unloaded, so a debounced edit isn't lost (and then resurrected from the
+    // stale cloud copy on the next visit). No-op when nothing is pending.
+    function flushPendingCloudSync() {
+        if (!cloudSyncTimeout) return;
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = null;
+        pushFiltersToCloud();
+    }
+    window.addEventListener('pagehide', flushPendingCloudSync);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingCloudSync();
+    });
 
     async function loadFiltersFromLocalStorage() {
         // 1. Instant Local Paint
@@ -4395,6 +4433,152 @@ function injectCustomStyles() {
             overflow: hidden;
         }
 
+        /* --- Airport weather "instrument panel" (glass-cockpit look) --- */
+        .apt-wx-panel {
+            margin: 0 16px 12px;
+            padding: 14px;
+            background: linear-gradient(160deg, #1e4d86 0%, #163d6b 100%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: var(--radius-md);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+        }
+
+        .wx-tile-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .wx-tile {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .wx-tile-chip {
+            border-radius: 8px;
+            padding: 10px 6px;
+            text-align: center;
+            font-family: var(--font-data);
+            font-size: 1rem;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1.15;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .wx-tile-sub {
+            text-align: center;
+            font-size: 0.7rem;
+            color: rgba(226, 232, 240, 0.85);
+            font-weight: 600;
+        }
+
+        .wx-gauges {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .wx-gauge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wx-gauge-svg {
+            width: 100%;
+            max-width: 190px;
+            height: auto;
+            aspect-ratio: 1 / 1;
+        }
+
+        .wx-rwy-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .wx-rwy-pill {
+            font-family: var(--font-data);
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: rgba(226, 232, 240, 0.6);
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid transparent;
+            border-radius: 9px;
+            padding: 6px 12px;
+        }
+
+        .wx-rwy-pill.active {
+            color: #fff;
+            background: rgba(0, 0, 0, 0.1);
+            border-color: rgba(255, 255, 255, 0.55);
+        }
+
+        .wx-cloud-chart {
+            position: relative;
+            height: 130px;
+            margin-top: 16px;
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .wx-cloud-grid {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px dashed rgba(255, 255, 255, 0.12);
+        }
+
+        .wx-cloud-grid span {
+            position: absolute;
+            left: 4px;
+            top: -8px;
+            font-size: 0.62rem;
+            color: rgba(226, 232, 240, 0.55);
+            font-family: var(--font-data);
+        }
+
+        .wx-cloud-layer {
+            position: absolute;
+            left: 28%;
+            right: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transform: translateY(-50%);
+            color: #fff;
+        }
+
+        .wx-cloud-layer .fa-cloud { font-size: 1.4rem; opacity: 0.9; }
+
+        .wx-cloud-tag {
+            margin-left: auto;
+            font-family: var(--font-data);
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            border-radius: 8px;
+            padding: 3px 8px;
+        }
+
+        .wx-cloud-clear {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            text-align: center;
+            color: rgba(226, 232, 240, 0.7);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
         .apt-mini-header {
             background: var(--bg-subtle);
             padding: 6px 10px;
@@ -5600,15 +5784,17 @@ async function initializeMapBoundaries(map) {
             }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer — the FULL FIR boundary network, drawn as clean
-        // thin lines. The lines look the same whether or not a sector is
-        // staffed; whether they show at all is controlled by the
+        // 3. fir-borders Layer — clean thin boundary lines, scoped to the SAME
+        // staffed sectors as fir-fills (updateActiveSectors() applies the
+        // filter). Starts empty so the full FIR network is never drawn; only
+        // live centers light up. Whether it shows at all is gated by the
         // showAtcBoundaries toggle (see applyAtcBoundaryVisibility).
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
                 type: 'line',
                 source: 'fir-boundaries',
+                filter: ['==', 'id', 'none-active'],
                 paint: {
                     'line-color': borderColor,
                     'line-width': 0.8,
@@ -5632,7 +5818,7 @@ async function initializeMapBoundaries(map) {
 function applyAtcBoundaryVisibility(map) {
     const target = map || sectorOpsMap;
     if (!target) return;
-    const vis = (mapFilters.showAtcBoundaries === false) ? 'none' : 'visible';
+    const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
     ['fir-fills', 'fir-borders'].forEach(id => {
         if (target.getLayer(id)) {
             target.setLayoutProperty(id, 'visibility', vis);
@@ -6065,6 +6251,173 @@ function getRunwayRecommendations(runways, windStr) {
 
     // Sort by score (descending) and return top 4
     return recommendations.sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+/**
+ * Builds the airport "instrument panel" — the at-a-glance weather block
+ * styled after a glass-cockpit EFB: a grid of condition tiles, a compass
+ * rose with the favoured runway and wind arrow drawn on it, a wind-speed
+ * dial, a runway selector and a cloud-altitude profile.
+ *
+ * @param {object} w        Parsed METAR (see WeatherService.parseMetar)
+ * @param {Array}  runways  Runway records for the field (runwaysData[icao])
+ * @param {string} category Flight category (VFR/MVFR/IFR/LIFR)
+ * @param {string} catColor Colour associated with the category
+ * @returns {string} HTML for the panel.
+ */
+function buildAirportWxPanel(w, runways, category, catColor) {
+    const openRwys = (runways || []).filter(r => !r.closed && r.le_ident);
+
+    // --- Favoured runway (for the compass diagram + active pill) ----------
+    const recs = getRunwayRecommendations(openRwys, w.wind);
+    const favored = recs[0] || null;
+    let rwyHeading = null, rwyLeId = '', rwyHeId = '';
+    if (favored) {
+        for (const r of openRwys) {
+            if (r.le_ident === favored.ident && r.le_heading_degT != null) { rwyHeading = r.le_heading_degT; rwyLeId = r.le_ident; rwyHeId = r.he_ident || ''; break; }
+            if (r.he_ident === favored.ident && r.he_heading_degT != null) { rwyHeading = r.he_heading_degT; rwyLeId = r.he_ident; rwyHeId = r.le_ident || ''; break; }
+        }
+    }
+    if (rwyHeading == null) {
+        const withH = openRwys.filter(r => r.le_heading_degT != null).sort((a, b) => (b.length_ft || 0) - (a.length_ft || 0));
+        if (withH[0]) { rwyHeading = withH[0].le_heading_degT; rwyLeId = withH[0].le_ident; rwyHeId = withH[0].he_ident || ''; }
+    }
+
+    const sin = d => Math.sin(d * Math.PI / 180);
+    const cos = d => Math.cos(d * Math.PI / 180);
+
+    // --- Compass rose ------------------------------------------------------
+    const C = 100, R = 94;
+    let ticks = '';
+    for (let d = 0; d < 360; d += 10) {
+        const major = d % 30 === 0;
+        const r2 = R - (major ? 13 : 7);
+        ticks += `<line x1="${(C + R * sin(d)).toFixed(1)}" y1="${(C - R * cos(d)).toFixed(1)}" x2="${(C + r2 * sin(d)).toFixed(1)}" y2="${(C - r2 * cos(d)).toFixed(1)}" stroke="rgba(255,255,255,${major ? 0.55 : 0.25})" stroke-width="${major ? 2 : 1}"/>`;
+    }
+    const labelMap = { 0: 'N', 30: '3', 60: '6', 90: 'E', 120: '12', 150: '15', 180: 'S', 210: '21', 240: '24', 270: 'W', 300: '30', 330: '33' };
+    let roseLabels = '';
+    for (const deg in labelMap) {
+        const lr = R - 28;
+        roseLabels += `<text x="${(C + lr * sin(deg)).toFixed(1)}" y="${(C - lr * cos(deg)).toFixed(1)}" fill="rgba(226,232,240,0.85)" font-size="14" font-weight="700" text-anchor="middle" dominant-baseline="central">${labelMap[deg]}</text>`;
+    }
+
+    // Runway drawn through the centre, rotated to its true heading.
+    let runwaySvg = '';
+    if (rwyHeading != null) {
+        const half = 58, w2 = 9;
+        runwaySvg = `
+            <g transform="rotate(${rwyHeading.toFixed(1)} ${C} ${C})">
+                <rect x="${C - w2}" y="${C - half}" width="${w2 * 2}" height="${half * 2}" rx="3" fill="#0b1f33" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                <line x1="${C}" y1="${C - half + 8}" x2="${C}" y2="${C + half - 8}" stroke="#fff" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.8"/>
+                <g stroke="#fff" stroke-width="1.5" opacity="0.9">
+                    ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C - half + 1}" x2="${C + o}" y2="${C - half + 7}"/>`).join('')}
+                    ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C + half - 1}" x2="${C + o}" y2="${C + half - 7}"/>`).join('')}
+                </g>
+            </g>`;
+    }
+
+    // Wind arrow: sits at the bearing the wind blows FROM, pointing inward.
+    let windArrow = '';
+    if (w.windDir != null && w.windSpeed > 0) {
+        windArrow = `
+            <g transform="rotate(${(w.windDir - 180).toFixed(1)} ${C} ${C})">
+                <path d="M ${C} ${C + 40} L ${C - 9} ${C + 62} L ${C - 3.5} ${C + 62} L ${C - 3.5} ${C + 84} L ${C + 3.5} ${C + 84} L ${C + 3.5} ${C + 62} L ${C + 9} ${C + 62} Z" fill="#fff"/>
+            </g>`;
+    }
+
+    const compassSvg = `
+        <svg viewBox="0 0 200 200" class="wx-gauge-svg" aria-label="Runway and wind direction">
+            ${ticks}${roseLabels}${runwaySvg}${windArrow}
+        </svg>`;
+
+    // --- Wind-speed dial (0–45 kt, 270° sweep) ----------------------------
+    const WMAX = 45, WC = 100, WR = 80;
+    const bearing = v => 180 + (Math.min(v, WMAX) / WMAX) * 270;
+    let dialTicks = '', dialLabels = '';
+    for (let v = 0; v <= WMAX; v += 5) {
+        const b = bearing(v);
+        dialTicks += `<line x1="${(WC + WR * sin(b)).toFixed(1)}" y1="${(WC - WR * cos(b)).toFixed(1)}" x2="${(WC + (WR - 9) * sin(b)).toFixed(1)}" y2="${(WC - (WR - 9) * cos(b)).toFixed(1)}" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>`;
+        const lr = WR - 24;
+        dialLabels += `<text x="${(WC + lr * sin(b)).toFixed(1)}" y="${(WC - lr * cos(b)).toFixed(1)}" fill="rgba(226,232,240,0.8)" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">${v}</text>`;
+    }
+    const nb = bearing(w.windSpeed || 0);
+    const windDial = `
+        <svg viewBox="0 0 200 200" class="wx-gauge-svg" aria-label="Wind speed">
+            ${dialTicks}${dialLabels}
+            <text x="${WC}" y="${WC - 26}" fill="rgba(226,232,240,0.7)" font-size="13" font-weight="700" text-anchor="middle">kt</text>
+            <line x1="${WC}" y1="${WC}" x2="${(WC + (WR - 10) * sin(nb)).toFixed(1)}" y2="${(WC - (WR - 10) * cos(nb)).toFixed(1)}" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
+            <circle cx="${WC}" cy="${WC}" r="7" fill="#0b1f33" stroke="#fff" stroke-width="2"/>
+        </svg>`;
+
+    // --- Condition tiles ---------------------------------------------------
+    const good = '#3a9d5d';
+    const tile = (chipColor, chipHtml, sub) => `
+        <div class="wx-tile">
+            <div class="wx-tile-chip" style="background:${chipColor};">${chipHtml}</div>
+            <div class="wx-tile-sub">${sub}</div>
+        </div>`;
+
+    const windChip = w.windSpeed > 0 ? `${w.windSpeed} kt` : 'Calm';
+    const windSub = w.windVariable ? 'Variable' : (w.windDir != null ? `${String(w.windDir).padStart(3, '0')}°` : 'Calm');
+    const ceilChip = w.ceiling != null ? `${w.ceiling.toLocaleString()} ft` : 'None';
+    const ceilColor = (w.ceiling == null || w.ceiling >= 3000) ? good : '#1d4170';
+    const visColor = (w.visibilityMeters == null || w.visibilityMeters >= 8000) ? good : '#1d4170';
+    const altChip = w.altimeterInHg != null ? `${w.altimeterInHg.toFixed(2)} inHg` : (w.altimeterHpa != null ? `${w.altimeterHpa} hPa` : '—');
+    const tempChip = w.tempC != null ? `${w.tempC}°C` : (w.temp || '—');
+    const condIcon = (() => {
+        const c = w.clouds && w.clouds[0] ? w.clouds[0].cover : null;
+        if (c === 'OVC' || c === 'BKN') return 'fa-cloud';
+        if (c === 'FEW' || c === 'SCT') return 'fa-cloud-sun';
+        return 'fa-sun';
+    })();
+
+    const tiles = `
+        <div class="wx-tile-grid">
+            ${tile(catColor && category !== 'VFR' ? catColor : good, category || 'VFR', 'No warnings')}
+            ${tile('#1d4170', `<i class="fa-solid ${condIcon}" style="color:#fcd34d;margin-right:6px;"></i>${tempChip}`, w.conditionLabel || 'Conditions')}
+            ${tile(good, windChip, windSub)}
+            ${tile(visColor, w.visibility || '—', 'Visibility')}
+            ${tile(ceilColor, ceilChip, 'Ceiling')}
+            ${tile('#1d4170', altChip, 'Altimeter')}
+        </div>`;
+
+    // --- Runway selector pills --------------------------------------------
+    const pillsHtml = openRwys.map(r => {
+        const name = r.he_ident ? `${r.le_ident}/${r.he_ident}` : r.le_ident;
+        const active = favored && (favored.ident === r.le_ident || favored.ident === r.he_ident);
+        return `<div class="wx-rwy-pill${active ? ' active' : ''}">${name}</div>`;
+    }).join('');
+    const runwayBar = pillsHtml ? `<div class="wx-rwy-bar">${pillsHtml}</div>` : '';
+
+    // --- Cloud-altitude profile -------------------------------------------
+    const MAXALT = 20000;
+    const gridLines = [20000, 15000, 10000, 5000].map(alt => {
+        const top = (1 - alt / MAXALT) * 100;
+        return `<div class="wx-cloud-grid" style="top:${top}%;"><span>${(alt / 1000)},000</span></div>`;
+    }).join('');
+    const cloudMarkers = (w.clouds || []).filter(c => c.base != null && c.base <= MAXALT).map(c => {
+        const top = (1 - Math.min(c.base, MAXALT) / MAXALT) * 100;
+        return `<div class="wx-cloud-layer" style="top:${Math.max(top, 2)}%;">
+                    <i class="fa-solid fa-cloud"></i>
+                    <span class="wx-cloud-tag">${c.cover} ${c.base.toLocaleString()}</span>
+                </div>`;
+    }).join('');
+    const cloudChart = `
+        <div class="wx-cloud-chart">
+            ${gridLines}
+            ${cloudMarkers || '<div class="wx-cloud-clear">Sky clear</div>'}
+        </div>`;
+
+    return `
+        <div class="apt-wx-panel">
+            ${tiles}
+            <div class="wx-gauges">
+                <div class="wx-gauge">${compassSvg}</div>
+                <div class="wx-gauge">${windDial}</div>
+            </div>
+            ${runwayBar}
+            ${cloudChart}
+        </div>`;
 }
 
 /**
@@ -10834,16 +11187,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     </div>`;
                 }
 
-                weatherModuleHtml = `
-                <div class="apt-mini-module">
-                    <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> METAR</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span></div>
-                    <div class="apt-mini-body"><div class="stat-grid-compact">
-                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
-                    </div></div>
-                </div>`;
+                weatherModuleHtml = buildAirportWxPanel(w, airportRunways, flightCategory, catColor);
             }
         } catch (err) {
             weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
@@ -11106,7 +11450,8 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
             <div style="flex-grow: 1; overflow-y: auto;">
                 <div id="apt-va-banner" class="va-ad-banner-slot"></div>
-                <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
+                ${weatherModuleHtml}
+                <div class="apt-dashboard-grid">${atisModuleHtml}</div>
 
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                     <div class="apt-tabs-header">
@@ -14255,7 +14600,7 @@ renderCategory(catId) {
                             <label class="config-header">ATC &amp; Airports</label>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-draw-polygon"></i> ATC Boundaries</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
@@ -14332,6 +14677,10 @@ renderCategory(catId) {
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-window-maximize"></i> Simple Flight Info</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-simple-window" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                         </div>
                     `;
@@ -14496,6 +14845,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-simple-window': 'useSimpleFlightWindow',
+            'set-auto-cycle-photos': 'autoCyclePhotos',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
             'set-taws-enabled': 'terrainTawsEnabled'
@@ -16874,13 +17224,28 @@ function closeAircraftWindow() {
 // -photo hero already uses — and just swaps the source on swipe or dot tap. The
 // only things added on top are small dot indicators and a per-photo credit,
 // placed in the empty lower strip so nothing existing is hidden.
+// How long each aircraft photo is shown before the carousel softly advances.
+const HERO_PHOTO_CYCLE_MS = 5000;
+
 function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!panel) return;
+    // A previous open may have left an auto-cycle timer running on a now-detached
+    // panel; clear it so we never accumulate stacked timers across reopens.
+    if (window.__heroAutoTimer) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
     // Re-render replaces innerHTML, so any prior carousel is already gone; this
     // guard just avoids double-building within a single render pass.
     if (panel.dataset.heroCarousel === '1') return;
     if (!Array.isArray(photos) || photos.length < 2) return;
     panel.dataset.heroCarousel = '1';
+
+    // Soft crossfade layer. z-index:-1 keeps it directly above the panel's own
+    // background photo but BELOW every child (the gradient overlay, the
+    // callsign/aircraft text, badges, buttons, dots) — positioned or not — so
+    // the incoming photo fades in without ever covering the UI.
+    // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
+    const fadeLayer = document.createElement('div');
+    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+    panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
     dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
@@ -16899,10 +17264,27 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
 
     let index = 0;
+    let fadeCommit = null;
     const show = (i) => {
-        index = (i + photos.length) % photos.length;
-        panel.style.backgroundImage = `url('${photos[index].src}'), url('${fallbackPath}')`;
-        panel.dataset.currentPath = photos[index].src;
+        const next = (i + photos.length) % photos.length;
+        const src = photos[next].src;
+        // Crossfade: paint the incoming photo on the fade layer, fade it in,
+        // then commit it to the panel background and reset the layer instantly
+        // (no transition) so it's invisible and ready for the next swap.
+        if (next !== index) {
+            if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
+            fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+            requestAnimationFrame(() => { fadeLayer.style.opacity = '1'; });
+            fadeCommit = setTimeout(() => {
+                panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                fadeLayer.style.transition = 'none';
+                fadeLayer.style.opacity = '0';
+                requestAnimationFrame(() => { fadeLayer.style.transition = 'opacity .6s ease'; });
+                fadeCommit = null;
+            }, 600);
+        }
+        index = next;
+        panel.dataset.currentPath = src;
         dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
         const n = photos[index].photographer;
         credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
@@ -16911,6 +17293,25 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
 
     panel.appendChild(dots);
     panel.appendChild(credit);
+
+    // --- Auto-advance (soft) -------------------------------------------------
+    // Cycle through the photos on a timer so users don't have to swipe/drag —
+    // gated by the "Auto-Cycle Photos" setting. Pause while the pointer is over
+    // the hero (so people can look at a shot) and briefly after manual paging.
+    let paused = false;
+    const autoOn = !(typeof mapFilters !== 'undefined' && mapFilters.autoCyclePhotos === false);
+    const startAuto = () => {
+        if (!autoOn || window.__heroAutoTimer) return;
+        window.__heroAutoTimer = setInterval(() => {
+            if (!paused && document.body.contains(panel)) show(index + 1);
+            else if (!document.body.contains(panel)) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
+        }, HERO_PHOTO_CYCLE_MS);
+    };
+    if (autoOn) {
+        panel.addEventListener('mouseenter', () => { paused = true; });
+        panel.addEventListener('mouseleave', () => { paused = false; });
+        startAuto();
+    }
 
     // Horizontal swipe to page through photos. Pointer events cover both touch
     // (iOS) and mouse; taps on the hero buttons are ignored so they still work.

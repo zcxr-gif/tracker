@@ -419,6 +419,7 @@ export const MobileSettingsUI = {
                             <div class="mobile-section-header">Flight Window</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
+                                ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                             </div>
 
                             <div class="mobile-section-header">Virtual Airlines</div>
@@ -1217,7 +1218,10 @@ export const MobileSettingsUI = {
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
         }
         if (window.updateMapFilters) window.updateMapFilters();
-        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        // Flush to the cloud immediately (not via the debounce) so a reset
+        // can't be lost if the user leaves before it syncs — otherwise the
+        // stale cloud copy resurrects the filters on the next visit.
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage(true);
         this.updateFilterBadge();
     },
 
@@ -1531,6 +1535,9 @@ export const MobileSettingsUI = {
                 // dedicated DOM marker layer directly when toggled.
                 if (setting === 'showVaHubMarkers' && window.renderVaHubMarkers) window.renderVaHubMarkers();
                 if (window.updateMapFilters) window.updateMapFilters();
+                // Persist the change so it survives a reload (desktop toggles
+                // already do this; updateMapFilters() itself does not save).
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
             });
         });
 

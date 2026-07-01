@@ -265,6 +265,15 @@
         font-weight: 900; font-size: 28px; line-height: 1; letter-spacing: -1px;
         color: var(--color-gold);
     }
+    /* Aircraft identity subline — airline · type · reg directly under the
+       callsign, so "who + what" reads as one unit instead of the plane info
+       being stranded on the hero photo. */
+    .ev-aircraft {
+        font-family: var(--font-num); font-size: 11.5px; font-weight: 600;
+        color: var(--text-secondary); letter-spacing: .2px; line-height: 1.3;
+        max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ev-aircraft:empty { display: none; }
     .pilot-row {
         display: flex; align-items: center; gap: 8px; font-size: 11px;
         color: var(--text-secondary); font-weight: 500; cursor: pointer; transition: color .2s;
@@ -941,14 +950,13 @@
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
                     <span id="c-va-badge" class="fi-va-badge"></span>
                 </div>
+                <div class="cb-meta">
+                    <span class="cb-airline" id="c-airline">Tap for details</span>
+                </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
                     <span class="cb-seat" id="c-seat" style="display:none;">---</span>
-                </div>
-                <div class="cb-meta">
-                    <span class="cb-chip" id="c-actype" style="display:none;">---</span>
-                    <span class="cb-airline" id="c-airline">Tap for details</span>
                 </div>
             </div>
             <div class="cb-thumb" id="c-thumb"></div>
@@ -1001,6 +1009,7 @@
                     <span class="ev-callsign" id="callsign">----</span>
                     <span id="va-badge" class="fi-va-badge"></span>
                 </div>
+                <div class="ev-aircraft" id="ev-aircraft"></div>
                 <div class="pilot-row" onclick="scrollToProfile()">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="username">PILOT</span>
@@ -1915,20 +1924,24 @@
             if (data.aircraft) {
                 const acName = data.aircraft.aircraftName || 'Unknown Aircraft';
                 const acLivery = data.aircraft.liveryName || 'Unknown Livery';
+                const acReg = data.aircraft.registration || '';
                 updateText('ac-name', acName);
                 updateText('ac-livery', acLivery);
-                updateText('ac-reg', data.aircraft.registration || '---');
-                updateText('c-airline', acLivery);
+                updateText('ac-reg', acReg || '---');
                 updateText('c-hero-name', acName);
                 updateText('c-hero-livery', acLivery);
-                updateText('c-hero-reg', data.aircraft.registration || '---');
-                const typeChip = document.getElementById('c-actype');
-                if (acName && acName !== 'Unknown Aircraft') {
-                    typeChip.textContent = acName;
-                    typeChip.style.display = 'inline-block';
-                } else {
-                    typeChip.style.display = 'none';
-                }
+                updateText('c-hero-reg', acReg || '---');
+
+                // Shared identity subline: airline · type · reg, directly under
+                // the callsign in both the collapsed bar and expanded header.
+                // Only the parts we actually know are joined in.
+                const parts = [];
+                if (acLivery && acLivery !== 'Unknown Livery') parts.push(acLivery);
+                if (acName && acName !== 'Unknown Aircraft') parts.push(acName);
+                if (acReg) parts.push(acReg);
+                const subline = parts.join('  ·  ');
+                updateText('c-airline', subline || 'Tap for details');
+                updateText('ev-aircraft', subline);
             }
 
             // Photo (big hero + small thumb). A multi-photo airframe becomes a
@@ -2241,6 +2254,21 @@
             if (!container) return;
             const img = document.getElementById('ac-photo');
 
+            // Soft crossfade layer: a second <img> stacked over #ac-photo that
+            // fades the incoming photo in, then hands off to the base image
+            // (img opacity isn't a clean swap on a single element).
+            let fadeImg = container.querySelector('#ac-photo-fade');
+            if (!fadeImg) {
+                fadeImg = document.createElement('img');
+                fadeImg.id = 'ac-photo-fade';
+                fadeImg.className = 'hero-img';
+                // No z-index, inserted right after the base photo: it overlays
+                // the (in-flow) base image but stays below the dim, name/route
+                // overlay, credit and dots, so the fade never covers the UI.
+                fadeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+                img.insertAdjacentElement('afterend', fadeImg);
+            }
+
             const sig = list.map(p => p.url).join('|');
             const changed = container.dataset.carouselSig !== sig;
             if (changed) { container.dataset.carouselSig = sig; container.__heroIndex = 0; }
@@ -2253,8 +2281,21 @@
             };
             const show = (i) => {
                 const idx = (i + list.length) % list.length;
+                const url = list[idx].url;
+                // Crossfade only on an actual change of photo.
+                if (img && img.src !== url) {
+                    if (container.__fadeCommit) clearTimeout(container.__fadeCommit);
+                    fadeImg.src = url;
+                    requestAnimationFrame(() => { fadeImg.style.opacity = '1'; });
+                    container.__fadeCommit = setTimeout(() => {
+                        img.src = url;
+                        fadeImg.style.transition = 'none';
+                        fadeImg.style.opacity = '0';
+                        requestAnimationFrame(() => { fadeImg.style.transition = 'opacity .6s ease'; });
+                        container.__fadeCommit = null;
+                    }, 600);
+                }
                 container.__heroIndex = idx;
-                if (img && img.src !== list[idx].url) img.src = list[idx].url;
                 if (container.__heroDots) container.__heroDots.forEach((d, k) => {
                     d.style.background = `rgba(255,255,255,${k === idx ? '0.95' : '0.5'})`;
                 });
@@ -2300,6 +2341,25 @@
                 });
             }
 
+            // --- Auto-advance (soft) --------------------------------------
+            // Cycle photos on a timer unless the user turned off "Auto-Cycle
+            // Photos" (shared setting, read from the host's mapFilters in
+            // same-origin localStorage). Pause while the pointer is over the
+            // hero so a photo can be looked at.
+            if (container.__heroAutoTimer) { clearInterval(container.__heroAutoTimer); container.__heroAutoTimer = null; }
+            let autoOn = true;
+            try { autoOn = JSON.parse(localStorage.getItem('mapFilters'))?.autoCyclePhotos !== false; } catch (_) {}
+            if (autoOn) {
+                if (!container.dataset.autoHoverWired) {
+                    container.dataset.autoHoverWired = '1';
+                    container.addEventListener('pointerenter', () => { container.__heroPaused = true; });
+                    container.addEventListener('pointerleave', () => { container.__heroPaused = false; });
+                }
+                container.__heroAutoTimer = setInterval(() => {
+                    if (!container.__heroPaused && container.__heroAdvance) container.__heroAdvance(1);
+                }, 5000);
+            }
+
             show(0);
         }
 
@@ -2310,6 +2370,9 @@
             if (!container || !container.dataset.carouselSig) return;
             delete container.dataset.carouselSig;
             container.querySelector('#ac-hero-dots')?.remove();
+            if (container.__heroAutoTimer) { clearInterval(container.__heroAutoTimer); container.__heroAutoTimer = null; }
+            if (container.__fadeCommit) { clearTimeout(container.__fadeCommit); container.__fadeCommit = null; }
+            container.querySelector('#ac-photo-fade')?.remove();
             container.__heroDots = null;
             container.__heroAdvance = null;
         }
