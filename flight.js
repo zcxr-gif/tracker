@@ -11900,84 +11900,74 @@ function updatePro3DLayers() {
  */
 let dayNightInterval = null;
 
-// Twilight bands for an Apple-Maps-style soft terminator. Each band is a
-// spherical cap centred on the ANTI-solar point (midnight); a smaller radius
-// sits closer to the midnight core, so stacking these translucent fills
-// produces a smooth day -> twilight -> night gradient instead of one hard
-// shadow edge. Radii map to the sun's depression angle:
-//   90° = sunset/terminator · 84° ≈ civil · 78° ≈ nautical · 70° ≈ deep night
-const DAY_NIGHT_BANDS = [
-    { id: 'day-night-b1', r: 90, color: '#0b1220', opacity: 0.20 },
-    { id: 'day-night-b2', r: 84, color: '#0a0f1c', opacity: 0.22 },
-    { id: 'day-night-b3', r: 78, color: '#070b16', opacity: 0.26 },
-    { id: 'day-night-b4', r: 70, color: '#020617', opacity: 0.34 },
-];
-const DAY_NIGHT_GLOW_ID = 'day-night-glow';
-const DAY_NIGHT_GLOW_SRC = 'day-night-source';
-
 function updateDayNightTerminator() {
     // Ensure map exists
     if (!sectorOpsMap) return;
 
-    const isVisible = mapFilters.proMapConfig.showDayNight;
-    // Keep the whole overlay beneath the aircraft so planes always sit on top.
-    const beforeId = sectorOpsMap.getLayer('sector-ops-live-flights-layer')
-        ? 'sector-ops-live-flights-layer'
-        : undefined;
+    const sourceId = 'day-night-source';
+    const fillLayerId = 'day-night-fill';   // The solid night
+    const glowLayerId = 'day-night-glow';   // The twilight fade
 
-    // Push the freshest sun-position geometry into every band + the edge glow.
-    const refresh = () => {
-        DAY_NIGHT_BANDS.forEach(b => {
-            const src = sectorOpsMap.getSource(b.id);
-            if (src) src.setData(generateAccurateTerminator(b.r));
-        });
-        const glow = sectorOpsMap.getSource(DAY_NIGHT_GLOW_SRC);
-        if (glow) glow.setData(generateAccurateTerminator(90));
-    };
+    // Check if the user wants to see it
+    const isVisible = mapFilters.proMapConfig.showDayNight;
 
     if (isVisible) {
-        // 1. Stacked twilight fills (darkest cap painted last, on top).
-        DAY_NIGHT_BANDS.forEach(b => {
-            if (!sectorOpsMap.getSource(b.id)) {
-                sectorOpsMap.addSource(b.id, { type: 'geojson', data: generateAccurateTerminator(b.r) });
-                sectorOpsMap.addLayer({
-                    id: b.id,
-                    type: 'fill',
-                    source: b.id,
-                    paint: { 'fill-color': b.color, 'fill-opacity': b.opacity },
-                }, beforeId);
-            } else {
-                sectorOpsMap.setLayoutProperty(b.id, 'visibility', 'visible');
-            }
-        });
+        // 1. Create Source if it doesn't exist
+        if (!sectorOpsMap.getSource(sourceId)) {
+            sectorOpsMap.addSource(sourceId, {
+                type: 'geojson',
+                data: generateAccurateTerminator() // Initial Data
+            });
 
-        // 2. A heavily-blurred line right on the terminator softens the very edge.
-        if (!sectorOpsMap.getSource(DAY_NIGHT_GLOW_SRC)) {
-            sectorOpsMap.addSource(DAY_NIGHT_GLOW_SRC, { type: 'geojson', data: generateAccurateTerminator(90) });
+            // LAYER A: The Deep Night (Fill)
+            // Placed at the very bottom so it covers water/land but sits under routes
             sectorOpsMap.addLayer({
-                id: DAY_NIGHT_GLOW_ID,
+                id: fillLayerId,
+                type: 'fill',
+                source: sourceId,
+                paint: {
+                    'fill-color': '#020617', // Deep Navy/Black (Slate-950)
+                    'fill-opacity': 0.45     // Subtle darkness
+                }
+            }, 'sector-ops-live-flights-layer'); // Ensure it's below planes
+
+            // LAYER B: The Twilight (Blurred Line)
+            // This creates the soft fade at the edge of darkness
+            sectorOpsMap.addLayer({
+                id: glowLayerId,
                 type: 'line',
-                source: DAY_NIGHT_GLOW_SRC,
+                source: sourceId,
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#0b1220', 'line-width': 60, 'line-blur': 40, 'line-opacity': 0.35 },
-            }, beforeId);
-        } else {
-            sectorOpsMap.setLayoutProperty(DAY_NIGHT_GLOW_ID, 'visibility', 'visible');
+                paint: {
+                    'line-color': '#020617', // Match the fill color
+                    'line-width': 45,        // Wide stroke
+                    'line-blur': 30,         // Heavy blur creates the gradient
+                    'line-opacity': 0.4
+                }
+            }, fillLayerId); // Sit right on top of the fill
+        } 
+        // 2. If it exists, just ensure it's visible and updated
+        else {
+            sectorOpsMap.setLayoutProperty(fillLayerId, 'visibility', 'visible');
+            sectorOpsMap.setLayoutProperty(glowLayerId, 'visibility', 'visible');
+            sectorOpsMap.getSource(sourceId).setData(generateAccurateTerminator());
         }
 
-        refresh();
-
-        // 3. Auto-update every minute (the sun moves ~0.25°/min).
+        // 3. Auto-update every minute (Sun moves!)
         if (!dayNightInterval) {
             dayNightInterval = setInterval(() => {
-                if (sectorOpsMap.getSource('day-night-b1')) refresh();
+                if (sectorOpsMap.getSource(sourceId)) {
+                    sectorOpsMap.getSource(sourceId).setData(generateAccurateTerminator());
+                }
             }, 60000);
         }
+
     } else {
-        // Hide the whole overlay and stop the timer to save resources.
-        [...DAY_NIGHT_BANDS.map(b => b.id), DAY_NIGHT_GLOW_ID].forEach(id => {
-            if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', 'none');
-        });
+        // Hide if disabled
+        if (sectorOpsMap.getLayer(fillLayerId)) sectorOpsMap.setLayoutProperty(fillLayerId, 'visibility', 'none');
+        if (sectorOpsMap.getLayer(glowLayerId)) sectorOpsMap.setLayoutProperty(glowLayerId, 'visibility', 'none');
+        
+        // Kill the timer to save resources
         if (dayNightInterval) {
             clearInterval(dayNightInterval);
             dayNightInterval = null;
@@ -11989,7 +11979,7 @@ function updateDayNightTerminator() {
  * Generates the geometry for the night side of Earth.
  * Handles the 180-degree meridian wrapping to prevent map glitches.
  */
-function generateAccurateTerminator(radiusDeg = 90) {
+function generateAccurateTerminator() {
     const now = new Date();
     
     // 1. Calculate Sun Position (Simplified equations for speed/accuracy balance)
@@ -12022,7 +12012,7 @@ function generateAccurateTerminator(radiusDeg = 90) {
     // 2. Generate Circle Coordinates
     const coords = [];
     const steps = 90; // 4 degrees per step is smooth enough with the blur
-    const R = radiusDeg * rad; // cap radius from the anti-solar point (90° = terminator)
+    const R = 90 * rad; // 90 degrees radius (Hemisphere)
     
     const phi1 = nightLat * rad;
     const lam0 = nightLon * rad;
