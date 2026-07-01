@@ -109,9 +109,8 @@
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
         backdrop-filter: blur(var(--blur-amount)) saturate(140%);
         -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
-        /* Slim side padding so the peek card nearly touches the screen edges. */
-        padding: 22px 6px 12px;
-        gap: 12px;
+        padding: 26px 16px 16px;
+        gap: 14px;
         cursor: pointer;
         position: absolute; inset: 0;
         overflow: hidden;
@@ -187,9 +186,9 @@
     .cb-route-card {
         display: flex; flex-direction: column; gap: 9px;
         padding: 12px 14px 10px;
-        background: var(--bg-glass);
+        background: var(--bg-subtle);
         border: 1px solid var(--border-glass);
-        border-radius: var(--radius-lg);
+        border-radius: var(--radius-md);
     }
     .cb-route { display: flex; align-items: flex-start; gap: 12px; }
     .cb-port { min-width: 0; max-width: 34%; }
@@ -216,16 +215,16 @@
         content: ''; position: absolute; top: 50%; transform: translateY(-50%);
         width: 7px; height: 7px; border-radius: 50%;
     }
-    .cb-track::before { left: -3px; background: var(--color-brand); }
+    .cb-track::before { left: -3px; background: var(--color-gold); }
     .cb-track::after { right: -3px; border: 2px solid rgba(255,255,255,0.30); background: transparent; }
     .cb-fill {
         position: absolute; left: 0; top: 0; height: 100%; width: 0%;
-        background: var(--color-brand); border-radius: 2px;
+        background: var(--color-gold); border-radius: 2px;
         transition: width 0.5s linear;
     }
     .cb-fill-plane {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%);
-        color: var(--color-brand); font-size: 13px;
+        color: var(--color-gold); font-size: 13px;
         transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
     }
     .cb-prog-labels {
@@ -924,53 +923,6 @@
     .cs-share-row { display: flex; gap: 6px; }
     .cs-code { flex: 1; min-width: 0; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-secondary); font-family: var(--font-data); font-size: 11px; padding: 8px 10px; }
     .cs-mini { border: 1px solid var(--border-highlight); background: rgba(255,255,255,.05); color: var(--text-primary); border-radius: 8px; padding: 8px 12px; font-size: 11px; font-weight: 700; cursor: pointer; }
-
-    /* ===== Clean flight card (reference redesign) ===== */
-    .fc-status{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;}
-    .fc-status-phase{font-size:15px;font-weight:800;color:var(--color-brand,#3b82f6);letter-spacing:.3px;text-transform:capitalize;}
-    .fc-status-eta{font-size:14px;font-weight:600;color:var(--text-secondary);}
-    .fc-status-eta b{color:var(--color-brand,#3b82f6);font-weight:800;}
-    .fc-card{margin:0 12px 12px;background:var(--bg-glass,rgba(24,24,27,.92));border:1px solid var(--border-glass);border-radius:var(--radius-lg,18px);overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35);}
-    .fc-card .mission-visual-section{border-radius:0;}
-    .fc-photo-overlay{position:absolute;left:0;right:0;bottom:0;padding:26px 16px 12px;background:linear-gradient(to top,rgba(0,0,0,.85),transparent);z-index:3;pointer-events:none;}
-    .fc-ac-name{font-size:16px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .fc-ac-sub{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:12px;color:rgba(255,255,255,.82);}
-    .fc-ac-reg{margin-left:auto;font-family:var(--font-data);font-weight:700;color:#fff;background:rgba(255,255,255,.14);border:1px solid var(--border-glass);padding:2px 8px;border-radius:6px;font-size:11px;flex-shrink:0;}
-    .fc-ports{display:flex;justify-content:space-between;gap:12px;padding:16px 20px 6px;}
-    .fc-port{min-width:0;}
-    .fc-port-right{text-align:right;}
-    .fc-icao{font-size:22px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;}
-    .fc-city{font-size:11px;color:var(--text-secondary);margin-top:2px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .fc-port-right .fc-city{margin-left:auto;}
-    .fc-times{display:flex;align-items:flex-start;gap:12px;padding:4px 20px 18px;}
-    .fc-time-col{min-width:60px;flex-shrink:0;}
-    .fc-time-col-right{text-align:right;}
-    .fc-time-big{font-size:30px;font-weight:800;color:var(--text-primary);font-variant-numeric:tabular-nums;line-height:1;}
-    .fc-time-sub{font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px;}
-    .fc-time-sub s{opacity:.7;}
-    .fc-mid{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:8px;min-width:0;}
-    .fc-track{position:relative;width:100%;height:2px;background:var(--border-glass);border-radius:2px;}
-    .fc-fill{position:absolute;left:0;top:0;height:100%;background:var(--color-brand,#3b82f6);border-radius:2px;transition:width .8s ease;}
-    .fc-plane{position:absolute;top:50%;transform:translate(-50%,-50%);color:var(--color-brand,#3b82f6);font-size:15px;transition:left .8s ease;}
-    .fc-dist{font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums;}
-    .fc-stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--border-glass);}
-    .fc-stat{padding:14px 8px;text-align:center;border-right:1px solid var(--border-glass);min-width:0;}
-    .fc-stat:last-child{border-right:none;}
-    .fc-stat-ic{color:var(--text-dim);font-size:14px;}
-    .fc-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);margin-top:6px;}
-    .fc-stat-val{font-size:14px;font-weight:700;color:var(--text-primary);margin-top:3px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    /* Restored detail sections, styled as siblings of the main card. */
-    .fc-sec{padding-bottom:12px;}
-    .fc-sec-head{padding:14px 16px 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;justify-content:space-between;}
-    .fc-sec-head i{color:var(--text-dim);}
-    .fc-sec-toggle{cursor:pointer;}
-    .fc-sec-toggle .route-toggle-icon{transition:transform .3s ease;}
-    .fc-sec .mission-route-section.expanded .route-toggle-icon{transform:rotate(180deg);}
-    .fc-sec .telemetry-bento{padding:0 12px;}
-    .fc-sec .sa-graph-card{margin:0 12px;background:transparent;border:none;padding:0;}
-    .fc-sec .mission-route-section{margin:0;background:transparent;border:none;border-radius:0;}
-    .fc-sec .mission-route-section .waypoint-dropdown-wrapper{background:transparent;}
-    .fc-sec .profile-card{margin:0;background:transparent;border:none;box-shadow:none;padding:0 14px 4px;}
     </style>
 </head>
 <body class="collapsed">
@@ -1056,7 +1008,7 @@
                 </div>
             </div>
             <div class="ev-header-right">
-                <button class="ev-gear" id="ev-gear" title="Customize layout" aria-label="Customize layout" style="display:none;">
+                <button class="ev-gear" id="ev-gear" title="Customize layout" aria-label="Customize layout">
                     <i class="fa-solid fa-sliders"></i>
                 </button>
                 <div class="flight-state-badge" id="state-badge">
@@ -1069,14 +1021,9 @@
 
         <div class="scroll-viewport">
 
-            <!-- ===== Clean flight card (reference redesign) ===== -->
-            <div class="fc-status">
-                <span class="fc-status-phase" id="fc-phase">Standby</span>
-                <span class="fc-status-eta">Lands in <b id="fc-arrive-in">--</b></span>
-            </div>
-
-            <div class="fc-card">
-                <!-- Aircraft photo (auto-cycling carousel) -->
+            <!-- BIG plane hero -->
+            <div class="sw-block" data-block="hero">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Aircraft</div>
                 <div class="mission-visual-section skeleton" id="hero-container">
                     <img id="ac-photo" class="hero-img" src="" style="display:none;"
                          onload="this.style.display='block'; this.parentElement.classList.remove('skeleton');">
@@ -1085,103 +1032,170 @@
                     <div class="hero-collapse-btn" id="hero-collapse-btn">
                         <i class="fa-solid fa-chevron-up"></i> Less info
                     </div>
-                    <div class="fc-photo-overlay">
-                        <div class="fc-ac-name" id="ac-name">---</div>
-                        <div class="fc-ac-sub"><span id="ac-livery">---</span><span class="fc-ac-reg" id="ac-reg">---</span></div>
-                    </div>
-                </div>
-
-                <!-- Origin / destination -->
-                <div class="fc-ports">
-                    <div class="fc-port">
-                        <div class="fc-icao" id="dep-icao">---</div>
-                        <div class="fc-city" id="dep-city">&nbsp;</div>
-                    </div>
-                    <div class="fc-port fc-port-right">
-                        <div class="fc-icao" id="arr-icao">---</div>
-                        <div class="fc-city" id="arr-city">&nbsp;</div>
-                    </div>
-                </div>
-
-                <!-- Times + progress -->
-                <div class="fc-times">
-                    <div class="fc-time-col">
-                        <div class="fc-time-big" id="fc-dep-time">--:--</div>
-                        <div class="fc-time-sub" id="fc-dep-sub"></div>
-                    </div>
-                    <div class="fc-mid">
-                        <div class="fc-track">
-                            <div class="fc-fill" id="route-progress"></div>
-                            <i class="fa-solid fa-plane fc-plane" id="route-plane"></i>
+                    <div class="hero-overlay">
+                        <div class="ac-info">
+                            <h2 id="ac-name">---</h2>
+                            <span id="ac-livery">---</span>
                         </div>
-                        <div class="fc-dist" id="fc-dist">--</div>
-                    </div>
-                    <div class="fc-time-col fc-time-col-right">
-                        <div class="fc-time-big" id="fc-arr-time">--:--</div>
-                        <div class="fc-time-sub" id="fc-arr-sub"></div>
-                    </div>
-                </div>
-
-                <!-- Live flight stats -->
-                <div class="fc-stats">
-                    <div class="fc-stat">
-                        <i class="fa-solid fa-plane-up fc-stat-ic"></i>
-                        <div class="fc-stat-label">Aircraft</div>
-                        <div class="fc-stat-val" id="stat-aircraft">--</div>
-                    </div>
-                    <div class="fc-stat">
-                        <i class="fa-solid fa-cloud fc-stat-ic"></i>
-                        <div class="fc-stat-label">Altitude</div>
-                        <div class="fc-stat-val" id="stat-alt">--</div>
-                    </div>
-                    <div class="fc-stat">
-                        <i class="fa-solid fa-gauge-high fc-stat-ic"></i>
-                        <div class="fc-stat-label">Ground Speed</div>
-                        <div class="fc-stat-val" id="stat-spd">--</div>
+                        <div class="ac-reg-badge" id="ac-reg">---</div>
                     </div>
                 </div>
             </div>
 
-            <!-- ===== Restored detail sections (same card design) ===== -->
-            <div class="fc-card fc-sec">
-                <div class="fc-sec-head"><i class="fa-solid fa-gauge-high"></i> Live Telemetry</div>
-                <div class="telemetry-bento">
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Altitude</span><i class="fa-solid fa-cloud cell-icon"></i></div><div class="cell-data"><span id="val-alt">---</span><span class="cell-unit">ft</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">GND Speed</span><i class="fa-solid fa-gauge-high cell-icon"></i></div><div class="cell-data"><span id="val-spd">---</span><span class="cell-unit">kts</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Vertical</span><i class="fa-solid fa-elevator cell-icon"></i></div><div class="cell-data cell-vs-graphic"><i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i><span id="val-vs">0</span><span class="cell-unit">fpm</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Heading</span><i class="fa-regular fa-compass cell-icon"></i></div><div class="cell-data"><span id="val-hdg">---</span><span class="cell-unit">&deg;</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">True Airspeed</span><i class="fa-solid fa-wind cell-icon"></i></div><div class="cell-data"><span id="val-tas">---</span><span class="cell-unit">kts</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">OAT</span><i class="fa-solid fa-temperature-half cell-icon"></i></div><div class="cell-data"><span id="val-oat">---</span><span class="cell-unit">&deg;C</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Wind</span><i class="fa-solid fa-location-arrow cell-icon"></i></div><div class="cell-data" style="font-size:18px;"><span id="val-wind">---</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">To Destination</span><i class="fa-solid fa-flag-checkered cell-icon"></i></div><div class="cell-data"><span id="val-dtg">---</span><span class="cell-unit">nm</span></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Next Waypoint</span><i class="fa-solid fa-diamond-turn-right cell-icon"></i></div><div class="cell-data" style="font-size:16px;"><span id="val-nextwp">---</span></div><div class="cell-unit" id="val-nextwp-dist" style="margin-top:4px;"></div></div>
-                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Position</span><i class="fa-solid fa-crosshairs cell-icon"></i></div><div class="cell-data" style="font-size:13px;line-height:1.4;"><span id="val-pos">---</span></div></div>
+            <!-- BIG route -->
+            <div class="sw-block" data-block="route">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Route</div>
+                <div class="route-hero">
+                    <div class="rh-port origin">
+                        <div class="rh-icao" id="dep-icao">---</div>
+                        <div class="rh-city" id="dep-city">&nbsp;</div>
+                        <img id="dep-flag" src="" alt="" style="display:none;">
+                    </div>
+                    <div class="rh-mid">
+                        <div class="rh-plane-badge"><i class="fa-solid fa-plane"></i></div>
+                    </div>
+                    <div class="rh-port dest">
+                        <div class="rh-icao" id="arr-icao">---</div>
+                        <div class="rh-city" id="arr-city">&nbsp;</div>
+                        <img id="arr-flag" src="" alt="" style="display:none;">
+                    </div>
                 </div>
             </div>
 
-            <div class="fc-card fc-sec">
-                <div class="fc-sec-head"><i class="fa-solid fa-chart-area"></i> Speed &amp; Altitude</div>
-                <div class="sa-graph-card"><div id="sa-graph" class="sa-graph"></div></div>
+            <!-- Times grid -->
+            <div class="sw-block" data-block="times">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Times</div>
+                <div class="times-grid" id="sec-times">
+                    <div class="tg-cell">
+                        <span class="tg-label" id="dep-label-1">Scheduled</span>
+                        <span class="tg-time" id="dep-time-1">--:--</span>
+                    </div>
+                    <div class="tg-cell">
+                        <span class="tg-label" id="arr-label-1">Scheduled</span>
+                        <span class="tg-time" id="arr-time-1">--:--</span>
+                    </div>
+                    <div class="tg-cell">
+                        <span class="tg-label" id="dep-label-2">Actual</span>
+                        <span class="tg-time" id="dep-time-2">--:--</span>
+                    </div>
+                    <div class="tg-cell">
+                        <span class="tg-label" id="arr-label-2">Estimated</span>
+                        <span class="tg-time"><span class="tg-dot" id="arr-dot" style="display:none;"></span><span id="arr-time-2">--:--</span></span>
+                    </div>
+                </div>
             </div>
 
-            <div class="fc-card fc-sec">
-                <div class="fc-sec-head fc-sec-toggle" id="route-toggle-btn"><span><i class="fa-solid fa-route"></i> Flight Plan</span><i class="fa-solid fa-chevron-down route-toggle-icon"></i></div>
+            <!-- progress -->
+            <div class="sw-block" data-block="progress">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Progress</div>
+                <div class="route-progress-row">
+                    <div class="rp-track">
+                        <div class="rp-fill" id="route-progress"></div>
+                        <i class="fa-solid fa-plane rp-plane" id="route-plane"></i>
+                    </div>
+                    <div class="rp-labels">
+                        <span><span class="mono" id="dist-flown">----</span> · <span id="elapsed-ago">--</span></span>
+                        <span><span class="mono" id="dist-remaining">----</span> · <span id="arrive-in">--</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- waypoints -->
+            <div class="sw-block" data-block="flightplan">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Flight Plan</div>
                 <div class="mission-route-section" id="route-card-container">
-                    <div class="waypoint-dropdown-wrapper"><div class="waypoint-list" id="wp-list">
-                        <div style="padding:24px;text-align:center;color:var(--text-dim);font-size:12px;font-style:italic;">Route data unavailable</div>
-                    </div></div>
+                    <div class="route-visual-header" id="route-toggle-btn">
+                        <i class="fa-solid fa-route"></i> Flight Plan
+                        <i class="fa-solid fa-chevron-down route-toggle-icon"></i>
+                    </div>
+                    <div class="waypoint-dropdown-wrapper">
+                        <div class="waypoint-list" id="wp-list">
+                            <div style="padding:24px; text-align:center; color:var(--text-dim); font-size:12px; font-style:italic;">
+                                Route data unavailable
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="fc-card fc-sec" id="profile-anchor">
-                <div class="fc-sec-head"><i class="fa-solid fa-user-astronaut"></i> Pilot Manifest</div>
+            <div class="sw-block" data-block="telemetry" id="sec-telemetry">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Telemetry</div>
+                <div class="grid-section-label">Live Telemetry</div>
+                <div class="telemetry-bento">
+                    <div class="bento-cell" data-metric="alt">
+                        <div class="cell-header"><span class="cell-label">Altitude</span><i class="fa-solid fa-cloud cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-alt">---</span><span class="cell-unit">ft</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="spd">
+                        <div class="cell-header"><span class="cell-label">GND Speed</span><i class="fa-solid fa-gauge-high cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-spd">---</span><span class="cell-unit">kts</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="vs">
+                        <div class="cell-header"><span class="cell-label">Vertical</span><i class="fa-solid fa-elevator cell-icon"></i></div>
+                        <div class="cell-data cell-vs-graphic"><i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i><span id="val-vs">0</span><span class="cell-unit">fpm</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="hdg">
+                        <div class="cell-header"><span class="cell-label">Heading</span><i class="fa-regular fa-compass cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-hdg">---</span><span class="cell-unit">°</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sw-block" data-block="navenv" id="sec-navenv">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Nav &amp; Env</div>
+                <div class="grid-section-label">Navigation &amp; Environment</div>
+                <div class="telemetry-bento">
+                    <div class="bento-cell" data-metric="tas">
+                        <div class="cell-header"><span class="cell-label">True Airspeed</span><i class="fa-solid fa-wind cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-tas">---</span><span class="cell-unit">kts</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="oat">
+                        <div class="cell-header"><span class="cell-label">OAT</span><i class="fa-solid fa-temperature-half cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-oat">---</span><span class="cell-unit">°C</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="wind">
+                        <div class="cell-header"><span class="cell-label">Wind</span><i class="fa-solid fa-location-arrow cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:18px;"><span id="val-wind">---</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="dtg">
+                        <div class="cell-header"><span class="cell-label">To Destination</span><i class="fa-solid fa-flag-checkered cell-icon"></i></div>
+                        <div class="cell-data"><span id="val-dtg">---</span><span class="cell-unit">nm</span></div>
+                    </div>
+                    <div class="bento-cell" data-metric="nextwp">
+                        <div class="cell-header"><span class="cell-label">Next Waypoint</span><i class="fa-solid fa-diamond-turn-right cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:16px;"><span id="val-nextwp">---</span></div>
+                        <div class="cell-unit" id="val-nextwp-dist" style="margin-top:4px;"></div>
+                    </div>
+                    <div class="bento-cell" data-metric="pos">
+                        <div class="cell-header"><span class="cell-label">Position</span><i class="fa-solid fa-crosshairs cell-icon"></i></div>
+                        <div class="cell-data" style="font-size:13px; line-height:1.4;"><span id="val-pos">---</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sw-block" data-block="graph" id="sec-graph">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Graph</div>
+                <div class="grid-section-label">Speed &amp; Altitude</div>
+                <div class="sa-graph-card">
+                    <div id="sa-graph" class="sa-graph"></div>
+                </div>
+            </div>
+
+            <div class="sw-block" data-block="manifest" id="profile-anchor">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Manifest</div>
+                <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
                     <div class="profile-pilot-head">
                         <span class="pp-name" id="prof-username">Pilot</span>
-                        <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">Community Profile <i class="fa-solid fa-up-right-from-square"></i></a>
+                        <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">
+                            Community Profile <i class="fa-solid fa-up-right-from-square"></i>
+                        </a>
                     </div>
                     <div class="profile-header-row">
-                        <div class="grade-badge-group"><span class="grade-label">GRADE</span><span class="grade-val" id="prof-grade">--</span></div>
+                        <div class="grade-badge-group">
+                            <span class="grade-label">GRADE</span>
+                            <span class="grade-val" id="prof-grade">--</span>
+                        </div>
                         <div class="profile-identity-meta">
                             <div class="p-meta-row"><span class="p-label">Virtual Airline</span><span class="p-val text-highlight" id="prof-va">---</span></div>
                             <div class="p-meta-row"><span class="p-label">ATC Rank</span><span class="p-val" id="prof-atc">---</span></div>
@@ -1195,8 +1209,12 @@
                         <div class="p-stat-item"><span class="p-stat-label">Landings (90d)</span><span class="p-stat-val" id="prof-land-90">---</span></div>
                     </div>
                     <div class="profile-details-wrapper">
-                        <div class="p-col"><div class="p-col-header">Grade Progression</div><div id="progression-list" class="progression-list"></div></div>
-                        <div class="p-col border-left"><div class="p-col-header">Violation History</div>
+                        <div class="p-col">
+                            <div class="p-col-header">Grade Progression</div>
+                            <div id="progression-list" class="progression-list"></div>
+                        </div>
+                        <div class="p-col border-left">
+                            <div class="p-col-header">Violation History</div>
                             <div class="violation-list">
                                 <div class="vio-row"><span>Level 1</span><span class="vio-count" id="prof-v1">0</span></div>
                                 <div class="vio-row"><span>Level 2</span><span class="vio-count" id="prof-v2">0</span></div>
@@ -1207,12 +1225,13 @@
                     </div>
                 </div>
             </div>
+
         </div>
 
         <!-- ACTION BAR -->
         <footer class="action-bar">
             <button class="action-btn" data-action="replay"><i class="fa-solid fa-clock-rotate-left"></i><span>Replay</span></button>
-            <button class="action-btn" id="btn-route" style="display:none;"><i class="fa-solid fa-route"></i><span>Route</span></button>
+            <button class="action-btn" id="btn-route"><i class="fa-solid fa-route"></i><span>Route</span></button>
             <button class="action-btn" data-action="tripcard"><i class="fa-solid fa-id-card"></i><span>Trip Card</span></button>
             <button class="action-btn" data-action="follow"><i class="fa-solid fa-location-crosshairs"></i><span>Follow</span></button>
             <button class="action-btn" id="btn-collapse"><i class="fa-solid fa-chevron-up"></i><span>Collapse</span></button>
@@ -1412,19 +1431,16 @@
         document.getElementById('btn-collapse').addEventListener('click', () => setPhase('collapsed'));
 
         // Route / waypoint dropdown
-        // Flight-plan block was removed in the clean-card layout; guard so its
-        // absence doesn't break init.
         const routeToggleBtn = document.getElementById('route-toggle-btn');
         const routeCardContainer = document.getElementById('route-card-container');
         const btnRoute = document.getElementById('btn-route');
         function toggleRoute() {
-            if (!routeCardContainer) return;
             const open = routeCardContainer.classList.toggle('expanded');
-            if (btnRoute) btnRoute.classList.toggle('is-active', open);
+            btnRoute.classList.toggle('is-active', open);
             if (open) routeCardContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-        if (routeToggleBtn) routeToggleBtn.addEventListener('click', toggleRoute);
-        if (btnRoute) btnRoute.addEventListener('click', toggleRoute);
+        routeToggleBtn.addEventListener('click', toggleRoute);
+        btnRoute.addEventListener('click', toggleRoute);
 
         // Action buttons -> parent
         document.querySelectorAll('.action-btn[data-action]').forEach(btn => {
@@ -1862,8 +1878,6 @@
             // states (PUSHBACK, TAXIING, LIFTOFF, FLARE, LANDING ROLLOUT, …).
             const phase = data.phase ? data.phase.toUpperCase() : 'STANDBY';
             updateText('status-text', phase);
-            // Clean-card status header (lower-cased; CSS capitalizes it).
-            updateText('fc-phase', phase.toLowerCase());
             const badge = document.getElementById('state-badge');
             badge.className = 'flight-state-badge';
             const stateClass = phaseStateClass(phase);
@@ -1904,7 +1918,6 @@
                 updateText('ac-name', acName);
                 updateText('ac-livery', acLivery);
                 updateText('ac-reg', data.aircraft.registration || '---');
-                updateText('stat-aircraft', (acName && acName !== 'Unknown Aircraft') ? acName : '--');
                 updateText('c-airline', acLivery);
                 updateText('c-hero-name', acName);
                 updateText('c-hero-livery', acLivery);
@@ -1962,17 +1975,11 @@
                 const vs = Math.round(data.telemetry.verticalSpeed || 0);
                 updateText('val-vs', Math.abs(vs));
                 const vsArrow = document.getElementById('val-vs-arrow');
-                if (vsArrow) {
-                    vsArrow.className = 'fa-solid fa-arrow-right vs-arrow';
-                    if (vs > 50) vsArrow.classList.add('climbing');
-                    else if (vs < -50) vsArrow.classList.add('descending');
-                    else vsArrow.className = 'fa-solid fa-minus vs-arrow';
-                }
+                vsArrow.className = 'fa-solid fa-arrow-right vs-arrow';
+                if (vs > 50) vsArrow.classList.add('climbing');
+                else if (vs < -50) vsArrow.classList.add('descending');
+                else vsArrow.className = 'fa-solid fa-minus vs-arrow';
                 updateText('val-hdg', String(Math.round(data.telemetry.heading || 0)).padStart(3, '0'));
-
-                // Clean-card live stats.
-                updateText('stat-alt', (data.telemetry.altitude != null) ? formatNumber(data.telemetry.altitude) + ' ft' : '--');
-                updateText('stat-spd', (data.telemetry.groundSpeed != null) ? Math.round(data.telemetry.groundSpeed) + ' kt' : '--');
 
                 // Navigation & environment readouts (parity with the full window)
                 const t = data.telemetry;
@@ -2028,11 +2035,6 @@
                 updateText('elapsed-ago', elapsedAgo);
                 updateText('arrive-in', arriveIn);
 
-                // Clean-card: "Lands in" value + total great-circle distance.
-                updateText('fc-arrive-in', (r.ete && r.ete !== '--:--') ? r.ete : '--');
-                const fcTotalNm = (r.distFlownNm || 0) + (r.distRemainingNm || 0);
-                updateText('fc-dist', fcTotalNm > 0 ? Math.round(fcTotalNm * 1.852).toLocaleString() + ' km' : '--');
-
                 // Collapsed-bar status labels (FR24-style)
                 updateText('c-status-left', r.elapsed && r.elapsed !== '--:--' ? 'Departed ' + agoText(r.elapsed) : 'On the ground');
                 updateText('c-status-right', r.ete && r.ete !== '--:--' ? 'Arriving in ' + r.ete : '--');
@@ -2060,30 +2062,26 @@
 
         // Renders the 2x2 times grid: Scheduled/Actual (dep) + Scheduled/Estimated (arr).
         // Falls back to the single best-known time, then to the plain origin/eta strings.
-        // Clean-card times: big primary time (actual dep / estimated arr) with a
-        // small scheduled sub-line beneath, struck through when it differs.
         function renderTimesGrid(r) {
             const t = r.times || {};
-            const clean = (v) => (v && v !== '--:--') ? v : null;
+            const z = (v) => (v && v !== '--:--') ? (v + ' Z') : '--:--';
 
-            const depSched = clean(t.depScheduled) || (r.depInfo && r.depInfo.label === 'SCHEDULED' ? clean(r.depInfo.time) : null);
-            const depActual = clean(t.depActual) || (r.depInfo ? clean(r.depInfo.time) : null) || clean(r.originTime);
-            updateText('fc-dep-time', depActual || depSched || '--:--');
-            setTimeSub('fc-dep-sub', depSched, depActual);
+            // Departure column
+            const depSched = t.depScheduled || (r.depInfo && r.depInfo.label === 'SCHEDULED' ? r.depInfo.time : null);
+            const depActual = t.depActual || (r.depInfo && r.depInfo.label === 'ACTUAL' ? r.depInfo.time : null)
+                || (r.depInfo ? r.depInfo.time : null) || r.originTime;
+            setCell('dep-label-1', 'dep-time-1', 'Scheduled', z(depSched));
+            setCell('dep-label-2', 'dep-time-2', 'Actual', z(depActual));
 
-            const arrSched = clean(t.arrScheduled) || (r.arrInfo && r.arrInfo.label === 'SCHEDULED' ? clean(r.arrInfo.time) : null);
-            const arrEst = clean(t.arrEstimated) || (r.arrInfo ? clean(r.arrInfo.time) : null) || clean(r.eta);
-            updateText('fc-arr-time', arrEst || arrSched || '--:--');
-            setTimeSub('fc-arr-sub', arrSched, arrEst);
-        }
-        // Sub-line shows the scheduled time; struck through when the live
-        // (actual/estimated) time differs from it.
-        function setTimeSub(id, scheduled, live) {
-            const el = document.getElementById(id);
-            if (!el) return;
-            if (!scheduled) { el.textContent = ''; return; }
-            const changed = live && live !== scheduled;
-            el.innerHTML = changed ? '<s>' + scheduled + ' Z</s>' : scheduled + ' Z';
+            // Arrival column
+            const arrSched = t.arrScheduled || (r.arrInfo && r.arrInfo.label === 'SCHEDULED' ? r.arrInfo.time : null);
+            const arrEst = t.arrEstimated || (r.arrInfo ? r.arrInfo.time : null) || r.eta;
+            setCell('arr-label-1', 'arr-time-1', 'Scheduled', z(arrSched));
+            setCell('arr-label-2', 'arr-time-2', 'Estimated', z(arrEst));
+
+            // Live green dot on the estimated arrival when we have one.
+            const dot = document.getElementById('arr-dot');
+            if (dot) dot.style.display = (arrEst && arrEst !== '--:--') ? 'inline-block' : 'none';
         }
         function setCell(labelId, timeId, label, value) {
             updateText(labelId, label);
@@ -2159,7 +2157,6 @@
 
         function renderWaypoints(waypoints) {
             const container = document.getElementById('wp-list');
-            if (!container) return; // flight-plan block removed in the clean-card layout
             if (!waypoints.length) return;
             let html = '', lastGroup = null;
             waypoints.forEach(wp => {
