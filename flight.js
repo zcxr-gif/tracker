@@ -3,7 +3,7 @@ import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
 import { GroupFlightManager } from './groupFlightManager.js';
-import { updateActiveSectors } from './atcHighlights.js';
+import { updateActiveSectors, resetActiveSectorCache } from './atcHighlights.js';
 import { applyTerrainMode, removeTerrainMode } from './terrainMode.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
@@ -12741,11 +12741,15 @@ function initializeAircraftLayer() {
         if (!sectorOpsMap) return;
 
         if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+            // Seed with whatever traffic we already hold: after a style switch
+            // this source is re-created, and starting it empty blanks every
+            // plane until the next polling tick lands — the visible "flash" on
+            // map-style changes. On cold start the cache is simply empty.
             sectorOpsMap.addSource('sector-ops-live-flights-source', {
                 type: 'geojson',
                 data: {
                     type: 'FeatureCollection',
-                    features: []
+                    features: Object.values(currentMapFeatures || {})
                 },
                 generateId: true
             });
@@ -16092,6 +16096,14 @@ function onAtcDataReceived(newAtcData) {
         // 1. Re-apply FIR Boundaries (Boundaries usually wipe on style change)
         if (typeof initializeMapBoundaries === 'function') {
             initializeMapBoundaries(sectorOpsMap);
+        }
+        // The active-sector highlighter memoizes both the applied filter key and
+        // the boundary features of the OLD style's source; without a reset it
+        // short-circuits after setStyle and staffed sectors stay un-tinted until
+        // the online-center set happens to change (or a page refresh).
+        resetActiveSectorCache();
+        if (Array.isArray(activeAtcFacilities) && activeAtcFacilities.length) {
+            updateActiveSectors(sectorOpsMap, 'fir-fills', activeAtcFacilities.filter(f => f.type === 6));
         }
 
         // 2. Re-apply NAT Tracks
@@ -20465,11 +20477,12 @@ if (flatMapToggle) {
 
             if (currentMapStyle !== newStyleUrl) {
                 currentMapStyle = newStyleUrl;
-                // Switch style and rebuild layers on load
+                // Switch style; the global 'style.load' handler rebuilds all
+                // layers (setupMapLayersAndFog + rebuildDynamicLayers). A local
+                // once('style.load') here used to run rebuildDynamicLayers a
+                // second time per switch — double SIGMET/radar fetches and
+                // route re-plots — so don't duplicate it.
                 sectorOpsMap.setStyle(newStyleUrl);
-                sectorOpsMap.once('style.load', () => {
-                    rebuildDynamicLayers();
-                });
             }
         }
         else if (target.id === 'filter-toggle-aircraft-labels') {
