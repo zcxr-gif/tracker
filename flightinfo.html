@@ -265,6 +265,15 @@
         font-weight: 900; font-size: 28px; line-height: 1; letter-spacing: -1px;
         color: var(--color-gold);
     }
+    /* Aircraft identity subline — airline · type · reg directly under the
+       callsign, so "who + what" reads as one unit instead of the plane info
+       being stranded on the hero photo. */
+    .ev-aircraft {
+        font-family: var(--font-num); font-size: 11.5px; font-weight: 600;
+        color: var(--text-secondary); letter-spacing: .2px; line-height: 1.3;
+        max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ev-aircraft:empty { display: none; }
     .pilot-row {
         display: flex; align-items: center; gap: 8px; font-size: 11px;
         color: var(--text-secondary); font-weight: 500; cursor: pointer; transition: color .2s;
@@ -941,14 +950,13 @@
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
                     <span id="c-va-badge" class="fi-va-badge"></span>
                 </div>
+                <div class="cb-meta">
+                    <span class="cb-airline" id="c-airline">Tap for details</span>
+                </div>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
                     <span class="cb-seat" id="c-seat" style="display:none;">---</span>
-                </div>
-                <div class="cb-meta">
-                    <span class="cb-chip" id="c-actype" style="display:none;">---</span>
-                    <span class="cb-airline" id="c-airline">Tap for details</span>
                 </div>
             </div>
             <div class="cb-thumb" id="c-thumb"></div>
@@ -1001,6 +1009,7 @@
                     <span class="ev-callsign" id="callsign">----</span>
                     <span id="va-badge" class="fi-va-badge"></span>
                 </div>
+                <div class="ev-aircraft" id="ev-aircraft"></div>
                 <div class="pilot-row" onclick="scrollToProfile()">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="username">PILOT</span>
@@ -1915,20 +1924,24 @@
             if (data.aircraft) {
                 const acName = data.aircraft.aircraftName || 'Unknown Aircraft';
                 const acLivery = data.aircraft.liveryName || 'Unknown Livery';
+                const acReg = data.aircraft.registration || '';
                 updateText('ac-name', acName);
                 updateText('ac-livery', acLivery);
-                updateText('ac-reg', data.aircraft.registration || '---');
-                updateText('c-airline', acLivery);
+                updateText('ac-reg', acReg || '---');
                 updateText('c-hero-name', acName);
                 updateText('c-hero-livery', acLivery);
-                updateText('c-hero-reg', data.aircraft.registration || '---');
-                const typeChip = document.getElementById('c-actype');
-                if (acName && acName !== 'Unknown Aircraft') {
-                    typeChip.textContent = acName;
-                    typeChip.style.display = 'inline-block';
-                } else {
-                    typeChip.style.display = 'none';
-                }
+                updateText('c-hero-reg', acReg || '---');
+
+                // Shared identity subline: airline · type · reg, directly under
+                // the callsign in both the collapsed bar and expanded header.
+                // Only the parts we actually know are joined in.
+                const parts = [];
+                if (acLivery && acLivery !== 'Unknown Livery') parts.push(acLivery);
+                if (acName && acName !== 'Unknown Aircraft') parts.push(acName);
+                if (acReg) parts.push(acReg);
+                const subline = parts.join('  ·  ');
+                updateText('c-airline', subline || 'Tap for details');
+                updateText('ev-aircraft', subline);
             }
 
             // Photo (big hero + small thumb). A multi-photo airframe becomes a
