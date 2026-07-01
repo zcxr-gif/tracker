@@ -534,7 +534,8 @@ export const AuthUI = {
                 email: this._tempSignUpData.email,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url: window.location.origin + '?payment=cancel',
-                is_renew: this._tempSignUpData.is_renew || false
+                is_renew: this._tempSignUpData.is_renew || false,
+                allow_promotion_codes: true // Let customers enter promo/discount codes at checkout
             };
 
             if (!payload.is_renew) {
