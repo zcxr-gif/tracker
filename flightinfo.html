@@ -109,8 +109,9 @@
         background: linear-gradient(135deg, var(--theme-bg-start), var(--theme-bg-end));
         backdrop-filter: blur(var(--blur-amount)) saturate(140%);
         -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(140%);
-        padding: 26px 16px 16px;
-        gap: 14px;
+        /* Slim side padding so the peek card nearly touches the screen edges. */
+        padding: 22px 6px 12px;
+        gap: 12px;
         cursor: pointer;
         position: absolute; inset: 0;
         overflow: hidden;
@@ -186,9 +187,9 @@
     .cb-route-card {
         display: flex; flex-direction: column; gap: 9px;
         padding: 12px 14px 10px;
-        background: var(--bg-subtle);
+        background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-lg);
     }
     .cb-route { display: flex; align-items: flex-start; gap: 12px; }
     .cb-port { min-width: 0; max-width: 34%; }
@@ -215,16 +216,16 @@
         content: ''; position: absolute; top: 50%; transform: translateY(-50%);
         width: 7px; height: 7px; border-radius: 50%;
     }
-    .cb-track::before { left: -3px; background: var(--color-gold); }
+    .cb-track::before { left: -3px; background: var(--color-brand); }
     .cb-track::after { right: -3px; border: 2px solid rgba(255,255,255,0.30); background: transparent; }
     .cb-fill {
         position: absolute; left: 0; top: 0; height: 100%; width: 0%;
-        background: var(--color-gold); border-radius: 2px;
+        background: var(--color-brand); border-radius: 2px;
         transition: width 0.5s linear;
     }
     .cb-fill-plane {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%);
-        color: var(--color-gold); font-size: 13px;
+        color: var(--color-brand); font-size: 13px;
         transition: left 0.5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
     }
     .cb-prog-labels {
@@ -958,6 +959,18 @@
     .fc-stat-ic{color:var(--text-dim);font-size:14px;}
     .fc-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);margin-top:6px;}
     .fc-stat-val{font-size:14px;font-weight:700;color:var(--text-primary);margin-top:3px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    /* Restored detail sections, styled as siblings of the main card. */
+    .fc-sec{padding-bottom:12px;}
+    .fc-sec-head{padding:14px 16px 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;justify-content:space-between;}
+    .fc-sec-head i{color:var(--text-dim);}
+    .fc-sec-toggle{cursor:pointer;}
+    .fc-sec-toggle .route-toggle-icon{transition:transform .3s ease;}
+    .fc-sec .mission-route-section.expanded .route-toggle-icon{transform:rotate(180deg);}
+    .fc-sec .telemetry-bento{padding:0 12px;}
+    .fc-sec .sa-graph-card{margin:0 12px;background:transparent;border:none;padding:0;}
+    .fc-sec .mission-route-section{margin:0;background:transparent;border:none;border-radius:0;}
+    .fc-sec .mission-route-section .waypoint-dropdown-wrapper{background:transparent;}
+    .fc-sec .profile-card{margin:0;background:transparent;border:none;box-shadow:none;padding:0 14px 4px;}
     </style>
 </head>
 <body class="collapsed">
@@ -1125,6 +1138,72 @@
                         <i class="fa-solid fa-gauge-high fc-stat-ic"></i>
                         <div class="fc-stat-label">Ground Speed</div>
                         <div class="fc-stat-val" id="stat-spd">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== Restored detail sections (same card design) ===== -->
+            <div class="fc-card fc-sec">
+                <div class="fc-sec-head"><i class="fa-solid fa-gauge-high"></i> Live Telemetry</div>
+                <div class="telemetry-bento">
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Altitude</span><i class="fa-solid fa-cloud cell-icon"></i></div><div class="cell-data"><span id="val-alt">---</span><span class="cell-unit">ft</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">GND Speed</span><i class="fa-solid fa-gauge-high cell-icon"></i></div><div class="cell-data"><span id="val-spd">---</span><span class="cell-unit">kts</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Vertical</span><i class="fa-solid fa-elevator cell-icon"></i></div><div class="cell-data cell-vs-graphic"><i id="val-vs-arrow" class="fa-solid fa-minus vs-arrow"></i><span id="val-vs">0</span><span class="cell-unit">fpm</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Heading</span><i class="fa-regular fa-compass cell-icon"></i></div><div class="cell-data"><span id="val-hdg">---</span><span class="cell-unit">&deg;</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">True Airspeed</span><i class="fa-solid fa-wind cell-icon"></i></div><div class="cell-data"><span id="val-tas">---</span><span class="cell-unit">kts</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">OAT</span><i class="fa-solid fa-temperature-half cell-icon"></i></div><div class="cell-data"><span id="val-oat">---</span><span class="cell-unit">&deg;C</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Wind</span><i class="fa-solid fa-location-arrow cell-icon"></i></div><div class="cell-data" style="font-size:18px;"><span id="val-wind">---</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">To Destination</span><i class="fa-solid fa-flag-checkered cell-icon"></i></div><div class="cell-data"><span id="val-dtg">---</span><span class="cell-unit">nm</span></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Next Waypoint</span><i class="fa-solid fa-diamond-turn-right cell-icon"></i></div><div class="cell-data" style="font-size:16px;"><span id="val-nextwp">---</span></div><div class="cell-unit" id="val-nextwp-dist" style="margin-top:4px;"></div></div>
+                    <div class="bento-cell"><div class="cell-header"><span class="cell-label">Position</span><i class="fa-solid fa-crosshairs cell-icon"></i></div><div class="cell-data" style="font-size:13px;line-height:1.4;"><span id="val-pos">---</span></div></div>
+                </div>
+            </div>
+
+            <div class="fc-card fc-sec">
+                <div class="fc-sec-head"><i class="fa-solid fa-chart-area"></i> Speed &amp; Altitude</div>
+                <div class="sa-graph-card"><div id="sa-graph" class="sa-graph"></div></div>
+            </div>
+
+            <div class="fc-card fc-sec">
+                <div class="fc-sec-head fc-sec-toggle" id="route-toggle-btn"><span><i class="fa-solid fa-route"></i> Flight Plan</span><i class="fa-solid fa-chevron-down route-toggle-icon"></i></div>
+                <div class="mission-route-section" id="route-card-container">
+                    <div class="waypoint-dropdown-wrapper"><div class="waypoint-list" id="wp-list">
+                        <div style="padding:24px;text-align:center;color:var(--text-dim);font-size:12px;font-style:italic;">Route data unavailable</div>
+                    </div></div>
+                </div>
+            </div>
+
+            <div class="fc-card fc-sec" id="profile-anchor">
+                <div class="fc-sec-head"><i class="fa-solid fa-user-astronaut"></i> Pilot Manifest</div>
+                <div class="profile-card">
+                    <div class="profile-pilot-head">
+                        <span class="pp-name" id="prof-username">Pilot</span>
+                        <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">Community Profile <i class="fa-solid fa-up-right-from-square"></i></a>
+                    </div>
+                    <div class="profile-header-row">
+                        <div class="grade-badge-group"><span class="grade-label">GRADE</span><span class="grade-val" id="prof-grade">--</span></div>
+                        <div class="profile-identity-meta">
+                            <div class="p-meta-row"><span class="p-label">Virtual Airline</span><span class="p-val text-highlight" id="prof-va">---</span></div>
+                            <div class="p-meta-row"><span class="p-label">ATC Rank</span><span class="p-val" id="prof-atc">---</span></div>
+                        </div>
+                    </div>
+                    <hr class="profile-divider">
+                    <div class="profile-stats-grid">
+                        <div class="p-stat-item"><span class="p-stat-label">Total XP</span><span class="p-stat-val" id="prof-xp">---</span></div>
+                        <div class="p-stat-item"><span class="p-stat-label">Total Violations</span><span class="p-stat-val text-danger" id="prof-total-vio">---</span></div>
+                        <div class="p-stat-item"><span class="p-stat-label">Flight Time (90d)</span><span class="p-stat-val" id="prof-time-90">---</span></div>
+                        <div class="p-stat-item"><span class="p-stat-label">Landings (90d)</span><span class="p-stat-val" id="prof-land-90">---</span></div>
+                    </div>
+                    <div class="profile-details-wrapper">
+                        <div class="p-col"><div class="p-col-header">Grade Progression</div><div id="progression-list" class="progression-list"></div></div>
+                        <div class="p-col border-left"><div class="p-col-header">Violation History</div>
+                            <div class="violation-list">
+                                <div class="vio-row"><span>Level 1</span><span class="vio-count" id="prof-v1">0</span></div>
+                                <div class="vio-row"><span>Level 2</span><span class="vio-count" id="prof-v2">0</span></div>
+                                <div class="vio-row"><span>Level 3</span><span class="vio-count" id="prof-v3">0</span></div>
+                                <div class="vio-row mt-sm"><span class="text-dim">Last Violation</span><span class="vio-date" id="prof-last-vio">---</span></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
