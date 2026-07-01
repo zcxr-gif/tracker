@@ -373,11 +373,18 @@
         text-transform: uppercase; letter-spacing: .5px; margin-top: 6px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;
     }
-    .rh-mid { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    /* Route midline reads as a journey: a faint connecting line with a small
+       brand-accent plane badge riding on it (instead of a big blank disc). */
+    .rh-mid { flex: 1; min-width: 40px; position: relative; display: flex; align-items: center; justify-content: center; align-self: center; }
+    .rh-mid::before {
+        content: ''; position: absolute; left: 4px; right: 4px; top: 50%; height: 2px;
+        transform: translateY(-50%); border-radius: 2px;
+        background: linear-gradient(to right, transparent, rgba(255,255,255,.16) 18%, rgba(255,255,255,.16) 82%, transparent);
+    }
     .rh-plane-badge {
-        width: 46px; height: 46px; border-radius: 50%;
-        background: #fff; display: grid; place-items: center;
-        color: #18181b; font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
+        position: relative; width: 34px; height: 34px; border-radius: 50%;
+        background: var(--color-brand); display: grid; place-items: center;
+        color: #fff; font-size: 15px; box-shadow: 0 4px 14px rgba(56,189,248,.45);
     }
 
     /* TIMES GRID (Scheduled / Actual / Estimated) */
@@ -396,8 +403,8 @@
         border-top: 1px solid rgba(255,255,255,.05);
     }
     .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
-    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-gold); border-radius: 2px; transition: width .5s linear; }
-    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); }
+    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-brand); border-radius: 2px; transition: width .5s linear; }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-brand); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(56,189,248,.55)); }
     .rp-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
     .rp-labels .mono { font-family: var(--font-data); }
 
