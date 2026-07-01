@@ -138,6 +138,18 @@
     .fi-va-name { font-size: 11px; font-weight: 700; color: #e2e8f0; }
     .fi-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; }
     .fi-va-note { font-size: 9px; font-weight: 600; color: #fca5a5; }
+    /* Peek: callsign + state keep their natural width and never truncate. */
+    .cb-callsign-row { flex-wrap: nowrap; overflow: hidden; }
+    .cb-callsign-row .cb-callsign { flex: 0 0 auto; }
+    .cb-callsign-row .cb-state { flex: 0 0 auto; }
+    /* The partner-VA badge sits on its own line so it has the full identity
+       width to work with; the name truncates instead of overflowing, and the
+       "not a member" note is dropped here (shown in the expanded header). */
+    .cb-va-row { margin-top: 7px; max-width: 100%; flex-wrap: nowrap; }
+    #c-va-badge .fi-va-chip { min-width: 0; max-width: 100%; }
+    #c-va-badge .fi-va-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #c-va-badge .fi-va-tag,
+    #c-va-badge .fi-va-note { display: none; }
     .cb-callsign {
         font-size: 22px; font-weight: 900; letter-spacing: -0.5px;
         color: var(--color-gold); line-height: 1;
@@ -946,8 +958,8 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
-                    <span id="c-va-badge" class="fi-va-badge"></span>
                 </div>
+                <span id="c-va-badge" class="fi-va-badge cb-va-row"></span>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
