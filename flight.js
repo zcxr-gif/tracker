@@ -12712,16 +12712,27 @@ function updateTrafficLegendUI() {
 
     function toggleAirportPing(icao, btn) {
         if (!icao) return;
-        // Pro gate. The live is_pro lookup resolves asynchronously after
-        // sign-in, so a Pro user tapping early (or during a transient fetch
-        // failure) would be wrongly blocked — fall back to the persisted Pro
-        // flag the entitlement cache mirrors to localStorage on every check.
-        let isPro = typeof window.isInflightPro === 'function' && window.isInflightPro();
-        if (!isPro) {
-            try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
+        // Gate matches the app's other Pro surfaces (Pro map styles, 3D
+        // buildings, day/night): a signed-in account unlocks it. The strict
+        // is_pro entitlement flags are accepted too, but a failed/slow
+        // profiles.is_pro lookup must NOT lock out a signed-in user — that
+        // was throwing the sign-up modal at logged-in Pro accounts.
+        let allowed = false;
+        try { allowed = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser); } catch (_) {}
+        if (!allowed) {
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token')))) { allowed = true; break; }
+                }
+            } catch (_) {}
         }
-        if (!isPro) {
-            showNotification('Pinging airports on the map is a Pro feature.', 'error');
+        if (!allowed && typeof window.isInflightPro === 'function' && window.isInflightPro()) allowed = true;
+        if (!allowed) {
+            try { allowed = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
+        }
+        if (!allowed) {
+            showNotification('Sign in with a Pro account to ping airports on the map.', 'error');
             if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
             return;
         }
