@@ -385,6 +385,11 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                 mapFilters.showBuildings = false;
                 mapFilters.showDayNight = false;
 
+                // Pinged airports are Pro-only; clear them (and their map
+                // labels) on sign-out like the other Pro surfaces.
+                mapFilters.pingedAirports = [];
+                if (typeof renderPingedAirportMarkers === 'function') renderPingedAirportMarkers();
+
                 // 5. Save the downgraded filters to local storage
                 if (typeof saveFiltersToLocalStorage === 'function') {
                     saveFiltersToLocalStorage();
@@ -745,7 +750,10 @@ let mapFilters = {
         themeEndColor: '#18181b',
         themeOpacity: 90,
         showBuildings: false, // NEW: 3D Buildings
-        showDayNight: false   // NEW: Day/Night Cycle
+        showDayNight: false,  // NEW: Day/Night Cycle
+        // PRO: airports "pinged" from their info window — rendered on the map
+        // as their ICAO letters. See renderPingedAirportMarkers().
+        pingedAirports: []
     };
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
@@ -4575,6 +4583,105 @@ function injectCustomStyles() {
             border-radius: 8px;
             padding: 3px 8px;
         }
+
+        /* --- Traffic tab: stats strip, filter chips, ETA buckets --- */
+        .apt-traffic-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 12px 16px 0;
+        }
+        .apt-traffic-stat {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 8px 4px;
+            text-align: center;
+        }
+        .apt-traffic-stat .val {
+            display: block;
+            font-family: var(--font-data);
+            font-size: 1rem;
+            font-weight: 700;
+        }
+        .apt-traffic-stat .lbl {
+            display: block;
+            font-size: 0.58rem;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-top: 2px;
+        }
+        .apt-tfilter-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px 0;
+        }
+        .apt-tfilter-label { color: #52525b; font-size: 0.65rem; margin-right: 2px; }
+        .apt-tfilter-chip {
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #e4e4e7;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 99px;
+            padding: 4px 10px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .apt-tfilter-chip.off {
+            color: #52525b;
+            background: transparent;
+            border-color: rgba(255, 255, 255, 0.05);
+            text-decoration: line-through;
+        }
+        .apt-eta-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.62rem;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            padding: 10px 4px 4px;
+        }
+        .apt-eta-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 6px currentColor;
+        }
+        /* Filter chips hide their matching cards (state + phase groups). */
+        #apt-traffic.tfilter-hide-parked [data-fstate="parked"],
+        #apt-traffic.tfilter-hide-applus [data-fstate="applus"],
+        #apt-traffic.tfilter-hide-away [data-fstate="away"],
+        #apt-traffic.tfilter-hide-ground [data-phase="ground"],
+        #apt-traffic.tfilter-hide-climb [data-phase="climb"],
+        #apt-traffic.tfilter-hide-descent [data-phase="descent"],
+        #apt-traffic.tfilter-hide-cruise [data-phase="cruise"],
+        #apt-traffic.tfilter-hide-cruise [data-phase="enroute"] { display: none; }
+
+        /* --- PRO pinged-airport map label --- */
+        .pinged-airport-label {
+            font-family: var(--font-data);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: #38bdf8;
+            background: rgba(10, 15, 26, 0.78);
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            border-radius: 6px;
+            padding: 3px 8px;
+            cursor: pointer;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .pinged-airport-label i { font-size: 10px; }
+        .hero-btn.pinged { color: #38bdf8; border-color: rgba(56, 189, 248, 0.6); }
 
         /* Full ATIS broadcast text inside the ATIS module. */
         .apt-atis-remark {
@@ -11273,11 +11380,57 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             </div>
         `;
 
-        const renderFlightCard = (fid, type) => {
+        // Per-flight live meta for the traffic tab: ETA to this field, pilot
+        // state and flight phase. Drives the stat strip, the arrival ETA
+        // buckets, the card status badges and the filter chips.
+        const trafficMeta = (fid) => {
+            const f = currentMapFeatures[fid];
+            if (!f || !f.properties) return null;
+            const p = f.properties;
+            let pos = {};
+            try { pos = JSON.parse(p.position || '{}'); } catch (_) { pos = {}; }
+            const gs = pos.gs_kt || 0;
+            let etaMin = null;
+            if (coords.lat != null && coords.lon != null && pos.lat != null && pos.lon != null && gs > 50) {
+                const distNm = getDistanceKm(pos.lat, pos.lon, coords.lat, coords.lon) / 1.852;
+                etaMin = Math.max(0, Math.round((distNm / gs) * 60));
+            }
+            const ps = Number(p.pilotState);
+            const fstate = ps === 2 ? 'parked' : ps === 3 ? 'applus' : ps === 1 ? 'away' : 'active';
+            const phase = (String(p.phase || '').toLowerCase()) || 'enroute';
+            return { etaMin, fstate, phase, airborne: phase !== 'ground' };
+        };
+
+        const ETA_BUCKETS = [
+            { max: 5, label: 'WITHIN 5 MIN', color: '#4ade80' },
+            { max: 10, label: 'WITHIN 10 MIN', color: '#4ade80' },
+            { max: 15, label: 'WITHIN 15 MIN', color: '#fbbf24' },
+            { max: 30, label: 'WITHIN 30 MIN', color: '#fbbf24' },
+            { max: 60, label: 'WITHIN 1 HOUR', color: '#94a3b8' },
+            { max: Infinity, label: '1 HOUR+ AWAY', color: '#71717a' }
+        ];
+        const etaBucketIndex = (etaMin) => (etaMin == null)
+            ? ETA_BUCKETS.length - 1
+            : ETA_BUCKETS.findIndex(b => etaMin <= b.max);
+
+        const PHASE_BADGES = {
+            ground: { label: 'ON GROUND', color: '#94a3b8' },
+            climb: { label: 'CLIMBING', color: '#38bdf8' },
+            cruise: { label: 'CRUISING', color: '#4ade80' },
+            enroute: { label: 'ENROUTE', color: '#4ade80' },
+            descent: { label: 'DESCENDING', color: '#fbbf24' }
+        };
+        const STATE_BADGES = {
+            parked: { label: 'PARKED', color: '#94a3b8' },
+            applus: { label: 'AP+', color: '#60a5fa' },
+            away: { label: 'AWAY', color: '#facc15' }
+        };
+
+        const renderFlightCard = (fid, type, meta) => {
             const f = currentMapFeatures[fid];
             if (!f || !f.properties) return '';
             const p = f.properties;
-            
+
             const callsign = p.callsign || 'Unknown';
             const pilot = p.username || 'Pilot';
             
@@ -11305,8 +11458,27 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             // images at once when the sheet slides open spikes memory enough to
             // get the web view jettisoned (the "crash"). loading="lazy" keeps the
             // off-screen ones from loading until the user scrolls to them.
+            // Live status: arrivals show their ETA (bucket-colored); everything
+            // else shows pilot state (PARKED/AP+/AWAY) or flight phase.
+            let statusHtml = 'LIVE';
+            if (meta) {
+                const st = STATE_BADGES[meta.fstate];
+                if (type === 'in' && meta.etaMin != null) {
+                    const b = ETA_BUCKETS[etaBucketIndex(meta.etaMin)];
+                    const etaTxt = meta.etaMin >= 60
+                        ? `${Math.floor(meta.etaMin / 60)}h ${String(meta.etaMin % 60).padStart(2, '0')}m`
+                        : `${meta.etaMin} min`;
+                    statusHtml = `<span style="color:${b.color};">ETA ${etaTxt}</span>${st ? ` <span style="color:${st.color};margin-left:6px;">${st.label}</span>` : ''}`;
+                } else if (st) {
+                    statusHtml = `<span style="color:${st.color};">${st.label}</span>`;
+                } else {
+                    const ph = PHASE_BADGES[meta.phase] || PHASE_BADGES.enroute;
+                    statusHtml = `<span style="color:${ph.color};">${ph.label}</span>`;
+                }
+            }
+
             return `
-            <div class="route-card-reborn">
+            <div class="route-card-reborn" data-fstate="${meta ? meta.fstate : ''}" data-phase="${meta ? meta.phase : ''}">
                 <img class="route-card-bg" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.style.display='none'">
                 <div class="card-overlay"></div>
                 <div class="card-content">
@@ -11325,7 +11497,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     </div>
                     <div class="card-footer-zone">
                         <div class="operated-by-meta">OPERATED BY ${pilot.toUpperCase()}</div>
-                        <div class="time-status-meta">ON TIME</div>
+                        <div class="time-status-meta">${statusHtml}</div>
                     </div>
                 </div>
             </div>
@@ -11338,13 +11510,70 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         // render a sensible slice and note the remainder.
         const MAX_TRAFFIC_CARDS = 50;
         const renderFlightList = (ids, type) => {
-            const cards = ids.slice(0, MAX_TRAFFIC_CARDS).map(id => renderFlightCard(id, type)).join('');
-            const hidden = ids.length - MAX_TRAFFIC_CARDS;
+            const rows = ids.map(id => ({ id, m: trafficMeta(id) })).filter(r => r.m);
+            const capped = rows.slice(0, MAX_TRAFFIC_CARDS);
+            const cards = capped.map(r => renderFlightCard(r.id, type, r.m)).join('');
+            const hidden = rows.length - capped.length;
             const more = hidden > 0
                 ? `<div style="padding: 10px 12px; text-align: center; color: #71717a; font-size: 0.72rem;">+${hidden} more not shown</div>`
                 : '';
             return cards + more;
         };
+
+        // Arrivals list: sorted by ETA and grouped into proximity buckets
+        // (5 / 10 / 15 / 30 / 60 min, then 1hr+/away) with colored headers.
+        const renderArrivalsList = (ids) => {
+            const rows = ids.map(id => ({ id, m: trafficMeta(id) })).filter(r => r.m);
+            rows.sort((a, b) => {
+                const ea = a.m.etaMin == null ? Infinity : a.m.etaMin;
+                const eb = b.m.etaMin == null ? Infinity : b.m.etaMin;
+                return ea - eb;
+            });
+            const capped = rows.slice(0, MAX_TRAFFIC_CARDS);
+            let html = '', lastBucket = -1;
+            capped.forEach(r => {
+                const bi = etaBucketIndex(r.m.etaMin);
+                if (bi !== lastBucket) {
+                    lastBucket = bi;
+                    const b = ETA_BUCKETS[bi];
+                    html += `<div class="apt-eta-group" style="color:${b.color};"><span class="apt-eta-dot"></span>${b.label}</div>`;
+                }
+                html += renderFlightCard(r.id, 'in', r.m);
+            });
+            const hidden = rows.length - capped.length;
+            if (hidden > 0) html += `<div style="padding: 10px 12px; text-align: center; color: #71717a; font-size: 0.72rem;">+${hidden} more not shown</div>`;
+            return html;
+        };
+
+        // At-a-glance pilot-state stats across this field's traffic, plus the
+        // filter chip row (each chip HIDES its group — wired via
+        // window.aptToggleTrafficFilter, state lives on the tab container).
+        let trafficControlsHtml = '';
+        if (trafficFetchSuccess && (inbounds.length || outbounds.length)) {
+            const allIds = [...new Set([...inbounds, ...outbounds])];
+            let statParked = 0, statFlying = 0, statApPlus = 0;
+            allIds.forEach(id => {
+                const m = trafficMeta(id);
+                if (!m) return;
+                if (m.fstate === 'parked') statParked++;
+                if (m.fstate === 'applus') statApPlus++;
+                if (m.airborne) statFlying++;
+            });
+            const stat = (val, lbl, color) => `
+                <div class="apt-traffic-stat"><span class="val" style="color:${color};">${val}</span><span class="lbl">${lbl}</span></div>`;
+            const chip = (key, label) => `<button class="apt-tfilter-chip" data-tfilter="${key}" onclick="window.aptToggleTrafficFilter(this)">${label}</button>`;
+            trafficControlsHtml = `
+                <div class="apt-traffic-stats">
+                    ${stat(statParked, 'Parked', '#94a3b8')}
+                    ${stat(statFlying, 'Flying', '#4ade80')}
+                    ${stat(statApPlus, 'AP+', '#60a5fa')}
+                    ${stat(inbounds.length, 'Inbound', '#38bdf8')}
+                </div>
+                <div class="apt-tfilter-row">
+                    <span class="apt-tfilter-label"><i class="fa-solid fa-filter"></i></span>
+                    ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
+                </div>`;
+        }
 
         // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
         let trafficHtml = (!trafficFetchSuccess) ?
@@ -11357,21 +11586,21 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 <details class="traffic-dropdown" open>
                     <summary class="traffic-dropdown-header">
                         <i class="fa-solid fa-plane-arrival" style="margin-right: 10px; color: #4ade80;"></i>
-                        <span>Inbounds</span>
+                        <span>Arrivals</span>
                         <span class="traffic-count-badge">${inbounds.length}</span>
                         <i class="fa-solid fa-chevron-down chevron"></i>
                     </summary>
                     <div class="traffic-dropdown-content">
-                        ${renderFlightList(inbounds, 'in')}
+                        ${renderArrivalsList(inbounds)}
                     </div>
                 </details>
                 ` : ''}
-                
+
                 ${outbounds.length > 0 ? `
                 <details class="traffic-dropdown" ${inbounds.length === 0 ? 'open' : ''}>
                     <summary class="traffic-dropdown-header">
                         <i class="fa-solid fa-plane-departure" style="margin-right: 10px; color: #38bdf8;"></i>
-                        <span>Outbounds</span>
+                        <span>Departures</span>
                         <span class="traffic-count-badge">${outbounds.length}</span>
                         <i class="fa-solid fa-chevron-down chevron"></i>
                     </summary>
@@ -11479,6 +11708,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             <div class="airport-hero" style="background-image: url('${dynamicImageUrl}')">
                 <div class="airport-hero-overlay"></div>
                 <div class="hero-actions">
+                    <button id="airport-ping-btn" class="hero-btn${(Array.isArray(mapFilters.pingedAirports) && mapFilters.pingedAirports.includes(icao)) ? ' pinged' : ''}" title="Ping this airport on the map (Pro)"><i class="fa-solid fa-location-dot"></i></button>
                     <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="apt-ident-group">
@@ -11507,6 +11737,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
                     <div id="apt-traffic" class="apt-tab-content active">
                         ${visualizerControlsHtml}
+                        ${trafficControlsHtml}
                         ${trafficHtml}
                     </div>
 
@@ -11594,6 +11825,18 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     }
 
     window.showGlobalNotification = showNotification;
+
+    // Traffic-tab filter chips (airport window): each chip HIDES its pilot-
+    // state / phase group. The hide classes live on the tab container and the
+    // matching cards are hidden via CSS attribute selectors, so filtering is
+    // instant and needs no re-render.
+    window.aptToggleTrafficFilter = function (btn) {
+        const key = btn && btn.dataset ? btn.dataset.tfilter : null;
+        const tab = btn ? btn.closest('.apt-tab-content') : null;
+        if (!key || !tab) return;
+        btn.classList.toggle('off');
+        tab.classList.toggle('tfilter-hide-' + key);
+    };
 
     // Build the Live Activity start payload from whatever state we currently have on the
     // open aircraft info window. Returns null if we don't have enough to fire yet.
@@ -12352,6 +12595,61 @@ function updateTrafficLegendUI() {
         });
     }
 
+    // --- PRO: Pinged airports ---------------------------------------------
+    // Pro users can "ping" any airport from its info window; pinged fields
+    // render on the map as their ICAO letters. DOM markers (not a style
+    // layer) so they survive map-style switches without a rebuild.
+    const pingedAirportMarkers = {};
+
+    function renderPingedAirportMarkers() {
+        if (!sectorOpsMap) return;
+        const pinged = (Array.isArray(mapFilters.pingedAirports) ? mapFilters.pingedAirports : [])
+            .filter(i => airportsData[i] && airportsData[i].lat != null && airportsData[i].lon != null);
+
+        // Drop markers that are no longer pinged.
+        Object.keys(pingedAirportMarkers).forEach(icao => {
+            if (!pinged.includes(icao)) {
+                pingedAirportMarkers[icao].remove();
+                delete pingedAirportMarkers[icao];
+            }
+        });
+
+        pinged.forEach(icao => {
+            if (pingedAirportMarkers[icao]) return; // already on the map
+            const apt = airportsData[icao];
+            const el = document.createElement('div');
+            el.className = 'pinged-airport-label';
+            el.innerHTML = `<i class="fa-solid fa-location-dot"></i>${icao}`;
+            el.title = `${icao} — pinned airport (tap to open)`;
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (typeof handleAirportClick === 'function') handleAirportClick(icao, null, true);
+            });
+            pingedAirportMarkers[icao] = new mapboxgl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] })
+                .setLngLat([apt.lon, apt.lat])
+                .addTo(sectorOpsMap);
+        });
+    }
+    window.renderPingedAirportMarkers = renderPingedAirportMarkers;
+
+    function toggleAirportPing(icao, btn) {
+        if (!icao) return;
+        if (!(typeof window.isInflightPro === 'function' && window.isInflightPro())) {
+            showNotification('Pinging airports on the map is a Pro feature.', 'error');
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
+            return;
+        }
+        if (!Array.isArray(mapFilters.pingedAirports)) mapFilters.pingedAirports = [];
+        const idx = mapFilters.pingedAirports.indexOf(icao);
+        const nowPinged = idx === -1;
+        if (nowPinged) mapFilters.pingedAirports.push(icao);
+        else mapFilters.pingedAirports.splice(idx, 1);
+        saveFiltersToLocalStorage();
+        renderPingedAirportMarkers();
+        if (btn) btn.classList.toggle('pinged', nowPinged);
+        showNotification(nowPinged ? `${icao} pinged on the map.` : `${icao} removed from the map.`, 'success');
+    }
+
     function setupAirportWindowEvents() {
     if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
@@ -12360,6 +12658,14 @@ function updateTrafficLegendUI() {
         const hideBtn = e.target.closest('#airport-window-hide-btn');
         const trafficToggle = e.target.closest('#traffic-highlight-toggle');
         const atcReplayBtn = e.target.closest('.atc-replay-session-btn');
+        const pingBtn = e.target.closest('#airport-ping-btn');
+
+        // [PRO] Ping/unping this airport on the map as its ICAO letters.
+        if (pingBtn) {
+            e.preventDefault();
+            toggleAirportPing(currentAirportInWindow, pingBtn);
+            return;
+        }
 
         // [NEW] ATC Session Replay launcher
         if (atcReplayBtn) {
@@ -15960,6 +16266,10 @@ async function setupMapLayersAndFog() {
 
     // Initialize the aircraft layers now that icons are ready
     initializeAircraftLayer();
+
+    // Restore any PRO pinged-airport labels (idempotent; DOM markers already
+    // on the map are left alone).
+    renderPingedAirportMarkers();
 
     // Restore Terrain Awareness mode (survives cold start and style swaps).
     refreshTerrainMode();
