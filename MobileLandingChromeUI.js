@@ -1930,6 +1930,7 @@ export const MobileLandingChromeUI = {
             /* --- IFATC recommendation stamp (unstaffed, strong next-hour flow) --- */
             .ios-atc-rec {
                 display: inline-flex; align-items: center; gap: 4px;
+                white-space: nowrap;
                 margin-left: 8px; vertical-align: 2px;
                 font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px;
                 text-transform: uppercase;

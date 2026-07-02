@@ -15612,10 +15612,15 @@ const AtcBoardUI = {
         mapContainer.insertAdjacentHTML('beforeend', `
             <div id="atc-board-window" class="info-window">
                 <div class="info-window-header">
-                    <h3><i class="fa-solid fa-tower-broadcast" style="margin-right: 10px;"></i> Active ATC <span id="atc-board-count" class="atc-board-count"></span></h3>
+                    <h3><i class="fa-solid fa-tower-broadcast" style="margin-right: 10px;"></i> Airports &amp; ATC <span id="atc-board-count" class="atc-board-count"></span></h3>
                     <div class="info-window-actions">
                         <button id="atc-board-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
                     </div>
+                </div>
+                <div class="d-atc-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" id="atc-board-search" placeholder="Search airports (ICAO or name)"
+                           autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
                 </div>
                 <div id="atc-board-content" class="info-window-content"></div>
             </div>
@@ -15625,16 +15630,48 @@ const AtcBoardUI = {
         window.addEventListener('openAtcBoard', () => this.toggle(!this._visible));
         window.addEventListener('activeAtcUpdated', () => { if (this._visible) this.render(); });
 
+        // Search input sits outside the re-rendered content, so typing keeps
+        // focus while the board refilters on each keystroke.
+        const search = document.getElementById('atc-board-search');
+        search?.addEventListener('input', () => {
+            this._searchQuery = search.value || '';
+            this.render();
+        });
+
         document.getElementById('atc-board-content')?.addEventListener('click', (e) => {
+            // PRO: ping/unping the field on the map from its row.
+            const ping = e.target.closest('[data-atc-ping]');
+            if (ping) {
+                e.stopPropagation();
+                const icao = ping.closest('.d-atc-awrap')?.dataset.icao;
+                if (icao && typeof window.toggleAirportPing === 'function') {
+                    window.toggleAirportPing(icao, null);
+                    this.render(); // reflect pinned state
+                }
+                return;
+            }
+            // Per-airport traffic filter chips.
+            const tchip = e.target.closest('[data-atc-tchip]');
+            if (tchip) {
+                e.stopPropagation();
+                const key = tchip.dataset.atcTchip;
+                const icao = tchip.closest('.d-atc-awrap')?.dataset.icao;
+                if (!key || !icao) return;
+                if (!this._trafficHideByApt) this._trafficHideByApt = {};
+                if (!this._trafficHideByApt[icao]) this._trafficHideByApt[icao] = new Set();
+                const set = this._trafficHideByApt[icao];
+                if (set.has(key)) set.delete(key); else set.add(key);
+                this.render();
+                return;
+            }
+            // Chevron: drawer content is built lazily, so toggling re-renders.
             const expandBtn = e.target.closest('[data-atc-expand]');
             if (expandBtn) {
-                const wrap = expandBtn.closest('.d-atc-awrap');
-                const icao = wrap?.dataset.icao;
-                if (!wrap || !icao) return;
-                const open = !wrap.classList.contains('ctrl-open');
-                wrap.classList.toggle('ctrl-open', open);
-                expandBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-                if (open) this._openIcaos.add(icao); else this._openIcaos.delete(icao);
+                const icao = expandBtn.closest('.d-atc-awrap')?.dataset.icao;
+                if (!icao) return;
+                if (this._openIcaos.has(icao)) this._openIcaos.delete(icao);
+                else this._openIcaos.add(icao);
+                this.render();
                 return;
             }
             const row = e.target.closest('.d-atc-arow');
@@ -15703,19 +15740,97 @@ const AtcBoardUI = {
             </div>`;
     },
 
+    // Per-field live traffic readout for the drawer: per-airport filter
+    // chips, pilot-state stats, ETA bucket counts and a scrollable arrivals
+    // list. Mirrors the mobile Live ATC sheet, in the desktop palette.
+    _trafficHTML(icao) {
+        const get = window.getAirportTrafficSummary;
+        const t = (typeof get === 'function') ? get(icao) : null;
+        if (!t || (!t.inbound.length && !t.outCount && !t.parked)) return '';
+        if (!this._trafficHideByApt) this._trafficHideByApt = {};
+        const hide = this._trafficHideByApt[icao] || new Set();
+        const chip = (key, label) =>
+            `<button type="button" class="d-atc-tchip${hide.has(key) ? ' off' : ''}" data-atc-tchip="${key}">${label}</button>`;
+        const chipsRow = `
+            <div class="d-atc-tchips">
+                <span class="d-atc-tchips-label"><i class="fa-solid fa-filter"></i></span>
+                ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
+            </div>`;
+        const shown = t.inbound.filter(r => {
+            const phaseKey = r.phase === 'enroute' ? 'cruise' : r.phase;
+            return !hide.has(r.fstate) && !hide.has(phaseKey);
+        });
+
+        const BUCKETS = [
+            { max: 5, label: '≤5m', color: '#4ade80' },
+            { max: 10, label: '≤10m', color: '#4ade80' },
+            { max: 15, label: '≤15m', color: '#fbbf24' },
+            { max: 30, label: '≤30m', color: '#fbbf24' },
+            { max: 60, label: '≤1h', color: '#a1a1aa' },
+            { max: Infinity, label: '1h+', color: '#52525b' }
+        ];
+        const counts = BUCKETS.map(() => 0);
+        shown.forEach(r => {
+            const i = (r.etaMin == null) ? BUCKETS.length - 1 : BUCKETS.findIndex(b => r.etaMin <= b.max);
+            counts[i]++;
+        });
+        const bucketChips = BUCKETS.map((b, i) => counts[i]
+            ? `<span class="d-atc-bucket" style="color:${b.color};">${b.label} · ${counts[i]}</span>` : '').join('');
+
+        const nearest = shown.slice(0, 30).map(r => {
+            const eta = r.etaMin == null ? '—'
+                : (r.etaMin >= 60 ? `${Math.floor(r.etaMin / 60)}h ${String(r.etaMin % 60).padStart(2, '0')}m` : `${r.etaMin}m`);
+            const tag = r.fstate === 'applus' ? ' · AP+'
+                : r.fstate === 'parked' ? ' · Parked'
+                : r.fstate === 'away' ? ' · Away' : '';
+            return `<div class="d-atc-arr-row"><span class="d-atc-arr-cs">${this._esc(r.callsign)}</span><span class="d-atc-arr-eta">ETA ${this._esc(eta + tag)}</span></div>`;
+        }).join('');
+
+        return `
+            <div class="d-atc-traffic">
+                <div class="d-atc-ctrl-head">Traffic</div>
+                ${chipsRow}
+                <div class="d-atc-tstats">
+                    <span class="d-atc-tstat"><b>${shown.length}</b> inbound</span>
+                    <span class="d-atc-tstat"><b>${t.outCount}</b> outbound</span>
+                    <span class="d-atc-tstat"><b>${t.flying}</b> flying</span>
+                    <span class="d-atc-tstat"><b>${t.parked}</b> parked</span>
+                    <span class="d-atc-tstat"><b>${t.applus}</b> AP+</span>
+                </div>
+                ${bucketChips ? `<div class="d-atc-buckets">${bucketChips}</div>` : ''}
+                ${nearest ? `<div class="d-atc-arrlist">${nearest}</div>` : ''}
+            </div>`;
+    },
+
     _airportRowHTML(a) {
         const col = (label, on, cls) =>
             `<span class="d-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
-        const controllers = (a.count > 0) ? this._controllersFor(a.icao) : [];
-        const drawer = controllers.length ? `
+        // Drawer offered for any field with controllers OR live traffic;
+        // content built lazily (only for expanded rows) so a 100+ row board
+        // never pays 100+ flight-cache scans per refresh.
+        const hasDrawer = (a.count > 0) || ((a.totalTraffic || 0) > 0);
+        const isOpen = hasDrawer && this._openIcaos.has(a.icao);
+        const controllers = (isOpen && a.count > 0) ? this._controllersFor(a.icao) : [];
+        const trafficHtml = isOpen ? this._trafficHTML(a.icao) : '';
+        const drawer = isOpen ? `
             <div class="d-atc-ctrl-drawer">
-                <div class="d-atc-ctrl-head">On frequency now</div>
-                ${controllers.map(f => this._controllerRowHTML(f)).join('')}
+                ${controllers.length ? `<div class="d-atc-ctrl-head">On frequency now</div>
+                ${controllers.map(f => this._controllerRowHTML(f)).join('')}` : ''}
+                ${trafficHtml}
             </div>` : '';
-        const isOpen = controllers.length && this._openIcaos.has(a.icao);
-        const chevron = controllers.length ? `
+        const rec = (!a.count && (a.in60 || 0) >= 3)
+            ? `<span class="d-atc-rec" title="Strong arrival flow in the next hour — great field for IFATC"><i class="fa-solid fa-star"></i> IFATC · ${a.in60}/hr</span>`
+            : '';
+        const pinged = !!(window.mapFilters && Array.isArray(window.mapFilters.pingedAirports)
+            && window.mapFilters.pingedAirports.includes(a.icao));
+        const pingBtn = `
+            <button type="button" class="d-atc-ping${pinged ? ' pinged' : ''}" data-atc-ping="1"
+                    aria-label="Ping airport on map" title="Ping on map (Pro)">
+                <i class="fa-solid fa-location-dot"></i>
+            </button>`;
+        const chevron = hasDrawer ? `
             <button type="button" class="d-atc-expand" data-atc-expand="1"
-                    aria-label="Show controllers" aria-expanded="${isOpen ? 'true' : 'false'}">
+                    aria-label="Show details" aria-expanded="${isOpen ? 'true' : 'false'}">
                 <i class="fa-solid fa-chevron-down"></i>
             </button>` : '';
         return `
@@ -15723,7 +15838,7 @@ const AtcBoardUI = {
                 <div class="d-atc-arow-line">
                     <button type="button" class="d-atc-arow" title="Open ${this._esc(a.icao)}">
                         <span class="d-atc-apt">
-                            <span class="d-atc-icao">${this._esc(a.icao)}</span>
+                            <span class="d-atc-icao">${this._esc(a.icao)}${rec}</span>
                             <span class="d-atc-aptname">${this._esc(a.name || a.icao)}</span>
                         </span>
                         <span class="d-atc-tower">
@@ -15738,6 +15853,7 @@ const AtcBoardUI = {
                             ${col('DEP', a.dep, 'dep')}
                         </span>
                     </button>
+                    ${pingBtn}
                     ${chevron}
                 </div>
                 ${drawer}
@@ -15749,21 +15865,52 @@ const AtcBoardUI = {
         const countEl = document.getElementById('atc-board-count');
         if (!body) return;
 
+        // Staffed fields first, then every airport with live traffic (sorted
+        // by next-hour arrival flow) — same board the mobile ATC tab shows.
         const api = window.InflightATC;
-        const board = (api && api.getAirportBoard) ? api.getAirportBoard() : [];
-        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        const staffed = (api && api.getAirportBoard) ? api.getAirportBoard() : [];
+        const busy = (typeof window.getBusyAirportsSummary === 'function') ? window.getBusyAirportsSummary() : [];
+        const busyMap = new Map(busy.map(b => [b.icao, b]));
+
+        const seen = new Set();
+        let rows = staffed.map(a => {
+            seen.add(a.icao);
+            const t = busyMap.get(a.icao);
+            return { ...a, in60: t ? t.in60 : 0, totalTraffic: t ? t.total : 0 };
+        });
+        busy.forEach(b => {
+            if (seen.has(b.icao)) return;
+            rows.push({
+                icao: b.icao, name: b.name, count: 0,
+                atis: false, gnd: false, twr: false, app: false, dep: false,
+                in60: b.in60, totalTraffic: b.total
+            });
+        });
+        rows.sort((a, b) => (b.count - a.count) || (b.in60 - a.in60) || (b.totalTraffic - a.totalTraffic));
+
+        const q = (this._searchQuery || '').trim().toUpperCase();
+        if (q) rows = rows.filter(r =>
+            String(r.icao).toUpperCase().includes(q) || String(r.name || '').toUpperCase().includes(q));
+        rows = rows.slice(0, 120);
+
+        const total = staffed.reduce((s, a) => s + (a.count || 0), 0);
         if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
 
-        if (!board.length) {
-            body.innerHTML = `
+        if (!rows.length) {
+            body.innerHTML = q ? `
+                <div class="d-atc-empty">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <p>No airports match "${this._esc(q)}"</p>
+                    <span>Try an ICAO code (e.g. KLAX) or part of the airport name.</span>
+                </div>` : `
                 <div class="d-atc-empty">
                     <i class="fa-solid fa-tower-broadcast"></i>
-                    <p>No controllers online</p>
-                    <span>When ATC connects on this server, every staffed airport appears here — click one to jump to it.</span>
+                    <p>No live airports</p>
+                    <span>Staffed fields and airports with live traffic appear here — click one to jump to it.</span>
                 </div>`;
             return;
         }
-        body.innerHTML = `<div class="d-atc-board">${board.map(a => this._airportRowHTML(a)).join('')}</div>`;
+        body.innerHTML = `<div class="d-atc-board">${rows.map(a => this._airportRowHTML(a)).join('')}</div>`;
     },
 
     _injectStyles() {
@@ -15909,6 +16056,85 @@ const AtcBoardUI = {
             .d-atc-empty i { font-size: 1.6rem; opacity: 0.5; }
             .d-atc-empty p { margin: 0; color: #a1a1aa; font-weight: 700; }
             .d-atc-empty span { font-size: 0.72rem; line-height: 1.5; }
+
+            /* Search bar (outside the re-rendered content, keeps focus) */
+            .d-atc-search {
+                display: flex; align-items: center; gap: 8px;
+                margin: 10px 12px 0;
+                padding: 7px 11px;
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+            .d-atc-search i { font-size: 0.7rem; color: #71717a; flex-shrink: 0; }
+            .d-atc-search input {
+                flex: 1; min-width: 0;
+                background: none; border: none; outline: none;
+                font-family: inherit; font-size: 0.8rem; color: #fafafa;
+            }
+            .d-atc-search input::placeholder { color: #52525b; }
+
+            /* IFATC recommendation stamp (unstaffed, strong next-hour flow) */
+            .d-atc-rec {
+                display: inline-flex; align-items: center; gap: 4px;
+                white-space: nowrap;
+                margin-left: 8px; vertical-align: 1px;
+                font-size: 0.55rem; font-weight: 800; letter-spacing: 0.4px;
+                text-transform: uppercase;
+                color: #fbbf24; background: rgba(251, 191, 36, 0.1);
+                border: 1px solid rgba(251, 191, 36, 0.35);
+                border-radius: 5px; padding: 2px 6px;
+            }
+            .d-atc-rec i { font-size: 0.5rem; }
+
+            /* PRO ping button on each row */
+            .d-atc-ping {
+                background: transparent;
+                border: none;
+                border-left: 1px solid rgba(255, 255, 255, 0.06);
+                color: #52525b;
+                width: 36px;
+                cursor: pointer;
+                flex-shrink: 0;
+                font-size: 0.8rem;
+            }
+            .d-atc-ping:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
+            .d-atc-ping.pinged { color: #38bdf8; }
+
+            /* Per-airport traffic readout */
+            .d-atc-traffic { padding-top: 2px; }
+            .d-atc-tchips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 0 8px; }
+            .d-atc-tchips-label { font-size: 0.6rem; color: #52525b; margin-right: 2px; }
+            .d-atc-tchip {
+                font-size: 0.62rem; font-weight: 700; color: #e4e4e7;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 99px; padding: 3px 9px; cursor: pointer;
+            }
+            .d-atc-tchip.off {
+                color: #52525b; background: transparent;
+                border-color: rgba(255, 255, 255, 0.05);
+                text-decoration: line-through;
+            }
+            .d-atc-tstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.68rem; color: #71717a; padding-bottom: 2px; }
+            .d-atc-tstat b { color: #fafafa; font-weight: 700; font-family: var(--font-data); }
+            .d-atc-buckets { display: flex; flex-wrap: wrap; gap: 5px; padding: 7px 0 2px; }
+            .d-atc-bucket {
+                font-size: 0.6rem; font-weight: 700;
+                border: 1px solid currentColor; border-radius: 5px;
+                padding: 2px 6px; font-family: var(--font-data);
+            }
+            .d-atc-arrlist {
+                display: flex; flex-direction: column; gap: 4px;
+                margin-top: 7px; max-height: 200px; overflow-y: auto;
+            }
+            .d-atc-arr-row {
+                display: flex; justify-content: space-between; align-items: center;
+                font-size: 0.7rem; padding: 5px 9px;
+                background: rgba(255, 255, 255, 0.04); border-radius: 7px;
+            }
+            .d-atc-arr-cs { font-weight: 700; color: #fafafa; }
+            .d-atc-arr-eta { color: #a1a1aa; font-family: var(--font-data); font-weight: 600; }
         `;
         document.head.appendChild(style);
     }
