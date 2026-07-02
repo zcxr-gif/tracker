@@ -840,6 +840,18 @@ let cachedSessionId = null;
 
     let mapSourceUpdateTimeout = null;
 
+// Anchor id for layers that must render UNDER every aircraft icon. The
+// natural (non-SDF) plane layer is inserted BELOW the SDF layer, so anchoring
+// overlays on the SDF layer alone sandwiches them ON TOP of most planes
+// (anything drawn from the natural sprite set — e.g. the default White mode).
+function getUnderAircraftAnchor() {
+    if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap
+        && sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')) {
+        return 'sector-ops-live-flights-natural-layer';
+    }
+    return 'sector-ops-live-flights-layer';
+}
+
 function scheduleMapSourceUpdate() {
     if (mapSourceUpdateTimeout) return; 
     
@@ -8253,7 +8265,7 @@ async function toggleWeatherLayer(show) {
                     'raster-resampling': 'linear', // FORCE smooth gradient scaling
                     'raster-fade-duration': 0
                 }
-            }, 'sector-ops-live-flights-layer'); // Draw underneath aircraft
+            }, getUnderAircraftAnchor()); // Draw underneath aircraft
 
             isWeatherLayerAdded = true;
             console.log(`Premium Smooth Radar layer added.`);
@@ -8637,7 +8649,7 @@ async function toggleSigmetLayer(show) {
                     'fill-color': HAZARD_COLOR,
                     'fill-opacity': 0.20
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 2. Outline Layer (Solid Lines)
             sectorOpsMap.addLayer({
@@ -8649,7 +8661,7 @@ async function toggleSigmetLayer(show) {
                     'line-width': 1.5,
                     'line-opacity': 0.8
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 3. Click interaction for details
             if (!sectorOpsMap.__sigmetClickBound) {
@@ -9866,7 +9878,7 @@ function handleSocketFlightUpdate(data) {
                     track: flight.position.heading_deg,
                     date: new Date(flight.position.lastReport || Date.now()).toISOString()
                 };
-                appendTrailPoint(localTrail, newRoutePoint);
+                const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
 
                 // --- [NEW] Update Simple Iframe if Active ---
@@ -9907,8 +9919,11 @@ function handleSocketFlightUpdate(data) {
                     refreshNavDisplayFromCache(); // Reuse helper logic for consistency
                 }
 
-                // 8. Update Map Trail
-                if (isMapReady) {
+                // 8. Update Map Trail — the path builds up as the plane
+                // moves: a packet that didn't advance the trail (same or older
+                // fix) changes nothing, so skip the rebuild entirely instead
+                // of re-deriving the path end every tick.
+                if (isMapReady && trailGrew) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
@@ -9940,7 +9955,7 @@ function handleSocketFlightUpdate(data) {
                 track: flight.position.heading_deg,
                 date: new Date(flight.position.lastReport || Date.now()).toISOString()
             };
-            appendTrailPoint(localTrail, newRoutePoint);
+            const pinnedTrailGrew = appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
             
             if (typeof FlownPath3D !== 'undefined') {
@@ -9949,7 +9964,7 @@ function handleSocketFlightUpdate(data) {
             
             const flownLayerId = `flown-path-${flightId}`;
 
-            if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
+            if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
                 // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
                 const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
                 sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
@@ -12290,7 +12305,7 @@ function updateDayNightTerminator() {
                     'fill-color': '#020617', // Deep Navy/Black (Slate-950)
                     'fill-opacity': 0.45     // Subtle darkness
                 }
-            }, 'sector-ops-live-flights-layer'); // Ensure it's below planes
+            }, getUnderAircraftAnchor()); // Ensure it's below planes
 
             // LAYER B: The Twilight (Blurred Line)
             // This creates the soft fade at the edge of darkness
@@ -16862,7 +16877,7 @@ if (flightProps) {
                         45000, '#0284c7'    // High Cruise (Darker Blue)
                     ]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -16931,7 +16946,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.25,
                     'line-blur': 4
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             sectorOpsMap.addLayer({
                 id: layerIdDirect,
@@ -16943,7 +16958,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.9,
                     'line-dasharray': [3, 4]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
         }
     } else {
         if (sectorOpsMap.getLayer(layerIdDirectGlow)) sectorOpsMap.removeLayer(layerIdDirectGlow);
@@ -17025,7 +17040,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.25,
                     'line-blur': 4
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 2. Direct-Style Core Path (Premium Dashed)
             sectorOpsMap.addLayer({
@@ -17039,7 +17054,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.9,
                     'line-dasharray': [3, 4]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 3. Dynamic Waypoint Dots (Refined, Miniaturized Size)
             sectorOpsMap.addLayer({
@@ -17063,7 +17078,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                         '#67e8f9'  // Cyan rim if upcoming (color-matched to new path)
                     ]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 4. Advanced High-Contrast Typography Layer (Hidden if passed, smaller font)
             sectorOpsMap.addLayer({
@@ -17088,7 +17103,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
         }
     } else {
         if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
@@ -17403,14 +17418,15 @@ function generateSmoothPath(points, tension = 0.5) {
 // feed's clock, and pushing an older/duplicate fix behind them kinks the
 // trail's head backwards.
 function appendTrailPoint(localTrail, newRoutePoint) {
-    if (!Array.isArray(localTrail)) return;
+    if (!Array.isArray(localTrail)) return false;
     const last = localTrail[localTrail.length - 1];
     if (last) {
         const tLast = new Date(last.date || NaN).getTime();
         const tNew = new Date(newRoutePoint.date || NaN).getTime();
-        if (Number.isFinite(tLast) && Number.isFinite(tNew) && tNew <= tLast) return;
+        if (Number.isFinite(tLast) && Number.isFinite(tNew) && tNew <= tLast) return false;
     }
     localTrail.push(newRoutePoint);
+    return true;
 }
 
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
@@ -17837,7 +17853,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                         45000, '#0284c7'    
                     ]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
@@ -21831,7 +21847,7 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
                     5, 1
                 ]
             }
-        }, 'sector-ops-live-flights-layer'); // Place UNDER planes
+        }, getUnderAircraftAnchor()); // Place UNDER planes
     }
 
     if (sectorOpsMap.getLayer(LAYER_ID)) {

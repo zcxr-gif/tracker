@@ -166,9 +166,15 @@ export function updateActiveSectors(map, layerId, atcData) {
     }
 
     // Keep the boundary layers below the aircraft so planes always sit on top.
+    // Anchor on the NATURAL plane layer when it exists — it renders below the
+    // SDF layer, and anchoring on the SDF one alone would sandwich the fills
+    // above most planes.
     if (map.getLayer('sector-ops-live-flights-layer')) {
-        if (map.getLayer('fir-fills')) map.moveLayer('fir-fills', 'sector-ops-live-flights-layer');
-        if (map.getLayer('fir-borders')) map.moveLayer('fir-borders', 'sector-ops-live-flights-layer');
+        const anchor = map.getLayer('sector-ops-live-flights-natural-layer')
+            ? 'sector-ops-live-flights-natural-layer'
+            : 'sector-ops-live-flights-layer';
+        if (map.getLayer('fir-fills')) map.moveLayer('fir-fills', anchor);
+        if (map.getLayer('fir-borders')) map.moveLayer('fir-borders', anchor);
     }
 
     // Respect the user's ATC-boundaries toggle for both overlay layers.
