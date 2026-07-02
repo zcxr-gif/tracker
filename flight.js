@@ -4682,7 +4682,9 @@ function injectCustomStyles() {
             font-weight: 800;
             letter-spacing: 1px;
             color: #fff;
-            background: rgba(12, 15, 22, 0.82);
+            background: rgba(14, 18, 26, 0.62);
+            -webkit-backdrop-filter: blur(8px);
+            backdrop-filter: blur(8px);
             border: 1px solid rgba(56, 189, 248, 0.5);
             border-radius: 9px;
             padding: 4px 9px;
@@ -21934,7 +21936,7 @@ function wireActiveAirportsLayerEvents() {
 // style switches, which wipe images.
 function ensureAtcGlancePillImage(map) {
     if (!map || map.hasImage('atc-glance-pill')) return;
-    const dpr = 2, w = 66, h = 46, r = 11;
+    const dpr = 2, w = 66, h = 46, r = 9;
     const c = document.createElement('canvas');
     c.width = w * dpr; c.height = h * dpr;
     const ctx = c.getContext('2d');
@@ -21946,10 +21948,12 @@ function ensureAtcGlancePillImage(map) {
     ctx.arcTo(1, h - 1, 1, 1, r);
     ctx.arcTo(1, 1, w - 1, 1, r);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(12, 15, 22, 0.82)';
+    // Translucent "glass": let the map read through, with a brighter hairline
+    // doing the work a blur would do in DOM-land (GPU symbols can't blur).
+    ctx.fillStyle = 'rgba(14, 18, 26, 0.62)';
     ctx.fill();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
     ctx.stroke();
     map.addImage('atc-glance-pill', ctx.getImageData(0, 0, w * dpr, h * dpr), {
         pixelRatio: dpr,
@@ -22061,7 +22065,8 @@ function updateActiveAirportsGlanceLayer() {
                         ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
                     ],
                     'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 8, 13.5],
+                    // Fixed size — the tag must not grow with zoom.
+                    'text-size': 11.5,
                     'text-offset': [0, -1.0],
                     'text-anchor': 'bottom',
                     'text-line-height': 1.3,
@@ -22070,7 +22075,7 @@ function updateActiveAirportsGlanceLayer() {
                     'text-padding': 4,
                     'icon-image': 'atc-glance-pill',
                     'icon-text-fit': 'both',
-                    'icon-text-fit-padding': [5, 10, 5, 10],
+                    'icon-text-fit-padding': [2, 6, 2, 6],
                     // Lower sort key = placed first; advanced services win collisions.
                     'symbol-sort-key': ['-', 10, ['get', 'rank']]
                 },
