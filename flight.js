@@ -594,6 +594,7 @@ window.pinFlight = function(flightId) {
         if (currentFlightInWindow !== flightId) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(flightId);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(flightId);
+            if (typeof flownPathGeomCache !== 'undefined') flownPathGeomCache.delete(flightId);
         } else {
             const pinBtn = document.getElementById('pin-flight-btn');
             if (pinBtn) {
@@ -620,6 +621,11 @@ window.pinFlight = function(flightId) {
     // --- Map-related State ---
     let lastSocketUpdateTimestamp = 0; // NEW: Tracks the last valid flight data packet
     let liveTrailCache = new Map();
+    // Rendered flown-path geometry, keyed by flightId. Seeded ONCE from the
+    // /history fetch when a window opens; every socket fix after that appends
+    // a single segment from the cached tip instead of re-smoothing the whole
+    // trail (or re-calling the endpoint). Erased when the window closes/unpins.
+    let flownPathGeomCache = new Map();
     const communityAircraftCache = new Map();
     const lookupQueue = new Map();
     let liveFlightsMap = null;
@@ -6236,7 +6242,8 @@ function generateTrafficForecastHTML(congestion) {
         pilotMarkers = {};
         
         liveTrailCache.clear();
-        
+        flownPathGeomCache.clear();
+
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
         }
@@ -9867,8 +9874,6 @@ function handleSocketFlightUpdate(data) {
                 aircraft: aircraftData
             };
             
-            FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
-
             if (localTrail) {
                 const newRoutePoint = {
                     latitude: flight.position.lat,
@@ -9880,6 +9885,10 @@ function handleSocketFlightUpdate(data) {
                 };
                 const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
+
+                // Refresh the 3D path AFTER appending, so its head sits at
+                // this fix — level with the plane icon, not one tick behind.
+                FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
 
                 // --- [NEW] Update Simple Iframe if Active ---
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
@@ -9919,16 +9928,23 @@ function handleSocketFlightUpdate(data) {
                     refreshNavDisplayFromCache(); // Reuse helper logic for consistency
                 }
 
-                // 8. Update Map Trail — the path builds up as the plane
-                // moves: a packet that didn't advance the trail (same or older
-                // fix) changes nothing, so skip the rebuild entirely instead
-                // of re-deriving the path end every tick.
+                // 8. Update Map Trail — build the path up incrementally: the
+                // /history endpoint seeded the geometry once, and each socket
+                // fix just appends one segment from the cached tip to the new
+                // position. No endpoint re-calls, no full-trail re-smoothing —
+                // the line's head lands exactly where the icon teleports to.
                 if (isMapReady && trailGrew) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
-                        source.setData(newRouteData);
+                        let newRouteData = extendFlownPathGeometry(flightId, flight.position);
+                        if (!newRouteData && !flownPathGeomCache.has(flightId)) {
+                            // Geometry cache missing (evicted / never seeded):
+                            // one full rebuild from the cached trail reseeds it.
+                            newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                            seedFlownPathGeometry(flightId, newRouteData, flight.position);
+                        }
+                        if (newRouteData) source.setData(newRouteData);
                     }
                 }
             }
@@ -9965,9 +9981,14 @@ function handleSocketFlightUpdate(data) {
             const flownLayerId = `flown-path-${flightId}`;
 
             if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
-                const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-                sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
+                // Same incremental build as the selected flight: extend the
+                // cached geometry by one segment instead of regenerating.
+                let newPinnedRouteData = extendFlownPathGeometry(flightId, flight.position);
+                if (!newPinnedRouteData && !flownPathGeomCache.has(flightId)) {
+                    newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
+                    seedFlownPathGeometry(flightId, newPinnedRouteData, flight.position);
+                }
+                if (newPinnedRouteData) sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
             }
 
             // Update Mini Card Stats
@@ -16847,7 +16868,11 @@ if (flightProps) {
     const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
     const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-    sectorOpsMap.addSource(`flown-path-${flightId}`, { 
+    // Style changes wipe map sources; reseed the incremental geometry cache
+    // from this rebuild so live fixes keep extending the fresh line.
+    seedFlownPathGeometry(flightId, routeFeature, currentPosition);
+
+    sectorOpsMap.addSource(`flown-path-${flightId}`, {
         type: 'geojson', 
         data: routeFeature,
         lineMetrics: true, // CRITICAL for gradients
@@ -17447,6 +17472,60 @@ function appendTrailPoint(localTrail, newRoutePoint) {
     return true;
 }
 
+// Seed the incremental flown-path geometry for a flight from a freshly
+// generated FeatureCollection (one full generateAltitudeColoredRoute pass —
+// normally right after the single /history fetch). The cache remembers the
+// segment features plus the line's tip so live fixes can extend it in O(1).
+function seedFlownPathGeometry(flightId, routeData, fallbackPosition) {
+    const features = Array.isArray(routeData?.features) ? routeData.features.slice() : [];
+    let tip = null;
+    const lastFeature = features[features.length - 1];
+    const lastCoords = lastFeature?.geometry?.coordinates;
+    const lastCoord = lastCoords ? lastCoords[lastCoords.length - 1] : null;
+    if (lastCoord) {
+        tip = { lon: lastCoord[0], lat: lastCoord[1], alt: lastFeature.properties?.altitude || 0 };
+    } else if (fallbackPosition && fallbackPosition.lat != null && fallbackPosition.lon != null) {
+        // Brand-new flight with <2 samples: no drawable segment yet, but the
+        // first live fix can start the line from here.
+        tip = { lon: fallbackPosition.lon, lat: fallbackPosition.lat, alt: fallbackPosition.alt_ft || 0 };
+    }
+    flownPathGeomCache.set(flightId, { features, tip });
+}
+
+// Extend the cached flown-path geometry by ONE segment (tip → new live fix).
+// Returns the FeatureCollection to push into the map source, or null when
+// there is nothing new to draw. A null with no cache entry at all means the
+// caller must seed first (one full rebuild).
+function extendFlownPathGeometry(flightId, position) {
+    const cache = flownPathGeomCache.get(flightId);
+    if (!cache || position?.lat == null || position?.lon == null) return null;
+    if (!cache.tip) {
+        cache.tip = { lon: position.lon, lat: position.lat, alt: position.alt_ft || 0 };
+        return null;
+    }
+    // Unwrap the fix into the tip's longitude frame so the segment never
+    // stretches across the antimeridian.
+    let lon = position.lon;
+    while (lon - cache.tip.lon > 180) lon -= 360;
+    while (cache.tip.lon - lon > 180) lon += 360;
+    if (Math.abs(lon - cache.tip.lon) < 1e-7 && Math.abs(position.lat - cache.tip.lat) < 1e-7) {
+        return null; // plane hasn't moved
+    }
+    cache.features.push({
+        type: 'Feature',
+        geometry: {
+            type: 'LineString',
+            coordinates: [
+                [cache.tip.lon, cache.tip.lat],
+                [lon, position.lat]
+            ]
+        },
+        properties: { altitude: cache.tip.alt }
+    });
+    cache.tip = { lon, lat: position.lat, alt: position.alt_ft || 0 };
+    return { type: 'FeatureCollection', features: cache.features };
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
@@ -17625,6 +17704,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
+            if (typeof flownPathGeomCache !== 'undefined') flownPathGeomCache.delete(currentFlightInWindow);
         }
     }
 
@@ -17844,6 +17924,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         // Generate the segmented FeatureCollection using our new function
         const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
+        // This is the ONLY /history-driven render: seed the incremental
+        // geometry cache from it, and let socket fixes extend it from here.
+        seedFlownPathGeometry(flightProps.flightId, initialRouteData, livePosition);
+
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
@@ -17880,6 +17964,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
                 sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
             }
+        } else {
+            // Already on the map (e.g. a pinned flight being opened): resync
+            // the drawn line to the fresh history-seeded geometry so the
+            // cache and the source agree before live fixes extend it.
+            sectorOpsMap.getSource(flownLayerId).setData(initialRouteData);
         }
 
         isAircraftWindowLoading = false;
@@ -17943,6 +18032,12 @@ function closeAircraftWindow() {
     // Clear the map layers using the ID tracker ONLY IF NOT PINNED
     if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
         clearLiveFlightPath(currentFlightInWindow);
+        // Erase the built-up trail caches with the window; a reopen reseeds
+        // them from a fresh /history fetch. Pinned flights keep theirs.
+        if (currentFlightInWindow) {
+            liveTrailCache.delete(currentFlightInWindow);
+            flownPathGeomCache.delete(currentFlightInWindow);
+        }
     }
 
     // Reset intervals
