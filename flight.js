@@ -4681,18 +4681,22 @@ function injectCustomStyles() {
             font-size: 12px;
             font-weight: 800;
             letter-spacing: 1px;
-            color: #38bdf8;
-            background: rgba(10, 15, 26, 0.78);
-            border: 1px solid rgba(56, 189, 248, 0.45);
-            border-radius: 6px;
-            padding: 3px 8px;
+            color: #fff;
+            background: rgba(12, 15, 22, 0.82);
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            border-radius: 9px;
+            padding: 4px 9px;
             cursor: pointer;
-            text-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
         }
-        .pinged-airport-label i { font-size: 10px; }
+        .pinged-airport-label i {
+            font-size: 11px;
+            color: #38bdf8;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+        }
         .hero-btn.pinged { color: #38bdf8; border-color: rgba(56, 189, 248, 0.6); }
 
         /* Full ATIS broadcast text inside the ATIS module. */
@@ -12708,7 +12712,7 @@ function updateTrafficLegendUI() {
             const apt = airportsData[icao];
             const el = document.createElement('div');
             el.className = 'pinged-airport-label';
-            el.innerHTML = `<i class="fa-solid fa-location-dot"></i>${icao}`;
+            el.innerHTML = `<i class="fa-solid fa-tower-broadcast"></i>${icao}`;
             el.title = `${icao} — pinned airport (tap to open)`;
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -21925,6 +21929,36 @@ function wireActiveAirportsLayerEvents() {
     });
 }
 
+// Stretchable dark-glass pill drawn behind the glance labels (9-slice image,
+// icon-text-fit stretches it around the ICAO + codes text). Re-created after
+// style switches, which wipe images.
+function ensureAtcGlancePillImage(map) {
+    if (!map || map.hasImage('atc-glance-pill')) return;
+    const dpr = 2, w = 66, h = 46, r = 11;
+    const c = document.createElement('canvas');
+    c.width = w * dpr; c.height = h * dpr;
+    const ctx = c.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.beginPath();
+    ctx.moveTo(1 + r, 1);
+    ctx.arcTo(w - 1, 1, w - 1, h - 1, r);
+    ctx.arcTo(w - 1, h - 1, 1, h - 1, r);
+    ctx.arcTo(1, h - 1, 1, 1, r);
+    ctx.arcTo(1, 1, w - 1, 1, r);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(12, 15, 22, 0.82)';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.stroke();
+    map.addImage('atc-glance-pill', ctx.getImageData(0, 0, w * dpr, h * dpr), {
+        pixelRatio: dpr,
+        stretchX: [[(r + 2) * dpr, (w - r - 2) * dpr]],
+        stretchY: [[(r + 2) * dpr, (h - r - 2) * dpr]],
+        content: [8 * dpr, 6 * dpr, (w - 8) * dpr, (h - 6) * dpr]
+    });
+}
+
 function updateActiveAirportsGlanceLayer() {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded()) return;
 
@@ -21991,6 +22025,7 @@ function updateActiveAirportsGlanceLayer() {
         sectorOpsMap.getSource(ACTIVE_APT_SRC).setData(data);
     } else {
         try {
+            ensureAtcGlancePillImage(sectorOpsMap);
             sectorOpsMap.addSource(ACTIVE_APT_SRC, { type: 'geojson', data, tolerance: 0 });
 
             // Place just under the aircraft layer when it exists, else on top.
@@ -22002,10 +22037,10 @@ function updateActiveAirportsGlanceLayer() {
                 type: 'circle',
                 source: ACTIVE_APT_SRC,
                 paint: {
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.5, 8, 6],
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3, 8, 5],
                     'circle-color': ACTIVE_APT_COLOR,
-                    'circle-stroke-width': 1.5,
-                    'circle-stroke-color': 'rgba(255,255,255,0.92)',
+                    'circle-stroke-width': 1.25,
+                    'circle-stroke-color': 'rgba(255,255,255,0.85)',
                     'circle-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.25, 4, 1]
                 }
             }, beforeId);
@@ -22016,29 +22051,33 @@ function updateActiveAirportsGlanceLayer() {
                 source: ACTIVE_APT_SRC,
                 layout: {
                     // Crisp white ICAO with the staffed positions below, tinted
-                    // by the top service online (per-section colors, Mapbox v3).
+                    // by the top service online (per-section colors, Mapbox v3),
+                    // set on a dark glass pill (stretchable 9-slice icon) so the
+                    // tag reads as a chip instead of loose halo'd text.
                     'text-field': [
                         'format',
-                        ['get', 'icao'], { 'font-scale': 1.2, 'text-color': '#ffffff' },
+                        ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
                         '\n', {},
-                        ['get', 'codes'], { 'font-scale': 0.82, 'text-color': ACTIVE_APT_COLOR }
+                        ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
                     ],
                     'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 8, 14],
-                    'text-offset': [0, -1.1],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 8, 13.5],
+                    'text-offset': [0, -1.0],
                     'text-anchor': 'bottom',
-                    'text-line-height': 1.25,
+                    'text-line-height': 1.3,
                     'text-allow-overlap': false,
                     'text-ignore-placement': false,
                     'text-padding': 4,
+                    'icon-image': 'atc-glance-pill',
+                    'icon-text-fit': 'both',
+                    'icon-text-fit-padding': [5, 10, 5, 10],
                     // Lower sort key = placed first; advanced services win collisions.
                     'symbol-sort-key': ['-', 10, ['get', 'rank']]
                 },
                 paint: {
                     'text-color': '#ffffff',
-                    'text-halo-color': 'rgba(8,10,14,0.95)',
-                    'text-halo-width': 1.7,
-                    'text-halo-blur': 0.5,
+                    'text-halo-width': 0,
+                    'icon-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0, 3.2, 1],
                     'text-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0, 3.2, 1]
                 }
             }, beforeId);
