@@ -12712,7 +12712,15 @@ function updateTrafficLegendUI() {
 
     function toggleAirportPing(icao, btn) {
         if (!icao) return;
-        if (!(typeof window.isInflightPro === 'function' && window.isInflightPro())) {
+        // Pro gate. The live is_pro lookup resolves asynchronously after
+        // sign-in, so a Pro user tapping early (or during a transient fetch
+        // failure) would be wrongly blocked — fall back to the persisted Pro
+        // flag the entitlement cache mirrors to localStorage on every check.
+        let isPro = typeof window.isInflightPro === 'function' && window.isInflightPro();
+        if (!isPro) {
+            try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
+        }
+        if (!isPro) {
             showNotification('Pinging airports on the map is a Pro feature.', 'error');
             if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
             return;
@@ -12727,6 +12735,8 @@ function updateTrafficLegendUI() {
         if (btn) btn.classList.toggle('pinged', nowPinged);
         showNotification(nowPinged ? `${icao} pinged on the map.` : `${icao} removed from the map.`, 'success');
     }
+    // Exposed so the mobile Live ATC sheet can ping fields from its rows.
+    window.toggleAirportPing = toggleAirportPing;
 
     function setupAirportWindowEvents() {
     if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;

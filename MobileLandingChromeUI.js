@@ -363,23 +363,32 @@ export const MobileLandingChromeUI = {
                 this._renderAtcSheet();
                 return;
             }
-            // Chevron toggles the controller drawer without flying to the field.
+            // PRO: ping/unping the field on the map from its row.
+            const ping = e.target.closest('[data-atc-ping]');
+            if (ping) {
+                e.stopPropagation();
+                const apt = (this._atcBoard || [])[Number(ping.dataset.atcPing)];
+                if (apt && typeof window.toggleAirportPing === 'function') {
+                    window.InflightHaptics?.tap?.();
+                    window.toggleAirportPing(apt.icao, null);
+                    this._renderAtcSheet(); // reflect the pinned state on the row
+                }
+                return;
+            }
+            // Chevron toggles the detail drawer without flying to the field.
+            // Drawer content is built lazily, so toggling re-renders the board
+            // (the expanded set is remembered across refreshes).
             const exp = e.target.closest('[data-atc-expand]');
             if (exp) {
                 e.stopPropagation();
                 const wrap = exp.closest('.ios-atc-awrap');
-                if (wrap) {
-                    const open = wrap.classList.toggle('ctrl-open');
-                    exp.setAttribute('aria-expanded', open ? 'true' : 'false');
-                    // Remember which fields are expanded so a live ATC refresh
-                    // (which rebuilds the board) doesn't snap the drawer shut.
-                    const apt = (this._atcBoard || [])[Number(wrap.dataset.atcWrap)];
-                    if (apt) {
-                        if (!this._atcOpenIcaos) this._atcOpenIcaos = new Set();
-                        if (open) this._atcOpenIcaos.add(apt.icao);
-                        else this._atcOpenIcaos.delete(apt.icao);
-                    }
+                const apt = wrap ? (this._atcBoard || [])[Number(wrap.dataset.atcWrap)] : null;
+                if (apt) {
+                    if (!this._atcOpenIcaos) this._atcOpenIcaos = new Set();
+                    if (this._atcOpenIcaos.has(apt.icao)) this._atcOpenIcaos.delete(apt.icao);
+                    else this._atcOpenIcaos.add(apt.icao);
                     window.InflightHaptics?.tap?.();
+                    this._renderAtcSheet();
                 }
                 return;
             }
@@ -720,19 +729,31 @@ export const MobileLandingChromeUI = {
         // Each position column is dimmed by default and lights up when staffed.
         const col = (label, on, cls) =>
             `<span class="ios-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
-        const controllers = (a.count > 0) ? this._atcControllersFor(a.icao) : [];
-        const trafficHtml = this._atcTrafficHTML(a.icao);
-        const hasDrawer = !!(controllers.length || trafficHtml);
-        const drawer = hasDrawer ? `
+        // A drawer is offered for any field with controllers OR live traffic —
+        // staffed or not. Its content is built LAZILY (only for expanded rows):
+        // the board can list 100+ airports and each traffic readout is a full
+        // flight-cache scan, so eager building would make the sheet crawl.
+        const hasDrawer = (a.count > 0) || ((a.totalTraffic || 0) > 0);
+        const isOpen = hasDrawer && this._atcOpenIcaos && this._atcOpenIcaos.has(a.icao);
+        const controllers = (isOpen && a.count > 0) ? this._atcControllersFor(a.icao) : [];
+        const trafficHtml = isOpen ? this._atcTrafficHTML(a.icao) : '';
+        const drawer = isOpen ? `
                 <div class="ios-atc-ctrl-drawer">
                     ${controllers.length ? `<div class="ios-atc-ctrl-head">On frequency now</div>
                     ${controllers.map(f => this._atcControllerRowHTML(f)).join('')}` : ''}
                     ${trafficHtml}
                 </div>` : '';
-        const isOpen = hasDrawer && this._atcOpenIcaos && this._atcOpenIcaos.has(a.icao);
+        // PRO: ping this field onto the map as its ICAO letters.
+        const pinged = !!(window.mapFilters && Array.isArray(window.mapFilters.pingedAirports)
+            && window.mapFilters.pingedAirports.includes(a.icao));
+        const pingBtn = `
+                <button type="button" class="ios-atc-ping${pinged ? ' pinged' : ''}" data-atc-ping="${idx}"
+                        aria-label="Ping airport on map" title="Ping on map (Pro)">
+                    <i class="fa-solid fa-location-dot"></i>
+                </button>`;
         const chevron = hasDrawer ? `
                 <button type="button" class="ios-atc-expand" data-atc-expand="${idx}"
-                        aria-label="Show controllers" aria-expanded="${isOpen ? 'true' : 'false'}">
+                        aria-label="Show details" aria-expanded="${isOpen ? 'true' : 'false'}">
                     <i class="fa-solid fa-chevron-down"></i>
                 </button>` : '';
         return `
@@ -755,6 +776,7 @@ export const MobileLandingChromeUI = {
                             ${col('DEP', a.dep, 'dep')}
                         </span>
                     </button>
+                    ${pingBtn}
                     ${chevron}
                 </div>
                 ${drawer}
@@ -1798,6 +1820,23 @@ export const MobileLandingChromeUI = {
             }
             .ios-atc-expand:active { background: var(--ios-fill); }
             .ios-atc-awrap.ctrl-open .ios-atc-expand { transform: rotate(180deg); color: var(--ios-text); }
+
+            /* PRO ping button on each airport row */
+            .ios-atc-ping {
+                flex: 0 0 auto;
+                width: 42px;
+                display: flex; align-items: center; justify-content: center;
+                background: transparent;
+                border: none;
+                border-left: 0.5px solid var(--ios-stroke-soft);
+                color: var(--ios-text-4);
+                font-size: 14px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: color 0.16s ease, background-color 0.16s ease;
+            }
+            .ios-atc-ping:active { background: var(--ios-fill); }
+            .ios-atc-ping.pinged { color: var(--ios-accent); }
 
             .ios-atc-ctrl-drawer {
                 display: grid;
