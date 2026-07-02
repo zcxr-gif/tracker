@@ -586,7 +586,7 @@ export const AtcReplay = (() => {
 
         // Static flown tracks (rebuilt when focus / path-mode changes)
         if (!map.getSource(SRC_PATHS)) {
-            map.addSource(SRC_PATHS, { type: 'geojson', data: buildPathFeatures() });
+            map.addSource(SRC_PATHS, { type: 'geojson', data: buildPathFeatures(), tolerance: 0 });
         } else {
             map.getSource(SRC_PATHS).setData(buildPathFeatures());
         }
@@ -604,7 +604,7 @@ export const AtcReplay = (() => {
 
         // Fading comet trails behind each aircraft (refreshed every frame)
         if (!map.getSource(SRC_TRAILS)) {
-            map.addSource(SRC_TRAILS, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addSource(SRC_TRAILS, { type: 'geojson', tolerance: 0, data: { type: 'FeatureCollection', features: [] } });
         }
         if (!map.getLayer(LYR_TRAILS)) {
             map.addLayer({

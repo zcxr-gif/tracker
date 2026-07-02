@@ -12147,7 +12147,7 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
     : [];
                         if (flownCoords.length > 1) {
                             allCoordsForBounds.push(...flownCoords);
-                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
+                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', tolerance: 0, data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
                             liveFlightsMap.addLayer({ id: 'flown-path',
     type: 'line',
     source: 'flown-path-source',
@@ -12164,7 +12164,7 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
                             const plannedWps = flattenWaypointsFromPlan(items);
                             const remainingPathCoords = [lngLat, ...plannedWps];
                             allCoordsForBounds.push(...remainingPathCoords);
-                            liveFlightsMap.addSource('planned-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: remainingPathCoords } } });
+                            liveFlightsMap.addSource('planned-path-source', { type: 'geojson', tolerance: 0, data: { type: 'Feature', geometry: { type: 'LineString', coordinates: remainingPathCoords } } });
                             liveFlightsMap.addLayer({ id: 'planned-path', type: 'line', source: 'planned-path-source', paint: { 'line-color': '#e84393', 'line-width': 3, 'line-dasharray': [2, 2] } });
                             popup.setHTML(`<b>${callsign}</b> (${username || 'N/A'})<br>Route and flight plan loaded.`);
                         } else {
@@ -16919,7 +16919,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         if (source) {
             source.setData(directLineData);
         } else {
-            sectorOpsMap.addSource(layerIdDirect, { type: 'geojson', data: directLineData });
+            sectorOpsMap.addSource(layerIdDirect, { type: 'geojson', data: directLineData, tolerance: 0 });
 
             sectorOpsMap.addLayer({
                 id: layerIdDirectGlow,
@@ -17004,7 +17004,14 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             });
 
             const fullLineData = { type: 'FeatureCollection', features: features };
-            sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
+            sectorOpsMap.addSource(layerIdFull, {
+                type: 'geojson',
+                data: fullLineData,
+                // The plan curve is densified into many small segments; without
+                // this Mapbox simplifies them away at low zoom and the path
+                // visibly degrades when zooming out.
+                tolerance: 0
+            });
 
             // 1. Direct-Style Glow Layer
             sectorOpsMap.addLayer({
@@ -17025,8 +17032,6 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
-                tolerance: 0,
-                buffer: 0,
                 'filter': ['==', '$type', 'LineString'],
                 paint: {
                     'line-color': '#67e8f9',
@@ -20306,7 +20311,8 @@ function updateFmsLegsModule(plan, currentPos) {
         const routeLinesId = `routes-from-${departureICAO}`;
         sectorOpsMap.addSource(routeLinesId, {
             type: 'geojson',
-            data: { type: 'FeatureCollection', features: routeLineFeatures }
+            data: { type: 'FeatureCollection', features: routeLineFeatures },
+            tolerance: 0 // arcs are densified; don't let low zoom simplify them jagged
         });
 
         sectorOpsMap.addLayer({
