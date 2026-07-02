@@ -761,20 +761,20 @@ export const MobileLandingChromeUI = {
                 <div class="ios-atc-arow-line">
                     <button type="button" class="ios-atc-arow" data-atc-apt="${idx}">
                         <span class="ios-atc-apt">
-                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}${(!a.count && (a.in60 || 0) >= 3) ? `<span class="ios-atc-rec" title="Strong arrival flow in the next hour — great field for IFATC"><i class="fa-solid fa-star"></i> IFATC Pick · ${a.in60}/hr</span>` : ''}</span>
+                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}${(!a.count && (a.in60 || 0) >= 3) ? `<span class="ios-atc-rec" title="Strong arrival flow in the next hour — great field for IFATC"><i class="fa-solid fa-star"></i> IFATC · ${a.in60}/hr</span>` : ''}</span>
                             <span class="ios-atc-aptname">${this._atcEsc(a.name || a.icao)}</span>
                         </span>
                         <span class="ios-atc-tower">
                             <i class="fa-solid fa-tower-broadcast"></i>
                             <span class="ios-atc-num">${a.count}</span>
                         </span>
-                        <span class="ios-atc-cols">
+                        ${a.count > 0 ? `<span class="ios-atc-cols">
                             ${col('ATS', a.atis, 'atis')}
                             ${col('GND', a.gnd, 'gnd')}
                             ${col('TWR', a.twr, 'twr')}
                             ${col('APP', a.app, 'app')}
                             ${col('DEP', a.dep, 'dep')}
-                        </span>
+                        </span>` : ''}
                     </button>
                     ${pingBtn}
                     ${chevron}
@@ -1767,7 +1767,9 @@ export const MobileLandingChromeUI = {
                 transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.12s cubic-bezier(0.16,1,0.3,1);
             }
             .ios-atc-arow:active { background: var(--ios-fill); border-color: var(--ios-stroke); transform: scale(0.99); }
-            .ios-atc-apt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            /* min-width keeps the ICAO readable even when the row is squeezed;
+               the airport NAME is what truncates. */
+            .ios-atc-apt { flex: 1 1 auto; min-width: 72px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
             .ios-atc-icao { font-size: 18px; font-weight: 800; letter-spacing: -0.3px; color: var(--ios-text); line-height: 1.05; }
             .ios-atc-aptname {
                 font-size: 12.5px; color: var(--ios-text-3);
@@ -1776,10 +1778,10 @@ export const MobileLandingChromeUI = {
             .ios-atc-tower { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
             .ios-atc-tower i { font-size: 14px; color: var(--ios-text-2); }
             .ios-atc-num { font-size: 15px; font-weight: 700; color: var(--ios-text); font-variant-numeric: tabular-nums; min-width: 10px; }
-            .ios-atc-cols { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; }
+            .ios-atc-cols { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
             .ios-atc-col {
                 font-size: 10px; font-weight: 800; letter-spacing: 0.6px;
-                color: var(--ios-text-4); min-width: 30px; text-align: center;
+                color: var(--ios-text-4); min-width: 26px; text-align: center;
                 transition: color 0.16s ease, text-shadow 0.16s ease;
             }
             .ios-atc-col.on.atis { color: #30d158; text-shadow: 0 0 10px rgba(48,209,88,0.45); }
@@ -1787,6 +1789,13 @@ export const MobileLandingChromeUI = {
             .ios-atc-col.on.twr  { color: #ff9f0a; text-shadow: 0 0 10px rgba(255,159,10,0.45); }
             .ios-atc-col.on.app  { color: #bf5af2; text-shadow: 0 0 10px rgba(191,90,242,0.45); }
             .ios-atc-col.on.dep  { color: #64d2ff; text-shadow: 0 0 10px rgba(100,210,255,0.45); }
+            /* Phones: the position-letter strip fights the ping/expand buttons
+               for row width and starves the airport name. The controller count
+               + the drawer's frequency pills carry the same info, so drop the
+               strip on narrow screens. */
+            @media (max-width: 480px) {
+                .ios-atc-board .ios-atc-cols { display: none; }
+            }
 
             /* ---- Controller dropdown (who's on frequency, and for how long) ---- */
             .ios-atc-awrap {
@@ -1801,6 +1810,11 @@ export const MobileLandingChromeUI = {
             .ios-atc-board .ios-atc-arow-line { display: flex; align-items: stretch; }
             .ios-atc-board .ios-atc-arow {
                 flex: 1 1 auto;
+                /* Without this a flex child won't shrink below its content, so
+                   the ping + chevron buttons get pushed off the card edge on
+                   phones — visible but untappable. Let the airport column
+                   truncate instead. */
+                min-width: 0;
                 background: transparent;
                 border: none;
                 border-radius: 0;
@@ -1808,7 +1822,7 @@ export const MobileLandingChromeUI = {
             .ios-atc-board .ios-atc-arow:active { background: var(--ios-fill); transform: none; }
             .ios-atc-expand {
                 flex: 0 0 auto;
-                width: 46px;
+                width: 40px;
                 display: flex; align-items: center; justify-content: center;
                 background: transparent;
                 border: none;
@@ -1824,7 +1838,7 @@ export const MobileLandingChromeUI = {
             /* PRO ping button on each airport row */
             .ios-atc-ping {
                 flex: 0 0 auto;
-                width: 42px;
+                width: 40px;
                 display: flex; align-items: center; justify-content: center;
                 background: transparent;
                 border: none;
