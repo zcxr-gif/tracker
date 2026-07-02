@@ -11838,6 +11838,45 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         tab.classList.toggle('tfilter-hide-' + key);
     };
 
+    // Live traffic summary for one airport, computed purely from the
+    // in-memory flight cache (no network). Powers the mobile Live ATC
+    // sheet's per-field arrivals / pilot-state readout.
+    window.getAirportTrafficSummary = function (icao) {
+        if (!icao) return null;
+        const code = String(icao).toUpperCase();
+        const apt = airportsData[code];
+        const out = { inbound: [], outCount: 0, parked: 0, applus: 0, flying: 0 };
+        Object.values(currentMapFeatures).forEach(f => {
+            const p = f && f.properties;
+            if (!p) return;
+            const isArr = String(p.arrivalIcao || '').toUpperCase() === code;
+            const isDep = String(p.departureIcao || '').toUpperCase() === code;
+            if (!isArr && !isDep) return;
+            const ps = Number(p.pilotState);
+            const fstate = ps === 2 ? 'parked' : ps === 3 ? 'applus' : ps === 1 ? 'away' : 'active';
+            const phase = (String(p.phase || '').toLowerCase()) || 'enroute';
+            if (fstate === 'parked') out.parked++;
+            if (fstate === 'applus') out.applus++;
+            if (phase !== 'ground') out.flying++;
+            if (isDep && !isArr) out.outCount++;
+            if (isArr) {
+                let etaMin = null;
+                try {
+                    const pos = JSON.parse(p.position || '{}');
+                    const gs = pos.gs_kt || 0;
+                    if (apt && apt.lat != null && pos.lat != null && gs > 50) {
+                        const distNm = getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon) / 1.852;
+                        etaMin = Math.max(0, Math.round((distNm / gs) * 60));
+                    }
+                } catch (_) { /* malformed position — leave etaMin null */ }
+                out.inbound.push({ callsign: p.callsign || '—', etaMin, fstate, phase });
+            }
+        });
+        out.inbound.sort((a, b) =>
+            (a.etaMin == null ? Infinity : a.etaMin) - (b.etaMin == null ? Infinity : b.etaMin));
+        return out;
+    };
+
     // Build the Live Activity start payload from whatever state we currently have on the
     // open aircraft info window. Returns null if we don't have enough to fire yet.
     function buildLiveActivityPayload(flightId) {
