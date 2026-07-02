@@ -13955,7 +13955,8 @@ const SettingsUI = {
         overlays: { label: "Overlays", icon: "fa-layer-group" },
         airspace: { label: "Filters", icon: "fa-sliders" },
         va: { label: "VA", icon: "fa-handshake-angle" },
-        theme: { label: "Theme", icon: "fa-palette" }
+        theme: { label: "Theme", icon: "fa-palette" },
+        whatsnew: { label: "What's New", icon: "fa-bullhorn" }
     },
 
     _injectStyles() {
@@ -15197,6 +15198,18 @@ renderCategory(catId) {
                                 </div>
                                 <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;" ${!isSignedIn ? 'disabled' : ''}>Reset Default Theme</button>
                             </div>
+                        </div>
+                    `;
+                    break;
+                case 'whatsnew':
+                    // Release notes live in changelog.js (window.InflightChangelog)
+                    // so the boot popup and this tab share one data source.
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">What's New</label>
+                            ${(window.InflightChangelog && typeof window.InflightChangelog.renderSettingsPanel === 'function')
+                                ? window.InflightChangelog.renderSettingsPanel()
+                                : '<p style="font-size: 0.8rem; color: #71717a;">Release notes unavailable.</p>'}
                         </div>
                     `;
                     break;

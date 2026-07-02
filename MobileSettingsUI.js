@@ -427,6 +427,17 @@ export const MobileSettingsUI = {
                                 ${this.renderToggle('showVaHubMarkers', 'VA Hub Markers', 'fa-handshake-angle')}
                             </div>
 
+                            <div class="mobile-section-header">Updates</div>
+                            <div class="m-settings-list">
+                                <div class="m-setting-row m-whatsnew-row">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-bullhorn" style="color: #7dd3fc;"></i>
+                                        <span>What's New</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
+                                </div>
+                            </div>
+
                             ${this.renderLegalSection()}
                         </div>
                     </div>
@@ -1725,6 +1736,16 @@ export const MobileSettingsUI = {
             this.resetTacticalFilters();
         });
 
+        // What's New row — opens the full changelog modal (changelog.js). The
+        // modal overlays this sheet at a higher z-index and closes back to it.
+        sheet.querySelectorAll('.m-whatsnew-row').forEach(row => {
+            row.addEventListener('click', () => {
+                if (window.InflightChangelog && typeof window.InflightChangelog.open === 'function') {
+                    window.InflightChangelog.open();
+                }
+            });
+        });
+
         // Legal document rows — open privacy.html / terms.html in the shared
         // in-app viewer (layers above this sheet; its back button returns here).
         sheet.querySelectorAll('.m-legal-row').forEach(row => {
@@ -2204,7 +2225,7 @@ export const MobileSettingsUI = {
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
 
-                .m-legal-row { cursor: pointer; }
+                .m-legal-row, .m-whatsnew-row { cursor: pointer; }
                 .m-legal-row:active { background: rgba(255,255,255,0.07); }
                 .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
 

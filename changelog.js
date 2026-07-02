@@ -1,0 +1,328 @@
+/**
+ * changelog.js — "What's New" release notes for the live tracker.
+ *
+ * Two surfaces, one data source (RELEASES below):
+ *   1. A one-time popup after the loading screen — shown once per release
+ *      (localStorage 'inflight_changelog_seen' remembers the last version
+ *      the user has been shown).
+ *   2. A browsable changelog inside Settings — the desktop Global Settings
+ *      modal hosts renderSettingsPanel(); the mobile Settings sheet's More
+ *      tab opens the full modal via open().
+ *
+ * To ship notes for a new update: prepend a release object to RELEASES.
+ * The popup re-arms automatically because the stored "seen" id no longer
+ * matches the newest release id.
+ *
+ * Exposed as window.InflightChangelog. Loaded as a plain (non-module)
+ * script alongside vaAds.js.
+ */
+(function () {
+    'use strict';
+
+    const SEEN_KEY = 'inflight_changelog_seen';
+
+    // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
+    const RELEASES = [
+        {
+            id: '2026.07',
+            date: 'July 2026',
+            title: 'Airports, ATC & Partners',
+            tagline: 'The airport window grows a weather station, ATC gets a real traffic board, and partner VAs are one tap from your cockpit.',
+            entries: [
+                { tag: 'new', icon: 'fa-cloud-sun-rain', text: 'Airport weather station — live wind compass, visibility, ceiling and full METAR instruments in the airport window.' },
+                { tag: 'new', icon: 'fa-tower-broadcast', text: 'Live ATIS card — the complete broadcast with the current info letter and arrival / departure runways.' },
+                { tag: 'new', icon: 'fa-plane-arrival', text: 'Smarter Traffic tab — arrivals bucketed by ETA (5 / 10 / 15 / 30 / 60 min), pilot-status stats and one-tap filter chips.' },
+                { tag: 'new', icon: 'fa-map-pin', text: 'Pin airports to the map — a pinned field keeps its ICAO on screen as a glass label. Pin from the airport window or the ATC board.' },
+                { tag: 'new', icon: 'fa-headset', text: 'Full Live ATC board — every airport with traffic (not just staffed ones), search, active ATC on top and IFATC picks for busy unstaffed fields.' },
+                { tag: 'new', icon: 'fa-images', text: 'Aircraft photos now auto-cycle with a soft crossfade — toggle it under Settings → More.' },
+                { tag: 'improved', icon: 'fa-handshake-angle', text: 'VA Partners — redesigned directory and yellow Apply Now buttons that jump straight to the VA’s website.' },
+                { tag: 'improved', icon: 'fa-tag', text: 'ATC map tags got a glass facelift and stay one crisp size at every zoom level.' },
+                { tag: 'improved', icon: 'fa-route', text: 'Flight paths render sharper when zoomed out, build up live with the aircraft and never cover the plane icon.' },
+                { tag: 'fixed', icon: 'fa-filter', text: 'Filters no longer come back after being reset.' },
+                { tag: 'fixed', icon: 'fa-rotate', text: 'The dashboard reliably appears right after loading — no more blank screen until you open a flight.' }
+            ]
+        }
+    ];
+
+    const LATEST = RELEASES[0];
+
+    const TAG_META = {
+        new:      { label: 'NEW',      cls: 'cl-tag-new' },
+        improved: { label: 'IMPROVED', cls: 'cl-tag-improved' },
+        fixed:    { label: 'FIXED',    cls: 'cl-tag-fixed' }
+    };
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getSeen() {
+        try { return localStorage.getItem(SEEN_KEY); } catch (_) { return null; }
+    }
+
+    function markSeen() {
+        try { localStorage.setItem(SEEN_KEY, LATEST.id); } catch (_) { /* private mode */ }
+    }
+
+    // ---------------------------------------------------------------------
+    // Styles
+    // ---------------------------------------------------------------------
+
+    function injectStyles() {
+        if (document.getElementById('inflight-changelog-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'inflight-changelog-styles';
+        style.textContent = `
+            .cl-overlay {
+                /* Above the desktop Global Settings modal (99999) and the
+                   mobile settings sheet (6001) so "What's New" opens on top. */
+                position: fixed; inset: 0; z-index: 100000;
+                display: flex; align-items: center; justify-content: center;
+                background: rgba(8, 10, 16, 0.66); backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                opacity: 0; pointer-events: none; transition: opacity .22s ease;
+                padding: 18px; box-sizing: border-box;
+            }
+            .cl-overlay.visible { opacity: 1; pointer-events: auto; }
+            .cl-card {
+                width: min(500px, 100%); max-height: min(82dvh, 720px);
+                display: flex; flex-direction: column; overflow: hidden;
+                background: #121214; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 18px; box-shadow: 0 24px 70px rgba(0,0,0,0.6);
+                transform: translateY(14px) scale(0.98);
+                transition: transform .28s cubic-bezier(0.16,1,0.3,1);
+            }
+            .cl-overlay.visible .cl-card { transform: translateY(0) scale(1); }
+            .cl-head {
+                position: relative; flex: 0 0 auto; padding: 20px 20px 14px;
+                background:
+                    radial-gradient(circle at 85% -20%, rgba(56,189,248,0.22), transparent 60%),
+                    radial-gradient(circle at 0% 120%, rgba(168,85,247,0.12), transparent 55%);
+                border-bottom: 1px solid rgba(255,255,255,0.07);
+            }
+            .cl-eyebrow {
+                display: inline-flex; align-items: center; gap: 7px;
+                font-size: 0.62rem; font-weight: 800; letter-spacing: .1em;
+                text-transform: uppercase; color: #7dd3fc; margin-bottom: 7px;
+            }
+            .cl-head h2 {
+                margin: 0; color: #fff; font-size: 1.35rem; font-weight: 800;
+                letter-spacing: -0.4px; line-height: 1.15; padding-right: 34px;
+            }
+            .cl-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+            .cl-ver-pill {
+                font-size: 0.62rem; font-weight: 800; letter-spacing: .05em;
+                color: #0b1120; background: #38bdf8; border-radius: 999px; padding: 3px 9px;
+            }
+            .cl-date { font-size: 0.72rem; font-weight: 600; color: rgba(255,255,255,0.45); }
+            .cl-tagline { margin: 10px 0 0; font-size: 0.8rem; line-height: 1.5; color: #a1a1aa; }
+            .cl-close {
+                position: absolute; top: 14px; right: 14px;
+                width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer;
+                background: rgba(255,255,255,0.07); color: #fff; font-size: 0.9rem;
+                display: grid; place-items: center;
+            }
+            .cl-close:hover { background: rgba(255,255,255,0.14); }
+            .cl-body {
+                flex: 1 1 auto; min-height: 0; overflow-y: auto;
+                -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+                padding: 14px 20px;
+            }
+            .cl-release + .cl-release { margin-top: 20px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.07); }
+            .cl-release-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; }
+            .cl-release-head h3 { margin: 0; color: #fff; font-size: 0.98rem; font-weight: 800; letter-spacing: -0.2px; }
+            .cl-release-tagline { margin: 0 0 12px; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+            .cl-list { display: flex; flex-direction: column; gap: 9px; }
+            .cl-item {
+                display: flex; gap: 11px; align-items: flex-start;
+                background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 12px; padding: 10px 12px;
+            }
+            .cl-item-icon {
+                flex: 0 0 auto; width: 30px; height: 30px; border-radius: 9px;
+                display: grid; place-items: center; font-size: 0.8rem;
+                background: rgba(56,189,248,0.12); color: #7dd3fc;
+            }
+            .cl-item-main { min-width: 0; flex: 1; }
+            .cl-tag {
+                display: inline-block; font-size: 0.56rem; font-weight: 800;
+                letter-spacing: .07em; border-radius: 999px; padding: 2px 7px; margin-bottom: 4px;
+            }
+            .cl-tag-new      { background: rgba(74,222,128,0.14); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
+            .cl-tag-improved { background: rgba(56,189,248,0.14); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3); }
+            .cl-tag-fixed    { background: rgba(251,191,36,0.14); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+            .cl-item-text { font-size: 0.78rem; line-height: 1.5; color: #d4d4d8; }
+            .cl-foot {
+                flex: 0 0 auto; padding: 14px 20px;
+                padding-bottom: max(env(safe-area-inset-bottom, 0px), 14px);
+                border-top: 1px solid rgba(255,255,255,0.07);
+            }
+            .cl-cta {
+                width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+                padding: 12px 16px; border: none; border-radius: 12px; cursor: pointer;
+                background: linear-gradient(135deg, #38bdf8, #0ea5e9); color: #0b1120;
+                font-size: 0.88rem; font-weight: 800; font-family: inherit; letter-spacing: 0.2px;
+                box-shadow: 0 6px 20px rgba(56,189,248,0.3);
+                transition: transform .12s ease, box-shadow .15s ease;
+            }
+            .cl-cta:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(56,189,248,0.4); }
+
+            /* Inline flavor for the desktop Settings pane (no card chrome —
+               the config pane already provides the surface + scrolling). */
+            .cl-inline .cl-release-head h3 { font-size: 1.02rem; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // ---------------------------------------------------------------------
+    // Markup builders
+    // ---------------------------------------------------------------------
+
+    function entryHTML(e) {
+        const meta = TAG_META[e.tag] || TAG_META.new;
+        return `
+            <div class="cl-item">
+                <div class="cl-item-icon"><i class="fa-solid ${esc(e.icon || 'fa-sparkles')}"></i></div>
+                <div class="cl-item-main">
+                    <span class="cl-tag ${meta.cls}">${meta.label}</span>
+                    <div class="cl-item-text">${esc(e.text)}</div>
+                </div>
+            </div>`;
+    }
+
+    function releaseHTML(rel, { withHead } = { withHead: true }) {
+        return `
+            <div class="cl-release">
+                ${withHead ? `
+                    <div class="cl-release-head">
+                        <h3>${esc(rel.title)}</h3>
+                        <span class="cl-date">${esc(rel.date)} · v${esc(rel.id)}</span>
+                    </div>
+                    ${rel.tagline ? `<p class="cl-release-tagline">${esc(rel.tagline)}</p>` : ''}
+                ` : ''}
+                <div class="cl-list">${rel.entries.map(entryHTML).join('')}</div>
+            </div>`;
+    }
+
+    /**
+     * Inline changelog for the desktop Settings modal's "What's New" tab.
+     * Pure markup — no handlers needed.
+     */
+    function renderSettingsPanel() {
+        injectStyles();
+        return `<div class="cl-inline">${RELEASES.map(r => releaseHTML(r)).join('')}</div>`;
+    }
+
+    // ---------------------------------------------------------------------
+    // Modal (popup + full changelog share one shell)
+    // ---------------------------------------------------------------------
+
+    let overlayEl = null;
+
+    function closeModal() {
+        if (!overlayEl) return;
+        overlayEl.classList.remove('visible');
+        const el = overlayEl;
+        overlayEl = null;
+        setTimeout(() => { try { el.remove(); } catch (_) {} }, 260);
+    }
+
+    function showModal({ popup } = { popup: false }) {
+        injectStyles();
+        if (overlayEl) closeModal();
+
+        const body = popup
+            ? releaseHTML(LATEST, { withHead: false })
+            : RELEASES.map(r => releaseHTML(r)).join('');
+
+        overlayEl = document.createElement('div');
+        overlayEl.className = 'cl-overlay';
+        overlayEl.innerHTML = `
+            <div class="cl-card" role="dialog" aria-modal="true" aria-label="What's new">
+                <div class="cl-head">
+                    <span class="cl-eyebrow"><i class="fa-solid fa-wand-magic-sparkles"></i> ${popup ? 'Just updated' : 'Changelog'}</span>
+                    <h2>${popup ? esc(LATEST.title) : "What's New"}</h2>
+                    <div class="cl-meta">
+                        <span class="cl-ver-pill">v${esc(LATEST.id)}</span>
+                        <span class="cl-date">${esc(LATEST.date)}</span>
+                    </div>
+                    ${popup && LATEST.tagline ? `<p class="cl-tagline">${esc(LATEST.tagline)}</p>` : ''}
+                    <button class="cl-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="cl-body custom-scroll">${body}</div>
+                <div class="cl-foot">
+                    <button class="cl-cta">${popup ? '<i class="fa-solid fa-plane-departure"></i> Let’s fly' : 'Done'}</button>
+                </div>
+            </div>`;
+
+        overlayEl.addEventListener('click', (e) => {
+            if (e.target === overlayEl || e.target.closest('.cl-close') || e.target.closest('.cl-cta')) closeModal();
+        });
+        document.body.appendChild(overlayEl);
+        // Next frame so the entrance transition runs.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (overlayEl) overlayEl.classList.add('visible');
+        }));
+    }
+
+    // ---------------------------------------------------------------------
+    // One-time popup after the loading screen
+    // ---------------------------------------------------------------------
+
+    function maybeShowOnBoot() {
+        // Share-link arrivals land straight on a flight window — don't stack a
+        // popup on top of it. They'll get the notes on their next normal visit.
+        try {
+            const p = new URLSearchParams(window.location.search || '');
+            if (p.get('flight') || sessionStorage.getItem('inflight_share_payload')) return;
+        } catch (_) { /* non-fatal */ }
+
+        // Already seen this release (or storage is unreadable — in that case we
+        // can't remember showing it, so never nag on every load).
+        let seen;
+        try { seen = localStorage.getItem(SEEN_KEY); } catch (_) { return; }
+        if (seen === LATEST.id) return;
+
+        // Wait for the splash overlay to dismiss itself (it's removed from the
+        // DOM — see index.html), then let the landing UI settle for a beat.
+        const started = Date.now();
+        const timer = setInterval(() => {
+            const splashGone = !document.getElementById('inflight-pro-loader-overlay');
+            const loaded = document.readyState === 'complete';
+            if (splashGone && loaded) {
+                clearInterval(timer);
+                setTimeout(() => {
+                    // Mark seen the moment it shows so it truly appears once,
+                    // even if the tab dies before the user taps the button.
+                    markSeen();
+                    showModal({ popup: true });
+                }, 650);
+            } else if (Date.now() - started > 30000) {
+                clearInterval(timer); // splash never cleared — skip this session
+            }
+        }, 400);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', maybeShowOnBoot, { once: true });
+    } else {
+        maybeShowOnBoot();
+    }
+
+    // ---------------------------------------------------------------------
+    // Public API
+    // ---------------------------------------------------------------------
+
+    window.InflightChangelog = {
+        latestVersion: LATEST.id,
+        releases: RELEASES,
+        open() { showModal({ popup: false }); },
+        showPopup() { showModal({ popup: true }); },
+        renderSettingsPanel
+    };
+})();
