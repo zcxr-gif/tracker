@@ -11159,9 +11159,6 @@ function createAirportSkeletonHTML(icao) {
         <div class="apt-skeleton" style="display: flex; flex-direction: column; height: 100%;">
             <div class="airport-hero apt-skel-hero">
                 <div class="airport-hero-overlay"></div>
-                <div class="hero-actions">
-                    <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
-                </div>
                 <div class="apt-ident-group">
                     <div class="apt-icao">${icao}</div>
                     <div class="apt-skel-block" style="width: 180px; height: 12px; margin-top: 8px;"></div>
@@ -11709,7 +11706,6 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 <div class="airport-hero-overlay"></div>
                 <div class="hero-actions">
                     <button id="airport-ping-btn" class="hero-btn${(Array.isArray(mapFilters.pingedAirports) && mapFilters.pingedAirports.includes(icao)) ? ' pinged' : ''}" title="Ping this airport on the map (Pro)"><i class="fa-solid fa-location-dot"></i></button>
-                    <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="apt-ident-group">
                     <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
@@ -20795,8 +20791,15 @@ function processRawPilotData(gradeInfo) {
             const features = sectorOpsMap.queryRenderedFeatures(e.point, {
                 layers: ['sector-ops-live-flights-layer', 'sector-ops-live-flights-natural-layer'] // The aircraft icon layers (SDF + natural)
             });
-            
+
             const clickedOnAircraft = features.length > 0;
+
+            // Airport glance symbols open/switch fields through their own
+            // layer handlers — a tap on one must not count as "empty map"
+            // (it would close the window the tap is about to populate).
+            const aptGlanceLayers = [ACTIVE_APT_DOT, ACTIVE_APT_LBL].filter(id => sectorOpsMap.getLayer(id));
+            const clickedOnAirport = aptGlanceLayers.length > 0 &&
+                sectorOpsMap.queryRenderedFeatures(e.point, { layers: aptGlanceLayers }).length > 0;
 
             // D. EXECUTE CLOSE LOGIC
             // Condition: It was a Click + Not on a Plane + A flight is currently selected
@@ -20804,10 +20807,19 @@ function processRawPilotData(gradeInfo) {
                 // Check if window is actually visible to avoid redundant calls
                 if (aircraftInfoWindow.classList.contains('visible')) {
                     console.log("Smart Click: Closing flight window (Map clicked, not dragged).");
-                    closeAircraftWindow(); 
+                    closeAircraftWindow();
                 }
             }
-            
+
+            // E. Airport window: tapping empty map closes it — this replaced
+            // the header X as the close affordance. Minimised-to-recall state
+            // (window hidden, recall chip showing) is left alone.
+            if (IS_CLICK && !clickedOnAircraft && !clickedOnAirport && currentAirportInWindow) {
+                if (airportInfoWindow && airportInfoWindow.classList.contains('visible')) {
+                    closeAirportWindow();
+                }
+            }
+
             // Reset
             startPoint = null;
         });
