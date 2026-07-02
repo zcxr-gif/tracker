@@ -890,7 +890,8 @@ export const FlightReplay = (() => {
         if (!map.getSource(pathSourceId)) {
             map.addSource(pathSourceId, {
                 type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
+                data: { type: 'FeatureCollection', features: [] },
+                tolerance: 0 // keep the replay trail crisp at low zoom
             });
         }
         if (!map.getLayer(pathLayerId)) {

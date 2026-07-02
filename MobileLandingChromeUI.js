@@ -185,12 +185,16 @@ export const MobileLandingChromeUI = {
                 <div class="ios-fullsheet-head">
                     <div class="ios-fullsheet-titles">
                         <span class="ios-fullsheet-eyebrow">Live Network</span>
-                        <span class="ios-fullsheet-title">Active ATC</span>
+                        <span class="ios-fullsheet-title">Airports &amp; ATC</span>
                     </div>
                     <div class="ios-fullsheet-head-right">
                         <span class="ios-atc-count" id="ios-atc-count">—</span>
                         <button type="button" class="ios-fullsheet-close" data-dismiss="atc" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                     </div>
+                </div>
+                <div class="ios-atc-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" id="ios-atc-search-input" placeholder="Search airports" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
                 </div>
                 <div class="ios-atc-body ios-fullsheet-body" id="ios-atc-body"></div>
             </div>
@@ -342,23 +346,49 @@ export const MobileLandingChromeUI = {
                 this._closeAtcSheet();
                 return;
             }
-            // Chevron toggles the controller drawer without flying to the field.
+            // Traffic filter chips: toggle the hidden group for THAT airport
+            // (each field keeps its own selection) and re-render.
+            const tchip = e.target.closest('[data-atc-tchip]');
+            if (tchip) {
+                e.stopPropagation();
+                const key = tchip.dataset.atcTchip;
+                const apt = tchip.dataset.atcTchipApt;
+                if (!key || !apt) return;
+                if (!this._atcTrafficHideByApt) this._atcTrafficHideByApt = {};
+                if (!this._atcTrafficHideByApt[apt]) this._atcTrafficHideByApt[apt] = new Set();
+                const set = this._atcTrafficHideByApt[apt];
+                if (set.has(key)) set.delete(key);
+                else set.add(key);
+                window.InflightHaptics?.tap?.();
+                this._renderAtcSheet();
+                return;
+            }
+            // PRO: ping/unping the field on the map from its row.
+            const ping = e.target.closest('[data-atc-ping]');
+            if (ping) {
+                e.stopPropagation();
+                const apt = (this._atcBoard || [])[Number(ping.dataset.atcPing)];
+                if (apt && typeof window.toggleAirportPing === 'function') {
+                    window.InflightHaptics?.tap?.();
+                    window.toggleAirportPing(apt.icao, null);
+                    this._renderAtcSheet(); // reflect the pinned state on the row
+                }
+                return;
+            }
+            // Chevron toggles the detail drawer without flying to the field.
+            // Drawer content is built lazily, so toggling re-renders the board
+            // (the expanded set is remembered across refreshes).
             const exp = e.target.closest('[data-atc-expand]');
             if (exp) {
                 e.stopPropagation();
                 const wrap = exp.closest('.ios-atc-awrap');
-                if (wrap) {
-                    const open = wrap.classList.toggle('ctrl-open');
-                    exp.setAttribute('aria-expanded', open ? 'true' : 'false');
-                    // Remember which fields are expanded so a live ATC refresh
-                    // (which rebuilds the board) doesn't snap the drawer shut.
-                    const apt = (this._atcBoard || [])[Number(wrap.dataset.atcWrap)];
-                    if (apt) {
-                        if (!this._atcOpenIcaos) this._atcOpenIcaos = new Set();
-                        if (open) this._atcOpenIcaos.add(apt.icao);
-                        else this._atcOpenIcaos.delete(apt.icao);
-                    }
+                const apt = wrap ? (this._atcBoard || [])[Number(wrap.dataset.atcWrap)] : null;
+                if (apt) {
+                    if (!this._atcOpenIcaos) this._atcOpenIcaos = new Set();
+                    if (this._atcOpenIcaos.has(apt.icao)) this._atcOpenIcaos.delete(apt.icao);
+                    else this._atcOpenIcaos.add(apt.icao);
                     window.InflightHaptics?.tap?.();
+                    this._renderAtcSheet();
                 }
                 return;
             }
@@ -372,6 +402,14 @@ export const MobileLandingChromeUI = {
                     if (ok) this._closeAtcSheet();
                 }
             }
+        });
+
+        // Airport search — the input lives outside the re-rendered body so it
+        // keeps focus while the board refilters on every keystroke.
+        const atcSearch = document.getElementById('ios-atc-search-input');
+        atcSearch?.addEventListener('input', () => {
+            this._atcSearchQuery = atcSearch.value || '';
+            this._renderAtcSheet();
         });
 
         // Keep the badge + open list fresh as controllers connect / disconnect.
@@ -622,20 +660,100 @@ export const MobileLandingChromeUI = {
                 ${dur ? `<span class="ios-atc-ctrl-time"><i class="fa-regular fa-clock"></i> ${this._atcEsc(dur)}</span>` : ''}
             </div>`;
     },
+    // Per-field live traffic readout for the drawer: pilot-state stats, ETA
+    // bucket counts and a scrollable arrivals list — honouring that airport's
+    // own filter chips (this._atcTrafficHideByApt[icao]).
+    _atcTrafficHTML(icao) {
+        const get = window.getAirportTrafficSummary;
+        const t = (typeof get === 'function') ? get(icao) : null;
+        if (!t || (!t.inbound.length && !t.outCount && !t.parked)) return '';
+        // Per-airport filter chips: each field keeps its own hidden-group set.
+        if (!this._atcTrafficHideByApt) this._atcTrafficHideByApt = {};
+        const hide = this._atcTrafficHideByApt[icao] || new Set();
+        const chip = (key, label) =>
+            `<button type="button" class="ios-atc-tchip${hide.has(key) ? ' off' : ''}" data-atc-tchip="${key}" data-atc-tchip-apt="${this._atcEsc(icao)}">${label}</button>`;
+        const chipsRow = `
+            <div class="ios-atc-tchips in-drawer">
+                <span class="ios-atc-tchips-label"><i class="fa-solid fa-filter"></i></span>
+                ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
+            </div>`;
+        const shown = t.inbound.filter(r => {
+            const phaseKey = r.phase === 'enroute' ? 'cruise' : r.phase;
+            return !hide.has(r.fstate) && !hide.has(phaseKey);
+        });
+
+        const BUCKETS = [
+            { max: 5, label: '≤5m', color: '#30d158' },
+            { max: 10, label: '≤10m', color: '#30d158' },
+            { max: 15, label: '≤15m', color: '#ffd60a' },
+            { max: 30, label: '≤30m', color: '#ffd60a' },
+            { max: 60, label: '≤1h', color: 'rgba(235,235,245,0.65)' },
+            { max: Infinity, label: '1h+', color: 'rgba(235,235,245,0.38)' }
+        ];
+        const counts = BUCKETS.map(() => 0);
+        shown.forEach(r => {
+            const i = (r.etaMin == null) ? BUCKETS.length - 1 : BUCKETS.findIndex(b => r.etaMin <= b.max);
+            counts[i]++;
+        });
+        const bucketChips = BUCKETS.map((b, i) => counts[i]
+            ? `<span class="ios-atc-bucket" style="color:${b.color};">${b.label} · ${counts[i]}</span>`
+            : '').join('');
+
+        // Scrollable arrivals list (capped for DOM weight; the list itself
+        // scrolls inside the drawer).
+        const nearest = shown.slice(0, 30).map(r => {
+            const eta = r.etaMin == null ? '—'
+                : (r.etaMin >= 60 ? `${Math.floor(r.etaMin / 60)}h ${String(r.etaMin % 60).padStart(2, '0')}m` : `${r.etaMin}m`);
+            const tag = r.fstate === 'applus' ? ' · AP+'
+                : r.fstate === 'parked' ? ' · Parked'
+                : r.fstate === 'away' ? ' · Away' : '';
+            return `<div class="ios-atc-arr-row"><span class="ios-atc-arr-cs">${this._atcEsc(r.callsign)}</span><span class="ios-atc-arr-eta">ETA ${this._atcEsc(eta + tag)}</span></div>`;
+        }).join('');
+
+        return `
+            <div class="ios-atc-traffic">
+                <div class="ios-atc-ctrl-head">Traffic</div>
+                ${chipsRow}
+                <div class="ios-atc-tstats">
+                    <span class="ios-atc-tstat"><b>${shown.length}</b> inbound</span>
+                    <span class="ios-atc-tstat"><b>${t.outCount}</b> outbound</span>
+                    <span class="ios-atc-tstat"><b>${t.flying}</b> flying</span>
+                    <span class="ios-atc-tstat"><b>${t.parked}</b> parked</span>
+                    <span class="ios-atc-tstat"><b>${t.applus}</b> AP+</span>
+                </div>
+                ${bucketChips ? `<div class="ios-atc-buckets">${bucketChips}</div>` : ''}
+                ${nearest ? `<div class="ios-atc-arrlist">${nearest}</div>` : ''}
+            </div>`;
+    },
     _atcAirportRowHTML(a, idx) {
         // Each position column is dimmed by default and lights up when staffed.
         const col = (label, on, cls) =>
             `<span class="ios-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
-        const controllers = (a.count > 0) ? this._atcControllersFor(a.icao) : [];
-        const drawer = controllers.length ? `
+        // A drawer is offered for any field with controllers OR live traffic —
+        // staffed or not. Its content is built LAZILY (only for expanded rows):
+        // the board can list 100+ airports and each traffic readout is a full
+        // flight-cache scan, so eager building would make the sheet crawl.
+        const hasDrawer = (a.count > 0) || ((a.totalTraffic || 0) > 0);
+        const isOpen = hasDrawer && this._atcOpenIcaos && this._atcOpenIcaos.has(a.icao);
+        const controllers = (isOpen && a.count > 0) ? this._atcControllersFor(a.icao) : [];
+        const trafficHtml = isOpen ? this._atcTrafficHTML(a.icao) : '';
+        const drawer = isOpen ? `
                 <div class="ios-atc-ctrl-drawer">
-                    <div class="ios-atc-ctrl-head">On frequency now</div>
-                    ${controllers.map(f => this._atcControllerRowHTML(f)).join('')}
+                    ${controllers.length ? `<div class="ios-atc-ctrl-head">On frequency now</div>
+                    ${controllers.map(f => this._atcControllerRowHTML(f)).join('')}` : ''}
+                    ${trafficHtml}
                 </div>` : '';
-        const isOpen = controllers.length && this._atcOpenIcaos && this._atcOpenIcaos.has(a.icao);
-        const chevron = controllers.length ? `
+        // PRO: ping this field onto the map as its ICAO letters.
+        const pinged = !!(window.mapFilters && Array.isArray(window.mapFilters.pingedAirports)
+            && window.mapFilters.pingedAirports.includes(a.icao));
+        const pingBtn = `
+                <button type="button" class="ios-atc-ping${pinged ? ' pinged' : ''}" data-atc-ping="${idx}"
+                        aria-label="Ping airport on map" title="Ping on map (Pro)">
+                    <i class="fa-solid fa-location-dot"></i>
+                </button>`;
+        const chevron = hasDrawer ? `
                 <button type="button" class="ios-atc-expand" data-atc-expand="${idx}"
-                        aria-label="Show controllers" aria-expanded="${isOpen ? 'true' : 'false'}">
+                        aria-label="Show details" aria-expanded="${isOpen ? 'true' : 'false'}">
                     <i class="fa-solid fa-chevron-down"></i>
                 </button>` : '';
         return `
@@ -643,21 +761,22 @@ export const MobileLandingChromeUI = {
                 <div class="ios-atc-arow-line">
                     <button type="button" class="ios-atc-arow" data-atc-apt="${idx}">
                         <span class="ios-atc-apt">
-                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}</span>
+                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}${(!a.count && (a.in60 || 0) >= 3) ? `<span class="ios-atc-rec" title="Strong arrival flow in the next hour — great field for IFATC"><i class="fa-solid fa-star"></i> IFATC · ${a.in60}/hr</span>` : ''}</span>
                             <span class="ios-atc-aptname">${this._atcEsc(a.name || a.icao)}</span>
                         </span>
                         <span class="ios-atc-tower">
                             <i class="fa-solid fa-tower-broadcast"></i>
                             <span class="ios-atc-num">${a.count}</span>
                         </span>
-                        <span class="ios-atc-cols">
+                        ${a.count > 0 ? `<span class="ios-atc-cols">
                             ${col('ATS', a.atis, 'atis')}
                             ${col('GND', a.gnd, 'gnd')}
                             ${col('TWR', a.twr, 'twr')}
                             ${col('APP', a.app, 'app')}
                             ${col('DEP', a.dep, 'dep')}
-                        </span>
+                        </span>` : ''}
                     </button>
+                    ${pingBtn}
                     ${chevron}
                 </div>
                 ${drawer}
@@ -668,25 +787,59 @@ export const MobileLandingChromeUI = {
         const countEl = document.getElementById('ios-atc-count');
         if (!body) return;
 
-        // Airport board — one row per staffed field; keep a stable list so a
+        // Airport board — staffed fields on top, then every airport with live
+        // traffic, sorted by next-hour arrival flow. Keep a stable list so a
         // row's data-atc-apt maps back to its airport.
-        const board = this._atcBoardLive();
-        this._atcBoard = board;
+        const staffed = this._atcBoardLive();
+        const busy = (typeof window.getBusyAirportsSummary === 'function') ? window.getBusyAirportsSummary() : [];
+        const busyMap = new Map(busy.map(b => [b.icao, b]));
 
-        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        const seen = new Set();
+        let rows = staffed.map(a => {
+            seen.add(a.icao);
+            const t = busyMap.get(a.icao);
+            return { ...a, in60: t ? t.in60 : 0, totalTraffic: t ? t.total : 0 };
+        });
+        busy.forEach(b => {
+            if (seen.has(b.icao)) return;
+            rows.push({
+                icao: b.icao, name: b.name, count: 0,
+                atis: false, gnd: false, twr: false, app: false, dep: false,
+                in60: b.in60, totalTraffic: b.total
+            });
+        });
+
+        // Active ATC first (by controllers), then by next-hour flow, then by
+        // total associated traffic.
+        rows.sort((a, b) => (b.count - a.count) || (b.in60 - a.in60) || (b.totalTraffic - a.totalTraffic));
+
+        // Search (ICAO or airport name).
+        const q = (this._atcSearchQuery || '').trim().toUpperCase();
+        if (q) rows = rows.filter(r =>
+            String(r.icao).toUpperCase().includes(q) || String(r.name || '').toUpperCase().includes(q));
+
+        rows = rows.slice(0, 120); // keep the sheet snappy
+        this._atcBoard = rows;
+
+        const total = staffed.reduce((s, a) => s + (a.count || 0), 0);
         if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
 
-        if (!board.length) {
-            body.innerHTML = `
+        if (!rows.length) {
+            body.innerHTML = q ? `
+                <div class="ios-inflight-empty">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <p>No airports match "${this._atcEsc(q)}"</p>
+                    <span>Try an ICAO code (e.g. KLAX) or part of the airport name.</span>
+                </div>` : `
                 <div class="ios-inflight-empty">
                     <i class="fa-solid fa-tower-broadcast"></i>
-                    <p>No controllers online</p>
-                    <span>When ATC connects on this server, every staffed airport appears here — tap one to jump to it.</span>
+                    <p>No live airports</p>
+                    <span>Staffed fields and airports with live traffic appear here — tap one to jump to it.</span>
                 </div>`;
             return;
         }
 
-        body.innerHTML = `<div class="ios-atc-board">${board.map((a, i) => this._atcAirportRowHTML(a, i)).join('')}</div>`;
+        body.innerHTML = `<div class="ios-atc-board">${rows.map((a, i) => this._atcAirportRowHTML(a, i)).join('')}</div>`;
     },
 
     /* ===========================================================
@@ -1614,7 +1767,9 @@ export const MobileLandingChromeUI = {
                 transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.12s cubic-bezier(0.16,1,0.3,1);
             }
             .ios-atc-arow:active { background: var(--ios-fill); border-color: var(--ios-stroke); transform: scale(0.99); }
-            .ios-atc-apt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            /* min-width keeps the ICAO readable even when the row is squeezed;
+               the airport NAME is what truncates. */
+            .ios-atc-apt { flex: 1 1 auto; min-width: 72px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
             .ios-atc-icao { font-size: 18px; font-weight: 800; letter-spacing: -0.3px; color: var(--ios-text); line-height: 1.05; }
             .ios-atc-aptname {
                 font-size: 12.5px; color: var(--ios-text-3);
@@ -1623,10 +1778,10 @@ export const MobileLandingChromeUI = {
             .ios-atc-tower { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; }
             .ios-atc-tower i { font-size: 14px; color: var(--ios-text-2); }
             .ios-atc-num { font-size: 15px; font-weight: 700; color: var(--ios-text); font-variant-numeric: tabular-nums; min-width: 10px; }
-            .ios-atc-cols { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; }
+            .ios-atc-cols { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
             .ios-atc-col {
                 font-size: 10px; font-weight: 800; letter-spacing: 0.6px;
-                color: var(--ios-text-4); min-width: 30px; text-align: center;
+                color: var(--ios-text-4); min-width: 26px; text-align: center;
                 transition: color 0.16s ease, text-shadow 0.16s ease;
             }
             .ios-atc-col.on.atis { color: #30d158; text-shadow: 0 0 10px rgba(48,209,88,0.45); }
@@ -1634,6 +1789,13 @@ export const MobileLandingChromeUI = {
             .ios-atc-col.on.twr  { color: #ff9f0a; text-shadow: 0 0 10px rgba(255,159,10,0.45); }
             .ios-atc-col.on.app  { color: #bf5af2; text-shadow: 0 0 10px rgba(191,90,242,0.45); }
             .ios-atc-col.on.dep  { color: #64d2ff; text-shadow: 0 0 10px rgba(100,210,255,0.45); }
+            /* Phones: the position-letter strip fights the ping/expand buttons
+               for row width and starves the airport name. The controller count
+               + the drawer's frequency pills carry the same info, so drop the
+               strip on narrow screens. */
+            @media (max-width: 480px) {
+                .ios-atc-board .ios-atc-cols { display: none; }
+            }
 
             /* ---- Controller dropdown (who's on frequency, and for how long) ---- */
             .ios-atc-awrap {
@@ -1648,6 +1810,11 @@ export const MobileLandingChromeUI = {
             .ios-atc-board .ios-atc-arow-line { display: flex; align-items: stretch; }
             .ios-atc-board .ios-atc-arow {
                 flex: 1 1 auto;
+                /* Without this a flex child won't shrink below its content, so
+                   the ping + chevron buttons get pushed off the card edge on
+                   phones — visible but untappable. Let the airport column
+                   truncate instead. */
+                min-width: 0;
                 background: transparent;
                 border: none;
                 border-radius: 0;
@@ -1655,7 +1822,7 @@ export const MobileLandingChromeUI = {
             .ios-atc-board .ios-atc-arow:active { background: var(--ios-fill); transform: none; }
             .ios-atc-expand {
                 flex: 0 0 auto;
-                width: 46px;
+                width: 40px;
                 display: flex; align-items: center; justify-content: center;
                 background: transparent;
                 border: none;
@@ -1667,6 +1834,23 @@ export const MobileLandingChromeUI = {
             }
             .ios-atc-expand:active { background: var(--ios-fill); }
             .ios-atc-awrap.ctrl-open .ios-atc-expand { transform: rotate(180deg); color: var(--ios-text); }
+
+            /* PRO ping button on each airport row */
+            .ios-atc-ping {
+                flex: 0 0 auto;
+                width: 40px;
+                display: flex; align-items: center; justify-content: center;
+                background: transparent;
+                border: none;
+                border-left: 0.5px solid var(--ios-stroke-soft);
+                color: var(--ios-text-4);
+                font-size: 14px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: color 0.16s ease, background-color 0.16s ease;
+            }
+            .ios-atc-ping:active { background: var(--ios-fill); }
+            .ios-atc-ping.pinged { color: var(--ios-accent); }
 
             .ios-atc-ctrl-drawer {
                 display: grid;
@@ -1710,6 +1894,83 @@ export const MobileLandingChromeUI = {
                 display: inline-flex; align-items: center; gap: 4px;
             }
             .ios-atc-ctrl-time i { font-size: 10px; color: var(--ios-text-3); }
+
+            /* --- Per-field traffic readout inside the drawer --- */
+            .ios-atc-traffic { padding-bottom: 10px; }
+            .ios-atc-tstats {
+                display: flex; flex-wrap: wrap; gap: 4px 14px;
+                padding: 6px 14px 0;
+                font-size: 12px; color: var(--ios-text-3);
+            }
+            .ios-atc-tstat b {
+                color: var(--ios-text); font-weight: 700;
+                font-variant-numeric: tabular-nums;
+            }
+            .ios-atc-buckets { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 0; }
+            .ios-atc-bucket {
+                font-size: 11px; font-weight: 700;
+                border: 1px solid currentColor; border-radius: 6px;
+                padding: 2px 7px; font-variant-numeric: tabular-nums;
+            }
+            .ios-atc-arrlist {
+                display: flex; flex-direction: column; gap: 4px; padding: 8px 14px 0;
+                max-height: 216px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+            }
+            .ios-atc-arr-row {
+                display: flex; justify-content: space-between; align-items: center;
+                font-size: 12.5px; padding: 6px 10px;
+                background: var(--ios-fill); border-radius: 8px;
+            }
+            .ios-atc-arr-cs { font-weight: 700; color: var(--ios-text); }
+            .ios-atc-arr-eta { color: var(--ios-text-3); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+            /* --- Airport search bar (lives outside the re-rendered body) --- */
+            .ios-atc-search {
+                display: flex; align-items: center; gap: 8px;
+                margin: 0 16px 10px;
+                padding: 8px 12px;
+                background: var(--ios-fill);
+                border: 1px solid var(--ios-stroke-soft);
+                border-radius: 10px;
+            }
+            .ios-atc-search i { font-size: 12px; color: var(--ios-text-3); flex-shrink: 0; }
+            .ios-atc-search input {
+                flex: 1; min-width: 0;
+                background: none; border: none; outline: none;
+                font: inherit; font-size: 14px; color: var(--ios-text);
+            }
+            .ios-atc-search input::placeholder { color: var(--ios-text-4); }
+
+            /* --- IFATC recommendation stamp (unstaffed, strong next-hour flow) --- */
+            .ios-atc-rec {
+                display: inline-flex; align-items: center; gap: 4px;
+                white-space: nowrap;
+                margin-left: 8px; vertical-align: 2px;
+                font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px;
+                text-transform: uppercase;
+                color: #ffd60a; background: rgba(255, 214, 10, 0.14);
+                border: 1px solid rgba(255, 214, 10, 0.35);
+                border-radius: 6px; padding: 2px 6px;
+            }
+            .ios-atc-rec i { font-size: 8px; }
+
+            /* --- Per-airport traffic filter chips --- */
+            .ios-atc-tchips {
+                display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+                padding: 2px 2px 12px;
+            }
+            .ios-atc-tchips.in-drawer { padding: 6px 14px 2px; }
+            .ios-atc-tchips.in-drawer .ios-atc-tchip { font-size: 11px; padding: 3px 9px; }
+            .ios-atc-tchips-label { font-size: 11px; color: var(--ios-text-4); margin-right: 2px; }
+            .ios-atc-tchip {
+                font-size: 12px; font-weight: 600; color: var(--ios-text-2);
+                background: var(--ios-fill); border: 1px solid var(--ios-stroke-soft);
+                border-radius: 99px; padding: 4px 11px; cursor: pointer;
+            }
+            .ios-atc-tchip.off {
+                color: var(--ios-text-4); background: transparent;
+                text-decoration: line-through;
+            }
 
             /* The ATC tab badge is an online-count, not an alert — tint it accent. */
             .ios-tab-badge.is-atc { background: var(--ios-accent); box-shadow: 0 1px 3px rgba(10, 132, 255, 0.4); }

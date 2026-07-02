@@ -10,7 +10,9 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+// Supabase client, pinned to the v2 major so jsDelivr serves a stable,
+// cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
@@ -32,8 +34,8 @@ console.log(
 );
 
 
-const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co'; 
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U'; 
+const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // 1. Initialize Desktop Dashboard
@@ -383,6 +385,11 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                 mapFilters.showBuildings = false;
                 mapFilters.showDayNight = false;
 
+                // Pinged airports are Pro-only; clear them (and their map
+                // labels) on sign-out like the other Pro surfaces.
+                mapFilters.pingedAirports = [];
+                if (typeof renderPingedAirportMarkers === 'function') renderPingedAirportMarkers();
+
                 // 5. Save the downgraded filters to local storage
                 if (typeof saveFiltersToLocalStorage === 'function') {
                     saveFiltersToLocalStorage();
@@ -587,6 +594,7 @@ window.pinFlight = function(flightId) {
         if (currentFlightInWindow !== flightId) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(flightId);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(flightId);
+            if (typeof flownPathGeomCache !== 'undefined') flownPathGeomCache.delete(flightId);
         } else {
             const pinBtn = document.getElementById('pin-flight-btn');
             if (pinBtn) {
@@ -613,6 +621,11 @@ window.pinFlight = function(flightId) {
     // --- Map-related State ---
     let lastSocketUpdateTimestamp = 0; // NEW: Tracks the last valid flight data packet
     let liveTrailCache = new Map();
+    // Rendered flown-path geometry, keyed by flightId. Seeded ONCE from the
+    // /history fetch when a window opens; every socket fix after that appends
+    // a single segment from the cached tip instead of re-smoothing the whole
+    // trail (or re-calling the endpoint). Erased when the window closes/unpins.
+    let flownPathGeomCache = new Map();
     const communityAircraftCache = new Map();
     const lookupQueue = new Map();
     let liveFlightsMap = null;
@@ -688,10 +701,12 @@ let mapFilters = {
         // the classic DOM airport tags.
         useClassicAirportTags: false,
         hideNoAtcMarkers: false,
-        // ATC sector (FIR) boundary overlay. When on, active controllers'
-        // FIR boundaries are drawn on the map; when off, they stay hidden
-        // even while ATC is online. See applyAtcBoundaryVisibility().
-        showAtcBoundaries: true,
+        // ATC sector (FIR) boundary overlay. Opt-in: off by default. When on,
+        // only the sectors that currently have a Center controller online light
+        // up (border + faint fill) — the full FIR network is never drawn. When
+        // off, nothing is shown even while ATC is online. See
+        // applyAtcBoundaryVisibility() and updateActiveSectors().
+        showAtcBoundaries: false,
         // Terrain Awareness mode (free for everyone). showTerrainMode draws the
         // hypsometric elevation map + hillshade; terrainTawsEnabled switches the
         // colouring to be relative to terrainTawsAltitude (ft). See
@@ -732,12 +747,19 @@ let mapFilters = {
         },
         useFlatMap: false,
         useSimpleFlightWindow: false,
+        // Auto-advance the aircraft photo carousel (with a soft crossfade) in
+        // both the regular and simple flight windows. On by default; the
+        // "Auto-Cycle Photos" toggle turns it off. See buildHeroPhotoCarousel().
+        autoCyclePhotos: true,
         planeIconSize: 0.15,
         themeStartColor: '#18181b',
         themeEndColor: '#18181b',
         themeOpacity: 90,
         showBuildings: false, // NEW: 3D Buildings
-        showDayNight: false   // NEW: Day/Night Cycle
+        showDayNight: false,  // NEW: Day/Night Cycle
+        // PRO: airports "pinged" from their info window — rendered on the map
+        // as their ICAO letters. See renderPingedAirportMarkers().
+        pingedAirports: []
     };
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
@@ -823,6 +845,18 @@ let cachedSessionId = null;
     }  
 
     let mapSourceUpdateTimeout = null;
+
+// Anchor id for layers that must render UNDER every aircraft icon. The
+// natural (non-SDF) plane layer is inserted BELOW the SDF layer, so anchoring
+// overlays on the SDF layer alone sandwiches them ON TOP of most planes
+// (anything drawn from the natural sprite set — e.g. the default White mode).
+function getUnderAircraftAnchor() {
+    if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap
+        && sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')) {
+        return 'sector-ops-live-flights-natural-layer';
+    }
+    return 'sector-ops-live-flights-layer';
+}
 
 function scheduleMapSourceUpdate() {
     if (mapSourceUpdateTimeout) return; 
@@ -957,49 +991,79 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
 // --- PREMIUM CLOUD SYNC ENGINE ---
     let cloudSyncTimeout = null;
 
-    async function saveFiltersToLocalStorage() {
+    // Pushes the current mapFilters to the user's cloud profile (Pro only).
+    // Factored out so both the debounced save and the immediate flush below
+    // can reuse it.
+    async function pushFiltersToCloud() {
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userId = sessionData?.session?.user?.id;
+            if (!userId) return;
+
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', userId)
+                .single();
+
+            if (profile && profile.is_pro) {
+                const { error } = await supabase
+                    .from('profiles')
+                    .update({ map_filters: mapFilters })
+                    .eq('id', userId);
+
+                if (!error) {
+                    console.log("☁️ Premium Settings Synced to Cloud.");
+                } else {
+                    console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
+                }
+            }
+        } catch (err) {
+            console.warn("Cloud sync interrupted:", err);
+        }
+    }
+
+    // Persist filters. localStorage is always committed instantly; the cloud
+    // write is debounced to avoid hammering the DB during rapid UI toggles.
+    // Pass `true` (or { immediate: true }) for actions that must not be lost
+    // if the user navigates away before the debounce fires — e.g. Reset
+    // Filters. Otherwise the stale cloud copy wins on the next load and the
+    // filters appear to "come back" even though they were cleared locally.
+    async function saveFiltersToLocalStorage(options) {
+        const immediate = options === true || (options && options.immediate);
         try {
             // 1. Instant Local Commit (Zero Latency UI)
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
 
-            // 2. Debounced Cloud Sync for Pro Users
-            const { data: sessionData } = await supabase.auth.getSession();
-            if (sessionData?.session?.user) {
-                const userId = sessionData.session.user.id;
-                
-                // Clear existing timeout to prevent database hammering during rapid UI toggles
-                if (cloudSyncTimeout) clearTimeout(cloudSyncTimeout);
-                
-                cloudSyncTimeout = setTimeout(async () => {
-                    try {
-                        const { data: profile } = await supabase
-                            .from('profiles')
-                            .select('is_pro')
-                            .eq('id', userId)
-                            .single();
-
-                        if (profile && profile.is_pro) {
-                            const { error } = await supabase
-                                .from('profiles')
-                                .update({ map_filters: mapFilters })
-                                .eq('id', userId);
-                                
-                            if (!error) {
-                                console.log("☁️ Premium Settings Synced to Cloud.");
-                            } else {
-                                console.warn("Cloud sync failed. Ensure 'map_filters' JSONB column exists in 'profiles' table.");
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("Cloud sync interrupted:", err);
-                    }
+            // 2. Cloud Sync for Pro Users (immediate, or debounced)
+            if (cloudSyncTimeout) { clearTimeout(cloudSyncTimeout); cloudSyncTimeout = null; }
+            if (immediate) {
+                await pushFiltersToCloud();
+            } else {
+                cloudSyncTimeout = setTimeout(() => {
+                    cloudSyncTimeout = null;
+                    pushFiltersToCloud();
                 }, 1200); // 1.2s Debounce for silky smooth performance
             }
         } catch (e) {
             console.warn("Could not save filters locally.", e);
         }
     }
+
+    // Best-effort flush of a pending cloud sync when the page is hidden or
+    // unloaded, so a debounced edit isn't lost (and then resurrected from the
+    // stale cloud copy on the next visit). No-op when nothing is pending.
+    function flushPendingCloudSync() {
+        if (!cloudSyncTimeout) return;
+        clearTimeout(cloudSyncTimeout);
+        cloudSyncTimeout = null;
+        pushFiltersToCloud();
+    }
+    window.addEventListener('pagehide', flushPendingCloudSync);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingCloudSync();
+    });
 
     async function loadFiltersFromLocalStorage() {
         // 1. Instant Local Paint
@@ -4395,6 +4459,284 @@ function injectCustomStyles() {
             overflow: hidden;
         }
 
+        /* --- Airport weather "instrument panel" (glass-cockpit look) --- */
+        .apt-wx-panel {
+            margin: 0 16px 12px;
+            background: rgba(24, 24, 27, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+
+        .wx-body { padding: 12px; }
+
+        .wx-tile-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .wx-tile {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 8px 6px;
+        }
+
+        .wx-tile-chip {
+            font-family: var(--font-data);
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #e4e4e7;
+            line-height: 1.15;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .wx-tile-sub {
+            font-size: 0.6rem;
+            color: #a1a1aa;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .wx-gauges {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .wx-gauge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wx-gauge-svg {
+            width: 100%;
+            max-width: 190px;
+            height: auto;
+            aspect-ratio: 1 / 1;
+        }
+
+        .wx-rwy-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .wx-rwy-pill {
+            font-family: var(--font-data);
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #a1a1aa;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 9px;
+            padding: 6px 12px;
+        }
+
+        .wx-rwy-pill.active {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.08);
+            border-color: rgba(56, 189, 248, 0.5);
+        }
+
+        .wx-cloud-chart {
+            position: relative;
+            height: 130px;
+            margin-top: 16px;
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .wx-cloud-grid {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px dashed rgba(255, 255, 255, 0.12);
+        }
+
+        .wx-cloud-grid span {
+            position: absolute;
+            left: 4px;
+            top: -8px;
+            font-size: 0.62rem;
+            color: rgba(226, 232, 240, 0.55);
+            font-family: var(--font-data);
+        }
+
+        .wx-cloud-layer {
+            position: absolute;
+            left: 28%;
+            right: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transform: translateY(-50%);
+            color: #fff;
+        }
+
+        .wx-cloud-layer .fa-cloud { font-size: 1.4rem; opacity: 0.75; color: #cbd5e1; }
+
+        .wx-cloud-tag {
+            margin-left: auto;
+            font-family: var(--font-data);
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #cbd5e1;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 3px 8px;
+        }
+
+        /* --- Traffic tab: stats strip, filter chips, ETA buckets --- */
+        .apt-traffic-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 12px 16px 0;
+        }
+        .apt-traffic-stat {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 8px 4px;
+            text-align: center;
+        }
+        .apt-traffic-stat .val {
+            display: block;
+            font-family: var(--font-data);
+            font-size: 1rem;
+            font-weight: 700;
+        }
+        .apt-traffic-stat .lbl {
+            display: block;
+            font-size: 0.58rem;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-top: 2px;
+        }
+        .apt-tfilter-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px 0;
+        }
+        .apt-tfilter-label { color: #52525b; font-size: 0.65rem; margin-right: 2px; }
+        .apt-tfilter-chip {
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #e4e4e7;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 99px;
+            padding: 4px 10px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .apt-tfilter-chip.off {
+            color: #52525b;
+            background: transparent;
+            border-color: rgba(255, 255, 255, 0.05);
+            text-decoration: line-through;
+        }
+        .apt-eta-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.62rem;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            padding: 10px 4px 4px;
+        }
+        .apt-eta-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 6px currentColor;
+        }
+        /* Filter chips hide their matching cards (state + phase groups). */
+        #apt-traffic.tfilter-hide-parked [data-fstate="parked"],
+        #apt-traffic.tfilter-hide-applus [data-fstate="applus"],
+        #apt-traffic.tfilter-hide-away [data-fstate="away"],
+        #apt-traffic.tfilter-hide-ground [data-phase="ground"],
+        #apt-traffic.tfilter-hide-climb [data-phase="climb"],
+        #apt-traffic.tfilter-hide-descent [data-phase="descent"],
+        #apt-traffic.tfilter-hide-cruise [data-phase="cruise"],
+        #apt-traffic.tfilter-hide-cruise [data-phase="enroute"] { display: none; }
+
+        /* --- PRO pinged-airport map label --- */
+        .pinged-airport-label {
+            font-family: var(--font-data);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: #38bdf8;
+            background: rgba(10, 15, 26, 0.78);
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            border-radius: 6px;
+            padding: 3px 8px;
+            cursor: pointer;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .pinged-airport-label i { font-size: 10px; }
+        .hero-btn.pinged { color: #38bdf8; border-color: rgba(56, 189, 248, 0.6); }
+
+        /* Full ATIS broadcast text inside the ATIS module. */
+        .apt-atis-remark {
+            margin: 8px 10px 0;
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #fbbf24;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .apt-atis-text {
+            margin: 8px 10px 10px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
+            font-family: var(--font-data);
+            font-size: 0.68rem;
+            line-height: 1.5;
+            color: #94a3b8;
+            max-height: 110px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .wx-cloud-clear {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            text-align: center;
+            color: rgba(226, 232, 240, 0.7);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
         .apt-mini-header {
             background: var(--bg-subtle);
             padding: 6px 10px;
@@ -5600,15 +5942,17 @@ async function initializeMapBoundaries(map) {
             }, beforeId); // Use safe reference
         }
 
-        // 3. fir-borders Layer — the FULL FIR boundary network, drawn as clean
-        // thin lines. The lines look the same whether or not a sector is
-        // staffed; whether they show at all is controlled by the
+        // 3. fir-borders Layer — clean thin boundary lines, scoped to the SAME
+        // staffed sectors as fir-fills (updateActiveSectors() applies the
+        // filter). Starts empty so the full FIR network is never drawn; only
+        // live centers light up. Whether it shows at all is gated by the
         // showAtcBoundaries toggle (see applyAtcBoundaryVisibility).
         if (!map.getLayer('fir-borders')) {
             map.addLayer({
                 id: 'fir-borders',
                 type: 'line',
                 source: 'fir-boundaries',
+                filter: ['==', 'id', 'none-active'],
                 paint: {
                     'line-color': borderColor,
                     'line-width': 0.8,
@@ -5632,7 +5976,7 @@ async function initializeMapBoundaries(map) {
 function applyAtcBoundaryVisibility(map) {
     const target = map || sectorOpsMap;
     if (!target) return;
-    const vis = (mapFilters.showAtcBoundaries === false) ? 'none' : 'visible';
+    const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
     ['fir-fills', 'fir-borders'].forEach(id => {
         if (target.getLayer(id)) {
             target.setLayoutProperty(id, 'visibility', vis);
@@ -5898,7 +6242,8 @@ function generateTrafficForecastHTML(congestion) {
         pilotMarkers = {};
         
         liveTrailCache.clear();
-        
+        flownPathGeomCache.clear();
+
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
         }
@@ -6065,6 +6410,181 @@ function getRunwayRecommendations(runways, windStr) {
 
     // Sort by score (descending) and return top 4
     return recommendations.sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+/**
+ * Builds the airport "instrument panel" — the at-a-glance weather block
+ * styled after a glass-cockpit EFB: a grid of condition tiles, a compass
+ * rose with the favoured runway and wind arrow drawn on it, a wind-speed
+ * dial, a runway selector and a cloud-altitude profile.
+ *
+ * @param {object} w        Parsed METAR (see WeatherService.parseMetar)
+ * @param {Array}  runways  Runway records for the field (runwaysData[icao])
+ * @param {string} category Flight category (VFR/MVFR/IFR/LIFR)
+ * @param {string} catColor Colour associated with the category
+ * @returns {string} HTML for the panel.
+ */
+function buildAirportWxPanel(w, runways, category, catColor) {
+    const openRwys = (runways || []).filter(r => !r.closed && r.le_ident);
+
+    // --- Favoured runway (for the compass diagram + active pill) ----------
+    const recs = getRunwayRecommendations(openRwys, w.wind);
+    const favored = recs[0] || null;
+    let rwyHeading = null, rwyLeId = '', rwyHeId = '';
+    if (favored) {
+        for (const r of openRwys) {
+            if (r.le_ident === favored.ident && r.le_heading_degT != null) { rwyHeading = r.le_heading_degT; rwyLeId = r.le_ident; rwyHeId = r.he_ident || ''; break; }
+            if (r.he_ident === favored.ident && r.he_heading_degT != null) { rwyHeading = r.he_heading_degT; rwyLeId = r.he_ident; rwyHeId = r.le_ident || ''; break; }
+        }
+    }
+    if (rwyHeading == null) {
+        const withH = openRwys.filter(r => r.le_heading_degT != null).sort((a, b) => (b.length_ft || 0) - (a.length_ft || 0));
+        if (withH[0]) { rwyHeading = withH[0].le_heading_degT; rwyLeId = withH[0].le_ident; rwyHeId = withH[0].he_ident || ''; }
+    }
+
+    const sin = d => Math.sin(d * Math.PI / 180);
+    const cos = d => Math.cos(d * Math.PI / 180);
+
+    // --- Compass rose ------------------------------------------------------
+    const C = 100, R = 94;
+    let ticks = '';
+    for (let d = 0; d < 360; d += 10) {
+        const major = d % 30 === 0;
+        const r2 = R - (major ? 13 : 7);
+        ticks += `<line x1="${(C + R * sin(d)).toFixed(1)}" y1="${(C - R * cos(d)).toFixed(1)}" x2="${(C + r2 * sin(d)).toFixed(1)}" y2="${(C - r2 * cos(d)).toFixed(1)}" stroke="rgba(255,255,255,${major ? 0.55 : 0.25})" stroke-width="${major ? 2 : 1}"/>`;
+    }
+    const labelMap = { 0: 'N', 30: '3', 60: '6', 90: 'E', 120: '12', 150: '15', 180: 'S', 210: '21', 240: '24', 270: 'W', 300: '30', 330: '33' };
+    let roseLabels = '';
+    for (const deg in labelMap) {
+        const lr = R - 28;
+        roseLabels += `<text x="${(C + lr * sin(deg)).toFixed(1)}" y="${(C - lr * cos(deg)).toFixed(1)}" fill="rgba(226,232,240,0.85)" font-size="14" font-weight="700" text-anchor="middle" dominant-baseline="central">${labelMap[deg]}</text>`;
+    }
+
+    // Runway drawn through the centre, rotated to its true heading.
+    let runwaySvg = '';
+    if (rwyHeading != null) {
+        const half = 58, w2 = 9;
+        runwaySvg = `
+            <g transform="rotate(${rwyHeading.toFixed(1)} ${C} ${C})">
+                <rect x="${C - w2}" y="${C - half}" width="${w2 * 2}" height="${half * 2}" rx="3" fill="#18181b" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                <line x1="${C}" y1="${C - half + 8}" x2="${C}" y2="${C + half - 8}" stroke="#fff" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.8"/>
+                <g stroke="#fff" stroke-width="1.5" opacity="0.9">
+                    ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C - half + 1}" x2="${C + o}" y2="${C - half + 7}"/>`).join('')}
+                    ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C + half - 1}" x2="${C + o}" y2="${C + half - 7}"/>`).join('')}
+                </g>
+            </g>`;
+    }
+
+    // Wind arrow: sits at the bearing the wind blows FROM, pointing inward.
+    let windArrow = '';
+    if (w.windDir != null && w.windSpeed > 0) {
+        windArrow = `
+            <g transform="rotate(${(w.windDir - 180).toFixed(1)} ${C} ${C})">
+                <path d="M ${C} ${C + 40} L ${C - 9} ${C + 62} L ${C - 3.5} ${C + 62} L ${C - 3.5} ${C + 84} L ${C + 3.5} ${C + 84} L ${C + 3.5} ${C + 62} L ${C + 9} ${C + 62} Z" fill="#fff"/>
+            </g>`;
+    }
+
+    const compassSvg = `
+        <svg viewBox="0 0 200 200" class="wx-gauge-svg" aria-label="Runway and wind direction">
+            ${ticks}${roseLabels}${runwaySvg}${windArrow}
+        </svg>`;
+
+    // --- Wind-speed dial (0–45 kt, 270° sweep) ----------------------------
+    const WMAX = 45, WC = 100, WR = 80;
+    const bearing = v => 180 + (Math.min(v, WMAX) / WMAX) * 270;
+    let dialTicks = '', dialLabels = '';
+    for (let v = 0; v <= WMAX; v += 5) {
+        const b = bearing(v);
+        dialTicks += `<line x1="${(WC + WR * sin(b)).toFixed(1)}" y1="${(WC - WR * cos(b)).toFixed(1)}" x2="${(WC + (WR - 9) * sin(b)).toFixed(1)}" y2="${(WC - (WR - 9) * cos(b)).toFixed(1)}" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>`;
+        const lr = WR - 24;
+        dialLabels += `<text x="${(WC + lr * sin(b)).toFixed(1)}" y="${(WC - lr * cos(b)).toFixed(1)}" fill="rgba(226,232,240,0.8)" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">${v}</text>`;
+    }
+    const nb = bearing(w.windSpeed || 0);
+    const windDial = `
+        <svg viewBox="0 0 200 200" class="wx-gauge-svg" aria-label="Wind speed">
+            ${dialTicks}${dialLabels}
+            <text x="${WC}" y="${WC - 26}" fill="rgba(226,232,240,0.7)" font-size="13" font-weight="700" text-anchor="middle">kt</text>
+            <line x1="${WC}" y1="${WC}" x2="${(WC + (WR - 10) * sin(nb)).toFixed(1)}" y2="${(WC - (WR - 10) * cos(nb)).toFixed(1)}" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
+            <circle cx="${WC}" cy="${WC}" r="7" fill="#18181b" stroke="#fff" stroke-width="2"/>
+        </svg>`;
+
+    // --- Condition tiles ---------------------------------------------------
+    // Styled like the window's compact stat boxes: neutral glass cells with a
+    // colored VALUE (label on top), matching every other module — not solid
+    // colored chips.
+    const good = '#4ade80';
+    const warn = '#fbbf24';
+    const neutral = '#e4e4e7';
+    const tile = (valueColor, valueHtml, sub) => `
+        <div class="wx-tile">
+            <div class="wx-tile-sub">${sub}</div>
+            <div class="wx-tile-chip" style="color:${valueColor};">${valueHtml}</div>
+        </div>`;
+
+    const windChip = w.windSpeed > 0 ? `${w.windSpeed} kt` : 'Calm';
+    const windSub = w.windVariable ? 'Wind · VRB' : (w.windDir != null ? `Wind · ${String(w.windDir).padStart(3, '0')}°` : 'Wind');
+    const ceilChip = w.ceiling != null ? `${w.ceiling.toLocaleString()} ft` : 'None';
+    const ceilColor = (w.ceiling == null || w.ceiling >= 3000) ? good : warn;
+    const visColor = (w.visibilityMeters == null || w.visibilityMeters >= 8000) ? good : warn;
+    const altChip = w.altimeterInHg != null ? `${w.altimeterInHg.toFixed(2)} inHg` : (w.altimeterHpa != null ? `${w.altimeterHpa} hPa` : '—');
+    const tempChip = w.tempC != null ? `${w.tempC}°C` : (w.temp || '—');
+    const condIcon = (() => {
+        const c = w.clouds && w.clouds[0] ? w.clouds[0].cover : null;
+        if (c === 'OVC' || c === 'BKN') return 'fa-cloud';
+        if (c === 'FEW' || c === 'SCT') return 'fa-cloud-sun';
+        return 'fa-sun';
+    })();
+
+    const tiles = `
+        <div class="wx-tile-grid">
+            ${tile(catColor || good, category || 'VFR', 'Category')}
+            ${tile(warn, `<i class="fa-solid ${condIcon}" style="color:#fcd34d;margin-right:6px;"></i>${tempChip}`, w.conditionLabel || 'Conditions')}
+            ${tile('#38bdf8', windChip, windSub)}
+            ${tile(visColor, w.visibility || '—', 'Visibility')}
+            ${tile(ceilColor, ceilChip, 'Ceiling')}
+            ${tile(neutral, altChip, 'Altimeter')}
+        </div>`;
+
+    // --- Runway selector pills --------------------------------------------
+    const pillsHtml = openRwys.map(r => {
+        const name = r.he_ident ? `${r.le_ident}/${r.he_ident}` : r.le_ident;
+        const active = favored && (favored.ident === r.le_ident || favored.ident === r.he_ident);
+        return `<div class="wx-rwy-pill${active ? ' active' : ''}">${name}</div>`;
+    }).join('');
+    const runwayBar = pillsHtml ? `<div class="wx-rwy-bar">${pillsHtml}</div>` : '';
+
+    // --- Cloud-altitude profile -------------------------------------------
+    const MAXALT = 20000;
+    const gridLines = [20000, 15000, 10000, 5000].map(alt => {
+        const top = (1 - alt / MAXALT) * 100;
+        return `<div class="wx-cloud-grid" style="top:${top}%;"><span>${(alt / 1000)},000</span></div>`;
+    }).join('');
+    const cloudMarkers = (w.clouds || []).filter(c => c.base != null && c.base <= MAXALT).map(c => {
+        const top = (1 - Math.min(c.base, MAXALT) / MAXALT) * 100;
+        return `<div class="wx-cloud-layer" style="top:${Math.max(top, 2)}%;">
+                    <i class="fa-solid fa-cloud"></i>
+                    <span class="wx-cloud-tag">${c.cover} ${c.base.toLocaleString()}</span>
+                </div>`;
+    }).join('');
+    const cloudChart = `
+        <div class="wx-cloud-chart">
+            ${gridLines}
+            ${cloudMarkers || '<div class="wx-cloud-clear">Sky clear</div>'}
+        </div>`;
+
+    return `
+        <div class="apt-wx-panel">
+            <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> WEATHER</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 5px; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">${category || 'VFR'}</span></div>
+            <div class="wx-body">
+                ${tiles}
+                <div class="wx-gauges">
+                    <div class="wx-gauge">${compassSvg}</div>
+                    <div class="wx-gauge">${windDial}</div>
+                </div>
+                ${runwayBar}
+                ${cloudChart}
+            </div>
+        </div>`;
 }
 
 /**
@@ -7752,7 +8272,7 @@ async function toggleWeatherLayer(show) {
                     'raster-resampling': 'linear', // FORCE smooth gradient scaling
                     'raster-fade-duration': 0
                 }
-            }, 'sector-ops-live-flights-layer'); // Draw underneath aircraft
+            }, getUnderAircraftAnchor()); // Draw underneath aircraft
 
             isWeatherLayerAdded = true;
             console.log(`Premium Smooth Radar layer added.`);
@@ -8136,7 +8656,7 @@ async function toggleSigmetLayer(show) {
                     'fill-color': HAZARD_COLOR,
                     'fill-opacity': 0.20
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 2. Outline Layer (Solid Lines)
             sectorOpsMap.addLayer({
@@ -8148,7 +8668,7 @@ async function toggleSigmetLayer(show) {
                     'line-width': 1.5,
                     'line-opacity': 0.8
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 3. Click interaction for details
             if (!sectorOpsMap.__sigmetClickBound) {
@@ -9354,8 +9874,6 @@ function handleSocketFlightUpdate(data) {
                 aircraft: aircraftData
             };
             
-            FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
-
             if (localTrail) {
                 const newRoutePoint = {
                     latitude: flight.position.lat,
@@ -9365,8 +9883,12 @@ function handleSocketFlightUpdate(data) {
                     track: flight.position.heading_deg,
                     date: new Date(flight.position.lastReport || Date.now()).toISOString()
                 };
-                localTrail.push(newRoutePoint);
+                const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
+
+                // Refresh the 3D path AFTER appending, so its head sits at
+                // this fix — level with the plane icon, not one tick behind.
+                FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
 
                 // --- [NEW] Update Simple Iframe if Active ---
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
@@ -9406,13 +9928,23 @@ function handleSocketFlightUpdate(data) {
                     refreshNavDisplayFromCache(); // Reuse helper logic for consistency
                 }
 
-                // 8. Update Map Trail
-                if (isMapReady) {
+                // 8. Update Map Trail — build the path up incrementally: the
+                // /history endpoint seeded the geometry once, and each socket
+                // fix just appends one segment from the cached tip to the new
+                // position. No endpoint re-calls, no full-trail re-smoothing —
+                // the line's head lands exactly where the icon teleports to.
+                if (isMapReady && trailGrew) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
-                        source.setData(newRouteData);
+                        let newRouteData = extendFlownPathGeometry(flightId, flight.position);
+                        if (!newRouteData && !flownPathGeomCache.has(flightId)) {
+                            // Geometry cache missing (evicted / never seeded):
+                            // one full rebuild from the cached trail reseeds it.
+                            newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                            seedFlownPathGeometry(flightId, newRouteData, flight.position);
+                        }
+                        if (newRouteData) source.setData(newRouteData);
                     }
                 }
             }
@@ -9439,7 +9971,7 @@ function handleSocketFlightUpdate(data) {
                 track: flight.position.heading_deg,
                 date: new Date(flight.position.lastReport || Date.now()).toISOString()
             };
-            localTrail.push(newRoutePoint);
+            const pinnedTrailGrew = appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
             
             if (typeof FlownPath3D !== 'undefined') {
@@ -9448,10 +9980,15 @@ function handleSocketFlightUpdate(data) {
             
             const flownLayerId = `flown-path-${flightId}`;
 
-            if (sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
-                const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-                sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
+            if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
+                // Same incremental build as the selected flight: extend the
+                // cached geometry by one segment instead of regenerating.
+                let newPinnedRouteData = extendFlownPathGeometry(flightId, flight.position);
+                if (!newPinnedRouteData && !flownPathGeomCache.has(flightId)) {
+                    newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
+                    seedFlownPathGeometry(flightId, newPinnedRouteData, flight.position);
+                }
+                if (newPinnedRouteData) sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
             }
 
             // Update Mini Card Stats
@@ -10658,9 +11195,6 @@ function createAirportSkeletonHTML(icao) {
         <div class="apt-skeleton" style="display: flex; flex-direction: column; height: 100%;">
             <div class="airport-hero apt-skel-hero">
                 <div class="airport-hero-overlay"></div>
-                <div class="hero-actions">
-                    <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
-                </div>
                 <div class="apt-ident-group">
                     <div class="apt-icao">${icao}</div>
                     <div class="apt-skel-block" style="width: 180px; height: 12px; margin-top: 8px;"></div>
@@ -10793,23 +11327,26 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
                 metarString = w.raw;
 
-                // Unified OPERATIONS card: one module that always shows the
-                // active arrival/departure runways, approach and wind. It uses
-                // live ATIS when the field is broadcasting and otherwise falls
-                // back to a wind-based estimate — clearly badged either way so
-                // the two sources are never mistaken for one another.
+                // ATIS card (replaces the old OPERATIONS module). When the
+                // field is broadcasting it shows the parsed runway/approach/
+                // wind grid PLUS the full live broadcast text; otherwise a
+                // wind-based estimate, clearly badged so the two sources are
+                // never mistaken for one another.
                 {
-                    let arrRwy, depRwy, appr, sourcePill, footerHtml;
+                    const escAtis = (s) => String(s == null ? '' : s)
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    let arrRwy, depRwy, appr, sourcePill, extraHtml;
                     if (rawAtisText) {
-                        const atis = parseAtis(rawAtisText);
+                        const atisText = Array.isArray(rawAtisText) ? rawAtisText.join(' ') : String(rawAtisText);
+                        const atis = parseAtis(atisText);
                         arrRwy = atis.landing || '---';
                         depRwy = atis.departing || '---';
                         appr = atis.approach || '---';
-                        sourcePill = `<span style="color:#fbbf24;border:1px solid #fbbf24;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ATIS ${atis.info}</span>`;
-                        const note = atis.remarks
-                            ? `<i class="fa-solid fa-circle-info"></i> ${atis.remarks}`
-                            : `<i class="fa-solid fa-tower-broadcast"></i> Live ATIS${atis.time ? ` · ${atis.time}` : ''}`;
-                        footerHtml = `<div class="apt-mini-footer" title="${atis.remarks || 'Live ATIS'}">${note}</div>`;
+                        const timeTag = (atis.time && atis.time !== '--') ? ` · ${atis.time}` : '';
+                        sourcePill = `<span style="color:#fbbf24;border:1px solid #fbbf24;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#fbbf24;margin-right:4px;vertical-align:1px;"></span>LIVE · INFO ${atis.info}${timeTag}</span>`;
+                        extraHtml = `
+                            ${atis.remarks ? `<div class="apt-atis-remark"><i class="fa-solid fa-circle-info"></i> ${escAtis(atis.remarks)}</div>` : ''}
+                            <div class="apt-atis-text">${escAtis(atisText)}</div>`;
                     } else {
                         const recs = getRunwayRecommendations(airportRunways, w.wind);
                         const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/') || '---';
@@ -10817,11 +11354,11 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                         depRwy = activeRunways;
                         appr = 'VISUAL';
                         sourcePill = `<span style="color:#94a3b8;border:1px solid #475569;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ESTIMATED</span>`;
-                        footerHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no live ATIS</div>`;
+                        extraHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no ATIS broadcast</div>`;
                     }
                     atisModuleHtml = `
                     <div class="apt-mini-module">
-                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> OPERATIONS</span>${sourcePill}</div>
+                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${sourcePill}</div>
                         <div class="apt-mini-body" style="padding-bottom: 0;">
                             <div class="stat-grid-compact">
                                 <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${arrRwy}</span></div>
@@ -10830,20 +11367,11 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                                 <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color:#fbbf24;">${w.wind}</span></div>
                             </div>
                         </div>
-                        ${footerHtml}
+                        ${extraHtml}
                     </div>`;
                 }
 
-                weatherModuleHtml = `
-                <div class="apt-mini-module">
-                    <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> METAR</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 4px; border-radius: 3px; font-size: 0.6rem;">${flightCategory}</span></div>
-                    <div class="apt-mini-body"><div class="stat-grid-compact">
-                        <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color: #38bdf8;">${w.wind}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">VIS</span><span class="compact-value">${w.visibility || '10KM'}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">TEMP</span><span class="compact-value" style="color: #fbbf24;">${w.temp}</span></div>
-                        <div class="compact-stat-box"><span class="compact-label">QNH</span><span class="compact-value">${w.qnh || '1013'}</span></div>
-                    </div></div>
-                </div>`;
+                weatherModuleHtml = buildAirportWxPanel(w, airportRunways, flightCategory, catColor);
             }
         } catch (err) {
             weatherModuleHtml = `<div class="apt-mini-module"><div class="apt-mini-body"><p class="muted-text">Offline</p></div></div>`;
@@ -10885,11 +11413,57 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             </div>
         `;
 
-        const renderFlightCard = (fid, type) => {
+        // Per-flight live meta for the traffic tab: ETA to this field, pilot
+        // state and flight phase. Drives the stat strip, the arrival ETA
+        // buckets, the card status badges and the filter chips.
+        const trafficMeta = (fid) => {
+            const f = currentMapFeatures[fid];
+            if (!f || !f.properties) return null;
+            const p = f.properties;
+            let pos = {};
+            try { pos = JSON.parse(p.position || '{}'); } catch (_) { pos = {}; }
+            const gs = pos.gs_kt || 0;
+            let etaMin = null;
+            if (coords.lat != null && coords.lon != null && pos.lat != null && pos.lon != null && gs > 50) {
+                const distNm = getDistanceKm(pos.lat, pos.lon, coords.lat, coords.lon) / 1.852;
+                etaMin = Math.max(0, Math.round((distNm / gs) * 60));
+            }
+            const ps = Number(p.pilotState);
+            const fstate = ps === 2 ? 'parked' : ps === 3 ? 'applus' : ps === 1 ? 'away' : 'active';
+            const phase = (String(p.phase || '').toLowerCase()) || 'enroute';
+            return { etaMin, fstate, phase, airborne: phase !== 'ground' };
+        };
+
+        const ETA_BUCKETS = [
+            { max: 5, label: 'WITHIN 5 MIN', color: '#4ade80' },
+            { max: 10, label: 'WITHIN 10 MIN', color: '#4ade80' },
+            { max: 15, label: 'WITHIN 15 MIN', color: '#fbbf24' },
+            { max: 30, label: 'WITHIN 30 MIN', color: '#fbbf24' },
+            { max: 60, label: 'WITHIN 1 HOUR', color: '#94a3b8' },
+            { max: Infinity, label: '1 HOUR+ AWAY', color: '#71717a' }
+        ];
+        const etaBucketIndex = (etaMin) => (etaMin == null)
+            ? ETA_BUCKETS.length - 1
+            : ETA_BUCKETS.findIndex(b => etaMin <= b.max);
+
+        const PHASE_BADGES = {
+            ground: { label: 'ON GROUND', color: '#94a3b8' },
+            climb: { label: 'CLIMBING', color: '#38bdf8' },
+            cruise: { label: 'CRUISING', color: '#4ade80' },
+            enroute: { label: 'ENROUTE', color: '#4ade80' },
+            descent: { label: 'DESCENDING', color: '#fbbf24' }
+        };
+        const STATE_BADGES = {
+            parked: { label: 'PARKED', color: '#94a3b8' },
+            applus: { label: 'AP+', color: '#60a5fa' },
+            away: { label: 'AWAY', color: '#facc15' }
+        };
+
+        const renderFlightCard = (fid, type, meta) => {
             const f = currentMapFeatures[fid];
             if (!f || !f.properties) return '';
             const p = f.properties;
-            
+
             const callsign = p.callsign || 'Unknown';
             const pilot = p.username || 'Pilot';
             
@@ -10917,8 +11491,27 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             // images at once when the sheet slides open spikes memory enough to
             // get the web view jettisoned (the "crash"). loading="lazy" keeps the
             // off-screen ones from loading until the user scrolls to them.
+            // Live status: arrivals show their ETA (bucket-colored); everything
+            // else shows pilot state (PARKED/AP+/AWAY) or flight phase.
+            let statusHtml = 'LIVE';
+            if (meta) {
+                const st = STATE_BADGES[meta.fstate];
+                if (type === 'in' && meta.etaMin != null) {
+                    const b = ETA_BUCKETS[etaBucketIndex(meta.etaMin)];
+                    const etaTxt = meta.etaMin >= 60
+                        ? `${Math.floor(meta.etaMin / 60)}h ${String(meta.etaMin % 60).padStart(2, '0')}m`
+                        : `${meta.etaMin} min`;
+                    statusHtml = `<span style="color:${b.color};">ETA ${etaTxt}</span>${st ? ` <span style="color:${st.color};margin-left:6px;">${st.label}</span>` : ''}`;
+                } else if (st) {
+                    statusHtml = `<span style="color:${st.color};">${st.label}</span>`;
+                } else {
+                    const ph = PHASE_BADGES[meta.phase] || PHASE_BADGES.enroute;
+                    statusHtml = `<span style="color:${ph.color};">${ph.label}</span>`;
+                }
+            }
+
             return `
-            <div class="route-card-reborn">
+            <div class="route-card-reborn" data-fstate="${meta ? meta.fstate : ''}" data-phase="${meta ? meta.phase : ''}">
                 <img class="route-card-bg" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.style.display='none'">
                 <div class="card-overlay"></div>
                 <div class="card-content">
@@ -10937,7 +11530,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     </div>
                     <div class="card-footer-zone">
                         <div class="operated-by-meta">OPERATED BY ${pilot.toUpperCase()}</div>
-                        <div class="time-status-meta">ON TIME</div>
+                        <div class="time-status-meta">${statusHtml}</div>
                     </div>
                 </div>
             </div>
@@ -10950,13 +11543,70 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         // render a sensible slice and note the remainder.
         const MAX_TRAFFIC_CARDS = 50;
         const renderFlightList = (ids, type) => {
-            const cards = ids.slice(0, MAX_TRAFFIC_CARDS).map(id => renderFlightCard(id, type)).join('');
-            const hidden = ids.length - MAX_TRAFFIC_CARDS;
+            const rows = ids.map(id => ({ id, m: trafficMeta(id) })).filter(r => r.m);
+            const capped = rows.slice(0, MAX_TRAFFIC_CARDS);
+            const cards = capped.map(r => renderFlightCard(r.id, type, r.m)).join('');
+            const hidden = rows.length - capped.length;
             const more = hidden > 0
                 ? `<div style="padding: 10px 12px; text-align: center; color: #71717a; font-size: 0.72rem;">+${hidden} more not shown</div>`
                 : '';
             return cards + more;
         };
+
+        // Arrivals list: sorted by ETA and grouped into proximity buckets
+        // (5 / 10 / 15 / 30 / 60 min, then 1hr+/away) with colored headers.
+        const renderArrivalsList = (ids) => {
+            const rows = ids.map(id => ({ id, m: trafficMeta(id) })).filter(r => r.m);
+            rows.sort((a, b) => {
+                const ea = a.m.etaMin == null ? Infinity : a.m.etaMin;
+                const eb = b.m.etaMin == null ? Infinity : b.m.etaMin;
+                return ea - eb;
+            });
+            const capped = rows.slice(0, MAX_TRAFFIC_CARDS);
+            let html = '', lastBucket = -1;
+            capped.forEach(r => {
+                const bi = etaBucketIndex(r.m.etaMin);
+                if (bi !== lastBucket) {
+                    lastBucket = bi;
+                    const b = ETA_BUCKETS[bi];
+                    html += `<div class="apt-eta-group" style="color:${b.color};"><span class="apt-eta-dot"></span>${b.label}</div>`;
+                }
+                html += renderFlightCard(r.id, 'in', r.m);
+            });
+            const hidden = rows.length - capped.length;
+            if (hidden > 0) html += `<div style="padding: 10px 12px; text-align: center; color: #71717a; font-size: 0.72rem;">+${hidden} more not shown</div>`;
+            return html;
+        };
+
+        // At-a-glance pilot-state stats across this field's traffic, plus the
+        // filter chip row (each chip HIDES its group — wired via
+        // window.aptToggleTrafficFilter, state lives on the tab container).
+        let trafficControlsHtml = '';
+        if (trafficFetchSuccess && (inbounds.length || outbounds.length)) {
+            const allIds = [...new Set([...inbounds, ...outbounds])];
+            let statParked = 0, statFlying = 0, statApPlus = 0;
+            allIds.forEach(id => {
+                const m = trafficMeta(id);
+                if (!m) return;
+                if (m.fstate === 'parked') statParked++;
+                if (m.fstate === 'applus') statApPlus++;
+                if (m.airborne) statFlying++;
+            });
+            const stat = (val, lbl, color) => `
+                <div class="apt-traffic-stat"><span class="val" style="color:${color};">${val}</span><span class="lbl">${lbl}</span></div>`;
+            const chip = (key, label) => `<button class="apt-tfilter-chip" data-tfilter="${key}" onclick="window.aptToggleTrafficFilter(this)">${label}</button>`;
+            trafficControlsHtml = `
+                <div class="apt-traffic-stats">
+                    ${stat(statParked, 'Parked', '#94a3b8')}
+                    ${stat(statFlying, 'Flying', '#4ade80')}
+                    ${stat(statApPlus, 'AP+', '#60a5fa')}
+                    ${stat(inbounds.length, 'Inbound', '#38bdf8')}
+                </div>
+                <div class="apt-tfilter-row">
+                    <span class="apt-tfilter-label"><i class="fa-solid fa-filter"></i></span>
+                    ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
+                </div>`;
+        }
 
         // --- UPDATED TRAFFIC HTML WITH DROPDOWNS ---
         let trafficHtml = (!trafficFetchSuccess) ?
@@ -10969,21 +11619,21 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 <details class="traffic-dropdown" open>
                     <summary class="traffic-dropdown-header">
                         <i class="fa-solid fa-plane-arrival" style="margin-right: 10px; color: #4ade80;"></i>
-                        <span>Inbounds</span>
+                        <span>Arrivals</span>
                         <span class="traffic-count-badge">${inbounds.length}</span>
                         <i class="fa-solid fa-chevron-down chevron"></i>
                     </summary>
                     <div class="traffic-dropdown-content">
-                        ${renderFlightList(inbounds, 'in')}
+                        ${renderArrivalsList(inbounds)}
                     </div>
                 </details>
                 ` : ''}
-                
+
                 ${outbounds.length > 0 ? `
                 <details class="traffic-dropdown" ${inbounds.length === 0 ? 'open' : ''}>
                     <summary class="traffic-dropdown-header">
                         <i class="fa-solid fa-plane-departure" style="margin-right: 10px; color: #38bdf8;"></i>
-                        <span>Outbounds</span>
+                        <span>Departures</span>
                         <span class="traffic-count-badge">${outbounds.length}</span>
                         <i class="fa-solid fa-chevron-down chevron"></i>
                     </summary>
@@ -11091,7 +11741,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             <div class="airport-hero" style="background-image: url('${dynamicImageUrl}')">
                 <div class="airport-hero-overlay"></div>
                 <div class="hero-actions">
-                    <button id="airport-window-close-btn" class="hero-btn" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
+                    <button id="airport-ping-btn" class="hero-btn${(Array.isArray(mapFilters.pingedAirports) && mapFilters.pingedAirports.includes(icao)) ? ' pinged' : ''}" title="Ping this airport on the map (Pro)"><i class="fa-solid fa-location-dot"></i></button>
                 </div>
                 <div class="apt-ident-group">
                     <div class="apt-icao">${icao}${flagSrc ? `<img src="${flagSrc}" style="height: 24px; border-radius: 2px; margin-left: 10px;">` : ''}${badge3DHtml}</div>
@@ -11106,7 +11756,8 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
             <div style="flex-grow: 1; overflow-y: auto;">
                 <div id="apt-va-banner" class="va-ad-banner-slot"></div>
-                <div class="apt-dashboard-grid">${weatherModuleHtml}${atisModuleHtml}</div>
+                ${weatherModuleHtml}
+                <div style="padding: 0 16px; margin-bottom: 12px;">${atisModuleHtml}</div>
 
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                     <div class="apt-tabs-header">
@@ -11118,6 +11769,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
                     <div id="apt-traffic" class="apt-tab-content active">
                         ${visualizerControlsHtml}
+                        ${trafficControlsHtml}
                         ${trafficHtml}
                     </div>
 
@@ -11205,6 +11857,96 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     }
 
     window.showGlobalNotification = showNotification;
+
+    // Traffic-tab filter chips (airport window): each chip HIDES its pilot-
+    // state / phase group. The hide classes live on the tab container and the
+    // matching cards are hidden via CSS attribute selectors, so filtering is
+    // instant and needs no re-render.
+    window.aptToggleTrafficFilter = function (btn) {
+        const key = btn && btn.dataset ? btn.dataset.tfilter : null;
+        const tab = btn ? btn.closest('.apt-tab-content') : null;
+        if (!key || !tab) return;
+        btn.classList.toggle('off');
+        tab.classList.toggle('tfilter-hide-' + key);
+    };
+
+    // Live traffic summary for one airport, computed purely from the
+    // in-memory flight cache (no network). Powers the mobile Live ATC
+    // sheet's per-field arrivals / pilot-state readout.
+    window.getAirportTrafficSummary = function (icao) {
+        if (!icao) return null;
+        const code = String(icao).toUpperCase();
+        const apt = airportsData[code];
+        const out = { inbound: [], outCount: 0, parked: 0, applus: 0, flying: 0 };
+        Object.values(currentMapFeatures).forEach(f => {
+            const p = f && f.properties;
+            if (!p) return;
+            const isArr = String(p.arrivalIcao || '').toUpperCase() === code;
+            const isDep = String(p.departureIcao || '').toUpperCase() === code;
+            if (!isArr && !isDep) return;
+            const ps = Number(p.pilotState);
+            const fstate = ps === 2 ? 'parked' : ps === 3 ? 'applus' : ps === 1 ? 'away' : 'active';
+            const phase = (String(p.phase || '').toLowerCase()) || 'enroute';
+            if (fstate === 'parked') out.parked++;
+            if (fstate === 'applus') out.applus++;
+            if (phase !== 'ground') out.flying++;
+            if (isDep && !isArr) out.outCount++;
+            if (isArr) {
+                let etaMin = null;
+                try {
+                    const pos = JSON.parse(p.position || '{}');
+                    const gs = pos.gs_kt || 0;
+                    if (apt && apt.lat != null && pos.lat != null && gs > 50) {
+                        const distNm = getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon) / 1.852;
+                        etaMin = Math.max(0, Math.round((distNm / gs) * 60));
+                    }
+                } catch (_) { /* malformed position — leave etaMin null */ }
+                out.inbound.push({ callsign: p.callsign || '—', etaMin, fstate, phase });
+            }
+        });
+        out.inbound.sort((a, b) =>
+            (a.etaMin == null ? Infinity : a.etaMin) - (b.etaMin == null ? Infinity : b.etaMin));
+        return out;
+    };
+
+    // Aggregate live traffic per airport (one pass over the flight cache).
+    // in60 = arrivals estimated within the next hour — the "flow" signal the
+    // mobile ATC board sorts by and stamps IFATC recommendations from.
+    window.getBusyAirportsSummary = function () {
+        const byApt = new Map();
+        const ensure = (icao) => {
+            if (!byApt.has(icao)) {
+                const apt = airportsData[icao] || {};
+                byApt.set(icao, { icao, name: apt.name || '', inCount: 0, in60: 0, outCount: 0, total: 0 });
+            }
+            return byApt.get(icao);
+        };
+        Object.values(currentMapFeatures).forEach(f => {
+            const p = f && f.properties;
+            if (!p) return;
+            const arr = String(p.arrivalIcao || '').toUpperCase();
+            const dep = String(p.departureIcao || '').toUpperCase();
+            if (arr && airportsData[arr]) {
+                const e = ensure(arr);
+                e.inCount++; e.total++;
+                try {
+                    const pos = JSON.parse(p.position || '{}');
+                    const gs = pos.gs_kt || 0;
+                    const apt = airportsData[arr];
+                    if (gs > 50 && pos.lat != null && apt.lat != null) {
+                        const etaMin = (getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon) / 1.852 / gs) * 60;
+                        if (etaMin <= 60) e.in60++;
+                    }
+                } catch (_) { /* malformed position — skip the ETA */ }
+            }
+            if (dep && dep !== arr && airportsData[dep]) {
+                const e = ensure(dep);
+                e.outCount++; e.total++;
+            }
+        });
+        return Array.from(byApt.values())
+            .sort((a, b) => (b.in60 - a.in60) || (b.total - a.total));
+    };
 
     // Build the Live Activity start payload from whatever state we currently have on the
     // open aircraft info window. Returns null if we don't have enough to fire yet.
@@ -11441,7 +12183,7 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
     : [];
                         if (flownCoords.length > 1) {
                             allCoordsForBounds.push(...flownCoords);
-                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
+                            liveFlightsMap.addSource('flown-path-source', { type: 'geojson', tolerance: 0, data: { type: 'Feature', geometry: { type: 'LineString', coordinates: flownCoords } } });
                             liveFlightsMap.addLayer({ id: 'flown-path',
     type: 'line',
     source: 'flown-path-source',
@@ -11458,7 +12200,7 @@ const flownCoords = (routeRes.ok && routeJson.ok && Array.isArray(historyArray))
                             const plannedWps = flattenWaypointsFromPlan(items);
                             const remainingPathCoords = [lngLat, ...plannedWps];
                             allCoordsForBounds.push(...remainingPathCoords);
-                            liveFlightsMap.addSource('planned-path-source', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: remainingPathCoords } } });
+                            liveFlightsMap.addSource('planned-path-source', { type: 'geojson', tolerance: 0, data: { type: 'Feature', geometry: { type: 'LineString', coordinates: remainingPathCoords } } });
                             liveFlightsMap.addLayer({ id: 'planned-path', type: 'line', source: 'planned-path-source', paint: { 'line-color': '#e84393', 'line-width': 3, 'line-dasharray': [2, 2] } });
                             popup.setHTML(`<b>${callsign}</b> (${username || 'N/A'})<br>Route and flight plan loaded.`);
                         } else {
@@ -11584,7 +12326,7 @@ function updateDayNightTerminator() {
                     'fill-color': '#020617', // Deep Navy/Black (Slate-950)
                     'fill-opacity': 0.45     // Subtle darkness
                 }
-            }, 'sector-ops-live-flights-layer'); // Ensure it's below planes
+            }, getUnderAircraftAnchor()); // Ensure it's below planes
 
             // LAYER B: The Twilight (Blurred Line)
             // This creates the soft fade at the edge of darkness
@@ -11963,6 +12705,82 @@ function updateTrafficLegendUI() {
         });
     }
 
+    // --- PRO: Pinged airports ---------------------------------------------
+    // Pro users can "ping" any airport from its info window; pinged fields
+    // render on the map as their ICAO letters. DOM markers (not a style
+    // layer) so they survive map-style switches without a rebuild.
+    const pingedAirportMarkers = {};
+
+    function renderPingedAirportMarkers() {
+        if (!sectorOpsMap) return;
+        const pinged = (Array.isArray(mapFilters.pingedAirports) ? mapFilters.pingedAirports : [])
+            .filter(i => airportsData[i] && airportsData[i].lat != null && airportsData[i].lon != null);
+
+        // Drop markers that are no longer pinged.
+        Object.keys(pingedAirportMarkers).forEach(icao => {
+            if (!pinged.includes(icao)) {
+                pingedAirportMarkers[icao].remove();
+                delete pingedAirportMarkers[icao];
+            }
+        });
+
+        pinged.forEach(icao => {
+            if (pingedAirportMarkers[icao]) return; // already on the map
+            const apt = airportsData[icao];
+            const el = document.createElement('div');
+            el.className = 'pinged-airport-label';
+            el.innerHTML = `<i class="fa-solid fa-location-dot"></i>${icao}`;
+            el.title = `${icao} — pinned airport (tap to open)`;
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (typeof handleAirportClick === 'function') handleAirportClick(icao, null, true);
+            });
+            pingedAirportMarkers[icao] = new mapboxgl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] })
+                .setLngLat([apt.lon, apt.lat])
+                .addTo(sectorOpsMap);
+        });
+    }
+    window.renderPingedAirportMarkers = renderPingedAirportMarkers;
+
+    function toggleAirportPing(icao, btn) {
+        if (!icao) return;
+        // Gate matches the app's other Pro surfaces (Pro map styles, 3D
+        // buildings, day/night): a signed-in account unlocks it. The strict
+        // is_pro entitlement flags are accepted too, but a failed/slow
+        // profiles.is_pro lookup must NOT lock out a signed-in user — that
+        // was throwing the sign-up modal at logged-in Pro accounts.
+        let allowed = false;
+        try { allowed = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser); } catch (_) {}
+        if (!allowed) {
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token')))) { allowed = true; break; }
+                }
+            } catch (_) {}
+        }
+        if (!allowed && typeof window.isInflightPro === 'function' && window.isInflightPro()) allowed = true;
+        if (!allowed) {
+            try { allowed = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
+        }
+        if (!allowed) {
+            showNotification('Sign in with a Pro account to ping airports on the map.', 'error');
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
+            return;
+        }
+        if (!Array.isArray(mapFilters.pingedAirports)) mapFilters.pingedAirports = [];
+        const idx = mapFilters.pingedAirports.indexOf(icao);
+        const nowPinged = idx === -1;
+        if (nowPinged) mapFilters.pingedAirports.push(icao);
+        else mapFilters.pingedAirports.splice(idx, 1);
+        saveFiltersToLocalStorage();
+        renderPingedAirportMarkers();
+        if (btn) btn.classList.toggle('pinged', nowPinged);
+        showNotification(nowPinged ? `${icao} pinged on the map.` : `${icao} removed from the map.`, 'success');
+    }
+    // Exposed so the mobile Live ATC sheet can ping fields from its rows.
+    window.toggleAirportPing = toggleAirportPing;
+
     function setupAirportWindowEvents() {
     if (!airportInfoWindow || airportInfoWindow.dataset.eventsAttached === 'true') return;
 
@@ -11971,6 +12789,14 @@ function updateTrafficLegendUI() {
         const hideBtn = e.target.closest('#airport-window-hide-btn');
         const trafficToggle = e.target.closest('#traffic-highlight-toggle');
         const atcReplayBtn = e.target.closest('.atc-replay-session-btn');
+        const pingBtn = e.target.closest('#airport-ping-btn');
+
+        // [PRO] Ping/unping this airport on the map as its ICAO letters.
+        if (pingBtn) {
+            e.preventDefault();
+            toggleAirportPing(currentAirportInWindow, pingBtn);
+            return;
+        }
 
         // [NEW] ATC Session Replay launcher
         if (atcReplayBtn) {
@@ -14255,7 +15081,7 @@ renderCategory(catId) {
                             <label class="config-header">ATC &amp; Airports</label>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-draw-polygon"></i> ATC Boundaries</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                                <label class="toggle-switch"><input type="checkbox" id="set-atc-boundaries" ${mapFilters.showAtcBoundaries ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-tags"></i> Classic Airport Tags</div>
@@ -14332,6 +15158,10 @@ renderCategory(catId) {
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-window-maximize"></i> Simple Flight Info</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-simple-window" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                         </div>
                     `;
@@ -14496,6 +15326,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-simple-window': 'useSimpleFlightWindow',
+            'set-auto-cycle-photos': 'autoCyclePhotos',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
             'set-taws-enabled': 'terrainTawsEnabled'
@@ -14813,10 +15644,15 @@ const AtcBoardUI = {
         mapContainer.insertAdjacentHTML('beforeend', `
             <div id="atc-board-window" class="info-window">
                 <div class="info-window-header">
-                    <h3><i class="fa-solid fa-tower-broadcast" style="margin-right: 10px;"></i> Active ATC <span id="atc-board-count" class="atc-board-count"></span></h3>
+                    <h3><i class="fa-solid fa-tower-broadcast" style="margin-right: 10px;"></i> Airports &amp; ATC <span id="atc-board-count" class="atc-board-count"></span></h3>
                     <div class="info-window-actions">
                         <button id="atc-board-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
                     </div>
+                </div>
+                <div class="d-atc-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" id="atc-board-search" placeholder="Search airports (ICAO or name)"
+                           autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
                 </div>
                 <div id="atc-board-content" class="info-window-content"></div>
             </div>
@@ -14826,16 +15662,48 @@ const AtcBoardUI = {
         window.addEventListener('openAtcBoard', () => this.toggle(!this._visible));
         window.addEventListener('activeAtcUpdated', () => { if (this._visible) this.render(); });
 
+        // Search input sits outside the re-rendered content, so typing keeps
+        // focus while the board refilters on each keystroke.
+        const search = document.getElementById('atc-board-search');
+        search?.addEventListener('input', () => {
+            this._searchQuery = search.value || '';
+            this.render();
+        });
+
         document.getElementById('atc-board-content')?.addEventListener('click', (e) => {
+            // PRO: ping/unping the field on the map from its row.
+            const ping = e.target.closest('[data-atc-ping]');
+            if (ping) {
+                e.stopPropagation();
+                const icao = ping.closest('.d-atc-awrap')?.dataset.icao;
+                if (icao && typeof window.toggleAirportPing === 'function') {
+                    window.toggleAirportPing(icao, null);
+                    this.render(); // reflect pinned state
+                }
+                return;
+            }
+            // Per-airport traffic filter chips.
+            const tchip = e.target.closest('[data-atc-tchip]');
+            if (tchip) {
+                e.stopPropagation();
+                const key = tchip.dataset.atcTchip;
+                const icao = tchip.closest('.d-atc-awrap')?.dataset.icao;
+                if (!key || !icao) return;
+                if (!this._trafficHideByApt) this._trafficHideByApt = {};
+                if (!this._trafficHideByApt[icao]) this._trafficHideByApt[icao] = new Set();
+                const set = this._trafficHideByApt[icao];
+                if (set.has(key)) set.delete(key); else set.add(key);
+                this.render();
+                return;
+            }
+            // Chevron: drawer content is built lazily, so toggling re-renders.
             const expandBtn = e.target.closest('[data-atc-expand]');
             if (expandBtn) {
-                const wrap = expandBtn.closest('.d-atc-awrap');
-                const icao = wrap?.dataset.icao;
-                if (!wrap || !icao) return;
-                const open = !wrap.classList.contains('ctrl-open');
-                wrap.classList.toggle('ctrl-open', open);
-                expandBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-                if (open) this._openIcaos.add(icao); else this._openIcaos.delete(icao);
+                const icao = expandBtn.closest('.d-atc-awrap')?.dataset.icao;
+                if (!icao) return;
+                if (this._openIcaos.has(icao)) this._openIcaos.delete(icao);
+                else this._openIcaos.add(icao);
+                this.render();
                 return;
             }
             const row = e.target.closest('.d-atc-arow');
@@ -14904,19 +15772,97 @@ const AtcBoardUI = {
             </div>`;
     },
 
+    // Per-field live traffic readout for the drawer: per-airport filter
+    // chips, pilot-state stats, ETA bucket counts and a scrollable arrivals
+    // list. Mirrors the mobile Live ATC sheet, in the desktop palette.
+    _trafficHTML(icao) {
+        const get = window.getAirportTrafficSummary;
+        const t = (typeof get === 'function') ? get(icao) : null;
+        if (!t || (!t.inbound.length && !t.outCount && !t.parked)) return '';
+        if (!this._trafficHideByApt) this._trafficHideByApt = {};
+        const hide = this._trafficHideByApt[icao] || new Set();
+        const chip = (key, label) =>
+            `<button type="button" class="d-atc-tchip${hide.has(key) ? ' off' : ''}" data-atc-tchip="${key}">${label}</button>`;
+        const chipsRow = `
+            <div class="d-atc-tchips">
+                <span class="d-atc-tchips-label"><i class="fa-solid fa-filter"></i></span>
+                ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
+            </div>`;
+        const shown = t.inbound.filter(r => {
+            const phaseKey = r.phase === 'enroute' ? 'cruise' : r.phase;
+            return !hide.has(r.fstate) && !hide.has(phaseKey);
+        });
+
+        const BUCKETS = [
+            { max: 5, label: '≤5m', color: '#4ade80' },
+            { max: 10, label: '≤10m', color: '#4ade80' },
+            { max: 15, label: '≤15m', color: '#fbbf24' },
+            { max: 30, label: '≤30m', color: '#fbbf24' },
+            { max: 60, label: '≤1h', color: '#a1a1aa' },
+            { max: Infinity, label: '1h+', color: '#52525b' }
+        ];
+        const counts = BUCKETS.map(() => 0);
+        shown.forEach(r => {
+            const i = (r.etaMin == null) ? BUCKETS.length - 1 : BUCKETS.findIndex(b => r.etaMin <= b.max);
+            counts[i]++;
+        });
+        const bucketChips = BUCKETS.map((b, i) => counts[i]
+            ? `<span class="d-atc-bucket" style="color:${b.color};">${b.label} · ${counts[i]}</span>` : '').join('');
+
+        const nearest = shown.slice(0, 30).map(r => {
+            const eta = r.etaMin == null ? '—'
+                : (r.etaMin >= 60 ? `${Math.floor(r.etaMin / 60)}h ${String(r.etaMin % 60).padStart(2, '0')}m` : `${r.etaMin}m`);
+            const tag = r.fstate === 'applus' ? ' · AP+'
+                : r.fstate === 'parked' ? ' · Parked'
+                : r.fstate === 'away' ? ' · Away' : '';
+            return `<div class="d-atc-arr-row"><span class="d-atc-arr-cs">${this._esc(r.callsign)}</span><span class="d-atc-arr-eta">ETA ${this._esc(eta + tag)}</span></div>`;
+        }).join('');
+
+        return `
+            <div class="d-atc-traffic">
+                <div class="d-atc-ctrl-head">Traffic</div>
+                ${chipsRow}
+                <div class="d-atc-tstats">
+                    <span class="d-atc-tstat"><b>${shown.length}</b> inbound</span>
+                    <span class="d-atc-tstat"><b>${t.outCount}</b> outbound</span>
+                    <span class="d-atc-tstat"><b>${t.flying}</b> flying</span>
+                    <span class="d-atc-tstat"><b>${t.parked}</b> parked</span>
+                    <span class="d-atc-tstat"><b>${t.applus}</b> AP+</span>
+                </div>
+                ${bucketChips ? `<div class="d-atc-buckets">${bucketChips}</div>` : ''}
+                ${nearest ? `<div class="d-atc-arrlist">${nearest}</div>` : ''}
+            </div>`;
+    },
+
     _airportRowHTML(a) {
         const col = (label, on, cls) =>
             `<span class="d-atc-col${on ? ' on ' + cls : ''}">${label}</span>`;
-        const controllers = (a.count > 0) ? this._controllersFor(a.icao) : [];
-        const drawer = controllers.length ? `
+        // Drawer offered for any field with controllers OR live traffic;
+        // content built lazily (only for expanded rows) so a 100+ row board
+        // never pays 100+ flight-cache scans per refresh.
+        const hasDrawer = (a.count > 0) || ((a.totalTraffic || 0) > 0);
+        const isOpen = hasDrawer && this._openIcaos.has(a.icao);
+        const controllers = (isOpen && a.count > 0) ? this._controllersFor(a.icao) : [];
+        const trafficHtml = isOpen ? this._trafficHTML(a.icao) : '';
+        const drawer = isOpen ? `
             <div class="d-atc-ctrl-drawer">
-                <div class="d-atc-ctrl-head">On frequency now</div>
-                ${controllers.map(f => this._controllerRowHTML(f)).join('')}
+                ${controllers.length ? `<div class="d-atc-ctrl-head">On frequency now</div>
+                ${controllers.map(f => this._controllerRowHTML(f)).join('')}` : ''}
+                ${trafficHtml}
             </div>` : '';
-        const isOpen = controllers.length && this._openIcaos.has(a.icao);
-        const chevron = controllers.length ? `
+        const rec = (!a.count && (a.in60 || 0) >= 3)
+            ? `<span class="d-atc-rec" title="Strong arrival flow in the next hour — great field for IFATC"><i class="fa-solid fa-star"></i> IFATC · ${a.in60}/hr</span>`
+            : '';
+        const pinged = !!(window.mapFilters && Array.isArray(window.mapFilters.pingedAirports)
+            && window.mapFilters.pingedAirports.includes(a.icao));
+        const pingBtn = `
+            <button type="button" class="d-atc-ping${pinged ? ' pinged' : ''}" data-atc-ping="1"
+                    aria-label="Ping airport on map" title="Ping on map (Pro)">
+                <i class="fa-solid fa-location-dot"></i>
+            </button>`;
+        const chevron = hasDrawer ? `
             <button type="button" class="d-atc-expand" data-atc-expand="1"
-                    aria-label="Show controllers" aria-expanded="${isOpen ? 'true' : 'false'}">
+                    aria-label="Show details" aria-expanded="${isOpen ? 'true' : 'false'}">
                 <i class="fa-solid fa-chevron-down"></i>
             </button>` : '';
         return `
@@ -14924,7 +15870,7 @@ const AtcBoardUI = {
                 <div class="d-atc-arow-line">
                     <button type="button" class="d-atc-arow" title="Open ${this._esc(a.icao)}">
                         <span class="d-atc-apt">
-                            <span class="d-atc-icao">${this._esc(a.icao)}</span>
+                            <span class="d-atc-icao">${this._esc(a.icao)}${rec}</span>
                             <span class="d-atc-aptname">${this._esc(a.name || a.icao)}</span>
                         </span>
                         <span class="d-atc-tower">
@@ -14939,6 +15885,7 @@ const AtcBoardUI = {
                             ${col('DEP', a.dep, 'dep')}
                         </span>
                     </button>
+                    ${pingBtn}
                     ${chevron}
                 </div>
                 ${drawer}
@@ -14950,21 +15897,52 @@ const AtcBoardUI = {
         const countEl = document.getElementById('atc-board-count');
         if (!body) return;
 
+        // Staffed fields first, then every airport with live traffic (sorted
+        // by next-hour arrival flow) — same board the mobile ATC tab shows.
         const api = window.InflightATC;
-        const board = (api && api.getAirportBoard) ? api.getAirportBoard() : [];
-        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        const staffed = (api && api.getAirportBoard) ? api.getAirportBoard() : [];
+        const busy = (typeof window.getBusyAirportsSummary === 'function') ? window.getBusyAirportsSummary() : [];
+        const busyMap = new Map(busy.map(b => [b.icao, b]));
+
+        const seen = new Set();
+        let rows = staffed.map(a => {
+            seen.add(a.icao);
+            const t = busyMap.get(a.icao);
+            return { ...a, in60: t ? t.in60 : 0, totalTraffic: t ? t.total : 0 };
+        });
+        busy.forEach(b => {
+            if (seen.has(b.icao)) return;
+            rows.push({
+                icao: b.icao, name: b.name, count: 0,
+                atis: false, gnd: false, twr: false, app: false, dep: false,
+                in60: b.in60, totalTraffic: b.total
+            });
+        });
+        rows.sort((a, b) => (b.count - a.count) || (b.in60 - a.in60) || (b.totalTraffic - a.totalTraffic));
+
+        const q = (this._searchQuery || '').trim().toUpperCase();
+        if (q) rows = rows.filter(r =>
+            String(r.icao).toUpperCase().includes(q) || String(r.name || '').toUpperCase().includes(q));
+        rows = rows.slice(0, 120);
+
+        const total = staffed.reduce((s, a) => s + (a.count || 0), 0);
         if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
 
-        if (!board.length) {
-            body.innerHTML = `
+        if (!rows.length) {
+            body.innerHTML = q ? `
+                <div class="d-atc-empty">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <p>No airports match "${this._esc(q)}"</p>
+                    <span>Try an ICAO code (e.g. KLAX) or part of the airport name.</span>
+                </div>` : `
                 <div class="d-atc-empty">
                     <i class="fa-solid fa-tower-broadcast"></i>
-                    <p>No controllers online</p>
-                    <span>When ATC connects on this server, every staffed airport appears here — click one to jump to it.</span>
+                    <p>No live airports</p>
+                    <span>Staffed fields and airports with live traffic appear here — click one to jump to it.</span>
                 </div>`;
             return;
         }
-        body.innerHTML = `<div class="d-atc-board">${board.map(a => this._airportRowHTML(a)).join('')}</div>`;
+        body.innerHTML = `<div class="d-atc-board">${rows.map(a => this._airportRowHTML(a)).join('')}</div>`;
     },
 
     _injectStyles() {
@@ -15110,6 +16088,85 @@ const AtcBoardUI = {
             .d-atc-empty i { font-size: 1.6rem; opacity: 0.5; }
             .d-atc-empty p { margin: 0; color: #a1a1aa; font-weight: 700; }
             .d-atc-empty span { font-size: 0.72rem; line-height: 1.5; }
+
+            /* Search bar (outside the re-rendered content, keeps focus) */
+            .d-atc-search {
+                display: flex; align-items: center; gap: 8px;
+                margin: 10px 12px 0;
+                padding: 7px 11px;
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+            .d-atc-search i { font-size: 0.7rem; color: #71717a; flex-shrink: 0; }
+            .d-atc-search input {
+                flex: 1; min-width: 0;
+                background: none; border: none; outline: none;
+                font-family: inherit; font-size: 0.8rem; color: #fafafa;
+            }
+            .d-atc-search input::placeholder { color: #52525b; }
+
+            /* IFATC recommendation stamp (unstaffed, strong next-hour flow) */
+            .d-atc-rec {
+                display: inline-flex; align-items: center; gap: 4px;
+                white-space: nowrap;
+                margin-left: 8px; vertical-align: 1px;
+                font-size: 0.55rem; font-weight: 800; letter-spacing: 0.4px;
+                text-transform: uppercase;
+                color: #fbbf24; background: rgba(251, 191, 36, 0.1);
+                border: 1px solid rgba(251, 191, 36, 0.35);
+                border-radius: 5px; padding: 2px 6px;
+            }
+            .d-atc-rec i { font-size: 0.5rem; }
+
+            /* PRO ping button on each row */
+            .d-atc-ping {
+                background: transparent;
+                border: none;
+                border-left: 1px solid rgba(255, 255, 255, 0.06);
+                color: #52525b;
+                width: 36px;
+                cursor: pointer;
+                flex-shrink: 0;
+                font-size: 0.8rem;
+            }
+            .d-atc-ping:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
+            .d-atc-ping.pinged { color: #38bdf8; }
+
+            /* Per-airport traffic readout */
+            .d-atc-traffic { padding-top: 2px; }
+            .d-atc-tchips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 0 8px; }
+            .d-atc-tchips-label { font-size: 0.6rem; color: #52525b; margin-right: 2px; }
+            .d-atc-tchip {
+                font-size: 0.62rem; font-weight: 700; color: #e4e4e7;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 99px; padding: 3px 9px; cursor: pointer;
+            }
+            .d-atc-tchip.off {
+                color: #52525b; background: transparent;
+                border-color: rgba(255, 255, 255, 0.05);
+                text-decoration: line-through;
+            }
+            .d-atc-tstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.68rem; color: #71717a; padding-bottom: 2px; }
+            .d-atc-tstat b { color: #fafafa; font-weight: 700; font-family: var(--font-data); }
+            .d-atc-buckets { display: flex; flex-wrap: wrap; gap: 5px; padding: 7px 0 2px; }
+            .d-atc-bucket {
+                font-size: 0.6rem; font-weight: 700;
+                border: 1px solid currentColor; border-radius: 5px;
+                padding: 2px 6px; font-family: var(--font-data);
+            }
+            .d-atc-arrlist {
+                display: flex; flex-direction: column; gap: 4px;
+                margin-top: 7px; max-height: 200px; overflow-y: auto;
+            }
+            .d-atc-arr-row {
+                display: flex; justify-content: space-between; align-items: center;
+                font-size: 0.7rem; padding: 5px 9px;
+                background: rgba(255, 255, 255, 0.04); border-radius: 7px;
+            }
+            .d-atc-arr-cs { font-weight: 700; color: #fafafa; }
+            .d-atc-arr-eta { color: #a1a1aa; font-family: var(--font-data); font-weight: 600; }
         `;
         document.head.appendChild(style);
     }
@@ -15567,6 +16624,10 @@ async function setupMapLayersAndFog() {
     // Initialize the aircraft layers now that icons are ready
     initializeAircraftLayer();
 
+    // Restore any PRO pinged-airport labels (idempotent; DOM markers already
+    // on the map are left alone).
+    renderPingedAirportMarkers();
+
     // Restore Terrain Awareness mode (survives cold start and style swaps).
     refreshTerrainMode();
 }
@@ -15807,7 +16868,11 @@ if (flightProps) {
     const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
     const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-    sectorOpsMap.addSource(`flown-path-${flightId}`, { 
+    // Style changes wipe map sources; reseed the incremental geometry cache
+    // from this rebuild so live fixes keep extending the fresh line.
+    seedFlownPathGeometry(flightId, routeFeature, currentPosition);
+
+    sectorOpsMap.addSource(`flown-path-${flightId}`, {
         type: 'geojson', 
         data: routeFeature,
         lineMetrics: true, // CRITICAL for gradients
@@ -15837,7 +16902,7 @@ if (flightProps) {
                         45000, '#0284c7'    // High Cruise (Darker Blue)
                     ]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -15894,7 +16959,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
         if (source) {
             source.setData(directLineData);
         } else {
-            sectorOpsMap.addSource(layerIdDirect, { type: 'geojson', data: directLineData });
+            sectorOpsMap.addSource(layerIdDirect, { type: 'geojson', data: directLineData, tolerance: 0 });
 
             sectorOpsMap.addLayer({
                 id: layerIdDirectGlow,
@@ -15906,7 +16971,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.25,
                     'line-blur': 4
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             sectorOpsMap.addLayer({
                 id: layerIdDirect,
@@ -15918,7 +16983,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.9,
                     'line-dasharray': [3, 4]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
         }
     } else {
         if (sectorOpsMap.getLayer(layerIdDirectGlow)) sectorOpsMap.removeLayer(layerIdDirectGlow);
@@ -15979,7 +17044,14 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
             });
 
             const fullLineData = { type: 'FeatureCollection', features: features };
-            sectorOpsMap.addSource(layerIdFull, { type: 'geojson', data: fullLineData });
+            sectorOpsMap.addSource(layerIdFull, {
+                type: 'geojson',
+                data: fullLineData,
+                // The plan curve is densified into many small segments; without
+                // this Mapbox simplifies them away at low zoom and the path
+                // visibly degrades when zooming out.
+                tolerance: 0
+            });
 
             // 1. Direct-Style Glow Layer
             sectorOpsMap.addLayer({
@@ -15993,15 +17065,13 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.25,
                     'line-blur': 4
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 2. Direct-Style Core Path (Premium Dashed)
             sectorOpsMap.addLayer({
                 id: layerIdFull,
                 type: 'line',
                 source: layerIdFull,
-                tolerance: 0,
-                buffer: 0,
                 'filter': ['==', '$type', 'LineString'],
                 paint: {
                     'line-color': '#67e8f9',
@@ -16009,7 +17079,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'line-opacity': 0.9,
                     'line-dasharray': [3, 4]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 3. Dynamic Waypoint Dots (Refined, Miniaturized Size)
             sectorOpsMap.addLayer({
@@ -16033,7 +17103,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                         '#67e8f9'  // Cyan rim if upcoming (color-matched to new path)
                     ]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             // 4. Advanced High-Contrast Typography Layer (Hidden if passed, smaller font)
             sectorOpsMap.addLayer({
@@ -16058,7 +17128,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
         }
     } else {
         if (sectorOpsMap.getLayer(layerIdFullLabels)) sectorOpsMap.removeLayer(layerIdFullLabels);
@@ -16368,12 +17438,116 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
+// Append a live packet to a trail ONLY if it's newer than the cached tip.
+// The route-history seed can already contain samples at (or past) the live
+// feed's clock, and pushing an older/duplicate fix behind them kinks the
+// trail's head backwards.
+function appendTrailPoint(localTrail, newRoutePoint) {
+    if (!Array.isArray(localTrail)) return false;
+    const last = localTrail[localTrail.length - 1];
+    if (last) {
+        // Plane hasn't moved: same fix as the cached tip — nothing to add.
+        const lastLat = (last.latitude != null) ? last.latitude : last.lat;
+        const lastLon = (last.longitude != null) ? last.longitude : last.lon;
+        if (Math.abs(lastLat - newRoutePoint.latitude) < 1e-7 &&
+            Math.abs(lastLon - newRoutePoint.longitude) < 1e-7) {
+            return false;
+        }
+        // The seeded history can run AHEAD of the live feed's clock. Rejecting
+        // "older" fixes outright froze the trail at its seed state, so instead
+        // drop the future-dated tail (bounded — a runaway clock difference
+        // must never nuke the whole history) and take the live fix as the head.
+        const tNew = new Date(newRoutePoint.date || NaN).getTime();
+        if (Number.isFinite(tNew)) {
+            let newer = 0;
+            while (newer < localTrail.length) {
+                const t = new Date(localTrail[localTrail.length - 1 - newer].date || NaN).getTime();
+                if (Number.isFinite(t) && t >= tNew) newer++;
+                else break;
+            }
+            if (newer > 0 && newer <= 8) localTrail.length -= newer;
+        }
+    }
+    localTrail.push(newRoutePoint);
+    return true;
+}
+
+// Seed the incremental flown-path geometry for a flight from a freshly
+// generated FeatureCollection (one full generateAltitudeColoredRoute pass —
+// normally right after the single /history fetch). The cache remembers the
+// segment features plus the line's tip so live fixes can extend it in O(1).
+function seedFlownPathGeometry(flightId, routeData, fallbackPosition) {
+    const features = Array.isArray(routeData?.features) ? routeData.features.slice() : [];
+    let tip = null;
+    const lastFeature = features[features.length - 1];
+    const lastCoords = lastFeature?.geometry?.coordinates;
+    const lastCoord = lastCoords ? lastCoords[lastCoords.length - 1] : null;
+    if (lastCoord) {
+        tip = { lon: lastCoord[0], lat: lastCoord[1], alt: lastFeature.properties?.altitude || 0 };
+    } else if (fallbackPosition && fallbackPosition.lat != null && fallbackPosition.lon != null) {
+        // Brand-new flight with <2 samples: no drawable segment yet, but the
+        // first live fix can start the line from here.
+        tip = { lon: fallbackPosition.lon, lat: fallbackPosition.lat, alt: fallbackPosition.alt_ft || 0 };
+    }
+    flownPathGeomCache.set(flightId, { features, tip });
+}
+
+// Extend the cached flown-path geometry by ONE segment (tip → new live fix).
+// Returns the FeatureCollection to push into the map source, or null when
+// there is nothing new to draw. A null with no cache entry at all means the
+// caller must seed first (one full rebuild).
+function extendFlownPathGeometry(flightId, position) {
+    const cache = flownPathGeomCache.get(flightId);
+    if (!cache || position?.lat == null || position?.lon == null) return null;
+    if (!cache.tip) {
+        cache.tip = { lon: position.lon, lat: position.lat, alt: position.alt_ft || 0 };
+        return null;
+    }
+    // Unwrap the fix into the tip's longitude frame so the segment never
+    // stretches across the antimeridian.
+    let lon = position.lon;
+    while (lon - cache.tip.lon > 180) lon -= 360;
+    while (cache.tip.lon - lon > 180) lon += 360;
+    if (Math.abs(lon - cache.tip.lon) < 1e-7 && Math.abs(position.lat - cache.tip.lat) < 1e-7) {
+        return null; // plane hasn't moved
+    }
+    cache.features.push({
+        type: 'Feature',
+        geometry: {
+            type: 'LineString',
+            coordinates: [
+                [cache.tip.lon, cache.tip.lat],
+                [lon, position.lat]
+            ]
+        },
+        properties: { altitude: cache.tip.alt }
+    });
+    cache.tip = { lon, lat: position.lat, alt: position.alt_ft || 0 };
+    return { type: 'FeatureCollection', features: cache.features };
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
 
-    // Push the live current position to complete the line
+    // The trail history (route API) and the live position (flight feed) come
+    // from different pipelines with different latencies. When the history
+    // holds samples NEWER than the live fix, appending the (older) live tip
+    // makes the line double back — the path visibly extends AHEAD of the
+    // aircraft when zoomed in. Trim anything newer than the live fix so the
+    // line always ends exactly at the plane.
     if (currentPosition) {
+        const liveTs = currentPosition.lastReport ? new Date(currentPosition.lastReport).getTime() : NaN;
+        if (Number.isFinite(liveTs)) {
+            let newer = 0;
+            while (newer < allPoints.length) {
+                const t = new Date(allPoints[allPoints.length - 1 - newer].date || NaN).getTime();
+                if (Number.isFinite(t) && t > liveTs) newer++;
+                else break;
+            }
+            // Bounded: a skewed/broken live timestamp must not wipe the trail.
+            if (newer > 0 && newer <= 8) allPoints.length -= newer;
+        }
         allPoints.push({
             latitude: currentPosition.lat,
             longitude: currentPosition.lon,
@@ -16475,6 +17649,9 @@ function closeAircraftWindow() {
             flights: Object.keys(currentMapFeatures).length,
             atc: activeAtcFacilities.length
         });
+        // Persist the re-shown state; leaving the stale 'false' here meant a
+        // reload could boot with the landing chrome hidden.
+        localStorage.setItem('landingUI_visible', 'true');
     }
 }
 
@@ -16527,6 +17704,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
             if (typeof clearLiveFlightPath === 'function') clearLiveFlightPath(currentFlightInWindow);
             if (typeof liveTrailCache !== 'undefined') liveTrailCache.delete(currentFlightInWindow);
+            if (typeof flownPathGeomCache !== 'undefined') flownPathGeomCache.delete(currentFlightInWindow);
         }
     }
 
@@ -16746,6 +17924,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         // Generate the segmented FeatureCollection using our new function
         const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
 
+        // This is the ONLY /history-driven render: seed the incremental
+        // geometry cache from it, and let socket fixes extend it from here.
+        seedFlownPathGeometry(flightProps.flightId, initialRouteData, livePosition);
+
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
@@ -16776,12 +17958,17 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                         45000, '#0284c7'    
                     ]
                 }
-            }, 'sector-ops-live-flights-layer');
+            }, getUnderAircraftAnchor());
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
                 sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
             }
+        } else {
+            // Already on the map (e.g. a pinned flight being opened): resync
+            // the drawn line to the fresh history-seeded geometry so the
+            // cache and the source agree before live fixes extend it.
+            sectorOpsMap.getSource(flownLayerId).setData(initialRouteData);
         }
 
         isAircraftWindowLoading = false;
@@ -16845,6 +18032,12 @@ function closeAircraftWindow() {
     // Clear the map layers using the ID tracker ONLY IF NOT PINNED
     if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
         clearLiveFlightPath(currentFlightInWindow);
+        // Erase the built-up trail caches with the window; a reopen reseeds
+        // them from a fresh /history fetch. Pinned flights keep theirs.
+        if (currentFlightInWindow) {
+            liveTrailCache.delete(currentFlightInWindow);
+            flownPathGeomCache.delete(currentFlightInWindow);
+        }
     }
 
     // Reset intervals
@@ -16864,6 +18057,9 @@ function closeAircraftWindow() {
             flights: Object.keys(currentMapFeatures).length,
             atc: activeAtcFacilities.length
         });
+        // Persist the re-shown state; leaving the stale 'false' here meant a
+        // reload could boot with the landing chrome hidden.
+        localStorage.setItem('landingUI_visible', 'true');
     }
 }
 
@@ -16874,13 +18070,28 @@ function closeAircraftWindow() {
 // -photo hero already uses — and just swaps the source on swipe or dot tap. The
 // only things added on top are small dot indicators and a per-photo credit,
 // placed in the empty lower strip so nothing existing is hidden.
+// How long each aircraft photo is shown before the carousel softly advances.
+const HERO_PHOTO_CYCLE_MS = 5000;
+
 function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!panel) return;
+    // A previous open may have left an auto-cycle timer running on a now-detached
+    // panel; clear it so we never accumulate stacked timers across reopens.
+    if (window.__heroAutoTimer) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
     // Re-render replaces innerHTML, so any prior carousel is already gone; this
     // guard just avoids double-building within a single render pass.
     if (panel.dataset.heroCarousel === '1') return;
     if (!Array.isArray(photos) || photos.length < 2) return;
     panel.dataset.heroCarousel = '1';
+
+    // Soft crossfade layer. z-index:-1 keeps it directly above the panel's own
+    // background photo but BELOW every child (the gradient overlay, the
+    // callsign/aircraft text, badges, buttons, dots) — positioned or not — so
+    // the incoming photo fades in without ever covering the UI.
+    // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
+    const fadeLayer = document.createElement('div');
+    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+    panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
     dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
@@ -16899,10 +18110,27 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
 
     let index = 0;
+    let fadeCommit = null;
     const show = (i) => {
-        index = (i + photos.length) % photos.length;
-        panel.style.backgroundImage = `url('${photos[index].src}'), url('${fallbackPath}')`;
-        panel.dataset.currentPath = photos[index].src;
+        const next = (i + photos.length) % photos.length;
+        const src = photos[next].src;
+        // Crossfade: paint the incoming photo on the fade layer, fade it in,
+        // then commit it to the panel background and reset the layer instantly
+        // (no transition) so it's invisible and ready for the next swap.
+        if (next !== index) {
+            if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
+            fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+            requestAnimationFrame(() => { fadeLayer.style.opacity = '1'; });
+            fadeCommit = setTimeout(() => {
+                panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                fadeLayer.style.transition = 'none';
+                fadeLayer.style.opacity = '0';
+                requestAnimationFrame(() => { fadeLayer.style.transition = 'opacity .6s ease'; });
+                fadeCommit = null;
+            }, 600);
+        }
+        index = next;
+        panel.dataset.currentPath = src;
         dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
         const n = photos[index].photographer;
         credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
@@ -16911,6 +18139,25 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
 
     panel.appendChild(dots);
     panel.appendChild(credit);
+
+    // --- Auto-advance (soft) -------------------------------------------------
+    // Cycle through the photos on a timer so users don't have to swipe/drag —
+    // gated by the "Auto-Cycle Photos" setting. Pause while the pointer is over
+    // the hero (so people can look at a shot) and briefly after manual paging.
+    let paused = false;
+    const autoOn = !(typeof mapFilters !== 'undefined' && mapFilters.autoCyclePhotos === false);
+    const startAuto = () => {
+        if (!autoOn || window.__heroAutoTimer) return;
+        window.__heroAutoTimer = setInterval(() => {
+            if (!paused && document.body.contains(panel)) show(index + 1);
+            else if (!document.body.contains(panel)) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
+        }, HERO_PHOTO_CYCLE_MS);
+    };
+    if (autoOn) {
+        panel.addEventListener('mouseenter', () => { paused = true; });
+        panel.addEventListener('mouseleave', () => { paused = false; });
+        startAuto();
+    }
 
     // Horizontal swipe to page through photos. Pointer events cover both touch
     // (iOS) and mouse; taps on the hero buttons are ignored so they still work.
@@ -19224,7 +20471,8 @@ function updateFmsLegsModule(plan, currentPos) {
         const routeLinesId = `routes-from-${departureICAO}`;
         sectorOpsMap.addSource(routeLinesId, {
             type: 'geojson',
-            data: { type: 'FeatureCollection', features: routeLineFeatures }
+            data: { type: 'FeatureCollection', features: routeLineFeatures },
+            tolerance: 0 // arcs are densified; don't let low zoom simplify them jagged
         });
 
         sectorOpsMap.addLayer({
@@ -19709,8 +20957,15 @@ function processRawPilotData(gradeInfo) {
             const features = sectorOpsMap.queryRenderedFeatures(e.point, {
                 layers: ['sector-ops-live-flights-layer', 'sector-ops-live-flights-natural-layer'] // The aircraft icon layers (SDF + natural)
             });
-            
+
             const clickedOnAircraft = features.length > 0;
+
+            // Airport glance symbols open/switch fields through their own
+            // layer handlers — a tap on one must not count as "empty map"
+            // (it would close the window the tap is about to populate).
+            const aptGlanceLayers = [ACTIVE_APT_DOT, ACTIVE_APT_LBL].filter(id => sectorOpsMap.getLayer(id));
+            const clickedOnAirport = aptGlanceLayers.length > 0 &&
+                sectorOpsMap.queryRenderedFeatures(e.point, { layers: aptGlanceLayers }).length > 0;
 
             // D. EXECUTE CLOSE LOGIC
             // Condition: It was a Click + Not on a Plane + A flight is currently selected
@@ -19718,10 +20973,19 @@ function processRawPilotData(gradeInfo) {
                 // Check if window is actually visible to avoid redundant calls
                 if (aircraftInfoWindow.classList.contains('visible')) {
                     console.log("Smart Click: Closing flight window (Map clicked, not dragged).");
-                    closeAircraftWindow(); 
+                    closeAircraftWindow();
                 }
             }
-            
+
+            // E. Airport window: tapping empty map closes it — this replaced
+            // the header X as the close affordance. Minimised-to-recall state
+            // (window hidden, recall chip showing) is left alone.
+            if (IS_CLICK && !clickedOnAircraft && !clickedOnAirport && currentAirportInWindow) {
+                if (airportInfoWindow && airportInfoWindow.classList.contains('visible')) {
+                    closeAirportWindow();
+                }
+            }
+
             // Reset
             startPoint = null;
         });
@@ -20699,7 +21963,7 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
                     5, 1
                 ]
             }
-        }, 'sector-ops-live-flights-layer'); // Place UNDER planes
+        }, getUnderAircraftAnchor()); // Place UNDER planes
     }
 
     if (sectorOpsMap.getLayer(LAYER_ID)) {
@@ -21000,17 +22264,19 @@ async function initializeApp() {
         // now; the partner directory is awaited inside.
         renderVaHubMarkers();
 
-        // Default to true if not explicitly set to 'false'
-        const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
-
-        if (isVisible) {
-            LandingUI.update(true, {
-                server: currentServerName,
-                // These will update to real numbers as soon as data arrives
-                flights: Object.keys(currentMapFeatures).length || 0, 
-                atc: activeAtcFacilities.length || 0
-            });
-        }
+        // A reload never restores a flight/airport window, so a persisted
+        // 'false' left by a session that ended with a window open is always
+        // stale — it left the landing chrome invisible until something
+        // (closing an aircraft window) happened to re-show it. Reset the
+        // flag and show the chrome unconditionally at boot; share links that
+        // auto-open a flight hide it again via handleAircraftClick.
+        localStorage.setItem('landingUI_visible', 'true');
+        LandingUI.update(true, {
+            server: currentServerName,
+            // These will update to real numbers as soon as data arrives
+            flights: Object.keys(currentMapFeatures).length || 0,
+            atc: activeAtcFacilities.length || 0
+        });
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch } = e.detail;

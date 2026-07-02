@@ -138,6 +138,18 @@
     .fi-va-name { font-size: 11px; font-weight: 700; color: #e2e8f0; }
     .fi-va-tag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7dd3fc; }
     .fi-va-note { font-size: 9px; font-weight: 600; color: #fca5a5; }
+    /* Peek: callsign + state keep their natural width and never truncate. */
+    .cb-callsign-row { flex-wrap: nowrap; overflow: hidden; }
+    .cb-callsign-row .cb-callsign { flex: 0 0 auto; }
+    .cb-callsign-row .cb-state { flex: 0 0 auto; }
+    /* The partner-VA badge sits on its own line so it has the full identity
+       width to work with; the name truncates instead of overflowing, and the
+       "not a member" note is dropped here (shown in the expanded header). */
+    .cb-va-row { margin-top: 7px; max-width: 100%; flex-wrap: nowrap; }
+    #c-va-badge .fi-va-chip { min-width: 0; max-width: 100%; }
+    #c-va-badge .fi-va-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #c-va-badge .fi-va-tag,
+    #c-va-badge .fi-va-note { display: none; }
     .cb-callsign {
         font-size: 22px; font-weight: 900; letter-spacing: -0.5px;
         color: var(--color-gold); line-height: 1;
@@ -373,11 +385,18 @@
         text-transform: uppercase; letter-spacing: .5px; margin-top: 6px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;
     }
-    .rh-mid { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    /* Route midline reads as a journey: a faint connecting line with a small
+       brand-accent plane badge riding on it (instead of a big blank disc). */
+    .rh-mid { flex: 1; min-width: 40px; position: relative; display: flex; align-items: center; justify-content: center; align-self: center; }
+    .rh-mid::before {
+        content: ''; position: absolute; left: 4px; right: 4px; top: 50%; height: 2px;
+        transform: translateY(-50%); border-radius: 2px;
+        background: linear-gradient(to right, transparent, rgba(255,255,255,.16) 18%, rgba(255,255,255,.16) 82%, transparent);
+    }
     .rh-plane-badge {
-        width: 46px; height: 46px; border-radius: 50%;
-        background: #fff; display: grid; place-items: center;
-        color: #18181b; font-size: 20px; box-shadow: 0 6px 16px rgba(0,0,0,.4);
+        position: relative; width: 34px; height: 34px; border-radius: 50%;
+        background: var(--color-brand); display: grid; place-items: center;
+        color: #fff; font-size: 15px; box-shadow: 0 4px 14px rgba(56,189,248,.45);
     }
 
     /* TIMES GRID (Scheduled / Actual / Estimated) */
@@ -396,8 +415,8 @@
         border-top: 1px solid rgba(255,255,255,.05);
     }
     .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
-    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-gold); border-radius: 2px; transition: width .5s linear; }
-    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-gold); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); }
+    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--color-brand); border-radius: 2px; transition: width .5s linear; }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--color-brand); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(56,189,248,.55)); }
     .rp-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
     .rp-labels .mono { font-family: var(--font-data); }
 
@@ -939,8 +958,8 @@
                 <div class="cb-callsign-row">
                     <span class="cb-callsign" id="c-callsign">----</span>
                     <span class="cb-state" id="c-state"><span class="cb-state-dot"></span><span id="c-state-text">--</span></span>
-                    <span id="c-va-badge" class="fi-va-badge"></span>
                 </div>
+                <span id="c-va-badge" class="fi-va-badge cb-va-row"></span>
                 <div class="cb-pilot" id="c-pilot">
                     <i class="fa-solid fa-user-astronaut"></i>
                     <span id="c-username">Pilot</span>
@@ -2241,6 +2260,21 @@
             if (!container) return;
             const img = document.getElementById('ac-photo');
 
+            // Soft crossfade layer: a second <img> stacked over #ac-photo that
+            // fades the incoming photo in, then hands off to the base image
+            // (img opacity isn't a clean swap on a single element).
+            let fadeImg = container.querySelector('#ac-photo-fade');
+            if (!fadeImg) {
+                fadeImg = document.createElement('img');
+                fadeImg.id = 'ac-photo-fade';
+                fadeImg.className = 'hero-img';
+                // No z-index, inserted right after the base photo: it overlays
+                // the (in-flow) base image but stays below the dim, name/route
+                // overlay, credit and dots, so the fade never covers the UI.
+                fadeImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+                img.insertAdjacentElement('afterend', fadeImg);
+            }
+
             const sig = list.map(p => p.url).join('|');
             const changed = container.dataset.carouselSig !== sig;
             if (changed) { container.dataset.carouselSig = sig; container.__heroIndex = 0; }
@@ -2253,8 +2287,21 @@
             };
             const show = (i) => {
                 const idx = (i + list.length) % list.length;
+                const url = list[idx].url;
+                // Crossfade only on an actual change of photo.
+                if (img && img.src !== url) {
+                    if (container.__fadeCommit) clearTimeout(container.__fadeCommit);
+                    fadeImg.src = url;
+                    requestAnimationFrame(() => { fadeImg.style.opacity = '1'; });
+                    container.__fadeCommit = setTimeout(() => {
+                        img.src = url;
+                        fadeImg.style.transition = 'none';
+                        fadeImg.style.opacity = '0';
+                        requestAnimationFrame(() => { fadeImg.style.transition = 'opacity .6s ease'; });
+                        container.__fadeCommit = null;
+                    }, 600);
+                }
                 container.__heroIndex = idx;
-                if (img && img.src !== list[idx].url) img.src = list[idx].url;
                 if (container.__heroDots) container.__heroDots.forEach((d, k) => {
                     d.style.background = `rgba(255,255,255,${k === idx ? '0.95' : '0.5'})`;
                 });
@@ -2300,6 +2347,25 @@
                 });
             }
 
+            // --- Auto-advance (soft) --------------------------------------
+            // Cycle photos on a timer unless the user turned off "Auto-Cycle
+            // Photos" (shared setting, read from the host's mapFilters in
+            // same-origin localStorage). Pause while the pointer is over the
+            // hero so a photo can be looked at.
+            if (container.__heroAutoTimer) { clearInterval(container.__heroAutoTimer); container.__heroAutoTimer = null; }
+            let autoOn = true;
+            try { autoOn = JSON.parse(localStorage.getItem('mapFilters'))?.autoCyclePhotos !== false; } catch (_) {}
+            if (autoOn) {
+                if (!container.dataset.autoHoverWired) {
+                    container.dataset.autoHoverWired = '1';
+                    container.addEventListener('pointerenter', () => { container.__heroPaused = true; });
+                    container.addEventListener('pointerleave', () => { container.__heroPaused = false; });
+                }
+                container.__heroAutoTimer = setInterval(() => {
+                    if (!container.__heroPaused && container.__heroAdvance) container.__heroAdvance(1);
+                }, 5000);
+            }
+
             show(0);
         }
 
@@ -2310,6 +2376,9 @@
             if (!container || !container.dataset.carouselSig) return;
             delete container.dataset.carouselSig;
             container.querySelector('#ac-hero-dots')?.remove();
+            if (container.__heroAutoTimer) { clearInterval(container.__heroAutoTimer); container.__heroAutoTimer = null; }
+            if (container.__fadeCommit) { clearTimeout(container.__fadeCommit); container.__fadeCommit = null; }
+            container.querySelector('#ac-photo-fade')?.remove();
             container.__heroDots = null;
             container.__heroAdvance = null;
         }

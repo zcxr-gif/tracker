@@ -56,7 +56,8 @@ export class NatTracksLayer {
         this.map.addSource(this.sourceId, {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] },
-            generateId: true 
+            generateId: true,
+            tolerance: 0 // NAT track lines stay smooth when zoomed out
         });
 
         const beforeId = this.map.getLayer(this.airplaneLayerId) ? this.airplaneLayerId : undefined;
