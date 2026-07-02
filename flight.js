@@ -17504,6 +17504,9 @@ function closeAircraftWindow() {
             flights: Object.keys(currentMapFeatures).length,
             atc: activeAtcFacilities.length
         });
+        // Persist the re-shown state; leaving the stale 'false' here meant a
+        // reload could boot with the landing chrome hidden.
+        localStorage.setItem('landingUI_visible', 'true');
     }
 }
 
@@ -17893,6 +17896,9 @@ function closeAircraftWindow() {
             flights: Object.keys(currentMapFeatures).length,
             atc: activeAtcFacilities.length
         });
+        // Persist the re-shown state; leaving the stale 'false' here meant a
+        // reload could boot with the landing chrome hidden.
+        localStorage.setItem('landingUI_visible', 'true');
     }
 }
 
@@ -22080,17 +22086,19 @@ async function initializeApp() {
         // now; the partner directory is awaited inside.
         renderVaHubMarkers();
 
-        // Default to true if not explicitly set to 'false'
-        const isVisible = localStorage.getItem('landingUI_visible') !== 'true'; 
-
-        if (isVisible) {
-            LandingUI.update(true, {
-                server: currentServerName,
-                // These will update to real numbers as soon as data arrives
-                flights: Object.keys(currentMapFeatures).length || 0, 
-                atc: activeAtcFacilities.length || 0
-            });
-        }
+        // A reload never restores a flight/airport window, so a persisted
+        // 'false' left by a session that ended with a window open is always
+        // stale — it left the landing chrome invisible until something
+        // (closing an aircraft window) happened to re-show it. Reset the
+        // flag and show the chrome unconditionally at boot; share links that
+        // auto-open a flight hide it again via handleAircraftClick.
+        localStorage.setItem('landingUI_visible', 'true');
+        LandingUI.update(true, {
+            server: currentServerName,
+            // These will update to real numbers as soon as data arrives
+            flights: Object.keys(currentMapFeatures).length || 0,
+            atc: activeAtcFacilities.length || 0
+        });
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch } = e.detail;
