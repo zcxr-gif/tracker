@@ -4436,12 +4436,13 @@ function injectCustomStyles() {
         /* --- Airport weather "instrument panel" (glass-cockpit look) --- */
         .apt-wx-panel {
             margin: 0 16px 12px;
-            padding: 14px;
-            background: linear-gradient(160deg, #1e4d86 0%, #163d6b 100%);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: var(--radius-md);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+            background: rgba(24, 24, 27, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
         }
+
+        .wx-body { padding: 12px; }
 
         .wx-tile-grid {
             display: grid;
@@ -4452,18 +4453,20 @@ function injectCustomStyles() {
         .wx-tile {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 3px;
             min-width: 0;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 8px 6px;
         }
 
         .wx-tile-chip {
-            border-radius: 8px;
-            padding: 10px 6px;
-            text-align: center;
             font-family: var(--font-data);
-            font-size: 1rem;
-            font-weight: 800;
-            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #e4e4e7;
             line-height: 1.15;
             white-space: nowrap;
             overflow: hidden;
@@ -4471,10 +4474,14 @@ function injectCustomStyles() {
         }
 
         .wx-tile-sub {
-            text-align: center;
-            font-size: 0.7rem;
-            color: rgba(226, 232, 240, 0.85);
+            font-size: 0.6rem;
+            color: #a1a1aa;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .wx-gauges {
@@ -4508,17 +4515,17 @@ function injectCustomStyles() {
             font-family: var(--font-data);
             font-size: 0.8rem;
             font-weight: 700;
-            color: rgba(226, 232, 240, 0.6);
-            background: rgba(0, 0, 0, 0.22);
-            border: 1px solid transparent;
+            color: #a1a1aa;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 9px;
             padding: 6px 12px;
         }
 
         .wx-rwy-pill.active {
-            color: #fff;
-            background: rgba(0, 0, 0, 0.1);
-            border-color: rgba(255, 255, 255, 0.55);
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.08);
+            border-color: rgba(56, 189, 248, 0.5);
         }
 
         .wx-cloud-chart {
@@ -4555,16 +4562,42 @@ function injectCustomStyles() {
             color: #fff;
         }
 
-        .wx-cloud-layer .fa-cloud { font-size: 1.4rem; opacity: 0.9; }
+        .wx-cloud-layer .fa-cloud { font-size: 1.4rem; opacity: 0.75; color: #cbd5e1; }
 
         .wx-cloud-tag {
             margin-left: auto;
             font-family: var(--font-data);
             font-size: 0.72rem;
             font-weight: 700;
-            border: 1px solid rgba(255, 255, 255, 0.35);
+            color: #cbd5e1;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.03);
             border-radius: 8px;
             padding: 3px 8px;
+        }
+
+        /* Full ATIS broadcast text inside the ATIS module. */
+        .apt-atis-remark {
+            margin: 8px 10px 0;
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #fbbf24;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .apt-atis-text {
+            margin: 8px 10px 10px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
+            font-family: var(--font-data);
+            font-size: 0.68rem;
+            line-height: 1.5;
+            color: #94a3b8;
+            max-height: 110px;
+            overflow-y: auto;
+            white-space: pre-wrap;
         }
 
         .wx-cloud-clear {
@@ -6307,7 +6340,7 @@ function buildAirportWxPanel(w, runways, category, catColor) {
         const half = 58, w2 = 9;
         runwaySvg = `
             <g transform="rotate(${rwyHeading.toFixed(1)} ${C} ${C})">
-                <rect x="${C - w2}" y="${C - half}" width="${w2 * 2}" height="${half * 2}" rx="3" fill="#0b1f33" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                <rect x="${C - w2}" y="${C - half}" width="${w2 * 2}" height="${half * 2}" rx="3" fill="#18181b" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
                 <line x1="${C}" y1="${C - half + 8}" x2="${C}" y2="${C + half - 8}" stroke="#fff" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.8"/>
                 <g stroke="#fff" stroke-width="1.5" opacity="0.9">
                     ${[-6, -3, 0, 3, 6].map(o => `<line x1="${C + o}" y1="${C - half + 1}" x2="${C + o}" y2="${C - half + 7}"/>`).join('')}
@@ -6346,22 +6379,27 @@ function buildAirportWxPanel(w, runways, category, catColor) {
             ${dialTicks}${dialLabels}
             <text x="${WC}" y="${WC - 26}" fill="rgba(226,232,240,0.7)" font-size="13" font-weight="700" text-anchor="middle">kt</text>
             <line x1="${WC}" y1="${WC}" x2="${(WC + (WR - 10) * sin(nb)).toFixed(1)}" y2="${(WC - (WR - 10) * cos(nb)).toFixed(1)}" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
-            <circle cx="${WC}" cy="${WC}" r="7" fill="#0b1f33" stroke="#fff" stroke-width="2"/>
+            <circle cx="${WC}" cy="${WC}" r="7" fill="#18181b" stroke="#fff" stroke-width="2"/>
         </svg>`;
 
     // --- Condition tiles ---------------------------------------------------
-    const good = '#3a9d5d';
-    const tile = (chipColor, chipHtml, sub) => `
+    // Styled like the window's compact stat boxes: neutral glass cells with a
+    // colored VALUE (label on top), matching every other module — not solid
+    // colored chips.
+    const good = '#4ade80';
+    const warn = '#fbbf24';
+    const neutral = '#e4e4e7';
+    const tile = (valueColor, valueHtml, sub) => `
         <div class="wx-tile">
-            <div class="wx-tile-chip" style="background:${chipColor};">${chipHtml}</div>
             <div class="wx-tile-sub">${sub}</div>
+            <div class="wx-tile-chip" style="color:${valueColor};">${valueHtml}</div>
         </div>`;
 
     const windChip = w.windSpeed > 0 ? `${w.windSpeed} kt` : 'Calm';
-    const windSub = w.windVariable ? 'Variable' : (w.windDir != null ? `${String(w.windDir).padStart(3, '0')}°` : 'Calm');
+    const windSub = w.windVariable ? 'Wind · VRB' : (w.windDir != null ? `Wind · ${String(w.windDir).padStart(3, '0')}°` : 'Wind');
     const ceilChip = w.ceiling != null ? `${w.ceiling.toLocaleString()} ft` : 'None';
-    const ceilColor = (w.ceiling == null || w.ceiling >= 3000) ? good : '#1d4170';
-    const visColor = (w.visibilityMeters == null || w.visibilityMeters >= 8000) ? good : '#1d4170';
+    const ceilColor = (w.ceiling == null || w.ceiling >= 3000) ? good : warn;
+    const visColor = (w.visibilityMeters == null || w.visibilityMeters >= 8000) ? good : warn;
     const altChip = w.altimeterInHg != null ? `${w.altimeterInHg.toFixed(2)} inHg` : (w.altimeterHpa != null ? `${w.altimeterHpa} hPa` : '—');
     const tempChip = w.tempC != null ? `${w.tempC}°C` : (w.temp || '—');
     const condIcon = (() => {
@@ -6373,12 +6411,12 @@ function buildAirportWxPanel(w, runways, category, catColor) {
 
     const tiles = `
         <div class="wx-tile-grid">
-            ${tile(catColor && category !== 'VFR' ? catColor : good, category || 'VFR', 'No warnings')}
-            ${tile('#1d4170', `<i class="fa-solid ${condIcon}" style="color:#fcd34d;margin-right:6px;"></i>${tempChip}`, w.conditionLabel || 'Conditions')}
-            ${tile(good, windChip, windSub)}
+            ${tile(catColor || good, category || 'VFR', 'Category')}
+            ${tile(warn, `<i class="fa-solid ${condIcon}" style="color:#fcd34d;margin-right:6px;"></i>${tempChip}`, w.conditionLabel || 'Conditions')}
+            ${tile('#38bdf8', windChip, windSub)}
             ${tile(visColor, w.visibility || '—', 'Visibility')}
             ${tile(ceilColor, ceilChip, 'Ceiling')}
-            ${tile('#1d4170', altChip, 'Altimeter')}
+            ${tile(neutral, altChip, 'Altimeter')}
         </div>`;
 
     // --- Runway selector pills --------------------------------------------
@@ -6410,13 +6448,16 @@ function buildAirportWxPanel(w, runways, category, catColor) {
 
     return `
         <div class="apt-wx-panel">
-            ${tiles}
-            <div class="wx-gauges">
-                <div class="wx-gauge">${compassSvg}</div>
-                <div class="wx-gauge">${windDial}</div>
+            <div class="apt-mini-header"><span><i class="fa-solid fa-cloud-sun"></i> WEATHER</span><span style="color: ${catColor}; border: 1px solid ${catColor}; padding: 0 5px; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">${category || 'VFR'}</span></div>
+            <div class="wx-body">
+                ${tiles}
+                <div class="wx-gauges">
+                    <div class="wx-gauge">${compassSvg}</div>
+                    <div class="wx-gauge">${windDial}</div>
+                </div>
+                ${runwayBar}
+                ${cloudChart}
             </div>
-            ${runwayBar}
-            ${cloudChart}
         </div>`;
 }
 
@@ -11146,23 +11187,26 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
                 metarString = w.raw;
 
-                // Unified OPERATIONS card: one module that always shows the
-                // active arrival/departure runways, approach and wind. It uses
-                // live ATIS when the field is broadcasting and otherwise falls
-                // back to a wind-based estimate — clearly badged either way so
-                // the two sources are never mistaken for one another.
+                // ATIS card (replaces the old OPERATIONS module). When the
+                // field is broadcasting it shows the parsed runway/approach/
+                // wind grid PLUS the full live broadcast text; otherwise a
+                // wind-based estimate, clearly badged so the two sources are
+                // never mistaken for one another.
                 {
-                    let arrRwy, depRwy, appr, sourcePill, footerHtml;
+                    const escAtis = (s) => String(s == null ? '' : s)
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    let arrRwy, depRwy, appr, sourcePill, extraHtml;
                     if (rawAtisText) {
-                        const atis = parseAtis(rawAtisText);
+                        const atisText = Array.isArray(rawAtisText) ? rawAtisText.join(' ') : String(rawAtisText);
+                        const atis = parseAtis(atisText);
                         arrRwy = atis.landing || '---';
                         depRwy = atis.departing || '---';
                         appr = atis.approach || '---';
-                        sourcePill = `<span style="color:#fbbf24;border:1px solid #fbbf24;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ATIS ${atis.info}</span>`;
-                        const note = atis.remarks
-                            ? `<i class="fa-solid fa-circle-info"></i> ${atis.remarks}`
-                            : `<i class="fa-solid fa-tower-broadcast"></i> Live ATIS${atis.time ? ` · ${atis.time}` : ''}`;
-                        footerHtml = `<div class="apt-mini-footer" title="${atis.remarks || 'Live ATIS'}">${note}</div>`;
+                        const timeTag = (atis.time && atis.time !== '--') ? ` · ${atis.time}` : '';
+                        sourcePill = `<span style="color:#fbbf24;border:1px solid #fbbf24;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#fbbf24;margin-right:4px;vertical-align:1px;"></span>LIVE · INFO ${atis.info}${timeTag}</span>`;
+                        extraHtml = `
+                            ${atis.remarks ? `<div class="apt-atis-remark"><i class="fa-solid fa-circle-info"></i> ${escAtis(atis.remarks)}</div>` : ''}
+                            <div class="apt-atis-text">${escAtis(atisText)}</div>`;
                     } else {
                         const recs = getRunwayRecommendations(airportRunways, w.wind);
                         const activeRunways = recs.slice(0, 2).map(r => r.ident).join('/') || '---';
@@ -11170,11 +11214,11 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                         depRwy = activeRunways;
                         appr = 'VISUAL';
                         sourcePill = `<span style="color:#94a3b8;border:1px solid #475569;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ESTIMATED</span>`;
-                        footerHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no live ATIS</div>`;
+                        extraHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no ATIS broadcast</div>`;
                     }
                     atisModuleHtml = `
                     <div class="apt-mini-module">
-                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> OPERATIONS</span>${sourcePill}</div>
+                        <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${sourcePill}</div>
                         <div class="apt-mini-body" style="padding-bottom: 0;">
                             <div class="stat-grid-compact">
                                 <div class="compact-stat-box"><span class="compact-label">ARR RWY</span><span class="compact-value" style="color: #4ade80;">${arrRwy}</span></div>
@@ -11183,7 +11227,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                                 <div class="compact-stat-box"><span class="compact-label">WIND</span><span class="compact-value" style="color:#fbbf24;">${w.wind}</span></div>
                             </div>
                         </div>
-                        ${footerHtml}
+                        ${extraHtml}
                     </div>`;
                 }
 
@@ -11451,7 +11495,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             <div style="flex-grow: 1; overflow-y: auto;">
                 <div id="apt-va-banner" class="va-ad-banner-slot"></div>
                 ${weatherModuleHtml}
-                <div class="apt-dashboard-grid">${atisModuleHtml}</div>
+                <div style="padding: 0 16px; margin-bottom: 12px;">${atisModuleHtml}</div>
 
                 <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
                     <div class="apt-tabs-header">
