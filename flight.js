@@ -11877,6 +11877,45 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         return out;
     };
 
+    // Aggregate live traffic per airport (one pass over the flight cache).
+    // in60 = arrivals estimated within the next hour — the "flow" signal the
+    // mobile ATC board sorts by and stamps IFATC recommendations from.
+    window.getBusyAirportsSummary = function () {
+        const byApt = new Map();
+        const ensure = (icao) => {
+            if (!byApt.has(icao)) {
+                const apt = airportsData[icao] || {};
+                byApt.set(icao, { icao, name: apt.name || '', inCount: 0, in60: 0, outCount: 0, total: 0 });
+            }
+            return byApt.get(icao);
+        };
+        Object.values(currentMapFeatures).forEach(f => {
+            const p = f && f.properties;
+            if (!p) return;
+            const arr = String(p.arrivalIcao || '').toUpperCase();
+            const dep = String(p.departureIcao || '').toUpperCase();
+            if (arr && airportsData[arr]) {
+                const e = ensure(arr);
+                e.inCount++; e.total++;
+                try {
+                    const pos = JSON.parse(p.position || '{}');
+                    const gs = pos.gs_kt || 0;
+                    const apt = airportsData[arr];
+                    if (gs > 50 && pos.lat != null && apt.lat != null) {
+                        const etaMin = (getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon) / 1.852 / gs) * 60;
+                        if (etaMin <= 60) e.in60++;
+                    }
+                } catch (_) { /* malformed position — skip the ETA */ }
+            }
+            if (dep && dep !== arr && airportsData[dep]) {
+                const e = ensure(dep);
+                e.outCount++; e.total++;
+            }
+        });
+        return Array.from(byApt.values())
+            .sort((a, b) => (b.in60 - a.in60) || (b.total - a.total));
+    };
+
     // Build the Live Activity start payload from whatever state we currently have on the
     // open aircraft info window. Returns null if we don't have enough to fire yet.
     function buildLiveActivityPayload(flightId) {

@@ -185,12 +185,16 @@ export const MobileLandingChromeUI = {
                 <div class="ios-fullsheet-head">
                     <div class="ios-fullsheet-titles">
                         <span class="ios-fullsheet-eyebrow">Live Network</span>
-                        <span class="ios-fullsheet-title">Active ATC</span>
+                        <span class="ios-fullsheet-title">Airports &amp; ATC</span>
                     </div>
                     <div class="ios-fullsheet-head-right">
                         <span class="ios-atc-count" id="ios-atc-count">—</span>
                         <button type="button" class="ios-fullsheet-close" data-dismiss="atc" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                     </div>
+                </div>
+                <div class="ios-atc-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" id="ios-atc-search-input" placeholder="Search airports" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
                 </div>
                 <div class="ios-atc-body ios-fullsheet-body" id="ios-atc-body"></div>
             </div>
@@ -342,14 +346,19 @@ export const MobileLandingChromeUI = {
                 this._closeAtcSheet();
                 return;
             }
-            // Traffic filter chips: toggle the hidden group and re-render.
+            // Traffic filter chips: toggle the hidden group for THAT airport
+            // (each field keeps its own selection) and re-render.
             const tchip = e.target.closest('[data-atc-tchip]');
             if (tchip) {
                 e.stopPropagation();
                 const key = tchip.dataset.atcTchip;
-                if (!this._atcTrafficHide) this._atcTrafficHide = new Set();
-                if (this._atcTrafficHide.has(key)) this._atcTrafficHide.delete(key);
-                else this._atcTrafficHide.add(key);
+                const apt = tchip.dataset.atcTchipApt;
+                if (!key || !apt) return;
+                if (!this._atcTrafficHideByApt) this._atcTrafficHideByApt = {};
+                if (!this._atcTrafficHideByApt[apt]) this._atcTrafficHideByApt[apt] = new Set();
+                const set = this._atcTrafficHideByApt[apt];
+                if (set.has(key)) set.delete(key);
+                else set.add(key);
                 window.InflightHaptics?.tap?.();
                 this._renderAtcSheet();
                 return;
@@ -384,6 +393,14 @@ export const MobileLandingChromeUI = {
                     if (ok) this._closeAtcSheet();
                 }
             }
+        });
+
+        // Airport search — the input lives outside the re-rendered body so it
+        // keeps focus while the board refilters on every keystroke.
+        const atcSearch = document.getElementById('ios-atc-search-input');
+        atcSearch?.addEventListener('input', () => {
+            this._atcSearchQuery = atcSearch.value || '';
+            this._renderAtcSheet();
         });
 
         // Keep the badge + open list fresh as controllers connect / disconnect.
@@ -635,13 +652,22 @@ export const MobileLandingChromeUI = {
             </div>`;
     },
     // Per-field live traffic readout for the drawer: pilot-state stats, ETA
-    // bucket counts and the nearest arrivals — honouring the sheet's filter
-    // chips (this._atcTrafficHide).
+    // bucket counts and a scrollable arrivals list — honouring that airport's
+    // own filter chips (this._atcTrafficHideByApt[icao]).
     _atcTrafficHTML(icao) {
         const get = window.getAirportTrafficSummary;
         const t = (typeof get === 'function') ? get(icao) : null;
         if (!t || (!t.inbound.length && !t.outCount && !t.parked)) return '';
-        const hide = this._atcTrafficHide || new Set();
+        // Per-airport filter chips: each field keeps its own hidden-group set.
+        if (!this._atcTrafficHideByApt) this._atcTrafficHideByApt = {};
+        const hide = this._atcTrafficHideByApt[icao] || new Set();
+        const chip = (key, label) =>
+            `<button type="button" class="ios-atc-tchip${hide.has(key) ? ' off' : ''}" data-atc-tchip="${key}" data-atc-tchip-apt="${this._atcEsc(icao)}">${label}</button>`;
+        const chipsRow = `
+            <div class="ios-atc-tchips in-drawer">
+                <span class="ios-atc-tchips-label"><i class="fa-solid fa-filter"></i></span>
+                ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
+            </div>`;
         const shown = t.inbound.filter(r => {
             const phaseKey = r.phase === 'enroute' ? 'cruise' : r.phase;
             return !hide.has(r.fstate) && !hide.has(phaseKey);
@@ -664,7 +690,9 @@ export const MobileLandingChromeUI = {
             ? `<span class="ios-atc-bucket" style="color:${b.color};">${b.label} · ${counts[i]}</span>`
             : '').join('');
 
-        const nearest = shown.slice(0, 5).map(r => {
+        // Scrollable arrivals list (capped for DOM weight; the list itself
+        // scrolls inside the drawer).
+        const nearest = shown.slice(0, 30).map(r => {
             const eta = r.etaMin == null ? '—'
                 : (r.etaMin >= 60 ? `${Math.floor(r.etaMin / 60)}h ${String(r.etaMin % 60).padStart(2, '0')}m` : `${r.etaMin}m`);
             const tag = r.fstate === 'applus' ? ' · AP+'
@@ -676,6 +704,7 @@ export const MobileLandingChromeUI = {
         return `
             <div class="ios-atc-traffic">
                 <div class="ios-atc-ctrl-head">Traffic</div>
+                ${chipsRow}
                 <div class="ios-atc-tstats">
                     <span class="ios-atc-tstat"><b>${shown.length}</b> inbound</span>
                     <span class="ios-atc-tstat"><b>${t.outCount}</b> outbound</span>
@@ -711,7 +740,7 @@ export const MobileLandingChromeUI = {
                 <div class="ios-atc-arow-line">
                     <button type="button" class="ios-atc-arow" data-atc-apt="${idx}">
                         <span class="ios-atc-apt">
-                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}</span>
+                            <span class="ios-atc-icao">${this._atcEsc(a.icao)}${(!a.count && (a.in60 || 0) >= 3) ? `<span class="ios-atc-rec" title="Strong arrival flow in the next hour — great field for IFATC"><i class="fa-solid fa-star"></i> IFATC Pick · ${a.in60}/hr</span>` : ''}</span>
                             <span class="ios-atc-aptname">${this._atcEsc(a.name || a.icao)}</span>
                         </span>
                         <span class="ios-atc-tower">
@@ -736,36 +765,59 @@ export const MobileLandingChromeUI = {
         const countEl = document.getElementById('ios-atc-count');
         if (!body) return;
 
-        // Airport board — one row per staffed field; keep a stable list so a
+        // Airport board — staffed fields on top, then every airport with live
+        // traffic, sorted by next-hour arrival flow. Keep a stable list so a
         // row's data-atc-apt maps back to its airport.
-        const board = this._atcBoardLive();
-        this._atcBoard = board;
+        const staffed = this._atcBoardLive();
+        const busy = (typeof window.getBusyAirportsSummary === 'function') ? window.getBusyAirportsSummary() : [];
+        const busyMap = new Map(busy.map(b => [b.icao, b]));
 
-        const total = board.reduce((s, a) => s + (a.count || 0), 0);
+        const seen = new Set();
+        let rows = staffed.map(a => {
+            seen.add(a.icao);
+            const t = busyMap.get(a.icao);
+            return { ...a, in60: t ? t.in60 : 0, totalTraffic: t ? t.total : 0 };
+        });
+        busy.forEach(b => {
+            if (seen.has(b.icao)) return;
+            rows.push({
+                icao: b.icao, name: b.name, count: 0,
+                atis: false, gnd: false, twr: false, app: false, dep: false,
+                in60: b.in60, totalTraffic: b.total
+            });
+        });
+
+        // Active ATC first (by controllers), then by next-hour flow, then by
+        // total associated traffic.
+        rows.sort((a, b) => (b.count - a.count) || (b.in60 - a.in60) || (b.totalTraffic - a.totalTraffic));
+
+        // Search (ICAO or airport name).
+        const q = (this._atcSearchQuery || '').trim().toUpperCase();
+        if (q) rows = rows.filter(r =>
+            String(r.icao).toUpperCase().includes(q) || String(r.name || '').toUpperCase().includes(q));
+
+        rows = rows.slice(0, 120); // keep the sheet snappy
+        this._atcBoard = rows;
+
+        const total = staffed.reduce((s, a) => s + (a.count || 0), 0);
         if (countEl) countEl.textContent = total ? `${total} online` : 'None online';
 
-        if (!board.length) {
-            body.innerHTML = `
+        if (!rows.length) {
+            body.innerHTML = q ? `
+                <div class="ios-inflight-empty">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <p>No airports match "${this._atcEsc(q)}"</p>
+                    <span>Try an ICAO code (e.g. KLAX) or part of the airport name.</span>
+                </div>` : `
                 <div class="ios-inflight-empty">
                     <i class="fa-solid fa-tower-broadcast"></i>
-                    <p>No controllers online</p>
-                    <span>When ATC connects on this server, every staffed airport appears here — tap one to jump to it.</span>
+                    <p>No live airports</p>
+                    <span>Staffed fields and airports with live traffic appear here — tap one to jump to it.</span>
                 </div>`;
             return;
         }
 
-        // Filter chips for the per-field arrivals readout — each chip hides
-        // its pilot-state/phase group. Selection survives live refreshes.
-        if (!this._atcTrafficHide) this._atcTrafficHide = new Set();
-        const chip = (key, label) =>
-            `<button type="button" class="ios-atc-tchip${this._atcTrafficHide.has(key) ? ' off' : ''}" data-atc-tchip="${key}">${label}</button>`;
-        const chipsRow = `
-            <div class="ios-atc-tchips">
-                <span class="ios-atc-tchips-label"><i class="fa-solid fa-filter"></i></span>
-                ${chip('parked', 'Parked')}${chip('applus', 'AP+')}${chip('away', 'Away')}${chip('ground', 'Ground')}${chip('climb', 'Climb')}${chip('cruise', 'Cruise')}${chip('descent', 'Descent')}
-            </div>`;
-
-        body.innerHTML = chipsRow + `<div class="ios-atc-board">${board.map((a, i) => this._atcAirportRowHTML(a, i)).join('')}</div>`;
+        body.innerHTML = `<div class="ios-atc-board">${rows.map((a, i) => this._atcAirportRowHTML(a, i)).join('')}</div>`;
     },
 
     /* ===========================================================
@@ -1807,7 +1859,10 @@ export const MobileLandingChromeUI = {
                 border: 1px solid currentColor; border-radius: 6px;
                 padding: 2px 7px; font-variant-numeric: tabular-nums;
             }
-            .ios-atc-arrlist { display: flex; flex-direction: column; gap: 4px; padding: 8px 14px 0; }
+            .ios-atc-arrlist {
+                display: flex; flex-direction: column; gap: 4px; padding: 8px 14px 0;
+                max-height: 216px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+            }
             .ios-atc-arr-row {
                 display: flex; justify-content: space-between; align-items: center;
                 font-size: 12.5px; padding: 6px 10px;
@@ -1816,11 +1871,42 @@ export const MobileLandingChromeUI = {
             .ios-atc-arr-cs { font-weight: 700; color: var(--ios-text); }
             .ios-atc-arr-eta { color: var(--ios-text-3); font-variant-numeric: tabular-nums; font-weight: 600; }
 
-            /* --- Sheet-level traffic filter chips --- */
+            /* --- Airport search bar (lives outside the re-rendered body) --- */
+            .ios-atc-search {
+                display: flex; align-items: center; gap: 8px;
+                margin: 0 16px 10px;
+                padding: 8px 12px;
+                background: var(--ios-fill);
+                border: 1px solid var(--ios-stroke-soft);
+                border-radius: 10px;
+            }
+            .ios-atc-search i { font-size: 12px; color: var(--ios-text-3); flex-shrink: 0; }
+            .ios-atc-search input {
+                flex: 1; min-width: 0;
+                background: none; border: none; outline: none;
+                font: inherit; font-size: 14px; color: var(--ios-text);
+            }
+            .ios-atc-search input::placeholder { color: var(--ios-text-4); }
+
+            /* --- IFATC recommendation stamp (unstaffed, strong next-hour flow) --- */
+            .ios-atc-rec {
+                display: inline-flex; align-items: center; gap: 4px;
+                margin-left: 8px; vertical-align: 2px;
+                font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px;
+                text-transform: uppercase;
+                color: #ffd60a; background: rgba(255, 214, 10, 0.14);
+                border: 1px solid rgba(255, 214, 10, 0.35);
+                border-radius: 6px; padding: 2px 6px;
+            }
+            .ios-atc-rec i { font-size: 8px; }
+
+            /* --- Per-airport traffic filter chips --- */
             .ios-atc-tchips {
                 display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
                 padding: 2px 2px 12px;
             }
+            .ios-atc-tchips.in-drawer { padding: 6px 14px 2px; }
+            .ios-atc-tchips.in-drawer .ios-atc-tchip { font-size: 11px; padding: 3px 9px; }
             .ios-atc-tchips-label { font-size: 11px; color: var(--ios-text-4); margin-right: 2px; }
             .ios-atc-tchip {
                 font-size: 12px; font-weight: 600; color: var(--ios-text-2);
