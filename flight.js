@@ -9866,7 +9866,7 @@ function handleSocketFlightUpdate(data) {
                     track: flight.position.heading_deg,
                     date: new Date(flight.position.lastReport || Date.now()).toISOString()
                 };
-                localTrail.push(newRoutePoint);
+                appendTrailPoint(localTrail, newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
 
                 // --- [NEW] Update Simple Iframe if Active ---
@@ -9940,7 +9940,7 @@ function handleSocketFlightUpdate(data) {
                 track: flight.position.heading_deg,
                 date: new Date(flight.position.lastReport || Date.now()).toISOString()
             };
-            localTrail.push(newRoutePoint);
+            appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
             
             if (typeof FlownPath3D !== 'undefined') {
@@ -17398,12 +17398,40 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
+// Append a live packet to a trail ONLY if it's newer than the cached tip.
+// The route-history seed can already contain samples at (or past) the live
+// feed's clock, and pushing an older/duplicate fix behind them kinks the
+// trail's head backwards.
+function appendTrailPoint(localTrail, newRoutePoint) {
+    if (!Array.isArray(localTrail)) return;
+    const last = localTrail[localTrail.length - 1];
+    if (last) {
+        const tLast = new Date(last.date || NaN).getTime();
+        const tNew = new Date(newRoutePoint.date || NaN).getTime();
+        if (Number.isFinite(tLast) && Number.isFinite(tNew) && tNew <= tLast) return;
+    }
+    localTrail.push(newRoutePoint);
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const features = [];
     const allPoints = [...(trailPoints || [])];
 
-    // Push the live current position to complete the line
+    // The trail history (route API) and the live position (flight feed) come
+    // from different pipelines with different latencies. When the history
+    // holds samples NEWER than the live fix, appending the (older) live tip
+    // makes the line double back — the path visibly extends AHEAD of the
+    // aircraft when zoomed in. Trim anything newer than the live fix so the
+    // line always ends exactly at the plane.
     if (currentPosition) {
+        const liveTs = currentPosition.lastReport ? new Date(currentPosition.lastReport).getTime() : NaN;
+        if (Number.isFinite(liveTs)) {
+            while (allPoints.length) {
+                const t = new Date(allPoints[allPoints.length - 1].date || NaN).getTime();
+                if (Number.isFinite(t) && t > liveTs) allPoints.pop();
+                else break;
+            }
+        }
         allPoints.push({
             latitude: currentPosition.lat,
             longitude: currentPosition.lon,
