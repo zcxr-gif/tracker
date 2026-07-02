@@ -502,9 +502,13 @@
                 -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
                 padding: 14px 18px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 18px);
                 /* Responsive grid: cards flow 2-up when the panel has room
-                   instead of one fixed column sandwiching everything. */
+                   instead of one fixed column sandwiching everything.
+                   Rows MUST be max-content: with plain auto rows, once the list
+                   overflows the fixed-height panel the browser compresses every
+                   row and the overflow:hidden cards clip to empty slivers. */
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                grid-auto-rows: max-content;
                 gap: 12px;
                 align-content: start;
             }
