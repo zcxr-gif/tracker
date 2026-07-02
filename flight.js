@@ -17421,9 +17421,27 @@ function appendTrailPoint(localTrail, newRoutePoint) {
     if (!Array.isArray(localTrail)) return false;
     const last = localTrail[localTrail.length - 1];
     if (last) {
-        const tLast = new Date(last.date || NaN).getTime();
+        // Plane hasn't moved: same fix as the cached tip — nothing to add.
+        const lastLat = (last.latitude != null) ? last.latitude : last.lat;
+        const lastLon = (last.longitude != null) ? last.longitude : last.lon;
+        if (Math.abs(lastLat - newRoutePoint.latitude) < 1e-7 &&
+            Math.abs(lastLon - newRoutePoint.longitude) < 1e-7) {
+            return false;
+        }
+        // The seeded history can run AHEAD of the live feed's clock. Rejecting
+        // "older" fixes outright froze the trail at its seed state, so instead
+        // drop the future-dated tail (bounded — a runaway clock difference
+        // must never nuke the whole history) and take the live fix as the head.
         const tNew = new Date(newRoutePoint.date || NaN).getTime();
-        if (Number.isFinite(tLast) && Number.isFinite(tNew) && tNew <= tLast) return false;
+        if (Number.isFinite(tNew)) {
+            let newer = 0;
+            while (newer < localTrail.length) {
+                const t = new Date(localTrail[localTrail.length - 1 - newer].date || NaN).getTime();
+                if (Number.isFinite(t) && t >= tNew) newer++;
+                else break;
+            }
+            if (newer > 0 && newer <= 8) localTrail.length -= newer;
+        }
     }
     localTrail.push(newRoutePoint);
     return true;
@@ -17442,11 +17460,14 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     if (currentPosition) {
         const liveTs = currentPosition.lastReport ? new Date(currentPosition.lastReport).getTime() : NaN;
         if (Number.isFinite(liveTs)) {
-            while (allPoints.length) {
-                const t = new Date(allPoints[allPoints.length - 1].date || NaN).getTime();
-                if (Number.isFinite(t) && t > liveTs) allPoints.pop();
+            let newer = 0;
+            while (newer < allPoints.length) {
+                const t = new Date(allPoints[allPoints.length - 1 - newer].date || NaN).getTime();
+                if (Number.isFinite(t) && t > liveTs) newer++;
                 else break;
             }
+            // Bounded: a skewed/broken live timestamp must not wipe the trail.
+            if (newer > 0 && newer <= 8) allPoints.length -= newer;
         }
         allPoints.push({
             latitude: currentPosition.lat,
