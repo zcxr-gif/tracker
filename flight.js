@@ -9889,7 +9889,7 @@ function handleSocketFlightUpdate(data) {
                 track: flight.position.heading_deg,
                 date: toTrailPointDateIso(flight.position.lastReport)
             };
-            const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
+            appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
 
             // 3D path gets the trail AFTER the append so it includes this fix.
@@ -9933,18 +9933,13 @@ function handleSocketFlightUpdate(data) {
                 refreshNavDisplayFromCache(); // Reuse helper logic for consistency
             }
 
-            // 8. Update Map Trail — the path builds up as the plane
-            // moves: a packet that didn't advance the trail (same fix)
-            // changes nothing, so skip the rebuild entirely instead of
-            // re-deriving the path end every tick. The source/layer is
-            // (re)created on the fly if it's missing — a passive lookup
-            // here used to freeze the path for the rest of the flight
-            // whenever the click-time layer setup was lost or skipped.
-            if (isMapReady && trailGrew) {
-                const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
-                const source = getOrCreateFlownPathSource(flightId, newRouteData);
-                if (source) source.setData(newRouteData);
-            }
+            // 8. Map trail render happens AFTER the flights loop in
+            // syncActiveFlownPaths(), decoupled from this per-packet branch.
+            // Gating the redraw on `trailGrew` here is what froze the path:
+            // whenever the tip didn't advance this tick the line never caught
+            // up, and any tick where this selected-branch didn't run left it
+            // stranded behind the moving icon. The post-loop pass always
+            // redraws the active flight's path from its live map position.
 
             // 9. Update Planned Route Line
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
@@ -9968,20 +9963,15 @@ function handleSocketFlightUpdate(data) {
                 track: flight.position.heading_deg,
                 date: toTrailPointDateIso(flight.position.lastReport)
             };
-            const pinnedTrailGrew = appendTrailPoint(localTrail, newRoutePoint);
+            appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
 
             if (typeof FlownPath3D !== 'undefined') {
                 FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
             }
 
-            if (pinnedTrailGrew && isMapReady) {
-                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly.
-                // Creating the source on demand also gives flights pinned without ever being selected a live path.
-                const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-                const source = getOrCreateFlownPathSource(flightId, newPinnedRouteData);
-                if (source) source.setData(newPinnedRouteData);
-            }
+            // Pinned path is redrawn in syncActiveFlownPaths() after the loop,
+            // same as the selected flight — see the note in section 8 above.
 
             // Update Mini Card Stats
             const card = document.getElementById(`pinned-flight-${flightId}`);
@@ -10007,6 +9997,16 @@ function handleSocketFlightUpdate(data) {
             }
             delete currentMapFeatures[flightId];
         }
+    }
+
+    // Redraw the flown path for the selected + pinned flights from their live
+    // map positions. This is deliberately decoupled from the per-flight update
+    // branches above (and from the `trailGrew` optimization): the path must
+    // track its icon every packet, so the line can never lag behind or freeze
+    // even if a branch was skipped or the tip didn't advance this tick. Cheap —
+    // it redraws from the already-cached trail, never re-fetching /history.
+    if (isMapReady) {
+        syncActiveFlownPaths();
     }
 
     // Push the new positions to the 3D dot field (no-op unless it's showing).
@@ -17450,6 +17450,57 @@ function generateSmoothPath(points, tension = 0.5) {
 function toTrailPointDateIso(lastReport) {
     const t = (lastReport != null && lastReport !== '') ? new Date(lastReport).getTime() : NaN;
     return new Date(Number.isFinite(t) ? t : Date.now()).toISOString();
+}
+
+// Redraw ONE flight's flown path from its authoritative live map feature
+// (currentMapFeatures) + cached trail. Reading the live feature — the same
+// source the moving icon is drawn from — guarantees the line's head sits
+// exactly on the icon, so the path tracks the plane instead of lagging behind
+// it. Never re-fetches /history; it only re-renders the already-cached trail.
+function redrawFlownPathForFlight(flightId, plan) {
+    if (!sectorOpsMap || !flightId) return;
+    const feature = currentMapFeatures[flightId];
+    if (!feature || !feature.geometry || !feature.geometry.coordinates) return;
+
+    const coords = feature.geometry.coordinates;
+    const props = feature.properties || {};
+    let pos = props.position;
+    if (typeof pos === 'string') { try { pos = JSON.parse(pos); } catch (_) { pos = null; } }
+
+    const livePosition = {
+        lat: coords[1],
+        lon: coords[0],
+        alt_ft: (pos && pos.alt_ft != null) ? pos.alt_ft : (props.altitude != null ? props.altitude : 0),
+        lastReport: props.last_update
+    };
+
+    const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    const routeData = generateAltitudeColoredRoute(trail, livePosition, plan);
+    const source = getOrCreateFlownPathSource(flightId, routeData);
+    if (source) source.setData(routeData);
+}
+
+// Keep the selected flight's and every pinned flight's flown path in sync with
+// their live icons. Called once per socket packet, after the flights loop, so
+// the redraw is independent of the per-flight update branches and their
+// staleness / trail-grew gating — the path can therefore never freeze behind a
+// moving aircraft (the reported bug).
+function syncActiveFlownPaths() {
+    if (!sectorOpsMap) return;
+
+    if (currentFlightInWindow) {
+        redrawFlownPathForFlight(
+            currentFlightInWindow,
+            (cachedFlightDataForStatsView && cachedFlightDataForStatsView.plan) || null
+        );
+    }
+
+    if (window.pinnedFlights && window.pinnedFlights.size) {
+        window.pinnedFlights.forEach((fid) => {
+            if (fid === currentFlightInWindow) return; // already handled above
+            redrawFlownPathForFlight(fid, null);
+        });
+    }
 }
 
 // Resolve the flown-path source for a flight, creating the source + layer on
