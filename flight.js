@@ -17474,7 +17474,38 @@ function redrawFlownPathForFlight(flightId, plan) {
         lastReport: props.last_update
     };
 
-    const trail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    const rawTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+
+    // Clip the trail to the live fix's clock so the line ENDS at the icon and
+    // never runs ahead of it. The /history seed and the live socket feed are
+    // separate pipelines: the seed routinely holds GPS samples NEWER than the
+    // marker's current fix, and rendering those makes the path stick out past
+    // the plane (very visible when zoomed in). generateAltitudeColoredRoute's
+    // own trim is capped at 8 points — not enough for a large history lead —
+    // so drop everything newer than the marker here, unbounded. Guard on a
+    // finite timestamp so a malformed clock can't wipe the whole trail.
+    const liveMs = livePosition.lastReport ? new Date(livePosition.lastReport).getTime() : NaN;
+    let trail = Number.isFinite(liveMs)
+        ? rawTrail.filter(p => {
+            const t = p && p.date ? new Date(p.date).getTime() : NaN;
+            return !Number.isFinite(t) || t <= liveMs;
+          })
+        : rawTrail;
+
+    // generateAltitudeColoredRoute appends livePosition as the final point. When
+    // the trail's last sample is that same fix (it usually is — the live feed
+    // appended it a moment ago), the duplicate makes a zero-length final segment
+    // that the Catmull-Rom smoother can overshoot past the icon. Drop a
+    // coincident tail so the line terminates cleanly ON the plane.
+    if (trail.length) {
+        const tail = trail[trail.length - 1];
+        const tailLat = (tail.latitude != null) ? tail.latitude : tail.lat;
+        const tailLon = (tail.longitude != null) ? tail.longitude : tail.lon;
+        if (Math.abs(tailLat - livePosition.lat) < 1e-6 && Math.abs(tailLon - livePosition.lon) < 1e-6) {
+            trail = trail.slice(0, -1);
+        }
+    }
+
     const routeData = generateAltitudeColoredRoute(trail, livePosition, plan);
     const source = getOrCreateFlownPathSource(flightId, routeData);
     if (source) source.setData(routeData);
