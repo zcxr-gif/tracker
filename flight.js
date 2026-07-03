@@ -17452,6 +17452,54 @@ function toTrailPointDateIso(lastReport) {
     return new Date(Number.isFinite(t) ? t : Date.now()).toISOString();
 }
 
+// Remove trail samples that sit AHEAD of the aircraft so the flown path never
+// pokes out past the icon. The /history seed and the live socket feed are
+// separate pipelines and the seed routinely holds GPS fixes fresher (further
+// along the route) than the marker's current position. Two independent passes,
+// because the seed's timestamps are unreliable:
+//   1. Clock clip — drop anything dated after the live fix (unbounded, but only
+//      when the marker clock is finite so a bad timestamp can't wipe the trail).
+//   2. Geometric clip — drop the contiguous TAIL of samples that project in
+//      front of the plane along its heading. This catches the common case where
+//      history fixes carry no comparable `date` at all. Bounded scan so a
+//      curving/self-crossing route can't lose its real history.
+// Returns a new array; never mutates the input.
+function clipTrailAheadOfMarker(trail, markerLat, markerLon, headingDeg, lastReport) {
+    if (!Array.isArray(trail) || trail.length < 2) return Array.isArray(trail) ? trail.slice() : [];
+    const ptLat = (p) => (p.latitude != null) ? p.latitude : p.lat;
+    const ptLon = (p) => (p.longitude != null) ? p.longitude : p.lon;
+
+    let out = trail;
+    const liveMs = lastReport ? new Date(lastReport).getTime() : NaN;
+    if (Number.isFinite(liveMs)) {
+        out = out.filter(p => {
+            const t = p && p.date ? new Date(p.date).getTime() : NaN;
+            return !Number.isFinite(t) || t <= liveMs;
+        });
+    }
+
+    const hdg = Number(headingDeg);
+    if (Number.isFinite(hdg) && out.length > 1) {
+        const rad = hdg * Math.PI / 180;
+        const fwdX = Math.sin(rad); // east component of the heading unit vector
+        const fwdY = Math.cos(rad); // north component
+        const cosLat = Math.cos(markerLat * Math.PI / 180) || 1;
+        const maxScan = Math.min(out.length, 60);
+        let cut = out.length;
+        for (let k = 0; k < maxScan; k++) {
+            const p = out[out.length - 1 - k];
+            const pLat = ptLat(p), pLon = ptLon(p);
+            if (pLat == null || pLon == null) break;
+            const ahead = ((pLon - markerLon) * cosLat) * fwdX + (pLat - markerLat) * fwdY;
+            if (ahead > 1e-7) cut = out.length - 1 - k; // in front of the plane → drop
+            else break;                                  // at/behind → keep the rest
+        }
+        if (cut < out.length) out = out.slice(0, cut);
+    }
+
+    return (out === trail) ? out.slice() : out;
+}
+
 // Redraw ONE flight's flown path from its authoritative live map feature
 // (currentMapFeatures) + cached trail. Reading the live feature — the same
 // source the moving icon is drawn from — guarantees the line's head sits
@@ -17474,34 +17522,25 @@ function redrawFlownPathForFlight(flightId, plan) {
         lastReport: props.last_update
     };
 
-    const rawTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    const hdgDeg = (props.heading != null) ? Number(props.heading)
+                 : (pos && pos.heading_deg != null) ? Number(pos.heading_deg) : NaN;
 
-    // Clip the trail to the live fix's clock so the line ENDS at the icon and
-    // never runs ahead of it. The /history seed and the live socket feed are
-    // separate pipelines: the seed routinely holds GPS samples NEWER than the
-    // marker's current fix, and rendering those makes the path stick out past
-    // the plane (very visible when zoomed in). generateAltitudeColoredRoute's
-    // own trim is capped at 8 points — not enough for a large history lead —
-    // so drop everything newer than the marker here, unbounded. Guard on a
-    // finite timestamp so a malformed clock can't wipe the whole trail.
-    const liveMs = livePosition.lastReport ? new Date(livePosition.lastReport).getTime() : NaN;
-    let trail = Number.isFinite(liveMs)
-        ? rawTrail.filter(p => {
-            const t = p && p.date ? new Date(p.date).getTime() : NaN;
-            return !Number.isFinite(t) || t <= liveMs;
-          })
-        : rawTrail;
+    // Safety net: the trail is kept clean at seed time (clipTrailAheadOfMarker
+    // in handleAircraftClick), so this per-packet pass normally trims nothing.
+    // It stays as belt-and-suspenders against any ahead sample that slips in.
+    const rawTrail = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    let trail = clipTrailAheadOfMarker(rawTrail, livePosition.lat, livePosition.lon, hdgDeg, livePosition.lastReport);
 
     // generateAltitudeColoredRoute appends livePosition as the final point. When
     // the trail's last sample is that same fix (it usually is — the live feed
     // appended it a moment ago), the duplicate makes a zero-length final segment
-    // that the Catmull-Rom smoother can overshoot past the icon. Drop a
-    // coincident tail so the line terminates cleanly ON the plane.
+    // the Catmull-Rom smoother can overshoot past the icon. Drop the coincident
+    // tail so the line terminates cleanly ON the plane.
     if (trail.length) {
         const tail = trail[trail.length - 1];
-        const tailLat = (tail.latitude != null) ? tail.latitude : tail.lat;
-        const tailLon = (tail.longitude != null) ? tail.longitude : tail.lon;
-        if (Math.abs(tailLat - livePosition.lat) < 1e-6 && Math.abs(tailLon - livePosition.lon) < 1e-6) {
+        const tLat = (tail.latitude != null) ? tail.latitude : tail.lat;
+        const tLon = (tail.longitude != null) ? tail.longitude : tail.lon;
+        if (Math.abs(tLat - livePosition.lat) < 1e-6 && Math.abs(tLon - livePosition.lon) < 1e-6) {
             trail = trail.slice(0, -1);
         }
     }
@@ -17953,19 +17992,36 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
 
         if (typeof liveTrailCache !== 'undefined') {
+            // Clip the /history seed to the live marker BEFORE caching it. The
+            // history endpoint runs fresher than the socket feed, so its newest
+            // fixes sit AHEAD of the plane; left in the cache they render as a
+            // spur poking past the icon forever (the live appends that follow
+            // bury them mid-trail, where a tail-only clip can't reach). Clipping
+            // here — geometrically by heading, so it works even when history
+            // fixes carry no comparable timestamp — keeps the cache monotonic:
+            // only points at/behind the aircraft ever get stored.
+            const liveFeat = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightProps.flightId] : null;
+            const mLat = liveFeat?.geometry?.coordinates ? liveFeat.geometry.coordinates[1] : flightProps.position?.lat;
+            const mLon = liveFeat?.geometry?.coordinates ? liveFeat.geometry.coordinates[0] : flightProps.position?.lon;
+            const mHdg = (liveFeat?.properties?.heading != null) ? liveFeat.properties.heading : flightProps.position?.heading_deg;
+            const mLast = liveFeat?.properties?.last_update || flightProps.position?.lastReport;
+            const clippedSeed = (mLat != null && mLon != null)
+                ? clipTrailAheadOfMarker(sortedRoutePoints, mLat, mLon, mHdg, mLast)
+                : sortedRoutePoints;
+
             // The socket handler starts building a live trail the moment the
             // window opens — points can accumulate while /history is still in
             // flight. Merge instead of replacing so those live fixes (and, if
             // the history fetch came back empty, the whole live trail) survive:
-            // history seed first, then any live points newer than its last sample.
+            // clipped history first, then any live points newer than its last sample.
             const livePoints = liveTrailCache.get(flightProps.flightId) || [];
-            let mergedTrail = sortedRoutePoints;
+            let mergedTrail = clippedSeed;
             if (livePoints.length) {
-                if (!sortedRoutePoints.length) {
+                if (!clippedSeed.length) {
                     mergedTrail = livePoints;
                 } else {
-                    const seedEndMs = new Date(sortedRoutePoints[sortedRoutePoints.length - 1].date || NaN).getTime();
-                    mergedTrail = sortedRoutePoints.concat(livePoints.filter(p => {
+                    const seedEndMs = new Date(clippedSeed[clippedSeed.length - 1].date || NaN).getTime();
+                    mergedTrail = clippedSeed.concat(livePoints.filter(p => {
                         const t = new Date(p.date || NaN).getTime();
                         return !Number.isFinite(seedEndMs) || (Number.isFinite(t) && t > seedEndMs);
                     }));
