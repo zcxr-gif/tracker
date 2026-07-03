@@ -468,7 +468,7 @@
             }
             .va-partners-overlay.visible { opacity: 1; pointer-events: auto; }
             .va-partners-panel {
-                width: min(440px, 100%); height: 100%; display: flex; flex-direction: column;
+                width: min(640px, 94vw); height: 100%; display: flex; flex-direction: column;
                 background: #121212; border-left: 1px solid rgba(255,255,255,0.08);
                 transform: translateX(20px); transition: transform .25s cubic-bezier(0.16,1,0.3,1);
             }
@@ -501,9 +501,19 @@
                 flex: 1 1 auto; min-height: 0; overflow-y: auto;
                 -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
                 padding: 14px 18px; padding-bottom: max(env(safe-area-inset-bottom, 0px), 18px);
-                display: flex; flex-direction: column; gap: 12px;
+                /* Responsive grid: cards flow 2-up when the panel has room
+                   instead of one fixed column sandwiching everything.
+                   Rows MUST be max-content: with plain auto rows, once the list
+                   overflows the fixed-height panel the browser compresses every
+                   row and the overflow:hidden cards clip to empty slivers. */
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                grid-auto-rows: max-content;
+                gap: 12px;
+                align-content: start;
             }
-            .va-partners-empty { color: rgba(255,255,255,0.55); text-align: center; padding: 40px 10px; font-size: 0.9rem; }
+            .va-partners-empty { grid-column: 1 / -1; color: rgba(255,255,255,0.55); text-align: center; padding: 40px 10px; font-size: 0.9rem; }
+            .va-ad-detail { grid-column: 1 / -1; }
 
             /* Mobile: present as a bottom sheet that slides up, matching the other
                iOS tabs (server / weather / ATC) instead of a right slide-over.
@@ -540,7 +550,9 @@
             .va-ad-card {
                 border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden;
                 background: rgba(255,255,255,0.03); cursor: pointer; transition: border-color .15s ease, transform .15s ease;
+                display: flex; flex-direction: column;
             }
+            .va-ad-card .va-ad-card-body { flex: 1 1 auto; }
             .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
             .va-ad-card-banner { height: 92px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
             .va-ad-card-body { padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
@@ -560,6 +572,16 @@
                 background: rgba(56,189,248,0.15); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35);
             }
             .va-ad-btn:hover { background: rgba(56,189,248,0.25); }
+            /* Yellow "Apply now" — the attention CTA that jumps to the VA's site. */
+            .va-ad-apply {
+                display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+                padding: 9px 16px; border-radius: 10px; font-weight: 800; font-size: 0.82rem;
+                background: #fbbf24; color: #1a1205; border: 1px solid rgba(251,191,36,0.5);
+                box-shadow: 0 2px 12px rgba(251,191,36,0.3);
+                transition: background .15s ease, transform .12s ease;
+            }
+            .va-ad-apply:hover { background: #fcd34d; transform: translateY(-1px); }
+            .va-ad-apply.sm { padding: 5px 11px; font-size: 0.7rem; border-radius: 8px; gap: 6px; margin-top: 9px; align-self: flex-start; }
             .va-ad-back {
                 background: none; border: none; color: #7dd3fc; cursor: pointer; font-weight: 700;
                 font-size: 0.82rem; padding: 0; margin-bottom: 8px; display: inline-flex; gap: 6px; align-items: center;
@@ -590,6 +612,7 @@
                     <div class="va-ad-name">${esc(ad.name)}</div>
                     ${ad.tagline ? `<div class="va-ad-tag">${esc(ad.tagline)}</div>` : ''}
                     ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
+                    ${ad.website ? `<a class="va-ad-apply sm" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
                 </div>
                 <i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>
             </div>`;
@@ -628,7 +651,10 @@
         };
         render();
 
-        featureEl.addEventListener('click', () => openPartners(featureEl.getAttribute('data-va-ad-id')));
+        featureEl.addEventListener('click', (e) => {
+            if (e.target.closest('.va-ad-apply')) return; // CTA navigates to the VA site
+            openPartners(featureEl.getAttribute('data-va-ad-id'));
+        });
 
         if (ads.length > 1) {
             slot._adRotateTimer = setInterval(() => {
@@ -858,6 +884,7 @@
                         ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
                         ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
                         ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
+                        ${ad.website ? `<a class="va-ad-apply sm" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
                     </div>
                 </div>
             </div>`;
@@ -865,7 +892,10 @@
 
     function bindCards(body) {
         body.querySelectorAll('[data-va-ad-id]').forEach((el) => {
-            el.addEventListener('click', () => showDetail(el.getAttribute('data-va-ad-id')));
+            el.addEventListener('click', (e) => {
+                if (e.target.closest('.va-ad-apply')) return; // the CTA navigates, not the card
+                showDetail(el.getAttribute('data-va-ad-id'));
+            });
         });
     }
 
@@ -899,6 +929,7 @@
             const sub = [ad.type, ad.region, ad.icao.join(', ')].filter(Boolean).join(' · ');
             const chips = (ad.tags || []).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
             const actions = [];
+            if (ad.website) actions.push(`<a class="va-ad-apply" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>`);
             if (ad.website) actions.push(`<a class="va-ad-btn" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
             if (ad.discord) actions.push(`<a class="va-ad-btn" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
             body.innerHTML = `

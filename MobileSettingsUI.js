@@ -419,11 +419,23 @@ export const MobileSettingsUI = {
                             <div class="mobile-section-header">Flight Window</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
+                                ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                             </div>
 
                             <div class="mobile-section-header">Virtual Airlines</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('showVaHubMarkers', 'VA Hub Markers', 'fa-handshake-angle')}
+                            </div>
+
+                            <div class="mobile-section-header">Updates</div>
+                            <div class="m-settings-list">
+                                <div class="m-setting-row m-whatsnew-row">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-bullhorn" style="color: #7dd3fc;"></i>
+                                        <span>What's New</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
+                                </div>
                             </div>
 
                             ${this.renderLegalSection()}
@@ -1217,7 +1229,10 @@ export const MobileSettingsUI = {
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
         }
         if (window.updateMapFilters) window.updateMapFilters();
-        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        // Flush to the cloud immediately (not via the debounce) so a reset
+        // can't be lost if the user leaves before it syncs — otherwise the
+        // stale cloud copy resurrects the filters on the next visit.
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage(true);
         this.updateFilterBadge();
     },
 
@@ -1531,6 +1546,9 @@ export const MobileSettingsUI = {
                 // dedicated DOM marker layer directly when toggled.
                 if (setting === 'showVaHubMarkers' && window.renderVaHubMarkers) window.renderVaHubMarkers();
                 if (window.updateMapFilters) window.updateMapFilters();
+                // Persist the change so it survives a reload (desktop toggles
+                // already do this; updateMapFilters() itself does not save).
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
             });
         });
 
@@ -1716,6 +1734,16 @@ export const MobileSettingsUI = {
         if (resetBtn) resetBtn.addEventListener('click', () => {
             window.InflightHaptics?.select?.();
             this.resetTacticalFilters();
+        });
+
+        // What's New row — opens the full changelog modal (changelog.js). The
+        // modal overlays this sheet at a higher z-index and closes back to it.
+        sheet.querySelectorAll('.m-whatsnew-row').forEach(row => {
+            row.addEventListener('click', () => {
+                if (window.InflightChangelog && typeof window.InflightChangelog.open === 'function') {
+                    window.InflightChangelog.open();
+                }
+            });
         });
 
         // Legal document rows — open privacy.html / terms.html in the shared
@@ -2197,7 +2225,7 @@ export const MobileSettingsUI = {
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
 
-                .m-legal-row { cursor: pointer; }
+                .m-legal-row, .m-whatsnew-row { cursor: pointer; }
                 .m-legal-row:active { background: rgba(255,255,255,0.07); }
                 .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
 
