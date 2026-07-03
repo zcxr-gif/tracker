@@ -9864,79 +9864,86 @@ function handleSocketFlightUpdate(data) {
                 );
             }
 
-            // 4. Update Trail Cache
-            const localTrail = liveTrailCache.get(flightId);
-            
+            // 4. Update Trail Cache — self-healing: if the history seed hasn't
+            // arrived yet (or the cache entry was dropped), start an empty live
+            // trail instead of skipping. Waiting on the seed used to freeze the
+            // path (and the whole live info-window refresh) for the rest of the
+            // flight whenever the entry went missing.
+            let localTrail = liveTrailCache.get(flightId);
+            if (!localTrail) {
+                localTrail = [];
+                liveTrailCache.set(flightId, localTrail);
+            }
+
             const fullFlightProps = {
                 ...newProperties,
                 position: flight.position,
                 aircraft: aircraftData
             };
-            
+
+            const newRoutePoint = {
+                latitude: flight.position.lat,
+                longitude: flight.position.lon,
+                altitude: flight.position.alt_ft,
+                groundSpeed: flight.position.gs_kt,
+                track: flight.position.heading_deg,
+                date: toTrailPointDateIso(flight.position.lastReport)
+            };
+            const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
+            liveTrailCache.set(flightId, localTrail);
+
+            // 3D path gets the trail AFTER the append so it includes this fix.
             FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
 
-            if (localTrail) {
-                const newRoutePoint = {
-                    latitude: flight.position.lat,
-                    longitude: flight.position.lon,
-                    altitude: flight.position.alt_ft,
-                    groundSpeed: flight.position.gs_kt,
-                    track: flight.position.heading_deg,
-                    date: new Date(flight.position.lastReport || Date.now()).toISOString()
-                };
-                const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
-                liveTrailCache.set(flightId, localTrail);
+            // --- [NEW] Update Simple Iframe if Active ---
+            const simpleIframe = document.getElementById('simple-flight-window-frame');
+            if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
+                 const freshData = formatDataForSimpleWindow(
+                     fullFlightProps,
+                     cachedFlightDataForStatsView.plan,
+                     liveTrailCache.get(flightId),
+                     {
+                         imageUrl: fullFlightProps.communityImageUrl,
+                         contributorName: fullFlightProps.contributorName,
+                         // Carry the full photo set so live telemetry ticks
+                         // keep (rather than collapse) the hero carousel.
+                         imageUrls: fullFlightProps.communityImageUrls,
+                         imageContributors: fullFlightProps.imageContributors,
+                         tailNumber: fullFlightProps.tailNumber
+                     },
+                     cachedFlightDataForStatsView.filedPlanData || null
+                 );
+                 simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
+            } else if (!mapFilters.useSimpleFlightWindow) {
+                updatePfdDisplay(flight.position);
+                updateNavPanelData(
+                    flight.position.lat, 
+                    flight.position.lon, 
+                    flight.position.heading_deg,
+                    cachedOat,
+                    cachedWindDir,
+                    cachedWindSpd
+                );
+                updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
+            }
 
-                // --- [NEW] Update Simple Iframe if Active ---
-                const simpleIframe = document.getElementById('simple-flight-window-frame');
-                if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
-                     const freshData = formatDataForSimpleWindow(
-                         fullFlightProps,
-                         cachedFlightDataForStatsView.plan,
-                         liveTrailCache.get(flightId),
-                         {
-                             imageUrl: fullFlightProps.communityImageUrl,
-                             contributorName: fullFlightProps.contributorName,
-                             // Carry the full photo set so live telemetry ticks
-                             // keep (rather than collapse) the hero carousel.
-                             imageUrls: fullFlightProps.communityImageUrls,
-                             imageContributors: fullFlightProps.imageContributors,
-                             tailNumber: fullFlightProps.tailNumber
-                         },
-                         cachedFlightDataForStatsView.filedPlanData || null
-                     );
-                     simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                } else if (!mapFilters.useSimpleFlightWindow) {
-                    updatePfdDisplay(flight.position);
-                    updateNavPanelData(
-                        flight.position.lat, 
-                        flight.position.lon, 
-                        flight.position.heading_deg,
-                        cachedOat,
-                        cachedWindDir,
-                        cachedWindSpd
-                    );
-                    updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
-                }
+            // 6.5 Update Navigation Display Iframe
+            const navIframe = document.getElementById('nav-display-frame');
+            if (navIframe && navIframe.contentWindow) {
+                refreshNavDisplayFromCache(); // Reuse helper logic for consistency
+            }
 
-                // 6.5 Update Navigation Display Iframe
-                const navIframe = document.getElementById('nav-display-frame');
-                if (navIframe && navIframe.contentWindow) {
-                    refreshNavDisplayFromCache(); // Reuse helper logic for consistency
-                }
-
-                // 8. Update Map Trail — the path builds up as the plane
-                // moves: a packet that didn't advance the trail (same or older
-                // fix) changes nothing, so skip the rebuild entirely instead
-                // of re-deriving the path end every tick.
-                if (isMapReady && trailGrew) {
-                    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
-                    const source = layerId ? sectorOpsMap.getSource(layerId) : null;
-                    if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
-                        source.setData(newRouteData);
-                    }
-                }
+            // 8. Update Map Trail — the path builds up as the plane
+            // moves: a packet that didn't advance the trail (same fix)
+            // changes nothing, so skip the rebuild entirely instead of
+            // re-deriving the path end every tick. The source/layer is
+            // (re)created on the fly if it's missing — a passive lookup
+            // here used to freeze the path for the rest of the flight
+            // whenever the click-time layer setup was lost or skipped.
+            if (isMapReady && trailGrew) {
+                const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                const source = getOrCreateFlownPathSource(flightId, newRouteData);
+                if (source) source.setData(newRouteData);
             }
 
             // 9. Update Planned Route Line
@@ -9959,21 +9966,21 @@ function handleSocketFlightUpdate(data) {
                 altitude: flight.position.alt_ft,
                 groundSpeed: flight.position.gs_kt,
                 track: flight.position.heading_deg,
-                date: new Date(flight.position.lastReport || Date.now()).toISOString()
+                date: toTrailPointDateIso(flight.position.lastReport)
             };
             const pinnedTrailGrew = appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
-            
+
             if (typeof FlownPath3D !== 'undefined') {
                 FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
             }
-            
-            const flownLayerId = `flown-path-${flightId}`;
 
-            if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
+            if (pinnedTrailGrew && isMapReady) {
+                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly.
+                // Creating the source on demand also gives flights pinned without ever being selected a live path.
                 const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-                sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
+                const source = getOrCreateFlownPathSource(flightId, newPinnedRouteData);
+                if (source) source.setData(newPinnedRouteData);
             }
 
             // Update Mini Card Stats
@@ -16766,11 +16773,15 @@ function onAtcDataReceived(newAtcData) {
     function clearLiveFlightPath(flightId) {
         if (!sectorOpsMap || !flightId) return;
 
-        // Get all layers associated with this flight
+        // Get all layers associated with this flight. Always include the
+        // deterministic flown-path id: if the registry ever loses track of a
+        // flight while its source survives, an early return here would orphan
+        // that source forever (and block it from being recreated).
         const layersObj = sectorOpsLiveFlightPathLayers[flightId];
-        if (!layersObj) return;
-
-        const ids = Object.values(layersObj);
+        const ids = [...new Set([
+            ...(layersObj ? Object.values(layersObj) : []),
+            `flown-path-${flightId}`
+        ])];
 
         // --- PASS 1: Remove ALL Layers first ---
         ids.forEach(layerId => {
@@ -17432,10 +17443,88 @@ function generateSmoothPath(points, tension = 0.5) {
     return result;
 }
 
+// Normalizes a live feed timestamp into the ISO string trail points carry.
+// The feed's lastReport can be an ISO string, an epoch number, missing, or
+// (worst case) an unparseable string — new Date(bad).toISOString() THROWS,
+// which used to kill the whole flights loop mid-tick. Fall back to "now".
+function toTrailPointDateIso(lastReport) {
+    const t = (lastReport != null && lastReport !== '') ? new Date(lastReport).getTime() : NaN;
+    return new Date(Number.isFinite(t) ? t : Date.now()).toISOString();
+}
+
+// Resolve the flown-path source for a flight, creating the source + layer on
+// the fly when they're missing. The click flow normally creates them, but if
+// that setup is ever lost or skipped (mid-click failure, style reset, registry
+// orphan, pin-without-select), a passive lookup in the socket tick silently
+// freezes the drawn path for the rest of the flight — the icon keeps moving
+// while the line stays behind. Self-healing here guarantees the path keeps
+// building from live socket data alone, with no history refetch.
+function getOrCreateFlownPathSource(flightId, initialData) {
+    if (!sectorOpsMap || !flightId) return null;
+    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown || `flown-path-${flightId}`;
+
+    const registerLayerId = () => {
+        if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
+        sectorOpsLiveFlightPathLayers[flightId].flown = layerId;
+    };
+
+    try {
+        let source = sectorOpsMap.getSource(layerId);
+        if (!source) {
+            sectorOpsMap.addSource(layerId, {
+                type: 'geojson',
+                data: initialData || { type: 'FeatureCollection', features: [] },
+                tolerance: 0 // Don't simplify segments away at low zoom
+            });
+            source = sectorOpsMap.getSource(layerId);
+        }
+
+        // The layer can be missing independently of the source (partial cleanup).
+        if (!sectorOpsMap.getLayer(layerId)) {
+            const layerDef = {
+                id: layerId,
+                type: 'line',
+                source: layerId,
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-width': 3,
+                    'line-opacity': 1,
+                    'line-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'altitude'],
+                        0, '#94a3b8',
+                        3000, '#c084fc',
+                        12000, '#f59e0b',
+                        20000, '#10b981',
+                        30000, '#38bdf8',
+                        45000, '#0284c7'
+                    ]
+                }
+            };
+            try {
+                sectorOpsMap.addLayer(layerDef, getUnderAircraftAnchor());
+            } catch (_) {
+                // Anchor layer not on this style yet — draw on top rather than not at all.
+                sectorOpsMap.addLayer(layerDef);
+            }
+        }
+
+        registerLayerId();
+        return source;
+    } catch (err) {
+        console.warn(`[FlownPath] Could not create trail layer for ${flightId}:`, err?.message);
+        return null;
+    }
+}
+
 // Append a live packet to a trail ONLY if it's newer than the cached tip.
-// The route-history seed can already contain samples at (or past) the live
-// feed's clock, and pushing an older/duplicate fix behind them kinks the
-// trail's head backwards.
+// The route-history seed can already contain samples past the live feed's
+// clock, and pushing an older/duplicate fix behind them kinks the trail's
+// head backwards.
 function appendTrailPoint(localTrail, newRoutePoint) {
     if (!Array.isArray(localTrail)) return false;
     const last = localTrail[localTrail.length - 1];
@@ -17451,12 +17540,15 @@ function appendTrailPoint(localTrail, newRoutePoint) {
         // "older" fixes outright froze the trail at its seed state, so instead
         // drop the future-dated tail (bounded — a runaway clock difference
         // must never nuke the whole history) and take the live fix as the head.
+        // STRICTLY newer only: an equal-timestamp fix that moved (coarse feed
+        // clocks re-stamp positions) must ACCUMULATE — with >= it kept
+        // replacing the tip, so the live part of the path never built up.
         const tNew = new Date(newRoutePoint.date || NaN).getTime();
         if (Number.isFinite(tNew)) {
             let newer = 0;
             while (newer < localTrail.length) {
                 const t = new Date(localTrail[localTrail.length - 1 - newer].date || NaN).getTime();
-                if (Number.isFinite(t) && t >= tNew) newer++;
+                if (Number.isFinite(t) && t > tNew) newer++;
                 else break;
             }
             if (newer > 0 && newer <= 8) localTrail.length -= newer;
@@ -17778,7 +17870,27 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
 
-        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        if (typeof liveTrailCache !== 'undefined') {
+            // The socket handler starts building a live trail the moment the
+            // window opens — points can accumulate while /history is still in
+            // flight. Merge instead of replacing so those live fixes (and, if
+            // the history fetch came back empty, the whole live trail) survive:
+            // history seed first, then any live points newer than its last sample.
+            const livePoints = liveTrailCache.get(flightProps.flightId) || [];
+            let mergedTrail = sortedRoutePoints;
+            if (livePoints.length) {
+                if (!sortedRoutePoints.length) {
+                    mergedTrail = livePoints;
+                } else {
+                    const seedEndMs = new Date(sortedRoutePoints[sortedRoutePoints.length - 1].date || NaN).getTime();
+                    mergedTrail = sortedRoutePoints.concat(livePoints.filter(p => {
+                        const t = new Date(p.date || NaN).getTime();
+                        return !Number.isFinite(seedEndMs) || (Number.isFinite(t) && t > seedEndMs);
+                    }));
+                }
+            }
+            liveTrailCache.set(flightProps.flightId, mergedTrail);
+        }
 
         if (typeof FlownPath3D !== 'undefined') {
             FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
@@ -17830,8 +17942,6 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             } catch (_) { /* non-fatal: live ticks will populate the graph */ }
         }
 
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
-
         // Sync the initial flown-path render to whatever the live marker is
         // actually showing on the map. Two failure modes used to produce a
         // path that visibly extended past the aircraft icon on first open:
@@ -17860,46 +17970,14 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
             : sortedRoutePoints;
 
-        // Generate the segmented FeatureCollection using our new function
+        // Generate the segmented FeatureCollection using our new function.
+        // getOrCreateFlownPathSource creates the source + layer (and registers
+        // the id) when needed; if a live socket tick already created them,
+        // push the freshly seeded history into the existing source instead of
+        // silently skipping — the next tick's rebuild draws the merged trail.
         const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
-
-        if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, {
-                type: 'geojson',
-                data: initialRouteData, // Feed it the FeatureCollection segments
-                tolerance: 0            // Don't simplify segments away at low zoom
-            });
-            
-            sectorOpsMap.addLayer({
-                id: flownLayerId,
-                type: 'line',
-                source: flownLayerId,
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-width': 3,
-                    'line-opacity': 1,
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'altitude'],
-                        0, '#94a3b8',       
-                        3000, '#c084fc',    
-                        12000, '#f59e0b',   
-                        20000, '#10b981',   
-                        30000, '#38bdf8',   
-                        45000, '#0284c7'    
-                    ]
-                }
-            }, getUnderAircraftAnchor());
-
-            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
-                sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
-            }
-        }
+        const flownSource = getOrCreateFlownPathSource(flightProps.flightId, initialRouteData);
+        if (flownSource) flownSource.setData(initialRouteData);
 
         isAircraftWindowLoading = false;
 
