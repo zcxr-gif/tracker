@@ -6920,9 +6920,7 @@ function buildShareSnapshot(flightId) {
         ac: ac.aircraftName || props.aircraftName || '',
         lv: ac.liveryName || props.liveryName || '',
         rg: ac.registration || props.registration || '',
-        // Photo URL is intentionally NOT embedded — it's the longest field. The
-        // OG function looks it up live from the aircraft type + livery (with the
-        // branded hero as a fallback), which keeps the link much shorter.
+        img: props.communityImageUrl || '',
         al: Math.round((pos.alt_ft ?? pos.altitude) || 0),
         gs: Math.round((pos.gs_kt ?? pos.groundSpeed) || 0),
         lat: (pos.lat ?? pos.latitude) ?? null,

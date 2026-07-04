@@ -429,20 +429,12 @@ exports.handler = async (event) => {
     if (snapshot && (snapshot.id || flightId)) {
         const effectiveId = flightId || snapshot.id;
         const flight = snapshotToFlight(snapshot, effectiveId);
-        // Photo isn't in the link (kept short) — look it up live from the
-        // aircraft type + livery. Best-effort: buildPage falls back to the
-        // branded hero (tracker.webp) if the lookup is empty or the backend is
-        // down, so the card still renders correctly.
-        let image = snapshot.img || null;
-        if (!image) {
-            image = await fetchAircraftImage(snapshot.ac, snapshot.lv);
-        }
         return {
             statusCode: 200,
             headers: {
                 'content-type': 'text/html; charset=utf-8',
-                // The card is effectively immutable, so cache longer than the
-                // live-lookup path — a crawler re-hit costs us nothing.
+                // The payload is immutable, so cache longer than the live-lookup
+                // path — a crawler re-hit costs us nothing.
                 'cache-control': 'public, max-age=300, s-maxage=300'
             },
             body: buildPage({
@@ -450,7 +442,7 @@ exports.handler = async (event) => {
                 flightId: effectiveId,
                 flight,
                 serverName: snapshot.sv || '',
-                imageUrl: image,
+                imageUrl: snapshot.img || null,
                 isCrawler,
                 capturedAt: Number(snapshot.ts) || 0
             })
