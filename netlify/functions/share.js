@@ -21,8 +21,8 @@ const ACARS_FLIGHTS_BASE = 'https://site--acars-backend--6dmjph8ltlhv.code.run/f
 const COMMUNITY_LOOKUP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/aircraft/lookup';
 
 const SITE_HOST_FALLBACK = 'indgo-va.netlify.app';
-const BRAND_NAME = 'Inflight';
-const BRAND_TAGLINE = 'Inflight Live Flight Tracker';
+const BRAND_NAME = 'InFlight';
+const BRAND_TAGLINE = 'InFlight Tracker';
 const BRAND_LOGO_PATH = '/Images/inflight.png';
 // Branded 1200x630-ish hero used when there is no community aircraft photo.
 // tracker.webp ships in the repo and looks better in an unfurl than the small
@@ -68,6 +68,22 @@ function decodeSharePayload(raw) {
         return (obj && typeof obj === 'object') ? obj : null;
     } catch (err) {
         console.warn('share: bad payload', err && err.message);
+        return null;
+    }
+}
+
+// Load a stored share snapshot by flightId from Netlify Blobs. Written by the
+// share-create function when the user taps "Share". Returns null (and falls
+// through to the live lookup) if the store is unreachable or the key is absent.
+async function loadStoredSnapshot(flightId) {
+    if (!flightId) return null;
+    try {
+        const { getStore } = require('@netlify/blobs');
+        const store = getStore('flight-shares');
+        const data = await store.get(flightId, { type: 'json' });
+        return (data && typeof data === 'object') ? data : null;
+    } catch (err) {
+        console.warn('share: blob read failed', err && err.message);
         return null;
     }
 }
@@ -278,6 +294,7 @@ ${imageType ? `<meta property="og:image:type" content="${escapeAttr(imageType)}"
 <meta name="twitter:image" content="${escapeAttr(image)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
+<link rel="apple-touch-icon" href="${escapeAttr(brandLogo)}">
 ${headRedirect}
 
 <style>
@@ -384,6 +401,7 @@ ${heroType ? `<meta property="og:image:type" content="${escapeAttr(heroType)}">`
 <meta name="twitter:image" content="${escapeAttr(heroImage)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
+<link rel="apple-touch-icon" href="${escapeAttr(brandLogo)}">
 ${headRedirect}
 
 <style>
@@ -417,13 +435,19 @@ exports.handler = async (event) => {
     const ua = String(headers['user-agent'] || headers['User-Agent'] || '');
     const isCrawler = CRAWLER_UA_RE.test(ua);
 
-    // Sturdy path: if the link carries its self-contained snapshot, render the
-    // card straight from it. No live lookup, no ACARS dependency, no race —
-    // works while the flight is live AND after it has ended. The in-app handoff
-    // still gets ?flight=<id> so the client reconnects live or opens the replay.
-    const snapshot = decodeSharePayload(
+    // Sturdy path: render the card from a stored/self-contained snapshot with no
+    // live dependency — works while the flight is live AND after it has ended.
+    //   1. Legacy self-contained links still carry the snapshot in ?s= .
+    //   2. New short links (/share/<flightId>) store the snapshot in Blobs,
+    //      keyed by flightId, which we load here.
+    // Either way the in-app handoff still gets ?flight=<id> so the client
+    // reconnects live or opens the replay.
+    let snapshot = decodeSharePayload(
         (event.queryStringParameters && event.queryStringParameters.s) || ''
     );
+    if (!snapshot && flightId) {
+        snapshot = await loadStoredSnapshot(flightId);
+    }
     if (snapshot && (snapshot.id || flightId)) {
         const effectiveId = flightId || snapshot.id;
         const flight = snapshotToFlight(snapshot, effectiveId);

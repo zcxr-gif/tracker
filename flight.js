@@ -6893,60 +6893,61 @@ function toggleTripCardMode(active) {
 
 window.toggleTripCardMode = toggleTripCardMode;
 
-// Compact, URL-safe snapshot embedded in every share link. This is what makes
-// sharing sturdy: the link carries everything the preview (and the in-app open)
-// needs, so it works even after the flight has ended and even before the live
-// socket has connected — no server storage, no live-lookup race. The Netlify
-// OG function (netlify/functions/share.js) decodes the same payload to render a
-// correct link-unfurl card every time. The raw flightId always stays in the
-// path so old-style clients and the replay lookup keep working.
-function encodeSharePayload(obj) {
-    try {
-        const json = JSON.stringify(obj);
-        // UTF-8-safe base64 (usernames/liveries can be non-ASCII), then URL-safe.
-        const b64 = btoa(unescape(encodeURIComponent(json)));
-        return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    } catch (_) {
-        return '';
-    }
+// Build the compact flight snapshot we persist for a share link. It's stored
+// (keyed by flightId) in Netlify Blobs so the OG preview stays correct even
+// after the flight ends. Kept small — only what the unfurl card and the in-app
+// open actually need.
+function buildShareSnapshot(flightId) {
+    const parseMaybe = (v) => {
+        if (v && typeof v === 'object') return v;
+        if (typeof v === 'string') { try { return JSON.parse(v); } catch (_) { return {}; } }
+        return {};
+    };
+    const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
+    const props = feature?.properties || {};
+    const pos = parseMaybe(props.position);
+    const ac = parseMaybe(props.aircraft);
+    return {
+        v: 1,
+        id: flightId,
+        sv: (typeof currentServerName !== 'undefined' && currentServerName) || '',
+        ts: Date.now(),
+        cs: props.callsign || '',
+        dp: props.departureIcao || '',
+        ar: props.arrivalIcao || '',
+        un: props.username || props.virtualOrgName || '',
+        ac: ac.aircraftName || props.aircraftName || '',
+        lv: ac.liveryName || props.liveryName || '',
+        rg: ac.registration || props.registration || '',
+        img: props.communityImageUrl || '',
+        al: Math.round((pos.alt_ft ?? pos.altitude) || 0),
+        gs: Math.round((pos.gs_kt ?? pos.groundSpeed) || 0),
+        lat: (pos.lat ?? pos.latitude) ?? null,
+        lon: (pos.lon ?? pos.longitude) ?? null
+    };
 }
 
+// Build a short share link: <origin>/share/<flightId>. We persist a snapshot of
+// the flight (keyed by flightId) so the preview stays correct even after the
+// flight ends — but fire-and-forget with keepalive so this never blocks the
+// native share sheet's user gesture (important on iOS). Even if the write races
+// or fails, the flightId in the path still lets the app open the flight (live
+// or replay) and the OG function falls back to a live lookup.
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
     const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
-    let query = '';
     try {
-        const parseMaybe = (v) => {
-            if (v && typeof v === 'object') return v;
-            if (typeof v === 'string') { try { return JSON.parse(v); } catch (_) { return {}; } }
-            return {};
-        };
-        const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
-        const props = feature?.properties || {};
-        const pos = parseMaybe(props.position);
-        const ac = parseMaybe(props.aircraft);
-        const snapshot = {
-            v: 1,
-            id: flightId,
-            sv: (typeof currentServerName !== 'undefined' && currentServerName) || '',
-            ts: Date.now(),
-            cs: props.callsign || '',
-            dp: props.departureIcao || '',
-            ar: props.arrivalIcao || '',
-            un: props.username || props.virtualOrgName || '',
-            ac: ac.aircraftName || props.aircraftName || '',
-            lv: ac.liveryName || props.liveryName || '',
-            rg: ac.registration || props.registration || '',
-            img: props.communityImageUrl || '',
-            al: Math.round((pos.alt_ft ?? pos.altitude) || 0),
-            gs: Math.round((pos.gs_kt ?? pos.groundSpeed) || 0),
-            lat: (pos.lat ?? pos.latitude) ?? null,
-            lon: (pos.lon ?? pos.longitude) ?? null
-        };
-        const encoded = encodeSharePayload(snapshot);
-        if (encoded) query = `?s=${encoded}`;
-    } catch (_) { /* best-effort; a bare /share/<id> link still resolves live */ }
-    return `${origin}/share/${encodeURIComponent(flightId)}${query}`;
+        const snapshot = buildShareSnapshot(flightId);
+        if (snapshot && typeof fetch === 'function') {
+            fetch('/.netlify/functions/share-create', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(snapshot),
+                keepalive: true
+            }).catch(() => { /* link still resolves via flightId + live lookup */ });
+        }
+    } catch (_) { /* best-effort persistence */ }
+    return `${origin}/share/${encodeURIComponent(flightId)}`;
 }
 
 async function shareCurrentFlight(triggerBtn = null) {
@@ -6965,7 +6966,7 @@ async function shareCurrentFlight(triggerBtn = null) {
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     const title = `${callsign} · ${dep} → ${arr}`;
-    const text = `Watch ${callsign} live on Inflight`;
+    const text = `Watch ${callsign} live on InFlight Tracker`;
 
     const flashSuccess = (label) => {
         if (!triggerBtn) return;
