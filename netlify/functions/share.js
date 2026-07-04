@@ -72,22 +72,6 @@ function decodeSharePayload(raw) {
     }
 }
 
-// Load a stored share snapshot by flightId from Netlify Blobs. Written by the
-// share-create function when the user taps "Share". Returns null (and falls
-// through to the live lookup) if the store is unreachable or the key is absent.
-async function loadStoredSnapshot(flightId) {
-    if (!flightId) return null;
-    try {
-        const { getStore } = require('@netlify/blobs');
-        const store = getStore('flight-shares');
-        const data = await store.get(flightId, { type: 'json' });
-        return (data && typeof data === 'object') ? data : null;
-    } catch (err) {
-        console.warn('share: blob read failed', err && err.message);
-        return null;
-    }
-}
-
 // Map the compact snapshot keys onto the flight shape buildPage() expects.
 function snapshotToFlight(snap, fallbackId) {
     return {
@@ -435,28 +419,30 @@ exports.handler = async (event) => {
     const ua = String(headers['user-agent'] || headers['User-Agent'] || '');
     const isCrawler = CRAWLER_UA_RE.test(ua);
 
-    // Sturdy path: render the card from a stored/self-contained snapshot with no
-    // live dependency — works while the flight is live AND after it has ended.
-    //   1. Legacy self-contained links still carry the snapshot in ?s= .
-    //   2. New short links (/share/<flightId>) store the snapshot in Blobs,
-    //      keyed by flightId, which we load here.
-    // Either way the in-app handoff still gets ?flight=<id> so the client
-    // reconnects live or opens the replay.
-    let snapshot = decodeSharePayload(
+    // Sturdy path: if the link carries its self-contained snapshot (?s=), render
+    // the card straight from it. No live lookup, no ACARS dependency, no race —
+    // works while the flight is live AND after it has ended. The in-app handoff
+    // still gets ?flight=<id> so the client reconnects live or opens the replay.
+    const snapshot = decodeSharePayload(
         (event.queryStringParameters && event.queryStringParameters.s) || ''
     );
-    if (!snapshot && flightId) {
-        snapshot = await loadStoredSnapshot(flightId);
-    }
     if (snapshot && (snapshot.id || flightId)) {
         const effectiveId = flightId || snapshot.id;
         const flight = snapshotToFlight(snapshot, effectiveId);
+        // Photo isn't in the link (kept short) — look it up live from the
+        // aircraft type + livery. Best-effort: buildPage falls back to the
+        // branded hero (tracker.webp) if the lookup is empty or the backend is
+        // down, so the card still renders correctly.
+        let image = snapshot.img || null;
+        if (!image) {
+            image = await fetchAircraftImage(snapshot.ac, snapshot.lv);
+        }
         return {
             statusCode: 200,
             headers: {
                 'content-type': 'text/html; charset=utf-8',
-                // The payload is immutable, so this is safe to cache longer than
-                // the live-lookup path — a crawler re-hit costs us nothing.
+                // The card is effectively immutable, so cache longer than the
+                // live-lookup path — a crawler re-hit costs us nothing.
                 'cache-control': 'public, max-age=300, s-maxage=300'
             },
             body: buildPage({
@@ -464,7 +450,7 @@ exports.handler = async (event) => {
                 flightId: effectiveId,
                 flight,
                 serverName: snapshot.sv || '',
-                imageUrl: snapshot.img || null,
+                imageUrl: image,
                 isCrawler,
                 capturedAt: Number(snapshot.ts) || 0
             })

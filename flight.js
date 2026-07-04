@@ -6893,10 +6893,12 @@ function toggleTripCardMode(active) {
 
 window.toggleTripCardMode = toggleTripCardMode;
 
-// Build the compact flight snapshot we persist for a share link. It's stored
-// (keyed by flightId) in Netlify Blobs so the OG preview stays correct even
-// after the flight ends. Kept small — only what the unfurl card and the in-app
-// open actually need.
+// Build the compact flight snapshot carried inside a share link. This is the
+// self-contained approach: the link holds everything the preview and the
+// in-app open need, so the unfurl card renders with ZERO server-side lookups —
+// no ACARS-feed race, no storage to configure, and it keeps working after the
+// flight ends. `id` is intentionally omitted here because the flightId is
+// already in the URL path (keeps the link a bit shorter).
 function buildShareSnapshot(flightId) {
     const parseMaybe = (v) => {
         if (v && typeof v === 'object') return v;
@@ -6909,7 +6911,6 @@ function buildShareSnapshot(flightId) {
     const ac = parseMaybe(props.aircraft);
     return {
         v: 1,
-        id: flightId,
         sv: (typeof currentServerName !== 'undefined' && currentServerName) || '',
         ts: Date.now(),
         cs: props.callsign || '',
@@ -6919,7 +6920,9 @@ function buildShareSnapshot(flightId) {
         ac: ac.aircraftName || props.aircraftName || '',
         lv: ac.liveryName || props.liveryName || '',
         rg: ac.registration || props.registration || '',
-        img: props.communityImageUrl || '',
+        // Photo URL is intentionally NOT embedded — it's the longest field. The
+        // OG function looks it up live from the aircraft type + livery (with the
+        // branded hero as a fallback), which keeps the link much shorter.
         al: Math.round((pos.alt_ft ?? pos.altitude) || 0),
         gs: Math.round((pos.gs_kt ?? pos.groundSpeed) || 0),
         lat: (pos.lat ?? pos.latitude) ?? null,
@@ -6927,27 +6930,31 @@ function buildShareSnapshot(flightId) {
     };
 }
 
-// Build a short share link: <origin>/share/<flightId>. We persist a snapshot of
-// the flight (keyed by flightId) so the preview stays correct even after the
-// flight ends — but fire-and-forget with keepalive so this never blocks the
-// native share sheet's user gesture (important on iOS). Even if the write races
-// or fails, the flightId in the path still lets the app open the flight (live
-// or replay) and the OG function falls back to a live lookup.
+// UTF-8-safe, URL-safe base64 of the snapshot. Decoded by
+// netlify/functions/share.js to render the unfurl card.
+function encodeSharePayload(obj) {
+    try {
+        const json = JSON.stringify(obj);
+        const b64 = btoa(unescape(encodeURIComponent(json)));
+        return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch (_) {
+        return '';
+    }
+}
+
+// Build a share link: <origin>/share/<flightId>?s=<snapshot>. Fully
+// self-contained — no server storage, no live-lookup race — so the preview is
+// correct and instant every time and survives the flight ending. The flightId
+// stays in the path so the app can open the flight (live or replay) regardless.
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
     const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
+    let query = '';
     try {
-        const snapshot = buildShareSnapshot(flightId);
-        if (snapshot && typeof fetch === 'function') {
-            fetch('/.netlify/functions/share-create', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(snapshot),
-                keepalive: true
-            }).catch(() => { /* link still resolves via flightId + live lookup */ });
-        }
-    } catch (_) { /* best-effort persistence */ }
-    return `${origin}/share/${encodeURIComponent(flightId)}`;
+        const encoded = encodeSharePayload(buildShareSnapshot(flightId));
+        if (encoded) query = `?s=${encoded}`;
+    } catch (_) { /* best-effort; a bare /share/<id> link still resolves live */ }
+    return `${origin}/share/${encodeURIComponent(flightId)}${query}`;
 }
 
 async function shareCurrentFlight(triggerBtn = null) {
