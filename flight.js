@@ -1731,18 +1731,18 @@ function injectCustomStyles() {
     z-index: 9999;
     pointer-events: none;
     display: none;
-    font-family: 'Inter', sans-serif;
-    transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    transition: opacity 0.3s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     opacity: 0;
 }
 
-/* Desktop layout */
+/* Desktop layout — docks bottom-center exactly like the replay panel */
 #trip-card-takeover {
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%) translateY(24px);
-    width: 380px;
-    max-width: calc(100vw - 24px);
+    width: 400px;
+    max-width: calc(100vw - 32px);
 }
 #trip-card-takeover.active {
     display: block;
@@ -1769,29 +1769,124 @@ function injectCustomStyles() {
     }
 }
 
+/* Panel: the replay-mode glass — charcoal, blur, hairline border */
 .tc-card {
-    background: linear-gradient(180deg, #11141f 0%, #0a0b10 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.04);
+    background: rgba(30, 31, 32, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+    padding: 12px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
+/* Header — mirrors .replay-header */
+.tc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+.tc-header-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+.tc-header-title > i { color: #ffffff; font-size: 13px; flex-shrink: 0; }
+.tc-callsign {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-phase-chip {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #9aa0a6;
+}
+.tc-header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tc-live-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #e8eaed;
+}
+.tc-live-chip .tc-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+    animation: tc-pulse 1.5s ease-in-out infinite;
+}
+@keyframes tc-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+.tc-exit-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e8eaed;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 0.8rem;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+.tc-exit-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+.tc-exit-btn:active { transform: scale(0.92); }
+
+/* Hero photo — rounded inset like the replay chart well */
 .tc-hero {
     position: relative;
     width: 100%;
     height: 150px;
-    background: #0f172a;
+    background: #101113;
     overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 @media (max-width: 640px) {
-    .tc-hero { height: 130px; }
+    .tc-hero { height: 128px; }
 }
-
 .tc-bg-layer {
     position: absolute;
     inset: 0;
-    background-color: #0f172a;
+    background-color: #101113;
     background-size: cover;
     background-position: center;
     transition: background-image 0.5s ease-in-out;
@@ -1799,111 +1894,59 @@ function injectCustomStyles() {
 .tc-hero-gradient {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgba(15,23,42,0.05) 0%, rgba(17,20,31,0.55) 70%, rgba(17,20,31,1) 100%);
+    background: linear-gradient(to bottom, rgba(16, 17, 19, 0) 40%, rgba(16, 17, 19, 0.72) 100%);
     pointer-events: none;
 }
-
-.tc-exit-btn {
+.tc-logo {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 10;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #fff;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.85rem;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    left: 10px;
+    bottom: 10px;
+    height: 22px;
+    width: auto;
+    max-width: 40%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
+    display: none;
 }
-.tc-exit-btn:hover {
-    background: rgba(239, 68, 68, 0.85);
-    border-color: rgba(239, 68, 68, 1);
-}
-.tc-exit-btn:active { transform: scale(0.92); }
-
-.tc-hero-badge {
+.tc-hero-chip {
     position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 10;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    background: rgba(0,0,0,0.55);
+    gap: 5px;
+    padding: 4px 9px;
+    background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #fff;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    color: #e8eaed;
     text-transform: uppercase;
 }
-.tc-hero-badge .tc-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #22c55e;
-    box-shadow: 0 0 6px rgba(34,197,94,0.7);
-    animation: tc-pulse 1.5s ease-in-out infinite;
-}
-@keyframes tc-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-}
+.tc-server-chip { top: 10px; left: 10px; }
+.tc-reg-chip { right: 10px; bottom: 10px; }
 
-.tc-body {
-    padding: 16px 18px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.tc-title-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-}
-.tc-callsign {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.35rem;
-    font-weight: 800;
-    color: #fff;
-    margin: 0;
-    line-height: 1.1;
-    letter-spacing: -0.4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
+/* Pilot / aircraft line */
 .tc-subtitle {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 0.72rem;
-    color: #94a3b8;
+    gap: 7px;
+    font-size: 11px;
+    color: #9aa0a6;
     font-weight: 500;
     overflow: hidden;
+    padding: 0 2px;
 }
 .tc-pilot {
-    color: #38bdf8;
+    color: #ffffff;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4px;
     white-space: nowrap;
 }
-.tc-divider { color: #475569; flex-shrink: 0; }
+.tc-divider { color: #5f6368; flex-shrink: 0; }
 .tc-ac {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1911,43 +1954,49 @@ function injectCustomStyles() {
     min-width: 0;
 }
 
+/* Route + progress */
 .tc-route {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 12px;
-}
-.tc-route-airport {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 2px;
 }
-.tc-route-airport-right {
-    align-items: flex-end;
-    text-align: right;
-}
-.tc-route-label {
-    font-size: 0.55rem;
-    color: #64748b;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
+.tc-route-airport { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tc-route-airport-right { align-items: flex-end; text-align: right; }
 .tc-icao {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.5rem;
+    font-size: 1.45rem;
     font-weight: 800;
-    color: #fff;
+    color: #ffffff;
     line-height: 1;
+    letter-spacing: 0.5px;
 }
-.tc-route-progress { padding: 0 4px; min-width: 60px; }
+.tc-airport-name {
+    font-size: 9.5px;
+    color: #9aa0a6;
+    font-weight: 600;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-route-dist {
+    align-self: center;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: #9aa0a6;
+    white-space: nowrap;
+    padding-top: 4px;
+}
+.tc-progress { display: flex; flex-direction: column; gap: 7px; padding: 0 2px; }
 .tc-progress-track {
     position: relative;
     width: 100%;
     height: 4px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
     display: flex;
     align-items: center;
 }
@@ -1956,76 +2005,119 @@ function injectCustomStyles() {
     left: 0;
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #38bdf8, #a855f7);
-    border-radius: 2px;
-    box-shadow: 0 0 8px rgba(56,189,248,0.5);
+    background: #ffffff;
+    border-radius: 4px;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
     transition: width 0.6s ease;
 }
 .tc-plane-icon {
     position: absolute;
     left: 0%;
     transform: translateX(-50%);
-    color: #fff;
+    color: #ffffff;
     font-size: 12px;
-    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
     transition: left 0.6s ease;
 }
-
-.tc-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+.tc-progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: #9aa0a6;
+    white-space: nowrap;
 }
-.tc-stat {
+.tc-progress-meta .tc-eta { color: #e8eaed; }
+
+/* Telemetry HUD — exactly the replay panel's stat tiles */
+.tc-hud {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+.tc-hud-stat {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 10px 12px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 10px;
+    align-items: center;
+    gap: 2px;
+    padding: 7px 4px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    min-width: 0;
 }
-.tc-stat-label {
-    font-size: 0.55rem;
-    color: #64748b;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-.tc-stat-value {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1rem;
-    color: #fff;
+.tc-hud-stat label {
+    font-size: 9px;
     font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #9aa0a6;
+    text-transform: uppercase;
 }
-.tc-stat-value .tc-alt { color: #38bdf8; }
-.tc-stat-value .tc-spd { color: #fbbf24; }
-.tc-unit { color: #64748b; font-size: 0.7rem; margin-left: 3px; font-weight: 600; }
+.tc-hud-stat span {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.1;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-hud-stat small {
+    font-size: 9px;
+    color: #9aa0a6;
+    font-weight: 600;
+}
 
-.tc-share-btn {
+/* Actions — ghost round-pill + white primary, replay button language */
+.tc-actions { display: flex; gap: 10px; }
+.tc-replay-btn {
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    width: 100%;
-    padding: 12px 20px;
-    background: linear-gradient(135deg, #38bdf8, #a855f7);
-    color: #fff;
-    border: none;
-    border-radius: 12px;
+    padding: 0 16px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border-radius: 10px;
     cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.85rem;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.82rem;
     font-weight: 700;
     letter-spacing: 0.3px;
-    box-shadow: 0 8px 24px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.25s ease;
+    transition: all 0.15s ease;
 }
-.tc-share-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 12px 28px rgba(56,189,248,0.45), inset 0 1px 0 rgba(255,255,255,0.2);
+.tc-replay-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.tc-replay-btn:active { transform: scale(0.97); }
+.tc-share-btn {
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 20px;
+    background: #ffffff;
+    color: #1e1f20;
+    border: 1px solid #ffffff;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    box-shadow: 0 0 14px rgba(255, 255, 255, 0.25);
+    transition: all 0.15s ease;
 }
-.tc-share-btn:active { transform: translateY(0); }
+.tc-share-btn:hover { background: #e8eaed; box-shadow: 0 0 18px rgba(255, 255, 255, 0.35); }
+.tc-share-btn:active { transform: scale(0.98); }
 .tc-share-btn i { font-size: 0.95rem; }
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
@@ -6803,49 +6895,79 @@ function toggleTripCardMode(active) {
     if (active && currentFlightInWindow) {
         takeoverUI.innerHTML = `
             <div class="tc-card">
+                <div class="tc-header">
+                    <div class="tc-header-title">
+                        <i class="fa-solid fa-plane"></i>
+                        <span class="tc-callsign">---</span>
+                        <span class="tc-phase-chip" data-tc-phase hidden>—</span>
+                    </div>
+                    <div class="tc-header-right">
+                        <span class="tc-live-chip"><span class="tc-live-dot"></span>LIVE</span>
+                        <button class="tc-exit-btn" type="button" aria-label="Close trip card">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </div>
                 <div class="tc-hero">
                     <div class="tc-bg-layer"></div>
                     <div class="tc-hero-gradient"></div>
-                    <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
-                    <button class="tc-exit-btn" type="button" aria-label="Close trip card">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
+                    <span class="tc-hero-chip tc-server-chip" data-tc-server hidden>---</span>
+                    <img class="tc-logo" alt="">
+                    <span class="tc-hero-chip tc-reg-chip" data-tc-reg hidden>---</span>
                 </div>
-                <div class="tc-body">
-                    <div class="tc-title-row">
-                        <h2 class="tc-callsign">---</h2>
-                        <div class="tc-subtitle">
-                            <span class="tc-pilot">---</span>
-                            <span class="tc-divider">·</span>
-                            <span class="tc-ac">---</span>
-                        </div>
+                <div class="tc-subtitle">
+                    <span class="tc-pilot">---</span>
+                    <span class="tc-divider">·</span>
+                    <span class="tc-ac">---</span>
+                </div>
+                <div class="tc-route">
+                    <div class="tc-route-airport">
+                        <span class="tc-icao origin">---</span>
+                        <span class="tc-airport-name" data-tc-dep-name>&nbsp;</span>
                     </div>
-                    <div class="tc-route">
-                        <div class="tc-route-airport">
-                            <span class="tc-route-label">From</span>
-                            <span class="tc-icao origin">---</span>
-                        </div>
-                        <div class="tc-route-progress">
-                            <div class="tc-progress-track">
-                                <div class="tc-progress-bar"></div>
-                                <i class="fa-solid fa-plane tc-plane-icon"></i>
-                            </div>
-                        </div>
-                        <div class="tc-route-airport tc-route-airport-right">
-                            <span class="tc-route-label">To</span>
-                            <span class="tc-icao destination">---</span>
-                        </div>
+                    <div class="tc-route-dist" data-tc-route-dist></div>
+                    <div class="tc-route-airport tc-route-airport-right">
+                        <span class="tc-icao destination">---</span>
+                        <span class="tc-airport-name" data-tc-arr-name>&nbsp;</span>
                     </div>
-                    <div class="tc-stats">
-                        <div class="tc-stat">
-                            <span class="tc-stat-label">Altitude</span>
-                            <span class="tc-stat-value"><span class="tc-alt">---</span><span class="tc-unit">ft</span></span>
-                        </div>
-                        <div class="tc-stat">
-                            <span class="tc-stat-label">Speed</span>
-                            <span class="tc-stat-value"><span class="tc-spd">---</span><span class="tc-unit">kt</span></span>
-                        </div>
+                </div>
+                <div class="tc-progress">
+                    <div class="tc-progress-track">
+                        <div class="tc-progress-bar"></div>
+                        <i class="fa-solid fa-plane tc-plane-icon"></i>
                     </div>
+                    <div class="tc-progress-meta">
+                        <span data-tc-flown>—</span>
+                        <span class="tc-eta" data-tc-eta>—</span>
+                    </div>
+                </div>
+                <div class="tc-hud">
+                    <div class="tc-hud-stat">
+                        <label>Altitude</label>
+                        <span class="tc-alt">---</span>
+                        <small>ft</small>
+                    </div>
+                    <div class="tc-hud-stat">
+                        <label>Speed</label>
+                        <span class="tc-spd">---</span>
+                        <small>kt GS</small>
+                    </div>
+                    <div class="tc-hud-stat">
+                        <label>V/S</label>
+                        <span class="tc-vs">---</span>
+                        <small>fpm</small>
+                    </div>
+                    <div class="tc-hud-stat">
+                        <label>Heading</label>
+                        <span class="tc-hdg">---</span>
+                        <small>°</small>
+                    </div>
+                </div>
+                <div class="tc-actions">
+                    <button class="tc-replay-btn" type="button" title="Replay this flight so far">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                        <span>Replay</span>
+                    </button>
                     <button class="tc-share-btn" type="button" title="Share this flight">
                         <i class="fa-solid fa-share-nodes"></i>
                         <span class="tc-share-btn-label">Share Flight</span>
@@ -6856,6 +6978,20 @@ function toggleTripCardMode(active) {
 
         takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', () => {
             shareCurrentFlight(takeoverUI.querySelector('.tc-share-btn'));
+        });
+
+        // Hand off to the replay panel this card is styled after: dismiss the
+        // card quietly (without re-opening the flight info window underneath)
+        // and bring it back when the replay closes.
+        takeoverUI.querySelector('.tc-replay-btn')?.addEventListener('click', () => {
+            const flightIdForReplay = currentFlightInWindow;
+            takeoverUI.classList.remove('active');
+            if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+            openFlightReplayById(flightIdForReplay, {}, {
+                onClose: () => {
+                    if (currentFlightInWindow === flightIdForReplay) toggleTripCardMode(true);
+                }
+            });
         });
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
@@ -7530,7 +7666,7 @@ async function consumeShareLinkParam() {
 // Opens the map replay for any flight the backend still has history for —
 // no live flight, feature, or open info window required. Used by replay
 // share links (?replay=<id>) below and by topWatchedUsers.js podium clicks.
-async function openFlightReplayById(flightId, meta = {}) {
+async function openFlightReplayById(flightId, meta = {}, opts = {}) {
     if (!flightId) return false;
 
     // Wait for the map to exist — replay links land here straight from boot.
@@ -7582,6 +7718,8 @@ async function openFlightReplayById(flightId, meta = {}) {
                 flights: Object.keys(currentMapFeatures).length || 0,
                 atc: activeAtcFacilities.length || 0
             });
+            // Caller-supplied hook (e.g. the trip card re-opening itself).
+            try { opts.onClose?.(); } catch (_) { /* non-fatal */ }
         }
     });
     if (!opened && toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
@@ -7658,6 +7796,29 @@ if (typeof window !== 'undefined') {
     }
 }
 
+// Altitude → color, same stops the replay's telemetry chart uses
+// (sky blue → teal → lime → amber → rose as the flight climbs).
+function tripCardAltColor(altFt) {
+    const a = Math.max(0, altFt || 0);
+    if (a < 5000) return '#38bdf8';
+    if (a < 15000) return '#2dd4bf';
+    if (a < 25000) return '#a3e635';
+    if (a < 38000) return '#facc15';
+    return '#f43f5e';
+}
+
+// Coarse phase-of-flight read from live telemetry, for the header chip.
+function tripCardPhase(pos) {
+    const gs = pos.gs_kt || 0;
+    const vs = pos.vs_fpm || 0;
+    const alt = pos.alt_ft || 0;
+    if (gs < 40) return { label: 'On Ground', color: '#9aa0a6' };
+    if (vs > 300) return { label: 'Climbing', color: '#a3e635' };
+    if (vs < -300) return { label: 'Descending', color: '#facc15' };
+    if (alt > 18000) return { label: 'Cruise', color: '#38bdf8' };
+    return { label: 'En Route', color: '#e8eaed' };
+}
+
 function updateTripCardRealtime() {
     if (!currentFlightInWindow || !currentMapFeatures[currentFlightInWindow]) return;
 
@@ -7667,7 +7828,7 @@ function updateTripCardRealtime() {
     const ui = document.getElementById('trip-card-takeover');
     if (!ui) return;
 
-    // Apply Background Image to the card layer directly
+    // Hero photo (community aircraft image with the default plane fallback).
     const bgLayer = ui.querySelector('.tc-bg-layer');
     if (bgLayer) {
         const fallbackImg = '/CommunityPlanes/default.png';
@@ -7679,45 +7840,128 @@ function updateTripCardRealtime() {
     }
 
     ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
-    ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
-    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
-    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0).toString();
-    
+    ui.querySelector('.tc-pilot').textContent = props.username || 'Unknown';
+
     const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
     const acName = acData.aircraftName || props.aircraftName || 'Unknown Type';
     const livName = acData.liveryName || props.liveryName || '';
-    
-    ui.querySelector('.tc-ac').textContent = `${acName} • ${livName}`;
+    ui.querySelector('.tc-ac').textContent = livName ? `${acName} · ${livName}` : acName;
 
+    // Header phase chip.
+    const phase = tripCardPhase(pos);
+    const phaseChip = ui.querySelector('[data-tc-phase]');
+    if (phaseChip) {
+        phaseChip.hidden = false;
+        phaseChip.textContent = phase.label;
+        phaseChip.style.color = phase.color;
+    }
+
+    // Hero chips: server + registration.
+    const serverChip = ui.querySelector('[data-tc-server]');
+    if (serverChip && typeof currentServerName !== 'undefined' && currentServerName) {
+        serverChip.hidden = false;
+        serverChip.textContent = currentServerName;
+    }
+    const regChip = ui.querySelector('[data-tc-reg]');
+    const registration = acData.registration || props.registration || '';
+    if (regChip) {
+        regChip.hidden = !registration;
+        if (registration) regChip.textContent = registration;
+    }
+
+    // Telemetry HUD (altitude color-coded like the replay chart).
+    const altEl = ui.querySelector('.tc-alt');
+    if (altEl) {
+        altEl.textContent = Math.round(pos.alt_ft || 0).toLocaleString();
+        altEl.style.color = tripCardAltColor(pos.alt_ft);
+    }
+    const spdEl = ui.querySelector('.tc-spd');
+    if (spdEl) spdEl.textContent = Math.round(pos.gs_kt || 0).toString();
+    const vsEl = ui.querySelector('.tc-vs');
+    if (vsEl) {
+        const vs = Math.round(pos.vs_fpm || 0);
+        if (vs > 100) {
+            vsEl.textContent = `▲${Math.abs(vs).toLocaleString()}`;
+            vsEl.style.color = '#a3e635';
+        } else if (vs < -100) {
+            vsEl.textContent = `▼${Math.abs(vs).toLocaleString()}`;
+            vsEl.style.color = '#facc15';
+        } else {
+            vsEl.textContent = '0';
+            vsEl.style.color = '#9aa0a6';
+        }
+    }
+    const hdgEl = ui.querySelector('.tc-hdg');
+    if (hdgEl) {
+        const hdg = Math.round(pos.heading_deg || 0);
+        hdgEl.textContent = String(((hdg % 360) + 360) % 360).padStart(3, '0');
+    }
+
+    // Route: ICAOs + airport names.
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     ui.querySelector('.tc-icao.origin').textContent = dep;
     ui.querySelector('.tc-icao.destination').textContent = arr;
+    const depData = (dep !== '???' && typeof airportsData !== 'undefined') ? airportsData[dep] : null;
+    const arrData = (arr !== '???' && typeof airportsData !== 'undefined') ? airportsData[arr] : null;
+    const depNameEl = ui.querySelector('[data-tc-dep-name]');
+    if (depNameEl) depNameEl.textContent = depData?.name || ' ';
+    const arrNameEl = ui.querySelector('[data-tc-arr-name]');
+    if (arrNameEl) arrNameEl.textContent = arrData?.name || ' ';
 
-    // Route Progress Bar Logic
+    // Progress + distance/time estimates.
+    const KM_PER_NM = 1.852;
     let progressPercent = 0;
-    if (dep !== '???' && arr !== '???') {
-        const depData = typeof airportsData !== 'undefined' ? airportsData[dep] : null;
-        const arrData = typeof airportsData !== 'undefined' ? airportsData[arr] : null;
-        if (depData && arrData && pos.lat) {
-            try {
-                const totalDist = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
-                const remainingDist = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
-                if (totalDist > 0) {
-                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
-                }
-            } catch(err) {}
-        }
+    let totalNm = 0;
+    let remainingNm = 0;
+    if (depData && arrData && pos.lat != null && typeof getDistanceKm === 'function') {
+        try {
+            const totalKm = getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon);
+            const remainingKm = getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon);
+            if (totalKm > 0) {
+                totalNm = totalKm / KM_PER_NM;
+                remainingNm = Math.max(0, remainingKm / KM_PER_NM);
+                progressPercent = Math.max(0, Math.min(100, (1 - remainingKm / totalKm) * 100));
+            }
+        } catch (_) { /* leave defaults */ }
     }
-    
+
     const displayPercent = Math.max(0, Math.min(100, progressPercent));
     const progressBar = ui.querySelector('.tc-progress-bar');
     const planeIcon = ui.querySelector('.tc-plane-icon');
-    
     if (progressBar) progressBar.style.width = `${displayPercent}%`;
     if (planeIcon) planeIcon.style.left = `${displayPercent}%`;
 
-    // Airline Logo Handling
+    const routeDistEl = ui.querySelector('[data-tc-route-dist]');
+    if (routeDistEl) routeDistEl.textContent = totalNm > 0 ? `${Math.round(totalNm).toLocaleString()} nm` : '';
+
+    const flownEl = ui.querySelector('[data-tc-flown]');
+    if (flownEl) {
+        flownEl.textContent = totalNm > 0
+            ? `${Math.round(displayPercent)}% flown · ${Math.round(remainingNm).toLocaleString()} nm to go`
+            : '—';
+    }
+
+    // ETE/ETA from current ground speed (only meaningful once airborne and
+    // actually making progress toward the arrival).
+    const etaEl = ui.querySelector('[data-tc-eta]');
+    if (etaEl) {
+        const gs = pos.gs_kt || 0;
+        if (remainingNm > 1 && gs > 50) {
+            const eteMin = Math.round((remainingNm / gs) * 60);
+            const h = Math.floor(eteMin / 60);
+            const m = eteMin % 60;
+            const ete = h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+            const etaDate = new Date(Date.now() + eteMin * 60000);
+            const etaZ = `${String(etaDate.getUTCHours()).padStart(2, '0')}:${String(etaDate.getUTCMinutes()).padStart(2, '0')}Z`;
+            etaEl.textContent = `${ete} · ETA ${etaZ}`;
+        } else {
+            etaEl.textContent = remainingNm <= 1 && totalNm > 0 ? 'Arrived' : '—';
+        }
+    }
+
+    // Airline logo over the hero (derived from the livery name; hides itself
+    // when no matching asset exists).
     const words = livName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
