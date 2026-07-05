@@ -6893,10 +6893,72 @@ function toggleTripCardMode(active) {
 
 window.toggleTripCardMode = toggleTripCardMode;
 
+// Canonical web origin for share links + the share-create API. Inside the
+// native Capacitor builds window.location.origin is capacitor://localhost —
+// links built from that are dead for recipients — so anything that isn't a
+// real http(s) origin falls back to the production domain.
+function getShareOrigin() {
+    try {
+        const loc = (typeof window !== 'undefined') ? window.location : null;
+        if (loc && /^https?:$/.test(loc.protocol) && loc.origin) return loc.origin;
+    } catch (_) { /* fall through */ }
+    return 'https://inflight.info';
+}
+
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
-    const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
-    return `${origin}/share/${encodeURIComponent(flightId)}`;
+    return `${getShareOrigin()}/share/${encodeURIComponent(flightId)}`;
+}
+
+// Registers a durable snapshot of the flight with the share backend the
+// moment the user shares it. This is what keeps the link rendering a rich
+// preview (and a proper "flight completed" page) after the flight ends.
+// Fire-and-forget: sharing must never wait on — or break because of — this.
+function postShareSnapshot(flightId) {
+    try {
+        const feature = currentMapFeatures[flightId];
+        const props = feature?.properties;
+        if (!props) return;
+
+        const parseMaybe = (v) => {
+            if (typeof v !== 'string') return v || null;
+            try { return JSON.parse(v); } catch (_) { return null; }
+        };
+        const position = parseMaybe(props.position);
+        const aircraft = parseMaybe(props.aircraft) || {};
+
+        const payload = {
+            flightId,
+            serverName: (typeof currentServerName !== 'undefined' && currentServerName) || '',
+            communityImageUrl: props.communityImageUrl || null,
+            flight: {
+                flightId,
+                callsign: props.callsign || null,
+                username: props.username || null,
+                virtualOrgName: props.virtualOrgName || null,
+                departureIcao: props.departureIcao || null,
+                arrivalIcao: props.arrivalIcao || null,
+                aircraftName: aircraft.aircraftName || props.aircraftName || null,
+                liveryName: aircraft.liveryName || props.liveryName || null,
+                registration: aircraft.registration || props.registration || null,
+                userId: props.userId || null,
+                isStaff: !!props.isStaff,
+                isVAMember: !!props.isVAMember,
+                pilotState: props.pilotState ?? null,
+                position: position || null,
+                aircraft
+            }
+        };
+
+        fetch(`${getShareOrigin()}/.netlify/functions/share-create`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true
+        }).catch(() => { /* link still works via live lookup */ });
+    } catch (err) {
+        console.warn('postShareSnapshot: skipped —', err);
+    }
 }
 
 async function shareCurrentFlight(triggerBtn = null) {
@@ -6908,6 +6970,11 @@ async function shareCurrentFlight(triggerBtn = null) {
 
     const shareUrl = buildFlightShareUrl(flightId);
     if (!shareUrl) return;
+
+    // Persist a snapshot server-side so the link survives the flight ending.
+    // Deliberately not awaited — the share sheet must open inside the user
+    // gesture, and the recipient won't click for seconds anyway.
+    postShareSnapshot(flightId);
 
     const feature = currentMapFeatures[flightId];
     const props = feature?.properties || {};
