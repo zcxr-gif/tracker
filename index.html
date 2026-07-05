@@ -71,6 +71,38 @@
 
     <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
 
+    <!-- ====================================================================
+         Link preview / social share (Open Graph + Twitter Card).
+         Makes sharing https://inflight.info render a rich banner with the
+         branded hero image, tagline, description and logo in Discord, Slack,
+         iMessage, WhatsApp, Telegram, X/Twitter, Facebook, LinkedIn, etc.
+         Absolute URLs are required — crawlers do not resolve relative paths.
+         Kept consistent with the per-flight OG tags in
+         netlify/functions/share.js (same brand name, tagline, hero, colour).
+         ==================================================================== -->
+    <meta name="description" content="InFlight is a real-time Infinite Flight tracker built for virtual aviators — follow live flights, ATC, ATIS, weather and airport traffic on a beautiful interactive map.">
+    <meta name="theme-color" content="#38bdf8">
+    <link rel="canonical" href="https://inflight.info/">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="InFlight Tracker">
+    <meta property="og:title" content="InFlight — Live Infinite Flight Tracker">
+    <meta property="og:description" content="InFlight is a real-time Infinite Flight tracker built for virtual aviators — follow live flights, ATC, ATIS, weather and airport traffic on a beautiful interactive map.">
+    <meta property="og:url" content="https://inflight.info/">
+    <meta property="og:image" content="https://inflight.info/Images/tracker.webp">
+    <meta property="og:image:secure_url" content="https://inflight.info/Images/tracker.webp">
+    <meta property="og:image:type" content="image/webp">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="InFlight — live Infinite Flight tracker map">
+    <meta property="og:logo" content="https://inflight.info/Images/inflight.png">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="InFlight — Live Infinite Flight Tracker">
+    <meta name="twitter:description" content="InFlight is a real-time Infinite Flight tracker built for virtual aviators — follow live flights, ATC, ATIS, weather and airport traffic on a beautiful interactive map.">
+    <meta name="twitter:image" content="https://inflight.info/Images/tracker.webp">
+    <meta name="twitter:image:alt" content="InFlight — live Infinite Flight tracker map">
+
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
 

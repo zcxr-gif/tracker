@@ -21,8 +21,8 @@ const ACARS_FLIGHTS_BASE = 'https://site--acars-backend--6dmjph8ltlhv.code.run/f
 const COMMUNITY_LOOKUP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/aircraft/lookup';
 
 const SITE_HOST_FALLBACK = 'indgo-va.netlify.app';
-const BRAND_NAME = 'Inflight';
-const BRAND_TAGLINE = 'Inflight Live Flight Tracker';
+const BRAND_NAME = 'InFlight';
+const BRAND_TAGLINE = 'InFlight Tracker';
 const BRAND_LOGO_PATH = '/Images/inflight.png';
 // Branded 1200x630-ish hero used when there is no community aircraft photo.
 // tracker.webp ships in the repo and looks better in an unfurl than the small
@@ -51,6 +51,50 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
     return escapeHtml(value);
+}
+
+// Decode the self-contained snapshot the app embeds in every share link
+// (?s=<base64url>). This is the sturdy path: it lets us render a correct,
+// instant OG card with zero live lookups — so the preview never depends on the
+// ACARS feed being up/in-sync, and the link keeps unfurling correctly forever,
+// including after the flight has ended. See encodeSharePayload() in flight.js.
+function decodeSharePayload(raw) {
+    if (!raw) return null;
+    try {
+        let b64 = String(raw).replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        const json = Buffer.from(b64, 'base64').toString('utf8');
+        const obj = JSON.parse(json);
+        return (obj && typeof obj === 'object') ? obj : null;
+    } catch (err) {
+        console.warn('share: bad payload', err && err.message);
+        return null;
+    }
+}
+
+// Map the compact snapshot keys onto the flight shape buildPage() expects.
+function snapshotToFlight(snap, fallbackId) {
+    return {
+        flightId: snap.id || fallbackId || '',
+        callsign: snap.cs || '',
+        username: snap.un || '',
+        departureIcao: snap.dp || '',
+        arrivalIcao: snap.ar || '',
+        aircraftName: snap.ac || '',
+        liveryName: snap.lv || '',
+        registration: snap.rg || '',
+        aircraft: {
+            aircraftName: snap.ac || '',
+            liveryName: snap.lv || '',
+            registration: snap.rg || ''
+        },
+        position: {
+            alt_ft: Number(snap.al) || 0,
+            gs_kt: Number(snap.gs) || 0,
+            lat: (snap.lat === undefined ? null : snap.lat),
+            lon: (snap.lon === undefined ? null : snap.lon)
+        }
+    };
 }
 
 async function fetchJson(url) {
@@ -127,7 +171,7 @@ function guessImageType(url) {
     return null;
 }
 
-function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawler }) {
+function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawler, capturedAt }) {
     const callsign = flight?.callsign || flight?.flightNumber || 'Live Flight';
     const username = flight?.username || flight?.virtualOrgName || 'Unknown Pilot';
     const dep = flight?.departureIcao || flight?.origin || '???';
@@ -145,7 +189,12 @@ function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawl
     const handoffPayload = {
         flightId,
         serverName: serverName || '',
-        capturedAt: Date.now(),
+        // Use the ORIGINAL share time when we have it (self-contained links),
+        // not the request time — otherwise the app's freshness guard would treat
+        // an hours-old link as "just captured" and instant-open a stale window,
+        // suppressing the post-landing replay fallback. Falls back to now for the
+        // live-lookup path where the data really was just fetched.
+        capturedAt: (typeof capturedAt === 'number' && capturedAt > 0) ? capturedAt : Date.now(),
         flight: {
             flightId: flight?.flightId || flightId,
             callsign: flight?.callsign || null,
@@ -229,6 +278,7 @@ ${imageType ? `<meta property="og:image:type" content="${escapeAttr(imageType)}"
 <meta name="twitter:image" content="${escapeAttr(image)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
+<link rel="apple-touch-icon" href="${escapeAttr(brandLogo)}">
 ${headRedirect}
 
 <style>
@@ -335,6 +385,7 @@ ${heroType ? `<meta property="og:image:type" content="${escapeAttr(heroType)}">`
 <meta name="twitter:image" content="${escapeAttr(heroImage)}">
 
 <link rel="icon" href="${escapeAttr(brandLogo)}">
+<link rel="apple-touch-icon" href="${escapeAttr(brandLogo)}">
 ${headRedirect}
 
 <style>
@@ -367,6 +418,36 @@ exports.handler = async (event) => {
     const siteOrigin = `${proto}://${host}`;
     const ua = String(headers['user-agent'] || headers['User-Agent'] || '');
     const isCrawler = CRAWLER_UA_RE.test(ua);
+
+    // Sturdy path: if the link carries its self-contained snapshot (?s=), render
+    // the card straight from it. No live lookup, no ACARS dependency, no race —
+    // works while the flight is live AND after it has ended. The in-app handoff
+    // still gets ?flight=<id> so the client reconnects live or opens the replay.
+    const snapshot = decodeSharePayload(
+        (event.queryStringParameters && event.queryStringParameters.s) || ''
+    );
+    if (snapshot && (snapshot.id || flightId)) {
+        const effectiveId = flightId || snapshot.id;
+        const flight = snapshotToFlight(snapshot, effectiveId);
+        return {
+            statusCode: 200,
+            headers: {
+                'content-type': 'text/html; charset=utf-8',
+                // The payload is immutable, so cache longer than the live-lookup
+                // path — a crawler re-hit costs us nothing.
+                'cache-control': 'public, max-age=300, s-maxage=300'
+            },
+            body: buildPage({
+                siteOrigin,
+                flightId: effectiveId,
+                flight,
+                serverName: snapshot.sv || '',
+                imageUrl: snapshot.img || null,
+                isCrawler,
+                capturedAt: Number(snapshot.ts) || 0
+            })
+        };
+    }
 
     if (!flightId) {
         return {

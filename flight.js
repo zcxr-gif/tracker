@@ -6893,10 +6893,66 @@ function toggleTripCardMode(active) {
 
 window.toggleTripCardMode = toggleTripCardMode;
 
+// Build the compact flight snapshot carried inside a share link. This is the
+// self-contained approach: the link holds everything the preview and the
+// in-app open need, so the unfurl card renders with ZERO server-side lookups —
+// no ACARS-feed race, no storage to configure, and it keeps working after the
+// flight ends. `id` is intentionally omitted here because the flightId is
+// already in the URL path (keeps the link a bit shorter).
+function buildShareSnapshot(flightId) {
+    const parseMaybe = (v) => {
+        if (v && typeof v === 'object') return v;
+        if (typeof v === 'string') { try { return JSON.parse(v); } catch (_) { return {}; } }
+        return {};
+    };
+    const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
+    const props = feature?.properties || {};
+    const pos = parseMaybe(props.position);
+    const ac = parseMaybe(props.aircraft);
+    return {
+        v: 1,
+        sv: (typeof currentServerName !== 'undefined' && currentServerName) || '',
+        ts: Date.now(),
+        cs: props.callsign || '',
+        dp: props.departureIcao || '',
+        ar: props.arrivalIcao || '',
+        un: props.username || props.virtualOrgName || '',
+        ac: ac.aircraftName || props.aircraftName || '',
+        lv: ac.liveryName || props.liveryName || '',
+        rg: ac.registration || props.registration || '',
+        img: props.communityImageUrl || '',
+        al: Math.round((pos.alt_ft ?? pos.altitude) || 0),
+        gs: Math.round((pos.gs_kt ?? pos.groundSpeed) || 0),
+        lat: (pos.lat ?? pos.latitude) ?? null,
+        lon: (pos.lon ?? pos.longitude) ?? null
+    };
+}
+
+// UTF-8-safe, URL-safe base64 of the snapshot. Decoded by
+// netlify/functions/share.js to render the unfurl card.
+function encodeSharePayload(obj) {
+    try {
+        const json = JSON.stringify(obj);
+        const b64 = btoa(unescape(encodeURIComponent(json)));
+        return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch (_) {
+        return '';
+    }
+}
+
+// Build a share link: <origin>/share/<flightId>?s=<snapshot>. Fully
+// self-contained — no server storage, no live-lookup race — so the preview is
+// correct and instant every time and survives the flight ending. The flightId
+// stays in the path so the app can open the flight (live or replay) regardless.
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
     const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
-    return `${origin}/share/${encodeURIComponent(flightId)}`;
+    let query = '';
+    try {
+        const encoded = encodeSharePayload(buildShareSnapshot(flightId));
+        if (encoded) query = `?s=${encoded}`;
+    } catch (_) { /* best-effort; a bare /share/<id> link still resolves live */ }
+    return `${origin}/share/${encodeURIComponent(flightId)}${query}`;
 }
 
 async function shareCurrentFlight(triggerBtn = null) {
@@ -6915,7 +6971,7 @@ async function shareCurrentFlight(triggerBtn = null) {
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     const title = `${callsign} · ${dep} → ${arr}`;
-    const text = `Watch ${callsign} live on Inflight`;
+    const text = `Watch ${callsign} live on InFlight Tracker`;
 
     const flashSuccess = (label) => {
         if (!triggerBtn) return;
@@ -7006,7 +7062,11 @@ function buildSyntheticFeature(flightLike, communityImageUrl) {
             pilotState: flightLike.pilotState ?? null,
             communityImageUrl: communityImageUrl || null,
             contributorName: null,
-            tailNumber: null
+            tailNumber: null,
+            // Marks a feature we constructed (from a share snapshot or a REST
+            // hit) so the share resolver can tell it apart from a genuine live
+            // socket update when deciding whether the flight is still airborne.
+            __shareSynthetic: true
         }
     };
 }
@@ -7086,6 +7146,21 @@ function dismissShareLoadingOverlay() {
     setTimeout(() => { try { overlay.remove(); } catch (_) {} }, 220);
 }
 
+// True when this page load is resolving a shared flight link — either the
+// ?flight= param is still on the URL, or the share function dropped a handoff
+// snapshot in sessionStorage. Used to skip the first-run onboarding so it
+// doesn't hijack the shared flight/replay open.
+function isShareLinkPending() {
+    try {
+        const params = new URLSearchParams((window.location && window.location.search) || '');
+        if (params.get('flight')) return true;
+    } catch (_) { /* ignore */ }
+    try {
+        if (sessionStorage.getItem('inflight_share_payload')) return true;
+    } catch (_) { /* private mode */ }
+    return false;
+}
+
 async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
     let params;
@@ -7094,24 +7169,42 @@ async function consumeShareLinkParam() {
     let sharedServer = params.get('server');
 
     // Load any sessionStorage handoff the share function dropped for us.
+    // `sharePayload` is only set when the snapshot is fresh enough to open a
+    // live window instantly; `sharePayloadAny` keeps the payload regardless of
+    // age so we can still label the replay fallback (post-landing) nicely.
     let sharePayload = null;
+    let sharePayloadAny = null;
     try {
         const raw = sessionStorage.getItem('inflight_share_payload');
         if (raw) {
             const parsed = JSON.parse(raw);
-            // Only honour payloads recent enough to plausibly still be live,
-            // and only for the flight we actually navigated to.
-            if (parsed && (!flightId || parsed.flightId === flightId) &&
-                (!parsed.capturedAt || Date.now() - parsed.capturedAt < 10 * 60 * 1000)) {
-                sharePayload = parsed;
+            // Only honour payloads for the flight we actually navigated to.
+            if (parsed && (!flightId || parsed.flightId === flightId)) {
+                sharePayloadAny = parsed;
                 if (!sharedServer && parsed.serverName) sharedServer = parsed.serverName;
+                // Fresh enough to plausibly still be live -> allow instant open.
+                if (!parsed.capturedAt || Date.now() - parsed.capturedAt < 10 * 60 * 1000) {
+                    sharePayload = parsed;
+                }
             }
             sessionStorage.removeItem('inflight_share_payload');
         }
     } catch (_) { /* private mode etc */ }
 
-    const effectiveFlightId = flightId || sharePayload?.flightId;
+    const effectiveFlightId = flightId || sharePayloadAny?.flightId;
     if (!effectiveFlightId) return;
+
+    // Labels for the replay fallback, pulled from whatever snapshot we have.
+    const replayMeta = (() => {
+        const f = (sharePayloadAny && sharePayloadAny.flight) || {};
+        const ac = f.aircraft || {};
+        return {
+            callsign: f.callsign || '',
+            depIcao: f.departureIcao || '',
+            arrIcao: f.arrivalIcao || '',
+            aircraftName: ac.aircraftName || f.aircraftName || ''
+        };
+    })();
 
     // Make sure the Inflight Pro upsell modal doesn't steal focus from the
     // flight info window. Remove it if the IIFE managed to slip it in before
@@ -7154,8 +7247,9 @@ async function consumeShareLinkParam() {
         }
     }
 
-    let opened = false;
-    const openFromFeature = async (feature, { seedCache = true } = {}) => {
+    let opened = false;        // any window shown (may be from a stale snapshot)
+    let liveConfirmed = false; // the flight is actually live on the feed right now
+    const openFromFeature = async (feature, { seedCache = true, live = false } = {}) => {
         if (!feature || !feature.properties) return false;
         try {
             // Seed currentMapFeatures so the rest of the UI (trip card, traffic
@@ -7177,6 +7271,7 @@ async function consumeShareLinkParam() {
             if (typeof handleAircraftClick === 'function') {
                 await handleAircraftClick(flightProps, sessionId);
                 opened = true;
+                if (live) liveConfirmed = true;
                 dismissShareLoadingOverlay();
                 return true;
             }
@@ -7216,8 +7311,9 @@ async function consumeShareLinkParam() {
     //    even when the socket already sees it, so one-shot isn't enough.
     let directHit = null;
     let directInFlight = false;
+    let restSweepCount = 0; // full session sweeps that finished without a match
     const tryDirectLookup = async () => {
-        if (directInFlight || directHit || opened) return null;
+        if (directInFlight || directHit || liveConfirmed) return null;
         directInFlight = true;
         try {
             const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
@@ -7237,7 +7333,7 @@ async function consumeShareLinkParam() {
 
             for (const session of ordered) {
                 if (!session?.id) continue;
-                if (opened || directHit) return null;
+                if (liveConfirmed || directHit) return null;
                 try {
                     const flightsRes = await fetch(`https://site--acars-backend--6dmjph8ltlhv.code.run/flights/${session.id}`);
                     if (!flightsRes.ok) continue;
@@ -7253,6 +7349,9 @@ async function consumeShareLinkParam() {
                     return directHit;
                 } catch (_) { /* try next session */ }
             }
+            // A full sweep of every session finished without a hit — a strong
+            // "not currently live" signal used to short-circuit to the replay.
+            restSweepCount++;
         } catch (err) {
             console.warn('consumeShareLinkParam: direct fetch failed', err);
         } finally {
@@ -7275,21 +7374,47 @@ async function consumeShareLinkParam() {
     let lastRestAttemptAt = Date.now();
     let progressed = false;
 
+    // Is there a GENUINE socket feature for this flight (i.e. the live feed is
+    // actually carrying it), as opposed to the synthetic seed we injected?
+    const realSocketFeature = () => {
+        const f = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
+        return (f && f.properties && !f.properties.__shareSynthetic) ? f : null;
+    };
+
+    // Is the live feed genuinely up? True only when the socket is delivering
+    // REAL flights (not just our synthetic seed). Until this is true — e.g. a
+    // brand-new user still waiting on the first websocket connect — we must not
+    // conclude the shared flight has ended.
+    const liveFeedUp = () => {
+        if (typeof currentMapFeatures === 'undefined') return false;
+        for (const k in currentMapFeatures) {
+            const f = currentMapFeatures[k];
+            if (f && f.properties && !f.properties.__shareSynthetic) return true;
+        }
+        return false;
+    };
+
     while (Date.now() - startedAt < TOTAL_BUDGET_MS) {
-        if (opened && (typeof currentMapFeatures !== 'undefined') && currentMapFeatures[effectiveFlightId]) {
-            // Window is up and the socket is now driving updates — we're done.
+        // Live confirmed via the socket: a real (non-seed) feature has arrived.
+        const socketFeature = realSocketFeature();
+        if (socketFeature && !liveConfirmed) {
+            liveConfirmed = true;
+            if (!opened) await openFromFeature(socketFeature, { seedCache: false, live: true });
             dismissShareLoadingOverlay();
             return;
         }
 
-        const feature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
-        if (feature && feature.properties && !opened) {
-            await openFromFeature(feature, { seedCache: false });
-            return;
-        }
-
-        if (directHit && directHit.feature && !opened) {
-            await openFromFeature(directHit.feature);
+        // Live confirmed via REST: the flight is currently in a live session.
+        if (directHit && directHit.feature && !liveConfirmed) {
+            liveConfirmed = true;
+            if (!opened) {
+                await openFromFeature(directHit.feature, { live: true });
+            } else if (typeof currentMapFeatures !== 'undefined') {
+                // Window already up from the snapshot — swap in the fresher REST
+                // data so live updates continue from an accurate position.
+                currentMapFeatures[effectiveFlightId] = directHit.feature;
+            }
+            dismissShareLoadingOverlay();
             return;
         }
 
@@ -7297,6 +7422,17 @@ async function consumeShareLinkParam() {
         if (!directHit && !directInFlight && Date.now() - lastRestAttemptAt >= REST_RETRY_INTERVAL_MS) {
             lastRestAttemptAt = Date.now();
             tryDirectLookup();
+        }
+
+        // Definitive "not live": the socket feed is populated (so it's up and
+        // would carry the flight if it were airborne) yet no genuine feature for
+        // this flight exists, and REST has swept every session at least twice
+        // with no hit. Stop waiting and drop to the replay. Crucially this wins
+        // even if a stale snapshot window is already showing (opened === true) —
+        // the recorded replay is the accurate "what happened" view.
+        if (!liveConfirmed && !directHit && restSweepCount >= 2 &&
+            liveFeedUp() && !realSocketFeature()) {
+            break;
         }
 
         // Once the live feed starts producing features, update the overlay so
@@ -7309,24 +7445,97 @@ async function consumeShareLinkParam() {
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
 
-    // 4) Budget exhausted. One last check before declaring defeat.
-    if (!opened) {
-        const lateFeature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[effectiveFlightId] : null;
-        if (lateFeature && lateFeature.properties) {
-            await openFromFeature(lateFeature, { seedCache: false });
-        } else if (directHit && directHit.feature) {
-            await openFromFeature(directHit.feature);
+    // 4) Budget/break reached. One last check for late live data before we
+    //    treat the flight as ended.
+    if (!liveConfirmed) {
+        const lateReal = realSocketFeature();
+        if (lateReal) {
+            liveConfirmed = true;
+            if (!opened) await openFromFeature(lateReal, { seedCache: false, live: true });
+            dismissShareLoadingOverlay();
+            return;
+        }
+        if (directHit && directHit.feature) {
+            liveConfirmed = true;
+            if (!opened) await openFromFeature(directHit.feature, { live: true });
+            dismissShareLoadingOverlay();
+            return;
         }
     }
 
-    // Only warn if we genuinely couldn't open anything. If the snapshot
-    // already put the window up, the user is looking at the flight — don't
-    // contradict that with a "flight ended" toast.
-    if (!opened) {
-        dismissShareLoadingOverlay();
-        if (typeof showNotification === 'function') {
-            showNotification("Couldn't load this flight — the pilot may have signed off.", 'warning');
+    // Post-landing fallback: the flight isn't live (it ended, or never
+    // surfaced). Open the recorded map replay for this flightId instead of
+    // dead-ending — the flightId is preserved in the share link precisely so
+    // its /history breadcrumb trail can replay here. This runs even if a stale
+    // snapshot window is showing, because the replay is the accurate view of
+    // what actually happened.
+    if (!liveConfirmed) {
+        if (typeof updateShareLoadingOverlay === 'function') {
+            updateShareLoadingOverlay(null, 'Flight has landed — loading replay…');
         }
+        const replayed = await openReplayFromShare(effectiveFlightId, replayMeta);
+        dismissShareLoadingOverlay();
+        // Only surface a failure toast if we have nothing on screen at all. If a
+        // snapshot window is already showing, don't contradict it.
+        if (!replayed && !opened && typeof showNotification === 'function') {
+            showNotification("Couldn't load this flight — it has ended and no replay is available.", 'warning');
+        }
+    }
+}
+
+// Open the recorded flight replay for a shared flightId that isn't live
+// anymore. Standalone version of the in-window "Replay" button: it pulls the
+// flight's /history breadcrumb trail and animates it on the map, soft-hiding
+// any floating chrome and restoring it on close. Returns true if the replay
+// actually opened (enough position data), false otherwise.
+async function openReplayFromShare(flightId, meta) {
+    if (!flightId) return false;
+    if (typeof FlightReplay === 'undefined' || !FlightReplay || typeof FlightReplay.open !== 'function') return false;
+    if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return false;
+
+    const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+
+    // Soft-hide floating chrome so the replay panel stands alone; restore it
+    // when the replay closes (mirrors the live Replay button's behaviour).
+    const uiToToggle = [];
+    const remember = (el) => {
+        if (el && el.classList && el.classList.contains('visible')) {
+            uiToToggle.push(el);
+            el.classList.remove('visible');
+        }
+    };
+    const restoreChrome = () => {
+        uiToToggle.forEach(el => { try { el.classList.add('visible'); } catch (_) {} });
+    };
+    try {
+        remember(typeof aircraftInfoWindow !== 'undefined' ? aircraftInfoWindow : null);
+        remember(document.getElementById('airport-info-window'));
+    } catch (_) { /* non-fatal */ }
+
+    try {
+        const result = await FlightReplay.open({
+            map: sectorOpsMap,
+            flightId,
+            meta: {
+                callsign: meta?.callsign || '',
+                depIcao: meta?.depIcao || '',
+                arrIcao: meta?.arrIcao || '',
+                aircraftName: meta?.aircraftName || '',
+                category: meta?.category || 'B777'
+            },
+            historyUrl,
+            onClose: restoreChrome
+        });
+        // open() returns false when there aren't enough points to replay.
+        if (result === false) {
+            restoreChrome();
+            return false;
+        }
+        return true;
+    } catch (err) {
+        console.warn('openReplayFromShare: replay failed', err);
+        restoreChrome();
+        return false;
     }
 }
 
@@ -22207,7 +22416,14 @@ async function initializeApp() {
         // to accept the Privacy Policy + Terms before the app is usable.
         // Returning users skip this instantly. Fire-and-forget so it doesn't
         // block the rest of boot from finishing underneath the modal.
-        runFirstRunExperience(sectorOpsMap);
+        //
+        // Skip it entirely when the user arrived via a share link: the shared
+        // flight (or its replay) must open cleanly, and the onboarding's
+        // window-choice demo would otherwise hijack handleAircraftClick and
+        // fight the share handoff. Onboarding shows on their next normal visit.
+        if (!isShareLinkPending()) {
+            runFirstRunExperience(sectorOpsMap);
+        }
 
         // Make sure runways finished too before we move on to anything that needs them
         await runwaysPromise;
