@@ -6893,10 +6893,10 @@ function toggleTripCardMode(active) {
 
 window.toggleTripCardMode = toggleTripCardMode;
 
-// Canonical web origin for share links + the share-create API. Inside the
-// native Capacitor builds window.location.origin is capacitor://localhost —
-// links built from that are dead for recipients — so anything that isn't a
-// real http(s) origin falls back to the production domain.
+// Canonical web origin for share links. Inside the native Capacitor builds
+// window.location.origin is capacitor://localhost — links built from that are
+// dead for recipients — so anything that isn't a real http(s) origin falls
+// back to the production domain.
 function getShareOrigin() {
     try {
         const loc = (typeof window !== 'undefined') ? window.location : null;
@@ -6905,60 +6905,128 @@ function getShareOrigin() {
     return 'https://inflight.info';
 }
 
-function buildFlightShareUrl(flightId) {
-    if (!flightId) return null;
-    return `${getShareOrigin()}/share/${encodeURIComponent(flightId)}`;
+// --- LINK-ONLY SHARING ---
+// The share link is entirely self-contained: a direct app URL carrying the
+// flightId plus a compact base64url snapshot of the flight (?flight&server&s).
+// No serverless function, no storage, no live-feed lookup in the middle —
+// the recipient's app decodes the snapshot from the URL and opens the flight
+// window instantly, then the live feed takes over. If the flight has since
+// ended, the app falls back to opening the recorded map replay by flightId.
+
+function b64uEncode(obj) {
+    const bytes = new TextEncoder().encode(JSON.stringify(obj));
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// Registers a durable snapshot of the flight with the share backend the
-// moment the user shares it. This is what keeps the link rendering a rich
-// preview (and a proper "flight completed" page) after the flight ends.
-// Fire-and-forget: sharing must never wait on — or break because of — this.
-function postShareSnapshot(flightId) {
+function b64uDecode(str) {
     try {
-        const feature = currentMapFeatures[flightId];
-        const props = feature?.properties;
-        if (!props) return;
-
-        const parseMaybe = (v) => {
-            if (typeof v !== 'string') return v || null;
-            try { return JSON.parse(v); } catch (_) { return null; }
-        };
-        const position = parseMaybe(props.position);
-        const aircraft = parseMaybe(props.aircraft) || {};
-
-        const payload = {
-            flightId,
-            serverName: (typeof currentServerName !== 'undefined' && currentServerName) || '',
-            communityImageUrl: props.communityImageUrl || null,
-            flight: {
-                flightId,
-                callsign: props.callsign || null,
-                username: props.username || null,
-                virtualOrgName: props.virtualOrgName || null,
-                departureIcao: props.departureIcao || null,
-                arrivalIcao: props.arrivalIcao || null,
-                aircraftName: aircraft.aircraftName || props.aircraftName || null,
-                liveryName: aircraft.liveryName || props.liveryName || null,
-                registration: aircraft.registration || props.registration || null,
-                userId: props.userId || null,
-                isStaff: !!props.isStaff,
-                isVAMember: !!props.isVAMember,
-                pilotState: props.pilotState ?? null,
-                position: position || null,
-                aircraft
-            }
-        };
-
-        fetch(`${getShareOrigin()}/.netlify/functions/share-create`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-            keepalive: true
-        }).catch(() => { /* link still works via live lookup */ });
-    } catch (err) {
-        console.warn('postShareSnapshot: skipped —', err);
+        const bin = atob(String(str).replace(/-/g, '+').replace(/_/g, '/'));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (_) {
+        return null;
     }
+}
+
+// Compact snapshot embedded in the share URL. Short keys keep the link small
+// (~250-350 chars total).
+function buildShareUrlSnapshot(flightId) {
+    const feature = currentMapFeatures[flightId];
+    const props = feature?.properties;
+    if (!props) return null;
+
+    const parseMaybe = (v) => {
+        if (typeof v !== 'string') return v || null;
+        try { return JSON.parse(v); } catch (_) { return null; }
+    };
+    const position = parseMaybe(props.position) || {};
+    const aircraft = parseMaybe(props.aircraft) || {};
+
+    const snap = {
+        v: 1,
+        t: Date.now(),
+        c: props.callsign || null,
+        u: props.username || null,
+        vo: props.virtualOrgName || null,
+        d: props.departureIcao || null,
+        a: props.arrivalIcao || null,
+        ac: aircraft.aircraftName || props.aircraftName || null,
+        lv: aircraft.liveryName || props.liveryName || null,
+        rg: aircraft.registration || props.registration || null,
+        uid: props.userId || null,
+        st: props.isStaff ? 1 : 0,
+        va: props.isVAMember ? 1 : 0,
+        ps: (props.pilotState ?? null),
+        img: props.communityImageUrl || null
+    };
+    const lat = position.lat ?? position.latitude;
+    const lon = position.lon ?? position.longitude;
+    if (typeof lat === 'number' && typeof lon === 'number') {
+        // Trim precision — 4 dp is ~11 m, plenty for an opening camera fix.
+        snap.p = [
+            +lat.toFixed(4), +lon.toFixed(4),
+            Math.round(position.alt_ft || 0), Math.round(position.gs_kt || 0),
+            Math.round(position.vs_fpm || 0), Math.round(position.heading_deg || 0)
+        ];
+    }
+    // Drop nulls to keep the payload tight.
+    Object.keys(snap).forEach(k => { if (snap[k] === null) delete snap[k]; });
+    return snap;
+}
+
+// Expands the compact URL snapshot back into the same payload shape the
+// share-window opener (buildSyntheticFeature & co.) consumes.
+function expandShareUrlSnapshot(snap, flightId) {
+    if (!snap || typeof snap !== 'object') return null;
+    const p = Array.isArray(snap.p) && snap.p.length >= 2 ? snap.p : null;
+    return {
+        flightId,
+        serverName: '',
+        capturedAt: (typeof snap.t === 'number') ? snap.t : Date.now(),
+        communityImageUrl: (typeof snap.img === 'string' && /^https?:\/\//i.test(snap.img)) ? snap.img : null,
+        flight: {
+            flightId,
+            callsign: snap.c || null,
+            username: snap.u || null,
+            virtualOrgName: snap.vo || null,
+            departureIcao: snap.d || null,
+            arrivalIcao: snap.a || null,
+            aircraftName: snap.ac || null,
+            liveryName: snap.lv || null,
+            registration: snap.rg || null,
+            userId: snap.uid || null,
+            isStaff: !!snap.st,
+            isVAMember: !!snap.va,
+            pilotState: snap.ps ?? null,
+            position: p ? {
+                lat: p[0], lon: p[1],
+                alt_ft: p[2] || 0, gs_kt: p[3] || 0,
+                vs_fpm: p[4] || 0, heading_deg: p[5] || 0
+            } : null,
+            aircraft: {
+                aircraftName: snap.ac || null,
+                liveryName: snap.lv || null,
+                registration: snap.rg || null
+            }
+        }
+    };
+}
+
+function buildFlightShareUrl(flightId) {
+    if (!flightId) return null;
+    const params = new URLSearchParams();
+    params.set('flight', flightId);
+    if (typeof currentServerName !== 'undefined' && currentServerName) {
+        params.set('server', currentServerName);
+    }
+    try {
+        const snap = buildShareUrlSnapshot(flightId);
+        if (snap) params.set('s', b64uEncode(snap));
+    } catch (_) { /* link still works with just the flightId */ }
+    return `${getShareOrigin()}/?${params.toString()}`;
 }
 
 async function shareCurrentFlight(triggerBtn = null) {
@@ -6970,11 +7038,6 @@ async function shareCurrentFlight(triggerBtn = null) {
 
     const shareUrl = buildFlightShareUrl(flightId);
     if (!shareUrl) return;
-
-    // Persist a snapshot server-side so the link survives the flight ending.
-    // Deliberately not awaited — the share sheet must open inside the user
-    // gesture, and the recipient won't click for seconds anyway.
-    postShareSnapshot(flightId);
 
     const feature = currentMapFeatures[flightId];
     const props = feature?.properties || {};
@@ -7181,20 +7244,40 @@ async function consumeShareLinkParam() {
     try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
     const flightId = params.get('flight');
     let sharedServer = params.get('server');
+    const urlSnapshotParam = params.get('s');
 
-    // Load any sessionStorage handoff the share function dropped for us.
+    // Payload sources, newest scheme first:
+    //   1. ?s=<base64url snapshot> — link-only sharing, embedded in the URL.
+    //   2. sessionStorage handoff — legacy /share/<id> function pages.
     let sharePayload = null;
+    let stalePayload = null;
+    let payloadIsStale = false;
+    if (flightId && urlSnapshotParam) {
+        const expanded = expandShareUrlSnapshot(b64uDecode(urlSnapshotParam), flightId);
+        if (expanded) {
+            if (Date.now() - expanded.capturedAt < 10 * 60 * 1000) {
+                sharePayload = expanded;
+            } else {
+                // Old link — the snapshot is too stale to present as live, but
+                // it tells us the flight almost certainly ended: shorten the
+                // live search, go to the replay sooner, and keep the meta so
+                // the replay HUD can still label the flight.
+                payloadIsStale = true;
+                stalePayload = expanded;
+            }
+        }
+    }
     try {
         const raw = sessionStorage.getItem('inflight_share_payload');
         if (raw) {
             const parsed = JSON.parse(raw);
             // Only honour payloads recent enough to plausibly still be live,
             // and only for the flight we actually navigated to.
-            if (parsed && (!flightId || parsed.flightId === flightId) &&
+            if (!sharePayload && parsed && (!flightId || parsed.flightId === flightId) &&
                 (!parsed.capturedAt || Date.now() - parsed.capturedAt < 10 * 60 * 1000)) {
                 sharePayload = parsed;
-                if (!sharedServer && parsed.serverName) sharedServer = parsed.serverName;
             }
+            if (sharePayload && !sharedServer && sharePayload.serverName) sharedServer = sharePayload.serverName;
             sessionStorage.removeItem('inflight_share_payload');
         }
     } catch (_) { /* private mode etc */ }
@@ -7215,6 +7298,7 @@ async function consumeShareLinkParam() {
     try {
         params.delete('flight');
         params.delete('server');
+        params.delete('s');
         const newQuery = params.toString();
         const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);
@@ -7366,7 +7450,9 @@ async function consumeShareLinkParam() {
     //    the socket and REST are both lagging.
     const POLL_INTERVAL_MS = 500;
     const REST_RETRY_INTERVAL_MS = 4000;
-    const TOTAL_BUDGET_MS = 60000;
+    // A stale URL snapshot means the flight almost certainly ended — don't
+    // make the user watch a spinner for a minute before the replay fallback.
+    const TOTAL_BUDGET_MS = payloadIsStale ? 15000 : 45000;
     const startedAt = Date.now();
     let lastRestAttemptAt = Date.now();
     let progressed = false;
@@ -7415,12 +7501,26 @@ async function consumeShareLinkParam() {
         }
     }
 
-    // Only warn if we genuinely couldn't open anything. If the snapshot
-    // already put the window up, the user is looking at the flight — don't
-    // contradict that with a "flight ended" toast.
+    // Flight isn't live anymore (or never surfaced). Before giving up, try
+    // the recorded map replay — the backend keeps flight history after the
+    // flight ends, so the share link still delivers something real.
     if (!opened) {
+        showShareLoadingOverlay();
+        updateShareLoadingOverlay('Flight ended', 'Loading the flight replay…');
+        let replayed = false;
+        try {
+            const f = (sharePayload || stalePayload)?.flight || {};
+            replayed = await openFlightReplayById(effectiveFlightId, {
+                callsign: f.callsign || '',
+                depIcao: f.departureIcao || '',
+                arrIcao: f.arrivalIcao || '',
+                aircraftName: f.aircraftName || ''
+            });
+        } catch (err) {
+            console.warn('consumeShareLinkParam: replay fallback failed', err);
+        }
         dismissShareLoadingOverlay();
-        if (typeof showNotification === 'function') {
+        if (!replayed && typeof showNotification === 'function') {
             showNotification("Couldn't load this flight — the pilot may have signed off.", 'warning');
         }
     }

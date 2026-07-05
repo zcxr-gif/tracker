@@ -55,7 +55,7 @@ async function writeSnapshot(store, snapshot) {
 }
 
 // --- Sanitizers -------------------------------------------------------------
-// Snapshots can arrive from the client (share-create) so every field is
+// Snapshots derive from live-feed data, but every field is still
 // type-checked and clipped. All of this is public live-feed data — the risk
 // is malformed/oversized junk, not secrets.
 

@@ -16,11 +16,13 @@
 // serve them HTML with NO meta refresh — they get pure OG tags. Humans get
 // the meta refresh + JS redirect as a fallback.
 //
-// DURABILITY: resolution is snapshot-first. share-create persists a snapshot
-// to Netlify Blobs when the flight is shared, and this function refreshes it
-// on every successful live lookup. So even after the flight ends the link
-// still unfurls with the real callsign/route/photo, and humans land on a
-// proper "flight completed" page instead of a spinner that gives up.
+// LEGACY: new shares are link-only (direct /?flight=<id>&s=<snapshot> app
+// URLs built client-side) and never touch this function. This endpoint stays
+// to serve /share/<id> links that are already in the wild. Resolution is
+// snapshot-first: this function persists a snapshot to Netlify Blobs on every
+// successful live lookup, so even after the flight ends the link still
+// unfurls with the real callsign/route/photo and humans land on a proper
+// "flight completed" page instead of a spinner that gives up.
 
 const { getShareStore, readSnapshot, writeSnapshot, buildSnapshot } = require('./lib/shareStore');
 
@@ -609,9 +611,9 @@ exports.handler = async (event) => {
         };
     }
 
-    // 1) Stored snapshot first — written by share-create when the flight was
-    //    shared, and refreshed below on every live hit. This is what makes
-    //    the link durable: it resolves even when the live feed can't.
+    // 1) Stored snapshot first — written below on every live hit. This is
+    //    what makes the link durable: it resolves even when the live feed
+    //    can't.
     const store = getShareStore(event);
     const snapshot = await readSnapshot(store, flightId);
 
@@ -628,8 +630,7 @@ exports.handler = async (event) => {
             (snapshot && snapshot.communityImageUrl) || null;
 
         // Refresh the stored snapshot with the latest live state so the link
-        // keeps working after the flight ends — even for links that were
-        // never registered via share-create (e.g. old links, manual URLs).
+        // keeps working after the flight ends.
         const freshSnapshot = buildSnapshot({
             flightId,
             serverName,
