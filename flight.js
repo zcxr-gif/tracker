@@ -7153,6 +7153,28 @@ function dismissShareLoadingOverlay() {
     setTimeout(() => { try { overlay.remove(); } catch (_) {} }, 220);
 }
 
+// First-run gate coordination. The onboarding gate (legal acceptance + window
+// choice) hides all chrome and blocks interaction, so anything that auto-opens
+// UI on landing must wait for it to finish — otherwise the shared flight opens
+// invisibly behind the modal and the search budget expires while the user is
+// still reading the Terms. firstRunExperience.js publishes the promise; boot
+// creates it a beat after we run, hence the short poll. Returning users
+// resolve instantly.
+async function waitForFirstRunGate({ pollMs = 30000, gateMs = 10 * 60 * 1000 } = {}) {
+    try {
+        const started = Date.now();
+        while (!window.__inflightFirstRunPromise && Date.now() - started < pollMs) {
+            await new Promise(r => setTimeout(r, 150));
+        }
+        if (window.__inflightFirstRunPromise) {
+            await Promise.race([
+                window.__inflightFirstRunPromise,
+                new Promise(r => setTimeout(r, gateMs))
+            ]);
+        }
+    } catch (_) { /* never block the arrival flow on gate errors */ }
+}
+
 async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
     let params;
@@ -7197,6 +7219,12 @@ async function consumeShareLinkParam() {
         const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);
     } catch (_) { /* non-fatal */ }
+
+    // First-time visitors must clear the onboarding gate (legal + window
+    // choice) before we open anything: the gate hides all chrome, so a window
+    // opened under it is invisible, and our search budget would burn out
+    // behind the modal. Returning users pass through instantly.
+    await waitForFirstRunGate();
 
     // A pending payload means the share function couldn't confirm the flight
     // server-side. We still know the flightId — keep searching client-side.
@@ -7256,7 +7284,8 @@ async function consumeShareLinkParam() {
     // Wait briefly for the DOM bits handleAircraftClick depends on. We don't
     // want to fire it before #aircraft-info-window exists.
     const waitForUi = async () => {
-        for (let i = 0; i < 50; i++) { // ~5s budget
+        for (let i = 0; i < 150; i++) { // ~15s budget — first boot on a cold
+            // cache (fonts, mapbox, sprites) can take well over the old 5s.
             if (document.getElementById('aircraft-info-window')) return;
             await new Promise(r => setTimeout(r, 100));
         }
@@ -7397,12 +7426,135 @@ async function consumeShareLinkParam() {
     }
 }
 
+// --- FLIGHT REPLAY BY ID ---
+// Opens the map replay for any flight the backend still has history for —
+// no live flight, feature, or open info window required. Used by replay
+// share links (?replay=<id>) below and by topWatchedUsers.js podium clicks.
+async function openFlightReplayById(flightId, meta = {}) {
+    if (!flightId) return false;
+
+    // Wait for the map to exist — replay links land here straight from boot.
+    for (let i = 0; i < 300 && (typeof sectorOpsMap === 'undefined' || !sectorOpsMap); i++) {
+        await new Promise(r => setTimeout(r, 100));
+    }
+    if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) {
+        console.warn('openFlightReplayById: map never became ready');
+        return false;
+    }
+
+    const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+    const preloaded = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+
+    // If the flight happens to be live on the map, enrich the meta from it.
+    const feature = currentMapFeatures[flightId];
+    const props = feature?.properties || {};
+    const acName = (typeof props.aircraft === 'string'
+        ? (() => { try { return JSON.parse(props.aircraft).aircraftName; } catch { return ''; } })()
+        : props.aircraft?.aircraftName) || props.aircraftName || meta.aircraftName || '';
+
+    // The replay panel docks bottom-center; tuck the landing chrome and the
+    // floating toolbar out of its way and restore both when it closes.
+    LandingUI.update(false);
+    const toolbarToggleBtnEl = document.getElementById('toolbar-toggle-panel-btn');
+    const toolbarRow = toolbarToggleBtnEl ? toolbarToggleBtnEl.parentElement : null;
+    let prevToolbarDisplay = null;
+    if (toolbarRow) {
+        prevToolbarDisplay = toolbarRow.style.display;
+        toolbarRow.style.display = 'none';
+    }
+
+    const opened = await FlightReplay.open({
+        map: sectorOpsMap,
+        flightId,
+        points: preloaded,
+        meta: {
+            callsign: meta.callsign || props.callsign || '',
+            depIcao: meta.depIcao || props.departureIcao || '',
+            arrIcao: meta.arrIcao || props.arrivalIcao || '',
+            category: props.category || 'B777',
+            aircraftName: acName
+        },
+        historyUrl,
+        onClose: () => {
+            if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+            LandingUI.update(true, {
+                server: currentServerName,
+                flights: Object.keys(currentMapFeatures).length || 0,
+                atc: activeAtcFacilities.length || 0
+            });
+        }
+    });
+    if (!opened && toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+    if (!opened) LandingUI.update(true, { server: currentServerName, flights: Object.keys(currentMapFeatures).length || 0, atc: activeAtcFacilities.length || 0 });
+    return opened;
+}
+window.openFlightReplayById = openFlightReplayById;
+
+// --- INCOMING REPLAY LINK (?replay=<flightId>) ---
+// The share page's "Watch Flight Replay" button lands here once a shared
+// flight has ended. The share page stashes a small meta payload in
+// sessionStorage so the replay HUD can show callsign/route immediately.
+async function consumeReplayLinkParam() {
+    if (typeof window === 'undefined' || !window.location) return;
+    let params;
+    try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
+    const replayFlightId = params.get('replay');
+
+    let replayPayload = null;
+    try {
+        const raw = sessionStorage.getItem('inflight_replay_payload');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && (!replayFlightId || parsed.flightId === replayFlightId)) replayPayload = parsed;
+            sessionStorage.removeItem('inflight_replay_payload');
+        }
+    } catch (_) { /* private mode etc */ }
+
+    const effectiveFlightId = replayFlightId || replayPayload?.flightId;
+    if (!effectiveFlightId) return;
+
+    // Same boot-race protections as share links: kill the splash if it beat
+    // us here, clean the URL, and wait out the first-run gate.
+    try {
+        const proOverlay = document.getElementById('inflight-pro-loader-overlay');
+        if (proOverlay) proOverlay.remove();
+    } catch (_) { /* non-fatal */ }
+    try {
+        params.delete('replay');
+        const newQuery = params.toString();
+        const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
+        window.history.replaceState({}, '', newUrl);
+    } catch (_) { /* non-fatal */ }
+
+    await waitForFirstRunGate();
+
+    showShareLoadingOverlay();
+    updateShareLoadingOverlay('Loading flight replay…', 'Fetching the recorded flight path.');
+    try {
+        const opened = await openFlightReplayById(effectiveFlightId, replayPayload?.meta || {});
+        dismissShareLoadingOverlay();
+        if (!opened && typeof showNotification === 'function') {
+            showNotification('Replay data for this flight is no longer available.', 'warning');
+        }
+    } catch (err) {
+        console.warn('consumeReplayLinkParam: failed', err);
+        dismissShareLoadingOverlay();
+        if (typeof showNotification === 'function') {
+            showNotification('Could not load the flight replay.', 'error');
+        }
+    }
+}
+
 if (typeof window !== 'undefined') {
+    const consumeArrivalParams = () => {
+        consumeShareLinkParam();
+        consumeReplayLinkParam();
+    };
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         // Defer one tick so the rest of the bootstrap finishes wiring.
-        setTimeout(consumeShareLinkParam, 0);
+        setTimeout(consumeArrivalParams, 0);
     } else {
-        window.addEventListener('load', () => setTimeout(consumeShareLinkParam, 0), { once: true });
+        window.addEventListener('load', () => setTimeout(consumeArrivalParams, 0), { once: true });
     }
 }
 

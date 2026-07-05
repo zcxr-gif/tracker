@@ -2255,13 +2255,16 @@
                 if (s && s.parentNode) s.remove();
             }
 
-            // Share-link arrivals (?flight=... or a queued share payload)
-            // should land the user directly on the flight info window —
-            // no splash in the way.
+            // Share-link arrivals (?flight=... / ?replay=... or a queued
+            // share/replay payload) should land the user directly on the
+            // flight info window or map replay — no splash in the way.
             try {
                 var p = new URLSearchParams(window.location.search || '');
-                var fromShare = !!p.get('flight') ||
-                    (typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('inflight_share_payload'));
+                var fromShare = !!p.get('flight') || !!p.get('replay') ||
+                    (typeof sessionStorage !== 'undefined' && (
+                        !!sessionStorage.getItem('inflight_share_payload') ||
+                        !!sessionStorage.getItem('inflight_replay_payload')
+                    ));
                 if (fromShare) { removeNow(); return; }
             } catch (_) { /* non-fatal */ }
 
