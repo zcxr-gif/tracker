@@ -18519,6 +18519,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 // can open and tear down a real flight info window through the normal app path.
 if (typeof window !== 'undefined') {
     window.handleAircraftClick = handleAircraftClick;
+    // Read-only view of the live flight cache for non-module scripts (the
+    // Partners tab uses it to show each VA's live fleet).
+    window.getLiveMapFeatures = () => currentMapFeatures;
     window.closeAircraftWindow = closeAircraftWindow;
 }
 
