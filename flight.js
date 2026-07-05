@@ -7029,498 +7029,6 @@ function buildFlightShareUrl(flightId) {
     return `${getShareOrigin()}/?${params.toString()}`;
 }
 
-// --- SHARE CARD IMAGE ---
-// A 1200x630 picture of the flight, built fully client-side: an offscreen GL
-// snapshot of the map centered on the plane (same technique as the style
-// previews in MobileSettingsUI), the plane drawn at its live heading, the
-// community aircraft photo inset, and the callsign/route/pilot laid over a
-// bottom gradient. Shared as a file alongside the link via the native share
-// sheet, so the "photo of the plane on the map" travels with the message.
-
-function loadImageSafe(src, { cors = false, timeoutMs = 6000 } = {}) {
-    return new Promise((resolve) => {
-        if (!src) { resolve(null); return; }
-        const img = new Image();
-        if (cors) img.crossOrigin = 'anonymous';
-        const timer = setTimeout(() => resolve(null), timeoutMs);
-        img.onload = () => { clearTimeout(timer); resolve(img); };
-        img.onerror = () => { clearTimeout(timer); resolve(null); };
-        img.src = src;
-    });
-}
-
-// Offscreen map snapshot centered on the plane. Mirrors
-// MobileSettingsUI.generateStylePreview: preserveDrawingBuffer keeps the GL
-// backbuffer readable, 'idle' fires when tiles/labels settle, and an 8s
-// safety timer captures whatever rendered if a slow tile never idles.
-function captureMapSnapshotAt(lon, lat, { width = 1200, height = 630, zoom = 6 } = {}) {
-    return new Promise((resolve) => {
-        if (typeof mapboxgl === 'undefined' || !mapboxgl.accessToken) { resolve(null); return; }
-        const host = document.createElement('div');
-        host.setAttribute('aria-hidden', 'true');
-        host.style.cssText = `position:absolute;left:-9999px;top:0;width:${width}px;height:${height}px;pointer-events:none;`;
-        document.body.appendChild(host);
-
-        let map = null, done = false, timer = null;
-        const finish = (dataUrl) => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer);
-            try { if (map) map.remove(); } catch (_) {}
-            host.remove();
-            resolve(dataUrl || null);
-        };
-        const capture = () => {
-            try { finish(map.getCanvas().toDataURL('image/png')); }
-            catch (_) { finish(null); }
-        };
-
-        try {
-            map = new mapboxgl.Map({
-                container: host,
-                style: currentMapStyle,
-                center: [lon, lat],
-                zoom,
-                interactive: false,
-                attributionControl: false,
-                preserveDrawingBuffer: true,
-                fadeDuration: 0,
-                trackResize: false
-            });
-        } catch (_) { finish(null); return; }
-
-        map.on('idle', capture);
-        map.on('error', () => { /* tiles can 404 transiently; wait for timer */ });
-        timer = setTimeout(capture, 8000);
-    });
-}
-
-function drawShareCardPlane(ctx, x, y, headingDeg, size, color) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(((headingDeg || 0) * Math.PI) / 180);
-    const s = size / 26;
-    ctx.scale(s, s);
-    ctx.beginPath();
-    ctx.moveTo(0, -13);
-    ctx.lineTo(3.2, -3.5); ctx.lineTo(13, 3); ctx.lineTo(13, 6); ctx.lineTo(3, 3.5);
-    ctx.lineTo(2.4, 10); ctx.lineTo(6, 13.4); ctx.lineTo(6, 16); ctx.lineTo(0, 14);
-    ctx.lineTo(-6, 16); ctx.lineTo(-6, 13.4); ctx.lineTo(-2.4, 10); ctx.lineTo(-3, 3.5);
-    ctx.lineTo(-13, 6); ctx.lineTo(-13, 3); ctx.lineTo(-3.2, -3.5);
-    ctx.closePath();
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = 14;
-    ctx.lineWidth = 2.4;
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.restore();
-}
-
-function truncateCanvasText(ctx, text, maxWidth) {
-    let t = String(text || '');
-    if (ctx.measureText(t).width <= maxWidth) return t;
-    while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
-    return t + '…';
-}
-
-// ctx.roundRect needs Chrome 99+/Safari 16 — trace it by hand instead.
-function traceRoundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-}
-
-// Pure canvas composition — everything visual about the card lives here so it
-// can be exercised standalone with stub images.
-function composeShareCardCanvas({ mapImage, photoImage, logoImage, info }) {
-    const W = 1200, H = 630;
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-
-    // Backdrop: map snapshot, or brand navy if the GL capture failed.
-    if (mapImage) {
-        ctx.drawImage(mapImage, 0, 0, W, H);
-    } else {
-        const g = ctx.createLinearGradient(0, 0, W, H);
-        g.addColorStop(0, '#0c1428');
-        g.addColorStop(1, '#090d1a');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, W, H);
-    }
-
-    // Edge vignette + bottom gradient so the overlay text always reads.
-    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95);
-    vg.addColorStop(0, 'rgba(2,6,16,0)');
-    vg.addColorStop(1, 'rgba(2,6,16,0.55)');
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, W, H);
-    const bg = ctx.createLinearGradient(0, H - 250, 0, H);
-    bg.addColorStop(0, 'rgba(4,8,18,0)');
-    bg.addColorStop(0.55, 'rgba(4,8,18,0.72)');
-    bg.addColorStop(1, 'rgba(4,8,18,0.94)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, H - 250, W, 250);
-
-    // Plane at its live heading, centered (the snapshot is centered on it).
-    const halo = ctx.createRadialGradient(W / 2, H / 2, 6, W / 2, H / 2, 64);
-    halo.addColorStop(0, 'rgba(56,189,248,0.35)');
-    halo.addColorStop(1, 'rgba(56,189,248,0)');
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(W / 2, H / 2, 64, 0, Math.PI * 2);
-    ctx.fill();
-    drawShareCardPlane(ctx, W / 2, H / 2, info.heading, 58, '#38bdf8');
-
-    // Brand logo, top-left.
-    if (logoImage) {
-        const lh = 44;
-        const lw = lh * (logoImage.naturalWidth / logoImage.naturalHeight || 2.55);
-        ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = 12;
-        ctx.drawImage(logoImage, 36, 30, lw, lh);
-        ctx.restore();
-    }
-
-    // Community aircraft photo inset, top-right (skipped if it didn't load —
-    // e.g. CORS-restricted host or no photo for this livery).
-    if (photoImage) {
-        const pw = 300, ph = 170, px = W - pw - 36, py = 30, r = 14;
-        ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,0.55)';
-        ctx.shadowBlur = 22;
-        traceRoundRect(ctx, px, py, pw, ph, r);
-        ctx.fillStyle = '#0f172a';
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.clip();
-        // cover-fit
-        const ir = photoImage.naturalWidth / photoImage.naturalHeight;
-        const br = pw / ph;
-        let dw = pw, dh = ph, dx = px, dy = py;
-        if (ir > br) { dw = ph * ir; dx = px - (dw - pw) / 2; }
-        else { dh = pw / ir; dy = py - (dh - ph) / 2; }
-        ctx.drawImage(photoImage, dx, dy, dw, dh);
-        ctx.restore();
-        traceRoundRect(ctx, px, py, pw, ph, r);
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-        ctx.stroke();
-    }
-
-    // Text block, bottom-left.
-    const pad = 40;
-    const maxTextW = W - pad * 2;
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '800 52px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 10;
-    ctx.fillText(truncateCanvasText(ctx, info.callsign || 'Live Flight', maxTextW), pad, H - 128);
-    ctx.restore();
-
-    // Route line: DEP → ARR in mono, arrow in brand blue.
-    ctx.font = '700 36px "JetBrains Mono", ui-monospace, Consolas, monospace';
-    const dep = info.dep || '???';
-    const arr = info.arr || '???';
-    const depW = ctx.measureText(dep).width;
-    const arrowPad = 14;
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(dep, pad, H - 78);
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText('→', pad + depW + arrowPad, H - 78);
-    const arrowW = ctx.measureText('→').width;
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(arr, pad + depW + arrowPad * 2 + arrowW, H - 78);
-
-    // Meta line: pilot · aircraft · livery · FL/kts.
-    ctx.font = '500 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    const metaBits = [];
-    if (info.username) metaBits.push(info.username);
-    if (info.aircraftName) metaBits.push(info.aircraftName);
-    if (info.liveryName) metaBits.push(info.liveryName);
-    if (info.altitude > 100) metaBits.push(`FL${String(Math.round(info.altitude / 100)).padStart(3, '0')}`);
-    if (info.speed > 0) metaBits.push(`${Math.round(info.speed)} kt`);
-    ctx.fillText(truncateCanvasText(ctx, metaBits.join(' · '), maxTextW), pad, H - 36);
-
-    // Domain stamp, bottom-right.
-    ctx.font = '700 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillStyle = 'rgba(148,163,184,0.85)';
-    const stamp = 'inflight.info';
-    ctx.fillText(stamp, W - pad - ctx.measureText(stamp).width, H - 36);
-
-    return canvas;
-}
-
-// End-to-end card build for a live flight. Returns { blob, dataUrl } or null.
-// Never throws — a failed card must never block sharing the link.
-let _shareCardCache = null;
-async function generateShareCard(flightId) {
-    try {
-        if (_shareCardCache && _shareCardCache.flightId === flightId &&
-            Date.now() - _shareCardCache.at < 60 * 1000) {
-            return _shareCardCache.card;
-        }
-
-        const feature = currentMapFeatures[flightId];
-        const props = feature?.properties;
-        if (!props) return null;
-        const parseMaybe = (v) => {
-            if (typeof v !== 'string') return v || null;
-            try { return JSON.parse(v); } catch (_) { return null; }
-        };
-        const position = parseMaybe(props.position) || {};
-        const aircraft = parseMaybe(props.aircraft) || {};
-        const lat = position.lat ?? position.latitude;
-        const lon = position.lon ?? position.longitude;
-        if (typeof lat !== 'number' || typeof lon !== 'number') return null;
-
-        const altitude = position.alt_ft || 0;
-        const speed = position.gs_kt || 0;
-        // Ground/low flights zoom to airport scale; cruise pulls back for context.
-        const zoom = (speed < 40) ? 12.5 : (altitude > 20000) ? 5.5 : (altitude > 5000) ? 7.5 : 9.5;
-
-        const [mapDataUrl, photoImage, logoImage] = await Promise.all([
-            captureMapSnapshotAt(lon, lat, { zoom }),
-            loadImageSafe(props.communityImageUrl, { cors: true }),
-            loadImageSafe('Images/inflight-light.png')
-        ]);
-        const mapImage = mapDataUrl ? await loadImageSafe(mapDataUrl) : null;
-
-        const canvas = composeShareCardCanvas({
-            mapImage,
-            photoImage,
-            logoImage,
-            info: {
-                callsign: props.callsign,
-                username: props.username,
-                dep: props.departureIcao,
-                arr: props.arrivalIcao,
-                aircraftName: aircraft.aircraftName || props.aircraftName || '',
-                liveryName: aircraft.liveryName || props.liveryName || '',
-                heading: position.heading_deg || 0,
-                altitude,
-                speed
-            }
-        });
-
-        const blob = await new Promise((resolve) => {
-            try { canvas.toBlob(resolve, 'image/png'); } catch (_) { resolve(null); }
-        });
-        if (!blob) return null;
-        const card = { blob, dataUrl: canvas.toDataURL('image/png') };
-        _shareCardCache = { flightId, at: Date.now(), card };
-        return card;
-    } catch (err) {
-        console.warn('generateShareCard: failed —', err);
-        return null;
-    }
-}
-
-// Copies text to the clipboard with the legacy-textarea fallback.
-async function copyShareLink(shareUrl) {
-    try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(shareUrl);
-        } else {
-            const tmp = document.createElement('textarea');
-            tmp.value = shareUrl;
-            tmp.setAttribute('readonly', '');
-            tmp.style.position = 'absolute';
-            tmp.style.left = '-9999px';
-            document.body.appendChild(tmp);
-            tmp.select();
-            document.execCommand('copy');
-            document.body.removeChild(tmp);
-        }
-        if (typeof showNotification === 'function') showNotification('Share link copied to clipboard.', 'success');
-        return true;
-    } catch (err) {
-        console.warn('copyShareLink: failed', err);
-        if (typeof showNotification === 'function') showNotification('Could not copy link — try again.', 'error');
-        return false;
-    }
-}
-
-// Share preview modal: shows the generated flight card, then hands off to the
-// native share sheet (image + link together when the platform allows files),
-// with copy-link and save-image alongside. Each button press is a fresh user
-// gesture, which sidesteps navigator.share's transient-activation expiry that
-// an awaited card render would otherwise burn through (Safari is strict).
-function showShareCardModal({ flightId, shareUrl, title, text, callsign }) {
-    document.getElementById('inflight-share-card-modal')?.remove();
-
-    const modal = document.createElement('div');
-    modal.id = 'inflight-share-card-modal';
-    modal.innerHTML = `
-        <style>
-            #inflight-share-card-modal {
-                position: fixed; inset: 0; z-index: 2147483000;
-                display: flex; align-items: center; justify-content: center;
-                background: rgba(2, 6, 16, 0.72);
-                backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                animation: ifsc-in 160ms ease-out;
-                padding: 16px; box-sizing: border-box;
-            }
-            @keyframes ifsc-in { from { opacity: 0; } to { opacity: 1; } }
-            #inflight-share-card-modal .ifsc-panel {
-                width: min(560px, 100%);
-                background: #0d1526;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 16px;
-                box-shadow: 0 24px 70px rgba(0,0,0,0.6);
-                overflow: hidden;
-            }
-            #inflight-share-card-modal .ifsc-head {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
-            }
-            #inflight-share-card-modal .ifsc-head h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #e5e7eb; letter-spacing: 0.2px; }
-            #inflight-share-card-modal .ifsc-close {
-                background: none; border: none; color: #94a3b8; font-size: 1.25rem;
-                cursor: pointer; padding: 4px 8px; border-radius: 8px; line-height: 1;
-            }
-            #inflight-share-card-modal .ifsc-close:hover { background: rgba(255,255,255,0.08); color: #f1f5f9; }
-            #inflight-share-card-modal .ifsc-card {
-                position: relative; aspect-ratio: 1200 / 630; background: #0a0f1f;
-                display: flex; align-items: center; justify-content: center;
-            }
-            #inflight-share-card-modal .ifsc-card img { width: 100%; height: 100%; display: block; }
-            #inflight-share-card-modal .ifsc-spin {
-                width: 38px; height: 38px; border-radius: 50%;
-                border: 3px solid rgba(56,189,248,0.18); border-top-color: #38bdf8;
-                animation: ifsc-spin 0.9s linear infinite;
-            }
-            @keyframes ifsc-spin { to { transform: rotate(360deg); } }
-            #inflight-share-card-modal .ifsc-cardmsg {
-                position: absolute; bottom: 10px; left: 0; right: 0; text-align: center;
-                font-size: 0.75rem; color: #64748b;
-            }
-            #inflight-share-card-modal .ifsc-actions {
-                display: flex; gap: 10px; padding: 14px 18px 18px; flex-wrap: wrap;
-            }
-            #inflight-share-card-modal .ifsc-btn {
-                flex: 1 1 auto; min-width: 120px;
-                display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-                padding: 11px 16px; border-radius: 10px; border: none; cursor: pointer;
-                font-size: 0.88rem; font-weight: 700; letter-spacing: 0.2px;
-                transition: filter 120ms ease, border-color 120ms ease;
-            }
-            #inflight-share-card-modal .ifsc-btn:disabled { opacity: 0.45; cursor: default; }
-            #inflight-share-card-modal .ifsc-btn.primary {
-                background: linear-gradient(135deg, #38bdf8, #a855f7); color: #fff;
-            }
-            #inflight-share-card-modal .ifsc-btn.primary:hover:not(:disabled) { filter: brightness(1.07); }
-            #inflight-share-card-modal .ifsc-btn.ghost {
-                background: rgba(255,255,255,0.04); color: #cbd5e1;
-                border: 1px solid rgba(148,163,184,0.3);
-            }
-            #inflight-share-card-modal .ifsc-btn.ghost:hover:not(:disabled) { border-color: rgba(148,163,184,0.6); color: #f1f5f9; }
-        </style>
-        <div class="ifsc-panel" role="dialog" aria-modal="true" aria-label="Share flight">
-            <div class="ifsc-head">
-                <h2>Share Flight</h2>
-                <button type="button" class="ifsc-close" aria-label="Close">✕</button>
-            </div>
-            <div class="ifsc-card">
-                <div class="ifsc-spin" data-ifsc-spin></div>
-                <div class="ifsc-cardmsg" data-ifsc-msg>Building share image…</div>
-            </div>
-            <div class="ifsc-actions">
-                <button type="button" class="ifsc-btn primary" data-ifsc-share>Share…</button>
-                <button type="button" class="ifsc-btn ghost" data-ifsc-copy>Copy Link</button>
-                <button type="button" class="ifsc-btn ghost" data-ifsc-save disabled>Save Image</button>
-            </div>
-        </div>`;
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
-    modal.querySelector('.ifsc-close').addEventListener('click', close);
-
-    const cardHost = modal.querySelector('.ifsc-card');
-    const shareBtn = modal.querySelector('[data-ifsc-share]');
-    const copyBtn = modal.querySelector('[data-ifsc-copy]');
-    const saveBtn = modal.querySelector('[data-ifsc-save]');
-
-    let card = null; // { blob, dataUrl } once generated
-
-    // Kick the card build immediately; the buttons work with or without it.
-    generateShareCard(flightId).then((generated) => {
-        if (!document.body.contains(modal)) return;
-        card = generated;
-        const spin = modal.querySelector('[data-ifsc-spin]');
-        const msg = modal.querySelector('[data-ifsc-msg]');
-        if (spin) spin.remove();
-        if (card) {
-            if (msg) msg.remove();
-            const img = document.createElement('img');
-            img.alt = 'Flight share card';
-            img.src = card.dataUrl;
-            cardHost.prepend(img);
-            saveBtn.disabled = false;
-        } else if (msg) {
-            msg.textContent = 'Preview unavailable — the link itself still shares everything.';
-        }
-    });
-
-    shareBtn.addEventListener('click', async () => {
-        const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-        if (canNativeShare) {
-            // Attach the card as a file when the platform supports it — the
-            // "plane on the map" photo rides along with the link.
-            let files = null;
-            if (card && card.blob && typeof File === 'function' && navigator.canShare) {
-                try {
-                    const f = new File([card.blob], `${(callsign || 'flight').replace(/[^\w-]+/g, '_')}.png`, { type: 'image/png' });
-                    if (navigator.canShare({ files: [f] })) files = [f];
-                } catch (_) { /* files unsupported — share the link alone */ }
-            }
-            try {
-                // Some targets drop `url` when files are attached, so the link
-                // also travels inside the text.
-                await navigator.share(files
-                    ? { title, text: `${text}\n${shareUrl}`, url: shareUrl, files }
-                    : { title, text, url: shareUrl });
-                close();
-                return;
-            } catch (err) {
-                if (err && err.name === 'AbortError') return; // user closed the sheet
-                // fall through to copy
-            }
-        }
-        const ok = await copyShareLink(shareUrl);
-        if (ok) close();
-    });
-
-    copyBtn.addEventListener('click', async () => {
-        const ok = await copyShareLink(shareUrl);
-        if (ok) close();
-    });
-
-    saveBtn.addEventListener('click', () => {
-        if (!card) return;
-        const a = document.createElement('a');
-        a.href = card.dataUrl;
-        a.download = `${(callsign || 'flight').replace(/[^\w-]+/g, '_')}_inflight.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-    });
-}
-
 async function shareCurrentFlight(triggerBtn = null) {
     const flightId = currentFlightInWindow;
     if (!flightId) {
@@ -7537,9 +7045,54 @@ async function shareCurrentFlight(triggerBtn = null) {
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     const title = `${callsign} · ${dep} → ${arr}`;
-    const text = `Watch ${callsign} live on InFlight`;
+    const text = `Watch ${callsign} live on Inflight`;
 
-    showShareCardModal({ flightId, shareUrl, title, text, callsign });
+    const flashSuccess = (label) => {
+        if (!triggerBtn) return;
+        const lbl = triggerBtn.querySelector('.tc-share-btn-label');
+        const original = lbl ? lbl.textContent : null;
+        if (lbl) lbl.textContent = label;
+        triggerBtn.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+        setTimeout(() => {
+            if (lbl && original !== null) lbl.textContent = original;
+            triggerBtn.style.background = '';
+        }, 1600);
+    };
+
+    // Native share sheet on mobile / supported browsers.
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        try {
+            await navigator.share({ title, text, url: shareUrl });
+            flashSuccess('Shared!');
+            return;
+        } catch (err) {
+            // AbortError = user cancelled the sheet; treat as no-op without falling back.
+            if (err && err.name === 'AbortError') return;
+            // Otherwise fall through to clipboard.
+        }
+    }
+
+    // Clipboard fallback.
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+        } else {
+            const tmp = document.createElement('textarea');
+            tmp.value = shareUrl;
+            tmp.setAttribute('readonly', '');
+            tmp.style.position = 'absolute';
+            tmp.style.left = '-9999px';
+            document.body.appendChild(tmp);
+            tmp.select();
+            document.execCommand('copy');
+            document.body.removeChild(tmp);
+        }
+        flashSuccess('Link copied!');
+        if (typeof showNotification === 'function') showNotification('Share link copied to clipboard.', 'success');
+    } catch (err) {
+        console.warn('shareCurrentFlight: clipboard failed', err);
+        if (typeof showNotification === 'function') showNotification('Could not copy link — try again.', 'error');
+    }
 }
 
 window.shareCurrentFlight = shareCurrentFlight;
