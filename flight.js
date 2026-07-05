@@ -1726,90 +1726,61 @@ function injectCustomStyles() {
        Desktop: floating bottom-center card, fixed width.
        Mobile:  full-width sheet anchored to the bottom edge with safe-area
                 padding so nothing is hidden under iOS gesture areas. */
+/* ==================== TRIP CARD HUD ====================
+   Spread layout: instead of one tall card, the flight info is
+   distributed around the screen edges in slim glass zones that all
+   share the replay panel's material. On phones the zones stack into
+   a compact bottom drawer. */
 #trip-card-takeover {
     position: fixed;
+    inset: 0;
     z-index: 9999;
     pointer-events: none;
     display: none;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    transition: opacity 0.3s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-    opacity: 0;
 }
+#trip-card-takeover.active { display: block; }
 
-/* Desktop layout — docks bottom-center exactly like the replay panel */
-#trip-card-takeover {
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%) translateY(24px);
-    width: 400px;
-    max-width: calc(100vw - 32px);
-}
-#trip-card-takeover.active {
-    display: block;
+.tc-zone {
+    position: absolute;
     pointer-events: auto;
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-}
-
-/* Mobile layout — full-width drawer */
-@media (max-width: 640px) {
-    #trip-card-takeover {
-        bottom: 0;
-        left: 0;
-        right: 0;
-        width: 100%;
-        max-width: 100%;
-        transform: translateY(120%);
-        padding: 0 10px;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
-        box-sizing: border-box;
-    }
-    #trip-card-takeover.active {
-        transform: translateY(0);
-    }
-}
-
-/* Panel: the replay-mode glass — charcoal, blur, hairline border */
-.tc-card {
     background: rgba(30, 31, 32, 0.94);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 16px;
+    border-radius: 14px;
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.05);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 30px rgba(255, 255, 255, 0.04);
     color: #ffffff;
-    padding: 12px 14px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    opacity: 0;
+    transition: opacity 0.28s ease, transform 0.34s cubic-bezier(0.16, 1, 0.3, 1);
 }
+#trip-card-takeover.active .tc-zone { opacity: 1; }
 
-/* Header — mirrors .replay-header */
-.tc-header {
+/* --- Top strip: flight identity --- */
+.tc-zone-top {
+    top: 20px;
+    left: 50%;
+    transform: translate(-50%, -14px);
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
-    min-width: 0;
+    padding: 8px 10px 8px 16px;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
 }
-.tc-header-title {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 700;
-}
-.tc-header-title > i { color: #ffffff; font-size: 13px; flex-shrink: 0; }
+#trip-card-takeover.active .tc-zone-top { transform: translate(-50%, 0); }
+.tc-zone-top > i { color: #ffffff; font-size: 13px; flex-shrink: 0; }
 .tc-callsign {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     color: #ffffff;
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.3px;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 220px;
+    flex-shrink: 0;
 }
 .tc-phase-chip {
     flex-shrink: 0;
@@ -1823,7 +1794,33 @@ function injectCustomStyles() {
     text-transform: uppercase;
     color: #9aa0a6;
 }
-.tc-header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tc-divider-v {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.18);
+    flex-shrink: 0;
+}
+.tc-pilot {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex-shrink: 1;
+}
+.tc-ac {
+    color: #9aa0a6;
+    font-size: 11px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 260px;
+    min-width: 0;
+}
 .tc-live-chip {
     display: inline-flex;
     align-items: center;
@@ -1836,6 +1833,7 @@ function injectCustomStyles() {
     font-weight: 800;
     letter-spacing: 1px;
     color: #e8eaed;
+    flex-shrink: 0;
 }
 .tc-live-chip .tc-live-dot {
     width: 6px;
@@ -1870,19 +1868,18 @@ function injectCustomStyles() {
 }
 .tc-exit-btn:active { transform: scale(0.92); }
 
-/* Hero photo — rounded inset like the replay chart well */
-.tc-hero {
-    position: relative;
-    width: 100%;
-    height: 150px;
-    background: #101113;
+/* --- Photo card: bottom-left --- */
+.tc-zone-photo {
+    left: 20px;
+    bottom: 112px;
+    width: 232px;
+    height: 130px;
+    padding: 0;
     overflow: hidden;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    transform: translateX(-16px);
+    transition-delay: 60ms;
 }
-@media (max-width: 640px) {
-    .tc-hero { height: 128px; }
-}
+#trip-card-takeover.active .tc-zone-photo { transform: translateX(0); }
 .tc-bg-layer {
     position: absolute;
     inset: 0;
@@ -1901,9 +1898,9 @@ function injectCustomStyles() {
     position: absolute;
     left: 10px;
     bottom: 10px;
-    height: 22px;
+    height: 20px;
     width: auto;
-    max-width: 40%;
+    max-width: 45%;
     object-fit: contain;
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
     display: none;
@@ -1913,84 +1910,120 @@ function injectCustomStyles() {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 4px 9px;
+    padding: 3px 8px;
     background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 999px;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.6px;
     color: #e8eaed;
     text-transform: uppercase;
-}
-.tc-server-chip { top: 10px; left: 10px; }
-.tc-reg-chip { right: 10px; bottom: 10px; }
-
-/* Pilot / aircraft line */
-.tc-subtitle {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 11px;
-    color: #9aa0a6;
-    font-weight: 500;
-    overflow: hidden;
-    padding: 0 2px;
-}
-.tc-pilot {
-    color: #ffffff;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    white-space: nowrap;
-}
-.tc-divider { color: #5f6368; flex-shrink: 0; }
-.tc-ac {
+    max-width: calc(100% - 20px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
+    box-sizing: border-box;
+}
+.tc-server-chip { top: 8px; left: 8px; }
+.tc-reg-chip { right: 8px; bottom: 8px; }
+
+/* --- Telemetry rail: right edge --- */
+.tc-zone-hud {
+    right: 20px;
+    top: 50%;
+    transform: translate(14px, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    transition-delay: 100ms;
+}
+#trip-card-takeover.active .tc-zone-hud { transform: translate(0, -50%); }
+.tc-hud-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    min-width: 84px;
+}
+.tc-hud-stat label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #9aa0a6;
+    text-transform: uppercase;
+}
+.tc-hud-stat span {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.1;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-hud-stat small {
+    font-size: 9px;
+    color: #9aa0a6;
+    font-weight: 600;
 }
 
-/* Route + progress */
-.tc-route {
+/* --- Bottom dock: route, progress, actions --- */
+.tc-zone-bottom {
+    bottom: 24px;
+    left: 50%;
+    transform: translate(-50%, 16px);
+    width: min(860px, calc(100vw - 32px));
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 0 2px;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    box-sizing: border-box;
+    transition-delay: 40ms;
 }
-.tc-route-airport { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#trip-card-takeover.active .tc-zone-bottom { transform: translate(-50%, 0); }
+.tc-route-airport {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex-shrink: 0;
+}
 .tc-route-airport-right { align-items: flex-end; text-align: right; }
 .tc-icao {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.45rem;
+    font-size: 1.35rem;
     font-weight: 800;
     color: #ffffff;
     line-height: 1;
     letter-spacing: 0.5px;
 }
 .tc-airport-name {
-    font-size: 9.5px;
+    font-size: 9px;
     color: #9aa0a6;
     font-weight: 600;
-    max-width: 140px;
+    max-width: 130px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.tc-route-dist {
-    align-self: center;
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 10px;
-    font-weight: 600;
-    color: #9aa0a6;
-    white-space: nowrap;
-    padding-top: 4px;
+.tc-progress {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
 }
-.tc-progress { display: flex; flex-direction: column; gap: 7px; padding: 0 2px; }
 .tc-progress-track {
     position: relative;
     width: 100%;
@@ -2029,96 +2062,114 @@ function injectCustomStyles() {
     font-weight: 600;
     color: #9aa0a6;
     white-space: nowrap;
-}
-.tc-progress-meta .tc-eta { color: #e8eaed; }
-
-/* Telemetry HUD — exactly the replay panel's stat tiles */
-.tc-hud {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-}
-.tc-hud-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 7px 4px;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    min-width: 0;
-}
-.tc-hud-stat label {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    color: #9aa0a6;
-    text-transform: uppercase;
-}
-.tc-hud-stat span {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 15px;
-    font-weight: 700;
-    color: #ffffff;
-    line-height: 1.1;
-    max-width: 100%;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
-.tc-hud-stat small {
-    font-size: 9px;
-    color: #9aa0a6;
-    font-weight: 600;
+.tc-progress-meta > span { flex-shrink: 0; }
+.tc-progress-meta .tc-route-dist { color: #5f6368; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tc-progress-meta .tc-eta { color: #e8eaed; }
+.tc-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
 }
-
-/* Actions — ghost round-pill + white primary, replay button language */
-.tc-actions { display: flex; gap: 10px; }
 .tc-replay-btn {
-    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 0 16px;
-    height: 40px;
+    gap: 7px;
+    padding: 0 14px;
+    height: 36px;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.2);
     color: #ffffff;
     border-radius: 10px;
     cursor: pointer;
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.3px;
     transition: all 0.15s ease;
+    white-space: nowrap;
 }
 .tc-replay-btn:hover { background: rgba(255, 255, 255, 0.15); }
 .tc-replay-btn:active { transform: scale(0.97); }
 .tc-share-btn {
-    flex: 1 1 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    height: 40px;
-    padding: 0 20px;
+    gap: 7px;
+    height: 36px;
+    padding: 0 16px;
     background: #ffffff;
     color: #1e1f20;
     border: 1px solid #ffffff;
     border-radius: 10px;
     cursor: pointer;
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 800;
     letter-spacing: 0.3px;
     box-shadow: 0 0 14px rgba(255, 255, 255, 0.25);
     transition: all 0.15s ease;
+    white-space: nowrap;
 }
 .tc-share-btn:hover { background: #e8eaed; box-shadow: 0 0 18px rgba(255, 255, 255, 0.35); }
 .tc-share-btn:active { transform: scale(0.98); }
-.tc-share-btn i { font-size: 0.95rem; }
+
+/* --- Phone layout: zones stack into a compact bottom drawer --- */
+@media (max-width: 760px) {
+    #trip-card-takeover.active {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 0 10px calc(env(safe-area-inset-bottom, 0px) + 12px);
+        box-sizing: border-box;
+    }
+    .tc-zone {
+        position: static;
+        transform: none !important;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        transition-delay: 0ms;
+    }
+    .tc-zone-top { order: 1; flex-wrap: wrap; row-gap: 6px; padding: 9px 10px 9px 12px; }
+    /* Force pilot + aircraft onto their own row so the callsign never gets
+       crushed on narrow screens. */
+    .tc-zone-top::before { content: ''; order: 8; flex-basis: 100%; height: 0; }
+    .tc-zone-top .tc-divider-v { display: none; }
+    .tc-zone-top .tc-pilot { order: 9; flex-shrink: 0; max-width: 45%; }
+    .tc-zone-top .tc-ac { order: 10; flex: 1 1 auto; max-width: none; }
+    .tc-zone-photo { order: 2; height: 102px; }
+    .tc-zone-hud {
+        order: 3;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding: 8px;
+    }
+    .tc-hud-stat { min-width: 0; padding: 7px 4px; }
+    .tc-zone-bottom {
+        order: 4;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas:
+            'dep arr'
+            'prog prog'
+            'act act';
+        gap: 10px 14px;
+        padding: 12px 14px;
+    }
+    .tc-zone-bottom .tc-route-airport { grid-area: dep; }
+    .tc-zone-bottom .tc-route-airport-right { grid-area: arr; }
+    .tc-zone-bottom .tc-progress { grid-area: prog; }
+    .tc-zone-bottom .tc-actions { grid-area: act; }
+    .tc-actions .tc-share-btn { flex: 1 1 auto; }
+    .tc-airport-name { max-width: 140px; }
+    .tc-zone-top .tc-callsign { max-width: 40vw; }
+}
+/* ================== END TRIP CARD HUD ================== */
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -6894,42 +6945,51 @@ function toggleTripCardMode(active) {
 
     if (active && currentFlightInWindow) {
         takeoverUI.innerHTML = `
-            <div class="tc-card">
-                <div class="tc-header">
-                    <div class="tc-header-title">
-                        <i class="fa-solid fa-plane"></i>
-                        <span class="tc-callsign">---</span>
-                        <span class="tc-phase-chip" data-tc-phase hidden>—</span>
-                    </div>
-                    <div class="tc-header-right">
-                        <span class="tc-live-chip"><span class="tc-live-dot"></span>LIVE</span>
-                        <button class="tc-exit-btn" type="button" aria-label="Close trip card">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
+            <div class="tc-zone tc-zone-top">
+                <i class="fa-solid fa-plane"></i>
+                <span class="tc-callsign">---</span>
+                <span class="tc-phase-chip" data-tc-phase hidden>—</span>
+                <span class="tc-divider-v"></span>
+                <span class="tc-pilot">---</span>
+                <span class="tc-ac">---</span>
+                <span class="tc-live-chip"><span class="tc-live-dot"></span>LIVE</span>
+                <button class="tc-exit-btn" type="button" aria-label="Close trip card">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="tc-zone tc-zone-photo">
+                <div class="tc-bg-layer"></div>
+                <div class="tc-hero-gradient"></div>
+                <span class="tc-hero-chip tc-server-chip" data-tc-server hidden>---</span>
+                <img class="tc-logo" alt="">
+                <span class="tc-hero-chip tc-reg-chip" data-tc-reg hidden>---</span>
+            </div>
+            <div class="tc-zone tc-zone-hud">
+                <div class="tc-hud-stat">
+                    <label>Altitude</label>
+                    <span class="tc-alt">---</span>
+                    <small>ft</small>
                 </div>
-                <div class="tc-hero">
-                    <div class="tc-bg-layer"></div>
-                    <div class="tc-hero-gradient"></div>
-                    <span class="tc-hero-chip tc-server-chip" data-tc-server hidden>---</span>
-                    <img class="tc-logo" alt="">
-                    <span class="tc-hero-chip tc-reg-chip" data-tc-reg hidden>---</span>
+                <div class="tc-hud-stat">
+                    <label>Speed</label>
+                    <span class="tc-spd">---</span>
+                    <small>kt GS</small>
                 </div>
-                <div class="tc-subtitle">
-                    <span class="tc-pilot">---</span>
-                    <span class="tc-divider">·</span>
-                    <span class="tc-ac">---</span>
+                <div class="tc-hud-stat">
+                    <label>V/S</label>
+                    <span class="tc-vs">---</span>
+                    <small>fpm</small>
                 </div>
-                <div class="tc-route">
-                    <div class="tc-route-airport">
-                        <span class="tc-icao origin">---</span>
-                        <span class="tc-airport-name" data-tc-dep-name>&nbsp;</span>
-                    </div>
-                    <div class="tc-route-dist" data-tc-route-dist></div>
-                    <div class="tc-route-airport tc-route-airport-right">
-                        <span class="tc-icao destination">---</span>
-                        <span class="tc-airport-name" data-tc-arr-name>&nbsp;</span>
-                    </div>
+                <div class="tc-hud-stat">
+                    <label>Heading</label>
+                    <span class="tc-hdg">---</span>
+                    <small>°</small>
+                </div>
+            </div>
+            <div class="tc-zone tc-zone-bottom">
+                <div class="tc-route-airport">
+                    <span class="tc-icao origin">---</span>
+                    <span class="tc-airport-name" data-tc-dep-name>&nbsp;</span>
                 </div>
                 <div class="tc-progress">
                     <div class="tc-progress-track">
@@ -6938,30 +6998,13 @@ function toggleTripCardMode(active) {
                     </div>
                     <div class="tc-progress-meta">
                         <span data-tc-flown>—</span>
+                        <span class="tc-route-dist" data-tc-route-dist></span>
                         <span class="tc-eta" data-tc-eta>—</span>
                     </div>
                 </div>
-                <div class="tc-hud">
-                    <div class="tc-hud-stat">
-                        <label>Altitude</label>
-                        <span class="tc-alt">---</span>
-                        <small>ft</small>
-                    </div>
-                    <div class="tc-hud-stat">
-                        <label>Speed</label>
-                        <span class="tc-spd">---</span>
-                        <small>kt GS</small>
-                    </div>
-                    <div class="tc-hud-stat">
-                        <label>V/S</label>
-                        <span class="tc-vs">---</span>
-                        <small>fpm</small>
-                    </div>
-                    <div class="tc-hud-stat">
-                        <label>Heading</label>
-                        <span class="tc-hdg">---</span>
-                        <small>°</small>
-                    </div>
+                <div class="tc-route-airport tc-route-airport-right">
+                    <span class="tc-icao destination">---</span>
+                    <span class="tc-airport-name" data-tc-arr-name>&nbsp;</span>
                 </div>
                 <div class="tc-actions">
                     <button class="tc-replay-btn" type="button" title="Replay this flight so far">
@@ -7933,12 +7976,12 @@ function updateTripCardRealtime() {
     if (planeIcon) planeIcon.style.left = `${displayPercent}%`;
 
     const routeDistEl = ui.querySelector('[data-tc-route-dist]');
-    if (routeDistEl) routeDistEl.textContent = totalNm > 0 ? `${Math.round(totalNm).toLocaleString()} nm` : '';
+    if (routeDistEl) routeDistEl.textContent = totalNm > 0 ? `${Math.round(totalNm).toLocaleString()} nm total` : '';
 
     const flownEl = ui.querySelector('[data-tc-flown]');
     if (flownEl) {
         flownEl.textContent = totalNm > 0
-            ? `${Math.round(displayPercent)}% flown · ${Math.round(remainingNm).toLocaleString()} nm to go`
+            ? `${Math.round(displayPercent)}% · ${Math.round(remainingNm).toLocaleString()} nm left`
             : '—';
     }
 
