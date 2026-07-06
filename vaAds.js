@@ -738,6 +738,9 @@
     }
 
     // The VA's aircraft currently in the air, newest-ish first, capped.
+    // Members only, embed-style: the callsign must both match the VA's airline
+    // name AND carry the VA's membership tag ("Indonesia 77GG" counts for a
+    // GG-tagged VA, a plain "Indonesia 77" does not).
     function liveFleetFor(ad, cap) {
         const out = [];
         for (const f of liveFeatures()) {
@@ -745,6 +748,7 @@
             if (!props || !props.callsign) continue;
             const hit = matchCallsign(props.callsign);
             if (!hit || String(hit.id) !== String(ad.id)) continue;
+            if (!isCallsignMember(props.callsign, hit)) continue;
             const acData = parseMaybeJSON(props.aircraft) || {};
             const pos = parseMaybeJSON(props.position) || {};
             out.push({
@@ -765,13 +769,14 @@
     }
 
     // adId -> number of its aircraft in the air, for the list-view badges.
+    // Same members-only rule as liveFleetFor so the badge and the fleet agree.
     function liveCountsByAd() {
         const counts = new Map();
         for (const f of liveFeatures()) {
             const cs = f && f.properties && f.properties.callsign;
             if (!cs) continue;
             const hit = matchCallsign(cs);
-            if (!hit) continue;
+            if (!hit || !isCallsignMember(cs, hit)) continue;
             const k = String(hit.id);
             counts.set(k, (counts.get(k) || 0) + 1);
         }
