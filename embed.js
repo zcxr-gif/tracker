@@ -22,7 +22,7 @@
  * /api/va-ads). The VA pastes one iframe onto their site:
  *
  *     <iframe
- *       src="https://indgo-va.netlify.app/embed.html?token=THE_ISSUED_TOKEN"
+ *       src="https://inflight.info/embed.html?token=THE_ISSUED_TOKEN"
  *       style="width:100%;height:520px;border:0"
  *       loading="lazy"></iframe>
  *
@@ -83,6 +83,10 @@
     const HISTORY_BASE  = `${ACARS_BACKEND}/api/flights`;   // flown-trail breadcrumb
     const RESOLVE_URL   = `${INGDO_BACKEND}/api/embed/resolve`;
     const VAADS_URL     = `${INGDO_BACKEND}/api/va-ads`;
+
+    // Where every "Powered by Inflight" tap-through lands: the PRODUCTION
+    // tracker, never a backend host or the Netlify test domain.
+    const TRACKER_URL   = 'https://inflight.info';
 
     const REFRESH_MS = 30000;          // live data poll cadence
     const MAPBOX_GL_VERSION = 'v3.9.1'; // CDN version loaded only in map mode
@@ -683,7 +687,7 @@
                     <div class="emb-head-name">${esc(cfg.name)}</div>
                     <div class="emb-head-sub"><span class="emb-live-dot"></span> ${count} pilot${count === 1 ? '' : 's'} airborne</div>
                 </div>
-                <a class="emb-brand" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+                <a class="emb-brand" href="${TRACKER_URL}" target="_blank" rel="noopener" title="Powered by Inflight">
                     <span class="emb-brand-by">Powered by</span>
                     <img class="emb-brand-logo" src="${esc(brandLogo)}" alt="Inflight" onerror="this.outerHTML='Inflight'">
                 </a>
@@ -700,7 +704,7 @@
         const wordmark = light ? BRAND_LOGO_DARK_TEXT : BRAND_LOGO_LIGHT_TEXT;
         return `
             <a class="emb-float-brand${light ? ' is-light' : ''}${cfg.mode === 'map' ? ' emb-float-mapside' : ''}"
-               href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+               href="${TRACKER_URL}" target="_blank" rel="noopener" title="Powered by Inflight">
                 <span class="emb-float-count"><span class="emb-live-dot"></span><b>${count}</b></span>
                 <span class="emb-brand-by">Powered by</span>
                 <img class="emb-brand-logo" src="${esc(wordmark)}" alt="Inflight" onerror="this.outerHTML='Inflight'">
@@ -891,7 +895,7 @@
     // our small logo — replaces the per-card partner-VA chip.
     function poweredByHTML() {
         return `
-            <a class="fr24-powered" href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+            <a class="fr24-powered" href="${TRACKER_URL}" target="_blank" rel="noopener" title="Powered by Inflight">
                 <span class="fr24-powered-by">Powered by</span>
                 <img class="fr24-powered-logo" src="Images/inflight.png" alt="Inflight" onerror="this.outerHTML='Inflight'">
             </a>`;

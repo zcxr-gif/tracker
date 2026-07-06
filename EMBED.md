@@ -34,7 +34,7 @@ A single iframe pointing at an **embed token** you issue them:
 
 ```html
 <iframe
-  src="https://indgo-va.netlify.app/embed.html?token=THE_ISSUED_TOKEN"
+  src="https://inflight.info/embed.html?token=THE_ISSUED_TOKEN"
   style="width:100%;height:520px;border:0"
   loading="lazy"
   title="Active VA Pilots"></iframe>
@@ -113,8 +113,9 @@ The widget maps statuses to friendly messages:
 - **Revoke / expire** by failing the lookup with a 4xx.
 
 > CORS: `/api/embed/resolve` must allow the embed's origin
-> (`https://indgo-va.netlify.app`, plus any preview/deploy domains). The live
-> flight endpoints on the ACARS backend are already public and CORS-open.
+> (`https://inflight.info`, plus `https://indgo-va.netlify.app` and any
+> preview/deploy domains). The live flight endpoints on the ACARS backend are
+> already public and CORS-open.
 
 Nothing in `embed.js` needs to change when this lands — it already calls
 `/resolve`. The only client constant is `INGDO_BACKEND` in `embed.js`.
