@@ -113,6 +113,77 @@
         .emb-brand-by { font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; color: var(--head-text-3); }
         .emb-brand-logo { height: 15px; width: auto; display: block; }
 
+        /* ── Header placement variants ──────────────────────────────────────
+           emb-pos-top (default), emb-pos-bottom, emb-pos-left, emb-pos-right.
+           The side rails only make sense with room to spare, so they collapse
+           back to the classic top bar on narrow embeds. */
+        #inflight-embed.emb-pos-bottom .emb-head {
+            order: 9;
+            border-bottom: none;
+            border-top: 1px solid var(--head-border);
+        }
+        @media (min-width: 561px) {
+            #inflight-embed.emb-pos-left,
+            #inflight-embed.emb-pos-right { flex-direction: row; }
+            #inflight-embed.emb-pos-left .emb-head,
+            #inflight-embed.emb-pos-right .emb-head {
+                flex: 0 0 188px; width: 188px;
+                flex-direction: column; align-items: flex-start; gap: 12px;
+                padding: 16px 15px;
+                border-bottom: none;
+            }
+            #inflight-embed.emb-pos-left .emb-head { border-right: 1px solid var(--head-border); }
+            #inflight-embed.emb-pos-right .emb-head { order: 9; border-left: 1px solid var(--head-border); }
+            .emb-pos-left .emb-logo, .emb-pos-right .emb-logo { width: 48px; height: 48px; border-radius: 11px; }
+            .emb-pos-left .emb-head-meta, .emb-pos-right .emb-head-meta { flex: 0 0 auto; width: 100%; }
+            .emb-pos-left .emb-head-name, .emb-pos-right .emb-head-name {
+                white-space: normal; font-size: 16px; line-height: 1.25;
+            }
+            .emb-pos-left .emb-head-sub, .emb-pos-right .emb-head-sub { margin-top: 4px; }
+            .emb-pos-left .emb-brand, .emb-pos-right .emb-brand { margin-top: auto; align-self: flex-start; }
+        }
+
+        /* Compact header density (?compact=1) */
+        #inflight-embed.emb-compact .emb-head { padding: 8px 12px; gap: 9px; }
+        .emb-compact .emb-logo { width: 28px; height: 28px; border-radius: 7px; }
+        .emb-compact .emb-logo-fallback { font-size: 11px; }
+        .emb-compact .emb-head-name { font-size: 13.5px; }
+        .emb-compact .emb-head-sub { font-size: 11px; margin-top: 1px; }
+        .emb-compact .emb-brand { padding: 3px 7px; }
+        .emb-compact .emb-brand-logo { height: 13px; }
+
+        /* Floating "Powered by Inflight" badge — shown whenever the header is
+           hidden so the attribution stays visible in every configuration. It
+           carries the live pilot count too, since the header count is gone. */
+        .emb-float-brand {
+            position: absolute; z-index: 5;
+            right: 10px; bottom: 10px;
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 11px; border-radius: 999px;
+            text-decoration: none;
+            background: rgba(11, 18, 32, 0.78);
+            color: rgba(241, 245, 249, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+            transition: border-color .2s ease;
+        }
+        .emb-float-brand:hover { border-color: currentColor; }
+        .emb-float-brand.is-light {
+            background: rgba(255, 255, 255, 0.88);
+            color: rgba(15, 23, 42, 0.75);
+            border-color: rgba(15, 23, 42, 0.12);
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+        }
+        /* On the map the GL attribution owns the bottom-right corner. */
+        .emb-float-brand.emb-float-mapside { right: auto; left: 10px; }
+        .emb-float-brand .emb-brand-by { color: inherit; }
+        .emb-float-count {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums;
+            padding-right: 8px; border-right: 1px solid rgba(148, 163, 184, 0.35);
+        }
+
         /* Roster body */
         .emb-body {
             flex: 1 1 auto; min-height: 0;
