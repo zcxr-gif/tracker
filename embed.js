@@ -230,6 +230,12 @@
             freeStyle: (p.get('freeStyle') || '').trim(),
             theme: (p.get('theme') || '').trim(),
             accent: (p.get('color') || p.get('accent') || '').trim(),
+            header: (p.get('header') || (p.get('hideHeader') ? 'off' : '')).trim(),
+            headerPos: (p.get('headerPos') || p.get('headerPosition') || p.get('position') || '').trim(),
+            gradient: (p.get('gradient') || '').trim(),
+            gradientAngle: (p.get('angle') || p.get('gradientAngle') || '').trim(),
+            compact: (p.get('compact') || '').trim(),
+            radius: (p.get('radius') || '').trim(),
             servers: p.get('servers') ? p.get('servers').split(',') : null
         });
     }
@@ -283,6 +289,31 @@
             : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
             .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
 
+        const isOn  = v => ['1', 'true', 'yes', 'on'].includes(String(v).trim().toLowerCase()) || v === true;
+        const isOff = v => ['0', 'false', 'no', 'off', 'none', 'hidden'].includes(String(v).trim().toLowerCase()) || v === false;
+
+        // Header visibility & placement. Hiding the header is allowed — the
+        // "Powered by Inflight" attribution then moves to a floating badge that
+        // is always rendered (it is required to stay viewable).
+        const hideHeader = isOff(raw.header != null ? raw.header : (raw.hideHeader ? 'off' : ''));
+        const posRaw = String(raw.headerPos || raw.headerPosition || raw.position || '').trim().toLowerCase();
+        const headerPos = ['top', 'bottom', 'left', 'right'].includes(posRaw) ? posRaw : 'top';
+
+        // Brand colours. `accent` (or color/brandColor) accepts one colour or a
+        // comma-separated list / array — multiple colours become a gradient.
+        const accentRaw = raw.accent != null ? raw.accent : (raw.brandColor != null ? raw.brandColor : raw.color);
+        const accentList = Array.isArray(accentRaw) ? accentRaw : String(accentRaw || '').split(',');
+        const brandColors = accentList.map(s => parseColor(String(s || '').trim())).filter(Boolean).slice(0, 3);
+
+        // gradient=off keeps a single flat colour; anything else lets one colour
+        // auto-expand into a two-stop gradient (a derived companion shade).
+        const gradient = isOff(raw.gradient) ? 'off' : 'auto';
+        const angleN = parseFloat(raw.gradientAngle != null ? raw.gradientAngle : raw.angle);
+        const gradientAngle = isFinite(angleN) ? ((angleN % 360) + 360) % 360 : 120;
+
+        const radiusN = parseFloat(raw.radius);
+        const radius = (isFinite(radiusN) && radiusN >= 0) ? Math.min(radiusN, 32) : null;
+
         return {
             code,
             name: va.name || code,
@@ -296,11 +327,18 @@
             mapStyle,
             freeStyle,
             theme: (raw.theme === 'light') ? 'light' : 'dark',
-            // Optional explicit brand colour. When set it overrides the colour we
-            // would otherwise sample from the logo. Stored normalised, or '' if
-            // none/unparseable. The chosen wordmark is filled in at boot.
-            brandColor: (() => { const c = parseColor(raw.accent || raw.brandColor || raw.color || ''); return c ? rgbCss(c) : ''; })(),
+            // Explicit brand colours ({r,g,b} objects). When set they override
+            // the palette we would otherwise sample from the logo. Two or more
+            // become a gradient; one may auto-expand (see `gradient`). The
+            // chosen wordmark is filled in at boot.
+            brandColors,
+            gradient,
+            gradientAngle,
             brandLogo: '',
+            hideHeader,
+            headerPos,
+            compact: isOn(raw.compact),
+            radius,
             servers: Array.isArray(raw.servers) ? raw.servers.map(s => String(s).trim()).filter(Boolean) : []
         };
     }
@@ -497,12 +535,52 @@
     // A bright background wants dark text; otherwise white text reads best.
     function bgIsLight(c) { return luminance(c) > 0.45; }
 
-    // Pull a representative brand colour out of an image. Loads it cross-origin,
-    // samples a downscaled copy, and favours the most saturated, mid-bright pixels
-    // (a logo is usually a vivid mark on white/transparent). Resolves null when the
-    // image can't be read (tainted canvas, load/timeout error, no vivid colour) so
-    // callers fall back to the default header.
-    function extractDominantColor(url) {
+    // RGB ↔ HSL, used to derive gradient companion shades. h in degrees, s/l 0..1.
+    function rgbToHsl(c) {
+        const r = c.r / 255, g = c.g / 255, b = c.b / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const l = (max + min) / 2;
+        if (max === min) return { h: 0, s: 0, l };
+        const d = max - min;
+        const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        let h;
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        return { h: h * 60, s, l };
+    }
+
+    function hslToRgb(h, s, l) {
+        h = ((h % 360) + 360) % 360;
+        const c = (1 - Math.abs(2 * l - 1)) * s;
+        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        const m = l - c / 2;
+        let r, g, b;
+        if (h < 60)       [r, g, b] = [c, x, 0];
+        else if (h < 120) [r, g, b] = [x, c, 0];
+        else if (h < 180) [r, g, b] = [0, c, x];
+        else if (h < 240) [r, g, b] = [0, x, c];
+        else if (h < 300) [r, g, b] = [x, 0, c];
+        else              [r, g, b] = [c, 0, x];
+        return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 };
+    }
+
+    // Derive a gradient partner for a lone brand colour: nudge the hue and shift
+    // the lightness so a single colour still yields a rich two-stop gradient.
+    function companionColor(c) {
+        const { h, s, l } = rgbToHsl(c);
+        const l2 = l > 0.5 ? Math.max(0.18, l - 0.18) : Math.min(0.82, l + 0.16);
+        const s2 = Math.min(1, s * 1.1 + 0.05);
+        return hslToRgb(h + 28, s2, l2);
+    }
+
+    // Pull the brand palette out of an image: the most vivid, mid-bright colour,
+    // plus (when the logo genuinely has one) a second vivid colour from a clearly
+    // different hue family — the pair drives an automatic gradient. Loads the
+    // image cross-origin and samples a downscaled copy. Resolves null when the
+    // image can't be read (tainted canvas, load/timeout error, no vivid colour)
+    // so callers fall back to the default header.
+    function extractLogoPalette(url) {
         return new Promise((resolve) => {
             if (!url) return resolve(null);
             let done = false;
@@ -520,7 +598,9 @@
                     const ctx = cv.getContext('2d', { willReadFrequently: true });
                     ctx.drawImage(img, 0, 0, S, S);
                     const data = ctx.getImageData(0, 0, S, S).data;
-                    let best = null, bestScore = -1;
+                    // Best vivid pixel per 30° hue bucket, so a two-tone logo
+                    // (e.g. navy + gold) surfaces both of its colour families.
+                    const buckets = new Array(12).fill(null);
                     let sr = 0, sg = 0, sb = 0, sw = 0;   // saturation-weighted average (fallback)
                     for (let i = 0; i < data.length; i += 4) {
                         const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
@@ -532,10 +612,21 @@
                         const w = sat * sat;
                         sr += r * w; sg += g * w; sb += b * w; sw += w;
                         const score = sat * (1 - Math.abs(light - 0.5));  // vivid + mid-bright
-                        if (score > bestScore) { bestScore = score; best = { r, g, b }; }
+                        const bi = Math.min(11, Math.floor(rgbToHsl({ r, g, b }).h / 30));
+                        if (!buckets[bi] || score > buckets[bi].score) buckets[bi] = { score, color: { r, g, b }, bi };
                     }
-                    if (best && bestScore > 0.08) return finish(best);
-                    if (sw > 0) return finish({ r: sr / sw, g: sg / sw, b: sb / sw });
+                    const ranked = buckets.filter(Boolean).sort((a, b) => b.score - a.score);
+                    const primary = ranked[0];
+                    if (primary && primary.score > 0.08) {
+                        // Secondary: strong enough, and at least two hue buckets
+                        // (60°+) away so near-identical shades don't count.
+                        const secondary = ranked.find(e => {
+                            const d = Math.abs(e.bi - primary.bi);
+                            return Math.min(d, 12 - d) >= 2 && e.score >= Math.max(0.12, primary.score * 0.35);
+                        });
+                        return finish(secondary ? [primary.color, secondary.color] : [primary.color]);
+                    }
+                    if (sw > 0) return finish([{ r: sr / sw, g: sg / sw, b: sb / sw }]);
                     finish(null);
                 } catch (_) { finish(null); }
             };
@@ -543,25 +634,39 @@
         });
     }
 
-    // Write the header palette derived from `baseColor` onto the embed root as CSS
-    // variables, and return which Inflight wordmark keeps the corner legible. With
-    // no brand colour we leave the defaults and just pick the wordmark for the
-    // active light/dark theme.
-    function applyHeaderTheme(root, baseColor) {
+    // Write the header palette derived from the brand colours onto the embed root
+    // as CSS variables, and return which Inflight wordmark keeps the corner
+    // legible. `colors` is an array of {r,g,b}: one colour paints a flat header
+    // (or auto-expands into a gradient unless gradient=off), two or more paint a
+    // multi-stop gradient at cfg.gradientAngle. Text/border colours are computed
+    // from the blend of all stops for WCAG contrast. With no brand colour we
+    // leave the defaults and just pick the wordmark for the active theme.
+    function applyHeaderTheme(root, colors, cfg) {
         if (!root) return BRAND_LOGO_LIGHT_TEXT;
-        if (!baseColor) {
+        if (!colors || !colors.length) {
             const isDark = root.getAttribute('data-theme') !== 'light';
             return isDark ? BRAND_LOGO_LIGHT_TEXT : BRAND_LOGO_DARK_TEXT;
         }
-        const light = bgIsLight(baseColor);
+        let stops = colors.slice(0, 3);
+        if (stops.length === 1 && (!cfg || cfg.gradient !== 'off')) {
+            stops = [stops[0], companionColor(stops[0])];
+        }
+        const angle = (cfg && isFinite(cfg.gradientAngle)) ? cfg.gradientAngle : 120;
+        const bg = stops.length === 1
+            ? rgbCss(stops[0])
+            : `linear-gradient(${angle}deg, ${stops.map(c => rgbCss(c)).join(', ')})`;
+        // Contrast is judged against the blend of every stop, so text stays
+        // legible across the whole gradient rather than only at one end.
+        const mix = stops.reduce((m, c) => ({ r: m.r + c.r / stops.length, g: m.g + c.g / stops.length, b: m.b + c.b / stops.length }), { r: 0, g: 0, b: 0 });
+        const light = bgIsLight(mix);
         const text = light ? { r: 15, g: 23, b: 42 } : { r: 255, g: 255, b: 255 };
         const s = root.style;
-        s.setProperty('--head-bg', rgbCss(baseColor));
+        s.setProperty('--head-bg', bg);
         s.setProperty('--head-text', rgbCss(text));
         s.setProperty('--head-text-2', rgbCss(text, light ? 0.66 : 0.80));
         s.setProperty('--head-text-3', rgbCss(text, light ? 0.45 : 0.60));
         s.setProperty('--head-border', rgbCss(text, light ? 0.16 : 0.24));
-        s.setProperty('--accent', rgbCss(baseColor));
+        s.setProperty('--accent', rgbCss(stops[0]));
         return light ? BRAND_LOGO_DARK_TEXT : BRAND_LOGO_LIGHT_TEXT;
     }
 
@@ -583,6 +688,32 @@
                     <img class="emb-brand-logo" src="${esc(brandLogo)}" alt="Inflight" onerror="this.outerHTML='Inflight'">
                 </a>
             </div>`;
+    }
+
+    // Floating "Powered by Inflight" badge — rendered whenever the header is
+    // hidden, so the attribution is ALWAYS viewable no matter how the embed is
+    // customised. Carries the live pilot count the hidden header would have
+    // shown. Sits bottom-right in roster mode; bottom-left on the map, where
+    // the GL attribution owns the bottom-right corner.
+    function floatBrandHTML(cfg, count) {
+        const light = cfg.mode === 'map' ? isLightBasemap(cfg) : cfg.theme === 'light';
+        const wordmark = light ? BRAND_LOGO_DARK_TEXT : BRAND_LOGO_LIGHT_TEXT;
+        return `
+            <a class="emb-float-brand${light ? ' is-light' : ''}${cfg.mode === 'map' ? ' emb-float-mapside' : ''}"
+               href="https://indgo-va.netlify.app" target="_blank" rel="noopener" title="Powered by Inflight">
+                <span class="emb-float-count"><span class="emb-live-dot"></span><b>${count}</b></span>
+                <span class="emb-brand-by">Powered by</span>
+                <img class="emb-brand-logo" src="${esc(wordmark)}" alt="Inflight" onerror="this.outerHTML='Inflight'">
+            </a>`;
+    }
+
+    // Refresh the live pilot count wherever it is shown (header sub-line and/or
+    // the floating badge) without re-rendering the whole widget.
+    function updateLiveCounts(root, n) {
+        const sub = root.querySelector('.emb-head-sub');
+        if (sub) sub.innerHTML = `<span class="emb-live-dot"></span> ${n} pilot${n === 1 ? '' : 's'} airborne`;
+        const fc = root.querySelector('.emb-float-count b');
+        if (fc) fc.textContent = n;
     }
 
     function pilotRowHTML(p) {
@@ -621,10 +752,11 @@
         const root = rootEl();
         if (!root) return;
         root.innerHTML = `
-            ${headerHTML(cfg, pilots.length)}
+            ${cfg.hideHeader ? '' : headerHTML(cfg, pilots.length)}
             <div class="emb-body">
                 ${pilots.length ? pilots.map(pilotRowHTML).join('') : emptyHTML(cfg)}
-            </div>`;
+            </div>
+            ${cfg.hideHeader ? floatBrandHTML(cfg, pilots.length) : ''}`;
     }
 
     // ── Map mode ────────────────────────────────────────────────────────────────
@@ -1720,8 +1852,9 @@
         if (!_mapState.map) {
             await loadMapEngine(cfg.provider);
             root.innerHTML = `
-                ${headerHTML(cfg, pilots.length)}
-                <div class="emb-map" id="emb-map"></div>`;
+                ${cfg.hideHeader ? '' : headerHTML(cfg, pilots.length)}
+                <div class="emb-map" id="emb-map"></div>
+                ${cfg.hideHeader ? floatBrandHTML(cfg, pilots.length) : ''}`;
 
             const isFree = cfg.provider === 'free';
             const mapOpts = {
@@ -1762,10 +1895,10 @@
             return;
         }
 
-        // Subsequent polls: refresh header count + live data without re-fitting
-        // the camera (so we don't yank the view while someone is panning).
-        const sub = root.querySelector('.emb-head-sub');
-        if (sub) sub.innerHTML = `<span class="emb-live-dot"></span> ${pilots.length} pilot${pilots.length === 1 ? '' : 's'} airborne`;
+        // Subsequent polls: refresh the live count (header and/or floating badge)
+        // + live data without re-fitting the camera (so we don't yank the view
+        // while someone is panning).
+        updateLiveCounts(root, pilots.length);
         if (_mapState.ready && _mapState.map.getSource(SOURCE_ID)) {
             _mapState.map.getSource(SOURCE_ID).setData(pilotsToGeoJSON(pilots));
         }
@@ -1828,15 +1961,21 @@
         const root = rootEl();
         root.setAttribute('data-theme', cfg.theme);
         root.classList.add('emb-mode-' + cfg.mode);
+        root.classList.add('emb-pos-' + cfg.headerPos);
+        if (cfg.hideHeader) root.classList.add('emb-noheader');
+        if (cfg.compact) root.classList.add('emb-compact');
+        if (cfg.radius != null) root.style.borderRadius = cfg.radius + 'px';
 
-        // Colour the header from the VA's brand: an explicit colour wins, else we
-        // sample the logo. applyHeaderTheme also derives contrasting text colours
-        // and picks the Inflight wordmark that stays legible on the result.
-        let brand = parseColor(cfg.brandColor);
-        if (!brand && cfg.logo) {
-            try { brand = await extractDominantColor(cfg.logo); } catch (_) { brand = null; }
+        // Colour the header from the VA's brand: explicit colours win (one or
+        // several — several become a gradient), else we sample the logo's palette
+        // (its two strongest hue families, when it has two, gradient together).
+        // applyHeaderTheme also derives contrasting text colours and picks the
+        // Inflight wordmark that stays legible on the result.
+        let palette = cfg.brandColors;
+        if (!palette.length && cfg.logo) {
+            try { palette = (await extractLogoPalette(cfg.logo)) || []; } catch (_) { palette = []; }
         }
-        cfg.brandLogo = applyHeaderTheme(root, brand);
+        cfg.brandLogo = applyHeaderTheme(root, palette, cfg);
 
         await tick(cfg);
         // Pause polling while the tab is hidden to save the VA's bandwidth/loads.

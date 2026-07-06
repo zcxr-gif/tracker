@@ -73,7 +73,21 @@ Implement this endpoint to validate the token and return the VA's embed config.
   "mapboxToken": "pk.eyJ…",          // REQUIRED when mode == "map" — the VA's OWN token
   "mapStyle": "mapbox://styles/mapbox/dark-v11",  // optional
   "theme": "dark",                   // "dark" | "light"  (optional)
-  "accent": "#1e3a8a",               // optional; brand colour for the header. Omit to auto-derive from the logo
+  "accent": "#1e3a8a",               // optional; header brand colour(s). A string, a
+                                     // comma-separated list, or an array — two or more
+                                     // colours paint a gradient. Omit to auto-derive
+                                     // from the logo (two-tone logos auto-gradient)
+  "gradient": "auto",                // optional; "off" keeps ONE colour flat instead of
+                                     // auto-expanding it into a two-stop gradient
+  "gradientAngle": 120,              // optional; gradient direction in degrees
+  "header": "on",                    // optional; "off" hides the header entirely — the
+                                     // "Powered by Inflight" badge then floats over the
+                                     // widget (attribution always stays visible)
+  "headerPos": "top",                // optional; "top" | "bottom" | "left" | "right".
+                                     // left/right render a vertical side rail (collapses
+                                     // back to top on narrow embeds)
+  "compact": false,                  // optional; slimmer header
+  "radius": 14,                      // optional; widget corner radius in px (0–32)
   "servers": ["Expert"]              // optional; IF session names to scan (substring). [] = all
 }
 ```
@@ -126,24 +140,48 @@ The widget also accepts direct query params so you can build and demo it now. A
 &theme=light
 &logo=https://.../logo.png
 &color=%231e3a8a             # force the header brand colour (hex). Omit to auto-derive from the logo
+&color=%231e3a8a,%23f59e0b   # …or several colours → a gradient header
+&gradient=off                # keep a single colour flat (no auto two-stop gradient)
+&angle=90                    # gradient direction in degrees (default 120)
+&header=off                  # hide the header; Powered-by floats over the widget instead
+&headerPos=left              # header placement: top (default) | bottom | left | right
+&compact=1                   # slimmer header
+&radius=0                    # widget corner radius in px (e.g. 0 for square corners)
 ```
 
 ---
 
-## Header brand colours (automatic)
+## Header brand colours & gradients
 
 The header — the VA logo, the VA name, the "N pilots airborne" line and the
-"Powered by Inflight" chip — takes on the **VA's own brand colour**:
+"Powered by Inflight" chip — takes on the **VA's own brand colours**:
 
-- **Auto** (default): the widget samples the VA's logo for its dominant, most
-  vivid colour and paints the header with it. Text and borders are recomputed
-  for contrast (WCAG luminance) so the name/count stay legible, and the corner
-  Inflight wordmark swaps between its dark and light versions to suit. If the
-  logo can't be read (cross-origin / tainted canvas) the header keeps the
-  default theme look.
-- **Explicit**: set `accent` in the resolved config (or `?color=#hex` /
-  `?accent=#hex` in preview) to force a specific header colour; it overrides the
-  sampled one.
+- **Auto** (default): the widget samples the VA's logo for its most vivid
+  colours. A single-colour logo paints the header with that colour blended into
+  a derived companion shade (a subtle two-stop gradient); a two-tone logo (e.g.
+  navy + gold) gradients its two hue families together. Text and borders are
+  recomputed for contrast (WCAG luminance, judged against the blend of all
+  stops) so the name/count stay legible, and the corner Inflight wordmark swaps
+  between its dark and light versions to suit. If the logo can't be read
+  (cross-origin / tainted canvas) the header keeps the default theme look.
+- **Explicit**: set `accent` in the resolved config (or `?color=…` in preview)
+  to force the header colours. One colour works like the auto case; two or
+  three comma-separated colours paint a multi-stop gradient. `gradient=off`
+  keeps a single colour flat, and `gradientAngle` (or `&angle=`) sets the
+  direction.
+
+## Header layout (hide / move / density)
+
+- **Hide it**: `header: "off"` (or `?header=off`). The header disappears and a
+  floating pill — live pilot count + "Powered by Inflight" — is overlaid on the
+  widget instead. The attribution is **required to stay viewable**, so it is
+  always rendered in one place or the other; there is no way to remove both.
+- **Move it**: `headerPos: top | bottom | left | right`. `bottom` flips the bar
+  under the content; `left`/`right` render a vertical brand rail (bigger logo,
+  wrapping VA name, Powered-by pinned to the rail's foot) and automatically
+  collapse back to the classic top bar when the embed is narrower than ~560px.
+- **Density / shape**: `compact: true` slims the header; `radius` (0–32 px)
+  rounds or squares the widget's corners.
 
 ---
 
