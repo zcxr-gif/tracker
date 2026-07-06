@@ -5,6 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>InFlight</title>
 
+    <!-- Link previews (Discord / WhatsApp / iMessage / Slack / X …).
+         Per-flight share links get their own richer tags from
+         /.netlify/functions/share — these cover the bare domain. -->
+    <meta name="description" content="Track every Infinite Flight pilot live — real-time positions on a beautiful 3D map, ATC coverage, airport activity, flight replays and more.">
+    <link rel="canonical" href="https://inflight.info/">
+    <meta name="theme-color" content="#38bdf8">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="InFlight">
+    <meta property="og:title" content="InFlight — Live Flight Tracking for Infinite Flight">
+    <meta property="og:description" content="Track every Infinite Flight pilot live — real-time positions on a beautiful 3D map, ATC coverage, airport activity, flight replays and more.">
+    <meta property="og:url" content="https://inflight.info/">
+    <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
+    <meta property="og:image:secure_url" content="https://inflight.info/Images/og-banner.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="InFlight — live flight tracking for Infinite Flight">
+    <meta property="og:logo" content="https://inflight.info/Images/inflight.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="InFlight — Live Flight Tracking for Infinite Flight">
+    <meta name="twitter:description" content="Track every Infinite Flight pilot live — real-time positions on a beautiful 3D map, ATC coverage, airport activity, flight replays and more.">
+    <meta name="twitter:image" content="https://inflight.info/Images/og-banner.png">
+
     <script>
         // App Store compliance gate (Apple rule 3.1.3(b) — multiplatform service).
         // Inside the native iOS app we hide every external payment surface:
@@ -2232,13 +2255,16 @@
                 if (s && s.parentNode) s.remove();
             }
 
-            // Share-link arrivals (?flight=... or a queued share payload)
-            // should land the user directly on the flight info window —
-            // no splash in the way.
+            // Share-link arrivals (?flight=... / ?replay=... or a queued
+            // share/replay payload) should land the user directly on the
+            // flight info window or map replay — no splash in the way.
             try {
                 var p = new URLSearchParams(window.location.search || '');
-                var fromShare = !!p.get('flight') ||
-                    (typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('inflight_share_payload'));
+                var fromShare = !!p.get('flight') || !!p.get('replay') ||
+                    (typeof sessionStorage !== 'undefined' && (
+                        !!sessionStorage.getItem('inflight_share_payload') ||
+                        !!sessionStorage.getItem('inflight_replay_payload')
+                    ));
                 if (fromShare) { removeNow(); return; }
             } catch (_) { /* non-fatal */ }
 

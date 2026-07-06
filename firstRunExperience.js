@@ -107,28 +107,44 @@ function persistWindowChoice(useSimple) {
  *                          for returning users).
  */
 export async function runFirstRunExperience(map, opts = {}) {
-    const needLegal = opts.force || !hasAcceptedLegal();
-    const needWindow = opts.force || !hasChosenWindow();
+    // Expose a completion signal so flows that auto-open UI on landing —
+    // shared-flight links (?flight=) and replay links (?replay=) — can wait
+    // for the gate to finish instead of racing it. Without this, a first-time
+    // visitor arriving on a share link had the flight window open (hidden)
+    // behind the legal modal while the 60s search budget silently expired.
+    let resolveGate;
+    window.__inflightFirstRunPromise = new Promise((r) => { resolveGate = r; });
 
-    // Returning users who've done both skip everything.
-    if (!needLegal && !needWindow) return;
+    try {
+        const needLegal = opts.force || !hasAcceptedLegal();
+        const needWindow = opts.force || !hasChosenWindow();
 
-    injectStyles();
+        // Returning users who've done both skip everything.
+        if (!needLegal && !needWindow) return;
 
-    // Hide the app's UI chrome (top bar, tab bar, HUD, panels, info windows)
-    // while the onboarding runs so nothing but the map is visible. The class
-    // lives on <body> so it also catches chrome that boot injects *after*
-    // onboarding has already started.
-    setChromeHidden(true);
+        injectStyles();
 
-    // Step 1 — legal acceptance (plays the cinematic intro for brand-new users).
-    // Step 2 — pick a flight info window. Whichever runs last fades the chrome
-    // back in beneath its dismissing modal.
-    if (needLegal) {
-        await runLegalStep(map, { restoreChrome: !needWindow });
-    }
-    if (needWindow) {
-        await runWindowChoiceStep({ restoreChrome: true });
+        // Hide the app's UI chrome (top bar, tab bar, HUD, panels, info windows)
+        // while the onboarding runs so nothing but the map is visible. The class
+        // lives on <body> so it also catches chrome that boot injects *after*
+        // onboarding has already started.
+        setChromeHidden(true);
+
+        // Step 1 — legal acceptance (plays the cinematic intro for brand-new users).
+        // Step 2 — pick a flight info window. Whichever runs last fades the chrome
+        // back in beneath its dismissing modal.
+        if (needLegal) {
+            await runLegalStep(map, { restoreChrome: !needWindow });
+        }
+        if (needWindow) {
+            // Let the legal modal's dismiss transition fully finish before the
+            // window picker fades in — back-to-back overlays used to glitch
+            // into each other on first launch.
+            if (needLegal) await new Promise((r) => setTimeout(r, 420));
+            await runWindowChoiceStep({ restoreChrome: true });
+        }
+    } finally {
+        resolveGate();
     }
 }
 

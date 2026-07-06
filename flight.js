@@ -1726,72 +1726,164 @@ function injectCustomStyles() {
        Desktop: floating bottom-center card, fixed width.
        Mobile:  full-width sheet anchored to the bottom edge with safe-area
                 padding so nothing is hidden under iOS gesture areas. */
+/* ==================== TRIP CARD HUD ====================
+   Spread layout: instead of one tall card, the flight info is
+   distributed around the screen edges in slim glass zones that all
+   share the replay panel's material. On phones the zones stack into
+   a compact bottom drawer. */
 #trip-card-takeover {
     position: fixed;
+    inset: 0;
     z-index: 9999;
     pointer-events: none;
     display: none;
-    font-family: 'Inter', sans-serif;
-    transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    opacity: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
+#trip-card-takeover.active { display: block; }
 
-/* Desktop layout */
-#trip-card-takeover {
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%) translateY(24px);
-    width: 380px;
-    max-width: calc(100vw - 24px);
-}
-#trip-card-takeover.active {
-    display: block;
+.tc-zone {
+    position: absolute;
     pointer-events: auto;
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
+    background: rgba(30, 31, 32, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 14px;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 30px rgba(255, 255, 255, 0.04);
+    color: #ffffff;
+    opacity: 0;
+    transition: opacity 0.28s ease, transform 0.34s cubic-bezier(0.16, 1, 0.3, 1);
 }
+#trip-card-takeover.active .tc-zone { opacity: 1; }
 
-/* Mobile layout — full-width drawer */
-@media (max-width: 640px) {
-    #trip-card-takeover {
-        bottom: 0;
-        left: 0;
-        right: 0;
-        width: 100%;
-        max-width: 100%;
-        transform: translateY(120%);
-        padding: 0 10px;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
-        box-sizing: border-box;
-    }
-    #trip-card-takeover.active {
-        transform: translateY(0);
-    }
+/* --- Top strip: flight identity --- */
+.tc-zone-top {
+    top: 20px;
+    left: 50%;
+    transform: translate(-50%, -14px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 8px 16px;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
 }
-
-.tc-card {
-    background: linear-gradient(180deg, #11141f 0%, #0a0b10 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
+#trip-card-takeover.active .tc-zone-top { transform: translate(-50%, 0); }
+.tc-zone-top > i { color: #ffffff; font-size: 13px; flex-shrink: 0; }
+.tc-callsign {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.04);
+    text-overflow: ellipsis;
+    max-width: 220px;
+    flex-shrink: 0;
 }
-
-.tc-hero {
-    position: relative;
-    width: 100%;
-    height: 150px;
-    background: #0f172a;
+.tc-phase-chip {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #9aa0a6;
+}
+.tc-divider-v {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.18);
+    flex-shrink: 0;
+}
+.tc-pilot {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex-shrink: 1;
 }
-@media (max-width: 640px) {
-    .tc-hero { height: 130px; }
+.tc-ac {
+    color: #9aa0a6;
+    font-size: 11px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 260px;
+    min-width: 0;
 }
+.tc-live-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #e8eaed;
+    flex-shrink: 0;
+}
+.tc-live-chip .tc-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+    animation: tc-pulse 1.5s ease-in-out infinite;
+}
+@keyframes tc-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+.tc-exit-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e8eaed;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 0.8rem;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+.tc-exit-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+.tc-exit-btn:active { transform: scale(0.92); }
 
+/* --- Photo card: bottom-left --- */
+.tc-zone-photo {
+    left: 20px;
+    bottom: 112px;
+    width: 232px;
+    height: 130px;
+    padding: 0;
+    overflow: hidden;
+    transform: translateX(-16px);
+    transition-delay: 60ms;
+}
+#trip-card-takeover.active .tc-zone-photo { transform: translateX(0); }
 .tc-bg-layer {
     position: absolute;
     inset: 0;
-    background-color: #0f172a;
+    background-color: #101113;
     background-size: cover;
     background-position: center;
     transition: background-image 0.5s ease-in-out;
@@ -1799,155 +1891,145 @@ function injectCustomStyles() {
 .tc-hero-gradient {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgba(15,23,42,0.05) 0%, rgba(17,20,31,0.55) 70%, rgba(17,20,31,1) 100%);
+    background: linear-gradient(to bottom, rgba(16, 17, 19, 0) 40%, rgba(16, 17, 19, 0.72) 100%);
     pointer-events: none;
 }
-
-.tc-exit-btn {
+.tc-logo {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 10;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #fff;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.85rem;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    left: 10px;
+    bottom: 10px;
+    height: 20px;
+    width: auto;
+    max-width: 45%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
+    display: none;
 }
-.tc-exit-btn:hover {
-    background: rgba(239, 68, 68, 0.85);
-    border-color: rgba(239, 68, 68, 1);
-}
-.tc-exit-btn:active { transform: scale(0.92); }
-
-.tc-hero-badge {
+.tc-hero-chip {
     position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 10;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    background: rgba(0,0,0,0.55);
+    gap: 5px;
+    padding: 3px 8px;
+    background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #fff;
-    text-transform: uppercase;
-}
-.tc-hero-badge .tc-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #22c55e;
-    box-shadow: 0 0 6px rgba(34,197,94,0.7);
-    animation: tc-pulse 1.5s ease-in-out infinite;
-}
-@keyframes tc-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-}
-
-.tc-body {
-    padding: 16px 18px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.tc-title-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-}
-.tc-callsign {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.35rem;
-    font-weight: 800;
-    color: #fff;
-    margin: 0;
-    line-height: 1.1;
-    letter-spacing: -0.4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.tc-subtitle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.72rem;
-    color: #94a3b8;
-    font-weight: 500;
-    overflow: hidden;
-}
-.tc-pilot {
-    color: #38bdf8;
+    font-size: 9px;
     font-weight: 700;
+    letter-spacing: 0.6px;
+    color: #e8eaed;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-}
-.tc-divider { color: #475569; flex-shrink: 0; }
-.tc-ac {
+    max-width: calc(100% - 20px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
+    box-sizing: border-box;
+}
+.tc-server-chip { top: 8px; left: 8px; }
+.tc-reg-chip { right: 8px; bottom: 8px; }
+
+/* --- Telemetry rail: right edge --- */
+.tc-zone-hud {
+    right: 20px;
+    top: 50%;
+    transform: translate(14px, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    transition-delay: 100ms;
+}
+#trip-card-takeover.active .tc-zone-hud { transform: translate(0, -50%); }
+.tc-hud-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    min-width: 84px;
+}
+.tc-hud-stat label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #9aa0a6;
+    text-transform: uppercase;
+}
+.tc-hud-stat span {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.1;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-hud-stat small {
+    font-size: 9px;
+    color: #9aa0a6;
+    font-weight: 600;
 }
 
-.tc-route {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
+/* --- Bottom dock: route, progress, actions --- */
+.tc-zone-bottom {
+    bottom: 24px;
+    left: 50%;
+    transform: translate(-50%, 16px);
+    width: min(860px, calc(100vw - 32px));
+    display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
+    padding: 12px 18px;
+    box-sizing: border-box;
+    transition-delay: 40ms;
 }
+#trip-card-takeover.active .tc-zone-bottom { transform: translate(-50%, 0); }
 .tc-route-airport {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     min-width: 0;
+    flex-shrink: 0;
 }
-.tc-route-airport-right {
-    align-items: flex-end;
-    text-align: right;
-}
-.tc-route-label {
-    font-size: 0.55rem;
-    color: #64748b;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
+.tc-route-airport-right { align-items: flex-end; text-align: right; }
 .tc-icao {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1.5rem;
+    font-size: 1.35rem;
     font-weight: 800;
-    color: #fff;
+    color: #ffffff;
     line-height: 1;
+    letter-spacing: 0.5px;
 }
-.tc-route-progress { padding: 0 4px; min-width: 60px; }
+.tc-airport-name {
+    font-size: 9px;
+    color: #9aa0a6;
+    font-weight: 600;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tc-progress {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
 .tc-progress-track {
     position: relative;
     width: 100%;
     height: 4px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
     display: flex;
     align-items: center;
 }
@@ -1956,77 +2038,138 @@ function injectCustomStyles() {
     left: 0;
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #38bdf8, #a855f7);
-    border-radius: 2px;
-    box-shadow: 0 0 8px rgba(56,189,248,0.5);
+    background: #ffffff;
+    border-radius: 4px;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
     transition: width 0.6s ease;
 }
 .tc-plane-icon {
     position: absolute;
     left: 0%;
     transform: translateX(-50%);
-    color: #fff;
+    color: #ffffff;
     font-size: 12px;
-    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
     transition: left 0.6s ease;
 }
-
-.tc-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-.tc-stat {
+.tc-progress-meta {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 10px 12px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 10px;
-}
-.tc-stat-label {
-    font-size: 0.55rem;
-    color: #64748b;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-.tc-stat-value {
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 1rem;
-    color: #fff;
-    font-weight: 700;
+    font-size: 10px;
+    font-weight: 600;
+    color: #9aa0a6;
+    white-space: nowrap;
+    overflow: hidden;
 }
-.tc-stat-value .tc-alt { color: #38bdf8; }
-.tc-stat-value .tc-spd { color: #fbbf24; }
-.tc-unit { color: #64748b; font-size: 0.7rem; margin-left: 3px; font-weight: 600; }
-
+.tc-progress-meta > span { flex-shrink: 0; }
+.tc-progress-meta .tc-route-dist { color: #5f6368; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tc-progress-meta .tc-eta { color: #e8eaed; }
+.tc-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.tc-replay-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 14px;
+    height: 36px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.tc-replay-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.tc-replay-btn:active { transform: scale(0.97); }
 .tc-share-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    width: 100%;
-    padding: 12px 20px;
-    background: linear-gradient(135deg, #38bdf8, #a855f7);
-    color: #fff;
-    border: none;
-    border-radius: 12px;
+    gap: 7px;
+    height: 36px;
+    padding: 0 16px;
+    background: #ffffff;
+    color: #1e1f20;
+    border: 1px solid #ffffff;
+    border-radius: 10px;
     cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 700;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.8rem;
+    font-weight: 800;
     letter-spacing: 0.3px;
-    box-shadow: 0 8px 24px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.25s ease;
+    box-shadow: 0 0 14px rgba(255, 255, 255, 0.25);
+    transition: all 0.15s ease;
+    white-space: nowrap;
 }
-.tc-share-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 12px 28px rgba(56,189,248,0.45), inset 0 1px 0 rgba(255,255,255,0.2);
+.tc-share-btn:hover { background: #e8eaed; box-shadow: 0 0 18px rgba(255, 255, 255, 0.35); }
+.tc-share-btn:active { transform: scale(0.98); }
+
+/* --- Phone layout: zones stack into a compact bottom drawer --- */
+@media (max-width: 760px) {
+    #trip-card-takeover.active {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 0 10px calc(env(safe-area-inset-bottom, 0px) + 12px);
+        box-sizing: border-box;
+    }
+    .tc-zone {
+        position: static;
+        transform: none !important;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        transition-delay: 0ms;
+    }
+    .tc-zone-top { order: 1; flex-wrap: wrap; row-gap: 6px; padding: 9px 10px 9px 12px; }
+    /* Force pilot + aircraft onto their own row so the callsign never gets
+       crushed on narrow screens. */
+    .tc-zone-top::before { content: ''; order: 8; flex-basis: 100%; height: 0; }
+    .tc-zone-top .tc-divider-v { display: none; }
+    .tc-zone-top .tc-pilot { order: 9; flex-shrink: 0; max-width: 45%; }
+    .tc-zone-top .tc-ac { order: 10; flex: 1 1 auto; max-width: none; }
+    .tc-zone-photo { order: 2; height: 102px; }
+    .tc-zone-hud {
+        order: 3;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding: 8px;
+    }
+    .tc-hud-stat { min-width: 0; padding: 7px 4px; }
+    .tc-zone-bottom {
+        order: 4;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas:
+            'dep arr'
+            'prog prog'
+            'act act';
+        gap: 10px 14px;
+        padding: 12px 14px;
+    }
+    .tc-zone-bottom .tc-route-airport { grid-area: dep; }
+    .tc-zone-bottom .tc-route-airport-right { grid-area: arr; }
+    .tc-zone-bottom .tc-progress { grid-area: prog; }
+    .tc-zone-bottom .tc-actions { grid-area: act; }
+    .tc-actions .tc-share-btn { flex: 1 1 auto; }
+    .tc-airport-name { max-width: 140px; }
+    .tc-zone-top .tc-callsign { max-width: 40vw; }
 }
-.tc-share-btn:active { transform: translateY(0); }
-.tc-share-btn i { font-size: 0.95rem; }
+/* ================== END TRIP CARD HUD ================== */
 
     .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-row { 
@@ -6802,50 +6945,72 @@ function toggleTripCardMode(active) {
 
     if (active && currentFlightInWindow) {
         takeoverUI.innerHTML = `
-            <div class="tc-card">
-                <div class="tc-hero">
-                    <div class="tc-bg-layer"></div>
-                    <div class="tc-hero-gradient"></div>
-                    <div class="tc-hero-badge"><span class="tc-live-dot"></span> Live</div>
-                    <button class="tc-exit-btn" type="button" aria-label="Close trip card">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
+            <div class="tc-zone tc-zone-top">
+                <i class="fa-solid fa-plane"></i>
+                <span class="tc-callsign">---</span>
+                <span class="tc-phase-chip" data-tc-phase hidden>—</span>
+                <span class="tc-divider-v"></span>
+                <span class="tc-pilot">---</span>
+                <span class="tc-ac">---</span>
+                <span class="tc-live-chip"><span class="tc-live-dot"></span>LIVE</span>
+                <button class="tc-exit-btn" type="button" aria-label="Close trip card">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="tc-zone tc-zone-photo">
+                <div class="tc-bg-layer"></div>
+                <div class="tc-hero-gradient"></div>
+                <span class="tc-hero-chip tc-server-chip" data-tc-server hidden>---</span>
+                <img class="tc-logo" alt="">
+                <span class="tc-hero-chip tc-reg-chip" data-tc-reg hidden>---</span>
+            </div>
+            <div class="tc-zone tc-zone-hud">
+                <div class="tc-hud-stat">
+                    <label>Altitude</label>
+                    <span class="tc-alt">---</span>
+                    <small>ft</small>
                 </div>
-                <div class="tc-body">
-                    <div class="tc-title-row">
-                        <h2 class="tc-callsign">---</h2>
-                        <div class="tc-subtitle">
-                            <span class="tc-pilot">---</span>
-                            <span class="tc-divider">·</span>
-                            <span class="tc-ac">---</span>
-                        </div>
+                <div class="tc-hud-stat">
+                    <label>Speed</label>
+                    <span class="tc-spd">---</span>
+                    <small>kt GS</small>
+                </div>
+                <div class="tc-hud-stat">
+                    <label>V/S</label>
+                    <span class="tc-vs">---</span>
+                    <small>fpm</small>
+                </div>
+                <div class="tc-hud-stat">
+                    <label>Heading</label>
+                    <span class="tc-hdg">---</span>
+                    <small>°</small>
+                </div>
+            </div>
+            <div class="tc-zone tc-zone-bottom">
+                <div class="tc-route-airport">
+                    <span class="tc-icao origin">---</span>
+                    <span class="tc-airport-name" data-tc-dep-name>&nbsp;</span>
+                </div>
+                <div class="tc-progress">
+                    <div class="tc-progress-track">
+                        <div class="tc-progress-bar"></div>
+                        <i class="fa-solid fa-plane tc-plane-icon"></i>
                     </div>
-                    <div class="tc-route">
-                        <div class="tc-route-airport">
-                            <span class="tc-route-label">From</span>
-                            <span class="tc-icao origin">---</span>
-                        </div>
-                        <div class="tc-route-progress">
-                            <div class="tc-progress-track">
-                                <div class="tc-progress-bar"></div>
-                                <i class="fa-solid fa-plane tc-plane-icon"></i>
-                            </div>
-                        </div>
-                        <div class="tc-route-airport tc-route-airport-right">
-                            <span class="tc-route-label">To</span>
-                            <span class="tc-icao destination">---</span>
-                        </div>
+                    <div class="tc-progress-meta">
+                        <span data-tc-flown>—</span>
+                        <span class="tc-route-dist" data-tc-route-dist></span>
+                        <span class="tc-eta" data-tc-eta>—</span>
                     </div>
-                    <div class="tc-stats">
-                        <div class="tc-stat">
-                            <span class="tc-stat-label">Altitude</span>
-                            <span class="tc-stat-value"><span class="tc-alt">---</span><span class="tc-unit">ft</span></span>
-                        </div>
-                        <div class="tc-stat">
-                            <span class="tc-stat-label">Speed</span>
-                            <span class="tc-stat-value"><span class="tc-spd">---</span><span class="tc-unit">kt</span></span>
-                        </div>
-                    </div>
+                </div>
+                <div class="tc-route-airport tc-route-airport-right">
+                    <span class="tc-icao destination">---</span>
+                    <span class="tc-airport-name" data-tc-arr-name>&nbsp;</span>
+                </div>
+                <div class="tc-actions">
+                    <button class="tc-replay-btn" type="button" title="Replay this flight so far">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                        <span>Replay</span>
+                    </button>
                     <button class="tc-share-btn" type="button" title="Share this flight">
                         <i class="fa-solid fa-share-nodes"></i>
                         <span class="tc-share-btn-label">Share Flight</span>
@@ -6856,6 +7021,20 @@ function toggleTripCardMode(active) {
 
         takeoverUI.querySelector('.tc-share-btn')?.addEventListener('click', () => {
             shareCurrentFlight(takeoverUI.querySelector('.tc-share-btn'));
+        });
+
+        // Hand off to the replay panel this card is styled after: dismiss the
+        // card quietly (without re-opening the flight info window underneath)
+        // and bring it back when the replay closes.
+        takeoverUI.querySelector('.tc-replay-btn')?.addEventListener('click', () => {
+            const flightIdForReplay = currentFlightInWindow;
+            takeoverUI.classList.remove('active');
+            if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+            openFlightReplayById(flightIdForReplay, {}, {
+                onClose: () => {
+                    if (currentFlightInWindow === flightIdForReplay) toggleTripCardMode(true);
+                }
+            });
         });
 
         takeoverUI.querySelector('.tc-exit-btn')?.addEventListener('click', () => {
@@ -6893,10 +7072,140 @@ function toggleTripCardMode(active) {
 
 window.toggleTripCardMode = toggleTripCardMode;
 
+// Canonical web origin for share links. Inside the native Capacitor builds
+// window.location.origin is capacitor://localhost — links built from that are
+// dead for recipients — so anything that isn't a real http(s) origin falls
+// back to the production domain.
+function getShareOrigin() {
+    try {
+        const loc = (typeof window !== 'undefined') ? window.location : null;
+        if (loc && /^https?:$/.test(loc.protocol) && loc.origin) return loc.origin;
+    } catch (_) { /* fall through */ }
+    return 'https://inflight.info';
+}
+
+// --- LINK-ONLY SHARING ---
+// The share link is entirely self-contained: a direct app URL carrying the
+// flightId plus a compact base64url snapshot of the flight (?flight&server&s).
+// No serverless function, no storage, no live-feed lookup in the middle —
+// the recipient's app decodes the snapshot from the URL and opens the flight
+// window instantly, then the live feed takes over. If the flight has since
+// ended, the app falls back to opening the recorded map replay by flightId.
+
+function b64uEncode(obj) {
+    const bytes = new TextEncoder().encode(JSON.stringify(obj));
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64uDecode(str) {
+    try {
+        const bin = atob(String(str).replace(/-/g, '+').replace(/_/g, '/'));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (_) {
+        return null;
+    }
+}
+
+// Compact snapshot embedded in the share URL. Short keys keep the link small
+// (~250-350 chars total).
+function buildShareUrlSnapshot(flightId) {
+    const feature = currentMapFeatures[flightId];
+    const props = feature?.properties;
+    if (!props) return null;
+
+    const parseMaybe = (v) => {
+        if (typeof v !== 'string') return v || null;
+        try { return JSON.parse(v); } catch (_) { return null; }
+    };
+    const position = parseMaybe(props.position) || {};
+    const aircraft = parseMaybe(props.aircraft) || {};
+
+    const snap = {
+        v: 1,
+        t: Date.now(),
+        c: props.callsign || null,
+        u: props.username || null,
+        vo: props.virtualOrgName || null,
+        d: props.departureIcao || null,
+        a: props.arrivalIcao || null,
+        ac: aircraft.aircraftName || props.aircraftName || null,
+        lv: aircraft.liveryName || props.liveryName || null,
+        rg: aircraft.registration || props.registration || null,
+        uid: props.userId || null,
+        st: props.isStaff ? 1 : 0,
+        va: props.isVAMember ? 1 : 0,
+        ps: (props.pilotState ?? null),
+        img: props.communityImageUrl || null
+    };
+    const lat = position.lat ?? position.latitude;
+    const lon = position.lon ?? position.longitude;
+    if (typeof lat === 'number' && typeof lon === 'number') {
+        // Trim precision — 4 dp is ~11 m, plenty for an opening camera fix.
+        snap.p = [
+            +lat.toFixed(4), +lon.toFixed(4),
+            Math.round(position.alt_ft || 0), Math.round(position.gs_kt || 0),
+            Math.round(position.vs_fpm || 0), Math.round(position.heading_deg || 0)
+        ];
+    }
+    // Drop nulls to keep the payload tight.
+    Object.keys(snap).forEach(k => { if (snap[k] === null) delete snap[k]; });
+    return snap;
+}
+
+// Expands the compact URL snapshot back into the same payload shape the
+// share-window opener (buildSyntheticFeature & co.) consumes.
+function expandShareUrlSnapshot(snap, flightId) {
+    if (!snap || typeof snap !== 'object') return null;
+    const p = Array.isArray(snap.p) && snap.p.length >= 2 ? snap.p : null;
+    return {
+        flightId,
+        serverName: '',
+        capturedAt: (typeof snap.t === 'number') ? snap.t : Date.now(),
+        communityImageUrl: (typeof snap.img === 'string' && /^https?:\/\//i.test(snap.img)) ? snap.img : null,
+        flight: {
+            flightId,
+            callsign: snap.c || null,
+            username: snap.u || null,
+            virtualOrgName: snap.vo || null,
+            departureIcao: snap.d || null,
+            arrivalIcao: snap.a || null,
+            aircraftName: snap.ac || null,
+            liveryName: snap.lv || null,
+            registration: snap.rg || null,
+            userId: snap.uid || null,
+            isStaff: !!snap.st,
+            isVAMember: !!snap.va,
+            pilotState: snap.ps ?? null,
+            position: p ? {
+                lat: p[0], lon: p[1],
+                alt_ft: p[2] || 0, gs_kt: p[3] || 0,
+                vs_fpm: p[4] || 0, heading_deg: p[5] || 0
+            } : null,
+            aircraft: {
+                aircraftName: snap.ac || null,
+                liveryName: snap.lv || null,
+                registration: snap.rg || null
+            }
+        }
+    };
+}
+
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
-    const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
-    return `${origin}/share/${encodeURIComponent(flightId)}`;
+    const params = new URLSearchParams();
+    params.set('flight', flightId);
+    if (typeof currentServerName !== 'undefined' && currentServerName) {
+        params.set('server', currentServerName);
+    }
+    try {
+        const snap = buildShareUrlSnapshot(flightId);
+        if (snap) params.set('s', b64uEncode(snap));
+    } catch (_) { /* link still works with just the flightId */ }
+    return `${getShareOrigin()}/?${params.toString()}`;
 }
 
 async function shareCurrentFlight(triggerBtn = null) {
@@ -7086,26 +7395,68 @@ function dismissShareLoadingOverlay() {
     setTimeout(() => { try { overlay.remove(); } catch (_) {} }, 220);
 }
 
+// First-run gate coordination. The onboarding gate (legal acceptance + window
+// choice) hides all chrome and blocks interaction, so anything that auto-opens
+// UI on landing must wait for it to finish — otherwise the shared flight opens
+// invisibly behind the modal and the search budget expires while the user is
+// still reading the Terms. firstRunExperience.js publishes the promise; boot
+// creates it a beat after we run, hence the short poll. Returning users
+// resolve instantly.
+async function waitForFirstRunGate({ pollMs = 30000, gateMs = 10 * 60 * 1000 } = {}) {
+    try {
+        const started = Date.now();
+        while (!window.__inflightFirstRunPromise && Date.now() - started < pollMs) {
+            await new Promise(r => setTimeout(r, 150));
+        }
+        if (window.__inflightFirstRunPromise) {
+            await Promise.race([
+                window.__inflightFirstRunPromise,
+                new Promise(r => setTimeout(r, gateMs))
+            ]);
+        }
+    } catch (_) { /* never block the arrival flow on gate errors */ }
+}
+
 async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
     let params;
     try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
     const flightId = params.get('flight');
     let sharedServer = params.get('server');
+    const urlSnapshotParam = params.get('s');
 
-    // Load any sessionStorage handoff the share function dropped for us.
+    // Payload sources, newest scheme first:
+    //   1. ?s=<base64url snapshot> — link-only sharing, embedded in the URL.
+    //   2. sessionStorage handoff — legacy /share/<id> function pages.
     let sharePayload = null;
+    let stalePayload = null;
+    let payloadIsStale = false;
+    if (flightId && urlSnapshotParam) {
+        const expanded = expandShareUrlSnapshot(b64uDecode(urlSnapshotParam), flightId);
+        if (expanded) {
+            if (Date.now() - expanded.capturedAt < 10 * 60 * 1000) {
+                sharePayload = expanded;
+            } else {
+                // Old link — the snapshot is too stale to present as live, but
+                // it tells us the flight almost certainly ended: shorten the
+                // live search, go to the replay sooner, and keep the meta so
+                // the replay HUD can still label the flight.
+                payloadIsStale = true;
+                stalePayload = expanded;
+            }
+        }
+    }
     try {
         const raw = sessionStorage.getItem('inflight_share_payload');
         if (raw) {
             const parsed = JSON.parse(raw);
             // Only honour payloads recent enough to plausibly still be live,
             // and only for the flight we actually navigated to.
-            if (parsed && (!flightId || parsed.flightId === flightId) &&
+            if (!sharePayload && parsed && (!flightId || parsed.flightId === flightId) &&
                 (!parsed.capturedAt || Date.now() - parsed.capturedAt < 10 * 60 * 1000)) {
                 sharePayload = parsed;
-                if (!sharedServer && parsed.serverName) sharedServer = parsed.serverName;
             }
+            if (sharePayload && !sharedServer && sharePayload.serverName) sharedServer = sharePayload.serverName;
             sessionStorage.removeItem('inflight_share_payload');
         }
     } catch (_) { /* private mode etc */ }
@@ -7126,10 +7477,17 @@ async function consumeShareLinkParam() {
     try {
         params.delete('flight');
         params.delete('server');
+        params.delete('s');
         const newQuery = params.toString();
         const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);
     } catch (_) { /* non-fatal */ }
+
+    // First-time visitors must clear the onboarding gate (legal + window
+    // choice) before we open anything: the gate hides all chrome, so a window
+    // opened under it is invisible, and our search budget would burn out
+    // behind the modal. Returning users pass through instantly.
+    await waitForFirstRunGate();
 
     // A pending payload means the share function couldn't confirm the flight
     // server-side. We still know the flightId — keep searching client-side.
@@ -7189,7 +7547,8 @@ async function consumeShareLinkParam() {
     // Wait briefly for the DOM bits handleAircraftClick depends on. We don't
     // want to fire it before #aircraft-info-window exists.
     const waitForUi = async () => {
-        for (let i = 0; i < 50; i++) { // ~5s budget
+        for (let i = 0; i < 150; i++) { // ~15s budget — first boot on a cold
+            // cache (fonts, mapbox, sprites) can take well over the old 5s.
             if (document.getElementById('aircraft-info-window')) return;
             await new Promise(r => setTimeout(r, 100));
         }
@@ -7270,7 +7629,9 @@ async function consumeShareLinkParam() {
     //    the socket and REST are both lagging.
     const POLL_INTERVAL_MS = 500;
     const REST_RETRY_INTERVAL_MS = 4000;
-    const TOTAL_BUDGET_MS = 60000;
+    // A stale URL snapshot means the flight almost certainly ended — don't
+    // make the user watch a spinner for a minute before the replay fallback.
+    const TOTAL_BUDGET_MS = payloadIsStale ? 15000 : 45000;
     const startedAt = Date.now();
     let lastRestAttemptAt = Date.now();
     let progressed = false;
@@ -7319,24 +7680,186 @@ async function consumeShareLinkParam() {
         }
     }
 
-    // Only warn if we genuinely couldn't open anything. If the snapshot
-    // already put the window up, the user is looking at the flight — don't
-    // contradict that with a "flight ended" toast.
+    // Flight isn't live anymore (or never surfaced). Before giving up, try
+    // the recorded map replay — the backend keeps flight history after the
+    // flight ends, so the share link still delivers something real.
     if (!opened) {
+        showShareLoadingOverlay();
+        updateShareLoadingOverlay('Flight ended', 'Loading the flight replay…');
+        let replayed = false;
+        try {
+            const f = (sharePayload || stalePayload)?.flight || {};
+            replayed = await openFlightReplayById(effectiveFlightId, {
+                callsign: f.callsign || '',
+                depIcao: f.departureIcao || '',
+                arrIcao: f.arrivalIcao || '',
+                aircraftName: f.aircraftName || ''
+            });
+        } catch (err) {
+            console.warn('consumeShareLinkParam: replay fallback failed', err);
+        }
         dismissShareLoadingOverlay();
-        if (typeof showNotification === 'function') {
+        if (!replayed && typeof showNotification === 'function') {
             showNotification("Couldn't load this flight — the pilot may have signed off.", 'warning');
         }
     }
 }
 
+// --- FLIGHT REPLAY BY ID ---
+// Opens the map replay for any flight the backend still has history for —
+// no live flight, feature, or open info window required. Used by replay
+// share links (?replay=<id>) below and by topWatchedUsers.js podium clicks.
+async function openFlightReplayById(flightId, meta = {}, opts = {}) {
+    if (!flightId) return false;
+
+    // Wait for the map to exist — replay links land here straight from boot.
+    for (let i = 0; i < 300 && (typeof sectorOpsMap === 'undefined' || !sectorOpsMap); i++) {
+        await new Promise(r => setTimeout(r, 100));
+    }
+    if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) {
+        console.warn('openFlightReplayById: map never became ready');
+        return false;
+    }
+
+    const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+    const preloaded = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+
+    // If the flight happens to be live on the map, enrich the meta from it.
+    const feature = currentMapFeatures[flightId];
+    const props = feature?.properties || {};
+    const acName = (typeof props.aircraft === 'string'
+        ? (() => { try { return JSON.parse(props.aircraft).aircraftName; } catch { return ''; } })()
+        : props.aircraft?.aircraftName) || props.aircraftName || meta.aircraftName || '';
+
+    // The replay panel docks bottom-center; tuck the landing chrome and the
+    // floating toolbar out of its way and restore both when it closes.
+    LandingUI.update(false);
+    const toolbarToggleBtnEl = document.getElementById('toolbar-toggle-panel-btn');
+    const toolbarRow = toolbarToggleBtnEl ? toolbarToggleBtnEl.parentElement : null;
+    let prevToolbarDisplay = null;
+    if (toolbarRow) {
+        prevToolbarDisplay = toolbarRow.style.display;
+        toolbarRow.style.display = 'none';
+    }
+
+    const opened = await FlightReplay.open({
+        map: sectorOpsMap,
+        flightId,
+        points: preloaded,
+        meta: {
+            callsign: meta.callsign || props.callsign || '',
+            depIcao: meta.depIcao || props.departureIcao || '',
+            arrIcao: meta.arrIcao || props.arrivalIcao || '',
+            category: props.category || 'B777',
+            aircraftName: acName
+        },
+        historyUrl,
+        onClose: () => {
+            if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+            LandingUI.update(true, {
+                server: currentServerName,
+                flights: Object.keys(currentMapFeatures).length || 0,
+                atc: activeAtcFacilities.length || 0
+            });
+            // Caller-supplied hook (e.g. the trip card re-opening itself).
+            try { opts.onClose?.(); } catch (_) { /* non-fatal */ }
+        }
+    });
+    if (!opened && toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+    if (!opened) LandingUI.update(true, { server: currentServerName, flights: Object.keys(currentMapFeatures).length || 0, atc: activeAtcFacilities.length || 0 });
+    return opened;
+}
+window.openFlightReplayById = openFlightReplayById;
+
+// --- INCOMING REPLAY LINK (?replay=<flightId>) ---
+// The share page's "Watch Flight Replay" button lands here once a shared
+// flight has ended. The share page stashes a small meta payload in
+// sessionStorage so the replay HUD can show callsign/route immediately.
+async function consumeReplayLinkParam() {
+    if (typeof window === 'undefined' || !window.location) return;
+    let params;
+    try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
+    const replayFlightId = params.get('replay');
+
+    let replayPayload = null;
+    try {
+        const raw = sessionStorage.getItem('inflight_replay_payload');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && (!replayFlightId || parsed.flightId === replayFlightId)) replayPayload = parsed;
+            sessionStorage.removeItem('inflight_replay_payload');
+        }
+    } catch (_) { /* private mode etc */ }
+
+    const effectiveFlightId = replayFlightId || replayPayload?.flightId;
+    if (!effectiveFlightId) return;
+
+    // Same boot-race protections as share links: kill the splash if it beat
+    // us here, clean the URL, and wait out the first-run gate.
+    try {
+        const proOverlay = document.getElementById('inflight-pro-loader-overlay');
+        if (proOverlay) proOverlay.remove();
+    } catch (_) { /* non-fatal */ }
+    try {
+        params.delete('replay');
+        const newQuery = params.toString();
+        const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
+        window.history.replaceState({}, '', newUrl);
+    } catch (_) { /* non-fatal */ }
+
+    await waitForFirstRunGate();
+
+    showShareLoadingOverlay();
+    updateShareLoadingOverlay('Loading flight replay…', 'Fetching the recorded flight path.');
+    try {
+        const opened = await openFlightReplayById(effectiveFlightId, replayPayload?.meta || {});
+        dismissShareLoadingOverlay();
+        if (!opened && typeof showNotification === 'function') {
+            showNotification('Replay data for this flight is no longer available.', 'warning');
+        }
+    } catch (err) {
+        console.warn('consumeReplayLinkParam: failed', err);
+        dismissShareLoadingOverlay();
+        if (typeof showNotification === 'function') {
+            showNotification('Could not load the flight replay.', 'error');
+        }
+    }
+}
+
 if (typeof window !== 'undefined') {
+    const consumeArrivalParams = () => {
+        consumeShareLinkParam();
+        consumeReplayLinkParam();
+    };
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         // Defer one tick so the rest of the bootstrap finishes wiring.
-        setTimeout(consumeShareLinkParam, 0);
+        setTimeout(consumeArrivalParams, 0);
     } else {
-        window.addEventListener('load', () => setTimeout(consumeShareLinkParam, 0), { once: true });
+        window.addEventListener('load', () => setTimeout(consumeArrivalParams, 0), { once: true });
     }
+}
+
+// Altitude → color, same stops the replay's telemetry chart uses
+// (sky blue → teal → lime → amber → rose as the flight climbs).
+function tripCardAltColor(altFt) {
+    const a = Math.max(0, altFt || 0);
+    if (a < 5000) return '#38bdf8';
+    if (a < 15000) return '#2dd4bf';
+    if (a < 25000) return '#a3e635';
+    if (a < 38000) return '#facc15';
+    return '#f43f5e';
+}
+
+// Coarse phase-of-flight read from live telemetry, for the header chip.
+function tripCardPhase(pos) {
+    const gs = pos.gs_kt || 0;
+    const vs = pos.vs_fpm || 0;
+    const alt = pos.alt_ft || 0;
+    if (gs < 40) return { label: 'On Ground', color: '#9aa0a6' };
+    if (vs > 300) return { label: 'Climbing', color: '#a3e635' };
+    if (vs < -300) return { label: 'Descending', color: '#facc15' };
+    if (alt > 18000) return { label: 'Cruise', color: '#38bdf8' };
+    return { label: 'En Route', color: '#e8eaed' };
 }
 
 function updateTripCardRealtime() {
@@ -7348,7 +7871,7 @@ function updateTripCardRealtime() {
     const ui = document.getElementById('trip-card-takeover');
     if (!ui) return;
 
-    // Apply Background Image to the card layer directly
+    // Hero photo (community aircraft image with the default plane fallback).
     const bgLayer = ui.querySelector('.tc-bg-layer');
     if (bgLayer) {
         const fallbackImg = '/CommunityPlanes/default.png';
@@ -7360,45 +7883,128 @@ function updateTripCardRealtime() {
     }
 
     ui.querySelector('.tc-callsign').textContent = props.callsign || 'N/A';
-    ui.querySelector('.tc-pilot').textContent = (props.username || 'Unknown').toUpperCase();
-    ui.querySelector('.tc-alt').textContent = Math.round(pos.alt_ft || 0).toLocaleString();
-    ui.querySelector('.tc-spd').textContent = Math.round(pos.gs_kt || 0).toString();
-    
+    ui.querySelector('.tc-pilot').textContent = props.username || 'Unknown';
+
     const acData = (typeof props.aircraft === 'string') ? JSON.parse(props.aircraft || '{}') : (props.aircraft || {});
     const acName = acData.aircraftName || props.aircraftName || 'Unknown Type';
     const livName = acData.liveryName || props.liveryName || '';
-    
-    ui.querySelector('.tc-ac').textContent = `${acName} • ${livName}`;
+    ui.querySelector('.tc-ac').textContent = livName ? `${acName} · ${livName}` : acName;
 
+    // Header phase chip.
+    const phase = tripCardPhase(pos);
+    const phaseChip = ui.querySelector('[data-tc-phase]');
+    if (phaseChip) {
+        phaseChip.hidden = false;
+        phaseChip.textContent = phase.label;
+        phaseChip.style.color = phase.color;
+    }
+
+    // Hero chips: server + registration.
+    const serverChip = ui.querySelector('[data-tc-server]');
+    if (serverChip && typeof currentServerName !== 'undefined' && currentServerName) {
+        serverChip.hidden = false;
+        serverChip.textContent = currentServerName;
+    }
+    const regChip = ui.querySelector('[data-tc-reg]');
+    const registration = acData.registration || props.registration || '';
+    if (regChip) {
+        regChip.hidden = !registration;
+        if (registration) regChip.textContent = registration;
+    }
+
+    // Telemetry HUD (altitude color-coded like the replay chart).
+    const altEl = ui.querySelector('.tc-alt');
+    if (altEl) {
+        altEl.textContent = Math.round(pos.alt_ft || 0).toLocaleString();
+        altEl.style.color = tripCardAltColor(pos.alt_ft);
+    }
+    const spdEl = ui.querySelector('.tc-spd');
+    if (spdEl) spdEl.textContent = Math.round(pos.gs_kt || 0).toString();
+    const vsEl = ui.querySelector('.tc-vs');
+    if (vsEl) {
+        const vs = Math.round(pos.vs_fpm || 0);
+        if (vs > 100) {
+            vsEl.textContent = `▲${Math.abs(vs).toLocaleString()}`;
+            vsEl.style.color = '#a3e635';
+        } else if (vs < -100) {
+            vsEl.textContent = `▼${Math.abs(vs).toLocaleString()}`;
+            vsEl.style.color = '#facc15';
+        } else {
+            vsEl.textContent = '0';
+            vsEl.style.color = '#9aa0a6';
+        }
+    }
+    const hdgEl = ui.querySelector('.tc-hdg');
+    if (hdgEl) {
+        const hdg = Math.round(pos.heading_deg || 0);
+        hdgEl.textContent = String(((hdg % 360) + 360) % 360).padStart(3, '0');
+    }
+
+    // Route: ICAOs + airport names.
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
     ui.querySelector('.tc-icao.origin').textContent = dep;
     ui.querySelector('.tc-icao.destination').textContent = arr;
+    const depData = (dep !== '???' && typeof airportsData !== 'undefined') ? airportsData[dep] : null;
+    const arrData = (arr !== '???' && typeof airportsData !== 'undefined') ? airportsData[arr] : null;
+    const depNameEl = ui.querySelector('[data-tc-dep-name]');
+    if (depNameEl) depNameEl.textContent = depData?.name || ' ';
+    const arrNameEl = ui.querySelector('[data-tc-arr-name]');
+    if (arrNameEl) arrNameEl.textContent = arrData?.name || ' ';
 
-    // Route Progress Bar Logic
+    // Progress + distance/time estimates.
+    const KM_PER_NM = 1.852;
     let progressPercent = 0;
-    if (dep !== '???' && arr !== '???') {
-        const depData = typeof airportsData !== 'undefined' ? airportsData[dep] : null;
-        const arrData = typeof airportsData !== 'undefined' ? airportsData[arr] : null;
-        if (depData && arrData && pos.lat) {
-            try {
-                const totalDist = typeof getDistanceKm === 'function' ? getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon) : 0;
-                const remainingDist = typeof getDistanceKm === 'function' ? getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon) : 0;
-                if (totalDist > 0) {
-                    progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
-                }
-            } catch(err) {}
-        }
+    let totalNm = 0;
+    let remainingNm = 0;
+    if (depData && arrData && pos.lat != null && typeof getDistanceKm === 'function') {
+        try {
+            const totalKm = getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon);
+            const remainingKm = getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon);
+            if (totalKm > 0) {
+                totalNm = totalKm / KM_PER_NM;
+                remainingNm = Math.max(0, remainingKm / KM_PER_NM);
+                progressPercent = Math.max(0, Math.min(100, (1 - remainingKm / totalKm) * 100));
+            }
+        } catch (_) { /* leave defaults */ }
     }
-    
+
     const displayPercent = Math.max(0, Math.min(100, progressPercent));
     const progressBar = ui.querySelector('.tc-progress-bar');
     const planeIcon = ui.querySelector('.tc-plane-icon');
-    
     if (progressBar) progressBar.style.width = `${displayPercent}%`;
     if (planeIcon) planeIcon.style.left = `${displayPercent}%`;
 
-    // Airline Logo Handling
+    const routeDistEl = ui.querySelector('[data-tc-route-dist]');
+    if (routeDistEl) routeDistEl.textContent = totalNm > 0 ? `${Math.round(totalNm).toLocaleString()} nm total` : '';
+
+    const flownEl = ui.querySelector('[data-tc-flown]');
+    if (flownEl) {
+        flownEl.textContent = totalNm > 0
+            ? `${Math.round(displayPercent)}% · ${Math.round(remainingNm).toLocaleString()} nm left`
+            : '—';
+    }
+
+    // ETE/ETA from current ground speed (only meaningful once airborne and
+    // actually making progress toward the arrival).
+    const etaEl = ui.querySelector('[data-tc-eta]');
+    if (etaEl) {
+        const gs = pos.gs_kt || 0;
+        if (remainingNm > 1 && gs > 50) {
+            const eteMin = Math.round((remainingNm / gs) * 60);
+            const h = Math.floor(eteMin / 60);
+            const m = eteMin % 60;
+            const ete = h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+            const etaDate = new Date(Date.now() + eteMin * 60000);
+            const etaZ = `${String(etaDate.getUTCHours()).padStart(2, '0')}:${String(etaDate.getUTCMinutes()).padStart(2, '0')}Z`;
+            etaEl.textContent = `${ete} · ETA ${etaZ}`;
+        } else {
+            etaEl.textContent = remainingNm <= 1 && totalNm > 0 ? 'Arrived' : '—';
+        }
+    }
+
+    // Airline logo over the hero (derived from the livery name; hides itself
+    // when no matching asset exists).
     const words = livName.trim().split(/\s+/);
     let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
     const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
@@ -17913,6 +18519,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 // can open and tear down a real flight info window through the normal app path.
 if (typeof window !== 'undefined') {
     window.handleAircraftClick = handleAircraftClick;
+    // Read-only view of the live flight cache for non-module scripts (the
+    // Partners tab uses it to show each VA's live fleet).
+    window.getLiveMapFeatures = () => currentMapFeatures;
     window.closeAircraftWindow = closeAircraftWindow;
 }
 

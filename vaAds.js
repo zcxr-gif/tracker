@@ -585,8 +585,218 @@
             .va-ad-back {
                 background: none; border: none; color: #7dd3fc; cursor: pointer; font-weight: 700;
                 font-size: 0.82rem; padding: 0; margin-bottom: 8px; display: inline-flex; gap: 6px; align-items: center;
+            }
+
+            /* ---- Fleet-style partner detail ---- */
+            .va-detail-head { display: flex; align-items: center; gap: 14px; margin-top: 14px; min-width: 0; }
+            .va-detail-head .va-ad-logo { width: 52px; height: 52px; border-radius: 12px; }
+            .va-detail-titles { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+            .va-detail-titles h3 { margin: 0; color: #fff; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; }
+            .va-detail-subrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .va-code-chip {
+                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-size: 0.68rem; font-weight: 800; letter-spacing: 0.6px;
+                padding: 3px 9px; border-radius: 7px;
+                background: rgba(168, 85, 247, 0.22); color: #d8b4fe;
+                border: 1px solid rgba(168, 85, 247, 0.45);
+                text-transform: uppercase;
+            }
+            .va-stat-row {
+                display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: 8px; margin-top: 14px;
+            }
+            .va-stat-tile {
+                display: flex; flex-direction: column; gap: 4px;
+                padding: 11px 12px; border-radius: 12px;
+                background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.08);
+                min-width: 0;
+            }
+            .va-stat-tile label {
+                font-size: 0.58rem; font-weight: 800; letter-spacing: 0.9px;
+                text-transform: uppercase; color: rgba(255,255,255,0.45);
+            }
+            .va-stat-tile span {
+                font-size: 0.88rem; font-weight: 700; color: #fff;
+                display: flex; align-items: center; gap: 7px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .va-stat-tile span i { color: #7dd3fc; font-size: 0.8rem; flex-shrink: 0; }
+            .va-stat-tile .va-stat-live { color: #4ade80; }
+
+            .va-fleet-title {
+                display: flex; align-items: baseline; gap: 9px; margin: 22px 0 10px;
+            }
+            .va-fleet-title h4 { margin: 0; color: #fff; font-size: 1.02rem; font-weight: 800; }
+            .va-fleet-title .va-fleet-count {
+                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-size: 0.72rem; font-weight: 700; color: #4ade80;
+            }
+            .va-fleet-grid {
+                display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                gap: 12px;
+            }
+            .va-fleet-card {
+                border-radius: 14px; overflow: hidden; cursor: pointer;
+                background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.08);
+                transition: border-color .15s ease, transform .15s ease;
+            }
+            .va-fleet-card:hover { border-color: rgba(56,189,248,0.45); transform: translateY(-2px); }
+            .va-fleet-img {
+                position: relative; aspect-ratio: 16 / 8.4;
+                background-color: #0c0e12; background-size: cover; background-position: center;
+            }
+            .va-fleet-img::after {
+                content: ''; position: absolute; inset: 0; pointer-events: none;
+                background: linear-gradient(to bottom, rgba(12,14,18,0) 55%, rgba(12,14,18,0.78) 100%);
+            }
+            .va-fleet-chip {
+                position: absolute; z-index: 1;
+                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-size: 0.62rem; font-weight: 700; letter-spacing: 0.5px;
+                padding: 3px 8px; border-radius: 999px;
+                background: rgba(0, 0, 0, 0.6); color: #e8eaed;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+                max-width: calc(100% - 18px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                box-sizing: border-box;
+            }
+            .va-fleet-callsign { top: 9px; left: 9px; }
+            .va-fleet-route { bottom: 9px; right: 9px; }
+            .va-fleet-route .va-fleet-arrow { color: #7dd3fc; }
+            .va-fleet-stats {
+                display: grid; grid-template-columns: 1.3fr 1fr;
+                gap: 1px; background: rgba(255,255,255,0.06);
+            }
+            .va-fleet-stat {
+                display: flex; flex-direction: column; gap: 3px;
+                padding: 9px 12px; background: #101216; min-width: 0;
+            }
+            .va-fleet-stat label {
+                font-size: 0.54rem; font-weight: 800; letter-spacing: 0.8px;
+                text-transform: uppercase; color: rgba(255,255,255,0.42);
+            }
+            .va-fleet-stat span {
+                font-size: 0.76rem; font-weight: 700; color: #fff;
+                display: flex; align-items: center; gap: 6px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .va-fleet-stat span i { color: #7dd3fc; font-size: 0.68rem; flex-shrink: 0; }
+            .va-fleet-empty {
+                border: 1px dashed rgba(255,255,255,0.14); border-radius: 14px;
+                padding: 26px 14px; text-align: center; color: rgba(255,255,255,0.5);
+                font-size: 0.84rem;
+            }
+            .va-fleet-empty i { display: block; font-size: 1.3rem; margin-bottom: 8px; color: rgba(255,255,255,0.3); }
+            .va-ad-pill.va-ad-pill-live {
+                background: rgba(56,189,248,0.14); color: #7dd3fc; border-color: rgba(56,189,248,0.4);
             }`;
         document.head.appendChild(style);
+    }
+
+    // ---------------------------------------------------------------------
+    // Live fleet (partner aircraft currently in the air)
+    // ---------------------------------------------------------------------
+
+    const AC_LOOKUP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/aircraft/lookup';
+    const GENERIC_PLANE_IMG = '/CommunityPlanes/default.png';
+    const acImageCache = new Map();
+
+    // Community photo for a type+livery; falls back to the type's Generic
+    // livery, then the bundled default plane art. Cached per combination.
+    async function aircraftImage(type, livery) {
+        const key = `${type || ''}|${livery || ''}`;
+        if (acImageCache.has(key)) return acImageCache.get(key);
+        const promise = (async () => {
+            const liveries = [livery, 'Generic'].filter(Boolean);
+            for (const liv of liveries) {
+                if (!type) break;
+                try {
+                    let data = await getJSON(`${AC_LOOKUP_URL}?type=${encodeURIComponent(type)}&livery=${encodeURIComponent(liv)}`);
+                    if (Array.isArray(data)) data = data[0];
+                    const url = String((data && (data.imageUrl || (Array.isArray(data.imageUrls) && data.imageUrls[0]))) || '').trim();
+                    // https or same-origin paths only — never javascript: etc.
+                    if (/^https:\/\//i.test(url) || /^\//.test(url)) return url;
+                } catch (e) { /* try the next livery */ }
+            }
+            return GENERIC_PLANE_IMG;
+        })();
+        acImageCache.set(key, promise);
+        return promise;
+    }
+
+    function parseMaybeJSON(v) {
+        if (typeof v !== 'string') return v || null;
+        try { return JSON.parse(v); } catch (e) { return null; }
+    }
+
+    // All live flights on the map (flight.js exposes a read-only getter).
+    function liveFeatures() {
+        try {
+            const feats = typeof window.getLiveMapFeatures === 'function' ? window.getLiveMapFeatures() : null;
+            return feats && typeof feats === 'object' ? Object.values(feats) : [];
+        } catch (e) { return []; }
+    }
+
+    // The VA's aircraft currently in the air, newest-ish first, capped.
+    // Members only, embed-style: the callsign must both match the VA's airline
+    // name AND carry the VA's membership tag ("Indonesia 77GG" counts for a
+    // GG-tagged VA, a plain "Indonesia 77" does not).
+    function liveFleetFor(ad, cap) {
+        const out = [];
+        for (const f of liveFeatures()) {
+            const props = f && f.properties;
+            if (!props || !props.callsign) continue;
+            const hit = matchCallsign(props.callsign);
+            if (!hit || String(hit.id) !== String(ad.id)) continue;
+            if (!isCallsignMember(props.callsign, hit)) continue;
+            const acData = parseMaybeJSON(props.aircraft) || {};
+            const pos = parseMaybeJSON(props.position) || {};
+            out.push({
+                props,
+                callsign: props.callsign,
+                username: props.username || '',
+                type: acData.aircraftName || props.aircraftName || '',
+                livery: acData.liveryName || props.liveryName || '',
+                registration: acData.registration || props.registration || '',
+                dep: props.departureIcao || '???',
+                arr: props.arrivalIcao || '???',
+                altFt: Math.round(pos.alt_ft || 0),
+                gsKt: Math.round(pos.gs_kt || 0)
+            });
+            if (out.length >= (cap || 24)) break;
+        }
+        return out;
+    }
+
+    // adId -> number of its aircraft in the air, for the list-view badges.
+    // Same members-only rule as liveFleetFor so the badge and the fleet agree.
+    function liveCountsByAd() {
+        const counts = new Map();
+        for (const f of liveFeatures()) {
+            const cs = f && f.properties && f.properties.callsign;
+            if (!cs) continue;
+            const hit = matchCallsign(cs);
+            if (!hit || !isCallsignMember(cs, hit)) continue;
+            const k = String(hit.id);
+            counts.set(k, (counts.get(k) || 0) + 1);
+        }
+        return counts;
+    }
+
+    // Opens a live flight on the map (same entry point the map markers use)
+    // and closes the partners panel.
+    function openFleetFlight(entry) {
+        const fn = window.handleAircraftClick;
+        if (typeof fn !== 'function') return;
+        closePartners();
+        const props = entry.props;
+        try {
+            fn({
+                ...props,
+                position: parseMaybeJSON(props.position) || props.position,
+                aircraft: parseMaybeJSON(props.aircraft) || props.aircraft
+            });
+        } catch (e) { /* the map handler owns its own errors */ }
     }
 
     // ---------------------------------------------------------------------
@@ -865,11 +1075,12 @@
         });
     }
 
-    function cardHTML(ad) {
+    function cardHTML(ad, liveCount) {
         const logo = ad.logo
             ? `<img class="va-ad-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
             : `<div class="va-ad-logo"><i class="fa-solid fa-building"></i></div>`;
         const pills = [];
+        if (liveCount > 0) pills.push(`<span class="va-ad-pill va-ad-pill-live"><i class="fa-solid fa-plane" style="font-size:0.55rem"></i> ${liveCount} live</span>`);
         if (ad.featured) pills.push('<span class="va-ad-pill va-ad-pill-featured">Featured</span>');
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
         const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
@@ -908,9 +1119,15 @@
                 body.innerHTML = `<div class="va-partners-empty">No partners found.</div>`;
                 return;
             }
-            // Featured first, otherwise keep server order.
-            ads.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
-            body.innerHTML = ads.map(cardHTML).join('');
+            // Live fleet counts power the "N live" badges; the directory must
+            // be warm for callsign matching. Both fail soft to zero badges.
+            await loadDirectory().catch(() => {});
+            const counts = liveCountsByAd();
+            // Most-live first, then featured, otherwise keep server order.
+            ads.sort((a, b) =>
+                (counts.get(String(b.id)) || 0) - (counts.get(String(a.id)) || 0) ||
+                (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+            body.innerHTML = ads.map((ad) => cardHTML(ad, counts.get(String(ad.id)) || 0)).join('');
             bindCards(body);
         } catch (e) {
             body.innerHTML = `<div class="va-partners-empty">Couldn't load partners right now.</div>`;
@@ -921,30 +1138,104 @@
         const body = overlayEl.querySelector('.va-partners-body');
         body.innerHTML = `<div class="va-partners-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>`;
         try {
-            const ad = await get(id);
+            const [ad] = await Promise.all([get(id), loadDirectory().catch(() => {})]);
             if (!ad) { body.innerHTML = `<div class="va-partners-empty">Partner not found.</div>`; return; }
+
             const pills = [];
             if (ad.featured) pills.push('<span class="va-ad-pill va-ad-pill-featured">Featured</span>');
             if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
-            const sub = [ad.type, ad.region, ad.icao.join(', ')].filter(Boolean).join(' · ');
             const chips = (ad.tags || []).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
             const actions = [];
             if (ad.website) actions.push(`<a class="va-ad-apply" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>`);
             if (ad.website) actions.push(`<a class="va-ad-btn" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
             if (ad.discord) actions.push(`<a class="va-ad-btn" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
+
+            const fleet = liveFleetFor(ad);
+            const code = vaCodeFromCallsign(ad.callsign);
+            const logo = ad.logo
+                ? `<img class="va-ad-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+                : `<div class="va-ad-logo"><i class="fa-solid fa-building"></i></div>`;
+
+            // Stat tiles, reference-style: TYPE / REGION / HUB / LIVE NOW.
+            const statTiles = [];
+            if (ad.type) statTiles.push(`<div class="va-stat-tile"><label>Type</label><span><i class="fa-solid fa-sitemap"></i>${esc(ad.type)}</span></div>`);
+            if (ad.region) statTiles.push(`<div class="va-stat-tile"><label>Region</label><span><i class="fa-solid fa-earth-americas"></i>${esc(ad.region)}</span></div>`);
+            if (ad.icao.length) statTiles.push(`<div class="va-stat-tile"><label>Hub${ad.icao.length > 1 ? 's' : ''}</label><span><i class="fa-solid fa-tower-control"></i>${esc(ad.icao.slice(0, 3).join(' · '))}</span></div>`);
+            statTiles.push(`<div class="va-stat-tile"><label>Live now</label><span class="va-stat-live"><i class="fa-solid fa-plane" style="color:#4ade80"></i>${fleet.length} aircraft</span></div>`);
+
+            const fleetCards = fleet.map((f, i) => `
+                <div class="va-fleet-card" data-va-fleet-idx="${i}" role="button" tabindex="0" title="Open ${esc(f.callsign)} on the map">
+                    <div class="va-fleet-img" data-va-fleet-img="${i}">
+                        <span class="va-fleet-chip va-fleet-callsign">${esc(f.callsign)}</span>
+                        <span class="va-fleet-chip va-fleet-route">${esc(f.dep)} <span class="va-fleet-arrow">→</span> ${esc(f.arr)}</span>
+                    </div>
+                    <div class="va-fleet-stats">
+                        <div class="va-fleet-stat">
+                            <label>Aircraft</label>
+                            <span><i class="fa-solid fa-plane"></i>${esc(f.type || 'Unknown')}</span>
+                        </div>
+                        <div class="va-fleet-stat">
+                            <label>Pilot</label>
+                            <span><i class="fa-solid fa-user"></i>${esc(f.username || '—')}</span>
+                        </div>
+                        <div class="va-fleet-stat">
+                            <label>Livery</label>
+                            <span>${esc(f.livery || 'Generic')}</span>
+                        </div>
+                        <div class="va-fleet-stat">
+                            <label>Alt / GS</label>
+                            <span>${f.altFt > 100 ? 'FL' + String(Math.round(f.altFt / 100)).padStart(3, '0') : f.altFt + ' ft'} · ${f.gsKt} kt</span>
+                        </div>
+                    </div>
+                </div>`).join('');
+
             body.innerHTML = `
                 <div class="va-ad-detail">
                     <button class="va-ad-back"><i class="fa-solid fa-arrow-left"></i> All partners</button>
                     ${ad.banner ? `<div class="va-ad-detail-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
-                    <h3>${esc(ad.name)} ${pills.join(' ')}</h3>
-                    ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
-                    ${ad.tagline ? `<div class="va-ad-card-sub" style="margin-top:4px">${esc(ad.tagline)}</div>` : ''}
-                    ${ad.description ? `<p class="desc" style="margin-top:12px">${esc(ad.description)}</p>` : ''}
+                    <div class="va-detail-head">
+                        ${logo}
+                        <div class="va-detail-titles">
+                            <h3>${esc(ad.name)}</h3>
+                            <div class="va-detail-subrow">
+                                ${code ? `<span class="va-code-chip">${esc(code)}</span>` : ''}
+                                ${pills.join(' ')}
+                            </div>
+                        </div>
+                    </div>
+                    ${ad.tagline ? `<div class="va-ad-card-sub" style="margin-top:10px">${esc(ad.tagline)}</div>` : ''}
+                    <div class="va-stat-row">${statTiles.join('')}</div>
+                    <div class="va-fleet-title">
+                        <h4>Live Fleet</h4>
+                        <span class="va-fleet-count">${fleet.length ? fleet.length + ' in the air' : ''}</span>
+                    </div>
+                    ${fleet.length
+                        ? `<div class="va-fleet-grid">${fleetCards}</div>`
+                        : `<div class="va-fleet-empty"><i class="fa-solid fa-plane-slash"></i>No ${esc(ad.name)} aircraft in the air right now — check back soon.</div>`}
+                    ${ad.description ? `<p class="desc" style="margin-top:16px">${esc(ad.description)}</p>` : ''}
                     ${chips ? `<div class="va-ad-chips" style="margin-top:12px">${chips}</div>` : ''}
                     ${actions.length ? `<div class="va-ad-actions">${actions.join('')}</div>` : ''}
                 </div>`;
+
             const back = body.querySelector('.va-ad-back');
             if (back) back.addEventListener('click', () => loadPartnersList(''));
+
+            // Wire fleet cards → open that flight on the map.
+            body.querySelectorAll('[data-va-fleet-idx]').forEach((el) => {
+                el.addEventListener('click', () => {
+                    const entry = fleet[Number(el.getAttribute('data-va-fleet-idx'))];
+                    if (entry) openFleetFlight(entry);
+                });
+            });
+
+            // Hydrate aircraft photos lazily: community shot for the exact
+            // type+livery, else the type's Generic livery, else default art.
+            fleet.forEach((f, i) => {
+                aircraftImage(f.type, f.livery).then((url) => {
+                    const img = body.querySelector(`[data-va-fleet-img="${i}"]`);
+                    if (img) img.style.backgroundImage = `url('${esc(url)}'), url('${GENERIC_PLANE_IMG}')`;
+                });
+            });
         } catch (e) {
             body.innerHTML = `<div class="va-partners-empty">Couldn't load this partner.</div>`;
         }
