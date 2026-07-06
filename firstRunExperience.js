@@ -137,6 +137,10 @@ export async function runFirstRunExperience(map, opts = {}) {
             await runLegalStep(map, { restoreChrome: !needWindow });
         }
         if (needWindow) {
+            // Let the legal modal's dismiss transition fully finish before the
+            // window picker fades in — back-to-back overlays used to glitch
+            // into each other on first launch.
+            if (needLegal) await new Promise((r) => setTimeout(r, 420));
             await runWindowChoiceStep({ restoreChrome: true });
         }
     } finally {

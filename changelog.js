@@ -24,6 +24,22 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.1',
+            date: 'July 2026',
+            title: 'Sharing, Trip Card & Live Fleets',
+            tagline: 'Flight links that never die, a trip card rebuilt as a cockpit HUD, and every partner VA\u2019s fleet live on its page.',
+            entries: [
+                { tag: 'new', icon: 'fa-share-nodes', text: 'Share Flight rebuilt — links now carry the flight with them and open instantly for the recipient. Links from the mobile apps finally work too.' },
+                { tag: 'new', icon: 'fa-clock-rotate-left', text: 'Shared flight already landed? The link drops straight into the full map replay instead of a dead spinner.' },
+                { tag: 'new', icon: 'fa-image', text: 'Sharing inflight.info in Discord, WhatsApp or iMessage now unfurls with a branded banner and description.' },
+                { tag: 'improved', icon: 'fa-gauge-high', text: 'Trip card completely rehauled — a spread-out glass HUD in the replay panel\u2019s style: live phase of flight, ETA and Zulu time, V/S, heading, airport names and a one-tap Replay handoff.' },
+                { tag: 'new', icon: 'fa-plane', text: 'Partner pages show the VA\u2019s Live Fleet — aircraft photo cards for every member in the air. Tap one to jump to that flight on the map.' },
+                { tag: 'improved', icon: 'fa-user-check', text: 'Fleet lists and live counts only include callsigns carrying the VA\u2019s membership tag — no more strangers in the roster.' },
+                { tag: 'fixed', icon: 'fa-wand-magic-sparkles', text: 'First launch is smooth now — Terms, the window picker and What\u2019s New take turns instead of piling on top of each other.' },
+                { tag: 'fixed', icon: 'fa-link', text: 'Opening a shared flight on your very first visit no longer stalls behind the intro.' }
+            ]
+        },
+        {
             id: '2026.07',
             date: 'July 2026',
             title: 'Airports, ATC & Partners',
@@ -279,7 +295,9 @@
         // popup on top of it. They'll get the notes on their next normal visit.
         try {
             const p = new URLSearchParams(window.location.search || '');
-            if (p.get('flight') || sessionStorage.getItem('inflight_share_payload')) return;
+            if (p.get('flight') || p.get('replay') ||
+                sessionStorage.getItem('inflight_share_payload') ||
+                sessionStorage.getItem('inflight_replay_payload')) return;
         } catch (_) { /* non-fatal */ }
 
         // Already seen this release (or storage is unreadable — in that case we
@@ -289,23 +307,48 @@
         if (seen === LATEST.id) return;
 
         // Wait for the splash overlay to dismiss itself (it's removed from the
-        // DOM — see index.html), then let the landing UI settle for a beat.
+        // DOM — see index.html), then for the first-run gate (ToS acceptance +
+        // flight-window picker) to finish, then let the UI settle for a beat.
+        // Without the gate wait, a brand-new user got the legal modal, the
+        // window picker AND this popup stacked on top of each other.
         const started = Date.now();
         const timer = setInterval(() => {
             const splashGone = !document.getElementById('inflight-pro-loader-overlay');
             const loaded = document.readyState === 'complete';
             if (splashGone && loaded) {
                 clearInterval(timer);
-                setTimeout(() => {
-                    // Mark seen the moment it shows so it truly appears once,
-                    // even if the tab dies before the user taps the button.
-                    markSeen();
-                    showModal({ popup: true });
-                }, 650);
+                waitForFirstRunGate().then(() => {
+                    setTimeout(() => {
+                        // Mark seen the moment it shows so it truly appears once,
+                        // even if the tab dies before the user taps the button.
+                        markSeen();
+                        showModal({ popup: true });
+                    }, 900);
+                });
             } else if (Date.now() - started > 30000) {
                 clearInterval(timer); // splash never cleared — skip this session
             }
         }, 400);
+    }
+
+    // flight.js publishes window.__inflightFirstRunPromise when the onboarding
+    // gate starts (firstRunExperience.js resolves it when both steps finish;
+    // returning users resolve immediately). It's created a beat into boot, so
+    // poll briefly for it to appear before awaiting it. Fails open so a boot
+    // hiccup can only ever delay the popup, never permanently eat it.
+    async function waitForFirstRunGate() {
+        const t0 = Date.now();
+        while (!window.__inflightFirstRunPromise && Date.now() - t0 < 20000) {
+            await new Promise((r) => setTimeout(r, 200));
+        }
+        try {
+            if (window.__inflightFirstRunPromise) {
+                await Promise.race([
+                    window.__inflightFirstRunPromise,
+                    new Promise((r) => setTimeout(r, 10 * 60 * 1000))
+                ]);
+            }
+        } catch (_) { /* never block What's New on gate errors */ }
     }
 
     if (document.readyState === 'loading') {
