@@ -5676,76 +5676,111 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
-/**
- * Calculates the departure gate based on the closest proximity to the start of the flown path.
- * Leaves the arrival gate blank as a placeholder for future implementation.
- * @param {string} departureIcao - The 4-letter ICAO code of the departure airport.
- * @param {Array} flownPath - The array of trail points [{lat, lon}, ...] for the flight.
- * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
- */
 const gateCache = new Map();
 
-async function determineGatesForFlight(departureIcao, flownPath) {
-    let departureGate = '---';
-    let arrivalGate = '---'; // Left blank for now
+// Distance (km) within which the last trail point counts as "parked at" a
+// gate, rather than merely taxiing past it or still airborne over the field.
+// Keeps the arrival gate blank until the aircraft has actually come to rest on
+// a stand at the destination.
+const GATE_PARK_RADIUS_KM = 0.3;
 
-    if (!departureIcao || !flownPath || flownPath.length === 0) {
-        return { departureGate, arrivalGate };
-    }
-
-    // 1. Get the starting point of the flight (first recorded point in the trail)
-    const startPoint = flownPath[0];
-    const startLat = startPoint.lat !== undefined ? startPoint.lat : startPoint.latitude;
-    const startLon = startPoint.lon !== undefined ? startPoint.lon : startPoint.longitude;
-
-    if (startLat === undefined || startLon === undefined) {
-        return { departureGate, arrivalGate };
-    }
-
+// Fetches (and caches) an airport's gate list from the MongoDB-backed endpoint.
+// Returns null on any failure so callers can fall back to '---'.
+async function fetchAirportGates(icao) {
+    if (!icao || icao === 'N/A') return null;
+    if (gateCache.has(icao)) return gateCache.get(icao);
     try {
-        let gates;
-        // 2. Fetch the gates from the MongoDB-backed endpoint or Cache
-        if (gateCache.has(departureIcao)) {
-            gates = gateCache.get(departureIcao);
-        } else {
-            const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
-            if (!response.ok) {
-                return { departureGate, arrivalGate };
+        const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${icao}`);
+        if (!response.ok) return null;
+        const gates = await response.json();
+        gateCache.set(icao, gates);
+        return gates;
+    } catch (error) {
+        console.error(`Error fetching gates for ${icao}:`, error);
+        return null;
+    }
+}
+
+// Reads a gate's coordinates across the several shapes the endpoint can return.
+function getGateLatLon(gate) {
+    const lat = gate.latitude ?? gate.lat ?? gate.location?.lat ?? gate.location?.latitude;
+    const lon = gate.longitude ?? gate.lon ?? gate.location?.lon ?? gate.location?.longitude;
+    return { lat, lon };
+}
+
+// Human-readable gate name across the endpoint's field variants.
+function getGateLabel(gate) {
+    return gate.name || gate.ident || gate.gateName || gate.id || 'GATE';
+}
+
+// Finds the gate closest to a point, returning { gate, distance } (km) or null.
+function findNearestGate(gates, lat, lon) {
+    if (!gates || !gates.length || lat == null || lon == null) return null;
+    let nearestGate = null;
+    let minDistance = Infinity;
+    gates.forEach(gate => {
+        const { lat: gLat, lon: gLon } = getGateLatLon(gate);
+        if (gLat != null && gLon != null) {
+            const distance = getDistanceKm(lat, lon, gLat, gLon);
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestGate = gate;
             }
-            gates = await response.json();
-            gateCache.set(departureIcao, gates);
         }
-        
-        if (!gates || gates.length === 0) {
-            return { departureGate, arrivalGate };
+    });
+    return nearestGate ? { gate: nearestGate, distance: minDistance } : null;
+}
+
+/**
+ * Resolves the gates for a flight from its flown trail:
+ *  - departure gate: the gate closest to the FIRST recorded trail point (the
+ *    aircraft pushed back from its origin stand).
+ *  - arrival gate:   the gate closest to the LAST recorded trail point, but
+ *    only once the aircraft has actually parked there (within
+ *    GATE_PARK_RADIUS_KM of a destination gate). While the flight is still
+ *    en route the last point is nowhere near a gate, so it stays '---'.
+ * @param {string} departureIcao - ICAO of the origin (pass null to skip).
+ * @param {Array} flownPath - The array of trail points [{lat, lon}, ...].
+ * @param {string} [arrivalIcao] - ICAO of the destination (enables the arrival gate).
+ * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
+ */
+async function determineGatesForFlight(departureIcao, flownPath, arrivalIcao) {
+    let departureGate = '---';
+    let arrivalGate = '---';
+
+    if (!flownPath || flownPath.length === 0) {
+        return { departureGate, arrivalGate };
+    }
+
+    const pointLat = (p) => (p && (p.lat !== undefined ? p.lat : p.latitude));
+    const pointLon = (p) => (p && (p.lon !== undefined ? p.lon : p.longitude));
+
+    // Departure gate: nearest gate to the start of the trail.
+    try {
+        const startLat = pointLat(flownPath[0]);
+        const startLon = pointLon(flownPath[0]);
+        if (departureIcao && departureIcao !== 'N/A' && startLat != null && startLon != null) {
+            const nearest = findNearestGate(await fetchAirportGates(departureIcao), startLat, startLon);
+            if (nearest) departureGate = getGateLabel(nearest.gate);
         }
-
-        let nearestGate = null;
-        let minDistance = Infinity;
-
-        // 3. Iterate through all gates to find the closest one to the start point
-        gates.forEach(gate => {
-            const gateLat = gate.latitude || gate.lat || (gate.location && gate.location.lat) || (gate.location && gate.location.latitude);
-            const gateLon = gate.longitude || gate.lon || (gate.location && gate.location.lon) || (gate.location && gate.location.longitude);
-
-            if (gateLat != null && gateLon != null) {
-                // Utilizing the existing getDistanceKm helper function
-                const distance = getDistanceKm(startLat, startLon, gateLat, gateLon);
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestGate = gate;
-                }
-            }
-        });
-
-        // 4. Set the departure gate to the nearest one found
-        if (nearestGate) {
-            departureGate = nearestGate.name || nearestGate.ident || nearestGate.gateName || nearestGate.id || 'GATE';
-        }
-
     } catch (error) {
         console.error(`Error calculating departure gate for ${departureIcao}:`, error);
+    }
+
+    // Arrival gate: nearest gate to the end of the trail, only if actually
+    // parked there (otherwise the plane is mid-flight or still taxiing).
+    try {
+        const endPoint = flownPath[flownPath.length - 1];
+        const endLat = pointLat(endPoint);
+        const endLon = pointLon(endPoint);
+        if (arrivalIcao && arrivalIcao !== 'N/A' && endLat != null && endLon != null) {
+            const nearest = findNearestGate(await fetchAirportGates(arrivalIcao), endLat, endLon);
+            if (nearest && nearest.distance <= GATE_PARK_RADIUS_KM) {
+                arrivalGate = getGateLabel(nearest.gate);
+            }
+        }
+    } catch (error) {
+        console.error(`Error calculating arrival gate for ${arrivalIcao}:`, error);
     }
 
     return { departureGate, arrivalGate };
@@ -5756,7 +5791,7 @@ async function determineGatesForFlight(departureIcao, flownPath) {
  * Replaces the loading/calculating placeholders immediately.
  * Features a premium, aviation-grade status indicator.
  */
-function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
+function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalIcao) {
     const routeBar = document.querySelector('.ac-route-info-bar');
     if (!routeBar) return;
 
@@ -5817,6 +5852,17 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
             arrNode.appendChild(arrGateEl);
         }
         arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.arr_gate}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+
+        // If the pilot never filed an arrival gate, fall back to the stand the
+        // aircraft actually parked at (nearest gate to the end of the trail).
+        if (!filedPlan.arr_gate && flownPath && flownPath.length && arrivalIcao && arrivalIcao !== 'N/A') {
+            determineGatesForFlight(null, flownPath, arrivalIcao).then(gates => {
+                if (gates.arrivalGate && gates.arrivalGate !== '---') {
+                    const el = document.getElementById('ac-arr-gate');
+                    if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${gates.arrivalGate}`;
+                }
+            });
+        }
     }
 
     // 4. Inject Premium Schedule Status Centered
@@ -5919,8 +5965,9 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
  * Finds the HTML nodes and injects pills that show a "Loading" state until the math finishes.
  * @param {string} departureIcao - The 4-letter ICAO of the origin.
  * @param {Array} flownPath - The array of trail points.
+ * @param {string} [arrivalIcao] - The 4-letter ICAO of the destination.
  */
-function injectGateInfoUI(departureIcao, flownPath) {
+function injectGateInfoUI(departureIcao, flownPath, arrivalIcao) {
     const routeBar = document.querySelector('.ac-route-info-bar');
     if (!routeBar) return;
 
@@ -5960,18 +6007,20 @@ function injectGateInfoUI(departureIcao, flownPath) {
     }
 
     // 4. Execute the logic and update the UI when the nearest gate is found
-    determineGatesForFlight(departureIcao, flownPath).then(gates => {
+    determineGatesForFlight(departureIcao, flownPath, arrivalIcao).then(gates => {
         const depGateEl = document.getElementById('ac-dep-gate');
         const arrGateEl = document.getElementById('ac-arr-gate');
-        
+
         if (depGateEl) {
-            depGateEl.innerHTML = gates.departureGate !== '---' 
-                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}` 
+            depGateEl.innerHTML = gates.departureGate !== '---'
+                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
                 : `<i class="fa-solid fa-door-open"></i> Gate ---`;
         }
-        
+
         if (arrGateEl) {
-            arrGateEl.innerHTML = `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`;
+            arrGateEl.innerHTML = gates.arrivalGate !== '---'
+                ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
+                : `<i class="fa-solid fa-door-closed"></i> Gate ---`;
         }
     });
 }
@@ -18416,9 +18465,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             applyRouteTimeInfoToDom('eta', _arrInfo);
 
             if (filedPlanData) {
-                injectFiledGateInfoUI(filedPlanData, flightProps, plan);
+                injectFiledGateInfoUI(filedPlanData, flightProps, plan, sortedRoutePoints, arrIcao);
             } else if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
-                injectGateInfoUI(depIcao, sortedRoutePoints);
+                injectGateInfoUI(depIcao, sortedRoutePoints, arrIcao);
             }
 
             // Now that the full /history breadcrumb trail has arrived, push it
