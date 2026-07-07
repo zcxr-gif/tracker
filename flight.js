@@ -5678,11 +5678,49 @@ function injectCustomStyles() {
 
 const gateCache = new Map();
 
-// Distance (km) within which the last trail point counts as "parked at" a
-// gate, rather than merely taxiing past it or still airborne over the field.
-// Keeps the arrival gate blank until the aircraft has actually come to rest on
-// a stand at the destination.
-const GATE_PARK_RADIUS_KM = 0.3;
+// Distance (km) within which the aircraft's live position counts as "parked
+// at" a gate. Deliberately tight: a genuinely parked aircraft sits almost on
+// top of the stand node, whereas a taxiway hold or a plane taxiing past a gate
+// stays outside this radius — so holding position near a terminal doesn't get
+// mistaken for being parked.
+const GATE_PARK_RADIUS_KM = 0.05;
+
+// At or below this ground speed (kt) the aircraft is considered stopped. Taxi
+// and hold-with-roll speeds sit above it, so this rejects a moving aircraft
+// before we even look at gate proximity.
+const GATE_PARK_MAX_GS_KT = 3;
+
+// Pilot-state code the live feed uses for an aircraft the app has flagged as
+// parked/away on the ground (see the cockpit-state switch).
+const PILOT_STATE_PARKED = 2;
+
+/**
+ * Whether the aircraft is stationary on a ramp — the precondition for claiming
+ * it has parked at a gate, as opposed to taxiing in or holding position.
+ * `state` is a live snapshot: { groundSpeedKt, pilotState }.
+ */
+function isAircraftStationary(state) {
+    if (!state) return false;
+    // The feed already flagged it PARKED (on ground, away) — trust that.
+    if (Number(state.pilotState) === PILOT_STATE_PARKED) return true;
+    // Otherwise it must be essentially stopped. Taxiing/holding-with-roll stay
+    // above this; a dead stop that happens to be a taxiway hold is filtered out
+    // afterwards by the tight gate-proximity radius.
+    return (Number(state.groundSpeedKt) || 0) <= GATE_PARK_MAX_GS_KT;
+}
+
+// Extracts the live snapshot determineGatesForFlight needs to decide whether an
+// aircraft has parked at its destination gate. Returns null when unavailable.
+function buildArrivalStateSnapshot(flightProps) {
+    const pos = flightProps && flightProps.position;
+    if (!pos) return null;
+    return {
+        lat: pos.lat,
+        lon: pos.lon,
+        groundSpeedKt: pos.gs_kt,
+        pilotState: flightProps.pilotState
+    };
+}
 
 // Fetches (and caches) an airport's gate list from the MongoDB-backed endpoint.
 // Returns null on any failure so callers can fall back to '---'.
@@ -5732,33 +5770,33 @@ function findNearestGate(gates, lat, lon) {
 }
 
 /**
- * Resolves the gates for a flight from its flown trail:
+ * Resolves the gates for a flight:
  *  - departure gate: the gate closest to the FIRST recorded trail point (the
  *    aircraft pushed back from its origin stand).
- *  - arrival gate:   the gate closest to the LAST recorded trail point, but
- *    only once the aircraft has actually parked there (within
- *    GATE_PARK_RADIUS_KM of a destination gate). While the flight is still
- *    en route the last point is nowhere near a gate, so it stays '---'.
+ *  - arrival gate:   the destination gate the aircraft has PARKED at. Shown
+ *    only when the live aircraft is both stationary (not taxiing or holding —
+ *    see isAircraftStationary) AND sitting within GATE_PARK_RADIUS_KM of a
+ *    destination gate. Any other time (en route, taxiing in, holding short) it
+ *    stays '---'.
  * @param {string} departureIcao - ICAO of the origin (pass null to skip).
  * @param {Array} flownPath - The array of trail points [{lat, lon}, ...].
  * @param {string} [arrivalIcao] - ICAO of the destination (enables the arrival gate).
+ * @param {{lat:number, lon:number, groundSpeedKt:number, pilotState:number}} [arrivalState]
+ *        Live aircraft snapshot; without it the arrival gate is never shown.
  * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
  */
-async function determineGatesForFlight(departureIcao, flownPath, arrivalIcao) {
+async function determineGatesForFlight(departureIcao, flownPath, arrivalIcao, arrivalState) {
     let departureGate = '---';
     let arrivalGate = '---';
-
-    if (!flownPath || flownPath.length === 0) {
-        return { departureGate, arrivalGate };
-    }
 
     const pointLat = (p) => (p && (p.lat !== undefined ? p.lat : p.latitude));
     const pointLon = (p) => (p && (p.lon !== undefined ? p.lon : p.longitude));
 
     // Departure gate: nearest gate to the start of the trail.
     try {
-        const startLat = pointLat(flownPath[0]);
-        const startLon = pointLon(flownPath[0]);
+        const startPoint = flownPath && flownPath[0];
+        const startLat = pointLat(startPoint);
+        const startLon = pointLon(startPoint);
         if (departureIcao && departureIcao !== 'N/A' && startLat != null && startLon != null) {
             const nearest = findNearestGate(await fetchAirportGates(departureIcao), startLat, startLon);
             if (nearest) departureGate = getGateLabel(nearest.gate);
@@ -5767,14 +5805,17 @@ async function determineGatesForFlight(departureIcao, flownPath, arrivalIcao) {
         console.error(`Error calculating departure gate for ${departureIcao}:`, error);
     }
 
-    // Arrival gate: nearest gate to the end of the trail, only if actually
-    // parked there (otherwise the plane is mid-flight or still taxiing).
+    // Arrival gate: the stand the aircraft has parked at. Guarded on live
+    // state first — a moving/taxiing/holding aircraft is never "parked" — then
+    // on tight proximity to a destination gate. Uses the live position (which
+    // pairs with the live ground speed) and falls back to the last trail point.
     try {
-        const endPoint = flownPath[flownPath.length - 1];
-        const endLat = pointLat(endPoint);
-        const endLon = pointLon(endPoint);
-        if (arrivalIcao && arrivalIcao !== 'N/A' && endLat != null && endLon != null) {
-            const nearest = findNearestGate(await fetchAirportGates(arrivalIcao), endLat, endLon);
+        const endPoint = flownPath && flownPath.length ? flownPath[flownPath.length - 1] : null;
+        const lat = (arrivalState && arrivalState.lat != null) ? arrivalState.lat : pointLat(endPoint);
+        const lon = (arrivalState && arrivalState.lon != null) ? arrivalState.lon : pointLon(endPoint);
+        if (arrivalIcao && arrivalIcao !== 'N/A' && lat != null && lon != null
+            && isAircraftStationary(arrivalState)) {
+            const nearest = findNearestGate(await fetchAirportGates(arrivalIcao), lat, lon);
             if (nearest && nearest.distance <= GATE_PARK_RADIUS_KM) {
                 arrivalGate = getGateLabel(nearest.gate);
             }
@@ -5855,8 +5896,8 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
 
         // If the pilot never filed an arrival gate, fall back to the stand the
         // aircraft actually parked at (nearest gate to the end of the trail).
-        if (!filedPlan.arr_gate && flownPath && flownPath.length && arrivalIcao && arrivalIcao !== 'N/A') {
-            determineGatesForFlight(null, flownPath, arrivalIcao).then(gates => {
+        if (!filedPlan.arr_gate && arrivalIcao && arrivalIcao !== 'N/A') {
+            determineGatesForFlight(null, flownPath, arrivalIcao, buildArrivalStateSnapshot(flightProps)).then(gates => {
                 if (gates.arrivalGate && gates.arrivalGate !== '---') {
                     const el = document.getElementById('ac-arr-gate');
                     if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${gates.arrivalGate}`;
@@ -5966,8 +6007,9 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
  * @param {string} departureIcao - The 4-letter ICAO of the origin.
  * @param {Array} flownPath - The array of trail points.
  * @param {string} [arrivalIcao] - The 4-letter ICAO of the destination.
+ * @param {object} [flightProps] - Live flight props, used to gate the arrival "parked" gate.
  */
-function injectGateInfoUI(departureIcao, flownPath, arrivalIcao) {
+function injectGateInfoUI(departureIcao, flownPath, arrivalIcao, flightProps) {
     const routeBar = document.querySelector('.ac-route-info-bar');
     if (!routeBar) return;
 
@@ -6007,7 +6049,7 @@ function injectGateInfoUI(departureIcao, flownPath, arrivalIcao) {
     }
 
     // 4. Execute the logic and update the UI when the nearest gate is found
-    determineGatesForFlight(departureIcao, flownPath, arrivalIcao).then(gates => {
+    determineGatesForFlight(departureIcao, flownPath, arrivalIcao, buildArrivalStateSnapshot(flightProps)).then(gates => {
         const depGateEl = document.getElementById('ac-dep-gate');
         const arrGateEl = document.getElementById('ac-arr-gate');
 
@@ -18467,7 +18509,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             if (filedPlanData) {
                 injectFiledGateInfoUI(filedPlanData, flightProps, plan, sortedRoutePoints, arrIcao);
             } else if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
-                injectGateInfoUI(depIcao, sortedRoutePoints, arrIcao);
+                injectGateInfoUI(depIcao, sortedRoutePoints, arrIcao, flightProps);
             }
 
             // Now that the full /history breadcrumb trail has arrived, push it
