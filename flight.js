@@ -8612,7 +8612,8 @@ function getAircraftLabelTextOffset() {
     const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
     // Offsets are in ems of the zoom-graded text size, so each stop's em is
     // back-computed to keep the physical gap constant: ~16px under the plane
-    // for plain text, ~4px under the logo pill when one is shown.
+    // for plain text, and the text tucked right up under the logo pill (~1px)
+    // so the badge and rows read as one label instead of floating text.
     const atZoom = (plainEm, pillEm) => cfg.airlineLogo
         ? ['case',
             ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
@@ -8620,9 +8621,9 @@ function getAircraftLabelTextOffset() {
             ['literal', [0, pillEm]]]
         : ['literal', [0, plainEm]];
     return ['interpolate', ['linear'], ['zoom'],
-        6.5, atZoom(1.9, 3.2),
-        12, atZoom(1.7, 3.3),
-        16, atZoom(1.5, 3.7)
+        6.5, atZoom(1.9, 2.8),
+        12, atZoom(1.7, 3.0),
+        16, atZoom(1.5, 3.4)
     ];
 }
 
@@ -8753,10 +8754,12 @@ function getAircraftLabelTextField() {
         });
     }
     if (cfg.altSpeed) {
+        // Round to the nearest whole ft/kt so the row stays short — the raw
+        // feed can carry fractional values that bloat the label with decimals.
         rows.push({
             expr: ['concat',
-                ['to-string', ['coalesce', ['get', 'altitude'], 0]], ' ft  ·  ',
-                ['to-string', ['coalesce', ['get', 'speed'], 0]], ' kts'],
+                ['to-string', ['round', ['coalesce', ['get', 'altitude'], 0]]], ' ft  ·  ',
+                ['to-string', ['round', ['coalesce', ['get', 'speed'], 0]]], ' kts'],
             scale: 0.78
         });
     }
