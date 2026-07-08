@@ -234,6 +234,18 @@ A pilot is matched to the VA by their callsign:
 
 The widget polls every 30s and pauses while the tab is hidden.
 
+### Map mode — airport layout & route endpoints
+
+- **Runways & taxiways** — opening an airport window on the map (tap a hub pin,
+  a takeoff/landing pin, or a flight card's airport button) draws that field's
+  runways, taxiways, runway markings and gate/stand dots on the map, from OSM
+  aeroway data (fetched on demand and cached, so it stays light). The layout is
+  cleared when you open a different airport or tap a flight.
+- **Takeoff & landing pins** — tapping a flight drops a green *Takeoff* pin on
+  its departure field and an amber *Landing* pin on its arrival field. Tapping
+  either pin — or the **Takeoff / Landing** buttons in the flight card — opens
+  that airport's window (with its own aerial photo and live data).
+
 ---
 
 ## Protect our own Mapbox token (do this regardless)

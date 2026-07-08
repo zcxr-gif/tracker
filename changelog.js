@@ -36,7 +36,9 @@
                 { tag: 'new', icon: 'fa-sun', text: 'Daylight at a glance — a Day / Sunset / Twilight / Night indicator computed from the airport’s position.' },
                 { tag: 'new', icon: 'fa-palette', text: 'Embed: the map flight-card is now fully customizable — set its transparency (see-through / frosted) and text colour to match your site.' },
                 { tag: 'new', icon: 'fa-tags', text: 'Embed: callsign matching now accepts a second optional tag at the end (e.g. “Air Canada 001VA CX”), plus a list of regular untagged callsigns to always include.' },
-                { tag: 'new', icon: 'fa-image', text: 'Airport windows now show a real aerial photo of the field — every airport gets an image, not a placeholder.' }
+                { tag: 'new', icon: 'fa-image', text: 'Airport windows now show a real aerial photo of the field — every airport gets an image, not a placeholder.' },
+                { tag: 'new', icon: 'fa-diagram-project', text: 'Embed map: opening an airport now draws its runways & taxiways (with gate stands) right on the map.' },
+                { tag: 'new', icon: 'fa-plane-departure', text: 'Embed map: tapping a flight drops takeoff & landing pins on its airports — tap either (or the new card buttons) to open that airport.' }
             ]
         },
         {

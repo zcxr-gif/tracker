@@ -1022,6 +1022,7 @@
 
     function removeFlightPaths(map) {
         clearRouteMarkers();
+        clearAirportLayout(map);
         if (!map || !map.getStyle) return;
         [FLOWN_LYR, PLAN_GLOW, PLAN_LINE, PLAN_DOTS, PLAN_LBLS].forEach(id => {
             if (map.getLayer(id)) map.removeLayer(id);
@@ -1826,6 +1827,150 @@
         };
     }
 
+    // ── Airport ground layout (runways & taxiways) ───────────────────────────
+    // A lean port of the main tracker's AirportLayoutManager for the embed:
+    // fetches the field's OSM aeroway geometry (once, cached) and draws runway
+    // pavement + ICAO markings, taxi lines and gate/stand dots under the plane
+    // layer. Geometry only — no text/symbol layers — so it never depends on the
+    // fonts a given VA's map style happens to ship, and stays light. Drawn
+    // on-demand when an airport window opens; cleared with the flight paths.
+    const EMB_OVERPASS = 'https://overpass-api.de/api/interpreter';
+    const _aptLayoutCache = new Map();   // ICAO -> processed geojson
+    const AptLayout = {
+        active: null,   // { sources: [...], layers: [...] }
+        R: 6378137,
+        bearing(a, b) {
+            const la1 = a[1] * Math.PI / 180, la2 = b[1] * Math.PI / 180;
+            const dLon = (b[0] - a[0]) * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(la2);
+            const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        },
+        distance(a, b) {
+            const dLat = (b[1] - a[1]) * Math.PI / 180, dLon = (b[0] - a[0]) * Math.PI / 180;
+            const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return this.R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+        },
+        dest(pt, brng, dist) {
+            const br = brng * Math.PI / 180, la1 = pt[1] * Math.PI / 180, lo1 = pt[0] * Math.PI / 180;
+            const la2 = Math.asin(Math.sin(la1) * Math.cos(dist / this.R) + Math.cos(la1) * Math.sin(dist / this.R) * Math.cos(br));
+            const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(dist / this.R) * Math.cos(la1), Math.cos(dist / this.R) - Math.sin(la1) * Math.sin(la2));
+            return [lo2 * 180 / Math.PI, la2 * 180 / Math.PI];
+        },
+        processOsm(elements) {
+            const features = [];
+            elements.forEach(el => {
+                let geometry = null;
+                if (el.type === 'node') {
+                    geometry = { type: 'Point', coordinates: [el.lon, el.lat] };
+                } else if (el.geometry) {
+                    const coords = el.geometry.map(p => [p.lon, p.lat]);
+                    const isArea = el.tags && (el.tags.aeroway === 'apron' || el.tags.aeroway === 'runway' || el.tags.area === 'yes');
+                    geometry = (coords.length > 3 && coords[0][0] === coords[coords.length - 1][0] && isArea)
+                        ? { type: 'Polygon', coordinates: [coords] }
+                        : { type: 'LineString', coordinates: coords };
+                }
+                if (geometry) features.push({ type: 'Feature', geometry, properties: { ...el.tags, osm_id: el.id } });
+            });
+            return { type: 'FeatureCollection', features };
+        },
+        buildMarkings(geojson) {
+            const features = [];
+            const runways = geojson.features.filter(f => f.properties.aeroway === 'runway' && f.geometry.type === 'LineString');
+            runways.forEach(rw => {
+                const coords = rw.geometry.coordinates;
+                const start = coords[0], end = coords[coords.length - 1];
+                const brng = this.bearing(start, end), rev = (brng + 180) % 360;
+                const len = this.distance(start, end), width = 45;
+                const endMarks = (origin, b) => {
+                    for (let i = -14; i <= 14; i += 4) {
+                        const o = this.dest(origin, b + 90, i);
+                        const s = this.dest(o, b, 2), e = this.dest(s, b, 15);
+                        features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [s, e] }, properties: { m: 'block' } });
+                    }
+                    const aim = Math.min(300, len * 0.2);
+                    [-12, 12].forEach(off => {
+                        const s = this.dest(this.dest(origin, b + 90, off), b, aim);
+                        const e = this.dest(s, b, Math.min(45, len * 0.05));
+                        features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [s, e] }, properties: { m: 'block' } });
+                    });
+                    [150, 450, 600].filter(d => d < len * 0.4).forEach(d => {
+                        [-13, 13].forEach(off => {
+                            const s = this.dest(this.dest(origin, b + 90, off), b, d);
+                            const e = this.dest(s, b, 20);
+                            features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [s, e] }, properties: { m: 'block' } });
+                        });
+                    });
+                };
+                endMarks(start, brng); endMarks(end, rev);
+                const le = [this.dest(start, brng + 90, width / 2), this.dest(end, brng + 90, width / 2)];
+                const re = [this.dest(start, brng - 90, width / 2), this.dest(end, brng - 90, width / 2)];
+                features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: le }, properties: { m: 'edge' } });
+                features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: re }, properties: { m: 'edge' } });
+            });
+            return { type: 'FeatureCollection', features };
+        },
+        async draw(map, icao, lat, lon) {
+            if (!map || lat == null || lon == null) return;
+            this.clear(map);
+            let geojson = _aptLayoutCache.get(icao);
+            if (!geojson) {
+                const buffer = 0.05;
+                const bbox = `${lat - buffer / 2},${lon - buffer},${lat + buffer / 2},${lon + buffer}`;
+                const q = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron|runway"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+                try {
+                    const res = await fetch(`${EMB_OVERPASS}?data=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+                    if (!data || !data.elements) return;
+                    geojson = this.processOsm(data.elements);
+                    _aptLayoutCache.set(icao, geojson);
+                } catch (_) { return; }
+            }
+            // The window may have moved on while Overpass was in flight.
+            if (_mapState.activeAptIcao !== icao || !map.getStyle) return;
+
+            const src = `apt-lyt-src-${icao}`, mSrc = `apt-lyt-mrk-${icao}`;
+            const before = map.getLayer(LAYER_ID) ? LAYER_ID : undefined;
+            const markings = this.buildMarkings(geojson);
+            try {
+                map.addSource(src, { type: 'geojson', data: geojson });
+                map.addSource(mSrc, { type: 'geojson', data: markings });
+            } catch (_) { return; }
+
+            const layers = [];
+            const add = (def) => { try { map.addLayer(def, before); layers.push(def.id); } catch (_) {} };
+            add({ id: `apt-lyt-pave-${icao}`, type: 'fill', source: src,
+                filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'aeroway', 'runway']],
+                paint: { 'fill-color': '#1a1a1a', 'fill-opacity': 0.85 } });
+            add({ id: `apt-lyt-rwybase-${icao}`, type: 'line', source: src,
+                filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
+                layout: { 'line-cap': 'square' },
+                paint: { 'line-color': '#0f0f0f', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 2, 12, 6, 14, 25, 16, 80, 18, 180] } });
+            add({ id: `apt-lyt-edge-${icao}`, type: 'line', source: mSrc, filter: ['==', 'm', 'edge'],
+                paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 2], 'line-opacity': 0.7 } });
+            add({ id: `apt-lyt-blocks-${icao}`, type: 'line', source: mSrc, filter: ['==', 'm', 'block'],
+                paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 2, 16, 8, 18, 20], 'line-opacity': 0.95 } });
+            add({ id: `apt-lyt-center-${icao}`, type: 'line', source: src,
+                filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
+                paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 4], 'line-dasharray': [5, 5], 'line-opacity': 0.9 } });
+            add({ id: `apt-lyt-taxi-${icao}`, type: 'line', source: src,
+                filter: ['all', ['==', '$type', 'LineString'], ['!=', 'aeroway', 'runway']],
+                paint: { 'line-color': '#fde047', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.4, 14, 1.2, 16, 3, 18, 6] } });
+            add({ id: `apt-lyt-gates-${icao}`, type: 'circle', source: src, minzoom: 14,
+                filter: ['all', ['==', '$type', 'Point'], ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false]],
+                paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 16, 3, 18, 5], 'circle-color': '#22d3ee', 'circle-stroke-color': '#0e7490', 'circle-stroke-width': 1, 'circle-opacity': 0.9 } });
+
+            this.active = { sources: [src, mSrc], layers };
+        },
+        clear(map) {
+            if (!this.active || !map || !map.getStyle) { this.active = null; return; }
+            this.active.layers.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+            this.active.sources.forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+            this.active = null;
+        }
+    };
+    function clearAirportLayout(map) { AptLayout.clear(map); }
+
     function openAirportDetail(map, icao, coords) {
         const panel = ensureDetailPanel(map);
         if (!panel) return;
@@ -1834,6 +1979,11 @@
         _mapState.activePathId = null;
         _mapState.activeAptIcao = icao;
         _mapState.activeAptCoords = coords;   // [lon, lat] — frames the hero aerial
+
+        // Draw the field's runways & taxiways on the map (on-demand, cached).
+        if (Array.isArray(coords) && coords.length === 2) {
+            AptLayout.draw(map, icao, coords[1], coords[0]).catch(() => {});
+        }
 
         const body = _mapState.detailBody;
         body.innerHTML = airportCardHTML(icao, null);
