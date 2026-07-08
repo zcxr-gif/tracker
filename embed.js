@@ -968,6 +968,10 @@
                         <span class="fr24-meta-dist">—</span>
                         <span class="fr24-meta-eta">ETA —</span>
                     </div>
+                    ${(dep !== '---' || arr !== '---') ? `<div class="fr24-airports">
+                        ${dep !== '---' ? `<button class="fr24-apt-btn dep emb-open-apt" data-icao="${esc(dep)}" title="View ${esc(dep)} airport"><span class="r">Takeoff</span>${esc(dep)}</button>` : ''}
+                        ${arr !== '---' ? `<button class="fr24-apt-btn arr emb-open-apt" data-icao="${esc(arr)}" title="View ${esc(arr)} airport"><span class="r">Landing</span>${esc(arr)}</button>` : ''}
+                    </div>` : ''}
                     <div class="fr24-stats-grid">
                         <div class="fr24-stat"><b>${alt}</b><span class="u">FT</span></div>
                         <div class="fr24-stat"><b>${gs}</b><span class="u">KTS</span></div>
@@ -1017,11 +1021,77 @@
     const PLAN_DOTS  = 'emb-plan-dots',  PLAN_LBLS = 'emb-plan-lbls';
 
     function removeFlightPaths(map) {
+        clearRouteMarkers();
         if (!map || !map.getStyle) return;
         [FLOWN_LYR, PLAN_GLOW, PLAN_LINE, PLAN_DOTS, PLAN_LBLS].forEach(id => {
             if (map.getLayer(id)) map.removeLayer(id);
         });
         [FLOWN_SRC, PLAN_SRC].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+    }
+
+    // ── Takeoff / landing airport markers ────────────────────────────────────
+    // When a flight is open, drop a pin on its departure (takeoff) and arrival
+    // (landing) fields. Tapping either opens that airport's window — the "pick
+    // to see the landing airport" path. Cleared together with the flight paths.
+    function clearRouteMarkers() {
+        (_mapState.routeMarkers || []).forEach(m => { try { m.remove(); } catch (_) {} });
+        _mapState.routeMarkers = [];
+        // Invalidate any endpoint fetch still in flight so it doesn't add a
+        // stale marker after the card has moved on.
+        _mapState.routeToken = (_mapState.routeToken || 0) + 1;
+    }
+
+    function routeEndpointEl(role, icao) {
+        const el = document.createElement('div');
+        el.className = 'emb-route-ep ' + role;
+        el.innerHTML =
+            '<span class="emb-route-ep-pin"></span>' +
+            '<div class="emb-route-ep-label">' +
+                `<span class="emb-route-ep-role">${role === 'dep' ? 'Takeoff' : 'Landing'}</span>` +
+                `<span class="emb-route-ep-icao">${esc(icao)}</span>` +
+            '</div>';
+        return el;
+    }
+
+    async function drawRouteEndpoints(map, pr) {
+        const token = _mapState.routeToken = (_mapState.routeToken || 0) + 1;
+        const dep = String(pr.depIcao || '').trim().toUpperCase();
+        const arr = String(pr.arrIcao || '').trim().toUpperCase();
+        const ends = [];
+        if (dep) ends.push(['dep', dep]);
+        if (arr && arr !== dep) ends.push(['arr', arr]);
+        for (const [role, icao] of ends) {
+            let apt = null;
+            try { apt = await airportInfo(icao); } catch (_) { apt = null; }
+            if (_mapState.routeToken !== token) return;   // a newer card superseded us
+            const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
+            const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
+            if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
+            const el = routeEndpointEl(role, icao);
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openAirportDetail(map, icao, [Number(lon), Number(lat)]);
+            });
+            try {
+                const marker = new (gl().Marker)({ element: el, anchor: 'center' })
+                    .setLngLat([Number(lon), Number(lat)]).addTo(map);
+                (_mapState.routeMarkers = _mapState.routeMarkers || []).push(marker);
+            } catch (_) {}
+        }
+    }
+
+    // Open an airport window from just an ICAO (resolve its coords first so the
+    // hero aerial + pan work). Used by the flight card's takeoff/landing buttons.
+    async function openAirportByIcao(map, icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return;
+        let apt = null;
+        try { apt = await airportInfo(code); } catch (_) { apt = null; }
+        const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
+        const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
+        const coords = (lat != null && lon != null && isFinite(Number(lat)) && isFinite(Number(lon)))
+            ? [Number(lon), Number(lat)] : null;
+        openAirportDetail(map, code, coords);
     }
 
     // --- Geometry helpers (verbatim from flight.js) ---
@@ -1537,6 +1607,16 @@
         // Lazily fetch + draw this flight's flown trail and filed plan, and
         // enrich the card with progress/ETA from the same data.
         drawFlightPaths(map, pr, coords, body).catch(() => {});
+
+        // Drop takeoff / landing pins on the field endpoints, and wire the
+        // card's airport buttons to open those airports.
+        drawRouteEndpoints(map, pr).catch(() => {});
+        body.querySelectorAll('.emb-open-apt').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openAirportByIcao(map, btn.getAttribute('data-icao'));
+            });
+        });
 
         communityImage(pr.aircraft, pr.livery).then(info => {
             if (!info || !info.url) return;
