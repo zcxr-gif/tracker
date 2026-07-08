@@ -26,9 +26,11 @@
         {
             id: '2026.07.2',
             date: 'July 2026',
-            title: 'Runway Winds & Airport Detail',
-            tagline: 'The airport window’s runway list now reads the wind for you, and the details panel tells you the local time and whether the sun’s up.',
+            title: 'Airport Map Detail & Runway Winds',
+            tagline: 'Runway numbers and gate stands now show on the map’s airport layout, and the airport window reads the wind for you.',
             entries: [
+                { tag: 'new', icon: 'fa-road', text: 'Runway numbers on the map — the airport layout now paints 09/27-style designators, aligned with each runway end just like the real markings.' },
+                { tag: 'new', icon: 'fa-square-parking', text: 'Gates & parking stands — the airport layout now shows gate/stand pins with their identifiers (e.g. A12) when you zoom in.' },
                 { tag: 'new', icon: 'fa-wind', text: 'Wind-aware runways — each runway now shows its head / cross-wind from the live METAR, with the favoured landing direction highlighted and the best runway tagged PREFERRED.' },
                 { tag: 'new', icon: 'fa-clock', text: 'Airport details now show the field’s current local time.' },
                 { tag: 'new', icon: 'fa-sun', text: 'Daylight at a glance — a Day / Sunset / Twilight / Night indicator computed from the airport’s position.' }
