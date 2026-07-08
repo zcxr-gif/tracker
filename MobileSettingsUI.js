@@ -417,8 +417,7 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
-                            <div class="settings-mobile-grid m-fw-mode-grid">
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="hud"><i class="fa-solid fa-gauge-high"></i><span>HUD</span></button>
+                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
                             </div>
@@ -1105,14 +1104,13 @@ export const MobileSettingsUI = {
     // hud/legacy presentation preference in localStorage.
     getFlightWindowMode(filters) {
         const f = filters || window.mapFilters || {};
-        if (f.useSimpleFlightWindow) return 'simple';
-        let saved = 'legacy';
-        try { saved = localStorage.getItem('mobileDisplayMode') || 'legacy'; } catch (e) {}
-        return saved === 'hud' ? 'hud' : 'legacy';
+        // Only Simple and Legacy are offered; the retired HUD split-view maps to
+        // Legacy so any stale preference resolves to a working mode.
+        return f.useSimpleFlightWindow ? 'simple' : 'legacy';
     },
 
-    // Applies a HUD / Legacy / Simple choice across both stores and lets the
-    // user know it takes effect the next time a flight window is opened.
+    // Applies a Legacy / Simple choice across both stores and lets the user
+    // know it takes effect the next time a flight window is opened.
     setFlightWindowMode(mode) {
         if (!window.mapFilters) return;
         if (mode === 'simple') {
@@ -2044,6 +2042,7 @@ export const MobileSettingsUI = {
                 .m-fw-mode-grid .m-setting-pill { flex-direction: column; gap: 5px; padding: 11px 6px; }
                 .m-fw-mode-grid .m-setting-pill i { font-size: 1rem; opacity: 0.9; }
                 .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
+                .m-fw-mode-grid-2 { grid-template-columns: repeat(2, 1fr); }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {

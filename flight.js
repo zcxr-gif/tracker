@@ -17146,11 +17146,7 @@ const AtcBoardUI = {
                             <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
         
                                 <li class="filter-radio-item">
-                                    <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                    <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
-                                </li>
-                                <li class="filter-radio-item">
-                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
+                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy" checked>
                                     <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
                                 </li>
                                 <li class="filter-radio-item">
@@ -21837,22 +21833,13 @@ if (flatMapToggle) {
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
 
         // Mobile-specific
-        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy';
-        // Default to legacy
-        const mobileModeHud = document.getElementById('mobile-mode-hud');
+        // Mobile flight-window mode: Simple Window (shared flag) vs the Legacy
+        // sheet. The HUD split-view is retired, so there are just these two.
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
         const mobileModeSimple = document.getElementById('mobile-mode-simple');
-        if (mobileModeHud && mobileModeLegacy && mobileModeSimple) {
-            // Simple Window is now a first-class mobile display mode: when it's
-            // on it wins the radio regardless of the hud/legacy presentation
-            // preference (which it falls back to when Simple is turned off).
-            if (mapFilters.useSimpleFlightWindow) {
-                mobileModeSimple.checked = true;
-            } else if (currentMobileMode === 'hud') {
-                mobileModeHud.checked = true;
-            } else {
-                mobileModeLegacy.checked = true;
-            }
+        if (mobileModeLegacy && mobileModeSimple) {
+            if (mapFilters.useSimpleFlightWindow) mobileModeSimple.checked = true;
+            else mobileModeLegacy.checked = true;
         }
     };
 
@@ -21921,17 +21908,13 @@ if (flatMapToggle) {
             mapFilters.useSimpleFlightWindow = target.checked;
             saveFiltersToLocalStorage();
 
-            const mobileModeHud = document.getElementById('mobile-mode-hud');
             const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
             const mobileModeSimple = document.getElementById('mobile-mode-simple');
 
             if (target.checked) {
                 if (mobileModeSimple) mobileModeSimple.checked = true;
-            } else {
-                // Fall back to the saved hud/legacy presentation (default legacy).
-                const saved = localStorage.getItem('mobileDisplayMode') || 'legacy';
-                if (saved === 'hud' && mobileModeHud) mobileModeHud.checked = true;
-                else if (mobileModeLegacy) mobileModeLegacy.checked = true;
+            } else if (mobileModeLegacy) {
+                mobileModeLegacy.checked = true;
             }
         }
         else if (target.id === 'filter-toggle-atc') {
@@ -22000,7 +21983,7 @@ if (flatMapToggle) {
                 saveFiltersToLocalStorage();
                 if (simpleToggle) simpleToggle.checked = true;
             } else {
-                // HUD / Legacy: turn Simple Window off and store the presentation.
+                // Legacy sheet: turn Simple Window off and store the presentation.
                 if (mapFilters.useSimpleFlightWindow) {
                     mapFilters.useSimpleFlightWindow = false;
                     saveFiltersToLocalStorage();

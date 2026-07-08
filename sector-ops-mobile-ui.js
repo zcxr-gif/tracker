@@ -1205,6 +1205,10 @@ disableHudControls() {
                 userMode = 'legacy';
             }
 
+            // The HUD split-view is retired — any stale 'hud' preference falls
+            // back to the working legacy sheet so no window is left blank.
+            if (userMode === 'hud') userMode = 'legacy';
+
             this.activeMode = userMode;
             this.activeWindow = windowElement;
 
