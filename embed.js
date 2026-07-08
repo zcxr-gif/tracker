@@ -226,6 +226,10 @@
             va: { code: va, name: (p.get('name') || va).trim(), logo: (p.get('logo') || '').trim() },
             callsignPrefixes: p.get('prefixes') ? p.get('prefixes').split(',') : null,
             callsignSuffixes: p.get('suffixes') ? p.get('suffixes').split(',') : null,
+            // "Regular" (untagged) callsigns — matched by prefix alone, always
+            // included even when suffix-tag mode is on for the main prefixes.
+            regularCallsigns: (p.get('regulars') || p.get('callsigns'))
+                ? (p.get('regulars') || p.get('callsigns')).split(',') : null,
             hubs: p.get('hubs') ? p.get('hubs').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
@@ -240,6 +244,11 @@
             gradientAngle: (p.get('angle') || p.get('gradientAngle') || '').trim(),
             compact: (p.get('compact') || '').trim(),
             radius: (p.get('radius') || '').trim(),
+            // Flight-card customization (map mode): translucency + text colour.
+            cardColor: (p.get('cardColor') || p.get('cardBg') || '').trim(),
+            cardText: (p.get('cardText') || p.get('textColor') || '').trim(),
+            cardOpacity: (p.get('cardOpacity') || p.get('opacity') || '').trim(),
+            cardBlur: (p.get('cardBlur') || '').trim(),
             servers: p.get('servers') ? p.get('servers').split(',') : null
         });
     }
@@ -266,6 +275,14 @@
         const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
             .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
             .filter(Boolean);
+
+        // "Regular" callsigns — additional full callsign names matched by PREFIX
+        // ONLY (never require a suffix tag), always folded into the roster even
+        // when the main prefixes are running in tag mode. Lets a VA list several
+        // plain callsigns (e.g. staff / charter callsigns) alongside tagged
+        // members. Compacted the same way as prefixes.
+        const regulars = (Array.isArray(raw.regularCallsigns) ? raw.regularCallsigns : [])
+            .map(compactCallsign).filter(Boolean);
 
         let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
@@ -318,12 +335,33 @@
         const radiusN = parseFloat(raw.radius);
         const radius = (isFinite(radiusN) && radiusN >= 0) ? Math.min(radiusN, 32) : null;
 
+        // Flight-card look (map mode). All optional; when nothing is supplied the
+        // card keeps its default appearance. `opacity` accepts 0–1 or 0–100 and
+        // controls how see-through the card is; `blur` frosts the map behind a
+        // translucent card; `color`/`text` accept hex, rgb() or a named colour.
+        const pickCard = (...vals) => { for (const v of vals) if (v != null && String(v).trim() !== '') return v; return null; };
+        const cardObj = (raw.card && typeof raw.card === 'object') ? raw.card : {};
+        const cardBg = parseCssColor(pickCard(raw.cardColor, raw.cardBg, cardObj.color, cardObj.bg));
+        const cardText = parseCssColor(pickCard(raw.cardText, raw.textColor, cardObj.text));
+        let cardOpacity = null;
+        const opRaw = pickCard(raw.cardOpacity, raw.opacity, cardObj.opacity);
+        if (opRaw != null) {
+            let n = parseFloat(opRaw);
+            if (isFinite(n)) { if (n > 1) n /= 100; cardOpacity = Math.min(1, Math.max(0, n)); }
+        }
+        let cardBlur = null;
+        const blRaw = pickCard(raw.cardBlur, cardObj.blur);
+        if (blRaw != null) { const n = parseFloat(blRaw); if (isFinite(n)) cardBlur = Math.min(40, Math.max(0, n)); }
+        const card = { bg: cardBg, text: cardText, opacity: cardOpacity, blur: cardBlur };
+
         return {
             code,
             name: va.name || code,
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
             suffixes,
+            regulars,
+            card,
             hubs,
             mode,
             provider,
@@ -436,15 +474,23 @@
         const tokens = stripWeightClass(callsignTokens(callsign));
         if (!tokens.length) return false;
         const compact = tokens.join('');          // uppercased, separators removed
-        const last = tokens[tokens.length - 1];
+
+        // Regular (untagged) callsigns are matched by prefix alone and are always
+        // included — they bypass the suffix-tag requirement entirely.
+        if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
 
         const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)));
 
         // Prefix-only mode (no tags) — unchanged.
         if (!cfg.suffixes || !cfg.suffixes.length) return prefixHit;
 
-        // Tag mode — require the declared prefix AND the tag together.
-        const suffixHit = cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s));
+        // Tag mode — require the declared prefix AND at least one configured tag
+        // on one of the LAST TWO tokens. Pilots often carry a second trailing tag
+        // (a division / event code) after the VA tag — "Air Canada 001VA CX" or
+        // "Air Canada 001 VA EX" — so a tag on either trailing token counts. Both
+        // suffixes are optional; one is enough.
+        const tail = tokens.slice(-2);
+        const suffixHit = cfg.suffixes.some(s => s && tail.some(t => tokenHasSuffixTag(t, s)));
         return prefixHit && suffixHit;
     }
 
@@ -529,6 +575,58 @@
     function rgbCss(c, a) {
         const r = Math.round(c.r), g = Math.round(c.g), b = Math.round(c.b);
         return a == null ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    // A handful of common colour NAMES a VA might type ("red", "white") on top of
+    // the hex / rgb() forms parseColor already handles. Kept small on purpose —
+    // enough to cover "red text / white text etc" without pulling in a table of
+    // 140 CSS names. Returns {r,g,b} or null.
+    const NAMED_COLORS = {
+        white: '#ffffff', black: '#000000', red: '#ef4444', crimson: '#dc2626',
+        orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', gold: '#fbbf24',
+        lime: '#84cc16', green: '#22c55e', emerald: '#10b981', teal: '#14b8a6',
+        cyan: '#06b6d4', sky: '#0ea5e9', blue: '#3b82f6', navy: '#1e3a8a',
+        indigo: '#6366f1', violet: '#8b5cf6', purple: '#a855f7', magenta: '#d946ef',
+        pink: '#ec4899', rose: '#f43f5e', slate: '#64748b', gray: '#6b7280',
+        grey: '#6b7280', silver: '#cbd5e1'
+    };
+    function parseCssColor(str) {
+        if (!str) return null;
+        const s = String(str).trim().toLowerCase();
+        if (NAMED_COLORS[s]) return parseColor(NAMED_COLORS[s]);
+        return parseColor(s);
+    }
+
+    // Apply the VA's flight-card customization (map mode) as CSS variables on the
+    // embed root. Only sets a variable the VA actually asked for, so an
+    // unconfigured card keeps its default look. Pure CSS vars — set once at boot,
+    // no per-frame or per-render cost, which matters for a lightweight embed.
+    function applyCardTheme(root, cfg) {
+        const c = cfg && cfg.card;
+        if (!c) return;
+        if (!(c.bg || c.text || c.opacity != null || c.blur != null)) return;
+        const s = root.style;
+        const light = cfg.theme === 'light';
+
+        // Translucent / recoloured card surface.
+        if (c.bg || c.opacity != null) {
+            const surface = c.bg || (light ? { r: 255, g: 255, b: 255 } : { r: 28, g: 28, b: 30 });
+            const alpha = c.opacity != null ? c.opacity : 1;
+            s.setProperty('--emb-card-bg', rgbCss(surface, alpha));
+            s.setProperty('--emb-card-panel', rgbCss(surface, alpha));
+        }
+        // Frost the map behind a see-through card: on by default once the card is
+        // noticeably translucent, off otherwise; an explicit blur always wins.
+        const blur = c.blur != null ? c.blur : ((c.opacity != null && c.opacity < 0.9) ? 12 : 0);
+        s.setProperty('--emb-card-blur', blur + 'px');
+
+        // Text colour — primary, plus a dimmed companion for secondary lines and
+        // a faint version for the stat-tile chips so they stay visible on any hue.
+        if (c.text) {
+            s.setProperty('--emb-card-text', rgbCss(c.text));
+            s.setProperty('--emb-card-text-dim', rgbCss(c.text, 0.62));
+            s.setProperty('--emb-card-chip', rgbCss(c.text, 0.10));
+        }
     }
 
     // WCAG relative luminance (0 = black … 1 = white).
@@ -859,17 +957,22 @@
                         <span class="fr24-user" title="${esc(username)}">${esc(username)}</span>
                     </div>
                     <div class="fr24-route-premium">
-                        <span class="fr24-route-code" style="color:#f8fafc">${esc(dep)}</span>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text, #f8fafc)">${esc(dep)}</span>
                         <div class="fr24-route-line">
                             <div class="seg fr24-prog-fill"></div>
                             <svg class="glyph fr24-prog-glyph" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
                         </div>
-                        <span class="fr24-route-code" style="color:#94a3b8">${esc(arr)}</span>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text-dim, #94a3b8)">${esc(arr)}</span>
                     </div>
                     <div class="fr24-meta">
                         <span class="fr24-meta-dist">—</span>
                         <span class="fr24-meta-eta">ETA —</span>
                     </div>
+                    ${(dep !== '---' || arr !== '---') ? `<div class="fr24-airports">
+                        ${dep !== '---' ? `<button class="fr24-apt-btn dep emb-open-apt" data-icao="${esc(dep)}" title="View ${esc(dep)} airport"><span class="r">Takeoff</span>${esc(dep)}</button>` : ''}
+                        ${arr !== '---' ? `<button class="fr24-apt-btn arr emb-open-apt" data-icao="${esc(arr)}" title="View ${esc(arr)} airport"><span class="r">Landing</span>${esc(arr)}</button>` : ''}
+                    </div>` : ''}
+                    <div class="fr24-depgate" data-dep-gate hidden></div>
                     <div class="fr24-stats-grid">
                         <div class="fr24-stat"><b>${alt}</b><span class="u">FT</span></div>
                         <div class="fr24-stat"><b>${gs}</b><span class="u">KTS</span></div>
@@ -919,11 +1022,78 @@
     const PLAN_DOTS  = 'emb-plan-dots',  PLAN_LBLS = 'emb-plan-lbls';
 
     function removeFlightPaths(map) {
+        clearRouteMarkers();
+        clearAirportLayout(map);
         if (!map || !map.getStyle) return;
         [FLOWN_LYR, PLAN_GLOW, PLAN_LINE, PLAN_DOTS, PLAN_LBLS].forEach(id => {
             if (map.getLayer(id)) map.removeLayer(id);
         });
         [FLOWN_SRC, PLAN_SRC].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+    }
+
+    // ── Takeoff / landing airport markers ────────────────────────────────────
+    // When a flight is open, drop a pin on its departure (takeoff) and arrival
+    // (landing) fields. Tapping either opens that airport's window — the "pick
+    // to see the landing airport" path. Cleared together with the flight paths.
+    function clearRouteMarkers() {
+        (_mapState.routeMarkers || []).forEach(m => { try { m.remove(); } catch (_) {} });
+        _mapState.routeMarkers = [];
+        // Invalidate any endpoint fetch still in flight so it doesn't add a
+        // stale marker after the card has moved on.
+        _mapState.routeToken = (_mapState.routeToken || 0) + 1;
+    }
+
+    function routeEndpointEl(role, icao) {
+        const el = document.createElement('div');
+        el.className = 'emb-route-ep ' + role;
+        el.innerHTML =
+            '<span class="emb-route-ep-pin"></span>' +
+            '<div class="emb-route-ep-label">' +
+                `<span class="emb-route-ep-role">${role === 'dep' ? 'Takeoff' : 'Landing'}</span>` +
+                `<span class="emb-route-ep-icao">${esc(icao)}</span>` +
+            '</div>';
+        return el;
+    }
+
+    async function drawRouteEndpoints(map, pr) {
+        const token = _mapState.routeToken = (_mapState.routeToken || 0) + 1;
+        const dep = String(pr.depIcao || '').trim().toUpperCase();
+        const arr = String(pr.arrIcao || '').trim().toUpperCase();
+        const ends = [];
+        if (dep) ends.push(['dep', dep]);
+        if (arr && arr !== dep) ends.push(['arr', arr]);
+        for (const [role, icao] of ends) {
+            let apt = null;
+            try { apt = await airportInfo(icao); } catch (_) { apt = null; }
+            if (_mapState.routeToken !== token) return;   // a newer card superseded us
+            const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
+            const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
+            if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) continue;
+            const el = routeEndpointEl(role, icao);
+            el.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openAirportDetail(map, icao, [Number(lon), Number(lat)]);
+            });
+            try {
+                const marker = new (gl().Marker)({ element: el, anchor: 'center' })
+                    .setLngLat([Number(lon), Number(lat)]).addTo(map);
+                (_mapState.routeMarkers = _mapState.routeMarkers || []).push(marker);
+            } catch (_) {}
+        }
+    }
+
+    // Open an airport window from just an ICAO (resolve its coords first so the
+    // hero aerial + pan work). Used by the flight card's takeoff/landing buttons.
+    async function openAirportByIcao(map, icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return;
+        let apt = null;
+        try { apt = await airportInfo(code); } catch (_) { apt = null; }
+        const lat = apt && (apt.latitude != null ? apt.latitude : apt.lat);
+        const lon = apt && (apt.longitude != null ? apt.longitude : apt.lon);
+        const coords = (lat != null && lon != null && isFinite(Number(lat)) && isFinite(Number(lon)))
+            ? [Number(lon), Number(lat)] : null;
+        openAirportDetail(map, code, coords);
     }
 
     // --- Geometry helpers (verbatim from flight.js) ---
@@ -1125,6 +1295,28 @@
         const trail = Array.isArray(histArr)
             ? histArr.slice().sort((a, b) => new Date(a.date) - new Date(b.date))
             : [];
+
+        // Departure gate: the stand nearest the first recorded trail point (where
+        // the aircraft pushed back), patched into the card once resolved.
+        (async () => {
+            try {
+                if (!cardEl || !pr.depIcao || !trail.length) return;
+                const first = trail[0];
+                const fLat = first.latitude != null ? first.latitude : first.lat;
+                const fLon = first.longitude != null ? first.longitude : first.lon;
+                if (fLat == null || fLon == null) return;
+                const gates = await fetchGates(pr.depIcao);
+                if (_mapState.activePathId !== flightId) return;   // card moved on
+                const ng = nearestGate(gates, fLat, fLon);
+                if (ng && ng.dist <= 0.3) {   // first point sits on/near the stand
+                    const el = cardEl.querySelector('[data-dep-gate]');
+                    if (el) {
+                        el.innerHTML = `Departed Gate <b>${esc(gateLabel(ng.gate))}</b>`;
+                        el.hidden = false;
+                    }
+                }
+            } catch (_) { /* best-effort */ }
+        })();
         const routeFeature = generateAltitudeColoredRoute(trail, currentPosition);
         if (routeFeature.features.length) {
             map.addSource(FLOWN_SRC, {
@@ -1440,6 +1632,16 @@
         // enrich the card with progress/ETA from the same data.
         drawFlightPaths(map, pr, coords, body).catch(() => {});
 
+        // Drop takeoff / landing pins on the field endpoints, and wire the
+        // card's airport buttons to open those airports.
+        drawRouteEndpoints(map, pr).catch(() => {});
+        body.querySelectorAll('.emb-open-apt').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openAirportByIcao(map, btn.getAttribute('data-icao'));
+            });
+        });
+
         communityImage(pr.aircraft, pr.livery).then(info => {
             if (!info || !info.url) return;
             if (_mapState.activePathId !== pr.flightId) return;   // card changed mid-fetch
@@ -1648,6 +1850,150 @@
         };
     }
 
+    // ── Airport ground layout (runways & taxiways) ───────────────────────────
+    // A lean port of the main tracker's AirportLayoutManager for the embed:
+    // fetches the field's OSM aeroway geometry (once, cached) and draws runway
+    // pavement + ICAO markings, taxi lines and gate/stand dots under the plane
+    // layer. Geometry only — no text/symbol layers — so it never depends on the
+    // fonts a given VA's map style happens to ship, and stays light. Drawn
+    // on-demand when an airport window opens; cleared with the flight paths.
+    const EMB_OVERPASS = 'https://overpass-api.de/api/interpreter';
+    const _aptLayoutCache = new Map();   // ICAO -> processed geojson
+    const AptLayout = {
+        active: null,   // { sources: [...], layers: [...] }
+        R: 6378137,
+        bearing(a, b) {
+            const la1 = a[1] * Math.PI / 180, la2 = b[1] * Math.PI / 180;
+            const dLon = (b[0] - a[0]) * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(la2);
+            const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        },
+        distance(a, b) {
+            const dLat = (b[1] - a[1]) * Math.PI / 180, dLon = (b[0] - a[0]) * Math.PI / 180;
+            const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return this.R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+        },
+        dest(pt, brng, dist) {
+            const br = brng * Math.PI / 180, la1 = pt[1] * Math.PI / 180, lo1 = pt[0] * Math.PI / 180;
+            const la2 = Math.asin(Math.sin(la1) * Math.cos(dist / this.R) + Math.cos(la1) * Math.sin(dist / this.R) * Math.cos(br));
+            const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(dist / this.R) * Math.cos(la1), Math.cos(dist / this.R) - Math.sin(la1) * Math.sin(la2));
+            return [lo2 * 180 / Math.PI, la2 * 180 / Math.PI];
+        },
+        processOsm(elements) {
+            const features = [];
+            elements.forEach(el => {
+                let geometry = null;
+                if (el.type === 'node') {
+                    geometry = { type: 'Point', coordinates: [el.lon, el.lat] };
+                } else if (el.geometry) {
+                    const coords = el.geometry.map(p => [p.lon, p.lat]);
+                    const isArea = el.tags && (el.tags.aeroway === 'apron' || el.tags.aeroway === 'runway' || el.tags.area === 'yes');
+                    geometry = (coords.length > 3 && coords[0][0] === coords[coords.length - 1][0] && isArea)
+                        ? { type: 'Polygon', coordinates: [coords] }
+                        : { type: 'LineString', coordinates: coords };
+                }
+                if (geometry) features.push({ type: 'Feature', geometry, properties: { ...el.tags, osm_id: el.id } });
+            });
+            return { type: 'FeatureCollection', features };
+        },
+        buildMarkings(geojson) {
+            const features = [];
+            const runways = geojson.features.filter(f => f.properties.aeroway === 'runway' && f.geometry.type === 'LineString');
+            runways.forEach(rw => {
+                const coords = rw.geometry.coordinates;
+                const start = coords[0], end = coords[coords.length - 1];
+                const brng = this.bearing(start, end), rev = (brng + 180) % 360;
+                const len = this.distance(start, end), width = 45;
+                const endMarks = (origin, b) => {
+                    for (let i = -14; i <= 14; i += 4) {
+                        const o = this.dest(origin, b + 90, i);
+                        const s = this.dest(o, b, 2), e = this.dest(s, b, 15);
+                        features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [s, e] }, properties: { m: 'block' } });
+                    }
+                    const aim = Math.min(300, len * 0.2);
+                    [-12, 12].forEach(off => {
+                        const s = this.dest(this.dest(origin, b + 90, off), b, aim);
+                        const e = this.dest(s, b, Math.min(45, len * 0.05));
+                        features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [s, e] }, properties: { m: 'block' } });
+                    });
+                    [150, 450, 600].filter(d => d < len * 0.4).forEach(d => {
+                        [-13, 13].forEach(off => {
+                            const s = this.dest(this.dest(origin, b + 90, off), b, d);
+                            const e = this.dest(s, b, 20);
+                            features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [s, e] }, properties: { m: 'block' } });
+                        });
+                    });
+                };
+                endMarks(start, brng); endMarks(end, rev);
+                const le = [this.dest(start, brng + 90, width / 2), this.dest(end, brng + 90, width / 2)];
+                const re = [this.dest(start, brng - 90, width / 2), this.dest(end, brng - 90, width / 2)];
+                features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: le }, properties: { m: 'edge' } });
+                features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: re }, properties: { m: 'edge' } });
+            });
+            return { type: 'FeatureCollection', features };
+        },
+        async draw(map, icao, lat, lon) {
+            if (!map || lat == null || lon == null) return;
+            this.clear(map);
+            let geojson = _aptLayoutCache.get(icao);
+            if (!geojson) {
+                const buffer = 0.05;
+                const bbox = `${lat - buffer / 2},${lon - buffer},${lat + buffer / 2},${lon + buffer}`;
+                const q = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron|runway"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+                try {
+                    const res = await fetch(`${EMB_OVERPASS}?data=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+                    if (!data || !data.elements) return;
+                    geojson = this.processOsm(data.elements);
+                    _aptLayoutCache.set(icao, geojson);
+                } catch (_) { return; }
+            }
+            // The window may have moved on while Overpass was in flight.
+            if (_mapState.activeAptIcao !== icao || !map.getStyle) return;
+
+            const src = `apt-lyt-src-${icao}`, mSrc = `apt-lyt-mrk-${icao}`;
+            const before = map.getLayer(LAYER_ID) ? LAYER_ID : undefined;
+            const markings = this.buildMarkings(geojson);
+            try {
+                map.addSource(src, { type: 'geojson', data: geojson });
+                map.addSource(mSrc, { type: 'geojson', data: markings });
+            } catch (_) { return; }
+
+            const layers = [];
+            const add = (def) => { try { map.addLayer(def, before); layers.push(def.id); } catch (_) {} };
+            add({ id: `apt-lyt-pave-${icao}`, type: 'fill', source: src,
+                filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'aeroway', 'runway']],
+                paint: { 'fill-color': '#1a1a1a', 'fill-opacity': 0.85 } });
+            add({ id: `apt-lyt-rwybase-${icao}`, type: 'line', source: src,
+                filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
+                layout: { 'line-cap': 'square' },
+                paint: { 'line-color': '#0f0f0f', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 2, 12, 6, 14, 25, 16, 80, 18, 180] } });
+            add({ id: `apt-lyt-edge-${icao}`, type: 'line', source: mSrc, filter: ['==', 'm', 'edge'],
+                paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 2], 'line-opacity': 0.7 } });
+            add({ id: `apt-lyt-blocks-${icao}`, type: 'line', source: mSrc, filter: ['==', 'm', 'block'],
+                paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 2, 16, 8, 18, 20], 'line-opacity': 0.95 } });
+            add({ id: `apt-lyt-center-${icao}`, type: 'line', source: src,
+                filter: ['all', ['==', 'aeroway', 'runway'], ['==', '$type', 'LineString']],
+                paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1, 18, 4], 'line-dasharray': [5, 5], 'line-opacity': 0.9 } });
+            add({ id: `apt-lyt-taxi-${icao}`, type: 'line', source: src,
+                filter: ['all', ['==', '$type', 'LineString'], ['!=', 'aeroway', 'runway']],
+                paint: { 'line-color': '#fde047', 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.4, 14, 1.2, 16, 3, 18, 6] } });
+            add({ id: `apt-lyt-gates-${icao}`, type: 'circle', source: src, minzoom: 14,
+                filter: ['all', ['==', '$type', 'Point'], ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false]],
+                paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 16, 3, 18, 5], 'circle-color': '#22d3ee', 'circle-stroke-color': '#0e7490', 'circle-stroke-width': 1, 'circle-opacity': 0.9 } });
+
+            this.active = { sources: [src, mSrc], layers };
+        },
+        clear(map) {
+            if (!this.active || !map || !map.getStyle) { this.active = null; return; }
+            this.active.layers.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+            this.active.sources.forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+            this.active = null;
+        }
+    };
+    function clearAirportLayout(map) { AptLayout.clear(map); }
+
     function openAirportDetail(map, icao, coords) {
         const panel = ensureDetailPanel(map);
         if (!panel) return;
@@ -1655,6 +2001,12 @@
         removeFlightPaths(map);
         _mapState.activePathId = null;
         _mapState.activeAptIcao = icao;
+        _mapState.activeAptCoords = coords;   // [lon, lat] — frames the hero aerial
+
+        // Draw the field's runways & taxiways on the map (on-demand, cached).
+        if (Array.isArray(coords) && coords.length === 2) {
+            AptLayout.draw(map, icao, coords[1], coords[0]).catch(() => {});
+        }
 
         const body = _mapState.detailBody;
         body.innerHTML = airportCardHTML(icao, null);
@@ -1664,14 +2016,114 @@
             panToVisible(map, coords);
         });
 
-        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao)])
-            .then(([apt, metar, live]) => {
+        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao), fetchGates(icao)])
+            .then(([apt, metar, live, gates]) => {
                 if (_mapState.activeAptIcao !== icao) return;   // panel changed mid-fetch
-                body.innerHTML = airportCardHTML(icao, { apt, metar, live });
+                body.innerHTML = airportCardHTML(icao, { apt, metar, live, gates });
             })
             .catch(() => {
                 if (_mapState.activeAptIcao === icao) body.innerHTML = airportCardHTML(icao, { error: true });
             });
+    }
+
+    // Key-less Esri World Imagery aerial framed on the field, used as the
+    // airport card's hero. coords is [lon, lat]; returns null without them.
+    function aptAerialUrl(coords, w = 640, h = 240) {
+        if (!Array.isArray(coords)) return null;
+        const lon = +coords[0], lat = +coords[1];
+        if (!isFinite(lat) || !isFinite(lon)) return null;
+        const R = 6378137;
+        const x = R * lon * Math.PI / 180;
+        const y = R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+        const halfW = 4200, halfH = halfW * (h / w);
+        const bbox = [x - halfW, y - halfH, x + halfW, y + halfH].map(n => n.toFixed(1)).join(',');
+        return 'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export'
+            + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=jpg&f=image`;
+    }
+
+    // ── Gates ────────────────────────────────────────────────────────────────
+    // Same MongoDB-backed gate list the main tracker uses. Cached per field.
+    const _gatesCache = new Map();
+    function fetchGates(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return Promise.resolve(null);
+        if (_gatesCache.has(code)) return _gatesCache.get(code);
+        const pr = getJSON(`${INGDO_BACKEND}/api/gates/${encodeURIComponent(code)}`)
+            .then(g => Array.isArray(g) ? g : (g && Array.isArray(g.gates) ? g.gates : null))
+            .catch(() => null);
+        _gatesCache.set(code, pr);
+        return pr;
+    }
+    const gateLabel = (g) => g.name || g.ident || g.gateName || g.id || 'GATE';
+    const gateLatLon = (g) => ({
+        lat: g.latitude != null ? g.latitude : (g.lat != null ? g.lat : (g.location && (g.location.lat != null ? g.location.lat : g.location.latitude))),
+        lon: g.longitude != null ? g.longitude : (g.lon != null ? g.lon : (g.location && (g.location.lon != null ? g.location.lon : g.location.longitude)))
+    });
+    const gateKeyOf = (g) => { const { lat, lon } = gateLatLon(g); return `${gateLabel(g)}|${lat}|${lon}`; };
+    function gateTerminal(g) {
+        const e = g.terminal || g.concourse || g.pier;
+        if (e) return String(e).trim().toUpperCase();
+        const n = String(gateLabel(g)).trim().replace(/^(gate|stand|ramp|apron|parking|bay|spot)\s*/i, '');
+        const m = n.match(/^([A-Za-z]+)/);
+        return m ? m[1].toUpperCase() : 'Gates';
+    }
+    function nearestGate(gates, lat, lon) {
+        if (!gates || !gates.length || lat == null || lon == null) return null;
+        let best = null, bd = Infinity;
+        gates.forEach(g => {
+            const { lat: gl, lon: go } = gateLatLon(g);
+            if (gl == null || go == null) return;
+            const d = getDistanceKm(lat, lon, gl, go);
+            if (d < bd) { bd = d; best = g; }
+        });
+        return best ? { gate: best, dist: bd } : null;
+    }
+    // Occupants restricted to THIS VA's live pilots (the embed only has their
+    // positions): a parked member (≤3 kt) is tagged onto its nearest gate.
+    function gateOccupantsVA(gates, coords) {
+        const res = new Map();
+        const pilots = _mapState.pilots || [];
+        if (!gates || !gates.length || !pilots.length) return res;
+        const near = Array.isArray(coords) ? { lat: coords[1], lon: coords[0] } : null;
+        const gi = gates.map(g => { const { lat, lon } = gateLatLon(g); return { lat, lon, key: gateKeyOf(g) }; })
+            .filter(x => x.lat != null && x.lon != null);
+        pilots.forEach(p => {
+            if (!p || p.lat == null || p.lon == null || (p.speed || 0) > 3) return;
+            if (near && getDistanceKm(p.lat, p.lon, near.lat, near.lon) > 5) return;
+            let best = null, bd = Infinity;
+            gi.forEach(g => { const d = getDistanceKm(p.lat, p.lon, g.lat, g.lon); if (d < bd) { bd = d; best = g; } });
+            if (best && bd <= 0.05 && !res.has(best.key)) res.set(best.key, p.username || p.callsign || 'Pilot');
+        });
+        return res;
+    }
+    // Gates module for the airport card: terminals as collapsible dropdowns,
+    // each stand tagged with the VA member parked there (if any).
+    function gatesModHTML(gates, coords) {
+        if (!gates || !gates.length) {
+            return `<div class="emb-apt-mod"><div class="emb-apt-mod-h"><span>Gates</span></div>
+                <div class="emb-apt-sub" style="margin:0">No gate data for this field.</div></div>`;
+        }
+        const occ = gateOccupantsVA(gates, coords);
+        const groups = new Map();
+        gates.forEach(g => { const k = gateTerminal(g); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(g); });
+        const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        const body = keys.map(k => {
+            const list = groups.get(k).slice().sort((a, b) =>
+                String(gateLabel(a)).localeCompare(String(gateLabel(b)), undefined, { numeric: true }));
+            const occN = list.filter(g => occ.get(gateKeyOf(g))).length;
+            const title = k === 'Gates' ? 'Gates' : 'Terminal ' + k;
+            const rows = list.map(g => {
+                const who = occ.get(gateKeyOf(g));
+                return `<div class="emb-gate-row${who ? ' occ' : ''}"><span class="n">${esc(gateLabel(g))}</span>` +
+                    (who ? `<span class="w">${esc(who)}</span>` : '<span class="f">—</span>') + '</div>';
+            }).join('');
+            return `<details class="emb-gate-term"><summary>` +
+                `<span class="t">${esc(title)}</span><span class="c">${list.length}</span>` +
+                (occN ? `<span class="o">${occN}</span>` : '') +
+                `</summary><div class="emb-gate-list">${rows}</div></details>`;
+        }).join('');
+        return `<div class="emb-apt-mod"><div class="emb-apt-mod-h"><span>Gates</span>` +
+            `<span class="emb-apt-pill" style="color:#7dd3fc;border-color:#7dd3fc">${gates.length}</span></div>${body}</div>`;
     }
 
     function airportCardHTML(icao, data) {
@@ -1756,8 +2208,14 @@
                     : `<div class="emb-apt-sub" style="margin:0">No ${esc(vaName)} pilots inbound right now.</div>`}
             </div>`;
 
+        const heroUrl = aptAerialUrl(_mapState.activeAptCoords);
+        const heroMod = heroUrl
+            ? `<div class="emb-apt-hero"><img src="${esc(heroUrl)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.emb-apt-hero').remove()"><div class="emb-apt-hero-fade"></div></div>`
+            : '';
+
         return `
             <div class="emb-apt">
+                ${heroMod}
                 <div class="emb-apt-head">${flag}<div style="min-width:0">
                     <div class="emb-apt-icao">${esc(icao)}</div>
                     <div class="emb-apt-name">${esc(name)}</div>
@@ -1766,6 +2224,7 @@
                 ${metarMod}
                 ${opsMod}
                 ${trafficMod}
+                ${gatesModHTML(data.gates, _mapState.activeAptCoords)}
                 ${vaInboundMod}
                 ${poweredByHTML()}
             </div>`;
@@ -1969,6 +2428,7 @@
         if (cfg.hideHeader) root.classList.add('emb-noheader');
         if (cfg.compact) root.classList.add('emb-compact');
         if (cfg.radius != null) root.style.borderRadius = cfg.radius + 'px';
+        applyCardTheme(root, cfg);
 
         // Colour the header from the VA's brand: explicit colours win (one or
         // several — several become a gradient), else we sample the logo's palette

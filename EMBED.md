@@ -69,6 +69,16 @@ Implement this endpoint to validate the token and return the VA's embed config.
     "logo": "https://.../logo.png"   // optional
   },
   "callsignPrefixes": ["OCEAN"],     // optional; defaults to [va.code]
+  "callsignSuffixes": ["VA", "EX"],  // optional tags; a match then needs a prefix AND a tag on
+                                     // one of the callsign's last two tokens (2nd tag optional)
+  "regularCallsigns": ["OCEAN STAFF"], // optional; untagged callsigns matched by prefix only,
+                                     // always included even in tag mode
+  "card": {                          // optional; flight-card look in map mode
+    "opacity": 0.6,                  //   0–1 (or 0–100) — see-through card, frosts the map behind
+    "color": "#0b1220",              //   card surface colour (hex/rgb()/name)
+    "text": "white",                 //   card text colour (name/hex/rgb())
+    "blur": 14                       //   backdrop blur px (0–40); auto when translucent
+  },
   "mode": "map",                     // "map" | "roster"  (default "roster")
   "mapboxToken": "pk.eyJ…",          // REQUIRED when mode == "map" — the VA's OWN token
   "mapStyle": "mapbox://styles/mapbox/dark-v11",  // optional
@@ -137,6 +147,9 @@ The widget also accepts direct query params so you can build and demo it now. A
 # Optional extras
 &prefixes=Air%20Canada,OCEAN # full airline/callsign names this VA flies under
 &suffixes=VA,EX             # tags; when set, a flight must match a prefix AND carry a tag
+                            # on one of its last TWO tokens (a 2nd trailing tag is optional)
+&regulars=OCEAN%20STAFF,Shamrock # "regular" (untagged) callsigns — matched by prefix only,
+                            # always included even when suffix-tag mode is on
 &servers=Expert              # restrict to a server (substring of IF session name)
 &theme=light
 &logo=https://.../logo.png
@@ -148,6 +161,12 @@ The widget also accepts direct query params so you can build and demo it now. A
 &headerPos=left              # header placement: top (default) | bottom | left | right
 &compact=1                   # slimmer header
 &radius=0                    # widget corner radius in px (e.g. 0 for square corners)
+
+# Flight-card look (map mode) — the tap/detail card
+&cardOpacity=0.6             # 0–1 (or 0–100) — how see-through the card is; frosts the map behind it
+&cardColor=%230b1220         # card surface colour (hex, rgb() or a name like "navy")
+&cardText=white              # card text colour — "red", "white", hex or rgb()
+&cardBlur=14                 # explicit backdrop blur in px (0–40); auto when translucent
 ```
 
 ---
@@ -199,12 +218,40 @@ A pilot is matched to the VA by their callsign:
   not Air France). Defaults to `[va.code]`.
 - **Suffix tags** — optional `callsignSuffixes` (e.g. `VA`, `EX`). When a VA
   supplies tags, a flight must match a declared prefix **AND** carry one of the
-  tags on its last token (e.g. `Air Canada 001VA`). A bare tag like `VA` never
-  matches on its own, so unrelated callsigns that merely end in `VA` are not
-  swept in. To fly a tag across several airlines, list each airline in
-  `callsignPrefixes`.
+  tags on one of its **last two tokens** (e.g. `Air Canada 001VA`). Checking the
+  last two — not just the final token — means a pilot can append a **second**
+  trailing tag (a division or event code) after the VA tag and still match:
+  `Air Canada 001VA CX` or `Air Canada 001 VA EX`. The second tag is optional;
+  one configured tag is enough. A bare tag like `VA` never matches on its own,
+  so unrelated callsigns that merely end in `VA` are not swept in. To fly a tag
+  across several airlines, list each airline in `callsignPrefixes`.
+- **Regular callsigns** — optional `regularCallsigns` (config) / `regulars` or
+  `callsigns` (preview param). These are matched by **prefix only** — they never
+  require a suffix tag — and are **always included**, even when the main
+  prefixes are running in tag mode. Use them to fold specific untagged callsigns
+  (staff, charter, several plain airline names) into the roster alongside your
+  tagged members. List as many as you like.
 
 The widget polls every 30s and pauses while the tab is hidden.
+
+### Map mode — airport layout & route endpoints
+
+- **Runways & taxiways** — opening an airport window on the map (tap a hub pin,
+  a takeoff/landing pin, or a flight card's airport button) draws that field's
+  runways, taxiways, runway markings and gate/stand dots on the map, from OSM
+  aeroway data (fetched on demand and cached, so it stays light). The layout is
+  cleared when you open a different airport or tap a flight.
+- **Takeoff & landing pins** — tapping a flight drops a green *Takeoff* pin on
+  its departure field and an amber *Landing* pin on its arrival field. Tapping
+  either pin — or the **Takeoff / Landing** buttons in the flight card — opens
+  that airport's window (with its own aerial photo and live data).
+- **Departure gate** — the flight card shows the gate the pilot pushed back
+  from (the stand nearest the first point of their flown trail).
+- **Gates by terminal** — the airport window lists the field's gates grouped
+  into collapsible terminals. Each stand shows the username of the VA member
+  parked there, if any (the embed only has this VA's live positions; the main
+  tracker shows any pilot). Gate data comes from the same `/api/gates/{ICAO}`
+  endpoint the main tracker uses.
 
 ---
 

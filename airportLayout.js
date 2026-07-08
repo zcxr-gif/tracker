@@ -178,8 +178,78 @@ export const AirportLayoutManager = {
             }
         }, planeLayerId);
 
-        this.activeLayers.add({ 
-            sourceId, 
+        // 7. GATE / PARKING STAND DOTS — the gate & parking_position nodes the
+        // Overpass query already pulls, surfaced at high zoom as cyan pins.
+        map.addLayer({
+            id: `gate-dots-${icao}`,
+            type: 'circle',
+            source: sourceId,
+            minzoom: 14,
+            filter: ['all', ['==', '$type', 'Point'], ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false]],
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 16, 3, 18, 5],
+                'circle-color': '#22d3ee',
+                'circle-stroke-color': '#0e7490',
+                'circle-stroke-width': 1,
+                'circle-opacity': 0.9
+            }
+        }, planeLayerId);
+
+        // 8. GATE / STAND LABELS — the stand identifier (e.g. "A12"), only once
+        // zoomed in close so busy aprons don't turn into a wall of text.
+        map.addLayer({
+            id: `gate-labels-${icao}`,
+            type: 'symbol',
+            source: sourceId,
+            minzoom: 15,
+            filter: ['all', ['==', '$type', 'Point'], ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false], ['has', 'ref']],
+            layout: {
+                'text-field': ['get', 'ref'],
+                'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+                'text-size': ['interpolate', ['linear'], ['zoom'], 15, 8, 18, 14],
+                'text-offset': [0, -0.9],
+                'text-anchor': 'bottom',
+                'text-allow-overlap': false,
+                'text-optional': true,
+                'text-padding': 1
+            },
+            paint: {
+                'text-color': '#a5f3fc',
+                'text-halo-color': '#083344',
+                'text-halo-width': 1.2,
+                'text-opacity': ['interpolate', ['linear'], ['zoom'], 14.8, 0, 15.4, 1]
+            }
+        }, planeLayerId);
+
+        // 9. RUNWAY DESIGNATORS — the 09/27-style numbers, aligned with each
+        // runway end. Placed on top of the pavement/markings.
+        map.addLayer({
+            id: `runway-labels-${icao}`,
+            type: 'symbol',
+            source: markingSourceId,
+            minzoom: 13,
+            filter: ['==', 'type', 'runway-label'],
+            layout: {
+                'text-field': ['get', 'label'],
+                'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+                'text-size': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 9, 15, 20, 17, 34],
+                'text-rotate': ['get', 'rot'],
+                'text-rotation-alignment': 'map',
+                'text-pitch-alignment': 'map',
+                'text-keep-upright': false,
+                'text-allow-overlap': true,
+                'text-ignore-placement': true
+            },
+            paint: {
+                'text-color': '#ffffff',
+                'text-halo-color': '#0a0a0a',
+                'text-halo-width': 1.4,
+                'text-opacity': ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13.5, 0.95]
+            }
+        }, planeLayerId);
+
+        this.activeLayers.add({
+            sourceId,
             markingSourceId,
             layers: [
                 `taxi-pavement-${icao}`,
@@ -187,9 +257,38 @@ export const AirportLayoutManager = {
                 `runway-edge-stripes-${icao}`,
                 `runway-blocks-${icao}`,
                 `runway-centerline-${icao}`,
-                `taxi-lines-${icao}`
-            ] 
+                `taxi-lines-${icao}`,
+                `gate-dots-${icao}`,
+                `gate-labels-${icao}`,
+                `runway-labels-${icao}`
+            ]
         });
+    },
+
+    // Runway designator for a landing direction. Derives the number from the
+    // runway's true bearing (round to nearest 10°, 00 → 36) and, when OSM
+    // carries a `ref` like "09L/27R", recovers the L/C/R suffix by matching
+    // the token whose number lines up with this end (a small tolerance covers
+    // the true-vs-magnetic drift baked into the geometry).
+    runwayDesignator(bearing, ref) {
+        let num = Math.round(bearing / 10);
+        if (num === 0) num = 36;
+        if (num > 36) num -= 36;
+        const twoDigit = String(num).padStart(2, '0');
+        if (!ref) return twoDigit;
+        const tokens = String(ref).split('/').map(t => t.trim()).filter(Boolean);
+        for (const t of tokens) {
+            const m = t.match(/^(\d{1,2})/);
+            if (!m) continue;
+            let tn = parseInt(m[1], 10);
+            if (tn === 0) tn = 36;
+            const diff = Math.abs(tn - num);
+            if (tn === num || diff === 1 || diff === 35) {
+                const suffix = t.replace(/^\d{1,2}\s*/, '').toUpperCase();
+                return String(tn).padStart(2, '0') + suffix;
+            }
+        }
+        return twoDigit;
     },
 
     generateRunwayBuild(osmData) {
@@ -200,11 +299,28 @@ export const AirportLayoutManager = {
             const coords = rw.geometry.coordinates;
             const start = coords[0];
             const end = coords[coords.length - 1];
-            
+
             const bearing = this.getBearing(start, end);
             const reverseBearing = (bearing + 180) % 360;
             const runwayLength = this.getDistance(start, end);
-            const runwayWidth = 45; 
+            const runwayWidth = 45;
+
+            // Designator numbers, painted a short way in from each threshold and
+            // rotated to read in the direction of landing (like the real paint).
+            const ref = rw.properties && rw.properties.ref;
+            const labelInset = Math.min(runwayLength * 0.1, 160);
+            if (runwayLength > 200) {
+                [
+                    { origin: start, brng: bearing },
+                    { origin: end, brng: reverseBearing }
+                ].forEach(({ origin, brng }) => {
+                    features.push({
+                        type: "Feature",
+                        geometry: { type: "Point", coordinates: this.destPoint(origin, brng, labelInset) },
+                        properties: { type: "runway-label", label: this.runwayDesignator(brng, ref), rot: brng }
+                    });
+                });
+            }
 
             const addEndMarkings = (origin, brng) => {
                 // A. Threshold Stripes (Zebra)

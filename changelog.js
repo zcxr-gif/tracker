@@ -24,6 +24,26 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.2',
+            date: 'July 2026',
+            title: 'Airport Map Detail & Runway Winds',
+            tagline: 'Runway numbers and gate stands now show on the map’s airport layout, and the airport window reads the wind for you.',
+            entries: [
+                { tag: 'new', icon: 'fa-road', text: 'Runway numbers on the map — the airport layout now paints 09/27-style designators, aligned with each runway end just like the real markings.' },
+                { tag: 'new', icon: 'fa-square-parking', text: 'Gates & parking stands — the airport layout now shows gate/stand pins with their identifiers (e.g. A12) when you zoom in.' },
+                { tag: 'new', icon: 'fa-wind', text: 'Wind-aware runways — each runway now shows its head / cross-wind from the live METAR, with the favoured landing direction highlighted and the best runway tagged PREFERRED.' },
+                { tag: 'new', icon: 'fa-clock', text: 'Airport details now show the field’s current local time.' },
+                { tag: 'new', icon: 'fa-sun', text: 'Daylight at a glance — a Day / Sunset / Twilight / Night indicator computed from the airport’s position.' },
+                { tag: 'new', icon: 'fa-palette', text: 'Embed: the map flight-card is now fully customizable — set its transparency (see-through / frosted) and text colour to match your site.' },
+                { tag: 'new', icon: 'fa-tags', text: 'Embed: callsign matching now accepts a second optional tag at the end (e.g. “Air Canada 001VA CX”), plus a list of regular untagged callsigns to always include.' },
+                { tag: 'new', icon: 'fa-image', text: 'Airport windows now show a real aerial photo of the field — every airport gets an image, not a placeholder.' },
+                { tag: 'new', icon: 'fa-diagram-project', text: 'Embed map: opening an airport now draws its runways & taxiways (with gate stands) right on the map.' },
+                { tag: 'new', icon: 'fa-plane-departure', text: 'Embed map: tapping a flight drops takeoff & landing pins on its airports — tap either (or the new card buttons) to open that airport.' },
+                { tag: 'new', icon: 'fa-warehouse', text: 'Airport windows now list gates by terminal (as dropdowns), showing who’s parked at each stand — everyone on the main tracker, your VA members in the embed.' },
+                { tag: 'new', icon: 'fa-warehouse', text: 'Embed flight card now shows the gate the pilot departed from.' }
+            ]
+        },
+        {
             id: '2026.07.1',
             date: 'July 2026',
             title: 'Sharing, Trip Card & Live Fleets',
