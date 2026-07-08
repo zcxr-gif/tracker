@@ -1753,6 +1753,7 @@
         removeFlightPaths(map);
         _mapState.activePathId = null;
         _mapState.activeAptIcao = icao;
+        _mapState.activeAptCoords = coords;   // [lon, lat] — frames the hero aerial
 
         const body = _mapState.detailBody;
         body.innerHTML = airportCardHTML(icao, null);
@@ -1770,6 +1771,21 @@
             .catch(() => {
                 if (_mapState.activeAptIcao === icao) body.innerHTML = airportCardHTML(icao, { error: true });
             });
+    }
+
+    // Key-less Esri World Imagery aerial framed on the field, used as the
+    // airport card's hero. coords is [lon, lat]; returns null without them.
+    function aptAerialUrl(coords, w = 640, h = 240) {
+        if (!Array.isArray(coords)) return null;
+        const lon = +coords[0], lat = +coords[1];
+        if (!isFinite(lat) || !isFinite(lon)) return null;
+        const R = 6378137;
+        const x = R * lon * Math.PI / 180;
+        const y = R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+        const halfW = 4200, halfH = halfW * (h / w);
+        const bbox = [x - halfW, y - halfH, x + halfW, y + halfH].map(n => n.toFixed(1)).join(',');
+        return 'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export'
+            + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=jpg&f=image`;
     }
 
     function airportCardHTML(icao, data) {
@@ -1854,8 +1870,14 @@
                     : `<div class="emb-apt-sub" style="margin:0">No ${esc(vaName)} pilots inbound right now.</div>`}
             </div>`;
 
+        const heroUrl = aptAerialUrl(_mapState.activeAptCoords);
+        const heroMod = heroUrl
+            ? `<div class="emb-apt-hero"><img src="${esc(heroUrl)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.emb-apt-hero').remove()"><div class="emb-apt-hero-fade"></div></div>`
+            : '';
+
         return `
             <div class="emb-apt">
+                ${heroMod}
                 <div class="emb-apt-head">${flag}<div style="min-width:0">
                     <div class="emb-apt-icao">${esc(icao)}</div>
                     <div class="emb-apt-name">${esc(name)}</div>
