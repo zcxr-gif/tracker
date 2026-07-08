@@ -5386,6 +5386,36 @@ function injectCustomStyles() {
     margin-left: auto;
 }
 
+/* --- Airport-window Gates section --- */
+.apt-gates-wrap { display: flex; flex-direction: column; gap: 6px; }
+.apt-gate-term { margin: 0; }
+.apt-gate-occ-badge {
+    margin-left: 8px;
+    font-size: 0.6rem; font-weight: 800; letter-spacing: 0.3px;
+    color: #4ade80; background: rgba(74, 222, 128, 0.10);
+    border: 1px solid rgba(74, 222, 128, 0.30);
+    padding: 1px 7px; border-radius: 999px; text-transform: none;
+}
+.apt-gate-list {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    max-height: 260px; overflow-y: auto;
+}
+@media (max-width: 480px) { .apt-gate-list { grid-template-columns: 1fr; } }
+.apt-gate-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 5px 9px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.72rem; min-width: 0;
+}
+.apt-gate-row.occupied { border-color: rgba(74, 222, 128, 0.30); background: rgba(74, 222, 128, 0.06); }
+.apt-gate-name { font-family: var(--font-data); font-weight: 700; color: #e4e4e7; flex: 0 0 auto; }
+.apt-gate-who {
+    color: #4ade80; font-weight: 700; display: flex; align-items: center; gap: 4px;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.apt-gate-who i { font-size: 0.62rem; opacity: 0.8; flex: 0 0 auto; }
+.apt-gate-free { color: #71717a; font-weight: 600; font-size: 0.66rem; }
+
 .traffic-dropdown-content {
     padding: 10px;
     display: flex;
@@ -5810,6 +5840,105 @@ function getGateLatLon(gate) {
 // Human-readable gate name across the endpoint's field variants.
 function getGateLabel(gate) {
     return gate.name || gate.ident || gate.gateName || gate.id || 'GATE';
+}
+
+// Stable per-gate key (name + coords) so occupants map 1:1 to a gate even when
+// two stands share a name.
+function gateKey(gate) {
+    const { lat, lon } = getGateLatLon(gate);
+    return `${getGateLabel(gate)}|${lat}|${lon}`;
+}
+
+// Terminal / concourse a gate belongs to, for grouping the gate list. Prefers
+// an explicit field, else infers it from the leading letters of the gate name
+// ("A12" → "A", "Gate B3" → "B"); numeric-only stands fall under "Gates".
+function gateTerminalKey(gate) {
+    const explicit = gate.terminal || gate.concourse || gate.pier;
+    if (explicit) return String(explicit).trim().toUpperCase();
+    const name = String(getGateLabel(gate)).trim()
+        .replace(/^(gate|stand|ramp|apron|parking|bay|spot)\s*/i, '');
+    const m = name.match(/^([A-Za-z]+)/);
+    return m ? m[1].toUpperCase() : 'Gates';
+}
+
+// Map of gateKey → occupant username for aircraft physically parked at a gate.
+// A parked (stationary) flight is assigned to its single nearest gate within
+// GATE_PARK_RADIUS_KM. `nearCoords` (the field) pre-filters the global flight
+// list so mega-hubs don't run a full flights×gates distance sweep.
+// occupantFilter, when given, restricts which flights count (e.g. VA members).
+function computeGateOccupants(gates, features, nearCoords, occupantFilter) {
+    const result = new Map();
+    if (!gates || !gates.length || !features) return result;
+    const parked = [];
+    const near = nearCoords && nearCoords.lat != null && nearCoords.lon != null ? nearCoords : null;
+    Object.values(features).forEach(f => {
+        const p = f && f.properties; if (!p) return;
+        if (occupantFilter && !occupantFilter(p)) return;
+        let pos = {};
+        try { pos = typeof p.position === 'string' ? JSON.parse(p.position || '{}') : (p.position || {}); } catch (_) { pos = {}; }
+        if (pos.lat == null || pos.lon == null) return;
+        // Cheap ~5 km pre-filter around the field before any gate maths.
+        if (near && getDistanceKm(pos.lat, pos.lon, near.lat, near.lon) > 5) return;
+        const gs = pos.gs_kt || 0;
+        const stationary = Number(p.pilotState) === PILOT_STATE_PARKED || gs <= GATE_PARK_MAX_GS_KT;
+        if (!stationary) return;
+        parked.push({ username: p.username || p.callsign || 'Pilot', lat: pos.lat, lon: pos.lon });
+    });
+    if (!parked.length) return result;
+    const gateInfos = gates.map(g => {
+        const { lat, lon } = getGateLatLon(g);
+        return { lat, lon, key: gateKey(g) };
+    }).filter(x => x.lat != null && x.lon != null);
+    parked.forEach(pf => {
+        let best = null, bestD = Infinity;
+        gateInfos.forEach(gi => {
+            const d = getDistanceKm(pf.lat, pf.lon, gi.lat, gi.lon);
+            if (d < bestD) { bestD = d; best = gi; }
+        });
+        if (best && bestD <= GATE_PARK_RADIUS_KM && !result.has(best.key)) result.set(best.key, pf.username);
+    });
+    return result;
+}
+
+// Builds the airport-window "Gates" section: gates grouped into collapsible
+// terminals, each stand tagged Available or with the username of whoever is
+// parked there.
+function buildAirportGatesHTML(gates, occupants) {
+    if (!gates || !gates.length) {
+        return '<div style="padding:10px 12px;color:#71717a;font-size:0.75rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;">No gate data available for this field.</div>';
+    }
+    const groups = new Map();
+    gates.forEach(g => {
+        const key = gateTerminalKey(g);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(g);
+    });
+    const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return keys.map(key => {
+        const list = groups.get(key).slice().sort((a, b) =>
+            String(getGateLabel(a)).localeCompare(String(getGateLabel(b)), undefined, { numeric: true }));
+        const occN = list.filter(g => occupants.get(gateKey(g))).length;
+        const title = key === 'Gates' ? 'Gates' : `Terminal ${key}`;
+        const rows = list.map(g => {
+            const who = occupants.get(gateKey(g));
+            return `<div class="apt-gate-row${who ? ' occupied' : ''}">
+                <span class="apt-gate-name">${escapeHtml(getGateLabel(g))}</span>
+                ${who
+                    ? `<span class="apt-gate-who"><i class="fa-solid fa-user"></i> ${escapeHtml(who)}</span>`
+                    : '<span class="apt-gate-free">Available</span>'}
+            </div>`;
+        }).join('');
+        return `<details class="traffic-dropdown apt-gate-term">
+            <summary class="traffic-dropdown-header">
+                <i class="fa-solid fa-warehouse" style="margin-right:10px;color:#a1a1aa;"></i>
+                <span>${escapeHtml(title)}</span>
+                <span class="traffic-count-badge">${list.length}</span>
+                ${occN ? `<span class="apt-gate-occ-badge">${occN} active</span>` : ''}
+                <i class="fa-solid fa-chevron-down chevron"></i>
+            </summary>
+            <div class="traffic-dropdown-content apt-gate-list">${rows}</div>
+        </details>`;
+    }).join('');
 }
 
 // Finds the gate closest to a point, returning { gate, distance } (km) or null.
@@ -12604,6 +12733,14 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 <span class="apt-detail-value">${d.value}</span>
             </div>`).join('')}</div>`;
 
+        // Gates grouped by terminal, tagged with whoever is parked at each
+        // (any live pilot on this field). Best-effort — no gate data → the
+        // section shows a friendly empty note.
+        let airportGates = null;
+        try { airportGates = await fetchAirportGates(icao); } catch (_) { airportGates = null; }
+        const gateOccupants = computeGateOccupants(airportGates, currentMapFeatures, coords, null);
+        const gatesHtml = buildAirportGatesHTML(airportGates, gateOccupants);
+
         // Prefer the backend's own photo (already painted as the hero
         // background); when it didn't supply one, lay an Esri aerial over the
         // placeholder so the field still gets a real image. It removes itself
@@ -12666,6 +12803,10 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                             <div>
                                 <div class="apt-section-title"><i class="fa-solid fa-road"></i> Runways${openRunways.length ? ` (${openRunways.length})` : ''}</div>
                                 ${runwaysHtml}
+                            </div>
+                            <div>
+                                <div class="apt-section-title"><i class="fa-solid fa-warehouse"></i> Gates${airportGates && airportGates.length ? ` (${airportGates.length})` : ''}</div>
+                                <div class="apt-gates-wrap">${gatesHtml}</div>
                             </div>
                             <div>
                                 <div class="apt-section-title"><i class="fa-solid fa-triangle-exclamation"></i> NOTAMs</div>
