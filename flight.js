@@ -5676,76 +5676,152 @@ function injectCustomStyles() {
     document.head.appendChild(style);
 }
 
-/**
- * Calculates the departure gate based on the closest proximity to the start of the flown path.
- * Leaves the arrival gate blank as a placeholder for future implementation.
- * @param {string} departureIcao - The 4-letter ICAO code of the departure airport.
- * @param {Array} flownPath - The array of trail points [{lat, lon}, ...] for the flight.
- * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
- */
 const gateCache = new Map();
 
-async function determineGatesForFlight(departureIcao, flownPath) {
-    let departureGate = '---';
-    let arrivalGate = '---'; // Left blank for now
+// Distance (km) within which the aircraft's live position counts as "parked
+// at" a gate. Deliberately tight: a genuinely parked aircraft sits almost on
+// top of the stand node, whereas a taxiway hold or a plane taxiing past a gate
+// stays outside this radius — so holding position near a terminal doesn't get
+// mistaken for being parked.
+const GATE_PARK_RADIUS_KM = 0.05;
 
-    if (!departureIcao || !flownPath || flownPath.length === 0) {
-        return { departureGate, arrivalGate };
-    }
+// At or below this ground speed (kt) the aircraft is considered stopped. Taxi
+// and hold-with-roll speeds sit above it, so this rejects a moving aircraft
+// before we even look at gate proximity.
+const GATE_PARK_MAX_GS_KT = 3;
 
-    // 1. Get the starting point of the flight (first recorded point in the trail)
-    const startPoint = flownPath[0];
-    const startLat = startPoint.lat !== undefined ? startPoint.lat : startPoint.latitude;
-    const startLon = startPoint.lon !== undefined ? startPoint.lon : startPoint.longitude;
+// Pilot-state code the live feed uses for an aircraft the app has flagged as
+// parked/away on the ground (see the cockpit-state switch).
+const PILOT_STATE_PARKED = 2;
 
-    if (startLat === undefined || startLon === undefined) {
-        return { departureGate, arrivalGate };
-    }
+/**
+ * Whether the aircraft is stationary on a ramp — the precondition for claiming
+ * it has parked at a gate, as opposed to taxiing in or holding position.
+ * `state` is a live snapshot: { groundSpeedKt, pilotState }.
+ */
+function isAircraftStationary(state) {
+    if (!state) return false;
+    // The feed already flagged it PARKED (on ground, away) — trust that.
+    if (Number(state.pilotState) === PILOT_STATE_PARKED) return true;
+    // Otherwise it must be essentially stopped. Taxiing/holding-with-roll stay
+    // above this; a dead stop that happens to be a taxiway hold is filtered out
+    // afterwards by the tight gate-proximity radius.
+    return (Number(state.groundSpeedKt) || 0) <= GATE_PARK_MAX_GS_KT;
+}
 
+// Extracts the live snapshot determineGatesForFlight needs to decide whether an
+// aircraft has parked at its destination gate. Returns null when unavailable.
+function buildArrivalStateSnapshot(flightProps) {
+    const pos = flightProps && flightProps.position;
+    if (!pos) return null;
+    return {
+        lat: pos.lat,
+        lon: pos.lon,
+        groundSpeedKt: pos.gs_kt,
+        pilotState: flightProps.pilotState
+    };
+}
+
+// Fetches (and caches) an airport's gate list from the MongoDB-backed endpoint.
+// Returns null on any failure so callers can fall back to '---'.
+async function fetchAirportGates(icao) {
+    if (!icao || icao === 'N/A') return null;
+    if (gateCache.has(icao)) return gateCache.get(icao);
     try {
-        let gates;
-        // 2. Fetch the gates from the MongoDB-backed endpoint or Cache
-        if (gateCache.has(departureIcao)) {
-            gates = gateCache.get(departureIcao);
-        } else {
-            const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${departureIcao}`);
-            if (!response.ok) {
-                return { departureGate, arrivalGate };
+        const response = await fetch(`https://site--indgo-backend--6dmjph8ltlhv.code.run/api/gates/${icao}`);
+        if (!response.ok) return null;
+        const gates = await response.json();
+        gateCache.set(icao, gates);
+        return gates;
+    } catch (error) {
+        console.error(`Error fetching gates for ${icao}:`, error);
+        return null;
+    }
+}
+
+// Reads a gate's coordinates across the several shapes the endpoint can return.
+function getGateLatLon(gate) {
+    const lat = gate.latitude ?? gate.lat ?? gate.location?.lat ?? gate.location?.latitude;
+    const lon = gate.longitude ?? gate.lon ?? gate.location?.lon ?? gate.location?.longitude;
+    return { lat, lon };
+}
+
+// Human-readable gate name across the endpoint's field variants.
+function getGateLabel(gate) {
+    return gate.name || gate.ident || gate.gateName || gate.id || 'GATE';
+}
+
+// Finds the gate closest to a point, returning { gate, distance } (km) or null.
+function findNearestGate(gates, lat, lon) {
+    if (!gates || !gates.length || lat == null || lon == null) return null;
+    let nearestGate = null;
+    let minDistance = Infinity;
+    gates.forEach(gate => {
+        const { lat: gLat, lon: gLon } = getGateLatLon(gate);
+        if (gLat != null && gLon != null) {
+            const distance = getDistanceKm(lat, lon, gLat, gLon);
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestGate = gate;
             }
-            gates = await response.json();
-            gateCache.set(departureIcao, gates);
         }
-        
-        if (!gates || gates.length === 0) {
-            return { departureGate, arrivalGate };
+    });
+    return nearestGate ? { gate: nearestGate, distance: minDistance } : null;
+}
+
+/**
+ * Resolves the gates for a flight:
+ *  - departure gate: the gate closest to the FIRST recorded trail point (the
+ *    aircraft pushed back from its origin stand).
+ *  - arrival gate:   the destination gate the aircraft has PARKED at. Shown
+ *    only when the live aircraft is both stationary (not taxiing or holding —
+ *    see isAircraftStationary) AND sitting within GATE_PARK_RADIUS_KM of a
+ *    destination gate. Any other time (en route, taxiing in, holding short) it
+ *    stays '---'.
+ * @param {string} departureIcao - ICAO of the origin (pass null to skip).
+ * @param {Array} flownPath - The array of trail points [{lat, lon}, ...].
+ * @param {string} [arrivalIcao] - ICAO of the destination (enables the arrival gate).
+ * @param {{lat:number, lon:number, groundSpeedKt:number, pilotState:number}} [arrivalState]
+ *        Live aircraft snapshot; without it the arrival gate is never shown.
+ * @returns {Promise<{departureGate: string, arrivalGate: string}>} The resolved gate names.
+ */
+async function determineGatesForFlight(departureIcao, flownPath, arrivalIcao, arrivalState) {
+    let departureGate = '---';
+    let arrivalGate = '---';
+
+    const pointLat = (p) => (p && (p.lat !== undefined ? p.lat : p.latitude));
+    const pointLon = (p) => (p && (p.lon !== undefined ? p.lon : p.longitude));
+
+    // Departure gate: nearest gate to the start of the trail.
+    try {
+        const startPoint = flownPath && flownPath[0];
+        const startLat = pointLat(startPoint);
+        const startLon = pointLon(startPoint);
+        if (departureIcao && departureIcao !== 'N/A' && startLat != null && startLon != null) {
+            const nearest = findNearestGate(await fetchAirportGates(departureIcao), startLat, startLon);
+            if (nearest) departureGate = getGateLabel(nearest.gate);
         }
-
-        let nearestGate = null;
-        let minDistance = Infinity;
-
-        // 3. Iterate through all gates to find the closest one to the start point
-        gates.forEach(gate => {
-            const gateLat = gate.latitude || gate.lat || (gate.location && gate.location.lat) || (gate.location && gate.location.latitude);
-            const gateLon = gate.longitude || gate.lon || (gate.location && gate.location.lon) || (gate.location && gate.location.longitude);
-
-            if (gateLat != null && gateLon != null) {
-                // Utilizing the existing getDistanceKm helper function
-                const distance = getDistanceKm(startLat, startLon, gateLat, gateLon);
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestGate = gate;
-                }
-            }
-        });
-
-        // 4. Set the departure gate to the nearest one found
-        if (nearestGate) {
-            departureGate = nearestGate.name || nearestGate.ident || nearestGate.gateName || nearestGate.id || 'GATE';
-        }
-
     } catch (error) {
         console.error(`Error calculating departure gate for ${departureIcao}:`, error);
+    }
+
+    // Arrival gate: the stand the aircraft has parked at. Guarded on live
+    // state first — a moving/taxiing/holding aircraft is never "parked" — then
+    // on tight proximity to a destination gate. Uses the live position (which
+    // pairs with the live ground speed) and falls back to the last trail point.
+    try {
+        const endPoint = flownPath && flownPath.length ? flownPath[flownPath.length - 1] : null;
+        const lat = (arrivalState && arrivalState.lat != null) ? arrivalState.lat : pointLat(endPoint);
+        const lon = (arrivalState && arrivalState.lon != null) ? arrivalState.lon : pointLon(endPoint);
+        if (arrivalIcao && arrivalIcao !== 'N/A' && lat != null && lon != null
+            && isAircraftStationary(arrivalState)) {
+            const nearest = findNearestGate(await fetchAirportGates(arrivalIcao), lat, lon);
+            if (nearest && nearest.distance <= GATE_PARK_RADIUS_KM) {
+                arrivalGate = getGateLabel(nearest.gate);
+            }
+        }
+    } catch (error) {
+        console.error(`Error calculating arrival gate for ${arrivalIcao}:`, error);
     }
 
     return { departureGate, arrivalGate };
@@ -5756,7 +5832,7 @@ async function determineGatesForFlight(departureIcao, flownPath) {
  * Replaces the loading/calculating placeholders immediately.
  * Features a premium, aviation-grade status indicator.
  */
-function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
+function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalIcao) {
     const routeBar = document.querySelector('.ac-route-info-bar');
     if (!routeBar) return;
 
@@ -5817,6 +5893,17 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
             arrNode.appendChild(arrGateEl);
         }
         arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.arr_gate}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+
+        // If the pilot never filed an arrival gate, fall back to the stand the
+        // aircraft actually parked at (nearest gate to the end of the trail).
+        if (!filedPlan.arr_gate && arrivalIcao && arrivalIcao !== 'N/A') {
+            determineGatesForFlight(null, flownPath, arrivalIcao, buildArrivalStateSnapshot(flightProps)).then(gates => {
+                if (gates.arrivalGate && gates.arrivalGate !== '---') {
+                    const el = document.getElementById('ac-arr-gate');
+                    if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${gates.arrivalGate}`;
+                }
+            });
+        }
     }
 
     // 4. Inject Premium Schedule Status Centered
@@ -5919,8 +6006,10 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan) {
  * Finds the HTML nodes and injects pills that show a "Loading" state until the math finishes.
  * @param {string} departureIcao - The 4-letter ICAO of the origin.
  * @param {Array} flownPath - The array of trail points.
+ * @param {string} [arrivalIcao] - The 4-letter ICAO of the destination.
+ * @param {object} [flightProps] - Live flight props, used to gate the arrival "parked" gate.
  */
-function injectGateInfoUI(departureIcao, flownPath) {
+function injectGateInfoUI(departureIcao, flownPath, arrivalIcao, flightProps) {
     const routeBar = document.querySelector('.ac-route-info-bar');
     if (!routeBar) return;
 
@@ -5960,18 +6049,20 @@ function injectGateInfoUI(departureIcao, flownPath) {
     }
 
     // 4. Execute the logic and update the UI when the nearest gate is found
-    determineGatesForFlight(departureIcao, flownPath).then(gates => {
+    determineGatesForFlight(departureIcao, flownPath, arrivalIcao, buildArrivalStateSnapshot(flightProps)).then(gates => {
         const depGateEl = document.getElementById('ac-dep-gate');
         const arrGateEl = document.getElementById('ac-arr-gate');
-        
+
         if (depGateEl) {
-            depGateEl.innerHTML = gates.departureGate !== '---' 
-                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}` 
+            depGateEl.innerHTML = gates.departureGate !== '---'
+                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
                 : `<i class="fa-solid fa-door-open"></i> Gate ---`;
         }
-        
+
         if (arrGateEl) {
-            arrGateEl.innerHTML = `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`;
+            arrGateEl.innerHTML = gates.arrivalGate !== '---'
+                ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
+                : `<i class="fa-solid fa-door-closed"></i> Gate ---`;
         }
     });
 }
@@ -8612,7 +8703,8 @@ function getAircraftLabelTextOffset() {
     const cfg = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
     // Offsets are in ems of the zoom-graded text size, so each stop's em is
     // back-computed to keep the physical gap constant: ~16px under the plane
-    // for plain text, ~4px under the logo pill when one is shown.
+    // for plain text, and the text tucked right up under the logo pill (~1px)
+    // so the badge and rows read as one label instead of floating text.
     const atZoom = (plainEm, pillEm) => cfg.airlineLogo
         ? ['case',
             ['==', ['coalesce', ['get', 'airlineIcao'], ''], ''],
@@ -8620,9 +8712,9 @@ function getAircraftLabelTextOffset() {
             ['literal', [0, pillEm]]]
         : ['literal', [0, plainEm]];
     return ['interpolate', ['linear'], ['zoom'],
-        6.5, atZoom(1.9, 3.2),
-        12, atZoom(1.7, 3.3),
-        16, atZoom(1.5, 3.7)
+        6.5, atZoom(1.9, 2.8),
+        12, atZoom(1.7, 3.0),
+        16, atZoom(1.5, 3.4)
     ];
 }
 
@@ -8753,10 +8845,12 @@ function getAircraftLabelTextField() {
         });
     }
     if (cfg.altSpeed) {
+        // Round to the nearest whole ft/kt so the row stays short — the raw
+        // feed can carry fractional values that bloat the label with decimals.
         rows.push({
             expr: ['concat',
-                ['to-string', ['coalesce', ['get', 'altitude'], 0]], ' ft  ·  ',
-                ['to-string', ['coalesce', ['get', 'speed'], 0]], ' kts'],
+                ['to-string', ['round', ['coalesce', ['get', 'altitude'], 0]]], ' ft  ·  ',
+                ['to-string', ['round', ['coalesce', ['get', 'speed'], 0]]], ' kts'],
             scale: 0.78
         });
     }
@@ -14329,6 +14423,11 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Compact altitude/speed series for the simple window's Speed & Altitude
         // graph (downsampled here so the postMessage payload stays small).
         chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
+        // Previous flights / multi-leg journey reconstructed from the trail.
+        // Detected here (where the airport DB lives) and rendered in the iframe.
+        legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
+            ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
+            : null,
         phase: detailedPhase.flightPhase || 'ENROUTE',
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
@@ -17047,12 +17146,12 @@ const AtcBoardUI = {
                             <ul class="filter-toggle-list" id="mobile-mode-filter-group" style="padding-top: 8px;">
         
                                 <li class="filter-radio-item">
-                                    <input type="radio" id="mobile-mode-hud" name="mobile-display-mode" value="hud" checked>
-                                    <label for="mobile-mode-hud"><i class="fa-solid fa-rocket"></i> HUD View</label>
+                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy" checked>
+                                    <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
                                 </li>
                                 <li class="filter-radio-item">
-                                    <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
-                                    <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
+                                    <input type="radio" id="mobile-mode-simple" name="mobile-display-mode" value="simple">
+                                    <label for="mobile-mode-simple"><i class="fa-solid fa-tablet-screen-button"></i> Simple Window</label>
                                 </li>
                             </ul>
                         </div>
@@ -18413,9 +18512,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             applyRouteTimeInfoToDom('eta', _arrInfo);
 
             if (filedPlanData) {
-                injectFiledGateInfoUI(filedPlanData, flightProps, plan);
+                injectFiledGateInfoUI(filedPlanData, flightProps, plan, sortedRoutePoints, arrIcao);
             } else if (depIcao && depIcao !== 'N/A' && typeof injectGateInfoUI === 'function') {
-                injectGateInfoUI(depIcao, sortedRoutePoints);
+                injectGateInfoUI(depIcao, sortedRoutePoints, arrIcao, flightProps);
             }
 
             // Now that the full /history breadcrumb trail has arrived, push it
@@ -20966,6 +21065,25 @@ function updateFmsLegsModule(plan, currentPos) {
                 FlightGraph.render(graphHost, sortedRoutePoints, { height: 190 });
                 graphHost.dataset.pts = String(ptsLen);
             }
+
+            // --- Previous Flights (multi-leg journey reconstructed from the trail) ---
+            // Sits right under the Speed & Altitude graph; only appears once at
+            // least one completed leg (a landing) is detected in the history.
+            if (typeof FlightLegs !== 'undefined' && FlightLegs) {
+                let legsHost = document.getElementById('ac-legs-host');
+                if (!legsHost) {
+                    legsHost = document.createElement('div');
+                    legsHost.id = 'ac-legs-host';
+                    const graphCard = document.getElementById('ac-sa-graph-card');
+                    if (graphCard) graphCard.insertAdjacentElement('afterend', legsHost);
+                    else tabPane.insertAdjacentElement('afterbegin', legsHost);
+                }
+                if (legsHost.dataset.pts !== String(ptsLen)) {
+                    const legs = FlightLegs.detect(sortedRoutePoints, (typeof airportsData !== 'undefined') ? airportsData : {});
+                    legsHost.innerHTML = FlightLegs.renderHTML(legs);
+                    legsHost.dataset.pts = String(ptsLen);
+                }
+            }
         }
     }
 }
@@ -21715,25 +21833,13 @@ if (flatMapToggle) {
         applyWindowTheme(mapFilters.themeStartColor, mapFilters.themeEndColor);
 
         // Mobile-specific
-        const currentMobileMode = localStorage.getItem('mobileDisplayMode') || 'legacy';
-        // Default to legacy
-        const mobileModeHud = document.getElementById('mobile-mode-hud');
+        // Mobile flight-window mode: Simple Window (shared flag) vs the Legacy
+        // sheet. The HUD split-view is retired, so there are just these two.
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-        if (mobileModeHud && mobileModeLegacy) {
-            // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
-            if (mapFilters.useSimpleFlightWindow) {
-                mobileModeLegacy.checked = true;
-                mobileModeHud.disabled = true; // Lock HUD option
-                mobileModeHud.parentElement.style.opacity = '0.5'; // Visual feedback
-            } else {
-                mobileModeHud.disabled = false;
-                mobileModeHud.parentElement.style.opacity = '1';
-                if (currentMobileMode === 'legacy') {
-                    mobileModeLegacy.checked = true;
-                } else {
-                    mobileModeHud.checked = true;
-                }
-            }
+        const mobileModeSimple = document.getElementById('mobile-mode-simple');
+        if (mobileModeLegacy && mobileModeSimple) {
+            if (mapFilters.useSimpleFlightWindow) mobileModeSimple.checked = true;
+            else mobileModeLegacy.checked = true;
         }
     };
 
@@ -21796,31 +21902,19 @@ if (flatMapToggle) {
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
 
-        // [UPDATED] Handle Simple Window Toggle & Interdependency
+        // Handle the Simple Flight Window toggle. It shares its state with the
+        // mobile "Simple Window" display-mode radio, so keep the two in sync.
         if (target.id === 'filter-toggle-simple-window') {
             mapFilters.useSimpleFlightWindow = target.checked;
             saveFiltersToLocalStorage();
 
-            const mobileModeHud = document.getElementById('mobile-mode-hud');
             const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+            const mobileModeSimple = document.getElementById('mobile-mode-simple');
 
             if (target.checked) {
-                // LOCK OUT HUD MODE
-                if (mobileModeHud) {
-                    mobileModeHud.disabled = true;
-                    mobileModeHud.parentElement.style.opacity = '0.5';
-                }
-                if (mobileModeLegacy) {
-                    mobileModeLegacy.checked = true;
-                }
-                // Force save 'legacy' to storage so UI Handler picks it up next time
-                localStorage.setItem('mobileDisplayMode', 'legacy');
-            } else {
-                // RESTORE HUD ACCESS
-                if (mobileModeHud) {
-                    mobileModeHud.disabled = false;
-                    mobileModeHud.parentElement.style.opacity = '1';
-                }
+                if (mobileModeSimple) mobileModeSimple.checked = true;
+            } else if (mobileModeLegacy) {
+                mobileModeLegacy.checked = true;
             }
         }
         else if (target.id === 'filter-toggle-atc') {
@@ -21880,9 +21974,24 @@ if (flatMapToggle) {
             // (and icon-color) across both, not just the tint.
             applyAircraftLayerStyles();
         } else if (target.name === 'mobile-display-mode') {
-            // Save to local storage for MobileUIHandler to pick up
-            localStorage.setItem('mobileDisplayMode', target.value);
-            showNotification("Mobile display mode updated (Reload to apply).", "info");
+            const val = target.value;
+            const simpleToggle = document.getElementById('filter-toggle-simple-window');
+            if (val === 'simple') {
+                // Simple Window mode: flip the shared flag on (its presentation is
+                // the legacy sheet, forced by MobileUIHandler when the iframe is up).
+                mapFilters.useSimpleFlightWindow = true;
+                saveFiltersToLocalStorage();
+                if (simpleToggle) simpleToggle.checked = true;
+            } else {
+                // Legacy sheet: turn Simple Window off and store the presentation.
+                if (mapFilters.useSimpleFlightWindow) {
+                    mapFilters.useSimpleFlightWindow = false;
+                    saveFiltersToLocalStorage();
+                }
+                if (simpleToggle) simpleToggle.checked = false;
+                localStorage.setItem('mobileDisplayMode', val);
+            }
+            showNotification("Mobile display mode updated (reopen the flight to apply).", "info");
         }
     });
 
