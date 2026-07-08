@@ -17153,6 +17153,10 @@ const AtcBoardUI = {
                                     <input type="radio" id="mobile-mode-legacy" name="mobile-display-mode" value="legacy">
                                     <label for="mobile-mode-legacy"><i class="fa-solid fa-layer-group"></i> Legacy Sheet</label>
                                 </li>
+                                <li class="filter-radio-item">
+                                    <input type="radio" id="mobile-mode-simple" name="mobile-display-mode" value="simple">
+                                    <label for="mobile-mode-simple"><i class="fa-solid fa-tablet-screen-button"></i> Simple Window</label>
+                                </li>
                             </ul>
                         </div>
 
@@ -21837,20 +21841,17 @@ if (flatMapToggle) {
         // Default to legacy
         const mobileModeHud = document.getElementById('mobile-mode-hud');
         const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
-        if (mobileModeHud && mobileModeLegacy) {
-            // [UPDATED] If Simple Window is active, force UI to reflect Locked Legacy Mode
+        const mobileModeSimple = document.getElementById('mobile-mode-simple');
+        if (mobileModeHud && mobileModeLegacy && mobileModeSimple) {
+            // Simple Window is now a first-class mobile display mode: when it's
+            // on it wins the radio regardless of the hud/legacy presentation
+            // preference (which it falls back to when Simple is turned off).
             if (mapFilters.useSimpleFlightWindow) {
-                mobileModeLegacy.checked = true;
-                mobileModeHud.disabled = true; // Lock HUD option
-                mobileModeHud.parentElement.style.opacity = '0.5'; // Visual feedback
+                mobileModeSimple.checked = true;
+            } else if (currentMobileMode === 'hud') {
+                mobileModeHud.checked = true;
             } else {
-                mobileModeHud.disabled = false;
-                mobileModeHud.parentElement.style.opacity = '1';
-                if (currentMobileMode === 'legacy') {
-                    mobileModeLegacy.checked = true;
-                } else {
-                    mobileModeHud.checked = true;
-                }
+                mobileModeLegacy.checked = true;
             }
         }
     };
@@ -21914,31 +21915,23 @@ if (flatMapToggle) {
     filterSettingsWindow.addEventListener('change', (e) => {
         const target = e.target;
 
-        // [UPDATED] Handle Simple Window Toggle & Interdependency
+        // Handle the Simple Flight Window toggle. It shares its state with the
+        // mobile "Simple Window" display-mode radio, so keep the two in sync.
         if (target.id === 'filter-toggle-simple-window') {
             mapFilters.useSimpleFlightWindow = target.checked;
             saveFiltersToLocalStorage();
 
             const mobileModeHud = document.getElementById('mobile-mode-hud');
             const mobileModeLegacy = document.getElementById('mobile-mode-legacy');
+            const mobileModeSimple = document.getElementById('mobile-mode-simple');
 
             if (target.checked) {
-                // LOCK OUT HUD MODE
-                if (mobileModeHud) {
-                    mobileModeHud.disabled = true;
-                    mobileModeHud.parentElement.style.opacity = '0.5';
-                }
-                if (mobileModeLegacy) {
-                    mobileModeLegacy.checked = true;
-                }
-                // Force save 'legacy' to storage so UI Handler picks it up next time
-                localStorage.setItem('mobileDisplayMode', 'legacy');
+                if (mobileModeSimple) mobileModeSimple.checked = true;
             } else {
-                // RESTORE HUD ACCESS
-                if (mobileModeHud) {
-                    mobileModeHud.disabled = false;
-                    mobileModeHud.parentElement.style.opacity = '1';
-                }
+                // Fall back to the saved hud/legacy presentation (default legacy).
+                const saved = localStorage.getItem('mobileDisplayMode') || 'legacy';
+                if (saved === 'hud' && mobileModeHud) mobileModeHud.checked = true;
+                else if (mobileModeLegacy) mobileModeLegacy.checked = true;
             }
         }
         else if (target.id === 'filter-toggle-atc') {
@@ -21998,9 +21991,24 @@ if (flatMapToggle) {
             // (and icon-color) across both, not just the tint.
             applyAircraftLayerStyles();
         } else if (target.name === 'mobile-display-mode') {
-            // Save to local storage for MobileUIHandler to pick up
-            localStorage.setItem('mobileDisplayMode', target.value);
-            showNotification("Mobile display mode updated (Reload to apply).", "info");
+            const val = target.value;
+            const simpleToggle = document.getElementById('filter-toggle-simple-window');
+            if (val === 'simple') {
+                // Simple Window mode: flip the shared flag on (its presentation is
+                // the legacy sheet, forced by MobileUIHandler when the iframe is up).
+                mapFilters.useSimpleFlightWindow = true;
+                saveFiltersToLocalStorage();
+                if (simpleToggle) simpleToggle.checked = true;
+            } else {
+                // HUD / Legacy: turn Simple Window off and store the presentation.
+                if (mapFilters.useSimpleFlightWindow) {
+                    mapFilters.useSimpleFlightWindow = false;
+                    saveFiltersToLocalStorage();
+                }
+                if (simpleToggle) simpleToggle.checked = false;
+                localStorage.setItem('mobileDisplayMode', val);
+            }
+            showNotification("Mobile display mode updated (reopen the flight to apply).", "info");
         }
     });
 
