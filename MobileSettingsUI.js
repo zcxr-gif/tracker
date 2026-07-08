@@ -417,8 +417,12 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
+                            <div class="settings-mobile-grid">
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="hud"><i class="fa-solid fa-rocket"></i> HUD</button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-tablet-screen-button"></i> Simple</button>
+                            </div>
                             <div class="m-settings-list">
-                                ${this.renderToggle('useSimpleFlightWindow', 'Simple Flight Info', 'fa-window-maximize')}
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                             </div>
 
@@ -1096,6 +1100,31 @@ export const MobileSettingsUI = {
         `;
     },
 
+    // The mobile flight-window display mode is derived from two stores:
+    // the Simple Window flag (shared with desktop) wins, otherwise the
+    // hud/legacy presentation preference in localStorage.
+    getFlightWindowMode(filters) {
+        const f = filters || window.mapFilters || {};
+        if (f.useSimpleFlightWindow) return 'simple';
+        let saved = 'legacy';
+        try { saved = localStorage.getItem('mobileDisplayMode') || 'legacy'; } catch (e) {}
+        return saved === 'hud' ? 'hud' : 'legacy';
+    },
+
+    // Applies a HUD / Legacy / Simple choice across both stores and lets the
+    // user know it takes effect the next time a flight window is opened.
+    setFlightWindowMode(mode) {
+        if (!window.mapFilters) return;
+        if (mode === 'simple') {
+            window.mapFilters.useSimpleFlightWindow = true;
+        } else {
+            window.mapFilters.useSimpleFlightWindow = false;
+            try { localStorage.setItem('mobileDisplayMode', mode); } catch (e) {}
+        }
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        if (window.showNotification) window.showNotification('Flight window mode updated — reopen the flight to apply.', 'info');
+    },
+
     isSignedIn() {
         if (window.currentUser || window.user || window.isLoggedIn || window.session) return true;
         for (let i = 0; i < localStorage.length; i++) {
@@ -1640,9 +1669,15 @@ export const MobileSettingsUI = {
                 window.InflightHaptics?.select?.();
                 const setting = btn.dataset.setting;
                 const value = btn.dataset.value;
-                window.mapFilters[setting] = value;
                 btn.parentElement.querySelectorAll('.m-setting-pill').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                // The flight-window display mode isn't a single mapFilters key —
+                // it spans useSimpleFlightWindow + localStorage.mobileDisplayMode.
+                if (setting === 'flightWindowMode') {
+                    this.setFlightWindowMode(value);
+                    return;
+                }
+                window.mapFilters[setting] = value;
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
@@ -1865,11 +1900,13 @@ export const MobileSettingsUI = {
         container.querySelectorAll('.m-setting-pill').forEach(btn => {
             const setting = btn.dataset.setting;
             const value = btn.dataset.value;
-            if (filters[setting] === value) {
-                btn.classList.add('active');
+            let active;
+            if (setting === 'flightWindowMode') {
+                active = (value === this.getFlightWindowMode(filters));
             } else {
-                btn.classList.remove('active');
+                active = (filters[setting] === value);
             }
+            btn.classList.toggle('active', active);
         });
 
         // Tactical filters → comboboxes, pills, ranges
