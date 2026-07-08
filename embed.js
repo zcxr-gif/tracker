@@ -972,6 +972,7 @@
                         ${dep !== '---' ? `<button class="fr24-apt-btn dep emb-open-apt" data-icao="${esc(dep)}" title="View ${esc(dep)} airport"><span class="r">Takeoff</span>${esc(dep)}</button>` : ''}
                         ${arr !== '---' ? `<button class="fr24-apt-btn arr emb-open-apt" data-icao="${esc(arr)}" title="View ${esc(arr)} airport"><span class="r">Landing</span>${esc(arr)}</button>` : ''}
                     </div>` : ''}
+                    <div class="fr24-depgate" data-dep-gate hidden></div>
                     <div class="fr24-stats-grid">
                         <div class="fr24-stat"><b>${alt}</b><span class="u">FT</span></div>
                         <div class="fr24-stat"><b>${gs}</b><span class="u">KTS</span></div>
@@ -1294,6 +1295,28 @@
         const trail = Array.isArray(histArr)
             ? histArr.slice().sort((a, b) => new Date(a.date) - new Date(b.date))
             : [];
+
+        // Departure gate: the stand nearest the first recorded trail point (where
+        // the aircraft pushed back), patched into the card once resolved.
+        (async () => {
+            try {
+                if (!cardEl || !pr.depIcao || !trail.length) return;
+                const first = trail[0];
+                const fLat = first.latitude != null ? first.latitude : first.lat;
+                const fLon = first.longitude != null ? first.longitude : first.lon;
+                if (fLat == null || fLon == null) return;
+                const gates = await fetchGates(pr.depIcao);
+                if (_mapState.activePathId !== flightId) return;   // card moved on
+                const ng = nearestGate(gates, fLat, fLon);
+                if (ng && ng.dist <= 0.3) {   // first point sits on/near the stand
+                    const el = cardEl.querySelector('[data-dep-gate]');
+                    if (el) {
+                        el.innerHTML = `Departed Gate <b>${esc(gateLabel(ng.gate))}</b>`;
+                        el.hidden = false;
+                    }
+                }
+            } catch (_) { /* best-effort */ }
+        })();
         const routeFeature = generateAltitudeColoredRoute(trail, currentPosition);
         if (routeFeature.features.length) {
             map.addSource(FLOWN_SRC, {
@@ -1993,10 +2016,10 @@
             panToVisible(map, coords);
         });
 
-        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao)])
-            .then(([apt, metar, live]) => {
+        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao), fetchGates(icao)])
+            .then(([apt, metar, live, gates]) => {
                 if (_mapState.activeAptIcao !== icao) return;   // panel changed mid-fetch
-                body.innerHTML = airportCardHTML(icao, { apt, metar, live });
+                body.innerHTML = airportCardHTML(icao, { apt, metar, live, gates });
             })
             .catch(() => {
                 if (_mapState.activeAptIcao === icao) body.innerHTML = airportCardHTML(icao, { error: true });
@@ -2016,6 +2039,91 @@
         const bbox = [x - halfW, y - halfH, x + halfW, y + halfH].map(n => n.toFixed(1)).join(',');
         return 'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export'
             + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=jpg&f=image`;
+    }
+
+    // ── Gates ────────────────────────────────────────────────────────────────
+    // Same MongoDB-backed gate list the main tracker uses. Cached per field.
+    const _gatesCache = new Map();
+    function fetchGates(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return Promise.resolve(null);
+        if (_gatesCache.has(code)) return _gatesCache.get(code);
+        const pr = getJSON(`${INGDO_BACKEND}/api/gates/${encodeURIComponent(code)}`)
+            .then(g => Array.isArray(g) ? g : (g && Array.isArray(g.gates) ? g.gates : null))
+            .catch(() => null);
+        _gatesCache.set(code, pr);
+        return pr;
+    }
+    const gateLabel = (g) => g.name || g.ident || g.gateName || g.id || 'GATE';
+    const gateLatLon = (g) => ({
+        lat: g.latitude != null ? g.latitude : (g.lat != null ? g.lat : (g.location && (g.location.lat != null ? g.location.lat : g.location.latitude))),
+        lon: g.longitude != null ? g.longitude : (g.lon != null ? g.lon : (g.location && (g.location.lon != null ? g.location.lon : g.location.longitude)))
+    });
+    const gateKeyOf = (g) => { const { lat, lon } = gateLatLon(g); return `${gateLabel(g)}|${lat}|${lon}`; };
+    function gateTerminal(g) {
+        const e = g.terminal || g.concourse || g.pier;
+        if (e) return String(e).trim().toUpperCase();
+        const n = String(gateLabel(g)).trim().replace(/^(gate|stand|ramp|apron|parking|bay|spot)\s*/i, '');
+        const m = n.match(/^([A-Za-z]+)/);
+        return m ? m[1].toUpperCase() : 'Gates';
+    }
+    function nearestGate(gates, lat, lon) {
+        if (!gates || !gates.length || lat == null || lon == null) return null;
+        let best = null, bd = Infinity;
+        gates.forEach(g => {
+            const { lat: gl, lon: go } = gateLatLon(g);
+            if (gl == null || go == null) return;
+            const d = getDistanceKm(lat, lon, gl, go);
+            if (d < bd) { bd = d; best = g; }
+        });
+        return best ? { gate: best, dist: bd } : null;
+    }
+    // Occupants restricted to THIS VA's live pilots (the embed only has their
+    // positions): a parked member (≤3 kt) is tagged onto its nearest gate.
+    function gateOccupantsVA(gates, coords) {
+        const res = new Map();
+        const pilots = _mapState.pilots || [];
+        if (!gates || !gates.length || !pilots.length) return res;
+        const near = Array.isArray(coords) ? { lat: coords[1], lon: coords[0] } : null;
+        const gi = gates.map(g => { const { lat, lon } = gateLatLon(g); return { lat, lon, key: gateKeyOf(g) }; })
+            .filter(x => x.lat != null && x.lon != null);
+        pilots.forEach(p => {
+            if (!p || p.lat == null || p.lon == null || (p.speed || 0) > 3) return;
+            if (near && getDistanceKm(p.lat, p.lon, near.lat, near.lon) > 5) return;
+            let best = null, bd = Infinity;
+            gi.forEach(g => { const d = getDistanceKm(p.lat, p.lon, g.lat, g.lon); if (d < bd) { bd = d; best = g; } });
+            if (best && bd <= 0.05 && !res.has(best.key)) res.set(best.key, p.username || p.callsign || 'Pilot');
+        });
+        return res;
+    }
+    // Gates module for the airport card: terminals as collapsible dropdowns,
+    // each stand tagged with the VA member parked there (if any).
+    function gatesModHTML(gates, coords) {
+        if (!gates || !gates.length) {
+            return `<div class="emb-apt-mod"><div class="emb-apt-mod-h"><span>Gates</span></div>
+                <div class="emb-apt-sub" style="margin:0">No gate data for this field.</div></div>`;
+        }
+        const occ = gateOccupantsVA(gates, coords);
+        const groups = new Map();
+        gates.forEach(g => { const k = gateTerminal(g); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(g); });
+        const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        const body = keys.map(k => {
+            const list = groups.get(k).slice().sort((a, b) =>
+                String(gateLabel(a)).localeCompare(String(gateLabel(b)), undefined, { numeric: true }));
+            const occN = list.filter(g => occ.get(gateKeyOf(g))).length;
+            const title = k === 'Gates' ? 'Gates' : 'Terminal ' + k;
+            const rows = list.map(g => {
+                const who = occ.get(gateKeyOf(g));
+                return `<div class="emb-gate-row${who ? ' occ' : ''}"><span class="n">${esc(gateLabel(g))}</span>` +
+                    (who ? `<span class="w">${esc(who)}</span>` : '<span class="f">—</span>') + '</div>';
+            }).join('');
+            return `<details class="emb-gate-term"><summary>` +
+                `<span class="t">${esc(title)}</span><span class="c">${list.length}</span>` +
+                (occN ? `<span class="o">${occN}</span>` : '') +
+                `</summary><div class="emb-gate-list">${rows}</div></details>`;
+        }).join('');
+        return `<div class="emb-apt-mod"><div class="emb-apt-mod-h"><span>Gates</span>` +
+            `<span class="emb-apt-pill" style="color:#7dd3fc;border-color:#7dd3fc">${gates.length}</span></div>${body}</div>`;
     }
 
     function airportCardHTML(icao, data) {
@@ -2116,6 +2224,7 @@
                 ${metarMod}
                 ${opsMod}
                 ${trafficMod}
+                ${gatesModHTML(data.gates, _mapState.activeAptCoords)}
                 ${vaInboundMod}
                 ${poweredByHTML()}
             </div>`;

@@ -245,6 +245,13 @@ The widget polls every 30s and pauses while the tab is hidden.
   its departure field and an amber *Landing* pin on its arrival field. Tapping
   either pin — or the **Takeoff / Landing** buttons in the flight card — opens
   that airport's window (with its own aerial photo and live data).
+- **Departure gate** — the flight card shows the gate the pilot pushed back
+  from (the stand nearest the first point of their flown trail).
+- **Gates by terminal** — the airport window lists the field's gates grouped
+  into collapsible terminals. Each stand shows the username of the VA member
+  parked there, if any (the embed only has this VA's live positions; the main
+  tracker shows any pilot). Gate data comes from the same `/api/gates/{ICAO}`
+  endpoint the main tracker uses.
 
 ---
 

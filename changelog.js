@@ -38,7 +38,9 @@
                 { tag: 'new', icon: 'fa-tags', text: 'Embed: callsign matching now accepts a second optional tag at the end (e.g. “Air Canada 001VA CX”), plus a list of regular untagged callsigns to always include.' },
                 { tag: 'new', icon: 'fa-image', text: 'Airport windows now show a real aerial photo of the field — every airport gets an image, not a placeholder.' },
                 { tag: 'new', icon: 'fa-diagram-project', text: 'Embed map: opening an airport now draws its runways & taxiways (with gate stands) right on the map.' },
-                { tag: 'new', icon: 'fa-plane-departure', text: 'Embed map: tapping a flight drops takeoff & landing pins on its airports — tap either (or the new card buttons) to open that airport.' }
+                { tag: 'new', icon: 'fa-plane-departure', text: 'Embed map: tapping a flight drops takeoff & landing pins on its airports — tap either (or the new card buttons) to open that airport.' },
+                { tag: 'new', icon: 'fa-warehouse', text: 'Airport windows now list gates by terminal (as dropdowns), showing who’s parked at each stand — everyone on the main tracker, your VA members in the embed.' },
+                { tag: 'new', icon: 'fa-warehouse', text: 'Embed flight card now shows the gate the pilot departed from.' }
             ]
         },
         {
