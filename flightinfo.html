@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <script src="flight-graph.js"></script>
+    <script src="flight-legs.js"></script>
 
     <style>
     /* --- DESIGN TOKENS (Theme: Carbon & Titanium) --- */
@@ -1200,6 +1201,11 @@
                 </div>
             </div>
 
+            <div class="sw-block" data-block="legs" id="sec-legs" style="display:none;">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Previous Flights</div>
+                <div id="legs-host"></div>
+            </div>
+
             <div class="sw-block" data-block="manifest" id="profile-anchor">
                 <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Manifest</div>
                 <div class="grid-section-label">Pilot Manifest</div>
@@ -1517,7 +1523,7 @@
         const DEFAULTS = {
             peek: 'standard',
             sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, graph: true, manifest: true },
-            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'],
+            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'graph', 'legs', 'manifest'],
             metrics: { telemetry: { alt: true, spd: true, vs: true, hdg: true }, navenv: { tas: true, oat: true, wind: true, dtg: true, nextwp: true, pos: true } },
             cols: { telemetry: 2, navenv: 2 },
             style: {
@@ -2066,7 +2072,22 @@
             // Speed & altitude history graph
             lastFlightData = data;
             renderSpeedAltGraph();
+
+            // Previous flights (multi-leg journey reconstructed from the trail)
+            renderLegs();
         };
+
+        // Render the "Previous Flights" panel from the payload's detected legs.
+        // The block hides itself when there are no completed legs to show.
+        function renderLegs() {
+            const block = document.getElementById('sec-legs');
+            const host = document.getElementById('legs-host');
+            if (!block || !host) return;
+            const html = (window.FlightLegs && lastFlightData && lastFlightData.legs)
+                ? window.FlightLegs.renderHTML(lastFlightData.legs) : '';
+            host.innerHTML = html;
+            block.style.display = html ? '' : 'none';
+        }
 
         // Render the Speed & Altitude chart from the last payload's series.
         // Only worth drawing when expanded (the collapsed bar hides it and the

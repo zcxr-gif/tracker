@@ -14423,6 +14423,11 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Compact altitude/speed series for the simple window's Speed & Altitude
         // graph (downsampled here so the postMessage payload stays small).
         chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
+        // Previous flights / multi-leg journey reconstructed from the trail.
+        // Detected here (where the airport DB lives) and rendered in the iframe.
+        legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
+            ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
+            : null,
         phase: detailedPhase.flightPhase || 'ENROUTE',
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
@@ -21059,6 +21064,25 @@ function updateFmsLegsModule(plan, currentPos) {
             if (graphHost && (graphHost.dataset.pts !== String(ptsLen) || !graphHost.firstChild)) {
                 FlightGraph.render(graphHost, sortedRoutePoints, { height: 190 });
                 graphHost.dataset.pts = String(ptsLen);
+            }
+
+            // --- Previous Flights (multi-leg journey reconstructed from the trail) ---
+            // Sits right under the Speed & Altitude graph; only appears once at
+            // least one completed leg (a landing) is detected in the history.
+            if (typeof FlightLegs !== 'undefined' && FlightLegs) {
+                let legsHost = document.getElementById('ac-legs-host');
+                if (!legsHost) {
+                    legsHost = document.createElement('div');
+                    legsHost.id = 'ac-legs-host';
+                    const graphCard = document.getElementById('ac-sa-graph-card');
+                    if (graphCard) graphCard.insertAdjacentElement('afterend', legsHost);
+                    else tabPane.insertAdjacentElement('afterbegin', legsHost);
+                }
+                if (legsHost.dataset.pts !== String(ptsLen)) {
+                    const legs = FlightLegs.detect(sortedRoutePoints, (typeof airportsData !== 'undefined') ? airportsData : {});
+                    legsHost.innerHTML = FlightLegs.renderHTML(legs);
+                    legsHost.dataset.pts = String(ptsLen);
+                }
             }
         }
     }
