@@ -25,53 +25,46 @@
     // blips from being mistaken for real landings/legs.
     const GROUND_GS_KT     = 40;          // at/below this the aircraft is on the ground
     const STOP_MIN_MS      = 90 * 1000;   // sustained ground time that counts as a landing
-    const MIN_LEG_MS       = 3 * 60 * 1000; // an airborne run shorter than this is noise
+    const MIN_LEG_MS       = 2 * 60 * 1000; // an airborne run shorter than this is noise
     const MIN_LEG_MAX_GS   = 90;          // a real leg actually reached flight speed
     const AIRPORT_RADIUS_KM = 12;         // nearest-airport match tolerance for a stop
+    const GROUND_ALT_BAND_FT = 500;       // altitude-only fallback band above the trail minimum
 
     function num(v) { return (typeof v === 'number' && !isNaN(v)) ? v : null; }
 
-    // --- Tolerant point readers (kept in sync with flight-graph.js) ----------
-    function pointTime(p) {
-        if (!p) return null;
-        if (p.date) { const t = Date.parse(p.date); if (!isNaN(t)) return t; }
-        if (num(p.lastReportMs) != null) return p.lastReportMs;
-        if (p.position) {
-            if (num(p.position.lastReportMs) != null) return p.position.lastReportMs;
-            if (p.position.lastReport) { const t = Date.parse(p.position.lastReport); if (!isNaN(t)) return t; }
+    // First finite number among the candidates, else null.
+    function pickNum() {
+        for (let i = 0; i < arguments.length; i++) {
+            const v = arguments[i];
+            if (typeof v === 'number' && !isNaN(v)) return v;
         }
-        if (num(p.timestamp) != null) return p.timestamp;
         return null;
     }
-    function pointLat(p) {
-        if (!p) return null;
-        let v = num(p.lat); if (v != null) return v;
-        v = num(p.latitude); if (v != null) return v;
-        if (p.position) { v = num(p.position.lat); if (v != null) return v; v = num(p.position.latitude); if (v != null) return v; }
+    // First parseable time (ms) among the candidates — numbers as-is, strings
+    // via Date.parse — else null.
+    function pickTime() {
+        for (let i = 0; i < arguments.length; i++) {
+            const v = arguments[i];
+            if (typeof v === 'number' && !isNaN(v)) return v;
+            if (typeof v === 'string' && v) { const t = Date.parse(v); if (!isNaN(t)) return t; }
+        }
         return null;
     }
-    function pointLon(p) {
-        if (!p) return null;
-        let v = num(p.lon); if (v != null) return v;
-        v = num(p.lng); if (v != null) return v;
-        v = num(p.longitude); if (v != null) return v;
-        if (p.position) { v = num(p.position.lon); if (v != null) return v; v = num(p.position.longitude); if (v != null) return v; }
-        return null;
-    }
-    function pointAlt(p) {
-        if (!p) return null;
-        let v = num(p.altitude); if (v != null) return v;
-        v = num(p.alt_ft); if (v != null) return v;
-        if (p.position) { v = num(p.position.alt_ft); if (v != null) return v; v = num(p.position.altitude); if (v != null) return v; }
-        return null;
-    }
-    function pointGs(p) {
-        if (!p) return null;
-        let v = num(p.groundSpeed); if (v != null) return v;
-        v = num(p.gs_kt); if (v != null) return v;
-        v = num(p.speed); if (v != null) return v;
-        if (p.position) { v = num(p.position.gs_kt); if (v != null) return v; v = num(p.position.groundSpeed); if (v != null) return v; }
-        return null;
+
+    // --- Tolerant point readers -----------------------------------------------
+    // The /history endpoint is read in several shapes across the app (flat and
+    // nested under `position`, with short and long field names). These mirror
+    // flightReplay.js's proven parser so we read exactly the same trail data —
+    // notably the short `gs`/`alt`/`time` keys the earlier version missed, which
+    // otherwise left every point's speed null and hid all legs.
+    function pointLat(p) { const o = (p && p.position) || {}; return pickNum(o.lat, o.latitude, p && p.lat, p && p.latitude); }
+    function pointLon(p) { const o = (p && p.position) || {}; return pickNum(o.lon, o.lng, o.longitude, p && p.lon, p && p.lng, p && p.longitude); }
+    function pointAlt(p) { const o = (p && p.position) || {}; return pickNum(o.alt, o.altitude, o.alt_ft, p && p.alt, p && p.altitude, p && p.alt_ft); }
+    function pointGs(p)  { const o = (p && p.position) || {}; return pickNum(o.gs, o.groundSpeed, o.gs_kt, o.speed, p && p.gs, p && p.groundSpeed, p && p.gs_kt, p && p.speed); }
+    function pointTime(p) {
+        const o = (p && p.position) || {};
+        return pickTime(o.time, o.lastReportMs, o.timeMs, p && p.time, p && p.lastReportMs, p && p.timeMs,
+            o.date, o.timestamp, o.lastReport, p && p.date, p && p.timestamp, p && p.lastReport);
     }
 
     function haversineKm(lat1, lon1, lat2, lon2) {
@@ -133,7 +126,18 @@
         const pts = normalize(points);
         if (pts.length < 2) return [];
 
-        const grounded = (p) => (p.gs == null ? false : p.gs <= GROUND_GS_KT);
+        // Ground classifier. Ground speed is elevation-agnostic and preferred;
+        // if the feed carries no speed at all anywhere, fall back to a coarse
+        // altitude band above the trail minimum (works for a single field, less
+        // reliable across airports at very different elevations).
+        const hasGs = pts.some(p => p.gs != null);
+        let minAlt = Infinity;
+        for (const p of pts) if (p.alt != null && p.alt < minAlt) minAlt = p.alt;
+        const grounded = (p) => {
+            if (hasGs) return p.gs != null && p.gs <= GROUND_GS_KT;
+            if (p.alt != null && minAlt !== Infinity) return p.alt <= minAlt + GROUND_ALT_BAND_FT;
+            return false;
+        };
 
         // Maximal airborne runs (start/end indices into pts).
         const runs = [];
@@ -148,14 +152,26 @@
         }
         if (!runs.length) return [];
 
-        // Merge runs separated only by a brief ground gap (data dropouts / a
-        // momentary dip below the speed cut) — those are not real landings.
+        // Decide, for each pair of consecutive airborne runs, whether the ground
+        // stretch between them is a real landing (→ keep as a leg boundary) or
+        // just a data dropout / momentary slow segment (→ merge). A stop next to
+        // an airport is real even on a quick turnaround with only a point or two
+        // on the ground; a brief gap far from any airport is treated as noise.
         const merged = [runs[0]];
         for (let k = 1; k < runs.length; k++) {
             const prev = merged[merged.length - 1];
-            const gapMs = pts[runs[k].start].t - pts[prev.end].t;
-            if (gapMs < STOP_MIN_MS) prev.end = runs[k].end;
-            else merged.push(runs[k]);
+            const gapStart = prev.end, gapEnd = runs[k].start;
+            const gapMs = pts[gapEnd].t - pts[gapStart].t;
+            // Representative ground fix: the slowest sample in the gap (falls
+            // back to its midpoint) gives the best nearest-airport match.
+            let rep = null;
+            for (let n = gapStart + 1; n < gapEnd; n++) {
+                if (rep == null || (pts[n].gs != null && (pts[rep].gs == null || pts[n].gs < pts[rep].gs))) rep = n;
+            }
+            if (rep == null) rep = Math.floor((gapStart + gapEnd) / 2);
+            const nearApt = nearestAirport(airportsData, pts[rep].lat, pts[rep].lon);
+            if (!nearApt && gapMs < STOP_MIN_MS) prev.end = runs[k].end; // noise → merge
+            else merged.push(runs[k]);                                   // real stop → split
         }
 
         const legs = [];
@@ -181,7 +197,13 @@
             const depTime = depP.t;
             const arrTime = arrP.t;
             if ((arrTime - depTime) < MIN_LEG_MS) return;                 // too brief to be a flight
-            if (maxGs == null || maxGs < MIN_LEG_MAX_GS) return;          // never really flew
+            // "Really flew" gate: by speed when we have it, otherwise by how far
+            // above field level it climbed (so the no-speed fallback still works).
+            if (hasGs) {
+                if (maxGs == null || maxGs < MIN_LEG_MAX_GS) return;
+            } else if (maxAlt == null || maxAlt < minAlt + 2 * GROUND_ALT_BAND_FT) {
+                return;
+            }
 
             const depApt = nearestAirport(airportsData, depP.lat, depP.lon);
             const arrApt = inProgress ? null : nearestAirport(airportsData, arrP.lat, arrP.lon);
