@@ -4111,6 +4111,55 @@ function injectCustomStyles() {
         }
         .apt-runway-meta i { margin-right: 4px; opacity: 0.7; }
 
+        .apt-rwy-tag.preferred {
+            color: #4ade80;
+            border-color: rgba(74, 222, 128, 0.4);
+            background: rgba(74, 222, 128, 0.1);
+        }
+        .apt-runway-card.preferred {
+            border-color: rgba(74, 222, 128, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.12);
+        }
+
+        .apt-rwy-wind-note {
+            font-size: 0.62rem;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+            letter-spacing: 0.2px;
+        }
+        .apt-rwy-wind-note i { margin-right: 5px; color: #38bdf8; }
+        .apt-rwy-wind-note b { color: #e4e4e7; font-family: var(--font-data); }
+
+        .apt-rwy-wind {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.62rem;
+            font-weight: 700;
+            color: #cbd5e1;
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .apt-rwy-wind.good { border-color: rgba(74, 222, 128, 0.25); background: rgba(74, 222, 128, 0.06); }
+        .apt-rwy-wind.warn { border-color: rgba(251, 191, 36, 0.28); background: rgba(251, 191, 36, 0.07); }
+        .apt-rwy-wind.bad  { border-color: rgba(248, 113, 113, 0.30); background: rgba(248, 113, 113, 0.08); }
+        .apt-rwy-wind b { font-family: var(--font-data); color: #fafafa; }
+        .apt-rwy-fav {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: #fafafa;
+            font-family: var(--font-data);
+            font-weight: 800;
+        }
+        .apt-rwy-wind.good .apt-rwy-fav i { color: #4ade80; }
+        .apt-rwy-wind.warn .apt-rwy-fav i { color: #fbbf24; }
+        .apt-rwy-wind.bad  .apt-rwy-fav i { color: #f87171; }
+        .apt-rwy-comp { opacity: 0.9; }
+
         /* --- AIRPORT WINDOW SKELETON (loading state) --- */
         @keyframes aptShimmer {
             0% { background-position: -200% 0; }
@@ -11908,6 +11957,33 @@ function createAirportSkeletonHTML(icao) {
         </div>`;
 }
 
+// Solar elevation angle (degrees above horizon) for a lat/lon at a given
+// instant, via the NOAA solar-position approximation. Pure math — no API and
+// no timezone needed — so it works for any field the moment its coords load.
+// Returns a { label, icon, color } day/night phase for the airport details.
+function computeSunPhase(lat, lon, date = new Date()) {
+    if (lat == null || lon == null) return null;
+    const rad = Math.PI / 180;
+    const start = Date.UTC(date.getUTCFullYear(), 0, 0);
+    const dayOfYear = Math.floor((date.getTime() - start) / 86400000);
+    const hoursUTC = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+    const gamma = (2 * Math.PI / 365) * (dayOfYear - 1 + (hoursUTC - 12) / 24);
+    const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(gamma) - 0.032077 * Math.sin(gamma)
+        - 0.014615 * Math.cos(2 * gamma) - 0.040849 * Math.sin(2 * gamma));
+    const decl = 0.006918 - 0.399912 * Math.cos(gamma) + 0.070257 * Math.sin(gamma)
+        - 0.006758 * Math.cos(2 * gamma) + 0.000907 * Math.sin(2 * gamma)
+        - 0.002697 * Math.cos(3 * gamma) + 0.00148 * Math.sin(3 * gamma);
+    const tst = hoursUTC * 60 + eqtime + 4 * lon; // true solar time (minutes)
+    const ha = (tst / 4 - 180) * rad;             // hour angle (radians)
+    const latR = lat * rad;
+    const cosZen = Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(ha);
+    const elevation = 90 - Math.acos(Math.min(1, Math.max(-1, cosZen))) / rad;
+    if (elevation > 6) return { label: 'Day', icon: 'fa-sun', color: '#fbbf24' };
+    if (elevation > -0.833) return { label: 'Sunset', icon: 'fa-mountain-sun', color: '#fb923c' };
+    if (elevation > -6) return { label: 'Twilight', icon: 'fa-cloud-sun', color: '#a78bfa' };
+    return { label: 'Night', icon: 'fa-moon', color: '#94a3b8' };
+}
+
 async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
@@ -11996,6 +12072,9 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         // Hoisted so the at-a-glance stats bar can show the field's flight
         // category alongside traffic counts.
         let flightCategory = '---', catColor = '#a1a1aa';
+        // Hoisted so the INFO-tab Runways section can compute live head/cross
+        // wind components against the same METAR the weather panel parsed.
+        let metarWind = '';
 
         try {
             if (window.WeatherService) {
@@ -12011,6 +12090,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 }
 
                 metarString = w.raw;
+                metarWind = w.wind || '';
 
                 // ATIS card (replaces the old OPERATIONS module). When the
                 // field is broadcasting it shows the parsed runway/approach/
@@ -12386,18 +12466,77 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             return surfaceNames[key] || s;
         };
 
+        // Live wind analysis: with a known METAR wind we compute the
+        // head/cross-wind component for each runway end and mark the single
+        // best (highest headwind) runway as PREFERRED — the "which way are
+        // they landing?" answer pilots reach for first. Calm/variable winds
+        // (< 5 kt) skip the analysis since no direction is favoured.
+        const rwyWind = parseWindString(metarWind);
+        const windKnown = rwyWind.spd >= 5 && rwyWind.dir >= 0;
+        const componentsFor = (heading) => {
+            let d = Math.abs(heading - rwyWind.dir);
+            if (d > 180) d = 360 - d;
+            const rad = d * (Math.PI / 180);
+            return {
+                head: Math.round(rwyWind.spd * Math.cos(rad)),
+                cross: Math.round(Math.abs(rwyWind.spd * Math.sin(rad)))
+            };
+        };
+        // Resolve each runway's favoured end (better headwind) and its
+        // components once, so both the PREFERRED pick and the card render
+        // read from the same numbers.
+        const rwyAnalysis = openRunways.map(r => {
+            if (!windKnown) return { favIdent: null };
+            const ends = [
+                { ident: r.le_ident, heading: r.le_heading_degT },
+                { ident: r.he_ident, heading: r.he_heading_degT }
+            ].filter(e => e.ident && e.heading != null)
+             .map(e => ({ ident: e.ident, ...componentsFor(e.heading) }));
+            if (!ends.length) return { favIdent: null };
+            ends.sort((a, b) => b.head - a.head);
+            return { favIdent: ends[0].ident, head: ends[0].head, cross: ends[0].cross };
+        });
+        let preferredIdx = -1;
+        if (windKnown) {
+            let best = -Infinity;
+            rwyAnalysis.forEach((a, i) => {
+                if (a.favIdent && a.head > best) { best = a.head; preferredIdx = i; }
+            });
+        }
+
         const runwaysHtml = openRunways.length === 0
             ? '<div style="padding: 10px 12px; color: #71717a; font-size: 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">No runway data available.</div>'
-            : `<div class="apt-runway-grid">${openRunways.map(r => {
+            : `${windKnown ? `<div class="apt-rwy-wind-note"><i class="fa-solid fa-wind"></i> Head/cross-wind from METAR wind <b>${String(rwyWind.dir).padStart(3, '0')}° @ ${rwyWind.spd} kt</b></div>` : ''}<div class="apt-runway-grid">${openRunways.map((r, i) => {
                 const ident = [r.le_ident, r.he_ident].filter(Boolean).join(' / ');
                 const len = r.length_ft ? `${Number(r.length_ft).toLocaleString()} ft` : '—';
                 const width = r.width_ft ? `${Number(r.width_ft).toLocaleString()} ft` : '—';
+                const a = rwyAnalysis[i];
+                let windRow = '', sev = '', preferredTag = '';
+                if (windKnown && a.favIdent) {
+                    // Severity from the favoured end: a tailwind or heavy
+                    // crosswind flags the runway even when it's the best on offer.
+                    sev = (a.head < 0 || a.cross > 20) ? 'bad'
+                        : (a.cross > 12) ? 'warn' : 'good';
+                    const headTxt = a.head < 0
+                        ? `<b>${Math.abs(a.head)}</b> kt tail`
+                        : `<b>${a.head}</b> kt head`;
+                    windRow = `
+                    <div class="apt-rwy-wind ${sev}">
+                        <span class="apt-rwy-fav"><i class="fa-solid fa-plane-arrival"></i> ${a.favIdent}</span>
+                        <span class="apt-rwy-comp">${headTxt}</span>
+                        <span class="apt-rwy-comp"><b>${a.cross}</b> kt cross</span>
+                    </div>`;
+                    if (i === preferredIdx && a.head >= 0) {
+                        preferredTag = '<span class="apt-rwy-tag preferred"><i class="fa-solid fa-star"></i> PREFERRED</span>';
+                    }
+                }
                 return `
-                <div class="apt-runway-card">
+                <div class="apt-runway-card${i === preferredIdx && windKnown ? ' preferred' : ''}">
                     <div class="apt-runway-ident">
                         <span>${ident}</span>
-                        ${r.lighted ? '<span class="apt-rwy-tag lit"><i class="fa-solid fa-lightbulb"></i> LIT</span>' : ''}
+                        <span style="display:flex;gap:6px;align-items:center;">${preferredTag}${r.lighted ? '<span class="apt-rwy-tag lit"><i class="fa-solid fa-lightbulb"></i> LIT</span>' : ''}</span>
                     </div>
+                    ${windRow}
                     <div class="apt-runway-meta">
                         <span><i class="fa-solid fa-ruler-horizontal"></i>${len}</span>
                         <span><i class="fa-solid fa-ruler-vertical"></i>${width}</span>
@@ -12406,9 +12545,25 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 </div>`;
             }).join('')}</div>`;
 
+        // Local wall-clock time at the field, derived from the reported IANA
+        // timezone. Wrapped defensively: an unexpected/blank zone string makes
+        // Intl throw, in which case we simply omit the value.
+        let localTimeValue = '—';
+        const tzName = liveData?.timezone ? liveData.timezone.split(' ')[0] : null;
+        if (tzName) {
+            try {
+                localTimeValue = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: tzName, hour: '2-digit', minute: '2-digit', hour12: false
+                }).format(new Date());
+            } catch (_) { localTimeValue = '—'; }
+        }
+        const sunPhase = computeSunPhase(coords.lat, coords.lon);
+
         const detailItems = [
             { icon: 'fa-location-crosshairs', label: 'Coordinates', value: (coords.lat != null && coords.lon != null) ? `${(+coords.lat).toFixed(3)}, ${(+coords.lon).toFixed(3)}` : '—' },
             { icon: 'fa-arrows-up-down', label: 'Elevation', value: `${elevation} ft` },
+            { icon: 'fa-clock', label: 'Local Time', value: localTimeValue },
+            { icon: sunPhase ? sunPhase.icon : 'fa-sun', label: 'Daylight', value: sunPhase ? `<span style="color:${sunPhase.color};">${sunPhase.label}</span>` : '—' },
             { icon: 'fa-earth-americas', label: 'Timezone', value: liveData?.timezone ? liveData.timezone.split(' ')[0] : '—' },
             { icon: 'fa-flag', label: 'Country', value: countryCode ? countryCode.toUpperCase() : '—' },
             { icon: 'fa-ranking-star', label: 'Class', value: liveData?.class ? `Class ${liveData.class}` : '—' },

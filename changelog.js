@@ -24,6 +24,17 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.2',
+            date: 'July 2026',
+            title: 'Runway Winds & Airport Detail',
+            tagline: 'The airport window’s runway list now reads the wind for you, and the details panel tells you the local time and whether the sun’s up.',
+            entries: [
+                { tag: 'new', icon: 'fa-wind', text: 'Wind-aware runways — each runway now shows its head / cross-wind from the live METAR, with the favoured landing direction highlighted and the best runway tagged PREFERRED.' },
+                { tag: 'new', icon: 'fa-clock', text: 'Airport details now show the field’s current local time.' },
+                { tag: 'new', icon: 'fa-sun', text: 'Daylight at a glance — a Day / Sunset / Twilight / Night indicator computed from the airport’s position.' }
+            ]
+        },
+        {
             id: '2026.07.1',
             date: 'July 2026',
             title: 'Sharing, Trip Card & Live Fleets',
