@@ -3938,6 +3938,18 @@ function injectCustomStyles() {
     z-index: 1;
 }
 
+/* Aerial hero photo — sits under the dark overlay + ident text, over the
+   background placeholder. Removed (revealing the placeholder) if it fails. */
+.airport-hero-photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+    animation: aptContentIn 0.5s ease both;
+}
+
 /* Ensure the ident group stays above the overlay */
 .apt-ident-group {
     display: flex;
@@ -11984,6 +11996,23 @@ function computeSunPhase(lat, lon, date = new Date()) {
     return { label: 'Night', icon: 'fa-moon', color: '#94a3b8' };
 }
 
+// A key-less aerial photo of the airfield from Esri World Imagery, framed on
+// the field's coordinates (Web-Mercator bbox ~8.4 km across). Used as the
+// airport-window hero when the backend didn't supply its own photo, so every
+// field gets a real image instead of the flat placeholder. Returns null
+// without usable coordinates.
+function airportAerialImageUrl(lat, lon, w = 900, h = 420) {
+    if (lat == null || lon == null || !isFinite(+lat) || !isFinite(+lon)) return null;
+    const R = 6378137;
+    const x = R * (+lon) * Math.PI / 180;
+    const y = R * Math.log(Math.tan(Math.PI / 4 + (+lat) * Math.PI / 360));
+    const halfW = 4200;                 // metres — fits even large hubs
+    const halfH = halfW * (h / w);
+    const bbox = [x - halfW, y - halfH, x + halfW, y + halfH].map(n => n.toFixed(1)).join(',');
+    return 'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export'
+        + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=jpg&f=image`;
+}
+
 async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
@@ -12575,10 +12604,17 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                 <span class="apt-detail-value">${d.value}</span>
             </div>`).join('')}</div>`;
 
+        // Prefer the backend's own photo (already painted as the hero
+        // background); when it didn't supply one, lay an Esri aerial over the
+        // placeholder so the field still gets a real image. It removes itself
+        // on error, revealing the placeholder underneath.
+        const heroPhoto = airportMetadata?.imageUrl ? '' : airportAerialImageUrl(coords.lat, coords.lon);
+
         setTimeout(updateTrafficLegendUI, 0);
 
         return `
             <div class="airport-hero" style="background-image: url('${dynamicImageUrl}')">
+                ${heroPhoto ? `<img class="airport-hero-photo" src="${heroPhoto}" alt="" loading="lazy" decoding="async" onerror="this.remove()">` : ''}
                 <div class="airport-hero-overlay"></div>
                 <div class="hero-actions">
                     <button id="airport-ping-btn" class="hero-btn${(Array.isArray(mapFilters.pingedAirports) && mapFilters.pingedAirports.includes(icao)) ? ' pinged' : ''}" title="Ping this airport on the map (Pro)"><i class="fa-solid fa-location-dot"></i></button>
