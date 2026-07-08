@@ -417,10 +417,10 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
-                            <div class="settings-mobile-grid">
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="hud"><i class="fa-solid fa-rocket"></i> HUD</button>
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-tablet-screen-button"></i> Simple</button>
+                            <div class="settings-mobile-grid m-fw-mode-grid">
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="hud"><i class="fa-solid fa-gauge-high"></i><span>HUD</span></button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
@@ -2031,10 +2031,19 @@ export const MobileSettingsUI = {
 
                 .settings-mobile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 20px; }
                 .m-setting-pill {
+                    display: flex; align-items: center; justify-content: center; gap: 6px;
                     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-                    color: #a1a1aa; padding: 10px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;
+                    color: #a1a1aa; padding: 10px 8px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;
+                    text-align: center; white-space: nowrap; line-height: 1;
+                    -webkit-tap-highlight-color: transparent; transition: background-color .15s ease, color .15s ease, border-color .15s ease;
                 }
                 .m-setting-pill.active { background: #38bdf8; color: black; border-color: #38bdf8; }
+                .m-setting-pill:active { transform: scale(0.96); }
+                /* Flight-window mode picker: stack the icon above the label so all
+                   three read as a clean segmented control that never overflows. */
+                .m-fw-mode-grid .m-setting-pill { flex-direction: column; gap: 5px; padding: 11px 6px; }
+                .m-fw-mode-grid .m-setting-pill i { font-size: 1rem; opacity: 0.9; }
+                .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {
