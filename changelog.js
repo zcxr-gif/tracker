@@ -33,7 +33,9 @@
                 { tag: 'new', icon: 'fa-square-parking', text: 'Gates & parking stands — the airport layout now shows gate/stand pins with their identifiers (e.g. A12) when you zoom in.' },
                 { tag: 'new', icon: 'fa-wind', text: 'Wind-aware runways — each runway now shows its head / cross-wind from the live METAR, with the favoured landing direction highlighted and the best runway tagged PREFERRED.' },
                 { tag: 'new', icon: 'fa-clock', text: 'Airport details now show the field’s current local time.' },
-                { tag: 'new', icon: 'fa-sun', text: 'Daylight at a glance — a Day / Sunset / Twilight / Night indicator computed from the airport’s position.' }
+                { tag: 'new', icon: 'fa-sun', text: 'Daylight at a glance — a Day / Sunset / Twilight / Night indicator computed from the airport’s position.' },
+                { tag: 'new', icon: 'fa-palette', text: 'Embed: the map flight-card is now fully customizable — set its transparency (see-through / frosted) and text colour to match your site.' },
+                { tag: 'new', icon: 'fa-tags', text: 'Embed: callsign matching now accepts a second optional tag at the end (e.g. “Air Canada 001VA CX”), plus a list of regular untagged callsigns to always include.' }
             ]
         },
         {

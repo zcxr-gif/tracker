@@ -226,6 +226,10 @@
             va: { code: va, name: (p.get('name') || va).trim(), logo: (p.get('logo') || '').trim() },
             callsignPrefixes: p.get('prefixes') ? p.get('prefixes').split(',') : null,
             callsignSuffixes: p.get('suffixes') ? p.get('suffixes').split(',') : null,
+            // "Regular" (untagged) callsigns — matched by prefix alone, always
+            // included even when suffix-tag mode is on for the main prefixes.
+            regularCallsigns: (p.get('regulars') || p.get('callsigns'))
+                ? (p.get('regulars') || p.get('callsigns')).split(',') : null,
             hubs: p.get('hubs') ? p.get('hubs').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
@@ -240,6 +244,11 @@
             gradientAngle: (p.get('angle') || p.get('gradientAngle') || '').trim(),
             compact: (p.get('compact') || '').trim(),
             radius: (p.get('radius') || '').trim(),
+            // Flight-card customization (map mode): translucency + text colour.
+            cardColor: (p.get('cardColor') || p.get('cardBg') || '').trim(),
+            cardText: (p.get('cardText') || p.get('textColor') || '').trim(),
+            cardOpacity: (p.get('cardOpacity') || p.get('opacity') || '').trim(),
+            cardBlur: (p.get('cardBlur') || '').trim(),
             servers: p.get('servers') ? p.get('servers').split(',') : null
         });
     }
@@ -266,6 +275,14 @@
         const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
             .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
             .filter(Boolean);
+
+        // "Regular" callsigns — additional full callsign names matched by PREFIX
+        // ONLY (never require a suffix tag), always folded into the roster even
+        // when the main prefixes are running in tag mode. Lets a VA list several
+        // plain callsigns (e.g. staff / charter callsigns) alongside tagged
+        // members. Compacted the same way as prefixes.
+        const regulars = (Array.isArray(raw.regularCallsigns) ? raw.regularCallsigns : [])
+            .map(compactCallsign).filter(Boolean);
 
         let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
@@ -318,12 +335,33 @@
         const radiusN = parseFloat(raw.radius);
         const radius = (isFinite(radiusN) && radiusN >= 0) ? Math.min(radiusN, 32) : null;
 
+        // Flight-card look (map mode). All optional; when nothing is supplied the
+        // card keeps its default appearance. `opacity` accepts 0–1 or 0–100 and
+        // controls how see-through the card is; `blur` frosts the map behind a
+        // translucent card; `color`/`text` accept hex, rgb() or a named colour.
+        const pickCard = (...vals) => { for (const v of vals) if (v != null && String(v).trim() !== '') return v; return null; };
+        const cardObj = (raw.card && typeof raw.card === 'object') ? raw.card : {};
+        const cardBg = parseCssColor(pickCard(raw.cardColor, raw.cardBg, cardObj.color, cardObj.bg));
+        const cardText = parseCssColor(pickCard(raw.cardText, raw.textColor, cardObj.text));
+        let cardOpacity = null;
+        const opRaw = pickCard(raw.cardOpacity, raw.opacity, cardObj.opacity);
+        if (opRaw != null) {
+            let n = parseFloat(opRaw);
+            if (isFinite(n)) { if (n > 1) n /= 100; cardOpacity = Math.min(1, Math.max(0, n)); }
+        }
+        let cardBlur = null;
+        const blRaw = pickCard(raw.cardBlur, cardObj.blur);
+        if (blRaw != null) { const n = parseFloat(blRaw); if (isFinite(n)) cardBlur = Math.min(40, Math.max(0, n)); }
+        const card = { bg: cardBg, text: cardText, opacity: cardOpacity, blur: cardBlur };
+
         return {
             code,
             name: va.name || code,
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
             suffixes,
+            regulars,
+            card,
             hubs,
             mode,
             provider,
@@ -436,15 +474,23 @@
         const tokens = stripWeightClass(callsignTokens(callsign));
         if (!tokens.length) return false;
         const compact = tokens.join('');          // uppercased, separators removed
-        const last = tokens[tokens.length - 1];
+
+        // Regular (untagged) callsigns are matched by prefix alone and are always
+        // included — they bypass the suffix-tag requirement entirely.
+        if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
 
         const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)));
 
         // Prefix-only mode (no tags) — unchanged.
         if (!cfg.suffixes || !cfg.suffixes.length) return prefixHit;
 
-        // Tag mode — require the declared prefix AND the tag together.
-        const suffixHit = cfg.suffixes.some(s => s && tokenHasSuffixTag(last, s));
+        // Tag mode — require the declared prefix AND at least one configured tag
+        // on one of the LAST TWO tokens. Pilots often carry a second trailing tag
+        // (a division / event code) after the VA tag — "Air Canada 001VA CX" or
+        // "Air Canada 001 VA EX" — so a tag on either trailing token counts. Both
+        // suffixes are optional; one is enough.
+        const tail = tokens.slice(-2);
+        const suffixHit = cfg.suffixes.some(s => s && tail.some(t => tokenHasSuffixTag(t, s)));
         return prefixHit && suffixHit;
     }
 
@@ -529,6 +575,58 @@
     function rgbCss(c, a) {
         const r = Math.round(c.r), g = Math.round(c.g), b = Math.round(c.b);
         return a == null ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    // A handful of common colour NAMES a VA might type ("red", "white") on top of
+    // the hex / rgb() forms parseColor already handles. Kept small on purpose —
+    // enough to cover "red text / white text etc" without pulling in a table of
+    // 140 CSS names. Returns {r,g,b} or null.
+    const NAMED_COLORS = {
+        white: '#ffffff', black: '#000000', red: '#ef4444', crimson: '#dc2626',
+        orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', gold: '#fbbf24',
+        lime: '#84cc16', green: '#22c55e', emerald: '#10b981', teal: '#14b8a6',
+        cyan: '#06b6d4', sky: '#0ea5e9', blue: '#3b82f6', navy: '#1e3a8a',
+        indigo: '#6366f1', violet: '#8b5cf6', purple: '#a855f7', magenta: '#d946ef',
+        pink: '#ec4899', rose: '#f43f5e', slate: '#64748b', gray: '#6b7280',
+        grey: '#6b7280', silver: '#cbd5e1'
+    };
+    function parseCssColor(str) {
+        if (!str) return null;
+        const s = String(str).trim().toLowerCase();
+        if (NAMED_COLORS[s]) return parseColor(NAMED_COLORS[s]);
+        return parseColor(s);
+    }
+
+    // Apply the VA's flight-card customization (map mode) as CSS variables on the
+    // embed root. Only sets a variable the VA actually asked for, so an
+    // unconfigured card keeps its default look. Pure CSS vars — set once at boot,
+    // no per-frame or per-render cost, which matters for a lightweight embed.
+    function applyCardTheme(root, cfg) {
+        const c = cfg && cfg.card;
+        if (!c) return;
+        if (!(c.bg || c.text || c.opacity != null || c.blur != null)) return;
+        const s = root.style;
+        const light = cfg.theme === 'light';
+
+        // Translucent / recoloured card surface.
+        if (c.bg || c.opacity != null) {
+            const surface = c.bg || (light ? { r: 255, g: 255, b: 255 } : { r: 28, g: 28, b: 30 });
+            const alpha = c.opacity != null ? c.opacity : 1;
+            s.setProperty('--emb-card-bg', rgbCss(surface, alpha));
+            s.setProperty('--emb-card-panel', rgbCss(surface, alpha));
+        }
+        // Frost the map behind a see-through card: on by default once the card is
+        // noticeably translucent, off otherwise; an explicit blur always wins.
+        const blur = c.blur != null ? c.blur : ((c.opacity != null && c.opacity < 0.9) ? 12 : 0);
+        s.setProperty('--emb-card-blur', blur + 'px');
+
+        // Text colour — primary, plus a dimmed companion for secondary lines and
+        // a faint version for the stat-tile chips so they stay visible on any hue.
+        if (c.text) {
+            s.setProperty('--emb-card-text', rgbCss(c.text));
+            s.setProperty('--emb-card-text-dim', rgbCss(c.text, 0.62));
+            s.setProperty('--emb-card-chip', rgbCss(c.text, 0.10));
+        }
     }
 
     // WCAG relative luminance (0 = black … 1 = white).
@@ -859,12 +957,12 @@
                         <span class="fr24-user" title="${esc(username)}">${esc(username)}</span>
                     </div>
                     <div class="fr24-route-premium">
-                        <span class="fr24-route-code" style="color:#f8fafc">${esc(dep)}</span>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text, #f8fafc)">${esc(dep)}</span>
                         <div class="fr24-route-line">
                             <div class="seg fr24-prog-fill"></div>
                             <svg class="glyph fr24-prog-glyph" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
                         </div>
-                        <span class="fr24-route-code" style="color:#94a3b8">${esc(arr)}</span>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text-dim, #94a3b8)">${esc(arr)}</span>
                     </div>
                     <div class="fr24-meta">
                         <span class="fr24-meta-dist">—</span>
@@ -1969,6 +2067,7 @@
         if (cfg.hideHeader) root.classList.add('emb-noheader');
         if (cfg.compact) root.classList.add('emb-compact');
         if (cfg.radius != null) root.style.borderRadius = cfg.radius + 'px';
+        applyCardTheme(root, cfg);
 
         // Colour the header from the VA's brand: explicit colours win (one or
         // several — several become a gradient), else we sample the logo's palette

@@ -228,7 +228,9 @@
            into the area the panel leaves uncovered. */
         .emb-detail {
             position: absolute; z-index: 6;
-            background: #1c1c1e; color: #fff;
+            background: var(--emb-card-bg, #1c1c1e); color: var(--emb-card-text, #fff);
+            -webkit-backdrop-filter: blur(var(--emb-card-blur, 0px));
+            backdrop-filter: blur(var(--emb-card-blur, 0px));
             box-shadow: 0 8px 40px rgba(0,0,0,0.55);
             display: flex; flex-direction: column; overflow: hidden;
             transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
@@ -302,14 +304,16 @@
             background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
         }
         .fr24-info-box {
-            background-color: #2c2c2e; border-radius: 6px; padding: 6px 8px;
+            background-color: var(--emb-card-panel, #2c2c2e); border-radius: 6px; padding: 6px 8px;
+            -webkit-backdrop-filter: blur(var(--emb-card-blur, 0px));
+            backdrop-filter: blur(var(--emb-card-blur, 0px));
             box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-            display: flex; flex-direction: column; gap: 4px; color: #fff;
+            display: flex; flex-direction: column; gap: 4px; color: var(--emb-card-text, #fff);
         }
         .fr24-header-row { display: flex; align-items: center; gap: 6px; }
         .fr24-airline-logo { height: 14px; width: auto; max-width: 35px; object-fit: contain; border-radius: 1px; }
         .fr24-ident-group { display: flex; align-items: center; gap: 4px; }
-        .fr24-callsign { font-size: 13px; font-weight: 700; color: #fff; line-height: 1; }
+        .fr24-callsign { font-size: 13px; font-weight: 700; color: var(--emb-card-text, #fff); line-height: 1; }
         .fr24-user { margin-left: auto; font-size: 8.5px; color: #38bdf8; font-weight: 800;
             text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65px; }
         .fr24-route-premium { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 5px 0 4px 0; }
@@ -321,13 +325,13 @@
         .fr24-stats-row { display: flex; justify-content: space-between; font-size: 10px; color: #98989d; font-weight: 600; margin-top: 1px; }
         .fr24-stats-row .u { font-size: 8px; }
         .fr24-stats-row i { font-size: 8px; margin-right: 3px; }
-        .fr24-meta { display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; font-weight: 700; color: #cbd5e1; letter-spacing: 0.02em; margin: 0 0 1px; }
+        .fr24-meta { display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; font-weight: 700; color: var(--emb-card-text-dim, #cbd5e1); letter-spacing: 0.02em; margin: 0 0 1px; }
         .fr24-meta-eta { color: #67e8f9; }
         .fr24-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-        .fr24-stat { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.04); border-radius: 5px; padding: 3px 2px; }
-        .fr24-stat b { font-size: 11px; color: #fff; font-weight: 800; line-height: 1.15; }
-        .fr24-stat .u { font-size: 7px; color: #98989d; font-weight: 700; letter-spacing: 0.04em; }
-        .fr24-actype { font-size: 9px; color: #94a3b8; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+        .fr24-stat { display: flex; flex-direction: column; align-items: center; background: var(--emb-card-chip, rgba(255,255,255,0.04)); border-radius: 5px; padding: 3px 2px; }
+        .fr24-stat b { font-size: 11px; color: var(--emb-card-text, #fff); font-weight: 800; line-height: 1.15; }
+        .fr24-stat .u { font-size: 7px; color: var(--emb-card-text-dim, #98989d); font-weight: 700; letter-spacing: 0.04em; }
+        .fr24-actype { font-size: 9px; color: var(--emb-card-text-dim, #94a3b8); font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
         .fr24-powered { display: flex; align-items: center; justify-content: center; gap: 5px;
             margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08);
             text-decoration: none; }
