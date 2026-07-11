@@ -18315,11 +18315,15 @@ async function formatDataForEmbedAirport(icao) {
         }
     } catch (_) {}
 
-    // METAR — parse with the same WeatherService the weather panel uses.
+    // METAR — parse with the same WeatherService the weather panel uses. The
+    // parsed record is kept around so the runway module can compute live
+    // head/cross-wind components against the same observation.
     let metar = null;
+    let parsedWx = null;
     try {
         if (window.WeatherService) {
             const w = await window.WeatherService.fetchAndParseMetar(icao);
+            parsedWx = w;
             if (w && w.raw && w.raw !== 'Not Available') {
                 let cat = 'VFR', color = '#4ade80';
                 if (w.raw.includes('LIFR')) { cat = 'LIFR'; color = '#c084fc'; }
@@ -18371,11 +18375,50 @@ async function formatDataForEmbedAirport(icao) {
         }
     } catch (_) {}
 
+    // Runways — physical list plus wind-scored recommendations against the
+    // METAR we just parsed (same physics the standard window's INFO tab uses).
+    const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
+    const runways = rawRunways
+        .filter(r => !r.closed && (r.le_ident || r.he_ident))
+        .map(r => ({
+            ident: [r.le_ident, r.he_ident].filter(Boolean).join('/'),
+            length_ft: r.length_ft || null,
+            surface: r.surface || '',
+            lighted: !!r.lighted
+        }));
+    let runwayRecs = [];
+    try {
+        if (rawRunways.length && parsedWx && parsedWx.wind && parsedWx.wind !== '---') {
+            runwayRecs = getRunwayRecommendations(rawRunways, parsedWx.wind)
+                .slice(0, 4)
+                .map(r => ({ ident: r.ident, color: r.color, reason: r.reason, headwind: r.headwind, crosswind: r.crosswind }));
+        }
+    } catch (_) {}
+
+    // Live / recent ATC sessions (same endpoint as the standard window's FREQS tab).
+    let atcLive = [], atcRecent = [];
+    try {
+        const sessions = await fetchAtcSessionsForAirport(icao);
+        const mapS = (s) => ({
+            username: s.username || 'Controller',
+            frequencies: (s.frequencies || []).slice(0, 4),
+            when: formatAtcSessionStart(s.start)
+        });
+        atcLive = sessions.filter(s => s.open).slice(0, 6).map(mapS);
+        atcRecent = sessions.filter(s => !s.open).slice(0, 3).map(mapS);
+    } catch (_) {}
+
+    // Day/night phase from solar elevation (pure math, no API).
+    let sun = null;
+    try { sun = computeSunPhase(lat, lon); } catch (_) {}
+
     return {
         icao, name, city, cc, elevation,
         coords: { lat, lon },
-        metar, atis,
+        metar, atis, sun,
         traffic: { inbound, outbound },
+        runways, runwayRecs,
+        atcLive, atcRecent,
         gates, occupants,
         heroUrl: airportAerialImageUrl(lat, lon)
     };

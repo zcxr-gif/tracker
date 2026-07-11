@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
     /* ------------------------------------------------------------------ *
@@ -87,6 +88,52 @@
     .emb-gate-row .f { color: #64748b; }
 
     .emb-empty { padding: 40px 12px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px; font-weight: 600; }
+
+    /* Head chips (day/night etc.) pinned to the right of the ident block */
+    .emb-apt-head { position: relative; }
+    .emb-apt-headchips { margin-left: auto; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; flex: 0 0 auto; }
+
+    /* Runways module */
+    .emb-rwy-recs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+    .emb-rwy-rec {
+        display: inline-flex; align-items: baseline; gap: 6px;
+        padding: 4px 9px; border-radius: 7px; border: 1px solid;
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 12.5px;
+    }
+    .emb-rwy-rec .w { font-size: 9px; font-weight: 700; opacity: 0.85; letter-spacing: 0.02em; }
+    .emb-rwy-list { display: flex; flex-direction: column; gap: 4px; }
+    .emb-rwy-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 5px 9px; border-radius: 7px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
+        font-size: 11px;
+    }
+    .emb-rwy-row .id { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; color: #e4e4e7; flex: 0 0 auto; min-width: 64px; }
+    .emb-rwy-row .len { color: #cbd5e1; font-weight: 700; }
+    .emb-rwy-row .sfc { color: rgba(255,255,255,0.45); margin-left: auto; text-transform: uppercase; font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; }
+    .emb-rwy-row .lit { color: #fbbf24; font-size: 9px; flex: 0 0 auto; }
+
+    /* ATC module */
+    .emb-atc-list { display: flex; flex-direction: column; gap: 5px; }
+    .emb-atc-row {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        padding: 6px 9px; border-radius: 8px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
+    }
+    .emb-atc-row.live { border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.05); }
+    .emb-atc-row .who { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: #e4e4e7; min-width: 0; }
+    .emb-atc-row .who i { color: #7dd3fc; font-size: 10px; }
+    .emb-atc-row .live-dot {
+        width: 6px; height: 6px; border-radius: 50%; background: #4ade80;
+        box-shadow: 0 0 5px #4ade80; animation: atcPulse 2s ease-in-out infinite; flex: 0 0 auto;
+    }
+    @keyframes atcPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .emb-atc-row .fq {
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 9.5px; font-weight: 700;
+        color: #7dd3fc; background: rgba(125,211,252,0.1); border: 1px solid rgba(125,211,252,0.2);
+        padding: 1px 6px; border-radius: 4px;
+    }
+    .emb-atc-row .tm { margin-left: auto; font-size: 9px; color: rgba(255,255,255,0.4); font-weight: 600; white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -219,9 +266,60 @@
                 </div>
             </div>`;
 
+        // Runways: wind-scored recommendation chips (best runway ends against
+        // the current METAR) above the physical runway list.
+        const recs = Array.isArray(data.runwayRecs) ? data.runwayRecs : [];
+        const rwys = Array.isArray(data.runways) ? data.runways : [];
+        const recColor = (c) => c === 'red' ? '#f87171' : (c === 'orange' ? '#fbbf24' : '#4ade80');
+        const recsHtml = recs.length ? `<div class="emb-rwy-recs">${recs.map(r => `
+            <span class="emb-rwy-rec" style="color:${recColor(r.color)};border-color:${recColor(r.color)}" title="${esc(r.reason)}">
+                ${esc(r.ident)}
+                <span class="w">${r.headwind >= 0 ? 'HW' : 'TW'}${Math.abs(r.headwind)} · XW${Math.abs(r.crosswind)}</span>
+            </span>`).join('')}</div>` : '';
+        const rwyRows = rwys.length ? `<div class="emb-rwy-list">${rwys.map(r => `
+            <div class="emb-rwy-row">
+                <span class="id">${esc(r.ident)}</span>
+                ${r.length_ft ? `<span class="len">${Number(r.length_ft).toLocaleString()} ft</span>` : ''}
+                ${r.lighted ? '<i class="fa-solid fa-lightbulb lit" title="Lighted"></i>' : ''}
+                <span class="sfc">${esc(r.surface)}</span>
+            </div>`).join('')}</div>` : '';
+        const runwaysMod = (recsHtml || rwyRows) ? `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>Runways</span>${rwys.length
+                    ? `<span class="emb-apt-pill" style="color:#94a3b8;border-color:#475569">${rwys.length}</span>` : ''}</div>
+                ${recsHtml}${rwyRows}
+            </div>` : '';
+
+        // Active ATC (live controllers with their frequencies; recent as fallback).
+        const atcLive = Array.isArray(data.atcLive) ? data.atcLive : [];
+        const atcRecent = Array.isArray(data.atcRecent) ? data.atcRecent : [];
+        const atcRow = (s, live) => `
+            <div class="emb-atc-row${live ? ' live' : ''}">
+                ${live ? '<span class="live-dot"></span>' : ''}
+                <span class="who"><i class="fa-solid fa-headset"></i>${esc(s.username)}</span>
+                ${(s.frequencies || []).map(f => `<span class="fq">${esc(f)}</span>`).join('')}
+                <span class="tm">${esc(s.when || '')}</span>
+            </div>`;
+        const atcMod = `
+            <div class="emb-apt-mod">
+                <div class="emb-apt-mod-h"><span>ATC</span>${atcLive.length
+                    ? `<span class="emb-apt-pill" style="color:#4ade80;border-color:#4ade80">${atcLive.length} LIVE</span>`
+                    : `<span class="emb-apt-pill" style="color:#94a3b8;border-color:#475569">OFFLINE</span>`}</div>
+                ${atcLive.length
+                    ? `<div class="emb-atc-list">${atcLive.map(s => atcRow(s, true)).join('')}</div>`
+                    : (atcRecent.length
+                        ? `<div class="emb-apt-sub" style="margin:0 0 6px">No controller online — recent sessions:</div>
+                           <div class="emb-atc-list">${atcRecent.map(s => atcRow(s, false)).join('')}</div>`
+                        : `<div class="emb-apt-sub" style="margin:0">No controller online.</div>`)}
+            </div>`;
+
         const heroMod = data.heroUrl
             ? `<div class="emb-apt-hero"><img src="${esc(data.heroUrl)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.emb-apt-hero').remove()"><div class="emb-apt-hero-fade"></div></div>`
             : '';
+
+        const sun = data.sun;
+        const sunChip = sun ? `<span class="emb-apt-pill" style="color:${esc(sun.color)};border-color:${esc(sun.color)}">
+                ${sun.icon ? `<i class="fa-solid ${esc(sun.icon)}"></i> ` : ''}${esc(sun.label)}</span>` : '';
 
         return `
             <div class="emb-apt">
@@ -230,9 +328,12 @@
                     <div class="emb-apt-icao">${esc(icao)}</div>
                     <div class="emb-apt-name">${esc(name)}</div>
                     ${sub ? `<div class="emb-apt-sub">${esc(sub)}</div>` : ''}
-                </div></div>
+                </div>
+                ${sunChip ? `<div class="emb-apt-headchips">${sunChip}</div>` : ''}</div>
                 ${metarMod}
                 ${opsMod}
+                ${runwaysMod}
+                ${atcMod}
                 ${trafficMod}
                 ${gatesModHTML(data.gates, data.occupants)}
             </div>`;
