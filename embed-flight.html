@@ -10,13 +10,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
+    <script src="flight-graph.js"></script>
+    <script src="flight-legs.js"></script>
+
     <style>
     /* ------------------------------------------------------------------ *
      *  Embed-style ("FR24") flight card, ported from the VA embed widget  *
-     *  (embed.html) and re-themed to sit inside the main tracker's docked  *
-     *  flight window instead of the VA popup. It receives the exact same   *
-     *  FLIGHT_DATA_UPDATE payload the "Simple" window uses, so the host    *
-     *  plumbing in flight.js is shared.                                    *
+     *  (embed.html) and re-themed for the main tracker's docked flight     *
+     *  window. Two phases, mirroring the Simple window contract:           *
+     *    body.collapsed → compact peek bar (mobile bottom-sheet peek)      *
+     *    body.expanded  → full card (photo, route, times, stats, graph)    *
+     *  It receives the same FLIGHT_DATA_UPDATE payload the Simple window   *
+     *  uses and syncs phase with the host via SET_PHASE /                  *
+     *  SIMPLE_WINDOW_STATE, so all host plumbing is shared.                *
      * ------------------------------------------------------------------ */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -24,7 +30,9 @@
         --emb-card-text: #ffffff;
         --emb-card-text-dim: #94a3b8;
         --emb-card-chip: rgba(255, 255, 255, 0.05);
-        --emb-card-blur: 18px;
+        --emb-brand: #38bdf8;
+        --emb-ok: #4ade80;
+        --emb-warn: #fbbf24;
     }
     html, body {
         height: 100%;
@@ -35,33 +43,81 @@
         color: #fff;
         -webkit-font-smoothing: antialiased;
     }
-    body {
-        display: flex;
-        flex-direction: column;
-        padding: 14px;
-        overflow-y: auto;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
-    }
-    body::-webkit-scrollbar { width: 8px; }
-    body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+    body { overflow: hidden; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
-    .emb-host { width: 100%; max-width: 460px; margin: 0 auto; }
+    /* Phase switching */
+    #peek, #full { display: none; }
+    body.collapsed #peek { display: block; }
+    body.expanded #full { display: flex; }
+
+    /* =============================== PEEK =============================== */
+    /* Top-anchored: the mobile sheet is taller than the screen and sits with
+       its top edge at the peek line, so only the first ~190px are visible. */
+    #peek { padding: 14px 16px 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .pk-grip {
+        width: 38px; height: 4px; border-radius: 999px;
+        background: rgba(255,255,255,0.22); margin: 0 auto 10px;
+    }
+    .pk-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .pk-logo { height: 18px; width: auto; max-width: 46px; object-fit: contain; border-radius: 2px; }
+    .pk-callsign { font-size: 17px; font-weight: 800; letter-spacing: 0.2px; white-space: nowrap; }
+    .pk-live {
+        width: 7px; height: 7px; border-radius: 50%; background: var(--emb-ok);
+        box-shadow: 0 0 6px var(--emb-ok); animation: pkPulse 2s ease-in-out infinite;
+        flex: 0 0 auto;
+    }
+    @keyframes pkPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .pk-phase {
+        font-size: 8.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+        padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap;
+    }
+    .pk-user {
+        margin-left: auto; font-size: 10.5px; color: var(--emb-brand); font-weight: 800;
+        text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;
+    }
+    .pk-route { display: flex; align-items: center; gap: 10px; margin: 11px 0 3px; }
+    .pk-icao { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 15px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+    .pk-flag { width: 16px; height: 11px; border-radius: 2px; object-fit: cover; }
+    .pk-line { flex: 1; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; }
+    .pk-line .seg {
+        position: absolute; left: 0; top: 0; height: 100%;
+        background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, var(--emb-brand) 100%);
+        border-radius: 2px; box-shadow: 0 0 6px rgba(56,189,248,0.5);
+    }
+    .pk-line .glyph { position: absolute; top: 50%; transform: translate(-50%, -50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+    .pk-cities { display: flex; justify-content: space-between; gap: 12px; font-size: 9px; color: var(--emb-card-text-dim); font-weight: 600; }
+    .pk-cities span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
+    .pk-cities span:last-child { text-align: right; }
+    .pk-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 10px; }
+    .pk-stat { display: flex; flex-direction: column; align-items: center; background: var(--emb-card-chip); border-radius: 6px; padding: 6px 2px; }
+    .pk-stat b { font-size: 14px; font-weight: 800; line-height: 1.15; }
+    .pk-stat .u { font-size: 7.5px; color: var(--emb-card-text-dim); font-weight: 700; letter-spacing: 0.04em; }
+
+    /* ============================== EXPANDED ============================= */
+    #full {
+        flex-direction: column; height: 100%;
+        padding: 14px; gap: 0;
+        overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+    }
+    #full::-webkit-scrollbar { width: 8px; }
+    #full::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+    .emb-host { width: 100%; max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
     .emb-empty {
         flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
         color: rgba(255,255,255,0.4); font-size: 13px; font-weight: 600; text-align: center;
         min-height: 120px;
     }
 
-    /* --- FR24 flight card (ported verbatim, sized for the docked panel) --- */
+    /* --- FR24 flight card (ported from the embed, sized for the panel) --- */
     .fr24-card-container { width: 100%; display: flex; flex-direction: column; gap: 8px; }
     .fr24-image-box {
         height: 180px; width: 100%; background-color: #2c2c2e;
         background-size: cover; background-position: center;
         border-radius: 10px; position: relative;
         box-shadow: 0 2px 8px rgba(0,0,0,0.4); overflow: hidden;
+        transition: background-image 0.4s ease;
     }
-    .fr24-image-box.multi { cursor: default; }
     .fr24-copyright {
         position: absolute; bottom: 4px; left: 8px;
         color: rgba(255,255,255,0.7); font-size: 9px; font-weight: 500;
@@ -74,31 +130,75 @@
     .fr24-dots { position: absolute; bottom: 6px; right: 8px; display: flex; gap: 4px; z-index: 3; }
     .fr24-dots span { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background .2s ease; }
     .fr24-dots span.on { background: #fff; }
+    /* Partner-VA badge on the photo (same as the embed's fr24-va-badge). */
+    .fr24-va-badge {
+        position: absolute; top: 8px; left: 8px; z-index: 3;
+        display: flex; align-items: center; gap: 6px;
+        padding: 3px 8px; border-radius: 999px;
+        background: rgba(0,0,0,0.32);
+        -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+        border: 1px solid rgba(255,255,255,0.14);
+    }
+    .fr24-va-badge img { height: 16px; width: auto; max-width: 70px; object-fit: contain; border-radius: 3px; display: block; }
+    .fr24-va-badge span { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+    .fr24-collapse {
+        position: absolute; top: 8px; right: 8px; z-index: 3;
+        width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(0,0,0,0.38); color: #fff; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; font-size: 12px;
+        -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    }
+    .fr24-collapse:hover { background: rgba(0,0,0,0.55); }
     .fr24-info-box {
         background-color: var(--emb-card-panel); border-radius: 10px; padding: 10px 12px;
-        -webkit-backdrop-filter: blur(var(--emb-card-blur)); backdrop-filter: blur(var(--emb-card-blur));
         box-shadow: 0 2px 8px rgba(0,0,0,0.4);
         display: flex; flex-direction: column; gap: 6px; color: var(--emb-card-text);
         border: 1px solid rgba(255,255,255,0.06);
     }
+    .fr24-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .fr24-phase, .fr24-state {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+        padding: 3px 9px; border-radius: 999px; border: 1px solid;
+    }
     .fr24-header-row { display: flex; align-items: center; gap: 6px; }
     .fr24-airline-logo { height: 20px; width: auto; max-width: 54px; object-fit: contain; border-radius: 2px; }
-    .fr24-ident-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .fr24-ident-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
     .fr24-callsign { font-size: 21px; font-weight: 700; color: var(--emb-card-text); line-height: 1; }
     .fr24-user {
-        margin-left: auto; font-size: 12px; color: #38bdf8; font-weight: 800;
+        margin-left: auto; font-size: 12px; color: var(--emb-brand); font-weight: 800;
         text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
     }
-    .fr24-route-premium { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 5px 0 4px 0; }
-    .fr24-route-code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 15px; letter-spacing: 0.5px; }
+    .fr24-reg-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--emb-card-text-dim); font-weight: 600; min-width: 0; }
+    .fr24-reg-row .reg { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; color: #cbd5e1; }
+    .fr24-reg-row .liv { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fr24-route-premium { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 5px 0 0; }
+    .fr24-route-code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 15px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+    .fr24-route-flag { width: 18px; height: 12px; border-radius: 2px; object-fit: cover; }
     .fr24-route-line { flex-grow: 1; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; display: flex; align-items: center; }
     .fr24-route-line .seg {
-        position: absolute; left: 0; top: 0; height: 100%; width: 50%;
-        background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, #38bdf8 100%); border-radius: 2px; box-shadow: 0 0 6px rgba(56,189,248,0.5);
+        position: absolute; left: 0; top: 0; height: 100%;
+        background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, var(--emb-brand) 100%); border-radius: 2px; box-shadow: 0 0 6px rgba(56,189,248,0.5);
+        transition: width 1s linear;
     }
-    .fr24-route-line .glyph { position: absolute; left: 50%; transform: translateX(-50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); z-index: 2; }
-    .fr24-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: var(--emb-card-text-dim); letter-spacing: 0.02em; margin: 0 0 1px; }
+    .fr24-route-line .glyph { position: absolute; transform: translateX(-50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); z-index: 2; transition: left 1s linear; }
+    .fr24-cities { display: flex; justify-content: space-between; gap: 12px; font-size: 9.5px; color: var(--emb-card-text-dim); font-weight: 600; margin-bottom: 2px; }
+    .fr24-cities span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
+    .fr24-cities span:last-child { text-align: right; }
+    .fr24-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700; color: var(--emb-card-text-dim); letter-spacing: 0.02em; }
     .fr24-meta-eta { color: #67e8f9; }
+    /* Elapsed / ETE / flown strip */
+    .fr24-timebar {
+        display: flex; justify-content: space-between; gap: 8px;
+        font-size: 10px; font-weight: 700; color: var(--emb-card-text-dim);
+        background: var(--emb-card-chip); border-radius: 6px; padding: 5px 9px;
+    }
+    .fr24-timebar b { color: #e4e4e7; font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; }
+    /* FR24-style four-cell scheduled/actual times grid */
+    .fr24-times { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    .fr24-time-cell { display: flex; flex-direction: column; align-items: center; gap: 1px; background: var(--emb-card-chip); border-radius: 6px; padding: 6px 2px; }
+    .fr24-time-cell .l { font-size: 7.5px; font-weight: 800; letter-spacing: 0.06em; color: var(--emb-card-text-dim); text-transform: uppercase; }
+    .fr24-time-cell b { font-size: 13px; font-weight: 800; font-family: 'JetBrains Mono', ui-monospace, monospace; }
     .fr24-airports { display: flex; gap: 6px; margin-top: 2px; }
     .fr24-apt-btn {
         flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
@@ -113,33 +213,72 @@
         font-family: inherit; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
         text-transform: uppercase; color: var(--emb-card-text-dim);
     }
-    .fr24-apt-btn.dep .r { color: #4ade80; }
-    .fr24-apt-btn.arr .r { color: #fbbf24; }
-    .fr24-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
-    .fr24-stat { display: flex; flex-direction: column; align-items: center; background: var(--emb-card-chip); border-radius: 6px; padding: 8px 2px; }
-    .fr24-stat b { font-size: 18px; color: var(--emb-card-text); font-weight: 800; line-height: 1.15; }
-    .fr24-stat .u { font-size: 9px; color: var(--emb-card-text-dim); font-weight: 700; letter-spacing: 0.04em; }
-    .fr24-actype { font-size: 13px; color: var(--emb-card-text-dim); font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
-    .fr24-phase {
-        display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
-        font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
-        padding: 3px 9px; border-radius: 999px; border: 1px solid;
+    .fr24-apt-btn.dep .r { color: var(--emb-ok); }
+    .fr24-apt-btn.arr .r { color: var(--emb-warn); }
+    .fr24-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    .fr24-stat { display: flex; flex-direction: column; align-items: center; background: var(--emb-card-chip); border-radius: 6px; padding: 8px 2px; min-width: 0; }
+    .fr24-stat b { font-size: 15px; color: var(--emb-card-text); font-weight: 800; line-height: 1.15; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .fr24-stat .u { font-size: 8px; color: var(--emb-card-text-dim); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    .fr24-actype { font-size: 12.5px; color: var(--emb-card-text-dim); font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    /* Graph + legs cards below the main card */
+    .fr24-panel {
+        background: var(--emb-card-panel); border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px; padding: 10px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
     }
-    .fr24-depgate { font-size: 11px; font-weight: 700; color: #4ade80; letter-spacing: 0.02em; margin-top: 1px; }
-    .fr24-depgate b { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .fr24-panel-h {
+        display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
+        font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--emb-card-text-dim);
+    }
+    .fr24-panel-h i { color: var(--emb-brand); }
+    #legs-card .fl-legs-card { margin: 0 !important; background: transparent !important; border: none !important; padding: 0 !important; }
 
     @media (max-width: 480px) {
-        body { padding: 11px; }
+        #full { padding: 11px; }
         .fr24-image-box { height: 150px; }
         .fr24-callsign { font-size: 18px; }
         .fr24-route-code { font-size: 13px; }
-        .fr24-stat b { font-size: 15px; }
+        .fr24-stat b { font-size: 13px; }
+        .fr24-time-cell b { font-size: 12px; }
     }
     </style>
 </head>
-<body>
-    <div class="emb-host">
-        <div id="card"><div class="emb-empty">Waiting for flight data…</div></div>
+<body class="collapsed">
+
+    <!-- Compact peek bar (mobile bottom-sheet collapsed state) -->
+    <div id="peek">
+        <div class="pk-grip"></div>
+        <div class="emb-empty" id="peek-empty">Waiting for flight data…</div>
+        <div id="peek-body" style="display:none">
+            <div class="pk-head">
+                <img class="pk-logo" id="pk-logo" alt="" style="display:none">
+                <span class="pk-live"></span>
+                <span class="pk-callsign" id="pk-callsign">---</span>
+                <span class="pk-phase" id="pk-phase" style="display:none"></span>
+                <span class="pk-user" id="pk-user"></span>
+            </div>
+            <div class="pk-route">
+                <span class="pk-icao"><img class="pk-flag" id="pk-flag-dep" alt="" style="display:none"><span id="pk-dep">----</span></span>
+                <div class="pk-line">
+                    <div class="seg" id="pk-seg" style="width:0%"></div>
+                    <svg class="glyph" id="pk-glyph" style="left:0%" width="11" height="11" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
+                </div>
+                <span class="pk-icao"><span id="pk-arr">----</span><img class="pk-flag" id="pk-flag-arr" alt="" style="display:none"></span>
+            </div>
+            <div class="pk-cities"><span id="pk-dep-city"></span><span id="pk-arr-city"></span></div>
+            <div class="pk-stats">
+                <div class="pk-stat"><b class="mono" id="pk-alt">—</b><span class="u">FT</span></div>
+                <div class="pk-stat"><b class="mono" id="pk-gs">—</b><span class="u">KTS</span></div>
+                <div class="pk-stat"><b class="mono" id="pk-eta">—</b><span class="u">ETA UTC</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full card -->
+    <div id="full">
+        <div class="emb-host">
+            <div id="card"><div class="emb-empty">Waiting for flight data…</div></div>
+        </div>
     </div>
 
     <script>
@@ -150,6 +289,7 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
+    const fmtNum = (v) => Math.round(Number(v) || 0).toLocaleString();
 
     // Derive the airline-logo path from the livery name, exactly like the embed
     // does. The image is best-effort — it hides itself if the file is missing.
@@ -175,121 +315,350 @@
         }
     }
 
-    let _photoTimer = null;
-    let _photoIdx = 0;
-
-    function stopCarousel() {
-        if (_photoTimer) { clearInterval(_photoTimer); _photoTimer = null; }
+    // Pilot connection state (matches the tracker's badges).
+    function stateBadge(pilotState) {
+        switch (Number(pilotState)) {
+            case 2: return { label: 'PARKED', color: '#94a3b8' };
+            case 3: return { label: 'AP+', color: '#60a5fa' };
+            case 1: return { label: 'AWAY', color: '#facc15' };
+            default: return null;
+        }
     }
 
-    // Cross-fade through the (up to 3) community photos, matching the Simple
-    // window's auto-cycling hero.
-    function startCarousel(list) {
+    function flagUrl(cc) {
+        const c = String(cc || '').trim().toLowerCase();
+        return /^[a-z]{2}$/.test(c) ? `https://flagcdn.com/w40/${c}.png` : '';
+    }
+
+    // ── Phase management (mirrors flightinfo.html's contract with the host) ──
+    let currentPhase = 'collapsed';
+    function setPhase(phase, notifyHost) {
+        const next = (phase === 'expanded') ? 'expanded' : 'collapsed';
+        const changed = next !== currentPhase;
+        currentPhase = next;
+        document.body.classList.toggle('expanded', next === 'expanded');
+        document.body.classList.toggle('collapsed', next === 'collapsed');
+        if (!changed) return;
+        if (notifyHost) {
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: next }, '*'); } catch (_) {}
+        }
+        // The graph needs a measurable width — draw it once we're visible.
+        if (next === 'expanded') setTimeout(renderGraph, 80);
+    }
+    document.getElementById('peek').addEventListener('click', () => setPhase('expanded', true));
+
+    // ── Photo carousel (kept across live ticks; only rebuilt on photo change) ──
+    let _photoTimer = null;
+    let _photoIdx = 0;
+    let _photoList = [];
+    function photoKey(list) { return list.map(p => p.url).join('|'); }
+    function stopCarousel() { if (_photoTimer) { clearInterval(_photoTimer); _photoTimer = null; } }
+    function applyPhoto(i) {
+        const box = document.querySelector('.fr24-image-box');
+        const cr = document.querySelector('.fr24-copyright');
+        const dots = document.querySelectorAll('.fr24-dots span');
+        if (!box || !_photoList[i]) return;
+        box.style.backgroundImage = `url('${_photoList[i].url}')`;
+        if (cr) cr.textContent = '© ' + (_photoList[i].credit || 'IF Community');
+        dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    }
+    function startCarousel() {
         stopCarousel();
-        _photoIdx = 0;
-        if (!Array.isArray(list) || list.length < 2) return;
+        if (_photoList.length < 2) return;
         _photoTimer = setInterval(() => {
-            _photoIdx = (_photoIdx + 1) % list.length;
-            const box = document.querySelector('.fr24-image-box');
-            const cr = document.querySelector('.fr24-copyright');
-            const dots = document.querySelectorAll('.fr24-dots span');
-            if (!box) { stopCarousel(); return; }
-            box.style.backgroundImage = `url('${list[_photoIdx].url}')`;
-            if (cr) cr.textContent = '© ' + (list[_photoIdx].credit || 'IF Community');
-            dots.forEach((d, i) => d.classList.toggle('on', i === _photoIdx));
+            if (currentPhase !== 'expanded') return;   // don't churn while peeking
+            _photoIdx = (_photoIdx + 1) % _photoList.length;
+            applyPhoto(_photoIdx);
         }, 6000);
     }
 
-    function render(p) {
-        stopCarousel();
-        if (!p) {
-            document.getElementById('card').innerHTML =
-                '<div class="emb-empty">No flight selected.</div>';
-            return;
-        }
+    // ── Live data ────────────────────────────────────────────────────────────
+    let lastPayload = null;
+    let _renderKey = null;       // flight identity — full rebuild when it changes
+    let _lastGraphAt = 0;
+    let _lastLegsKey = null;
 
+    function fmtVs(vs) {
+        const v = Math.round(Number(vs) || 0);
+        if (Math.abs(v) < 50) return { txt: '0', color: '#94a3b8', icon: '' };
+        const arrow = v > 0 ? '▲' : '▼';
+        const color = v > 0 ? '#38bdf8' : '#fbbf24';
+        return { txt: `${arrow} ${Math.abs(v).toLocaleString()}`, color, icon: arrow };
+    }
+
+    function buildCard(p) {
         const tel = p.telemetry || {};
         const route = p.route || {};
         const ac = p.aircraft || {};
-        const imgs = p.images || {};
-        const photoList = Array.isArray(imgs.list) && imgs.list.length ? imgs.list : (imgs.url ? [{ url: imgs.url, credit: imgs.credit }] : []);
 
         const callsign = p.callsign || '---';
         const username = p.username || 'Unknown';
         const dep = route.originIcao && route.originIcao !== '---' ? route.originIcao : '';
         const arr = route.destIcao && route.destIcao !== '---' ? route.destIcao : '';
-        const alt = Math.round(Number(tel.altitude) || 0).toLocaleString();
-        const gs = Math.round(Number(tel.groundSpeed) || 0);
-        const hdg = Math.round(Number(tel.heading) || 0);
         const actype = String(ac.aircraftName || '');
+        const livery = String(ac.liveryName || '');
+        const reg = (ac.registration && ac.registration !== '---') ? ac.registration : '';
         const logo = airlineLogoPath(ac.liveryName);
-        const imgUrl = photoList[0] ? photoList[0].url : '';
-        const credit = photoList[0] ? photoList[0].credit : '';
-        const progress = Math.max(0, Math.min(100, Number(route.progress) || 0));
+        const depFlag = flagUrl(route.originCountry), arrFlag = flagUrl(route.destCountry);
 
-        // ETA / distance meta line.
-        const distTxt = (route.distRemainingNm != null && route.distRemainingNm !== '')
-            ? `${Number(route.distRemainingNm).toLocaleString()} NM to go` : '—';
-        const etaTxt = (route.eta && route.eta !== '--:--') ? `ETA ${route.eta}` : 'ETA —';
+        const dotsHtml = _photoList.length > 1
+            ? `<div class="fr24-dots">${_photoList.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : '';
 
-        const dotsHtml = photoList.length > 1
-            ? `<div class="fr24-dots">${photoList.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : '';
+        const va = p.vaPartner;
+        const vaBadge = va ? `<div class="fr24-va-badge">${va.logo
+            ? `<img src="${esc(va.logo)}" alt="${esc(va.name || '')}" onerror="this.style.display='none'">`
+            : `<span>${esc(va.name || '')}</span>`}</div>` : '';
 
-        const phaseHtml = p.phase
-            ? `<span class="fr24-phase" style="color:${phaseColor(p.phaseClass)};border-color:${phaseColor(p.phaseClass)}">` +
-              `${p.phaseIcon ? `<i class="fa-solid ${esc(p.phaseIcon)}"></i>` : ''}${esc(p.phase)}</span>` : '';
-
-        const html = `
+        return `
             <div class="fr24-card-container">
-                <div class="fr24-image-box ${photoList.length > 1 ? 'multi' : ''}" style="background-image:url('${esc(imgUrl)}')">
+                <div class="fr24-image-box" style="background-image:url('${esc(_photoList[0] ? _photoList[0].url : '')}')">
                     <div class="fr24-image-overlay"></div>
-                    ${credit ? `<div class="fr24-copyright">© ${esc(credit)}</div>` : ''}
+                    ${vaBadge}
+                    <button class="fr24-collapse" id="btn-collapse" title="Minimize"><i class="fa-solid fa-chevron-down"></i></button>
+                    <div class="fr24-copyright">© ${esc(_photoList[0] ? (_photoList[0].credit || 'IF Community') : 'IF Community')}</div>
                     ${dotsHtml}
                 </div>
                 <div class="fr24-info-box">
-                    ${phaseHtml}
+                    <div class="fr24-chips">
+                        <span class="fr24-phase" data-f="phase"></span>
+                        <span class="fr24-state" data-f="state" style="display:none"></span>
+                    </div>
                     <div class="fr24-header-row">
                         ${logo ? `<img src="${esc(logo)}" class="fr24-airline-logo" onerror="this.style.display='none'">` : ''}
                         <div class="fr24-ident-group"><span class="fr24-callsign">${esc(callsign)}</span></div>
                         <span class="fr24-user" title="${esc(username)}">${esc(username)}</span>
                     </div>
+                    ${(reg || livery) ? `<div class="fr24-reg-row">
+                        ${reg ? `<span class="reg">${esc(reg)}</span>` : ''}
+                        ${livery ? `<span class="liv" title="${esc(livery)}">${esc(livery)}</span>` : ''}
+                    </div>` : ''}
                     <div class="fr24-route-premium">
-                        <span class="fr24-route-code" style="color:var(--emb-card-text)">${esc(dep || '----')}</span>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text)">${depFlag ? `<img class="fr24-route-flag" src="${depFlag}" alt="" onerror="this.style.display='none'">` : ''}${esc(dep || '----')}</span>
                         <div class="fr24-route-line">
-                            <div class="seg" style="width:${progress}%"></div>
-                            <svg class="glyph" style="left:${progress}%" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
+                            <div class="seg" data-f="seg" style="width:0%"></div>
+                            <svg class="glyph" data-f="glyph" style="left:0%" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
                         </div>
-                        <span class="fr24-route-code" style="color:var(--emb-card-text-dim)">${esc(arr || '----')}</span>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text-dim)">${esc(arr || '----')}${arrFlag ? `<img class="fr24-route-flag" src="${arrFlag}" alt="" onerror="this.style.display='none'">` : ''}</span>
+                    </div>
+                    <div class="fr24-cities">
+                        <span data-f="depCity"></span>
+                        <span data-f="arrCity"></span>
                     </div>
                     <div class="fr24-meta">
-                        <span class="fr24-meta-dist">${esc(distTxt)}</span>
-                        <span class="fr24-meta-eta">${esc(etaTxt)}</span>
+                        <span data-f="dist">—</span>
+                        <span class="fr24-meta-eta" data-f="eta">ETA —</span>
+                    </div>
+                    <div class="fr24-timebar">
+                        <span>ELAPSED <b data-f="elapsed">--:--</b></span>
+                        <span>ETE <b data-f="ete">--:--</b></span>
+                        <span>FLOWN <b data-f="flown">—</b></span>
+                    </div>
+                    <div class="fr24-times">
+                        <div class="fr24-time-cell"><span class="l">STD</span><b data-f="std">—</b></div>
+                        <div class="fr24-time-cell"><span class="l" data-f="atd-l">ATD</span><b data-f="atd">—</b></div>
+                        <div class="fr24-time-cell"><span class="l">STA</span><b data-f="sta">—</b></div>
+                        <div class="fr24-time-cell"><span class="l" data-f="eta2-l">ETA</span><b data-f="eta2">—</b></div>
                     </div>
                     ${(dep || arr) ? `<div class="fr24-airports">
                         ${dep ? `<button class="fr24-apt-btn dep" data-icao="${esc(dep)}" title="View ${esc(dep)} airport"><span class="r">Takeoff</span>${esc(dep)}</button>` : ''}
                         ${arr ? `<button class="fr24-apt-btn arr" data-icao="${esc(arr)}" title="View ${esc(arr)} airport"><span class="r">Landing</span>${esc(arr)}</button>` : ''}
                     </div>` : ''}
                     <div class="fr24-stats-grid">
-                        <div class="fr24-stat"><b>${alt}</b><span class="u">FT</span></div>
-                        <div class="fr24-stat"><b>${gs}</b><span class="u">KTS</span></div>
-                        <div class="fr24-stat"><b>${hdg}°</b><span class="u">HDG</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="alt">—</b><span class="u">FT</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="gs">—</b><span class="u">KTS</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="vs">—</b><span class="u">FPM</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="hdg">—</b><span class="u">HDG</span></div>
+                    </div>
+                    <div class="fr24-stats-grid">
+                        <div class="fr24-stat"><b class="mono" data-f="tas">—</b><span class="u">TAS</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="wind">—</b><span class="u">Wind</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="oat">—</b><span class="u">OAT</span></div>
+                        <div class="fr24-stat"><b class="mono" data-f="nextwp">—</b><span class="u" data-f="nextwp-l">Next WP</span></div>
                     </div>
                     ${actype ? `<div class="fr24-actype" title="${esc(actype)}">${esc(actype)}</div>` : ''}
                 </div>
-            </div>`;
-
-        document.getElementById('card').innerHTML = html;
-        startCarousel(photoList);
+            </div>
+            <div class="fr24-panel" id="graph-card">
+                <div class="fr24-panel-h"><i class="fa-solid fa-chart-line"></i> Speed &amp; Altitude</div>
+                <div id="graph-body"></div>
+            </div>
+            <div id="legs-card" style="display:none"></div>`;
     }
 
-    // Airport buttons ask the host tracker to open its airport window.
+    const $f = (name) => document.querySelector(`[data-f="${name}"]`);
+    const setTxt = (name, v) => { const el = $f(name); if (el) el.textContent = v; };
+
+    // Update the dynamic fields in place — no DOM rebuild, so the carousel,
+    // scroll position and <details> states all survive live telemetry ticks.
+    function updateDynamic(p) {
+        const tel = p.telemetry || {};
+        const route = p.route || {};
+        const progress = Math.max(0, Math.min(100, Number(route.progress) || 0));
+
+        // Phase + pilot-state chips
+        const phEl = $f('phase');
+        if (phEl) {
+            const c = phaseColor(p.phaseClass);
+            phEl.style.color = c; phEl.style.borderColor = c;
+            phEl.innerHTML = `${p.phaseIcon ? `<i class="fa-solid ${esc(p.phaseIcon)}"></i>` : ''}${esc(p.phase || 'ENROUTE')}`;
+        }
+        const stEl = $f('state');
+        if (stEl) {
+            const b = stateBadge(p.pilotState);
+            if (b) { stEl.style.display = ''; stEl.style.color = b.color; stEl.style.borderColor = b.color; stEl.textContent = b.label; }
+            else stEl.style.display = 'none';
+        }
+
+        // Route progress
+        const seg = $f('seg'), glyph = $f('glyph');
+        if (seg) seg.style.width = progress + '%';
+        if (glyph) glyph.style.left = progress + '%';
+
+        setTxt('depCity', route.originCity || '');
+        setTxt('arrCity', route.destCity || '');
+
+        setTxt('dist', (route.distRemainingNm != null)
+            ? `${Number(route.distRemainingNm).toLocaleString()} NM to go` : '—');
+        setTxt('eta', (route.eta && route.eta !== '--:--') ? `ETA ${route.eta}` : 'ETA —');
+        setTxt('elapsed', route.elapsed || '--:--');
+        setTxt('ete', route.ete || '--:--');
+        setTxt('flown', (route.distFlownNm != null) ? `${Number(route.distFlownNm).toLocaleString()} NM` : '—');
+
+        // Times grid — SCHEDULED comes from the filed plan; ATD/ETA carry the
+        // source-tagged colour (green ACTUAL / amber ESTIMATED) when known.
+        const times = route.times || {};
+        setTxt('std', times.depScheduled || '—');
+        setTxt('sta', times.arrScheduled || '—');
+        const atdEl = $f('atd'), etaEl = $f('eta2');
+        if (atdEl) {
+            atdEl.textContent = times.depActual || (route.depInfo && route.depInfo.time) || '—';
+            if (route.depInfo && route.depInfo.color) atdEl.style.color = route.depInfo.color;
+            const l = $f('atd-l'); if (l && route.depInfo && route.depInfo.label) l.textContent = route.depInfo.label.slice(0, 9);
+        }
+        if (etaEl) {
+            etaEl.textContent = times.arrEstimated || (route.arrInfo && route.arrInfo.time) || '—';
+            if (route.arrInfo && route.arrInfo.color) etaEl.style.color = route.arrInfo.color;
+            const l = $f('eta2-l'); if (l && route.arrInfo && route.arrInfo.label) l.textContent = route.arrInfo.label.slice(0, 9);
+        }
+
+        // Telemetry stats
+        setTxt('alt', fmtNum(tel.altitude));
+        setTxt('gs', fmtNum(tel.groundSpeed));
+        const vsEl = $f('vs');
+        if (vsEl) { const v = fmtVs(tel.verticalSpeed); vsEl.textContent = v.txt; vsEl.style.color = v.color; }
+        setTxt('hdg', `${Math.round(Number(tel.heading) || 0)}°`);
+        setTxt('tas', tel.tas != null ? fmtNum(tel.tas) : '—');
+        setTxt('wind', (tel.windDir != null && tel.windSpd != null && (tel.windSpd || tel.windDir))
+            ? `${String(Math.round(tel.windDir)).padStart(3, '0')}°/${Math.round(tel.windSpd)}` : '—');
+        setTxt('oat', tel.oat != null ? `${Math.round(tel.oat)}°C` : '—');
+        const wpEl = $f('nextwp');
+        if (wpEl) {
+            wpEl.textContent = (tel.nextWpName && tel.nextWpName !== '---') ? tel.nextWpName : '—';
+            const l = $f('nextwp-l');
+            if (l) l.textContent = tel.nextWpDist ? `WP · ${tel.nextWpDist}` : 'Next WP';
+        }
+
+        // Peek bar mirrors
+        setTxt2('pk-callsign', p.callsign || '---');
+        setTxt2('pk-user', p.username || '');
+        setTxt2('pk-dep', route.originIcao && route.originIcao !== '---' ? route.originIcao : '----');
+        setTxt2('pk-arr', route.destIcao && route.destIcao !== '---' ? route.destIcao : '----');
+        setTxt2('pk-dep-city', route.originCity || '');
+        setTxt2('pk-arr-city', route.destCity || '');
+        setTxt2('pk-alt', fmtNum(tel.altitude));
+        setTxt2('pk-gs', fmtNum(tel.groundSpeed));
+        setTxt2('pk-eta', (route.eta && route.eta !== '--:--') ? route.eta : '—');
+        const pkSeg = document.getElementById('pk-seg'), pkGlyph = document.getElementById('pk-glyph');
+        if (pkSeg) pkSeg.style.width = progress + '%';
+        if (pkGlyph) pkGlyph.style.left = progress + '%';
+        const pkPh = document.getElementById('pk-phase');
+        if (pkPh) {
+            const c = phaseColor(p.phaseClass);
+            pkPh.style.display = ''; pkPh.style.color = c; pkPh.style.borderColor = c;
+            pkPh.textContent = p.phase || 'ENROUTE';
+        }
+        const pkLogoSrc = airlineLogoPath((p.aircraft || {}).liveryName);
+        const pkLogo = document.getElementById('pk-logo');
+        if (pkLogo && pkLogoSrc && pkLogo.getAttribute('src') !== pkLogoSrc) {
+            pkLogo.src = pkLogoSrc; pkLogo.style.display = '';
+            pkLogo.onerror = () => { pkLogo.style.display = 'none'; };
+        }
+        setFlag('pk-flag-dep', route.originCountry);
+        setFlag('pk-flag-arr', route.destCountry);
+    }
+    const setTxt2 = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    function setFlag(id, cc) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const url = flagUrl(cc);
+        if (url) { if (el.getAttribute('src') !== url) el.src = url; el.style.display = ''; el.onerror = () => { el.style.display = 'none'; }; }
+        else el.style.display = 'none';
+    }
+
+    function renderGraph(force) {
+        if (currentPhase !== 'expanded' || !lastPayload) return;
+        const body = document.getElementById('graph-body');
+        const card = document.getElementById('graph-card');
+        if (!body || !card) return;
+        const chart = lastPayload.chart;
+        const n = chart && Array.isArray(chart.samples) ? chart.samples.length : 0;
+        if (n < 2 || typeof FlightGraph === 'undefined') { card.style.display = 'none'; return; }
+        // Redraw at most every 20s — the graph shifts slowly and rebuilding the
+        // SVG on every telemetry tick is wasted work.
+        const now = Date.now();
+        if (!force && now - _lastGraphAt < 20000 && body.firstChild) return;
+        _lastGraphAt = now;
+        card.style.display = '';
+        FlightGraph.render(body, chart, { height: 150 });
+    }
+
+    function renderLegs(p) {
+        const el = document.getElementById('legs-card');
+        if (!el) return;
+        const legs = Array.isArray(p.legs) ? p.legs : [];
+        const key = legs.map(l => `${l.depIcao}-${l.arrIcao}`).join('|');
+        if (key === _lastLegsKey) return;
+        _lastLegsKey = key;
+        const html = (typeof FlightLegs !== 'undefined') ? FlightLegs.renderHTML(legs) : '';
+        if (html) { el.innerHTML = `<div class="fr24-panel">${html}</div>`; el.style.display = ''; }
+        else el.style.display = 'none';
+    }
+
+    function render(p) {
+        if (!p) return;
+        lastPayload = p;
+
+        document.getElementById('peek-empty').style.display = 'none';
+        document.getElementById('peek-body').style.display = '';
+
+        // Full structural rebuild only when the flight (or its photo set) changes.
+        const imgs = p.images || {};
+        const list = Array.isArray(imgs.list) && imgs.list.length
+            ? imgs.list : (imgs.url ? [{ url: imgs.url, credit: imgs.credit }] : []);
+        const key = `${p.callsign}|${p.username}|${photoKey(list)}`;
+        if (key !== _renderKey) {
+            _renderKey = key;
+            _photoList = list;
+            _photoIdx = 0;
+            document.getElementById('card').innerHTML = buildCard(p);
+            startCarousel();
+            const btn = document.getElementById('btn-collapse');
+            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); setPhase('collapsed', true); });
+            _lastGraphAt = 0; _lastLegsKey = null;
+        }
+
+        updateDynamic(p);
+        renderGraph();
+        renderLegs(p);
+    }
+
+    // Airport buttons ask the host tracker to open its airport window
+    // (NAVIGATE_TO_AIRPORT is the same message the Simple window uses).
     document.addEventListener('click', (e) => {
         const btn = e.target.closest('.fr24-apt-btn');
         if (!btn) return;
         const icao = btn.getAttribute('data-icao');
         if (icao) {
-            // NAVIGATE_TO_AIRPORT is the same message the Simple window uses to
-            // ask the host tracker to open its airport window for an ICAO.
             try { window.parent.postMessage({ type: 'NAVIGATE_TO_AIRPORT', icao }, '*'); } catch (_) {}
         }
     });
@@ -298,12 +667,17 @@
         const d = event.data;
         if (!d || typeof d !== 'object') return;
         if (d.type === 'FLIGHT_DATA_UPDATE') render(d.payload);
-        // SET_PHASE is handled by the host (it resizes the docked panel); the
-        // card itself always renders the same content, so nothing to do here.
+        if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed', false);
     });
 
-    // Tell the host we're ready in case data was posted before load.
-    try { window.parent.postMessage({ type: 'EMBED_FLIGHT_READY' }, '*'); } catch (_) {}
+    // Redraw the graph when the panel is resized (desktop drag / rotation).
+    window.addEventListener('resize', () => { _lastGraphAt = 0; renderGraph(true); });
+
+    // Tell the host the height our peek bar wants, and that we're ready.
+    try {
+        window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: 196 }, '*');
+        window.parent.postMessage({ type: 'EMBED_FLIGHT_READY' }, '*');
+    } catch (_) {}
     </script>
 </body>
 </html>
