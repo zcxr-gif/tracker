@@ -19084,11 +19084,16 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // The embed ("Card") mode loads the FR24-style card page; Simple loads
             // the full flightinfo.html. Both share the #simple-flight-window-frame
             // id and FLIGHT_DATA_UPDATE payload so the live-update plumbing is common.
+            // On desktop the card gets ?desktop=1 so it opens straight into the full
+            // layout with no peek bar or collapse-to-peek (those are sheet gestures
+            // that only make sense on mobile).
             // height:100% is essential on desktop — #aircraft-info-window forces
             // display:block (overflow scroll), so flex-grow does nothing and the
             // iframe would collapse to the browser's ~150px default. On mobile
             // .mobile-legacy-sheet has its own !important rules that win anyway.
-            const _fwSrc = _fwMode === 'embed' ? 'embed-flight.html' : 'flightinfo.html';
+            const _fwSrc = _fwMode === 'embed'
+                ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
+                : 'flightinfo.html';
             windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');

@@ -50,6 +50,10 @@
     #peek, #full { display: none; }
     body.collapsed #peek { display: block; }
     body.expanded #full { display: flex; }
+    /* Desktop (?desktop=1): a plain docked info window — the peek bar and
+       collapse-to-peek are mobile bottom-sheet gestures and never appear. */
+    body.desktop #peek { display: none !important; }
+    body.desktop .fr24-collapse { display: none; }
 
     /* =============================== PEEK =============================== */
     /* Top-anchored: the mobile sheet is taller than the screen and sits with
@@ -176,23 +180,35 @@
         background: var(--emb-ok); box-shadow: 0 0 5px var(--emb-ok);
         animation: pkPulse 2s ease-in-out infinite;
     }
-    .fr24-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .fr24-phase, .fr24-state {
-        display: inline-flex; align-items: center; gap: 6px;
-        font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
-        padding: 3px 9px; border-radius: 999px; border: 1px solid;
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+        padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap;
     }
-    .fr24-header-row { display: flex; align-items: center; gap: 6px; }
-    .fr24-airline-logo { height: 20px; width: auto; max-width: 54px; object-fit: contain; border-radius: 2px; }
-    .fr24-ident-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
-    .fr24-callsign { font-size: 21px; font-weight: 700; color: var(--emb-card-text); line-height: 1; }
+    /* Identity block: two dense rows instead of four sparse ones.
+       Row 1: logo · callsign · phase/state chips · pilot (right)
+       Row 2: registration pill · aircraft type · livery, one dim meta line */
+    .fr24-id { gap: 5px !important; }
+    .fr24-id-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+    .fr24-airline-logo { height: 20px; width: auto; max-width: 54px; object-fit: contain; border-radius: 2px; flex: 0 0 auto; }
+    .fr24-callsign { font-size: 20px; font-weight: 800; color: var(--emb-card-text); line-height: 1; letter-spacing: 0.2px; }
     .fr24-user {
-        margin-left: auto; font-size: 12px; color: var(--emb-brand); font-weight: 800;
+        margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11px; color: var(--emb-brand); font-weight: 800;
         text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
     }
-    .fr24-reg-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--emb-card-text-dim); font-weight: 600; min-width: 0; }
-    .fr24-reg-row .reg { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; color: #cbd5e1; }
-    .fr24-reg-row .liv { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fr24-user i { font-size: 9px; opacity: 0.8; }
+    .fr24-id-meta {
+        display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0;
+        font-size: 11px; color: var(--emb-card-text-dim); font-weight: 600;
+    }
+    .fr24-id-meta .reg {
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 10px;
+        color: #cbd5e1; background: var(--emb-card-chip); border: 1px solid rgba(255,255,255,0.10);
+        padding: 1px 7px; border-radius: 5px; letter-spacing: 0.04em;
+    }
+    .fr24-id-meta .t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fr24-id-meta .sep { opacity: 0.35; }
     .fr24-route-premium { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 5px 0 0; }
     .fr24-route-code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 15px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
     .fr24-route-flag { width: 18px; height: 12px; border-radius: 2px; object-fit: cover; }
@@ -240,7 +256,6 @@
     .fr24-stat { display: flex; flex-direction: column; align-items: center; background: var(--emb-card-chip); border-radius: 6px; padding: 8px 2px; min-width: 0; }
     .fr24-stat b { font-size: 15px; color: var(--emb-card-text); font-weight: 800; line-height: 1.15; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
     .fr24-stat .u { font-size: 8px; color: var(--emb-card-text-dim); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-    .fr24-actype { font-size: 12.5px; color: var(--emb-card-text-dim); font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
     #legs-card .fl-legs-card { margin: 0 !important; background: transparent !important; border: none !important; padding: 0 !important; }
 
     @media (max-width: 480px) {
@@ -341,9 +356,17 @@
     }
 
     // ── Phase management (mirrors flightinfo.html's contract with the host) ──
-    let currentPhase = 'collapsed';
+    // Desktop hosts load the page with ?desktop=1: the window is a plain docked
+    // panel that is always expanded — no peek bar, no collapse-to-peek, and the
+    // mobile-sheet peek-height report is skipped.
+    const IS_DESKTOP = /[?&]desktop=1/.test(location.search);
+    let currentPhase = IS_DESKTOP ? 'expanded' : 'collapsed';
+    if (IS_DESKTOP) {
+        document.body.classList.add('desktop', 'expanded');
+        document.body.classList.remove('collapsed');
+    }
     function setPhase(phase, notifyHost) {
-        const next = (phase === 'expanded') ? 'expanded' : 'collapsed';
+        const next = (IS_DESKTOP || phase === 'expanded') ? 'expanded' : 'collapsed';
         const changed = next !== currentPhase;
         currentPhase = next;
         document.body.classList.toggle('expanded', next === 'expanded');
@@ -428,21 +451,19 @@
                     <div class="fr24-copyright">© ${esc(_photoList[0] ? (_photoList[0].credit || 'IF Community') : 'IF Community')}</div>
                     ${dotsHtml}
                 </div>
-                <div class="fr24-panel">
-                    <div class="fr24-chips">
+                <div class="fr24-panel fr24-id">
+                    <div class="fr24-id-top">
+                        ${logo ? `<img src="${esc(logo)}" class="fr24-airline-logo" onerror="this.style.display='none'">` : ''}
+                        <span class="fr24-callsign">${esc(callsign)}</span>
                         <span class="fr24-phase" data-f="phase"></span>
                         <span class="fr24-state" data-f="state" style="display:none"></span>
+                        <span class="fr24-user" title="${esc(username)}"><i class="fa-solid fa-user"></i>${esc(username)}</span>
                     </div>
-                    <div class="fr24-header-row">
-                        ${logo ? `<img src="${esc(logo)}" class="fr24-airline-logo" onerror="this.style.display='none'">` : ''}
-                        <div class="fr24-ident-group"><span class="fr24-callsign">${esc(callsign)}</span></div>
-                        <span class="fr24-user" title="${esc(username)}">${esc(username)}</span>
-                    </div>
-                    ${(reg || livery) ? `<div class="fr24-reg-row">
+                    ${(reg || actype || livery) ? `<div class="fr24-id-meta">
                         ${reg ? `<span class="reg">${esc(reg)}</span>` : ''}
-                        ${livery ? `<span class="liv" title="${esc(livery)}">${esc(livery)}</span>` : ''}
+                        ${actype ? `<span class="t" title="${esc(actype)}">${esc(actype)}</span>` : ''}
+                        ${(livery && livery !== actype) ? `<span class="sep">·</span><span class="t" title="${esc(livery)}">${esc(livery)}</span>` : ''}
                     </div>` : ''}
-                    ${actype ? `<div class="fr24-actype" style="text-align:left" title="${esc(actype)}">${esc(actype)}</div>` : ''}
                 </div>
                 <div class="fr24-panel">
                     <div class="fr24-panel-h"><i class="fa-solid fa-route"></i> Route</div>
@@ -698,9 +719,10 @@
     // Redraw the graph when the panel is resized (desktop drag / rotation).
     window.addEventListener('resize', () => { _lastGraphAt = 0; renderGraph(true); });
 
-    // Tell the host the height our peek bar wants, and that we're ready.
+    // Tell the host the height our peek bar wants (mobile sheets only — a
+    // desktop window has no peek detent), and that we're ready.
     try {
-        window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: 196 }, '*');
+        if (!IS_DESKTOP) window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: 196 }, '*');
         window.parent.postMessage({ type: 'EMBED_FLIGHT_READY' }, '*');
     } catch (_) {}
     </script>
