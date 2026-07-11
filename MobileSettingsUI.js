@@ -417,12 +417,19 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
-                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
+                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-3">
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
+                            </div>
+
+                            <div class="mobile-section-header">Airport Window</div>
+                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
+                                <button class="m-setting-pill" data-setting="airportWindowMode" data-value="standard"><i class="fa-solid fa-table-columns"></i><span>Standard</span></button>
+                                <button class="m-setting-pill" data-setting="airportWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
                             </div>
 
                             <div class="mobile-section-header">Virtual Airlines</div>
@@ -1099,28 +1106,50 @@ export const MobileSettingsUI = {
         `;
     },
 
-    // The mobile flight-window display mode is derived from two stores:
-    // the Simple Window flag (shared with desktop) wins, otherwise the
-    // hud/legacy presentation preference in localStorage.
+    // The mobile flight-window display mode: 'legacy', 'simple', or 'embed'
+    // (the FR24-style Card). Delegates to the shared helper in flight.js when
+    // present so desktop and mobile resolve the mode identically.
     getFlightWindowMode(filters) {
+        if (typeof window.getFlightWindowMode === 'function') return window.getFlightWindowMode();
         const f = filters || window.mapFilters || {};
-        // Only Simple and Legacy are offered; the retired HUD split-view maps to
-        // Legacy so any stale preference resolves to a working mode.
+        if (f.flightWindowMode === 'embed') return 'embed';
         return f.useSimpleFlightWindow ? 'simple' : 'legacy';
     },
 
-    // Applies a Legacy / Simple choice across both stores and lets the user
-    // know it takes effect the next time a flight window is opened.
+    // Applies a Legacy / Simple / Card choice and lets the user know it takes
+    // effect the next time a flight window is opened.
     setFlightWindowMode(mode) {
         if (!window.mapFilters) return;
-        if (mode === 'simple') {
-            window.mapFilters.useSimpleFlightWindow = true;
+        if (typeof window.setFlightWindowMode === 'function') {
+            window.setFlightWindowMode(mode);
         } else {
-            window.mapFilters.useSimpleFlightWindow = false;
+            window.mapFilters.flightWindowMode = mode;
+            window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
+            if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        }
+        if (mode !== 'embed' && mode !== 'simple') {
             try { localStorage.setItem('mobileDisplayMode', mode); } catch (e) {}
         }
-        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
         if (window.showNotification) window.showNotification('Flight window mode updated — reopen the flight to apply.', 'info');
+    },
+
+    // Airport-window presentation: 'standard' (built-in tabbed window) or
+    // 'embed' (the embed's airport Card).
+    getAirportWindowMode(filters) {
+        if (typeof window.getAirportWindowMode === 'function') return window.getAirportWindowMode();
+        const f = filters || window.mapFilters || {};
+        return f.airportWindowMode === 'embed' ? 'embed' : 'standard';
+    },
+
+    setAirportWindowMode(mode) {
+        if (!window.mapFilters) return;
+        if (typeof window.setAirportWindowMode === 'function') {
+            window.setAirportWindowMode(mode);
+        } else {
+            window.mapFilters.airportWindowMode = (mode === 'embed') ? 'embed' : 'standard';
+            if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+        }
+        if (window.showNotification) window.showNotification('Airport window mode updated — reopen an airport to apply.', 'info');
     },
 
     isSignedIn() {
@@ -1670,9 +1699,13 @@ export const MobileSettingsUI = {
                 btn.parentElement.querySelectorAll('.m-setting-pill').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 // The flight-window display mode isn't a single mapFilters key —
-                // it spans useSimpleFlightWindow + localStorage.mobileDisplayMode.
+                // it spans useSimpleFlightWindow + flightWindowMode.
                 if (setting === 'flightWindowMode') {
                     this.setFlightWindowMode(value);
+                    return;
+                }
+                if (setting === 'airportWindowMode') {
+                    this.setAirportWindowMode(value);
                     return;
                 }
                 window.mapFilters[setting] = value;
@@ -1901,6 +1934,8 @@ export const MobileSettingsUI = {
             let active;
             if (setting === 'flightWindowMode') {
                 active = (value === this.getFlightWindowMode(filters));
+            } else if (setting === 'airportWindowMode') {
+                active = (value === this.getAirportWindowMode(filters));
             } else {
                 active = (filters[setting] === value);
             }
@@ -2043,6 +2078,7 @@ export const MobileSettingsUI = {
                 .m-fw-mode-grid .m-setting-pill i { font-size: 1rem; opacity: 0.9; }
                 .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
                 .m-fw-mode-grid-2 { grid-template-columns: repeat(2, 1fr); }
+                .m-fw-mode-grid-3 { grid-template-columns: repeat(3, 1fr); }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {

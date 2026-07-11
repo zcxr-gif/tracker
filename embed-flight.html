@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Card</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+    /* ------------------------------------------------------------------ *
+     *  Embed-style ("FR24") flight card, ported from the VA embed widget  *
+     *  (embed.html) and re-themed to sit inside the main tracker's docked  *
+     *  flight window instead of the VA popup. It receives the exact same   *
+     *  FLIGHT_DATA_UPDATE payload the "Simple" window uses, so the host    *
+     *  plumbing in flight.js is shared.                                    *
+     * ------------------------------------------------------------------ */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+        --emb-card-panel: rgba(28, 28, 32, 0.92);
+        --emb-card-text: #ffffff;
+        --emb-card-text-dim: #94a3b8;
+        --emb-card-chip: rgba(255, 255, 255, 0.05);
+        --emb-card-blur: 18px;
+    }
+    html, body {
+        height: 100%;
+        /* Solid dark surface matching the docked flight window, so the card
+           reads as a themed panel rather than floating over the bare map. */
+        background: #17181c;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: #fff;
+        -webkit-font-smoothing: antialiased;
+    }
+    body {
+        display: flex;
+        flex-direction: column;
+        padding: 14px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
+    body::-webkit-scrollbar { width: 8px; }
+    body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+
+    .emb-host { width: 100%; max-width: 460px; margin: 0 auto; }
+    .emb-empty {
+        flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+        color: rgba(255,255,255,0.4); font-size: 13px; font-weight: 600; text-align: center;
+        min-height: 120px;
+    }
+
+    /* --- FR24 flight card (ported verbatim, sized for the docked panel) --- */
+    .fr24-card-container { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+    .fr24-image-box {
+        height: 180px; width: 100%; background-color: #2c2c2e;
+        background-size: cover; background-position: center;
+        border-radius: 10px; position: relative;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.4); overflow: hidden;
+    }
+    .fr24-image-box.multi { cursor: default; }
+    .fr24-copyright {
+        position: absolute; bottom: 4px; left: 8px;
+        color: rgba(255,255,255,0.7); font-size: 9px; font-weight: 500;
+        text-shadow: 0 1px 2px rgba(0,0,0,1); z-index: 2;
+    }
+    .fr24-image-overlay {
+        position: absolute; inset: 0;
+        background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
+    }
+    .fr24-dots { position: absolute; bottom: 6px; right: 8px; display: flex; gap: 4px; z-index: 3; }
+    .fr24-dots span { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background .2s ease; }
+    .fr24-dots span.on { background: #fff; }
+    .fr24-info-box {
+        background-color: var(--emb-card-panel); border-radius: 10px; padding: 10px 12px;
+        -webkit-backdrop-filter: blur(var(--emb-card-blur)); backdrop-filter: blur(var(--emb-card-blur));
+        box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        display: flex; flex-direction: column; gap: 6px; color: var(--emb-card-text);
+        border: 1px solid rgba(255,255,255,0.06);
+    }
+    .fr24-header-row { display: flex; align-items: center; gap: 6px; }
+    .fr24-airline-logo { height: 20px; width: auto; max-width: 54px; object-fit: contain; border-radius: 2px; }
+    .fr24-ident-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .fr24-callsign { font-size: 21px; font-weight: 700; color: var(--emb-card-text); line-height: 1; }
+    .fr24-user {
+        margin-left: auto; font-size: 12px; color: #38bdf8; font-weight: 800;
+        text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
+    }
+    .fr24-route-premium { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 5px 0 4px 0; }
+    .fr24-route-code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 15px; letter-spacing: 0.5px; }
+    .fr24-route-line { flex-grow: 1; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; display: flex; align-items: center; }
+    .fr24-route-line .seg {
+        position: absolute; left: 0; top: 0; height: 100%; width: 50%;
+        background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, #38bdf8 100%); border-radius: 2px; box-shadow: 0 0 6px rgba(56,189,248,0.5);
+    }
+    .fr24-route-line .glyph { position: absolute; left: 50%; transform: translateX(-50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); z-index: 2; }
+    .fr24-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: var(--emb-card-text-dim); letter-spacing: 0.02em; margin: 0 0 1px; }
+    .fr24-meta-eta { color: #67e8f9; }
+    .fr24-airports { display: flex; gap: 6px; margin-top: 2px; }
+    .fr24-apt-btn {
+        flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
+        gap: 1px; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+        background: var(--emb-card-chip); border: 1px solid rgba(255,255,255,0.10);
+        color: var(--emb-card-text);
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 800; font-size: 14px;
+        transition: border-color .15s ease, background .15s ease;
+    }
+    .fr24-apt-btn:hover { border-color: rgba(56,189,248,0.5); background: rgba(56,189,248,0.10); }
+    .fr24-apt-btn .r {
+        font-family: inherit; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
+        text-transform: uppercase; color: var(--emb-card-text-dim);
+    }
+    .fr24-apt-btn.dep .r { color: #4ade80; }
+    .fr24-apt-btn.arr .r { color: #fbbf24; }
+    .fr24-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .fr24-stat { display: flex; flex-direction: column; align-items: center; background: var(--emb-card-chip); border-radius: 6px; padding: 8px 2px; }
+    .fr24-stat b { font-size: 18px; color: var(--emb-card-text); font-weight: 800; line-height: 1.15; }
+    .fr24-stat .u { font-size: 9px; color: var(--emb-card-text-dim); font-weight: 700; letter-spacing: 0.04em; }
+    .fr24-actype { font-size: 13px; color: var(--emb-card-text-dim); font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .fr24-phase {
+        display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+        font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+        padding: 3px 9px; border-radius: 999px; border: 1px solid;
+    }
+    .fr24-depgate { font-size: 11px; font-weight: 700; color: #4ade80; letter-spacing: 0.02em; margin-top: 1px; }
+    .fr24-depgate b { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    @media (max-width: 480px) {
+        body { padding: 11px; }
+        .fr24-image-box { height: 150px; }
+        .fr24-callsign { font-size: 18px; }
+        .fr24-route-code { font-size: 13px; }
+        .fr24-stat b { font-size: 15px; }
+    }
+    </style>
+</head>
+<body>
+    <div class="emb-host">
+        <div id="card"><div class="emb-empty">Waiting for flight data…</div></div>
+    </div>
+
+    <script>
+    'use strict';
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Derive the airline-logo path from the livery name, exactly like the embed
+    // does. The image is best-effort — it hides itself if the file is missing.
+    function airlineLogoPath(livery) {
+        const words = String(livery || '').trim().split(/\s+/);
+        const logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1])
+            ? words[0]
+            : (words[0] + (words[1] ? ' ' + words[1] : ''));
+        const s = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
+        return s ? `Images/airline_logos/${s}.png` : '';
+    }
+
+    // Phase → accent colour, mirroring the tracker's flight-state palette.
+    function phaseColor(phaseClass) {
+        switch (String(phaseClass || '')) {
+            case 'phase-ground':  return '#94a3b8';
+            case 'phase-climb':   return '#38bdf8';
+            case 'phase-cruise':  return '#34d399';
+            case 'phase-descent': return '#fbbf24';
+            case 'phase-approach':
+            case 'phase-landing': return '#f472b6';
+            default:              return '#34d399';
+        }
+    }
+
+    let _photoTimer = null;
+    let _photoIdx = 0;
+
+    function stopCarousel() {
+        if (_photoTimer) { clearInterval(_photoTimer); _photoTimer = null; }
+    }
+
+    // Cross-fade through the (up to 3) community photos, matching the Simple
+    // window's auto-cycling hero.
+    function startCarousel(list) {
+        stopCarousel();
+        _photoIdx = 0;
+        if (!Array.isArray(list) || list.length < 2) return;
+        _photoTimer = setInterval(() => {
+            _photoIdx = (_photoIdx + 1) % list.length;
+            const box = document.querySelector('.fr24-image-box');
+            const cr = document.querySelector('.fr24-copyright');
+            const dots = document.querySelectorAll('.fr24-dots span');
+            if (!box) { stopCarousel(); return; }
+            box.style.backgroundImage = `url('${list[_photoIdx].url}')`;
+            if (cr) cr.textContent = '© ' + (list[_photoIdx].credit || 'IF Community');
+            dots.forEach((d, i) => d.classList.toggle('on', i === _photoIdx));
+        }, 6000);
+    }
+
+    function render(p) {
+        stopCarousel();
+        if (!p) {
+            document.getElementById('card').innerHTML =
+                '<div class="emb-empty">No flight selected.</div>';
+            return;
+        }
+
+        const tel = p.telemetry || {};
+        const route = p.route || {};
+        const ac = p.aircraft || {};
+        const imgs = p.images || {};
+        const photoList = Array.isArray(imgs.list) && imgs.list.length ? imgs.list : (imgs.url ? [{ url: imgs.url, credit: imgs.credit }] : []);
+
+        const callsign = p.callsign || '---';
+        const username = p.username || 'Unknown';
+        const dep = route.originIcao && route.originIcao !== '---' ? route.originIcao : '';
+        const arr = route.destIcao && route.destIcao !== '---' ? route.destIcao : '';
+        const alt = Math.round(Number(tel.altitude) || 0).toLocaleString();
+        const gs = Math.round(Number(tel.groundSpeed) || 0);
+        const hdg = Math.round(Number(tel.heading) || 0);
+        const actype = String(ac.aircraftName || '');
+        const logo = airlineLogoPath(ac.liveryName);
+        const imgUrl = photoList[0] ? photoList[0].url : '';
+        const credit = photoList[0] ? photoList[0].credit : '';
+        const progress = Math.max(0, Math.min(100, Number(route.progress) || 0));
+
+        // ETA / distance meta line.
+        const distTxt = (route.distRemainingNm != null && route.distRemainingNm !== '')
+            ? `${Number(route.distRemainingNm).toLocaleString()} NM to go` : '—';
+        const etaTxt = (route.eta && route.eta !== '--:--') ? `ETA ${route.eta}` : 'ETA —';
+
+        const dotsHtml = photoList.length > 1
+            ? `<div class="fr24-dots">${photoList.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : '';
+
+        const phaseHtml = p.phase
+            ? `<span class="fr24-phase" style="color:${phaseColor(p.phaseClass)};border-color:${phaseColor(p.phaseClass)}">` +
+              `${p.phaseIcon ? `<i class="fa-solid ${esc(p.phaseIcon)}"></i>` : ''}${esc(p.phase)}</span>` : '';
+
+        const html = `
+            <div class="fr24-card-container">
+                <div class="fr24-image-box ${photoList.length > 1 ? 'multi' : ''}" style="background-image:url('${esc(imgUrl)}')">
+                    <div class="fr24-image-overlay"></div>
+                    ${credit ? `<div class="fr24-copyright">© ${esc(credit)}</div>` : ''}
+                    ${dotsHtml}
+                </div>
+                <div class="fr24-info-box">
+                    ${phaseHtml}
+                    <div class="fr24-header-row">
+                        ${logo ? `<img src="${esc(logo)}" class="fr24-airline-logo" onerror="this.style.display='none'">` : ''}
+                        <div class="fr24-ident-group"><span class="fr24-callsign">${esc(callsign)}</span></div>
+                        <span class="fr24-user" title="${esc(username)}">${esc(username)}</span>
+                    </div>
+                    <div class="fr24-route-premium">
+                        <span class="fr24-route-code" style="color:var(--emb-card-text)">${esc(dep || '----')}</span>
+                        <div class="fr24-route-line">
+                            <div class="seg" style="width:${progress}%"></div>
+                            <svg class="glyph" style="left:${progress}%" width="12" height="12" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/></svg>
+                        </div>
+                        <span class="fr24-route-code" style="color:var(--emb-card-text-dim)">${esc(arr || '----')}</span>
+                    </div>
+                    <div class="fr24-meta">
+                        <span class="fr24-meta-dist">${esc(distTxt)}</span>
+                        <span class="fr24-meta-eta">${esc(etaTxt)}</span>
+                    </div>
+                    ${(dep || arr) ? `<div class="fr24-airports">
+                        ${dep ? `<button class="fr24-apt-btn dep" data-icao="${esc(dep)}" title="View ${esc(dep)} airport"><span class="r">Takeoff</span>${esc(dep)}</button>` : ''}
+                        ${arr ? `<button class="fr24-apt-btn arr" data-icao="${esc(arr)}" title="View ${esc(arr)} airport"><span class="r">Landing</span>${esc(arr)}</button>` : ''}
+                    </div>` : ''}
+                    <div class="fr24-stats-grid">
+                        <div class="fr24-stat"><b>${alt}</b><span class="u">FT</span></div>
+                        <div class="fr24-stat"><b>${gs}</b><span class="u">KTS</span></div>
+                        <div class="fr24-stat"><b>${hdg}°</b><span class="u">HDG</span></div>
+                    </div>
+                    ${actype ? `<div class="fr24-actype" title="${esc(actype)}">${esc(actype)}</div>` : ''}
+                </div>
+            </div>`;
+
+        document.getElementById('card').innerHTML = html;
+        startCarousel(photoList);
+    }
+
+    // Airport buttons ask the host tracker to open its airport window.
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.fr24-apt-btn');
+        if (!btn) return;
+        const icao = btn.getAttribute('data-icao');
+        if (icao) {
+            // NAVIGATE_TO_AIRPORT is the same message the Simple window uses to
+            // ask the host tracker to open its airport window for an ICAO.
+            try { window.parent.postMessage({ type: 'NAVIGATE_TO_AIRPORT', icao }, '*'); } catch (_) {}
+        }
+    });
+
+    window.addEventListener('message', (event) => {
+        const d = event.data;
+        if (!d || typeof d !== 'object') return;
+        if (d.type === 'FLIGHT_DATA_UPDATE') render(d.payload);
+        // SET_PHASE is handled by the host (it resizes the docked panel); the
+        // card itself always renders the same content, so nothing to do here.
+    });
+
+    // Tell the host we're ready in case data was posted before load.
+    try { window.parent.postMessage({ type: 'EMBED_FLIGHT_READY' }, '*'); } catch (_) {}
+    </script>
+</body>
+</html>
