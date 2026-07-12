@@ -17716,7 +17716,8 @@ window.globalNatTracks = natTracks;
                 event.data.type === 'SIMPLE_WINDOW_PEEK_HEIGHT' ||
                 event.data.type === 'SIMPLE_WINDOW_EDIT_MODE' ||
                 event.data.type === 'NAVIGATE_TO_AIRPORT' ||
-                event.data.type === 'EMBED_AIRPORT_HEIGHT'
+                event.data.type === 'EMBED_AIRPORT_HEIGHT' ||
+                event.data.type === 'REQUEST_AIRPORT_SUMMARY'
             )) {
                 handleIframeMessage(event);
             }
@@ -18428,6 +18429,75 @@ async function formatDataForEmbedAirport(icao) {
         runways, runwayRecs,
         atcLive, atcRecent,
         gates, occupants,
+        heroUrl: backendImageUrl || aerialUrl,
+        heroFallbackUrl: backendImageUrl ? aerialUrl : null
+    };
+}
+
+/**
+ * Compact airport summary backing the flight Card's destination dropdown:
+ * name / city / country, elevation, a runway summary, a parsed METAR headline,
+ * and a hero image (backend photo preferred, Esri aerial as the fallback).
+ * Deliberately far lighter than formatDataForEmbedAirport — no traffic, ATIS,
+ * ATC or gate fetches — since it only feeds a small inline panel opened on
+ * demand.
+ */
+async function formatAirportSummary(icao) {
+    const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
+    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Live name / city / coords (same endpoint the airport windows use).
+    let liveData = null;
+    try {
+        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
+    } catch (_) {}
+
+    const name = liveData?.name || staticData.name || airportMetadata?.name || icao;
+    const city = liveData?.city || staticData.city || '';
+    const cc = (countryCodeForAirport(icao) || liveData?.country?.isoCode || '').toLowerCase();
+    const elevation = liveData?.elevation ?? staticData.elevation_ft ?? null;
+    const lat = liveData?.latitude ?? staticData.lat;
+    const lon = liveData?.longitude ?? staticData.lon;
+
+    // Parsed METAR headline — same shape/logic as the airport Card.
+    let metar = null;
+    try {
+        if (window.WeatherService) {
+            const w = await window.WeatherService.fetchAndParseMetar(icao);
+            if (w && w.raw && w.raw !== 'Not Available') {
+                let cat = 'VFR', color = '#4ade80';
+                if (w.raw.includes('LIFR')) { cat = 'LIFR'; color = '#c084fc'; }
+                else if (w.raw.includes('IFR') || w.raw.includes('VV')) { cat = 'IFR'; color = '#f87171'; }
+                else if (w.raw.includes('MVFR')) { cat = 'MVFR'; color = '#60a5fa'; }
+                let wind = 'Calm';
+                if (w.windVariable) wind = `VRB ${w.windSpeed}kt`;
+                else if (w.windDir != null) wind = `${String(w.windDir).padStart(3, '0')}° ${w.windSpeed}kt`;
+                else if (w.windSpeed) wind = `${w.windSpeed}kt`;
+                if (w.windGust) wind += ` G${w.windGust}`;
+                metar = {
+                    cat, color, wind,
+                    vis: w.visibility || '—',
+                    temp: w.temp || (w.tempC != null ? `${w.tempC}°C` : '—'),
+                    qnh: w.qnh != null ? String(w.qnh) : '—',
+                    raw: w.raw
+                };
+            }
+        }
+    } catch (_) {}
+
+    // Runway summary — open runways plus the longest hard length.
+    const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
+    const openRunways = rawRunways.filter(r => !r.closed && (r.le_ident || r.he_ident));
+    const runwayCount = openRunways.length;
+    const longestFt = openRunways.reduce((m, r) => Math.max(m, r.length_ft || 0), 0) || null;
+
+    const aerialUrl = airportAerialImageUrl(lat, lon);
+    const backendImageUrl = airportMetadata?.imageUrl || null;
+
+    return {
+        icao, name, city, cc, elevation,
+        metar, runwayCount, longestFt,
         heroUrl: backendImageUrl || aerialUrl,
         heroFallbackUrl: backendImageUrl ? aerialUrl : null
     };
@@ -22062,6 +22132,22 @@ async function handleIframeMessage(event) {
         if (iframe) {
             const h = Math.max(120, Math.min(parseInt(event.data.height, 10) || 300, 2000));
             iframe.style.height = h + 'px';
+        }
+        return;
+    }
+
+    // 2e. [NEW] The flight Card's destination dropdown asks for a compact
+    // summary (info + image) of the airport being flown to. Gather it and hand
+    // it back to the frame, which renders it inline.
+    if (event.data && event.data.type === 'REQUEST_AIRPORT_SUMMARY') {
+        const icao = event.data.icao;
+        const iframe = document.getElementById('simple-flight-window-frame');
+        if (!icao || !iframe || !iframe.contentWindow) return;
+        try {
+            const summary = await formatAirportSummary(icao);
+            iframe.contentWindow.postMessage({ type: 'AIRPORT_SUMMARY', icao, payload: summary }, '*');
+        } catch (_) {
+            iframe.contentWindow.postMessage({ type: 'AIRPORT_SUMMARY', icao, error: true }, '*');
         }
         return;
     }
