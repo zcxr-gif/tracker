@@ -30,8 +30,8 @@ const STORAGE_KEY = 'inflight_legal_accepted';
 
 // Key for the one-time "which flight info window?" choice. Its mere presence
 // means the user has made the choice at least once; the value records what they
-// picked ('simple' | 'standard'). Every user — including ones who accepted the
-// legal docs before this step existed — is asked exactly once.
+// picked ('simple' | 'standard' | 'card'). Every user — including ones who
+// accepted the legal docs before this step existed — is asked exactly once.
 const WINDOW_CHOICE_KEY = 'inflight_window_choice';
 
 // Neutral zinc accent — the rest of the app's surfaces use a charcoal/zinc
@@ -65,31 +65,51 @@ function persistAcceptance() {
     } catch (_) { /* storage unavailable; nothing we can do */ }
 }
 
+// Map an onboarding choice ('standard' | 'simple' | 'card') to the canonical
+// flight-window mode used everywhere else ('legacy' | 'simple' | 'embed'). The
+// picker labels the full avionics panel "Standard"; internally that's 'legacy'.
+function choiceToWindowMode(choice) {
+    if (choice === 'simple') return 'simple';
+    if (choice === 'card') return 'embed';
+    return 'legacy';
+}
+
 /**
  * Record the flight-window choice and apply it to the live app immediately so
  * the very next aircraft the user taps respects it.
- * @param {boolean} useSimple  true = simple card window, false = standard panel.
+ * @param {string} choice  'standard' (avionics panel), 'simple' (card window),
+ *                          or 'card' (embed-style FR24 card).
  */
-function persistWindowChoice(useSimple) {
+function persistWindowChoice(choice) {
+    const mode = choiceToWindowMode(choice);
     try {
-        localStorage.setItem(WINDOW_CHOICE_KEY, useSimple ? 'simple' : 'standard');
+        localStorage.setItem(WINDOW_CHOICE_KEY, choice);
     } catch (_) { /* storage unavailable */ }
 
     try {
         if (window.mapFilters) {
-            window.mapFilters.useSimpleFlightWindow = useSimple;
+            // Prefer the shared helper so desktop/mobile resolve the mode
+            // identically and both stores (flightWindowMode + the legacy
+            // useSimpleFlightWindow boolean) stay in sync.
+            if (typeof window.setFlightWindowMode === 'function') {
+                window.setFlightWindowMode(mode);
+            } else {
+                window.mapFilters.flightWindowMode = mode;
+                window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
+                if (typeof window.saveFiltersToLocalStorage === 'function') {
+                    window.saveFiltersToLocalStorage();
+                } else {
+                    try { localStorage.setItem('mapFilters', JSON.stringify(window.mapFilters)); } catch (_) { }
+                }
+            }
             // The simple window only supports the legacy mobile sheet, mirroring
             // the dependency enforced by the in-app settings toggle.
-            if (useSimple) {
+            if (mode === 'simple') {
                 try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (_) { }
-            }
-            if (typeof window.saveFiltersToLocalStorage === 'function') {
-                window.saveFiltersToLocalStorage();
-            } else {
-                try { localStorage.setItem('mapFilters', JSON.stringify(window.mapFilters)); } catch (_) { }
             }
         }
         // Keep any already-rendered settings controls in sync with the choice.
+        const useSimple = (mode === 'simple');
         const deskToggle = document.getElementById('filter-toggle-simple-window');
         if (deskToggle) deskToggle.checked = useSimple;
         document.querySelectorAll('input[data-setting="useSimpleFlightWindow"]')
@@ -193,22 +213,23 @@ function runLegalStep(map, { restoreChrome } = {}) {
 /**
  * Step 2: one-time "which flight info window?" picker.
  *
- * Preferred path is a hands-on, live demo — we open two real, randomly chosen
+ * Preferred path is a hands-on, live demo — we open three real, randomly chosen
  * flights' info windows (one per style) and let the user flip between the
- * Simple and Standard styles before committing, so they *see* each one rather
- * than reading about it. We wait for the live socket to actually deliver
- * flights first. If none arrive (offline, or the feed is empty) we fall back
+ * Standard, Simple and Card styles before committing, so they *see* each one
+ * rather than reading about it. We wait for the live socket to actually deliver
+ * flights first. If too few arrive (offline, or the feed is empty) we fall back
  * to the self-contained mockup picker so the gate never stalls the boot.
  *
- * Two *different* flights are used deliberately: handleAircraftClick() bails
+ * Three *different* flights are used deliberately: handleAircraftClick() bails
  * early when asked to re-open the flight that's already showing, so reusing a
- * single flight would make the second style silently fail to render.
+ * single flight would make a switch to another style silently fail to render.
  */
 async function runWindowChoiceStep({ restoreChrome } = {}) {
     // Wait (reasonably) for the socket to populate live flights before deciding.
-    const flights = await waitForLiveFlights(2, 25000);
-    if (flights.length >= 2) {
-        await runWindowDemoStep(flights[0], flights[1], { restoreChrome });
+    // One distinct flight per style keeps every switch a genuine re-open.
+    const flights = await waitForLiveFlights(3, 25000);
+    if (flights.length >= 3) {
+        await runWindowDemoStep(flights[0], flights[1], flights[2], { restoreChrome });
     } else {
         await runWindowMockupStep({ restoreChrome });
     }
@@ -216,9 +237,10 @@ async function runWindowChoiceStep({ restoreChrome } = {}) {
 
 /**
  * Live picker: opens a real flight window and lets the user flip between the
- * two styles — Standard backed by one flight, Simple by another.
+ * three styles — Standard, Simple and Card — each backed by its own flight so
+ * every switch is a real re-open (handleAircraftClick bails on a repeat).
  */
-function runWindowDemoStep(standardFlight, simpleFlight, { restoreChrome } = {}) {
+function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, segs, continueBtn } = buildWindowDemoBanner();
         document.body.appendChild(overlay);
@@ -233,16 +255,24 @@ function runWindowDemoStep(standardFlight, simpleFlight, { restoreChrome } = {})
         // example; tapping a segment opens the other style's flight live.
         let selected = 'standard';
         let switching = false;
+        const flightForStyle = { standard: standardFlight, simple: simpleFlight, card: cardFlight };
 
         // Open the chosen style's flight via the real app path. Awaiting the
         // whole call means the in-app loading guard has cleared before we allow
         // the next switch, so taps can't race each other.
-        const openStyle = async (useSimple) => {
+        const openStyle = async (choice) => {
             if (switching) return;
             switching = true;
             try {
-                if (window.mapFilters) window.mapFilters.useSimpleFlightWindow = useSimple;
-                const fp = useSimple ? simpleFlight : standardFlight;
+                // Preview-only: point both stores at the chosen mode so
+                // handleAircraftClick renders the right window, without
+                // persisting until the user commits with Continue.
+                if (window.mapFilters) {
+                    const mode = choiceToWindowMode(choice);
+                    window.mapFilters.flightWindowMode = mode;
+                    window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
+                }
+                const fp = flightForStyle[choice] || standardFlight;
                 if (typeof window.handleAircraftClick === 'function') {
                     await window.handleAircraftClick(fp);
                 }
@@ -255,17 +285,17 @@ function runWindowDemoStep(standardFlight, simpleFlight, { restoreChrome } = {})
                 if (switching) return;
                 segs.forEach((b) => b.classList.toggle('fre-seg-active', b === btn));
                 selected = btn.dataset.window;
-                openStyle(selected === 'simple');
+                openStyle(selected);
             });
         });
 
-        openStyle(false);
+        openStyle('standard');
 
         continueBtn.addEventListener('click', () => {
             // Tear down the live demo window, then persist the final choice and
             // dismiss.
             try { if (typeof window.closeAircraftWindow === 'function') window.closeAircraftWindow(); } catch (_) { }
-            persistWindowChoice(selected === 'simple');
+            persistWindowChoice(selected);
             dismissOverlay(overlay, restoreChrome, resolve);
         });
     });
@@ -289,7 +319,7 @@ function runWindowMockupStep({ restoreChrome } = {}) {
 
         continueBtn.addEventListener('click', () => {
             if (continueBtn.disabled || !selected) return;
-            persistWindowChoice(selected === 'simple');
+            persistWindowChoice(selected);
             dismissOverlay(overlay, restoreChrome, resolve);
         });
     });
@@ -582,6 +612,26 @@ function buildWindowChoiceModal() {
                     </span>
                     <span class="fre-choice-desc">The full avionics panel with detailed instruments and tabs.</span>
                 </button>
+                <button type="button" class="fre-choice" data-window="card">
+                    <span class="fre-preview fre-preview-card" aria-hidden="true">
+                        <span class="pv-c-head">
+                            <span class="pv-c-logo"></span>
+                            <span class="pv-c-title"></span>
+                        </span>
+                        <span class="pv-c-route">
+                            <span class="pv-c-end"><span class="pv-c-icao"></span><span class="pv-c-city"></span></span>
+                            <i class="fa-solid fa-plane pv-c-plane"></i>
+                            <span class="pv-c-end"><span class="pv-c-icao"></span><span class="pv-c-city"></span></span>
+                        </span>
+                        <span class="pv-c-bar"><span></span></span>
+                        <span class="pv-c-stats"><span></span><span></span><span></span></span>
+                    </span>
+                    <span class="fre-choice-head">
+                        <i class="fa-solid fa-id-card fre-choice-ic"></i>
+                        <span class="fre-choice-name">Card</span>
+                    </span>
+                    <span class="fre-choice-desc">A sleek, shareable flight card — the same layout as embeds.</span>
+                </button>
             </div>
 
             <button type="button" id="fre-window-continue" class="fre-agree" disabled>
@@ -617,6 +667,9 @@ function buildWindowDemoBanner() {
                 </button>
                 <button type="button" class="fre-seg-btn" data-window="simple">
                     <i class="fa-solid fa-window-maximize" aria-hidden="true"></i><span>Simple</span>
+                </button>
+                <button type="button" class="fre-seg-btn" data-window="card">
+                    <i class="fa-solid fa-id-card" aria-hidden="true"></i><span>Card</span>
                 </button>
             </div>
             <button type="button" id="fre-demo-continue" class="fre-agree">Continue</button>
@@ -940,6 +993,21 @@ function injectStyles() {
         #fre-overlay .pv-d-tabs { display: flex; gap: 5px; }
         #fre-overlay .pv-d-tabs > span { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.10); }
         #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
+
+        /* Card: embed-style shareable card — logo header, city route, stat row */
+        #fre-overlay .fre-preview-card { gap: 8px; }
+        #fre-overlay .pv-c-head { display: flex; align-items: center; gap: 7px; }
+        #fre-overlay .pv-c-logo { width: 16px; height: 16px; border-radius: 5px; background: ${ACCENT}; flex: 0 0 auto; }
+        #fre-overlay .pv-c-title { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.22); }
+        #fre-overlay .pv-c-route { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        #fre-overlay .pv-c-end { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+        #fre-overlay .pv-c-icao { width: 30px; height: 12px; border-radius: 3px; background: rgba(255,255,255,0.9); }
+        #fre-overlay .pv-c-city { width: 22px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.32); }
+        #fre-overlay .pv-c-plane { color: ${ACCENT}; font-size: 11px; }
+        #fre-overlay .pv-c-bar { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.14); }
+        #fre-overlay .pv-c-bar > span { position: absolute; inset: 0 42% 0 0; border-radius: 2px; background: ${ACCENT}; }
+        #fre-overlay .pv-c-stats { display: flex; gap: 5px; }
+        #fre-overlay .pv-c-stats > span { flex: 1; height: 9px; border-radius: 3px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.06); }
 
         /* --- Live window demo (Step 2 preferred path) --- */
         /* The demo restores the full app chrome and lets the real info window
