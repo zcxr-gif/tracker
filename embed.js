@@ -1690,6 +1690,22 @@
         return pr;
     }
 
+    // The backend's own airport photo, keyed off the same /api/airports lookup
+    // the main tracker uses for its airport-window hero. Resolves to the image
+    // URL string, or null when the backend has no photo for the field. Cached
+    // per airport; never rejects.
+    const _aptImgCache = new Map();
+    function airportImage(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!code) return Promise.resolve(null);
+        if (_aptImgCache.has(code)) return _aptImgCache.get(code);
+        const pr = getJSON(`${INGDO_BACKEND}/api/airports/${encodeURIComponent(code)}`)
+            .then(d => (d && d.imageUrl) ? d.imageUrl : null)
+            .catch(() => null);
+        _aptImgCache.set(code, pr);
+        return pr;
+    }
+
     async function getAptSessionId(cfg) {
         if (_aptSessionId !== undefined) return _aptSessionId;
         _aptSessionId = null;
@@ -2016,10 +2032,10 @@
             panToVisible(map, coords);
         });
 
-        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao), fetchGates(icao)])
-            .then(([apt, metar, live, gates]) => {
+        Promise.all([airportInfo(icao), fetchMetar(icao), airportLive(_mapState.cfg, icao), fetchGates(icao), airportImage(icao)])
+            .then(([apt, metar, live, gates, heroImage]) => {
                 if (_mapState.activeAptIcao !== icao) return;   // panel changed mid-fetch
-                body.innerHTML = airportCardHTML(icao, { apt, metar, live, gates });
+                body.innerHTML = airportCardHTML(icao, { apt, metar, live, gates, heroImage });
             })
             .catch(() => {
                 if (_mapState.activeAptIcao === icao) body.innerHTML = airportCardHTML(icao, { error: true });
@@ -2208,9 +2224,16 @@
                     : `<div class="emb-apt-sub" style="margin:0">No ${esc(vaName)} pilots inbound right now.</div>`}
             </div>`;
 
-        const heroUrl = aptAerialUrl(_mapState.activeAptCoords);
+        // Prefer the backend's own airport photo; fall back to the key-less Esri
+        // aerial (top-down) view when there isn't one. The aerial is also handed
+        // over as the fallback so a broken backend photo degrades to the
+        // top-view rather than leaving the card with no image at all.
+        const aerialUrl = aptAerialUrl(_mapState.activeAptCoords);
+        const backendImg = data.heroImage || null;
+        const heroUrl = backendImg || aerialUrl;
+        const heroFallback = backendImg ? aerialUrl : null;
         const heroMod = heroUrl
-            ? `<div class="emb-apt-hero"><img src="${esc(heroUrl)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.emb-apt-hero').remove()"><div class="emb-apt-hero-fade"></div></div>`
+            ? `<div class="emb-apt-hero"><img src="${esc(heroUrl)}"${heroFallback ? ` data-fallback="${esc(heroFallback)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.emb-apt-hero').remove();}"><div class="emb-apt-hero-fade"></div></div>`
             : '';
 
         return `
