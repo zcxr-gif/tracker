@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Card</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="flight-graph.js"></script>
+    <script src="flight-legs.js"></script>
+    <script src="vaAds.js"></script>
+
+    <style>
+    /* ------------------------------------------------------------------ *
+     *  Embed-style "Card" flight window. Two phases (Simple-window          *
+     *  contract): body.collapsed → FR24-style peek bar for the mobile       *
+     *  bottom sheet; body.expanded → an Apple-Maps-place-card layout:       *
+     *  full-bleed hero photo fading into the page, circular share/close     *
+     *  buttons, a centred app-icon tile overlapping the hero, big centred   *
+     *  callsign, subtitle, a rounded action-button row (primary filled      *
+     *  white), a 3-column stats strip, a horizontal photo gallery, VA-ads   *
+     *  partner slots and bold section headings over grouped cards. Chrome   *
+     *  is monochrome — soft whites and grays; colour is reserved for        *
+     *  semantic data (phase, climb/descend, dep/arr). Fed the same          *
+     *  FLIGHT_DATA_UPDATE payload; phase syncs via SET_PHASE /              *
+     *  SIMPLE_WINDOW_STATE. ?desktop=1 = plain docked window, no peek.      *
+     * ------------------------------------------------------------------ */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+        --bg: #1a1a1e;
+        --card-bg: #232327;
+        --border-glass: rgba(255, 255, 255, 0.07);
+        --text-secondary: #9a9aa2;
+        --text-dim: #636369;
+        --brand: #fafafa;
+        --brand-contrast: #1a1a1e;
+        --tint: rgba(255, 255, 255, 0.08);
+        --tint-text: #d4d4d8;
+        --ok: #30d158;
+        --warn: #ff9f0a;
+        --font-data: 'JetBrains Mono', ui-monospace, monospace;
+    }
+    html, body {
+        height: 100%;
+        background: var(--bg);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: #fff;
+        -webkit-font-smoothing: antialiased;
+    }
+    body { overflow: hidden; }
+    .mono { font-family: var(--font-data); }
+
+    /* Phase switching */
+    #peek, #full { display: none; }
+    body.collapsed #peek { display: block; }
+    body.expanded #full { display: flex; }
+    /* Desktop (?desktop=1): a plain docked info window — the peek bar and
+       collapse-to-peek are mobile bottom-sheet gestures and never appear. */
+    body.desktop #peek { display: none !important; }
+    body.desktop .aw-x { display: none; }
+
+    /* =============================== PEEK =============================== */
+    /* FR24-app-style collapsed card (user-supplied reference layout), on the
+       same iOS-blue palette as the expanded card. Top-anchored: the mobile
+       sheet is taller than the screen and sits with its top edge at the peek
+       line, so only the first ~270px are visible. */
+    #peek { padding: 8px 12px 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .pk-grip {
+        width: 38px; height: 4px; border-radius: 999px;
+        background: rgba(255,255,255,0.22); margin: 0 auto 8px;
+    }
+    @keyframes pkPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    /* Header band: callsign + chips + airline (left) | photo thumb (right) */
+    .pkh {
+        display: flex; align-items: stretch; min-height: 64px;
+        background: var(--card-bg); border: 1px solid var(--border-glass);
+        border-radius: 14px; overflow: hidden;
+    }
+    .pkh-l { flex: 1; min-width: 0; padding: 10px 12px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+    .pkh-cs-row { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+    .pkh-cs { font-size: 21px; font-weight: 900; letter-spacing: -0.5px; color: #fff; line-height: 1; white-space: nowrap; }
+    .pkh-chip {
+        font-size: 10px; font-weight: 800; letter-spacing: 0.03em; line-height: 1;
+        padding: 4px 7px; border-radius: 6px; white-space: nowrap;
+        max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .pkh-chip.user { background: var(--tint); color: var(--tint-text); }
+    .pkh-chip.phase { border: 1px solid; background: rgba(255,255,255,0.04); }
+    .pkh-airline { font-size: 13px; font-weight: 600; color: #f4f4f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pkh-photo {
+        flex: 0 0 41%; position: relative; background-color: #101018;
+        background-size: cover; background-position: center;
+    }
+    .pkh-credit {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        font-size: 8.5px; font-weight: 600; color: rgba(255,255,255,0.85);
+        background: rgba(0,0,0,0.55); padding: 2px 7px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Cell grid below the header */
+    .pk-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 8px; margin-top: 8px; }
+    .pk-cell {
+        background: var(--card-bg); border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 14px; padding: 10px 12px; min-width: 0;
+    }
+    /* Route cell: big ICAOs, cities, blue plane badge, progress, times */
+    .pkr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pkr-port { min-width: 0; text-align: center; flex: 1; }
+    .pkr-port b { display: block; font-size: 26px; font-weight: 900; letter-spacing: -1px; line-height: 1; color: #fff; }
+    .pkr-port span {
+        display: block; font-size: 8.5px; font-weight: 700; color: var(--text-secondary);
+        text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .pkr-badge {
+        flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%;
+        background: var(--brand); color: var(--brand-contrast); display: grid; place-items: center; font-size: 12px;
+        box-shadow: 0 2px 10px rgba(255,255,255,0.18);
+    }
+    .pkr-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.1); margin: 10px 0 7px; overflow: hidden; }
+    .pkr-fill { height: 100%; width: 0%; border-radius: 3px; background: var(--brand); box-shadow: 0 0 8px rgba(255,255,255,0.3); transition: width .5s linear; }
+    .pkr-times { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; font-weight: 600; color: var(--text-secondary); }
+    .pkr-times span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Stacked ALT / GS cell */
+    .pk-stats2 { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; }
+    .pks .l { display: block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.06em; color: var(--text-secondary); text-transform: uppercase; }
+    .pks b { display: block; font-size: 16px; font-weight: 800; color: #fff; margin-top: 2px; font-family: var(--font-data); letter-spacing: -0.5px; white-space: nowrap; }
+    /* Bottom row: aircraft type | registration */
+    .pk-actype-c { display: flex; align-items: center; font-size: 12.5px; font-weight: 600; color: #f4f4f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pk-reg-c { display: flex; align-items: center; gap: 7px; }
+    .pk-reg-c .l { font-size: 9px; font-weight: 800; letter-spacing: 0.06em; color: var(--text-secondary); text-transform: uppercase; flex: 0 0 auto; }
+    .pk-reg-c b { font-size: 13px; font-weight: 800; color: #fff; font-family: var(--font-data); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ============================== EXPANDED ============================= */
+    /* Apple-Maps place-card layout (user-supplied reference screenshot). */
+    #full {
+        flex-direction: column; height: 100%;
+        overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+        padding: 0 0 14px;
+    }
+    #full::-webkit-scrollbar { width: 0; }
+    .emb-host { width: 100%; max-width: 470px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+    .emb-empty {
+        flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+        color: rgba(255,255,255,0.4); font-size: 13px; font-weight: 600; text-align: center;
+        min-height: 120px; padding: 40px 0;
+    }
+
+    /* --- Hero: full-bleed photo dissolving into the page background --- */
+    .aw-hero {
+        position: relative; width: 100%; height: 195px; flex: 0 0 auto;
+        background: #101014; overflow: hidden;
+    }
+    .hero-photo {
+        position: absolute; inset: 0; background-size: cover; background-position: center;
+        transition: opacity .45s ease, transform 8s ease; transform: scale(1);
+    }
+    .aw-hero:hover .hero-photo { transform: scale(1.04); }
+    .aw-fade {
+        position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(to bottom, rgba(26,26,30,0) 35%, rgba(26,26,30,0.45) 68%, var(--bg) 100%);
+    }
+    .aw-circ {
+        position: absolute; top: 12px; z-index: 10;
+        width: 36px; height: 36px; border-radius: 50%;
+        display: grid; place-items: center; font-size: 15px; cursor: pointer;
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    }
+    .aw-circ:active { transform: scale(0.94); }
+    .aw-share { left: 12px; background: rgba(30,30,34,0.6); color: #e8e8ea; border: 1px solid rgba(255,255,255,0.12); }
+    .aw-x { right: 12px; background: rgba(30,30,34,0.6); color: #e8e8ea; border: 1px solid rgba(255,255,255,0.12); }
+    .photo-credit {
+        position: absolute; right: 10px; bottom: 10px; font-size: 9px; z-index: 8;
+        color: rgba(255,255,255,.75); background: rgba(0,0,0,.5); padding: 3px 8px;
+        border-radius: 6px; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+        font-weight: 500; border: 1px solid rgba(255,255,255,.1); text-transform: uppercase;
+    }
+    .fr24-va-badge {
+        position: absolute; left: 12px; bottom: 10px; z-index: 8;
+        display: flex; align-items: center; gap: 6px;
+        padding: 3px 8px; border-radius: 999px;
+        background: rgba(0,0,0,0.4);
+        -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+        border: 1px solid rgba(255,255,255,0.14);
+    }
+    .fr24-va-badge img { height: 15px; width: auto; max-width: 70px; object-fit: contain; border-radius: 3px; display: block; }
+    .fr24-va-badge span { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+    .fr24-dots { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; z-index: 9; }
+    .fr24-dots span { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background .2s ease; }
+    .fr24-dots span.on { background: #fff; }
+
+    /* --- Identity block: icon tile overlapping the hero, centred title --- */
+    .aw-body { display: flex; flex-direction: column; gap: 12px; padding: 0 12px; min-width: 0; }
+    .aw-icon {
+        width: 76px; height: 76px; margin: -56px auto 0;
+        position: relative; z-index: 5; border-radius: 19px; background: #fff;
+        display: grid; place-items: center; overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .aw-icon i { font-size: 32px; color: #26262a; }
+    .aw-icon img { width: 72%; height: 72%; object-fit: contain; }
+    .aw-title {
+        font-size: 29px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.1;
+        text-align: center; color: #fff; margin: -2px 8px -6px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .aw-sub {
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+        font-size: 14.5px; font-weight: 500; color: var(--text-secondary);
+        min-width: 0; margin-top: -6px; flex-wrap: wrap; padding: 0 8px;
+    }
+    .aw-sub .t { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .aw-sub2 {
+        text-align: center; font-size: 12px; color: var(--text-dim); margin-top: -10px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;
+    }
+    .seat-mini-label {
+        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap;
+    }
+
+    /* --- Action buttons: icon-over-label pills, primary filled blue --- */
+    .aw-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 2px; }
+    .aw-act {
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+        padding: 11px 4px 9px; border-radius: 13px; border: none; cursor: pointer;
+        background: var(--tint); color: var(--tint-text); font-family: inherit; min-width: 0;
+        transition: filter .15s ease;
+    }
+    .aw-act:hover { filter: brightness(1.2); }
+    .aw-act:active { transform: scale(0.97); }
+    .aw-act i { font-size: 15px; }
+    .aw-act span { font-size: 13px; font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .aw-act.primary { background: var(--brand); color: var(--brand-contrast); box-shadow: 0 4px 14px rgba(255,255,255,0.14); }
+
+    /* --- Stats strip: Status | Altitude | Speed (Hours/Rating/Distance row) --- */
+    .aw-stats { display: flex; align-items: stretch; justify-content: space-between; padding: 6px 6px 2px; gap: 8px; }
+    .aw-stat { flex: 1; text-align: center; min-width: 0; }
+    .aw-stat .l { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .aw-stat b { display: block; font-size: 16.5px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* --- Horizontal photo gallery (Apple-Maps photo rail) --- */
+    .aw-gallery {
+        display: flex; gap: 10px; overflow-x: auto; margin: 2px -12px 0; padding: 0 12px;
+        scroll-snap-type: x mandatory; scrollbar-width: none;
+    }
+    .aw-gallery::-webkit-scrollbar { display: none; }
+    .aw-ph {
+        flex: 0 0 58%; aspect-ratio: 4 / 3; border-radius: 16px; position: relative;
+        background-color: var(--card-bg); background-size: cover; background-position: center;
+        scroll-snap-align: start; overflow: hidden;
+    }
+    .aw-ph-credit {
+        position: absolute; right: 8px; bottom: 8px; font-size: 9px; font-weight: 600;
+        color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.55);
+        padding: 3px 8px; border-radius: 99px; max-width: 80%;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* --- Bold section headings (the "Ratings" heading in the reference) --- */
+    .aw-sec { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; color: #fff; margin: 8px 2px -4px; }
+
+    /* --- Mission card: route hero + times grid + progress, one grouped card --- */
+    .mission-card {
+        background: var(--card-bg); border: 1px solid var(--border-glass);
+        border-radius: 16px; overflow: hidden;
+    }
+    .route-hero {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 20px 18px 16px; gap: 12px;
+    }
+    .rh-port { min-width: 0; text-align: center; }
+    .rh-icao {
+        font-size: 40px; font-weight: 900; line-height: .95; letter-spacing: -2px; color: #fff;
+        cursor: pointer; transition: color .15s ease, text-shadow .15s ease;
+    }
+    .rh-icao:hover { color: #fff; text-shadow: 0 0 14px rgba(255,255,255,0.5); }
+    .rh-city {
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+        font-size: 11px; font-weight: 600; color: var(--text-secondary);
+        text-transform: uppercase; letter-spacing: .5px; margin-top: 7px;
+        white-space: nowrap; overflow: hidden; max-width: 140px;
+    }
+    .rh-city .txt { overflow: hidden; text-overflow: ellipsis; }
+    .rh-flag { width: 16px; height: 11px; border-radius: 2px; object-fit: cover; flex: 0 0 auto; }
+    .rh-mid { flex: 1; min-width: 40px; position: relative; display: flex; align-items: center; justify-content: center; align-self: center; }
+    .rh-mid::before {
+        content: ''; position: absolute; left: 4px; right: 4px; top: 50%; height: 2px;
+        transform: translateY(-50%); border-radius: 2px;
+        background: linear-gradient(to right, transparent, rgba(255,255,255,.16) 18%, rgba(255,255,255,.16) 82%, transparent);
+    }
+    .rh-plane-badge {
+        position: relative; width: 34px; height: 34px; border-radius: 50%;
+        background: var(--brand); display: grid; place-items: center;
+        color: var(--brand-contrast); font-size: 15px; box-shadow: 0 4px 14px rgba(255,255,255,.18);
+    }
+    /* Times grid — hairline-separated 2×2 (Scheduled / Actual|Estimated) */
+    .times-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border-glass); border-top: 1px solid var(--border-glass); }
+    .tg-cell {
+        background: var(--card-bg); padding: 11px 16px;
+        display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0;
+    }
+    .tg-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text-dim); white-space: nowrap; }
+    .tg-time { font-family: var(--font-data); font-size: 16px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
+    .tg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 6px currentColor; }
+    /* Progress row */
+    .route-progress-row { padding: 15px 18px 16px; border-top: 1px solid rgba(255,255,255,.05); }
+    .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
+    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--brand); border-radius: 2px; transition: width .5s linear; box-shadow: 0 0 8px rgba(255,255,255,.3); }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--brand); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(255,255,255,.4)); }
+    .rp-labels { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 11.5px; font-weight: 500; color: var(--text-secondary); }
+    .rp-labels .mono { font-family: var(--font-data); }
+
+    /* --- Bento telemetry cells under the section headings --- */
+    .grid-section-label {
+        font-size: 10px; text-transform: uppercase; color: var(--text-dim);
+        letter-spacing: 1px; font-weight: 700;
+    }
+    .telemetry-bento { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .bento-cell {
+        background: var(--card-bg); border: 1px solid var(--border-glass); border-radius: 14px;
+        padding: 13px 14px; display: flex; flex-direction: column; justify-content: space-between;
+        min-height: 76px; transition: border-color .2s, background .2s; min-width: 0;
+    }
+    .bento-cell:hover { border-color: rgba(255,255,255,0.16); background: #2a2a2f; }
+    .cell-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 6px; }
+    .cell-label { font-size: 9.5px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cell-icon { font-size: 11px; color: var(--text-dim); flex: 0 0 auto; }
+    .cell-data { font-family: var(--font-data); font-size: 21px; font-weight: 600; color: #fff; letter-spacing: -1px; display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+    .cell-data > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cell-unit { font-size: 11px; color: var(--text-dim); font-weight: 500; letter-spacing: 0; flex: 0 0 auto; }
+    .vs-arrow { transition: transform .3s, color .3s; color: var(--text-dim); font-size: 14px; margin-right: 4px; }
+    .vs-arrow.climbing { color: var(--ok); transform: rotate(-45deg); }
+    .vs-arrow.descending { color: var(--warn); transform: rotate(45deg); }
+
+    /* --- Airports: takeoff / landing bento buttons --- */
+    .apt-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .apt-btn {
+        background: var(--card-bg); border: 1px solid var(--border-glass); border-radius: 14px;
+        padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
+        color: #fff; cursor: pointer; font-family: inherit; min-width: 0;
+        transition: border-color .2s, background .2s;
+    }
+    .apt-btn:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); }
+    .apt-btn .r { font-size: 9px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 5px; }
+    .apt-btn.dep .r { color: var(--ok); }
+    .apt-btn.arr .r { color: var(--warn); }
+    .apt-btn .code { font-family: var(--font-data); font-size: 19px; font-weight: 800; letter-spacing: .5px; }
+
+    /* --- Graph / legs cards --- */
+    .panel-card {
+        background: var(--card-bg); border: 1px solid var(--border-glass);
+        border-radius: 16px; padding: 13px 14px;
+    }
+    #legs-card .fl-legs-card { margin: 0 !important; background: transparent !important; border: none !important; padding: 0 !important; }
+
+    /* --- VA-ads partner slots (vaAds.js renders into these; these overrides
+           blend its cards with the window's grouped-card surfaces and swap its
+           cyan accent for the monochrome scheme) --- */
+    .va-ad-banner-slot { margin: 0; }
+    .va-ad-feature, .va-ad-full {
+        background: var(--card-bg); border-color: var(--border-glass); border-radius: 16px;
+    }
+    .va-ad-feature:hover, .va-ad-full:hover { border-color: rgba(255,255,255,0.25); transform: none; }
+    .va-ad-eyebrow { color: var(--text-secondary); }
+    .va-ad-eyebrow i { color: var(--text-dim); }
+    .va-ad-dot.is-active { background: #fff; }
+    .va-ad-feature-banner { background-color: rgba(255,255,255,0.05); }
+
+    @media (max-width: 400px) {
+        .rh-icao { font-size: 33px; }
+        .aw-title { font-size: 25px; }
+        .cell-data { font-size: 18px; }
+    }
+    </style>
+</head>
+<body class="collapsed">
+
+    <!-- Collapsed peek card (FR24-app-style layout, mobile bottom sheet) -->
+    <div id="peek">
+        <div class="pk-grip"></div>
+        <div class="emb-empty" id="peek-empty">Waiting for flight data…</div>
+        <div id="peek-body" style="display:none">
+            <div class="pkh">
+                <div class="pkh-l">
+                    <div class="pkh-cs-row">
+                        <span class="pkh-cs" id="pk-callsign">---</span>
+                        <span class="pkh-chip user" id="pk-user" style="display:none"></span>
+                        <span class="pkh-chip phase" id="pk-phase" style="display:none"></span>
+                    </div>
+                    <div class="pkh-airline" id="pk-airline">&nbsp;</div>
+                </div>
+                <div class="pkh-photo" id="pk-photo">
+                    <span class="pkh-credit" id="pk-credit" style="display:none"></span>
+                </div>
+            </div>
+            <div class="pk-grid">
+                <div class="pk-cell pk-route-c">
+                    <div class="pkr-row">
+                        <div class="pkr-port"><b id="pk-dep">---</b><span id="pk-dep-city">&nbsp;</span></div>
+                        <div class="pkr-badge"><i class="fa-solid fa-plane"></i></div>
+                        <div class="pkr-port"><b id="pk-arr">---</b><span id="pk-arr-city">&nbsp;</span></div>
+                    </div>
+                    <div class="pkr-bar"><div class="pkr-fill" id="pk-prog"></div></div>
+                    <div class="pkr-times"><span id="pk-dep-ago">—</span><span id="pk-arr-in">—</span></div>
+                </div>
+                <div class="pk-cell pk-stats2">
+                    <div class="pks"><span class="l">Barometric Alt.</span><b id="pk-alt">—</b></div>
+                    <div class="pks"><span class="l">Ground Speed</span><b id="pk-gs">—</b></div>
+                </div>
+                <div class="pk-cell pk-actype-c" id="pk-actype">—</div>
+                <div class="pk-cell pk-reg-c"><span class="l">Reg.</span><b id="pk-reg">—</b></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full window -->
+    <div id="full">
+        <div class="emb-host">
+            <div id="card" style="display:contents"><div class="emb-empty">Waiting for flight data…</div></div>
+        </div>
+    </div>
+
+    <script>
+    'use strict';
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    const fmtNum = (v) => Math.round(Number(v) || 0).toLocaleString();
+
+    // Phase → accent colour, mirroring the tracker's flight-state palette.
+    function phaseColor(phaseClass) {
+        switch (String(phaseClass || '')) {
+            case 'phase-ground':  return '#98989f';
+            case 'phase-climb':   return '#0a84ff';
+            case 'phase-cruise':  return '#30d158';
+            case 'phase-descent': return '#ff9f0a';
+            case 'phase-approach':
+            case 'phase-landing': return '#ff375f';
+            default:              return '#30d158';
+        }
+    }
+
+    // Pilot connection state (matches the tracker's badges).
+    function stateBadge(pilotState) {
+        switch (Number(pilotState)) {
+            case 2: return { label: 'PARKED', color: '#98989f' };
+            case 3: return { label: 'AP+', color: '#818cf8' };
+            case 1: return { label: 'AWAY', color: '#ff9f0a' };
+            default: return null;
+        }
+    }
+
+    function flagUrl(cc) {
+        const c = String(cc || '').trim().toLowerCase();
+        return /^[a-z]{2}$/.test(c) ? `https://flagcdn.com/w40/${c}.png` : '';
+    }
+
+    // ── Phase management (mirrors flightinfo.html's contract with the host) ──
+    // Desktop hosts load the page with ?desktop=1: the window is a plain docked
+    // panel that is always expanded — no peek bar, no collapse-to-peek, and the
+    // mobile-sheet peek-height report is skipped.
+    const IS_DESKTOP = /[?&]desktop=1/.test(location.search);
+    let currentPhase = IS_DESKTOP ? 'expanded' : 'collapsed';
+    if (IS_DESKTOP) {
+        document.body.classList.add('desktop', 'expanded');
+        document.body.classList.remove('collapsed');
+    }
+    function setPhase(phase, notifyHost) {
+        const next = (IS_DESKTOP || phase === 'expanded') ? 'expanded' : 'collapsed';
+        const changed = next !== currentPhase;
+        currentPhase = next;
+        document.body.classList.toggle('expanded', next === 'expanded');
+        document.body.classList.toggle('collapsed', next === 'collapsed');
+        if (!changed) return;
+        if (notifyHost) {
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_STATE', state: next }, '*'); } catch (_) {}
+        }
+        // The graph needs a measurable width — draw it once we're visible.
+        if (next === 'expanded') setTimeout(renderGraph, 80);
+    }
+    document.getElementById('peek').addEventListener('click', () => setPhase('expanded', true));
+
+    // ── Photo carousel (kept across live ticks; only rebuilt on photo change) ──
+    let _photoTimer = null;
+    let _photoIdx = 0;
+    let _photoList = [];
+    function photoKey(list) { return list.map(p => p.url).join('|'); }
+    function stopCarousel() { if (_photoTimer) { clearInterval(_photoTimer); _photoTimer = null; } }
+    function applyPhoto(i) {
+        const ph = document.querySelector('.hero-photo');
+        const cr = document.querySelector('.photo-credit');
+        const dots = document.querySelectorAll('.fr24-dots span');
+        if (!ph || !_photoList[i]) return;
+        ph.style.backgroundImage = `url('${_photoList[i].url}')`;
+        if (cr) cr.textContent = '© ' + (_photoList[i].credit || 'IF Community');
+        dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    }
+    function startCarousel() {
+        stopCarousel();
+        if (_photoList.length < 2) return;
+        _photoTimer = setInterval(() => {
+            if (currentPhase !== 'expanded') return;   // don't churn while peeking
+            _photoIdx = (_photoIdx + 1) % _photoList.length;
+            applyPhoto(_photoIdx);
+        }, 6000);
+    }
+
+    // ── Live data ────────────────────────────────────────────────────────────
+    let lastPayload = null;
+    let _renderKey = null;       // flight identity — full rebuild when it changes
+    let _lastGraphAt = 0;
+    let _lastLegsKey = null;
+
+    function buildCard(p) {
+        const route = p.route || {};
+        const ac = p.aircraft || {};
+
+        const callsign = p.callsign || '---';
+        const username = p.username || 'Unknown';
+        const dep = route.originIcao && route.originIcao !== '---' ? route.originIcao : '';
+        const arr = route.destIcao && route.destIcao !== '---' ? route.destIcao : '';
+        const actype = String(ac.aircraftName || '');
+        const livery = String(ac.liveryName || '');
+        const reg = (ac.registration && ac.registration !== '---') ? ac.registration : '';
+        const depFlag = flagUrl(route.originCountry), arrFlag = flagUrl(route.destCountry);
+
+        const heroUrl = _photoList[0] ? _photoList[0].url : '';
+        const credit0 = _photoList[0] ? _photoList[0].credit : '';
+
+        const dotsHtml = _photoList.length > 1
+            ? `<div class="fr24-dots">${_photoList.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : '';
+
+        const va = p.vaPartner;
+        const vaBadge = va ? `<div class="fr24-va-badge">${va.logo
+            ? `<img src="${esc(va.logo)}" alt="${esc(va.name || '')}" onerror="this.style.display='none'">`
+            : `<span>${esc(va.name || '')}</span>`}</div>` : '';
+
+        // App-icon tile: the partner VA's logo when there is one, else the brand plane.
+        const iconInner = (va && va.logo)
+            ? `<img src="${esc(va.logo)}" alt="" onerror="this.style.display='none'">`
+            : '<i class="fa-solid fa-plane"></i>';
+
+        // Photo rail (only worth showing when there's more than the hero shot).
+        const gallery = _photoList.length >= 2 ? `
+            <div class="aw-gallery">
+                ${_photoList.map(ph => `
+                <div class="aw-ph" style="background-image:url('${esc(ph.url)}')">
+                    ${ph.credit ? `<span class="aw-ph-credit">© ${esc(ph.credit)}</span>` : ''}
+                </div>`).join('')}
+            </div>` : '';
+
+        const bento = (label, icon, field, unit, extra) => `
+            <div class="bento-cell">
+                <div class="cell-header"><span class="cell-label">${label}</span><i class="fa-solid ${icon} cell-icon"></i></div>
+                <div class="cell-data">${extra || ''}<span class="mono" data-f="${field}">---</span><span class="cell-unit">${unit}</span></div>
+            </div>`;
+
+        return `
+            <div class="aw-hero">
+                <div class="hero-photo" style="background-image:url('${esc(heroUrl)}')"></div>
+                <div class="aw-fade"></div>
+                ${dotsHtml}
+                ${vaBadge}
+                ${credit0 ? `<div class="photo-credit">© ${esc(credit0)}</div>` : '<div class="photo-credit" style="display:none"></div>'}
+                <button class="aw-circ aw-share" data-act="tripcard" title="Share trip card"><i class="fa-solid fa-arrow-up-from-bracket"></i></button>
+                <button class="aw-circ aw-x" id="btn-collapse" title="Less info"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="aw-body">
+                <div class="aw-icon">${iconInner}</div>
+                <h1 class="aw-title" title="${esc(callsign)}">${esc(callsign)}</h1>
+                <div class="aw-sub">
+                    <span class="t" title="${esc(actype)}">${esc(actype || 'Flight')}</span>
+                    <span>·</span>
+                    <span class="t" title="${esc(username)}">${esc(username)}</span>
+                    <span class="seat-mini-label" data-f="state" style="display:none"></span>
+                </div>
+                ${(livery || reg) ? `<div class="aw-sub2">${esc([livery, reg].filter(Boolean).join(' · '))}</div>` : ''}
+
+                <div class="aw-actions">
+                    <button class="aw-act primary" data-act="follow" title="Follow this flight">
+                        <i class="fa-solid fa-plane"></i><span data-f="act-ete">Follow</span>
+                    </button>
+                    <button class="aw-act" data-act="replay" title="Replay this flight">
+                        <i class="fa-solid fa-clock-rotate-left"></i><span>Replay</span>
+                    </button>
+                    <button class="aw-act" data-act="tripcard" title="Share trip card">
+                        <i class="fa-solid fa-arrow-up-from-bracket"></i><span>Share</span>
+                    </button>
+                </div>
+
+                <div class="aw-stats">
+                    <div class="aw-stat"><span class="l">Status</span><b data-f="phase-text">---</b></div>
+                    <div class="aw-stat"><span class="l">Altitude</span><b data-f="stat-alt">—</b></div>
+                    <div class="aw-stat"><span class="l">Speed</span><b data-f="stat-gs">—</b></div>
+                </div>
+
+                ${gallery}
+
+                <div id="ac-va-full-banner" class="va-ad-banner-slot" style="display:none"></div>
+
+                <h2 class="aw-sec">Route</h2>
+                <div class="mission-card">
+                    <div class="route-hero">
+                        <div class="rh-port">
+                            <div class="rh-icao" data-icao="${esc(dep)}">${esc(dep || '---')}</div>
+                            <div class="rh-city">${depFlag ? `<img class="rh-flag" src="${depFlag}" alt="" onerror="this.style.display='none'">` : ''}<span class="txt" data-f="depCity">&nbsp;</span></div>
+                        </div>
+                        <div class="rh-mid"><div class="rh-plane-badge"><i class="fa-solid fa-plane"></i></div></div>
+                        <div class="rh-port">
+                            <div class="rh-icao" data-icao="${esc(arr)}">${esc(arr || '---')}</div>
+                            <div class="rh-city"><span class="txt" data-f="arrCity">&nbsp;</span>${arrFlag ? `<img class="rh-flag" src="${arrFlag}" alt="" onerror="this.style.display='none'">` : ''}</div>
+                        </div>
+                    </div>
+                    <div class="times-grid">
+                        <div class="tg-cell"><span class="tg-label">Scheduled</span><span class="tg-time" data-f="std">--:--</span></div>
+                        <div class="tg-cell"><span class="tg-label">Scheduled</span><span class="tg-time" data-f="sta">--:--</span></div>
+                        <div class="tg-cell"><span class="tg-label" data-f="atd-l">Actual</span><span class="tg-time" data-f="atd">--:--</span></div>
+                        <div class="tg-cell"><span class="tg-label" data-f="eta2-l">Estimated</span><span class="tg-time"><span class="tg-dot" data-f="eta-dot" style="display:none"></span><span data-f="eta2">--:--</span></span></div>
+                    </div>
+                    <div class="route-progress-row">
+                        <div class="rp-track">
+                            <div class="rp-fill" data-f="seg"></div>
+                            <i class="fa-solid fa-plane rp-plane" data-f="glyph"></i>
+                        </div>
+                        <div class="rp-labels">
+                            <span><span class="mono" data-f="flown">----</span> · <span data-f="elapsed">--:--</span></span>
+                            <span><span class="mono" data-f="dist">----</span> · ETE <span class="mono" data-f="ete">--:--</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="aw-sec">Live Telemetry</h2>
+                <div class="telemetry-bento">
+                    ${bento('Altitude', 'fa-cloud', 'alt', 'ft')}
+                    ${bento('GND Speed', 'fa-gauge-high', 'gs', 'kts')}
+                    ${bento('Vertical', 'fa-elevator', 'vs', 'fpm', '<i class="fa-solid fa-minus vs-arrow" data-f="vs-arrow"></i>')}
+                    ${bento('Heading', 'fa-compass', 'hdg', '°')}
+                </div>
+
+                <h2 class="aw-sec">Navigation &amp; Environment</h2>
+                <div class="telemetry-bento">
+                    ${bento('True Airspeed', 'fa-wind', 'tas', 'kts')}
+                    ${bento('Wind', 'fa-location-arrow', 'wind', 'kts')}
+                    ${bento('OAT', 'fa-temperature-half', 'oat', '°C')}
+                    `+`<div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label" data-f="nextwp-l">Next Waypoint</span><i class="fa-solid fa-location-dot cell-icon"></i></div>
+                        <div class="cell-data"><span class="mono" data-f="nextwp">---</span></div>
+                    </div>
+                </div>
+
+                ${(dep || arr) ? `
+                <h2 class="aw-sec">Airports</h2>
+                <div class="apt-bento">
+                    ${dep ? `<button class="apt-btn dep" data-icao="${esc(dep)}" title="View ${esc(dep)} airport">
+                        <span class="r"><i class="fa-solid fa-plane-departure"></i> Takeoff</span><span class="code">${esc(dep)}</span></button>` : ''}
+                    ${arr ? `<button class="apt-btn arr" data-icao="${esc(arr)}" title="View ${esc(arr)} airport">
+                        <span class="r"><i class="fa-solid fa-plane-arrival"></i> Landing</span><span class="code">${esc(arr)}</span></button>` : ''}
+                </div>` : ''}
+
+                <div id="ac-va-banner" class="va-ad-banner-slot" style="display:none"></div>
+
+                <div class="panel-card" id="graph-card">
+                    <div class="grid-section-label" style="margin:0 0 8px 2px">Speed &amp; Altitude</div>
+                    <div id="graph-body"></div>
+                </div>
+                <div id="legs-card" style="display:none"></div>
+            </div>`;
+    }
+
+    const $f = (name) => document.querySelector(`[data-f="${name}"]`);
+    const setTxt = (name, v) => { const el = $f(name); if (el) el.textContent = v; };
+
+    // Update the dynamic fields in place — no DOM rebuild, so the carousel,
+    // scroll position and hover states all survive live telemetry ticks.
+    function updateDynamic(p) {
+        const tel = p.telemetry || {};
+        const route = p.route || {};
+        const progress = Math.max(0, Math.min(100, Number(route.progress) || 0));
+
+        // Status stat (phase-coloured, like the red "Closed" in the reference)
+        const stv = $f('phase-text');
+        if (stv) {
+            stv.textContent = p.phase || 'ENROUTE';
+            stv.style.color = phaseColor(p.phaseClass);
+        }
+        const stEl = $f('state');
+        if (stEl) {
+            const b = stateBadge(p.pilotState);
+            if (b) {
+                stEl.style.display = '';
+                stEl.style.color = b.color; stEl.style.borderColor = b.color + '40'; stEl.style.background = b.color + '14';
+                stEl.textContent = b.label;
+            } else stEl.style.display = 'none';
+        }
+        // Primary action carries the live ETE (the "5 min" slot in the reference).
+        setTxt('act-ete', (route.ete && route.ete !== '--:--') ? route.ete : 'Follow');
+
+        // Route progress + labels
+        const seg = $f('seg'), glyph = $f('glyph');
+        if (seg) seg.style.width = progress + '%';
+        if (glyph) glyph.style.left = progress + '%';
+        setTxt('depCity', route.originCity || ' ');
+        setTxt('arrCity', route.destCity || ' ');
+        setTxt('flown', (route.distFlownNm != null) ? `${Number(route.distFlownNm).toLocaleString()} NM` : '----');
+        setTxt('dist', (route.distRemainingNm != null) ? `${Number(route.distRemainingNm).toLocaleString()} NM` : '----');
+        setTxt('elapsed', route.elapsed || '--:--');
+        setTxt('ete', route.ete || '--:--');
+
+        // Times grid — Scheduled row from the filed plan, Actual/Estimated row
+        // carries the source-tagged colour and a glowing dot on live estimates.
+        const times = route.times || {};
+        setTxt('std', times.depScheduled || '--:--');
+        setTxt('sta', times.arrScheduled || '--:--');
+        const atdEl = $f('atd'), etaEl = $f('eta2');
+        if (atdEl) {
+            atdEl.textContent = times.depActual || (route.depInfo && route.depInfo.time) || '--:--';
+            if (route.depInfo && route.depInfo.color) atdEl.style.color = route.depInfo.color;
+            const l = $f('atd-l');
+            if (l) l.textContent = (route.depInfo && route.depInfo.label) ? route.depInfo.label : 'Actual';
+        }
+        if (etaEl) {
+            const v = times.arrEstimated || (route.arrInfo && route.arrInfo.time) || (route.eta !== '--:--' ? route.eta : null);
+            etaEl.textContent = v || '--:--';
+            if (route.arrInfo && route.arrInfo.color) etaEl.style.color = route.arrInfo.color;
+            const l = $f('eta2-l');
+            if (l) l.textContent = (route.arrInfo && route.arrInfo.label) ? route.arrInfo.label : 'Estimated';
+            const dot = $f('eta-dot');
+            if (dot) dot.style.display = v ? '' : 'none';
+        }
+
+        // Bento telemetry + the stats-strip mirrors
+        setTxt('alt', fmtNum(tel.altitude));
+        setTxt('gs', fmtNum(tel.groundSpeed));
+        setTxt('stat-alt', `${fmtNum(tel.altitude)} ft`);
+        setTxt('stat-gs', `${fmtNum(tel.groundSpeed)} kts`);
+        const vs = Math.round(Number(tel.verticalSpeed) || 0);
+        setTxt('vs', Math.abs(vs) < 50 ? '0' : Math.abs(vs).toLocaleString());
+        const arrow = $f('vs-arrow');
+        if (arrow) {
+            arrow.classList.toggle('climbing', vs >= 50);
+            arrow.classList.toggle('descending', vs <= -50);
+            arrow.className = arrow.className.replace(/fa-(minus|plane)/, vs >= 50 || vs <= -50 ? 'fa-plane' : 'fa-minus');
+        }
+        setTxt('hdg', String(Math.round(Number(tel.heading) || 0)).padStart(3, '0'));
+        setTxt('tas', tel.tas != null ? fmtNum(tel.tas) : '---');
+        setTxt('wind', (tel.windDir != null && tel.windSpd != null && (tel.windSpd || tel.windDir))
+            ? `${String(Math.round(tel.windDir)).padStart(3, '0')}°/${Math.round(tel.windSpd)}` : '---');
+        setTxt('oat', tel.oat != null ? String(Math.round(tel.oat)) : '---');
+        const wpEl = $f('nextwp');
+        if (wpEl) {
+            wpEl.textContent = (tel.nextWpName && tel.nextWpName !== '---') ? tel.nextWpName : '---';
+            const l = $f('nextwp-l');
+            if (l) l.textContent = tel.nextWpDist ? `Next WP · ${tel.nextWpDist}` : 'Next Waypoint';
+        }
+
+        // Peek card mirrors (FR24-app layout)
+        const ac = p.aircraft || {};
+        setTxt2('pk-callsign', p.callsign || '---');
+        const pkUser = document.getElementById('pk-user');
+        if (pkUser) {
+            if (p.username) { pkUser.style.display = ''; pkUser.textContent = p.username; }
+            else pkUser.style.display = 'none';
+        }
+        const pkPh = document.getElementById('pk-phase');
+        if (pkPh) {
+            const c = phaseColor(p.phaseClass);
+            pkPh.style.display = ''; pkPh.style.color = c;
+            pkPh.style.borderColor = c + '55'; pkPh.style.background = c + '14';
+            pkPh.textContent = p.phase || 'ENROUTE';
+        }
+        setTxt2('pk-airline', ac.liveryName || ac.aircraftName || ' ');
+        const pkPhoto = document.getElementById('pk-photo');
+        const pkCredit = document.getElementById('pk-credit');
+        const ph0 = _photoList[0];
+        if (pkPhoto) pkPhoto.style.backgroundImage = ph0 ? `url('${ph0.url}')` : 'none';
+        if (pkCredit) {
+            if (ph0 && ph0.credit) { pkCredit.style.display = ''; pkCredit.textContent = '© ' + ph0.credit; }
+            else pkCredit.style.display = 'none';
+        }
+        setTxt2('pk-dep', route.originIcao && route.originIcao !== '---' ? route.originIcao : '---');
+        setTxt2('pk-arr', route.destIcao && route.destIcao !== '---' ? route.destIcao : '---');
+        setTxt2('pk-dep-city', route.originCity || ' ');
+        setTxt2('pk-arr-city', route.destCity || ' ');
+        const pkProg = document.getElementById('pk-prog');
+        if (pkProg) pkProg.style.width = progress + '%';
+        setTxt2('pk-dep-ago', (route.elapsed && route.elapsed !== '--:--') ? `Departed ${route.elapsed} ago` : '—');
+        setTxt2('pk-arr-in', (route.ete && route.ete !== '--:--')
+            ? `Lands in ${route.ete}`
+            : ((route.eta && route.eta !== '--:--') ? `ETA ${route.eta}` : '—'));
+        setTxt2('pk-alt', `${fmtNum(tel.altitude)} ft`);
+        setTxt2('pk-gs', `${fmtNum(tel.groundSpeed)} kts`);
+        setTxt2('pk-actype', ac.aircraftName || '—');
+        setTxt2('pk-reg', (ac.registration && ac.registration !== '---') ? ac.registration : '—');
+    }
+    const setTxt2 = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+
+    function renderGraph(force) {
+        if (currentPhase !== 'expanded' || !lastPayload) return;
+        const body = document.getElementById('graph-body');
+        const card = document.getElementById('graph-card');
+        if (!body || !card) return;
+        const chart = lastPayload.chart;
+        const n = chart && Array.isArray(chart.samples) ? chart.samples.length : 0;
+        if (n < 2 || typeof FlightGraph === 'undefined') { card.style.display = 'none'; return; }
+        // Redraw at most every 20s — the graph shifts slowly and rebuilding the
+        // SVG on every telemetry tick is wasted work.
+        const now = Date.now();
+        if (!force && now - _lastGraphAt < 20000 && body.firstChild) return;
+        _lastGraphAt = now;
+        card.style.display = '';
+        FlightGraph.render(body, chart, { height: 150 });
+    }
+
+    function renderLegs(p) {
+        const el = document.getElementById('legs-card');
+        if (!el) return;
+        const legs = Array.isArray(p.legs) ? p.legs : [];
+        const key = legs.map(l => `${l.depIcao}-${l.arrIcao}`).join('|');
+        if (key === _lastLegsKey) return;
+        _lastLegsKey = key;
+        const html = (typeof FlightLegs !== 'undefined') ? FlightLegs.renderHTML(legs) : '';
+        if (html) { el.innerHTML = `<div class="panel-card">${html}</div>`; el.style.display = ''; }
+        else el.style.display = 'none';
+    }
+
+    function render(p) {
+        if (!p) return;
+        lastPayload = p;
+
+        document.getElementById('peek-empty').style.display = 'none';
+        document.getElementById('peek-body').style.display = '';
+
+        // Full structural rebuild only when the flight (or its photo set) changes.
+        const imgs = p.images || {};
+        const list = Array.isArray(imgs.list) && imgs.list.length
+            ? imgs.list : (imgs.url ? [{ url: imgs.url, credit: imgs.credit }] : []);
+        const key = `${p.callsign}|${p.username}|${photoKey(list)}`;
+        if (key !== _renderKey) {
+            _renderKey = key;
+            _photoList = list;
+            _photoIdx = 0;
+            document.getElementById('card').innerHTML = buildCard(p);
+            startCarousel();
+            const btn = document.getElementById('btn-collapse');
+            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); setPhase('collapsed', true); });
+            _lastGraphAt = 0; _lastLegsKey = null;
+            hydrateVaAds(p);
+        }
+
+        updateDynamic(p);
+        renderGraph();
+        renderLegs(p);
+    }
+
+    // VA-ads partner slots: vaAds.js runs inside this iframe and fills the
+    // #ac-va-full-banner / #ac-va-banner slots — the flight's own partner VA
+    // when the callsign matches one, else VAs hubbed at the arrival/departure
+    // field. Only re-hydrated on a flight change (the slots are static
+    // between rebuilds). A missing ads service must never break the window.
+    function hydrateVaAds(p) {
+        if (!window.InflightVaAds || typeof window.InflightVaAds.hydrateFlightBanner !== 'function') return;
+        const route = p.route || {};
+        const clean = (v) => (v && v !== '---') ? v : '';
+        try {
+            window.InflightVaAds.hydrateFlightBanner(document, {
+                callsign: p.callsign,
+                depIcao: clean(route.originIcao),
+                arrIcao: clean(route.destIcao)
+            });
+        } catch (_) {}
+    }
+
+    // Tapping an ad card opens that partner's detail in the HOST tracker's
+    // Partners panel (full-screen over the map) instead of vaAds.js's own
+    // overlay, which would be boxed inside this iframe. Capture phase so it
+    // wins over vaAds.js's bubble-phase click handlers; the yellow "Apply now"
+    // CTA is a real link straight to the VA's site and passes through.
+    document.addEventListener('click', (e) => {
+        const adEl = e.target.closest && e.target.closest('[data-va-ad-id]');
+        if (!adEl || e.target.closest('.va-ad-apply')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try { window.parent.postMessage({ type: 'INFLIGHT_OPEN_VA_PARTNER', id: adEl.getAttribute('data-va-ad-id') }, '*'); } catch (_) {}
+    }, true);
+
+    // Action buttons (Follow / Replay / Share) hand off to the host tracker's
+    // Simple-window actions; airport taps (route-hero ICAOs and the
+    // Takeoff/Landing cells) ask it to open its airport window.
+    document.addEventListener('click', (e) => {
+        const act = e.target.closest('[data-act]');
+        if (act) {
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_ACTION', action: act.getAttribute('data-act') }, '*'); } catch (_) {}
+            return;
+        }
+        const el = e.target.closest('.apt-btn, .rh-icao');
+        if (!el) return;
+        const icao = el.getAttribute('data-icao');
+        if (icao) {
+            try { window.parent.postMessage({ type: 'NAVIGATE_TO_AIRPORT', icao }, '*'); } catch (_) {}
+        }
+    });
+
+    window.addEventListener('message', (event) => {
+        const d = event.data;
+        if (!d || typeof d !== 'object') return;
+        if (d.type === 'FLIGHT_DATA_UPDATE') render(d.payload);
+        if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed', false);
+    });
+
+    // Redraw the graph when the panel is resized (desktop drag / rotation).
+    window.addEventListener('resize', () => { _lastGraphAt = 0; renderGraph(true); });
+
+    // Tell the host the height our peek bar wants (mobile sheets only — a
+    // desktop window has no peek detent), and that we're ready.
+    try {
+        if (!IS_DESKTOP) window.parent.postMessage({ type: 'SIMPLE_WINDOW_PEEK_HEIGHT', height: 278 }, '*');
+        window.parent.postMessage({ type: 'EMBED_FLIGHT_READY' }, '*');
+    } catch (_) {}
+    </script>
+</body>
+</html>

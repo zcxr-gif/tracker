@@ -741,6 +741,14 @@ let mapFilters = {
         },
         useFlatMap: false,
         useSimpleFlightWindow: false,
+        // Flight-info window presentation: 'legacy' (full avionics window),
+        // 'simple' (flightinfo.html iframe) or 'embed' (embed-flight.html — the
+        // FR24-style card ported from the VA embed). useSimpleFlightWindow is
+        // kept in sync (true only for 'simple') for backward compatibility.
+        flightWindowMode: 'legacy',
+        // Airport-info window presentation: 'standard' (the built-in tabbed
+        // window) or 'embed' (embed-airport.html — the embed's airport card).
+        airportWindowMode: 'standard',
         // Auto-advance the aircraft photo carousel (with a soft crossfade) in
         // both the regular and simple flight windows. On by default; the
         // "Auto-Cycle Photos" toggle turns it off. See buildHeroPhotoCarousel().
@@ -2183,6 +2191,26 @@ function injectCustomStyles() {
 }
 .row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
 .row-label i { color: #52525b; width: 16px; text-align: center; }
+/* Segmented control for window-presentation modes (Flight / Airport window). */
+.iw-seg {
+    display: flex; gap: 4px; padding: 4px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 12px;
+}
+.iw-seg-btn {
+    flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 6px; border: none; border-radius: 9px; cursor: pointer;
+    background: transparent; color: #a1a1aa;
+    font-size: 0.8rem; font-weight: 600; font-family: inherit;
+    white-space: nowrap; transition: background .15s ease, color .15s ease;
+}
+.iw-seg-btn i { font-size: 0.8rem; }
+.iw-seg-btn:hover { color: #e4e4e7; background: rgba(255,255,255,0.04); }
+.iw-seg-btn.active {
+    color: #fff; background: rgba(56,189,248,0.16);
+    box-shadow: inset 0 0 0 1px rgba(56,189,248,0.45);
+}
 .settings-color-input { background: none; border: none; width: 40px; height: 30px; cursor: pointer; padding: 0; }
 .settings-modal .filter-config-pane { 
         background: #121214 !important; 
@@ -10777,9 +10805,13 @@ function handleSocketFlightUpdate(data) {
                 const trailGrew = appendTrailPoint(localTrail, newRoutePoint);
                 liveTrailCache.set(flightId, localTrail);
 
-                // --- [NEW] Update Simple Iframe if Active ---
+                // --- [NEW] Update Simple / Embed Iframe if Active ---
+                // Both the Simple and Embed ("Card") windows are iframes fed the
+                // same FLIGHT_DATA_UPDATE payload, so a single live-update path
+                // serves both. Legacy stays on the avionics DOM path below.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
-                if (mapFilters.useSimpleFlightWindow && simpleIframe && simpleIframe.contentWindow) {
+                const _liveFwMode = getFlightWindowMode();
+                if (_liveFwMode !== 'legacy' && simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
                          fullFlightProps,
                          cachedFlightDataForStatsView.plan,
@@ -10796,7 +10828,7 @@ function handleSocketFlightUpdate(data) {
                          cachedFlightDataForStatsView.filedPlanData || null
                      );
                      simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                } else if (!mapFilters.useSimpleFlightWindow) {
+                } else if (_liveFwMode === 'legacy') {
                     updatePfdDisplay(flight.position);
                     updateNavPanelData(
                         flight.position.lat, 
@@ -14430,6 +14462,48 @@ function initializeAircraftLayer() {
  * and re-confirms via SIMPLE_WINDOW_PEEK_HEIGHT. The height table mirrors
  * PEEK_HEIGHTS in flightinfo.html (the source of truth).
  */
+/**
+ * --- Flight / airport window presentation mode helpers ---
+ * `flightWindowMode` is the canonical store ('legacy' | 'simple' | 'embed');
+ * the older `useSimpleFlightWindow` boolean is kept mirrored (true only for
+ * 'simple') so existing code paths and saved settings still resolve correctly.
+ */
+function getFlightWindowMode() {
+    if (typeof mapFilters === 'undefined') return 'legacy';
+    // 'embed' is the only mode tracked solely by flightWindowMode; the
+    // simple/legacy split stays keyed off useSimpleFlightWindow so any legacy
+    // code path that flips that boolean keeps working.
+    if (mapFilters.flightWindowMode === 'embed') return 'embed';
+    return mapFilters.useSimpleFlightWindow ? 'simple' : 'legacy';
+}
+
+function setFlightWindowMode(mode) {
+    if (typeof mapFilters === 'undefined') return;
+    if (mode !== 'legacy' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
+    mapFilters.flightWindowMode = mode;
+    mapFilters.useSimpleFlightWindow = (mode === 'simple');
+    if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+}
+
+function getAirportWindowMode() {
+    if (typeof mapFilters === 'undefined') return 'standard';
+    return mapFilters.airportWindowMode === 'embed' ? 'embed' : 'standard';
+}
+
+function setAirportWindowMode(mode) {
+    if (typeof mapFilters === 'undefined') return;
+    mapFilters.airportWindowMode = (mode === 'embed') ? 'embed' : 'standard';
+    if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+}
+
+// Expose for the mobile settings UI (which lives in its own module).
+if (typeof window !== 'undefined') {
+    window.getFlightWindowMode = getFlightWindowMode;
+    window.setFlightWindowMode = setFlightWindowMode;
+    window.getAirportWindowMode = getAirportWindowMode;
+    window.setAirportWindowMode = setAirportWindowMode;
+}
+
 function primeSimpleWindowPeekHeight() {
     const HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
     let peek = 'standard';
@@ -16178,13 +16252,22 @@ renderCategory(catId) {
 
                         <div class="settings-section">
                             <label class="config-header">Flight Window</label>
-                            <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-window-maximize"></i> Simple Flight Info</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-simple-window" ${mapFilters.useSimpleFlightWindow ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            <div class="iw-seg" data-seg="flight-window-mode">
+                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
+                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
+                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Airport Window</label>
+                            <div class="iw-seg" data-seg="airport-window-mode">
+                                <button type="button" class="iw-seg-btn${getAirportWindowMode() === 'standard' ? ' active' : ''}" data-mode="standard"><i class="fa-solid fa-table-columns"></i> Standard</button>
+                                <button type="button" class="iw-seg-btn${getAirportWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
                             </div>
                         </div>
                     `;
@@ -16360,7 +16443,6 @@ renderCategory(catId) {
             'set-show-unstaffed': 'showUnstaffedAirports',
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
-            'set-simple-window': 'useSimpleFlightWindow',
             'set-auto-cycle-photos': 'autoCyclePhotos',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
@@ -16388,6 +16470,24 @@ renderCategory(catId) {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
+
+        // --- 4b. Flight- / Airport-window presentation segmented controls ---
+        // Legacy | Simple | Card for flights; Standard | Card for airports.
+        const wireWindowModeSeg = (seg, apply, label) => {
+            const wrap = document.querySelector(`.iw-seg[data-seg="${seg}"]`);
+            if (!wrap) return;
+            wrap.querySelectorAll('.iw-seg-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    apply(btn.dataset.mode);
+                    wrap.querySelectorAll('.iw-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+                    if (typeof showNotification === 'function') {
+                        showNotification(`${label} updated — reopen to apply.`, 'info');
+                    }
+                });
+            });
+        };
+        wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
+        wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // VA Hub Markers — opt-in map overlay. Persist the flag, then add/remove
         // the hub logo markers immediately (it isn't a plain map-filter layer,
@@ -17615,7 +17715,8 @@ window.globalNatTracks = natTracks;
                 event.data.type === 'SIMPLE_WINDOW_ACTION' ||
                 event.data.type === 'SIMPLE_WINDOW_PEEK_HEIGHT' ||
                 event.data.type === 'SIMPLE_WINDOW_EDIT_MODE' ||
-                event.data.type === 'NAVIGATE_TO_AIRPORT'
+                event.data.type === 'NAVIGATE_TO_AIRPORT' ||
+                event.data.type === 'EMBED_AIRPORT_HEIGHT'
             )) {
                 handleIframeMessage(event);
             }
@@ -18170,8 +18271,197 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
     }
 }
 
+/**
+ * Gathers the payload for the embed-style airport window (embed-airport.html).
+ * Reuses the same live endpoints and helpers as the standard window, reshaped
+ * into the embed's airport card (METAR / ATIS ops / traffic / gates). Best-
+ * effort throughout — a failed sub-fetch just omits its module.
+ */
+async function formatDataForEmbedAirport(icao) {
+    const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
+    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Live airport details (name / city / coords).
+    let liveData = null;
+    try {
+        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
+    } catch (_) {}
+
+    const name = liveData?.name || staticData.name || airportMetadata?.name || icao;
+    const city = liveData?.city || staticData.city || '';
+    const cc = (countryCodeForAirport(icao) || liveData?.country?.isoCode || '').toLowerCase();
+    const elevation = liveData?.elevation ?? staticData.elevation_ft ?? null;
+    const lat = liveData?.latitude ?? staticData.lat;
+    const lon = liveData?.longitude ?? staticData.lon;
+
+    // Live traffic + ATIS, keyed off the cached session id (same as the standard window).
+    let inbound = 0, outbound = 0, rawAtis = null;
+    try {
+        const sessionId = await getValidSessionId();
+        if (sessionId && sessionId !== 'default') {
+            const [statusRes, atisRes] = await Promise.all([
+                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
+                fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/atis`)
+            ]);
+            if (statusRes.ok) {
+                const s = await statusRes.json();
+                if (s.ok && s.status) {
+                    inbound = (s.status.inboundFlights || []).length;
+                    outbound = (s.status.outboundFlights || []).length;
+                }
+            }
+            if (atisRes.ok) { const a = await atisRes.json(); if (a.ok && a.atis) rawAtis = a.atis; }
+        }
+    } catch (_) {}
+
+    // METAR — parse with the same WeatherService the weather panel uses. The
+    // parsed record is kept around so the runway module can compute live
+    // head/cross-wind components against the same observation.
+    let metar = null;
+    let parsedWx = null;
+    try {
+        if (window.WeatherService) {
+            const w = await window.WeatherService.fetchAndParseMetar(icao);
+            parsedWx = w;
+            if (w && w.raw && w.raw !== 'Not Available') {
+                let cat = 'VFR', color = '#4ade80';
+                if (w.raw.includes('LIFR')) { cat = 'LIFR'; color = '#c084fc'; }
+                else if (w.raw.includes('IFR') || w.raw.includes('VV')) { cat = 'IFR'; color = '#f87171'; }
+                else if (w.raw.includes('MVFR')) { cat = 'MVFR'; color = '#60a5fa'; }
+                let wind = 'Calm';
+                if (w.windVariable) wind = `VRB ${w.windSpeed}kt`;
+                else if (w.windDir != null) wind = `${String(w.windDir).padStart(3, '0')}° ${w.windSpeed}kt`;
+                else if (w.windSpeed) wind = `${w.windSpeed}kt`;
+                if (w.windGust) wind += ` G${w.windGust}`;
+                metar = {
+                    cat, color, wind,
+                    vis: w.visibility || '—',
+                    temp: w.temp || (w.tempC != null ? `${w.tempC}°C` : '—'),
+                    qnh: w.qnh != null ? String(w.qnh) : '—',
+                    raw: w.raw
+                };
+            }
+        }
+    } catch (_) {}
+
+    // ATIS ops — only when a live broadcast is up (matches the embed's card).
+    let atis = null;
+    if (rawAtis) {
+        const text = Array.isArray(rawAtis) ? rawAtis.join(' ') : String(rawAtis);
+        const a = parseAtis(text);
+        if (a) atis = { info: a.info, landing: a.landing || '---', departing: a.departing || '---', appr: a.approach || '---' };
+    }
+
+    // Gates + the live pilots parked on them (any pilot, not just a VA).
+    let gates = null;
+    const occupants = [];
+    try {
+        let g = await fetchAirportGates(icao);
+        if (g && !Array.isArray(g) && Array.isArray(g.gates)) g = g.gates;
+        gates = Array.isArray(g) ? g : null;
+        if (lat != null && lon != null && typeof currentMapFeatures !== 'undefined') {
+            Object.values(currentMapFeatures || {}).forEach(f => {
+                const p = f && f.properties; if (!p) return;
+                let pos = {};
+                try { pos = typeof p.position === 'string' ? JSON.parse(p.position || '{}') : (p.position || {}); } catch (_) { pos = {}; }
+                if (pos.lat == null || pos.lon == null) return;
+                if (getDistanceKm(pos.lat, pos.lon, lat, lon) > 5) return;
+                const gs = pos.gs_kt || 0;
+                const stationary = Number(p.pilotState) === PILOT_STATE_PARKED || gs <= GATE_PARK_MAX_GS_KT;
+                if (!stationary) return;
+                occupants.push({ username: p.username || p.callsign || 'Pilot', lat: pos.lat, lon: pos.lon });
+            });
+        }
+    } catch (_) {}
+
+    // Runways — physical list plus wind-scored recommendations against the
+    // METAR we just parsed (same physics the standard window's INFO tab uses).
+    const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
+    const runways = rawRunways
+        .filter(r => !r.closed && (r.le_ident || r.he_ident))
+        .map(r => ({
+            ident: [r.le_ident, r.he_ident].filter(Boolean).join('/'),
+            length_ft: r.length_ft || null,
+            surface: r.surface || '',
+            lighted: !!r.lighted
+        }));
+    let runwayRecs = [];
+    try {
+        if (rawRunways.length && parsedWx && parsedWx.wind && parsedWx.wind !== '---') {
+            runwayRecs = getRunwayRecommendations(rawRunways, parsedWx.wind)
+                .slice(0, 4)
+                .map(r => ({ ident: r.ident, color: r.color, reason: r.reason, headwind: r.headwind, crosswind: r.crosswind }));
+        }
+    } catch (_) {}
+
+    // Live / recent ATC sessions (same endpoint as the standard window's FREQS tab).
+    let atcLive = [], atcRecent = [];
+    try {
+        const sessions = await fetchAtcSessionsForAirport(icao);
+        const mapS = (s) => ({
+            username: s.username || 'Controller',
+            frequencies: (s.frequencies || []).slice(0, 4),
+            when: formatAtcSessionStart(s.start)
+        });
+        atcLive = sessions.filter(s => s.open).slice(0, 6).map(mapS);
+        atcRecent = sessions.filter(s => !s.open).slice(0, 3).map(mapS);
+    } catch (_) {}
+
+    // Day/night phase from solar elevation (pure math, no API).
+    let sun = null;
+    try { sun = computeSunPhase(lat, lon); } catch (_) {}
+
+    return {
+        icao, name, city, cc, elevation,
+        coords: { lat, lon },
+        metar, atis, sun,
+        traffic: { inbound, outbound },
+        runways, runwayRecs,
+        atcLive, atcRecent,
+        gates, occupants,
+        heroUrl: airportAerialImageUrl(lat, lon)
+    };
+}
+
+/**
+ * Renders the embed-style airport window: an iframe hosting embed-airport.html,
+ * fed the formatDataForEmbedAirport payload. The iframe sizes itself to content
+ * and reports its height back via EMBED_AIRPORT_HEIGHT (handled in
+ * handleIframeMessage). The requestId guard mirrors the standard path so a
+ * newer airport tap never gets clobbered by a slow fetch.
+ */
+async function renderEmbedAirportWindow(icao, requestId, contentEl) {
+    if (!contentEl) return;
+    contentEl.classList.add('apt-ready');
+    contentEl.style.padding = '0';
+    contentEl.innerHTML = `<iframe id="embed-airport-frame" src="embed-airport.html" style="width:100%;height:360px;border:none;display:block;background:transparent;" scrolling="no"></iframe>`;
+
+    let payload = null;
+    let loaded = false;
+    const post = () => {
+        if (requestId !== airportWindowRequestSeq) return;
+        const fr = document.getElementById('embed-airport-frame');
+        if (payload && fr && fr.contentWindow) {
+            fr.contentWindow.postMessage({ type: 'AIRPORT_DATA_UPDATE', payload }, '*');
+        }
+    };
+
+    const iframe = document.getElementById('embed-airport-frame');
+    if (iframe) iframe.onload = () => { loaded = true; post(); };
+
+    try {
+        payload = await formatDataForEmbedAirport(icao);
+    } catch (e) {
+        console.error('[embed airport] failed to gather data:', e);
+        payload = { icao, error: true };
+    }
+    if (requestId !== airportWindowRequestSeq) return;
+    if (loaded) post();   // data resolved after the iframe finished loading
+}
+
     /**
- * Handles clicks on airport markers/tags. 
+ * Handles clicks on airport markers/tags.
  * High priority: This will always close the aircraft window if it is open.
  */
 async function handleAirportClick(icao, event = null, recenter = false) {
@@ -18248,6 +18538,9 @@ async function handleAirportClick(icao, event = null, recenter = false) {
     const contentEl = document.getElementById('airport-window-content');
     if (contentEl) {
         contentEl.classList.remove('apt-ready');
+        // Reset any inline padding the embed window zeroed out, so the standard
+        // window's own layout is restored when switching back.
+        contentEl.style.padding = '';
         contentEl.innerHTML = createAirportSkeletonHTML(icao);
     }
 
@@ -18261,8 +18554,16 @@ async function handleAirportClick(icao, event = null, recenter = false) {
     if (typeof airportInfoWindowRecallBtn !== 'undefined' && airportInfoWindowRecallBtn) {
         airportInfoWindowRecallBtn.classList.remove('visible');
     }
-    
+
     currentAirportInWindow = icao;
+
+    // 4b. Embed ("Card") airport window — host the embed-airport.html card in an
+    // iframe fed by formatDataForEmbedAirport, instead of the standard tabbed
+    // DOM window. The map visuals (routes / taxiways) above still run.
+    if (getAirportWindowMode() === 'embed') {
+        renderEmbedAirportWindow(icao, requestId, contentEl);
+        return;
+    }
 
     // 5. Fetch and Render Data
     try {
@@ -18767,7 +19068,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
         cachedFlightDataForStatsView = { flightProps, plan };
 
-        if (typeof mapFilters !== 'undefined' && mapFilters.useSimpleFlightWindow) {
+        const _fwMode = getFlightWindowMode();
+        if (_fwMode === 'simple' || _fwMode === 'embed') {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
             // Prime the peek height from the saved layout preset, then choose the
@@ -18779,11 +19081,20 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 && window.MobileUIHandler.isMobile());
             const initialPhase = onMobile ? 'collapsed' : 'expanded';
             applySimpleWindowPhase(initialPhase);
+            // The embed ("Card") mode loads the FR24-style card page; Simple loads
+            // the full flightinfo.html. Both share the #simple-flight-window-frame
+            // id and FLIGHT_DATA_UPDATE payload so the live-update plumbing is common.
+            // On desktop the card gets ?desktop=1 so it opens straight into the full
+            // layout with no peek bar or collapse-to-peek (those are sheet gestures
+            // that only make sense on mobile).
             // height:100% is essential on desktop — #aircraft-info-window forces
             // display:block (overflow scroll), so flex-grow does nothing and the
             // iframe would collapse to the browser's ~150px default. On mobile
             // .mobile-legacy-sheet has its own !important rules that win anyway.
-            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="flightinfo.html" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
+            const _fwSrc = _fwMode === 'embed'
+                ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
+                : 'flightinfo.html';
+            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {
@@ -18855,7 +19166,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // the live samples captured since the window was opened. Live ticks
             // keep extending it from here.
             try {
-                if (mapFilters.useSimpleFlightWindow) {
+                if (getFlightWindowMode() !== 'legacy') {
                     const simpleIframe = document.getElementById('simple-flight-window-frame');
                     if (simpleIframe && simpleIframe.contentWindow) {
                         const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
@@ -21732,6 +22043,17 @@ async function handleIframeMessage(event) {
     if (event.data && event.data.type === 'NAVIGATE_TO_AIRPORT') {
         const icao = event.data.icao;
         if (icao && typeof handleAirportClick === 'function') handleAirportClick(icao, null, true);
+        return;
+    }
+
+    // 2d. [NEW] The embed-style airport window sizes to its content and reports
+    // the height it needs; grow the docked iframe so the card isn't clipped.
+    if (event.data && event.data.type === 'EMBED_AIRPORT_HEIGHT') {
+        const iframe = document.getElementById('embed-airport-frame');
+        if (iframe) {
+            const h = Math.max(120, Math.min(parseInt(event.data.height, 10) || 300, 2000));
+            iframe.style.height = h + 'px';
+        }
         return;
     }
 
