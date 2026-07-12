@@ -18492,12 +18492,17 @@ async function formatAirportSummary(icao) {
     const runwayCount = openRunways.length;
     const longestFt = openRunways.reduce((m, r) => Math.max(m, r.length_ft || 0), 0) || null;
 
+    // Day/night phase at the field from solar elevation (pure math, no API) —
+    // same chip the airport Card shows.
+    let sun = null;
+    try { sun = computeSunPhase(lat, lon); } catch (_) {}
+
     const aerialUrl = airportAerialImageUrl(lat, lon);
     const backendImageUrl = airportMetadata?.imageUrl || null;
 
     return {
         icao, name, city, cc, elevation,
-        metar, runwayCount, longestFt,
+        metar, runwayCount, longestFt, sun,
         heroUrl: backendImageUrl || aerialUrl,
         heroFallbackUrl: backendImageUrl ? aerialUrl : null
     };
@@ -18538,9 +18543,11 @@ function buildDestSummaryPanelHTML(a) {
         <div class="dest-metar"><div class="dest-metar-h"><span>METAR</span></div>
             <div class="dest-status">Weather unavailable.</div></div>`;
 
+    const sun = a.sun ? `<span class="dest-sun" style="color:${esc(a.sun.color)}"><i class="fa-solid ${esc(a.sun.icon)}"></i> ${esc(a.sun.label)}</span>` : '';
+
     return `
         ${hero}
-        <div class="dest-loc">${flag}<span>${esc(loc)}</span></div>
+        <div class="dest-loc">${flag}<span>${esc(loc)}</span>${sun}</div>
         <div class="dest-grid">
             <div class="dest-cell"><span class="l">Elevation</span><span class="v">${esc(elev)}</span></div>
             <div class="dest-cell"><span class="l">Runways</span><span class="v">${esc(rwyCount)}</span></div>
@@ -19622,6 +19629,7 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .dest-hero-cap b { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.7); flex: 0 0 auto; }
             #aircraft-info-window .dest-hero-cap span { font-size: 12px; font-weight: 600; color: #f4f4f5; text-shadow: 0 1px 4px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             #aircraft-info-window .dest-loc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; }
+            #aircraft-info-window .dest-sun { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
             #aircraft-info-window .dest-flag { height: 14px; border-radius: 2px; flex: 0 0 auto; }
             #aircraft-info-window .dest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
             #aircraft-info-window .dest-cell { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }

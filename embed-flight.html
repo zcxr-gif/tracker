@@ -380,6 +380,7 @@
     .dest-hero-cap span { font-size: 12.5px; font-weight: 600; color: #f4f4f5; text-shadow: 0 1px 4px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     .dest-loc { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+    .dest-sun { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
     .dest-flag { height: 14px; border-radius: 2px; flex: 0 0 auto; }
     .dest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .dest-cell {
@@ -1041,9 +1042,11 @@
             <div class="dest-metar"><div class="dest-metar-h"><span>METAR</span></div>
                 <div class="dest-status">Weather unavailable.</div></div>`;
 
+        const sun = a.sun ? `<span class="dest-sun" style="color:${esc(a.sun.color)}"><i class="fa-solid ${esc(a.sun.icon)}"></i> ${esc(a.sun.label)}</span>` : '';
+
         return `
             ${hero}
-            <div class="dest-loc">${flag}<span>${esc(loc)}</span></div>
+            <div class="dest-loc">${flag}<span>${esc(loc)}</span>${sun}</div>
             <div class="dest-grid">
                 <div class="dest-cell"><span class="l">Elevation</span><span class="v">${esc(elev)}</span></div>
                 <div class="dest-cell"><span class="l">Runways</span><span class="v">${esc(rwyCount)}</span></div>
