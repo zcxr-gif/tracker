@@ -24,6 +24,21 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.3',
+            date: 'July 2026',
+            title: 'The Card Window',
+            tagline: 'A third window style for flights and airports — a clean place-card look with partner VAs on board.',
+            entries: [
+                { tag: 'new', icon: 'fa-id-card', text: 'New “Card” window style — pick it under Settings → Info Windows, for both flights and airports, alongside Legacy and Simple.' },
+                { tag: 'new', icon: 'fa-mobile-screen-button', text: 'The flight Card opens like a place card — full-width photo hero, the airline’s logo tile, big centred callsign, and one-tap Follow / Replay / Share buttons with the live ETE.' },
+                { tag: 'new', icon: 'fa-images', text: 'Photo rail — every community shot of the airframe in a swipeable gallery, each with its photographer credit.' },
+                { tag: 'new', icon: 'fa-handshake-angle', text: 'Partner VAs now advertise inside the flight Card — the flight’s own VA (or VAs hubbed at its airports) with full banner artwork and a one-tap Apply Now.' },
+                { tag: 'new', icon: 'fa-compress', text: 'Collapsed on mobile, the Card is a glanceable peek bar — route with live progress, departed / lands-in times, altitude, speed, type and registration.' },
+                { tag: 'new', icon: 'fa-wind', text: 'The airport Card reads the field for you — wind-aware runway list with the preferred end highlighted, live ATC on frequency and a day / night chip.' },
+                { tag: 'improved', icon: 'fa-palette', text: 'The Card wears soft whites and grays — colour is saved for what it means: flight phase, climb / descend, takeoff / landing.' }
+            ]
+        },
+        {
             id: '2026.07.2',
             date: 'July 2026',
             title: 'Airport Map Detail & Runway Winds',
