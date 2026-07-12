@@ -651,7 +651,62 @@
     body.hide-telemetry .sw-block[data-block="telemetry"],
     body.hide-navenv    .sw-block[data-block="navenv"],
     body.hide-graph     .sw-block[data-block="graph"],
+    body.hide-destination .sw-block[data-block="destination"],
     body.hide-manifest  .sw-block[data-block="manifest"] { display: none; }
+
+    /* --- Destination dropdown: collapsible info + image for the arrival field --- */
+    .dest-card {
+        background: var(--card-bg); border: 1px solid var(--border-glass);
+        border-radius: var(--radius-lg); overflow: hidden;
+    }
+    .dest-toggle {
+        width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 13px 14px; background: transparent; border: none; color: var(--text-primary);
+        cursor: pointer; font-family: inherit; text-align: left;
+    }
+    .dest-toggle-l { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .dest-toggle-ic { color: var(--color-warning); font-size: calc(15px * var(--text-scale)); flex: 0 0 auto; }
+    .dest-toggle-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .dest-toggle-code { font-family: var(--font-num); font-size: calc(18px * var(--text-scale)); font-weight: 800; letter-spacing: .5px; }
+    .dest-toggle-sub { font-size: calc(10px * var(--text-scale)); font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary); }
+    .dest-chev { color: var(--text-secondary); font-size: 13px; transition: transform .22s ease; flex: 0 0 auto; }
+    .dest-card.open .dest-chev { transform: rotate(180deg); }
+    .dest-panel { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 11px; }
+    .dest-panel[hidden] { display: none; }
+    .dest-status { color: var(--text-secondary); font-size: calc(12.5px * var(--text-scale)); font-weight: 600; padding: 4px 0; }
+
+    .dest-hero { position: relative; width: 100%; height: 150px; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-subtle); }
+    .dest-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .dest-hero-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%); }
+    .dest-hero-cap { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .dest-hero-cap b { font-family: var(--font-num); font-size: 18px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.7); flex: 0 0 auto; }
+    .dest-hero-cap span { font-size: 12.5px; font-weight: 600; color: #f4f4f5; text-shadow: 0 1px 4px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .dest-loc { display: flex; align-items: center; gap: 8px; font-size: calc(12.5px * var(--text-scale)); font-weight: 600; color: var(--text-secondary); }
+    .dest-flag { height: 14px; border-radius: 2px; flex: 0 0 auto; }
+    .dest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .dest-cell {
+        background: var(--bg-subtle); border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm); padding: 9px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0;
+    }
+    .dest-cell .l { font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dest-cell .v { font-family: var(--font-num); font-size: calc(14px * var(--text-scale)); font-weight: 800; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .dest-metar { background: var(--bg-subtle); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 11px 12px; }
+    .dest-metar-h { display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 9px; }
+    .dest-pill { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+    .dest-mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .dest-mgrid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .dest-mgrid .l { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); }
+    .dest-mgrid .v { font-family: var(--font-num); font-size: calc(13px * var(--text-scale)); font-weight: 800; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dest-open-btn {
+        width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 11px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);
+        background: var(--bg-subtle); color: var(--text-primary); cursor: pointer;
+        font-family: inherit; font-size: calc(12px * var(--text-scale)); font-weight: 700;
+        transition: border-color .2s, background .2s;
+    }
+    .dest-open-btn:hover { border-color: var(--border-highlight); background: rgba(255,255,255,0.06); }
     /* Editing always reveals every block (even toggled-off ones) so they can be
        re-ordered / re-enabled in place. */
     body.editing .sw-block { display: block !important; }
@@ -1193,6 +1248,24 @@
                 </div>
             </div>
 
+            <div class="sw-block" data-block="destination" id="sec-destination" style="display:none;">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Destination</div>
+                <div class="grid-section-label">Destination</div>
+                <div class="dest-card" id="dest-card">
+                    <button type="button" class="dest-toggle" aria-expanded="false" title="Destination airport info">
+                        <span class="dest-toggle-l">
+                            <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
+                            <span class="dest-toggle-txt">
+                                <span class="dest-toggle-code" id="dest-code">---</span>
+                                <span class="dest-toggle-sub">Arriving at · tap for info</span>
+                            </span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down dest-chev"></i>
+                    </button>
+                    <div class="dest-panel" hidden></div>
+                </div>
+            </div>
+
             <div class="sw-block" data-block="graph" id="sec-graph">
                 <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Graph</div>
                 <div class="grid-section-label">Speed &amp; Altitude</div>
@@ -1362,6 +1435,7 @@
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-route"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Flight plan</div></span><span class="cs-switch"><input type="checkbox" data-section="flightplan"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-gauge-high"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Live telemetry</div></span><span class="cs-switch"><input type="checkbox" data-section="telemetry"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-compass"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Navigation &amp; environment</div></span><span class="cs-switch"><input type="checkbox" data-section="navenv"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-plane-arrival"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Destination airport</div></span><span class="cs-switch"><input type="checkbox" data-section="destination"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-chart-area"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Speed &amp; altitude graph</div></span><span class="cs-switch"><input type="checkbox" data-section="graph"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-user-astronaut"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Pilot manifest</div></span><span class="cs-switch"><input type="checkbox" data-section="manifest"><span class="cs-switch-track"></span></span></label>
                     </div>
@@ -1499,6 +1573,111 @@
             try { window.parent.postMessage({ type: 'NAVIGATE_TO_AIRPORT', icao: el.dataset.icao }, '*'); } catch (err) {}
         }, true);
 
+        // =========================================================
+        // DESTINATION DROPDOWN
+        // Collapsible info panel for the airport being flown to. The block
+        // only shows when the route has a real arrival ICAO. Opening it the
+        // first time asks the host for a compact summary (info + image) via
+        // REQUEST_AIRPORT_SUMMARY; the host answers with AIRPORT_SUMMARY.
+        // =========================================================
+        const destEsc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        let destIcao = '';
+        let destLoaded = false;   // false → not asked yet; 'pending' → waiting; true → rendered
+
+        function destRequest() {
+            const panel = document.querySelector('#dest-card .dest-panel');
+            if (panel) panel.innerHTML = '<div class="dest-status">Loading airport…</div>';
+            destLoaded = 'pending';
+            try { window.parent.postMessage({ type: 'REQUEST_AIRPORT_SUMMARY', icao: destIcao }, '*'); } catch (e) {}
+        }
+
+        // Called on every route tick; shows/hides the block and resets the
+        // panel when the destination actually changes (new flight, diversion).
+        function setDestinationIcao(icao) {
+            const block = document.getElementById('sec-destination');
+            const card = document.getElementById('dest-card');
+            if (!block || !card) return;
+            const code = (icao || '').trim().toUpperCase();
+            const valid = /^[A-Z0-9]{3,4}$/.test(code);
+            block.style.display = valid ? '' : 'none';
+            if (!valid || code === destIcao) return;
+            destIcao = code;
+            destLoaded = false;
+            const codeEl = document.getElementById('dest-code');
+            if (codeEl) codeEl.textContent = code;
+            const panel = card.querySelector('.dest-panel');
+            if (panel) panel.innerHTML = '';
+            if (card.classList.contains('open')) destRequest();
+        }
+
+        document.addEventListener('click', (e) => {
+            const toggle = e.target.closest('#dest-card .dest-toggle');
+            if (!toggle) return;
+            const card = document.getElementById('dest-card');
+            const open = card.classList.toggle('open');
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            const panel = card.querySelector('.dest-panel');
+            if (panel) panel.hidden = !open;
+            if (open && !destLoaded && destIcao) destRequest();
+        });
+
+        function destPanelHTML(a) {
+            const heroUrl = a.heroUrl || '';
+            const fb = a.heroFallbackUrl || '';
+            const hero = heroUrl
+                ? `<div class="dest-hero"><img src="${destEsc(heroUrl)}"${fb ? ` data-fallback="${destEsc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${destEsc(a.icao || '')}</b>${a.name ? `<span>${destEsc(a.name)}</span>` : ''}</div></div>`
+                : '';
+            const cc = String(a.cc || '').toLowerCase();
+            const flag = /^[a-z]{2}$/.test(cc)
+                ? `<img class="dest-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">` : '';
+            const loc = [a.city, cc.toUpperCase()].filter(Boolean).join(', ') || '—';
+            const elev = (a.elevation != null && isFinite(a.elevation)) ? `${Math.round(a.elevation)} ft` : '—';
+            const rwyCount = (a.runwayCount != null) ? String(a.runwayCount) : '—';
+            const longest = a.longestFt ? `${Number(a.longestFt).toLocaleString()} ft` : '—';
+
+            const m = a.metar;
+            const metar = m ? `
+                <div class="dest-metar">
+                    <div class="dest-metar-h"><span>METAR</span><span class="dest-pill" style="color:${m.color};border-color:${m.color}">${destEsc(m.cat)}</span></div>
+                    <div class="dest-mgrid">
+                        <div><span class="l">Wind</span><span class="v">${destEsc(m.wind)}</span></div>
+                        <div><span class="l">Vis</span><span class="v">${destEsc(m.vis)}</span></div>
+                        <div><span class="l">Temp</span><span class="v">${destEsc(m.temp)}</span></div>
+                        <div><span class="l">QNH</span><span class="v">${destEsc(m.qnh)}</span></div>
+                    </div>
+                </div>` : `
+                <div class="dest-metar"><div class="dest-metar-h"><span>METAR</span></div>
+                    <div class="dest-status">Weather unavailable.</div></div>`;
+
+            return `
+                ${hero}
+                <div class="dest-loc">${flag}<span>${destEsc(loc)}</span></div>
+                <div class="dest-grid">
+                    <div class="dest-cell"><span class="l">Elevation</span><span class="v">${destEsc(elev)}</span></div>
+                    <div class="dest-cell"><span class="l">Runways</span><span class="v">${destEsc(rwyCount)}</span></div>
+                    <div class="dest-cell"><span class="l">Longest RWY</span><span class="v">${destEsc(longest)}</span></div>
+                </div>
+                ${metar}
+                <button type="button" class="dest-open-btn icao-clickable" data-icao="${destEsc(a.icao || '')}" title="Open full airport window">
+                    <i class="fa-solid fa-up-right-from-square"></i> Full airport window
+                </button>`;
+        }
+
+        window.addEventListener('message', (event) => {
+            const d = event.data;
+            if (!d || typeof d !== 'object' || d.type !== 'AIRPORT_SUMMARY') return;
+            if (!destIcao || d.icao !== destIcao) return;
+            const panel = document.querySelector('#dest-card .dest-panel');
+            if (!panel) return;
+            destLoaded = true;
+            panel.innerHTML = (d.error || !d.payload)
+                ? '<div class="dest-status">Airport info unavailable.</div>'
+                : destPanelHTML(d.payload);
+        });
+
         window.scrollToProfile = function() {
             const el = document.getElementById('profile-anchor');
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1515,15 +1694,15 @@
         // =========================================================
         const LAYOUT_KEY = 'inflightSimpleLayout';
         const PRESETS_KEY = 'inflightSimplePresets';
-        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'graph', 'manifest'];
+        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'destination', 'graph', 'manifest'];
         const PEEK_HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
         const METRICS = { telemetry: ['alt', 'spd', 'vs', 'hdg'], navenv: ['tas', 'oat', 'wind', 'dtg', 'nextwp', 'pos'] };
         const STATE_KEYS = ['climb', 'descend', 'cruise', 'ground', 'approach', 'pushback', 'enroute'];
 
         const DEFAULTS = {
             peek: 'standard',
-            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, graph: true, manifest: true },
-            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'graph', 'legs', 'manifest'],
+            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, destination: true, graph: true, manifest: true },
+            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'destination', 'graph', 'legs', 'manifest'],
             metrics: { telemetry: { alt: true, spd: true, vs: true, hdg: true }, navenv: { tas: true, oat: true, wind: true, dtg: true, nextwp: true, pos: true } },
             cols: { telemetry: 2, navenv: 2 },
             style: {
@@ -2035,6 +2214,7 @@
                 setIcaoClickable('arr-icao', r.destIcao);
                 setIcaoClickable('c-dep-icao', r.originIcao);
                 setIcaoClickable('c-arr-icao', r.destIcao);
+                setDestinationIcao(r.destIcao);
 
                 setCity('dep-city', r.originCity);
                 setCity('arr-city', r.destCity);

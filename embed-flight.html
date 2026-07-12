@@ -391,6 +391,14 @@
 
     .dest-metar { background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 12px; padding: 11px 12px; }
     .dest-metar-h { display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 9px; }
+    .dest-open-btn {
+        width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 11px 14px; border-radius: 12px; border: 1px solid var(--border-glass);
+        background: rgba(255,255,255,0.03); color: #fff; cursor: pointer;
+        font-family: inherit; font-size: 12px; font-weight: 700;
+        transition: border-color .2s, background .2s;
+    }
+    .dest-open-btn:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06); }
     .dest-pill { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
     .dest-mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .dest-mgrid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
@@ -962,7 +970,7 @@
             try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_ACTION', action: act.getAttribute('data-act') }, '*'); } catch (_) {}
             return;
         }
-        const el = e.target.closest('.apt-btn, .rh-icao');
+        const el = e.target.closest('.apt-btn, .rh-icao, .dest-open-btn');
         if (!el) return;
         const icao = el.getAttribute('data-icao');
         if (icao) {
@@ -1042,8 +1050,8 @@
                 <div class="dest-cell"><span class="l">Longest RWY</span><span class="v">${esc(longest)}</span></div>
             </div>
             ${metar}
-            <button type="button" class="apt-btn arr" data-icao="${esc(a.icao || '')}" title="Open full airport window" style="width:100%">
-                <span class="r"><i class="fa-solid fa-up-right-from-square"></i> Full airport window</span><span class="code">${esc(a.icao || '')}</span>
+            <button type="button" class="dest-open-btn" data-icao="${esc(a.icao || '')}" title="Open full airport window">
+                <i class="fa-solid fa-up-right-from-square"></i> Full airport window
             </button>`;
     }
 
