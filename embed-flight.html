@@ -17,27 +17,32 @@
     /* ------------------------------------------------------------------ *
      *  Embed-style "Card" flight window. Two phases (Simple-window          *
      *  contract): body.collapsed → FR24-style peek bar for the mobile       *
-     *  bottom sheet; body.expanded → the full window, styled after the      *
-     *  Simple flight-info window (flightinfo.html): big callsign header,    *
-     *  photo hero with overlay, giant route ICAOs, hairline times grid,     *
-     *  progress track and bento telemetry cells. Fed the same               *
+     *  bottom sheet; body.expanded → an Apple-Maps-place-card layout:       *
+     *  full-bleed hero photo fading into the page, circular share/close     *
+     *  buttons, a centred app-icon tile overlapping the hero, big centred   *
+     *  callsign, subtitle, a rounded action-button row (primary filled      *
+     *  blue), a 3-column stats strip, a horizontal photo gallery and bold   *
+     *  section headings over grouped cards. Fed the same                    *
      *  FLIGHT_DATA_UPDATE payload; phase syncs via SET_PHASE /              *
      *  SIMPLE_WINDOW_STATE. ?desktop=1 = plain docked window, no peek.      *
      * ------------------------------------------------------------------ */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-        --card-bg: rgba(24, 24, 27, 0.92);
-        --border-glass: rgba(255, 255, 255, 0.08);
-        --text-secondary: #a1a1aa;
-        --text-dim: #52525b;
-        --brand: #38bdf8;
-        --ok: #4ade80;
-        --warn: #fbbf24;
+        --bg: #1a1a1e;
+        --card-bg: #232327;
+        --border-glass: rgba(255, 255, 255, 0.07);
+        --text-secondary: #9a9aa2;
+        --text-dim: #636369;
+        --brand: #0a84ff;
+        --blue-tint: rgba(10, 132, 255, 0.16);
+        --blue-text: #7cb8ff;
+        --ok: #30d158;
+        --warn: #ff9f0a;
         --font-data: 'JetBrains Mono', ui-monospace, monospace;
     }
     html, body {
         height: 100%;
-        background: #17181c;
+        background: var(--bg);
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         color: #fff;
         -webkit-font-smoothing: antialiased;
@@ -52,12 +57,13 @@
     /* Desktop (?desktop=1): a plain docked info window — the peek bar and
        collapse-to-peek are mobile bottom-sheet gestures and never appear. */
     body.desktop #peek { display: none !important; }
-    body.desktop .hero-collapse-btn { display: none; }
+    body.desktop .aw-x { display: none; }
 
     /* =============================== PEEK =============================== */
-    /* FR24-app-style collapsed card (user-supplied reference layout).
-       Top-anchored: the mobile sheet is taller than the screen and sits with
-       its top edge at the peek line, so only the first ~270px are visible. */
+    /* FR24-app-style collapsed card (user-supplied reference layout), on the
+       same iOS-blue palette as the expanded card. Top-anchored: the mobile
+       sheet is taller than the screen and sits with its top edge at the peek
+       line, so only the first ~270px are visible. */
     #peek { padding: 8px 12px 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .pk-grip {
         width: 38px; height: 4px; border-radius: 999px;
@@ -67,22 +73,22 @@
     /* Header band: callsign + chips + airline (left) | photo thumb (right) */
     .pkh {
         display: flex; align-items: stretch; min-height: 64px;
-        background: rgba(39,39,42,0.92); border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 12px; overflow: hidden;
+        background: var(--card-bg); border: 1px solid var(--border-glass);
+        border-radius: 14px; overflow: hidden;
     }
     .pkh-l { flex: 1; min-width: 0; padding: 10px 12px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
     .pkh-cs-row { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
-    .pkh-cs { font-size: 21px; font-weight: 900; letter-spacing: -0.5px; color: var(--warn); line-height: 1; white-space: nowrap; }
+    .pkh-cs { font-size: 21px; font-weight: 900; letter-spacing: -0.5px; color: #fff; line-height: 1; white-space: nowrap; }
     .pkh-chip {
         font-size: 10px; font-weight: 800; letter-spacing: 0.03em; line-height: 1;
         padding: 4px 7px; border-radius: 6px; white-space: nowrap;
         max-width: 110px; overflow: hidden; text-overflow: ellipsis;
     }
-    .pkh-chip.user { background: rgba(255,255,255,0.14); color: #e4e4e7; }
-    .pkh-chip.phase { border: 1px solid; background: rgba(56,189,248,0.08); }
+    .pkh-chip.user { background: var(--blue-tint); color: var(--blue-text); }
+    .pkh-chip.phase { border: 1px solid; background: rgba(10,132,255,0.08); }
     .pkh-airline { font-size: 13px; font-weight: 600; color: #f4f4f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pkh-photo {
-        flex: 0 0 41%; position: relative; background-color: #0f172a;
+        flex: 0 0 41%; position: relative; background-color: #101018;
         background-size: cover; background-position: center;
     }
     .pkh-credit {
@@ -94,10 +100,10 @@
     /* Cell grid below the header */
     .pk-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 8px; margin-top: 8px; }
     .pk-cell {
-        background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 12px; padding: 10px 12px; min-width: 0;
+        background: var(--card-bg); border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 14px; padding: 10px 12px; min-width: 0;
     }
-    /* Route cell: big ICAOs, cities, gold plane badge, progress, times */
+    /* Route cell: big ICAOs, cities, blue plane badge, progress, times */
     .pkr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .pkr-port { min-width: 0; text-align: center; flex: 1; }
     .pkr-port b { display: block; font-size: 26px; font-weight: 900; letter-spacing: -1px; line-height: 1; color: #fff; }
@@ -108,11 +114,11 @@
     }
     .pkr-badge {
         flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%;
-        background: var(--warn); color: #451a03; display: grid; place-items: center; font-size: 12px;
-        box-shadow: 0 2px 10px rgba(251,191,36,0.4);
+        background: var(--brand); color: #fff; display: grid; place-items: center; font-size: 12px;
+        box-shadow: 0 2px 10px rgba(10,132,255,0.45);
     }
     .pkr-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.1); margin: 10px 0 7px; overflow: hidden; }
-    .pkr-fill { height: 100%; width: 0%; border-radius: 3px; background: var(--warn); box-shadow: 0 0 8px rgba(251,191,36,0.5); transition: width .5s linear; }
+    .pkr-fill { height: 100%; width: 0%; border-radius: 3px; background: var(--brand); box-shadow: 0 0 8px rgba(10,132,255,0.5); transition: width .5s linear; }
     .pkr-times { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; font-weight: 600; color: var(--text-secondary); }
     .pkr-times span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Stacked ALT / GS cell */
@@ -126,10 +132,11 @@
     .pk-reg-c b { font-size: 13px; font-weight: 800; color: #fff; font-family: var(--font-data); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* ============================== EXPANDED ============================= */
+    /* Apple-Maps place-card layout (user-supplied reference screenshot). */
     #full {
         flex-direction: column; height: 100%;
         overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
-        padding: 0 12px 14px;
+        padding: 0 0 14px;
     }
     #full::-webkit-scrollbar { width: 0; }
     .emb-host { width: 100%; max-width: 470px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
@@ -139,64 +146,37 @@
         min-height: 120px; padding: 40px 0;
     }
 
-    /* --- Header: big callsign + pilot row | phase state badge (Simple-window style) --- */
-    .ev-header {
-        display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-        padding: 18px 4px 0;
-    }
-    .ev-id-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-    .ev-callsign {
-        font-weight: 900; font-size: 27px; line-height: 1; letter-spacing: -1px; color: #fff;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .pilot-row {
-        display: flex; align-items: center; gap: 8px; font-size: 11px;
-        color: var(--text-secondary); font-weight: 500; min-width: 0;
-    }
-    .pilot-row i { font-size: 10px; color: var(--text-dim); }
-    .pilot-row .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .seat-mini-label {
-        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
-        padding: 2px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap;
-    }
-    .flight-state-badge {
-        display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 99px;
-        border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03);
-        font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
-        color: var(--text-secondary); box-shadow: 0 4px 12px rgba(0,0,0,.2); flex-shrink: 0;
-        margin-top: 2px;
-    }
-    .state-indicator-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
-    .flight-state-badge i { font-size: 9px; }
-
-    /* --- Hero: 21:9 photo with credit, dots, VA badge and bottom overlay --- */
-    .hero-card {
-        position: relative; width: 100%; aspect-ratio: 21 / 9;
-        border-radius: 16px; overflow: hidden; background: #0f172a; flex: 0 0 auto;
-        border: 1px solid var(--border-glass);
+    /* --- Hero: full-bleed photo dissolving into the page background --- */
+    .aw-hero {
+        position: relative; width: 100%; height: 195px; flex: 0 0 auto;
+        background: #101014; overflow: hidden;
     }
     .hero-photo {
         position: absolute; inset: 0; background-size: cover; background-position: center;
         transition: opacity .45s ease, transform 8s ease; transform: scale(1);
     }
-    .hero-card:hover .hero-photo { transform: scale(1.04); }
+    .aw-hero:hover .hero-photo { transform: scale(1.04); }
+    .aw-fade {
+        position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(to bottom, rgba(26,26,30,0) 35%, rgba(26,26,30,0.45) 68%, var(--bg) 100%);
+    }
+    .aw-circ {
+        position: absolute; top: 12px; z-index: 10;
+        width: 36px; height: 36px; border-radius: 50%;
+        display: grid; place-items: center; font-size: 15px; cursor: pointer;
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    }
+    .aw-circ:active { transform: scale(0.94); }
+    .aw-share { left: 12px; background: rgba(28,48,78,0.72); color: #8ec2ff; border: 1px solid rgba(124,184,255,0.22); }
+    .aw-x { right: 12px; background: rgba(30,30,34,0.6); color: #e8e8ea; border: 1px solid rgba(255,255,255,0.12); }
     .photo-credit {
-        position: absolute; top: 10px; left: 10px; font-size: 9px; z-index: 10;
+        position: absolute; right: 10px; bottom: 10px; font-size: 9px; z-index: 8;
         color: rgba(255,255,255,.75); background: rgba(0,0,0,.5); padding: 3px 8px;
         border-radius: 6px; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
         font-weight: 500; border: 1px solid rgba(255,255,255,.1); text-transform: uppercase;
     }
-    .hero-collapse-btn {
-        position: absolute; top: 10px; right: 10px; z-index: 10;
-        display: flex; align-items: center; gap: 6px;
-        font-size: 11px; font-weight: 700; color: #fff;
-        background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 99px;
-        border: 1px solid rgba(255,255,255,.15);
-        -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); cursor: pointer;
-    }
-    .hero-collapse-btn:active { transform: scale(0.96); }
     .fr24-va-badge {
-        position: absolute; top: 44px; left: 10px; z-index: 9;
+        position: absolute; left: 12px; bottom: 10px; z-index: 8;
         display: flex; align-items: center; gap: 6px;
         padding: 3px 8px; border-radius: 999px;
         background: rgba(0,0,0,0.4);
@@ -205,30 +185,84 @@
     }
     .fr24-va-badge img { height: 15px; width: auto; max-width: 70px; object-fit: contain; border-radius: 3px; display: block; }
     .fr24-va-badge span { font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
-    .hero-overlay {
-        position: absolute; bottom: 0; left: 0; right: 0; z-index: 5;
-        background: linear-gradient(to top, rgba(15,23,42,.96) 0%, rgba(15,23,42,.72) 40%, transparent 100%);
-        padding: 46px 14px 12px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px;
-    }
-    .ac-info { flex: 1; min-width: 0; }
-    .ac-info h2 {
-        font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 2px;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 10px rgba(0,0,0,.5);
-    }
-    .ac-info span { font-size: 11.5px; color: var(--text-secondary); display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ac-reg-badge {
-        font-family: var(--font-data); font-size: 12px; background: rgba(255,255,255,.12);
-        padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-glass);
-        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
-        color: #fff; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,.3); flex: 0 0 auto;
-    }
-    .fr24-dots { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; z-index: 10; }
+    .fr24-dots { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; z-index: 9; }
     .fr24-dots span { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background .2s ease; }
     .fr24-dots span.on { background: #fff; }
 
-    /* --- Mission card: route hero + times grid + progress, one continuous card --- */
+    /* --- Identity block: icon tile overlapping the hero, centred title --- */
+    .aw-body { display: flex; flex-direction: column; gap: 12px; padding: 0 12px; min-width: 0; }
+    .aw-icon {
+        width: 76px; height: 76px; margin: -56px auto 0;
+        position: relative; z-index: 5; border-radius: 19px; background: #fff;
+        display: grid; place-items: center; overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+    .aw-icon i { font-size: 32px; color: var(--brand); }
+    .aw-icon img { width: 72%; height: 72%; object-fit: contain; }
+    .aw-title {
+        font-size: 29px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.1;
+        text-align: center; color: #fff; margin: -2px 8px -6px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .aw-sub {
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+        font-size: 14.5px; font-weight: 500; color: var(--text-secondary);
+        min-width: 0; margin-top: -6px; flex-wrap: wrap; padding: 0 8px;
+    }
+    .aw-sub .t { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .aw-sub2 {
+        text-align: center; font-size: 12px; color: var(--text-dim); margin-top: -10px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;
+    }
+    .seat-mini-label {
+        font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap;
+    }
+
+    /* --- Action buttons: icon-over-label pills, primary filled blue --- */
+    .aw-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 2px; }
+    .aw-act {
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+        padding: 11px 4px 9px; border-radius: 13px; border: none; cursor: pointer;
+        background: var(--blue-tint); color: var(--blue-text); font-family: inherit; min-width: 0;
+        transition: filter .15s ease;
+    }
+    .aw-act:hover { filter: brightness(1.15); }
+    .aw-act:active { transform: scale(0.97); }
+    .aw-act i { font-size: 15px; }
+    .aw-act span { font-size: 13px; font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .aw-act.primary { background: var(--brand); color: #fff; box-shadow: 0 4px 14px rgba(10,132,255,0.35); }
+
+    /* --- Stats strip: Status | Altitude | Speed (Hours/Rating/Distance row) --- */
+    .aw-stats { display: flex; align-items: stretch; justify-content: space-between; padding: 6px 6px 2px; gap: 8px; }
+    .aw-stat { flex: 1; text-align: center; min-width: 0; }
+    .aw-stat .l { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .aw-stat b { display: block; font-size: 16.5px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* --- Horizontal photo gallery (Apple-Maps photo rail) --- */
+    .aw-gallery {
+        display: flex; gap: 10px; overflow-x: auto; margin: 2px -12px 0; padding: 0 12px;
+        scroll-snap-type: x mandatory; scrollbar-width: none;
+    }
+    .aw-gallery::-webkit-scrollbar { display: none; }
+    .aw-ph {
+        flex: 0 0 58%; aspect-ratio: 4 / 3; border-radius: 16px; position: relative;
+        background-color: var(--card-bg); background-size: cover; background-position: center;
+        scroll-snap-align: start; overflow: hidden;
+    }
+    .aw-ph-credit {
+        position: absolute; right: 8px; bottom: 8px; font-size: 9px; font-weight: 600;
+        color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.55);
+        padding: 3px 8px; border-radius: 99px; max-width: 80%;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* --- Bold section headings (the "Ratings" heading in the reference) --- */
+    .aw-sec { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; color: #fff; margin: 8px 2px -4px; }
+
+    /* --- Mission card: route hero + times grid + progress, one grouped card --- */
     .mission-card {
-        background: var(--card-bg); border: 1px solid rgba(255,255,255,0.07);
+        background: var(--card-bg); border: 1px solid var(--border-glass);
         border-radius: 16px; overflow: hidden;
     }
     .route-hero {
@@ -240,7 +274,7 @@
         font-size: 40px; font-weight: 900; line-height: .95; letter-spacing: -2px; color: #fff;
         cursor: pointer; transition: color .15s ease, text-shadow .15s ease;
     }
-    .rh-icao:hover { color: var(--brand); text-shadow: 0 0 14px rgba(56,189,248,0.5); }
+    .rh-icao:hover { color: var(--brand); text-shadow: 0 0 14px rgba(10,132,255,0.5); }
     .rh-city {
         display: flex; align-items: center; justify-content: center; gap: 6px;
         font-size: 11px; font-weight: 600; color: var(--text-secondary);
@@ -258,7 +292,7 @@
     .rh-plane-badge {
         position: relative; width: 34px; height: 34px; border-radius: 50%;
         background: var(--brand); display: grid; place-items: center;
-        color: #fff; font-size: 15px; box-shadow: 0 4px 14px rgba(56,189,248,.45);
+        color: #fff; font-size: 15px; box-shadow: 0 4px 14px rgba(10,132,255,.45);
     }
     /* Times grid — hairline-separated 2×2 (Scheduled / Actual|Estimated) */
     .times-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border-glass); border-top: 1px solid var(--border-glass); }
@@ -272,23 +306,23 @@
     /* Progress row */
     .route-progress-row { padding: 15px 18px 16px; border-top: 1px solid rgba(255,255,255,.05); }
     .rp-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.10); }
-    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--brand); border-radius: 2px; transition: width .5s linear; box-shadow: 0 0 8px rgba(56,189,248,.4); }
-    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--brand); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(56,189,248,.55)); }
+    .rp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: var(--brand); border-radius: 2px; transition: width .5s linear; box-shadow: 0 0 8px rgba(10,132,255,.4); }
+    .rp-plane { position: absolute; top: 50%; left: 0%; transform: translate(-50%,-50%); color: var(--brand); font-size: 14px; transition: left .5s linear; filter: drop-shadow(0 0 6px rgba(10,132,255,.55)); }
     .rp-labels { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 11.5px; font-weight: 500; color: var(--text-secondary); }
     .rp-labels .mono { font-family: var(--font-data); }
 
-    /* --- Section label + bento cells (Simple-window telemetry look) --- */
+    /* --- Bento telemetry cells under the section headings --- */
     .grid-section-label {
         font-size: 10px; text-transform: uppercase; color: var(--text-dim);
-        letter-spacing: 1px; margin: 2px 0 -4px 6px; font-weight: 700;
+        letter-spacing: 1px; font-weight: 700;
     }
     .telemetry-bento { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .bento-cell {
-        background: rgba(63,63,70,0.28); border: 1px solid var(--border-glass); border-radius: 12px;
+        background: var(--card-bg); border: 1px solid var(--border-glass); border-radius: 14px;
         padding: 13px 14px; display: flex; flex-direction: column; justify-content: space-between;
         min-height: 76px; transition: border-color .2s, background .2s; min-width: 0;
     }
-    .bento-cell:hover { border-color: rgba(255,255,255,0.16); background: rgba(255,255,255,.06); }
+    .bento-cell:hover { border-color: rgba(255,255,255,0.16); background: #2a2a2f; }
     .cell-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 6px; }
     .cell-label { font-size: 9.5px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cell-icon { font-size: 11px; color: var(--text-dim); flex: 0 0 auto; }
@@ -302,12 +336,12 @@
     /* --- Airports: takeoff / landing bento buttons --- */
     .apt-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .apt-btn {
-        background: rgba(63,63,70,0.28); border: 1px solid var(--border-glass); border-radius: 12px;
+        background: var(--card-bg); border: 1px solid var(--border-glass); border-radius: 14px;
         padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
         color: #fff; cursor: pointer; font-family: inherit; min-width: 0;
         transition: border-color .2s, background .2s;
     }
-    .apt-btn:hover { border-color: rgba(56,189,248,0.5); background: rgba(56,189,248,0.08); }
+    .apt-btn:hover { border-color: rgba(10,132,255,0.5); background: rgba(10,132,255,0.08); }
     .apt-btn .r { font-size: 9px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 5px; }
     .apt-btn.dep .r { color: var(--ok); }
     .apt-btn.arr .r { color: var(--warn); }
@@ -315,14 +349,14 @@
 
     /* --- Graph / legs cards --- */
     .panel-card {
-        background: var(--card-bg); border: 1px solid rgba(255,255,255,0.07);
+        background: var(--card-bg); border: 1px solid var(--border-glass);
         border-radius: 16px; padding: 13px 14px;
     }
     #legs-card .fl-legs-card { margin: 0 !important; background: transparent !important; border: none !important; padding: 0 !important; }
 
     @media (max-width: 400px) {
         .rh-icao { font-size: 33px; }
-        .ev-callsign { font-size: 23px; }
+        .aw-title { font-size: 25px; }
         .cell-data { font-size: 18px; }
     }
     </style>
@@ -387,22 +421,22 @@
     // Phase → accent colour, mirroring the tracker's flight-state palette.
     function phaseColor(phaseClass) {
         switch (String(phaseClass || '')) {
-            case 'phase-ground':  return '#94a3b8';
-            case 'phase-climb':   return '#38bdf8';
-            case 'phase-cruise':  return '#34d399';
-            case 'phase-descent': return '#fbbf24';
+            case 'phase-ground':  return '#98989f';
+            case 'phase-climb':   return '#0a84ff';
+            case 'phase-cruise':  return '#30d158';
+            case 'phase-descent': return '#ff9f0a';
             case 'phase-approach':
-            case 'phase-landing': return '#f472b6';
-            default:              return '#34d399';
+            case 'phase-landing': return '#ff375f';
+            default:              return '#30d158';
         }
     }
 
     // Pilot connection state (matches the tracker's badges).
     function stateBadge(pilotState) {
         switch (Number(pilotState)) {
-            case 2: return { label: 'PARKED', color: '#94a3b8' };
+            case 2: return { label: 'PARKED', color: '#98989f' };
             case 3: return { label: 'AP+', color: '#818cf8' };
-            case 1: return { label: 'AWAY', color: '#facc15' };
+            case 1: return { label: 'AWAY', color: '#ff9f0a' };
             default: return null;
         }
     }
@@ -481,6 +515,9 @@
         const reg = (ac.registration && ac.registration !== '---') ? ac.registration : '';
         const depFlag = flagUrl(route.originCountry), arrFlag = flagUrl(route.destCountry);
 
+        const heroUrl = _photoList[0] ? _photoList[0].url : '';
+        const credit0 = _photoList[0] ? _photoList[0].credit : '';
+
         const dotsHtml = _photoList.length > 1
             ? `<div class="fr24-dots">${_photoList.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : '';
 
@@ -489,6 +526,20 @@
             ? `<img src="${esc(va.logo)}" alt="${esc(va.name || '')}" onerror="this.style.display='none'">`
             : `<span>${esc(va.name || '')}</span>`}</div>` : '';
 
+        // App-icon tile: the partner VA's logo when there is one, else the brand plane.
+        const iconInner = (va && va.logo)
+            ? `<img src="${esc(va.logo)}" alt="" onerror="this.style.display='none'">`
+            : '<i class="fa-solid fa-plane"></i>';
+
+        // Photo rail (only worth showing when there's more than the hero shot).
+        const gallery = _photoList.length >= 2 ? `
+            <div class="aw-gallery">
+                ${_photoList.map(ph => `
+                <div class="aw-ph" style="background-image:url('${esc(ph.url)}')">
+                    ${ph.credit ? `<span class="aw-ph-credit">© ${esc(ph.credit)}</span>` : ''}
+                </div>`).join('')}
+            </div>` : '';
+
         const bento = (label, icon, field, unit, extra) => `
             <div class="bento-cell">
                 <div class="cell-header"><span class="cell-label">${label}</span><i class="fa-solid ${icon} cell-icon"></i></div>
@@ -496,100 +547,112 @@
             </div>`;
 
         return `
-            <header class="ev-header">
-                <div class="ev-id-group">
-                    <span class="ev-callsign" title="${esc(callsign)}">${esc(callsign)}</span>
-                    <div class="pilot-row">
-                        <i class="fa-solid fa-user-astronaut"></i>
-                        <span class="nm">${esc(username)}</span>
-                        <span class="seat-mini-label" data-f="state" style="display:none"></span>
-                    </div>
-                </div>
-                <div class="flight-state-badge" data-f="phase">
-                    <div class="state-indicator-dot"></div>
-                    <i class="fa-solid fa-route" data-f="phase-icon"></i>
-                    <span data-f="phase-text">---</span>
-                </div>
-            </header>
-
-            <div class="hero-card">
-                <div class="hero-photo" style="background-image:url('${esc(_photoList[0] ? _photoList[0].url : '')}')"></div>
-                ${_photoList[0] && _photoList[0].credit ? `<div class="photo-credit">© ${esc(_photoList[0].credit)}</div>` : '<div class="photo-credit" style="display:none"></div>'}
+            <div class="aw-hero">
+                <div class="hero-photo" style="background-image:url('${esc(heroUrl)}')"></div>
+                <div class="aw-fade"></div>
                 ${dotsHtml}
                 ${vaBadge}
-                <button class="hero-collapse-btn" id="btn-collapse"><i class="fa-solid fa-chevron-down"></i> Less info</button>
-                <div class="hero-overlay">
-                    <div class="ac-info">
-                        <h2 title="${esc(actype)}">${esc(actype || '—')}</h2>
-                        ${livery ? `<span title="${esc(livery)}">${esc(livery)}</span>` : ''}
-                    </div>
-                    ${reg ? `<div class="ac-reg-badge">${esc(reg)}</div>` : ''}
-                </div>
+                ${credit0 ? `<div class="photo-credit">© ${esc(credit0)}</div>` : '<div class="photo-credit" style="display:none"></div>'}
+                <button class="aw-circ aw-share" data-act="tripcard" title="Share trip card"><i class="fa-solid fa-arrow-up-from-bracket"></i></button>
+                <button class="aw-circ aw-x" id="btn-collapse" title="Less info"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            <div class="mission-card">
-                <div class="route-hero">
-                    <div class="rh-port">
-                        <div class="rh-icao" data-icao="${esc(dep)}">${esc(dep || '---')}</div>
-                        <div class="rh-city">${depFlag ? `<img class="rh-flag" src="${depFlag}" alt="" onerror="this.style.display='none'">` : ''}<span class="txt" data-f="depCity">&nbsp;</span></div>
+            <div class="aw-body">
+                <div class="aw-icon">${iconInner}</div>
+                <h1 class="aw-title" title="${esc(callsign)}">${esc(callsign)}</h1>
+                <div class="aw-sub">
+                    <span class="t" title="${esc(actype)}">${esc(actype || 'Flight')}</span>
+                    <span>·</span>
+                    <span class="t" title="${esc(username)}">${esc(username)}</span>
+                    <span class="seat-mini-label" data-f="state" style="display:none"></span>
+                </div>
+                ${(livery || reg) ? `<div class="aw-sub2">${esc([livery, reg].filter(Boolean).join(' · '))}</div>` : ''}
+
+                <div class="aw-actions">
+                    <button class="aw-act primary" data-act="follow" title="Follow this flight">
+                        <i class="fa-solid fa-plane"></i><span data-f="act-ete">Follow</span>
+                    </button>
+                    <button class="aw-act" data-act="replay" title="Replay this flight">
+                        <i class="fa-solid fa-clock-rotate-left"></i><span>Replay</span>
+                    </button>
+                    <button class="aw-act" data-act="tripcard" title="Share trip card">
+                        <i class="fa-solid fa-arrow-up-from-bracket"></i><span>Share</span>
+                    </button>
+                </div>
+
+                <div class="aw-stats">
+                    <div class="aw-stat"><span class="l">Status</span><b data-f="phase-text">---</b></div>
+                    <div class="aw-stat"><span class="l">Altitude</span><b data-f="stat-alt">—</b></div>
+                    <div class="aw-stat"><span class="l">Speed</span><b data-f="stat-gs">—</b></div>
+                </div>
+
+                ${gallery}
+
+                <h2 class="aw-sec">Route</h2>
+                <div class="mission-card">
+                    <div class="route-hero">
+                        <div class="rh-port">
+                            <div class="rh-icao" data-icao="${esc(dep)}">${esc(dep || '---')}</div>
+                            <div class="rh-city">${depFlag ? `<img class="rh-flag" src="${depFlag}" alt="" onerror="this.style.display='none'">` : ''}<span class="txt" data-f="depCity">&nbsp;</span></div>
+                        </div>
+                        <div class="rh-mid"><div class="rh-plane-badge"><i class="fa-solid fa-plane"></i></div></div>
+                        <div class="rh-port">
+                            <div class="rh-icao" data-icao="${esc(arr)}">${esc(arr || '---')}</div>
+                            <div class="rh-city"><span class="txt" data-f="arrCity">&nbsp;</span>${arrFlag ? `<img class="rh-flag" src="${arrFlag}" alt="" onerror="this.style.display='none'">` : ''}</div>
+                        </div>
                     </div>
-                    <div class="rh-mid"><div class="rh-plane-badge"><i class="fa-solid fa-plane"></i></div></div>
-                    <div class="rh-port">
-                        <div class="rh-icao" data-icao="${esc(arr)}">${esc(arr || '---')}</div>
-                        <div class="rh-city"><span class="txt" data-f="arrCity">&nbsp;</span>${arrFlag ? `<img class="rh-flag" src="${arrFlag}" alt="" onerror="this.style.display='none'">` : ''}</div>
+                    <div class="times-grid">
+                        <div class="tg-cell"><span class="tg-label">Scheduled</span><span class="tg-time" data-f="std">--:--</span></div>
+                        <div class="tg-cell"><span class="tg-label">Scheduled</span><span class="tg-time" data-f="sta">--:--</span></div>
+                        <div class="tg-cell"><span class="tg-label" data-f="atd-l">Actual</span><span class="tg-time" data-f="atd">--:--</span></div>
+                        <div class="tg-cell"><span class="tg-label" data-f="eta2-l">Estimated</span><span class="tg-time"><span class="tg-dot" data-f="eta-dot" style="display:none"></span><span data-f="eta2">--:--</span></span></div>
+                    </div>
+                    <div class="route-progress-row">
+                        <div class="rp-track">
+                            <div class="rp-fill" data-f="seg"></div>
+                            <i class="fa-solid fa-plane rp-plane" data-f="glyph"></i>
+                        </div>
+                        <div class="rp-labels">
+                            <span><span class="mono" data-f="flown">----</span> · <span data-f="elapsed">--:--</span></span>
+                            <span><span class="mono" data-f="dist">----</span> · ETE <span class="mono" data-f="ete">--:--</span></span>
+                        </div>
                     </div>
                 </div>
-                <div class="times-grid">
-                    <div class="tg-cell"><span class="tg-label">Scheduled</span><span class="tg-time" data-f="std">--:--</span></div>
-                    <div class="tg-cell"><span class="tg-label">Scheduled</span><span class="tg-time" data-f="sta">--:--</span></div>
-                    <div class="tg-cell"><span class="tg-label" data-f="atd-l">Actual</span><span class="tg-time" data-f="atd">--:--</span></div>
-                    <div class="tg-cell"><span class="tg-label" data-f="eta2-l">Estimated</span><span class="tg-time"><span class="tg-dot" data-f="eta-dot" style="display:none"></span><span data-f="eta2">--:--</span></span></div>
+
+                <h2 class="aw-sec">Live Telemetry</h2>
+                <div class="telemetry-bento">
+                    ${bento('Altitude', 'fa-cloud', 'alt', 'ft')}
+                    ${bento('GND Speed', 'fa-gauge-high', 'gs', 'kts')}
+                    ${bento('Vertical', 'fa-elevator', 'vs', 'fpm', '<i class="fa-solid fa-minus vs-arrow" data-f="vs-arrow"></i>')}
+                    ${bento('Heading', 'fa-compass', 'hdg', '°')}
                 </div>
-                <div class="route-progress-row">
-                    <div class="rp-track">
-                        <div class="rp-fill" data-f="seg"></div>
-                        <i class="fa-solid fa-plane rp-plane" data-f="glyph"></i>
+
+                <h2 class="aw-sec">Navigation &amp; Environment</h2>
+                <div class="telemetry-bento">
+                    ${bento('True Airspeed', 'fa-wind', 'tas', 'kts')}
+                    ${bento('Wind', 'fa-location-arrow', 'wind', 'kts')}
+                    ${bento('OAT', 'fa-temperature-half', 'oat', '°C')}
+                    `+`<div class="bento-cell">
+                        <div class="cell-header"><span class="cell-label" data-f="nextwp-l">Next Waypoint</span><i class="fa-solid fa-location-dot cell-icon"></i></div>
+                        <div class="cell-data"><span class="mono" data-f="nextwp">---</span></div>
                     </div>
-                    <div class="rp-labels">
-                        <span><span class="mono" data-f="flown">----</span> · <span data-f="elapsed">--:--</span></span>
-                        <span><span class="mono" data-f="dist">----</span> · ETE <span class="mono" data-f="ete">--:--</span></span>
-                    </div>
                 </div>
-            </div>
 
-            <div class="grid-section-label">Live Telemetry</div>
-            <div class="telemetry-bento">
-                ${bento('Altitude', 'fa-cloud', 'alt', 'ft')}
-                ${bento('GND Speed', 'fa-gauge-high', 'gs', 'kts')}
-                ${bento('Vertical', 'fa-elevator', 'vs', 'fpm', '<i class="fa-solid fa-minus vs-arrow" data-f="vs-arrow"></i>')}
-                ${bento('Heading', 'fa-compass', 'hdg', '°')}
-            </div>
+                ${(dep || arr) ? `
+                <h2 class="aw-sec">Airports</h2>
+                <div class="apt-bento">
+                    ${dep ? `<button class="apt-btn dep" data-icao="${esc(dep)}" title="View ${esc(dep)} airport">
+                        <span class="r"><i class="fa-solid fa-plane-departure"></i> Takeoff</span><span class="code">${esc(dep)}</span></button>` : ''}
+                    ${arr ? `<button class="apt-btn arr" data-icao="${esc(arr)}" title="View ${esc(arr)} airport">
+                        <span class="r"><i class="fa-solid fa-plane-arrival"></i> Landing</span><span class="code">${esc(arr)}</span></button>` : ''}
+                </div>` : ''}
 
-            <div class="grid-section-label">Navigation &amp; Environment</div>
-            <div class="telemetry-bento">
-                ${bento('True Airspeed', 'fa-wind', 'tas', 'kts')}
-                ${bento('Wind', 'fa-location-arrow', 'wind', 'kts')}
-                ${bento('OAT', 'fa-temperature-half', 'oat', '°C')}
-                `+`<div class="bento-cell">
-                    <div class="cell-header"><span class="cell-label" data-f="nextwp-l">Next Waypoint</span><i class="fa-solid fa-location-dot cell-icon"></i></div>
-                    <div class="cell-data"><span class="mono" data-f="nextwp">---</span></div>
+                <div class="panel-card" id="graph-card">
+                    <div class="grid-section-label" style="margin:0 0 8px 2px">Speed &amp; Altitude</div>
+                    <div id="graph-body"></div>
                 </div>
-            </div>
-
-            ${(dep || arr) ? `
-            <div class="grid-section-label">Airports</div>
-            <div class="apt-bento">
-                ${dep ? `<button class="apt-btn dep" data-icao="${esc(dep)}" title="View ${esc(dep)} airport">
-                    <span class="r"><i class="fa-solid fa-plane-departure"></i> Takeoff</span><span class="code">${esc(dep)}</span></button>` : ''}
-                ${arr ? `<button class="apt-btn arr" data-icao="${esc(arr)}" title="View ${esc(arr)} airport">
-                    <span class="r"><i class="fa-solid fa-plane-arrival"></i> Landing</span><span class="code">${esc(arr)}</span></button>` : ''}
-            </div>` : ''}
-
-            <div class="panel-card" id="graph-card">
-                <div class="grid-section-label" style="margin:0 0 8px 2px">Speed &amp; Altitude</div>
-                <div id="graph-body"></div>
-            </div>
-            <div id="legs-card" style="display:none"></div>`;
+                <div id="legs-card" style="display:none"></div>
+            </div>`;
     }
 
     const $f = (name) => document.querySelector(`[data-f="${name}"]`);
@@ -602,16 +665,11 @@
         const route = p.route || {};
         const progress = Math.max(0, Math.min(100, Number(route.progress) || 0));
 
-        // Phase state badge (header pill, Simple-window style) + seat chip
-        const badge = $f('phase');
-        if (badge) {
-            const c = phaseColor(p.phaseClass);
-            badge.style.color = c;
-            badge.style.borderColor = c + '40';
-            badge.style.background = c + '0d';
-            const ic = $f('phase-icon');
-            if (ic && p.phaseIcon) ic.className = `fa-solid ${p.phaseIcon}`;
-            setTxt('phase-text', p.phase || 'ENROUTE');
+        // Status stat (phase-coloured, like the red "Closed" in the reference)
+        const stv = $f('phase-text');
+        if (stv) {
+            stv.textContent = p.phase || 'ENROUTE';
+            stv.style.color = phaseColor(p.phaseClass);
         }
         const stEl = $f('state');
         if (stEl) {
@@ -622,13 +680,15 @@
                 stEl.textContent = b.label;
             } else stEl.style.display = 'none';
         }
+        // Primary action carries the live ETE (the "5 min" slot in the reference).
+        setTxt('act-ete', (route.ete && route.ete !== '--:--') ? route.ete : 'Follow');
 
         // Route progress + labels
         const seg = $f('seg'), glyph = $f('glyph');
         if (seg) seg.style.width = progress + '%';
         if (glyph) glyph.style.left = progress + '%';
-        setTxt('depCity', route.originCity || ' ');
-        setTxt('arrCity', route.destCity || ' ');
+        setTxt('depCity', route.originCity || ' ');
+        setTxt('arrCity', route.destCity || ' ');
         setTxt('flown', (route.distFlownNm != null) ? `${Number(route.distFlownNm).toLocaleString()} NM` : '----');
         setTxt('dist', (route.distRemainingNm != null) ? `${Number(route.distRemainingNm).toLocaleString()} NM` : '----');
         setTxt('elapsed', route.elapsed || '--:--');
@@ -656,9 +716,11 @@
             if (dot) dot.style.display = v ? '' : 'none';
         }
 
-        // Bento telemetry
+        // Bento telemetry + the stats-strip mirrors
         setTxt('alt', fmtNum(tel.altitude));
         setTxt('gs', fmtNum(tel.groundSpeed));
+        setTxt('stat-alt', `${fmtNum(tel.altitude)} ft`);
+        setTxt('stat-gs', `${fmtNum(tel.groundSpeed)} kts`);
         const vs = Math.round(Number(tel.verticalSpeed) || 0);
         setTxt('vs', Math.abs(vs) < 50 ? '0' : Math.abs(vs).toLocaleString());
         const arrow = $f('vs-arrow');
@@ -777,9 +839,15 @@
         renderLegs(p);
     }
 
-    // Airport taps (route-hero ICAOs and the Takeoff/Landing cells) ask the
-    // host tracker to open its airport window — same message the Simple window uses.
+    // Action buttons (Follow / Replay / Share) hand off to the host tracker's
+    // Simple-window actions; airport taps (route-hero ICAOs and the
+    // Takeoff/Landing cells) ask it to open its airport window.
     document.addEventListener('click', (e) => {
+        const act = e.target.closest('[data-act]');
+        if (act) {
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_ACTION', action: act.getAttribute('data-act') }, '*'); } catch (_) {}
+            return;
+        }
         const el = e.target.closest('.apt-btn, .rh-icao');
         if (!el) return;
         const icao = el.getAttribute('data-icao');
