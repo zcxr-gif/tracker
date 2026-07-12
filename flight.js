@@ -18412,6 +18412,14 @@ async function formatDataForEmbedAirport(icao) {
     let sun = null;
     try { sun = computeSunPhase(lat, lon); } catch (_) {}
 
+    // Hero image: prefer the backend's own airport photo when it supplied one;
+    // otherwise fall back to the key-less Esri aerial (top-down) view so every
+    // field still gets a real image. The aerial is also handed over as the
+    // fallback so a broken backend photo degrades to the top-view rather than
+    // leaving the card with no image at all.
+    const aerialUrl = airportAerialImageUrl(lat, lon);
+    const backendImageUrl = airportMetadata?.imageUrl || null;
+
     return {
         icao, name, city, cc, elevation,
         coords: { lat, lon },
@@ -18420,7 +18428,8 @@ async function formatDataForEmbedAirport(icao) {
         runways, runwayRecs,
         atcLive, atcRecent,
         gates, occupants,
-        heroUrl: airportAerialImageUrl(lat, lon)
+        heroUrl: backendImageUrl || aerialUrl,
+        heroFallbackUrl: backendImageUrl ? aerialUrl : null
     };
 }
 

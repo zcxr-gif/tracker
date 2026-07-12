@@ -313,8 +313,11 @@
                         : `<div class="emb-apt-sub" style="margin:0">No controller online.</div>`)}
             </div>`;
 
+        // Prefer the backend photo (data.heroUrl); if it fails to load, swap to
+        // the top-down aerial (data.heroFallbackUrl) before giving up and
+        // removing the hero entirely.
         const heroMod = data.heroUrl
-            ? `<div class="emb-apt-hero"><img src="${esc(data.heroUrl)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.emb-apt-hero').remove()"><div class="emb-apt-hero-fade"></div></div>`
+            ? `<div class="emb-apt-hero"><img src="${esc(data.heroUrl)}"${data.heroFallbackUrl ? ` data-fallback="${esc(data.heroFallbackUrl)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.emb-apt-hero').remove();}"><div class="emb-apt-hero-fade"></div></div>`
             : '';
 
         const sun = data.sun;
