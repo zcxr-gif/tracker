@@ -19611,9 +19611,8 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         s.id = 'ac-dest-card-style';
         s.textContent = `
             #aircraft-info-window .dest-card {
-                background: linear-gradient(165deg, rgba(30, 41, 59, 0.55) 0%, rgba(15, 23, 42, 0.65) 100%);
-                border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; overflow: hidden;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05);
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden;
             }
             #aircraft-info-window .dest-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; background: transparent; border: none; color: #fff; cursor: pointer; font-family: inherit; text-align: left; }
             #aircraft-info-window .dest-toggle-l { display: flex; align-items: center; gap: 11px; min-width: 0; }
@@ -19659,99 +19658,65 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         const s = document.createElement('style');
         s.id = 'ac-legacy-cards-style';
         s.textContent = `
+            /* Calm, editorial card system — the Card window's language: bold
+               headings sitting OUTSIDE quiet monochrome surfaces, sentence-case
+               labels, no decoration. Colour appears only where it means
+               something (the live progress fill, phase colours in values). */
+            #aircraft-info-window .acx-sec {
+                font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.01em;
+                margin: 8px 2px 0; line-height: 1.2;
+            }
             #aircraft-info-window .acx-card {
-                --acc: #38bdf8; --acc-soft: rgba(56,189,248,0.14); --acc-line: rgba(56,189,248,0.4);
-                position: relative;
-                background: linear-gradient(155deg, #1d2637 0%, #141b28 55%, #10141d 100%);
-                border-radius: 18px; padding: 17px 17px 16px;
-                border: 1px solid rgba(255,255,255,0.08);
-                box-shadow: 0 12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
-                overflow: hidden;
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.07);
+                border-radius: 16px; padding: 15px 16px;
             }
-            #aircraft-info-window .acx-card::before {
-                content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-                background: linear-gradient(to right, transparent, var(--acc), transparent);
-                opacity: 0.85;
-            }
-            #aircraft-info-window .acx-card::after {
-                content: ''; position: absolute; top: -46px; right: -46px; width: 150px; height: 150px;
-                background: radial-gradient(circle, var(--acc) 0%, transparent 68%);
-                opacity: 0.08; pointer-events: none;
-            }
-            #aircraft-info-window .acx-head { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-            #aircraft-info-window .acx-title { font-size: 10.5px; color: #fff; text-transform: uppercase; font-weight: 800; letter-spacing: 1.6px; display: flex; align-items: center; gap: 10px; }
-            #aircraft-info-window .acx-title i {
-                color: var(--acc); font-size: 12px;
-                width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
-                background: var(--acc-soft); border: 1px solid var(--acc-line); border-radius: 9px;
-                box-shadow: 0 0 16px var(--acc-soft);
-            }
-            #aircraft-info-window .acx-tag { font-size: 8px; color: #8b98ad; font-weight: 800; letter-spacing: 0.8px; display: flex; align-items: center; gap: 6px; }
-            #aircraft-info-window .acx-live-dot { width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80; animation: acx-pulse 2s ease-in-out infinite; }
-            @keyframes acx-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+            #aircraft-info-window .acx-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 12px; }
+            #aircraft-info-window .acx-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            #aircraft-info-window .acx-l { color: #9a9aa2; font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #aircraft-info-window .acx-v { color: #fff; font-size: 14.5px; font-weight: 600; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #aircraft-info-window .acx-v .unit, #aircraft-info-window .acx-v small { font-size: 10px; color: #9a9aa2; font-weight: 500; margin-left: 2px; }
 
-            /* Mini group headers inside a card (e.g. POSITION / ATMOSPHERE) */
+            /* Sub-headings inside a card ("Position", "Atmosphere") */
             #aircraft-info-window .acx-group-label {
-                display: flex; align-items: center; gap: 9px; margin: 15px 0 8px;
-                font-size: 8.5px; color: var(--acc); font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase;
+                font-size: 11.5px; color: #9a9aa2; font-weight: 600;
+                margin: 16px 0 10px; padding-top: 13px;
+                border-top: 1px solid rgba(255,255,255,0.06);
             }
-            #aircraft-info-window .acx-group-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(to right, var(--acc-line), transparent); }
-            #aircraft-info-window .acx-head + .acx-group-label { margin-top: 0; }
+            #aircraft-info-window .acx-group-label:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 
-            #aircraft-info-window .acx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
-            #aircraft-info-window .acx-grid.acx-grid-3 { grid-template-columns: repeat(3, 1fr); }
-            #aircraft-info-window .acx-cell {
-                display: flex; flex-direction: column; min-width: 0; gap: 4px;
-                background: rgba(255,255,255,0.028);
-                border: 1px solid rgba(255,255,255,0.05);
-                border-left: 3px solid var(--acc-line);
-                border-radius: 12px; padding: 10px 12px;
-                transition: background .2s ease, border-color .2s ease;
-            }
-            #aircraft-info-window .acx-cell:hover { background: rgba(255,255,255,0.06); }
-            #aircraft-info-window .acx-l { color: #8b98ad; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .acx-v { color: #fff; font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .acx-v .unit, #aircraft-info-window .acx-v small { font-size: 9px; color: #8b98ad; font-weight: 600; margin-left: 2px; }
-            #aircraft-info-window .acx-v.acx-accent { color: var(--acc); text-shadow: 0 0 14px var(--acc-line); }
-
-            /* Hero numbers + live progress bar (Flight Stats card) */
-            #aircraft-info-window .acx-hero { position: relative; z-index: 1; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
-            #aircraft-info-window .acx-hero-num { font-family: 'JetBrains Mono', monospace; font-size: 25px; font-weight: 800; color: #fff; line-height: 1; white-space: nowrap; }
-            #aircraft-info-window .acx-hero-num .unit { font-size: 11px; color: #8b98ad; font-weight: 700; margin-left: 3px; }
-            #aircraft-info-window .acx-hero-l { font-size: 8.5px; color: #8b98ad; text-transform: uppercase; letter-spacing: 1px; font-weight: 800; margin-top: 6px; }
-            #aircraft-info-window .acx-bar { position: relative; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.07); margin: 2px 4px 15px 0; }
+            /* Journey numbers + thin live progress line (This flight card) */
+            #aircraft-info-window .acx-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; }
+            #aircraft-info-window .acx-hero-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 400; color: #fff; line-height: 1; white-space: nowrap; }
+            #aircraft-info-window .acx-hero-num .unit { font-size: 12px; color: #9a9aa2; font-weight: 500; margin-left: 3px; }
+            #aircraft-info-window .acx-hero-l { font-size: 11px; color: #9a9aa2; font-weight: 500; margin-top: 4px; }
+            #aircraft-info-window .acx-bar { position: relative; height: 3px; border-radius: 1.5px; background: rgba(255,255,255,0.10); margin: 14px 0 4px; }
             #aircraft-info-window .acx-bar-fill {
                 position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
-                border-radius: 4px;
-                background: linear-gradient(90deg, rgba(255,255,255,0.25), var(--acc));
-                box-shadow: 0 0 12px var(--acc-line);
+                border-radius: 1.5px; background: #38bdf8;
                 transition: width 0.6s ease;
             }
             #aircraft-info-window .acx-bar-fill i {
-                position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
-                color: #fff; font-size: 12px; filter: drop-shadow(0 0 5px rgba(0,0,0,0.9));
+                position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
+                color: #fff; font-size: 10px;
             }
 
-            /* Chip row (secondary stats) */
-            #aircraft-info-window .acx-chips { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 7px; }
-            #aircraft-info-window .acx-chip {
-                display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px;
-                border-radius: 999px; background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.07);
+            /* Key-value rows with hairline dividers (details lists) */
+            #aircraft-info-window .acx-row {
+                display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+                padding: 9px 0; border-top: 1px solid rgba(255,255,255,0.06);
             }
-            #aircraft-info-window .acx-chip i { color: var(--acc); font-size: 10px; }
-            #aircraft-info-window .acx-chip .acx-chip-l { font-size: 8px; color: #8b98ad; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; }
-            #aircraft-info-window .acx-chip .acx-v { font-size: 12.5px; }
+            #aircraft-info-window .acx-row:first-child { border-top: none; padding-top: 0; }
+            #aircraft-info-window .acx-rows { margin-top: 14px; }
+            #aircraft-info-window .acx-rows .acx-row:first-child { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 9px; }
+            #aircraft-info-window .acx-row:last-child { padding-bottom: 0; }
+            #aircraft-info-window .acx-row .l { font-size: 12.5px; color: #9a9aa2; font-weight: 500; white-space: nowrap; }
+            #aircraft-info-window .acx-row .v { font-size: 13.5px; color: #fff; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            #aircraft-info-window .acx-row .v .unit { font-size: 10px; color: #9a9aa2; font-weight: 500; margin-left: 2px; }
 
-            #aircraft-info-window .acx-pill {
-                margin-top: 8px; padding: 10px 13px;
-                background: rgba(255,255,255,0.028); border: 1px solid rgba(255,255,255,0.05);
-                border-left: 3px solid var(--acc-line);
-                border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
-            }
-            #aircraft-info-window .acx-pill .acx-pill-l { display: flex; align-items: center; gap: 10px; min-width: 0; }
-            #aircraft-info-window .acx-pill:first-of-type { margin-top: 14px; }
-            #aircraft-info-window .acx-foot { margin-top: 13px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,0.06); }
-            #aircraft-info-window .acx-graph { position: relative; z-index: 1; min-height: 150px; }
+            #aircraft-info-window .acx-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+            #aircraft-info-window .acx-foot .acx-l { margin-bottom: 3px; }
+            #aircraft-info-window .acx-graph { min-height: 150px; }
             #aircraft-info-window .acx-graph svg { display: block; width: 100%; }
         `;
         document.head.appendChild(s);
@@ -20381,12 +20346,9 @@ let totalDistanceNM = 0;
                 <span id="ac-dist" style="display:none;"></span>
                 <span id="ac-ete" style="display:none;"></span>
 
-                <!-- ════════════ SPEED & ALTITUDE GRAPH (parity with Simple/Card) ════════════ -->
-                <div class="ac-info-card-bar acx-card graph-card" style="--acc: #38bdf8; --acc-soft: rgba(56,189,248,0.14); --acc-line: rgba(56,189,248,0.4);">
-                    <div class="acx-head">
-                        <span class="acx-title"><i class="fa-solid fa-chart-area"></i> Speed &amp; Altitude</span>
-                        <span class="acx-tag"><span class="acx-live-dot"></span> LIVE</span>
-                    </div>
+                <!-- ════════════ SPEED & ALTITUDE (parity with Simple/Card) ════════════ -->
+                <h2 class="acx-sec">Speed &amp; altitude</h2>
+                <div class="ac-info-card-bar acx-card graph-card">
                     <div id="ac-sa-graph" class="acx-graph"></div>
                 </div>
 
@@ -20394,104 +20356,66 @@ let totalDistanceNM = 0;
                      update path once a completed leg is detected in the trail. -->
                 <div id="ac-legs-host"></div>
 
-                <!-- ════════════ FLIGHT STATS CARD (trail-derived, live) ════════════ -->
-                <div class="ac-info-card-bar acx-card stats-card" style="--acc: #f59e0b; --acc-soft: rgba(245,158,11,0.14); --acc-line: rgba(245,158,11,0.4);">
-                    <div class="acx-head">
-                        <span class="acx-title"><i class="fa-solid fa-stopwatch"></i> Flight Stats</span>
-                        <span class="acx-tag">FROM FLIGHT HISTORY</span>
-                    </div>
+                <!-- ════════════ THIS FLIGHT (journey numbers + live stats) ════════════ -->
+                <h2 class="acx-sec">This flight</h2>
+                <div class="ac-info-card-bar acx-card stats-card">
                     <div class="acx-hero">
                         <div><div id="ac-flown" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Flown</div></div>
-                        <div style="text-align: right;"><div id="ac-dist" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l" style="text-align: right;">Remaining</div></div>
+                        <div style="text-align: right;"><div id="ac-dist" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Remaining</div></div>
                     </div>
                     <div class="acx-bar"><div id="ac-progress-bar" class="acx-bar-fill" style="width: ${progress}%;"><i class="fa-solid fa-plane"></i></div></div>
-                    <div class="acx-chips">
-                        <span class="acx-chip"><i class="fa-solid fa-stopwatch"></i><span class="acx-chip-l">Airborne</span><span id="ac-elapsed" class="acx-v">--:--</span></span>
-                        <span class="acx-chip"><i class="fa-solid fa-gauge-high"></i><span class="acx-chip-l">Avg</span><span id="ac-avg-gs" class="acx-v">---<span class="unit">kt</span></span></span>
-                        <span class="acx-chip"><i class="fa-solid fa-bolt"></i><span class="acx-chip-l">Max</span><span id="ac-max-gs" class="acx-v">---<span class="unit">kt</span></span></span>
-                        <span class="acx-chip"><i class="fa-solid fa-arrow-trend-up"></i><span class="acx-chip-l">Ceiling</span><span id="ac-max-alt" class="acx-v">---<span class="unit">ft</span></span></span>
+                    <div class="acx-rows">
+                        <div class="acx-row"><span class="l">Time airborne</span><span id="ac-elapsed" class="v">--:--</span></div>
+                        <div class="acx-row"><span class="l">Average ground speed</span><span id="ac-avg-gs" class="v">---<span class="unit">kt</span></span></div>
+                        <div class="acx-row"><span class="l">Max ground speed</span><span id="ac-max-gs" class="v">---<span class="unit">kt</span></span></div>
+                        <div class="acx-row"><span class="l">Max altitude</span><span id="ac-max-alt" class="v">---<span class="unit">ft</span></span></div>
                     </div>
                 </div>
 
-                <!-- ════════════ NAVIGATION CARD ════════════ -->
-                <div class="ac-info-card-bar acx-card nav-card" style="--acc: #34d399; --acc-soft: rgba(52,211,153,0.14); --acc-line: rgba(52,211,153,0.4);">
-                    <div class="acx-head">
-                        <span class="acx-title"><i class="fa-solid fa-location-crosshairs"></i> Navigation</span>
-                        <span class="acx-tag" style="color: #4ade80;"><span class="acx-live-dot"></span> SYNC</span>
-                    </div>
-
+                <!-- ════════════ NAVIGATION ════════════ -->
+                <h2 class="acx-sec">Navigation</h2>
+                <div class="ac-info-card-bar acx-card nav-card">
                     <div class="acx-group-label">Position</div>
                     <div class="acx-grid">
-                        <div class="acx-cell"><span class="acx-l">LAT</span><span id="ac-lat" class="acx-v">---</span></div>
-                        <div class="acx-cell"><span class="acx-l">LON</span><span id="ac-lon" class="acx-v">---</span></div>
-                        <div class="acx-cell"><span class="acx-l">ALT</span><span id="ac-alt" class="acx-v">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">HDG</span><span id="ac-heading" class="acx-v">---°</span></div>
-                        <div class="acx-cell"><span class="acx-l">G/S</span><span id="ac-gs" class="acx-v">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">V/S</span><span id="ac-vs" class="acx-v">---</span></div>
+                        <div class="acx-cell"><span class="acx-l">Latitude</span><span id="ac-lat" class="acx-v">---</span></div>
+                        <div class="acx-cell"><span class="acx-l">Longitude</span><span id="ac-lon" class="acx-v">---</span></div>
+                        <div class="acx-cell"><span class="acx-l">Altitude</span><span id="ac-alt" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">ft</span></span></div>
+                        <div class="acx-cell"><span class="acx-l">Heading</span><span id="ac-heading" class="acx-v">---°</span></div>
+                        <div class="acx-cell"><span class="acx-l">Ground speed</span><span id="ac-gs" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
+                        <div class="acx-cell"><span class="acx-l">Vertical speed</span><span id="ac-vs" class="acx-v">---</span></div>
                     </div>
 
-                    <div class="acx-group-label">Atmosphere &amp; Plan</div>
+                    <div class="acx-group-label">Atmosphere &amp; plan</div>
                     <div class="acx-grid">
-                        <div class="acx-cell"><span class="acx-l">WIND</span><span id="ac-env-wind" class="acx-v">---/--</span></div>
-                        <div class="acx-cell"><span class="acx-l">SAT</span><span id="ac-env-oat" class="acx-v">--°C</span></div>
-                        <div class="acx-cell"><span class="acx-l">TAS</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">CRZ</span><span id="ac-cruise-tgt" class="acx-v acx-accent">${cruiseAltText}</span></div>
-                        <div class="acx-cell"><span class="acx-l">ALT Δ</span><span id="ac-alt-delta" class="acx-v">---</span></div>
+                        <div class="acx-cell"><span class="acx-l">Wind</span><span id="ac-env-wind" class="acx-v">---/--</span></div>
+                        <div class="acx-cell"><span class="acx-l">Outside air</span><span id="ac-env-oat" class="acx-v">--°C</span></div>
+                        <div class="acx-cell"><span class="acx-l">True airspeed</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
+                        <div class="acx-cell"><span class="acx-l">Cruise</span><span id="ac-cruise-tgt" class="acx-v">${cruiseAltText}</span></div>
+                        <div class="acx-cell"><span class="acx-l">Off cruise</span><span id="ac-alt-delta" class="acx-v">---</span></div>
                     </div>
 
-                    <!-- Next waypoint pill -->
-                    <div class="acx-pill">
-                        <div class="acx-pill-l">
-                            <i class="fa-solid fa-diamond" style="color: #facc15; font-size: 7px;"></i>
-                            <span class="acx-l" style="margin: 0;">NEXT WP</span>
-                            <span id="ac-next-wp" style="color: #facc15; font-size: 14px; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                        <div style="white-space: nowrap;">
-                            <span id="ac-next-wp-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
-                            <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
-                        </div>
-                    </div>
-
-                    <!-- Nearest facility pill -->
-                    <div class="acx-pill">
-                        <div class="acx-pill-l">
-                            <i class="fa-solid fa-tower-cell" style="color: #38bdf8; font-size: 10px;"></i>
-                            <span class="acx-l" style="margin: 0;">NEAREST</span>
-                            <span id="ac-nearest-apt" style="color: #38bdf8; font-size: 14px; font-weight: 800; font-family: 'JetBrains Mono', monospace;">---</span>
-                        </div>
-                        <div style="white-space: nowrap;">
-                            <span id="ac-nearest-apt-dist" style="color: #fff; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">--.-</span>
-                            <span style="color: #94a3b8; font-size: 9px; margin-left: 4px;">NM</span>
-                        </div>
+                    <div class="acx-rows">
+                        <div class="acx-row"><span class="l">Next waypoint</span><span class="v"><span id="ac-next-wp">---</span> · <span id="ac-next-wp-dist">--.-</span><span class="unit">NM</span></span></div>
+                        <div class="acx-row"><span class="l">Nearest airport</span><span class="v"><span id="ac-nearest-apt">---</span> · <span id="ac-nearest-apt-dist">--.-</span><span class="unit">NM</span></span></div>
                     </div>
 
                     <!-- Geocoded position text -->
                     <div class="acx-foot">
-                        <span class="acx-l" style="display: block; margin-bottom: 3px;">CURRENT POSITION</span>
-                        <span id="ac-location" style="color: #fff; font-size: 12px; font-weight: 500;">Scanning...</span>
+                        <span class="acx-l" style="display: block;">Currently over</span>
+                        <span id="ac-location" style="color: #fff; font-size: 13px; font-weight: 500;">Scanning...</span>
                     </div>
                 </div>
 
-               <!-- ════════════ AIRCRAFT CARD (slimmed — no duplicate name/callsign/airline) ════════════ -->
-               <div class="ac-info-card-bar acx-card aircraft-card" style="--acc: #a78bfa; --acc-soft: rgba(167,139,250,0.14); --acc-line: rgba(167,139,250,0.4);">
-                    <div class="acx-head">
-                        <span class="acx-title"><i class="fa-solid fa-plane"></i> Aircraft</span>
-                        <span class="acx-tag">SPECIFICATIONS</span>
-                    </div>
-
-                    <div class="acx-grid" style="grid-template-columns: ${filedPlanData ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)'};">
-                        <div class="acx-cell"><span class="acx-l">Reg</span><span class="acx-v">${techCardTail}</span></div>
-                        <div class="acx-cell"><span class="acx-l">Class</span><span class="acx-v" style="font-family: inherit; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span></div>
-                        ${filedPlanData ? `
-                        <div class="acx-cell"><span class="acx-l">PAX</span><span class="acx-v">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span></div>
-                        <div class="acx-cell"><span class="acx-l">Block Fuel</span><span class="acx-v">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kg</span></span></div>` : ''}
-                    </div>
-
+               <!-- ════════════ AIRCRAFT (slimmed — no duplicate name/callsign/airline) ════════════ -->
+               <h2 class="acx-sec">Aircraft</h2>
+               <div class="ac-info-card-bar acx-card aircraft-card">
+                    <div class="acx-row"><span class="l">Registration</span><span class="v">${techCardTail}</span></div>
+                    <div class="acx-row"><span class="l">Class</span><span class="v" style="font-family: inherit; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span></div>
+                    ${filedPlanData ? `
+                    <div class="acx-row"><span class="l">Passengers</span><span class="v">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span></div>
+                    <div class="acx-row"><span class="l">Block fuel</span><span class="v">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'}<span class="unit">kg</span></span></div>` : ''}
                     ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
-                    <div class="acx-foot" style="display: flex; align-items: center; gap: 6px;">
-                        <i class="fa-solid fa-camera" style="color: #38bdf8; font-size: 9px;"></i>
-                        <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
-                    </div>` : ''}
+                    <div class="acx-row"><span class="l">Photo</span><span class="v" style="font-family: inherit;">${photographerName}</span></div>` : ''}
                 </div>
 
                 ${destCardHtml}
