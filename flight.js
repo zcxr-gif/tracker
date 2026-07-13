@@ -10809,9 +10809,13 @@ function handleSocketFlightUpdate(data) {
                 // Both the Simple and Embed ("Card") windows are iframes fed the
                 // same FLIGHT_DATA_UPDATE payload, so a single live-update path
                 // serves both. Legacy stays on the avionics DOM path below.
+                // Keyed on the iframe's presence rather than the mode: the
+                // frame only exists in Simple / Card mode, or in Legacy mode
+                // under the legacyIframeWindow preview flag — all of which
+                // consume the same FLIGHT_DATA_UPDATE payload.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 const _liveFwMode = getFlightWindowMode();
-                if (_liveFwMode !== 'legacy' && simpleIframe && simpleIframe.contentWindow) {
+                if (simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
                          fullFlightProps,
                          cachedFlightDataForStatsView.plan,
@@ -10841,9 +10845,13 @@ function handleSocketFlightUpdate(data) {
                     updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
                 }
 
-                // 6.5 Update Navigation Display Iframe
+                // 6.5 Update Navigation Display Iframe — either embedded
+                // directly in the legacy DOM (#nav-display-frame) or nested
+                // inside the legacy-recreation iframe (data-window="legacy"),
+                // which relays ND_DATA to its own nav.html.
                 const navIframe = document.getElementById('nav-display-frame');
-                if (navIframe && navIframe.contentWindow) {
+                if ((navIframe && navIframe.contentWindow)
+                    || (simpleIframe && simpleIframe.dataset.window === 'legacy')) {
                     refreshNavDisplayFromCache(); // Reuse helper logic for consistency
                 }
 
@@ -15033,22 +15041,31 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
 
         // 5. Send to Iframe
+        const ndPayload = {
+            heading: position.heading_deg,
+            track: position.heading_deg,
+            gs: Math.round(position.gs_kt),
+            tas: calculatedTas,
+            windDir: cachedWindDir,
+            windSpd: cachedWindSpd,
+            traffic: ndTraffic,
+            flightPlan: ndFlightPlan,
+            nextWp: ndNextWp,
+            nextWpDist: ndDist,
+            nextWpEte: ndEte
+        };
         const navIframe = document.getElementById('nav-display-frame');
         if (navIframe && navIframe.contentWindow) {
-            navIframe.contentWindow.postMessage({
-                heading: position.heading_deg,
-                track: position.heading_deg,
-                gs: Math.round(position.gs_kt),
-                tas: calculatedTas, 
-                windDir: cachedWindDir, 
-                windSpd: cachedWindSpd,
-                traffic: ndTraffic,
-                flightPlan: ndFlightPlan,
-                nextWp: ndNextWp,
-                nextWpDist: ndDist,
-                nextWpEte: ndEte
-            }, '*');
+            navIframe.contentWindow.postMessage(ndPayload, '*');
             console.log(`ND Iframe Handshake successful. Data pushed for ${flightId}`);
+        } else {
+            // Legacy-recreation preview: the ND is nested inside the flight
+            // window iframe, so wrap the payload as ND_DATA and let the page
+            // relay it to its own nav.html.
+            const legacyFrame = document.getElementById('simple-flight-window-frame');
+            if (legacyFrame && legacyFrame.dataset.window === 'legacy' && legacyFrame.contentWindow) {
+                legacyFrame.contentWindow.postMessage({ type: 'ND_DATA', payload: ndPayload }, '*');
+            }
         }
     }
 
@@ -19204,7 +19221,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         const _fwMode = getFlightWindowMode();
-        if (_fwMode === 'simple' || _fwMode === 'embed') {
+        // Opt-in preview of the standalone Legacy recreation
+        // (legacy-flight-info.html): flip localStorage.legacyIframeWindow to
+        // '1' and the Legacy mode loads as an iframe through the exact same
+        // plumbing as Simple/Card instead of the inline avionics DOM. Off by
+        // default so the shipped Legacy path is untouched.
+        const _legacyIframe = _fwMode === 'legacy' && localStorage.getItem('legacyIframeWindow') === '1';
+        if (_fwMode === 'simple' || _fwMode === 'embed' || _legacyIframe) {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
             // Prime the peek height from the saved layout preset, then choose the
@@ -19226,10 +19249,14 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // display:block (overflow scroll), so flex-grow does nothing and the
             // iframe would collapse to the browser's ~150px default. On mobile
             // .mobile-legacy-sheet has its own !important rules that win anyway.
-            const _fwSrc = _fwMode === 'embed'
-                ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
-                : 'flightinfo.html';
-            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
+            const _fwSrc = _legacyIframe
+                ? 'legacy-flight-info.html'
+                : (_fwMode === 'embed'
+                    ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
+                    : 'flightinfo.html');
+            // data-window="legacy" marks the frame as hosting its own ND, so
+            // the nav-display update path knows to forward ND_DATA into it.
+            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" ${_legacyIframe ? 'data-window="legacy" ' : ''}src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {
@@ -19301,13 +19328,14 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // the live samples captured since the window was opened. Live ticks
             // keep extending it from here.
             try {
-                if (getFlightWindowMode() !== 'legacy') {
-                    const simpleIframe = document.getElementById('simple-flight-window-frame');
-                    if (simpleIframe && simpleIframe.contentWindow) {
-                        const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
-                        simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                    }
-                } else if (typeof updateAircraftInfoWindow === 'function') {
+                // The iframe exists in Simple / Card mode and in the Legacy
+                // preview (legacyIframeWindow flag); the inline avionics DOM
+                // path is the only one without it.
+                const simpleIframe = document.getElementById('simple-flight-window-frame');
+                if (simpleIframe && simpleIframe.contentWindow) {
+                    const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
+                    simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
+                } else if (getFlightWindowMode() === 'legacy' && typeof updateAircraftInfoWindow === 'function') {
                     updateAircraftInfoWindow(flightProps, plan, sortedRoutePoints);
                 }
             } catch (_) { /* non-fatal: live ticks will populate the graph */ }
