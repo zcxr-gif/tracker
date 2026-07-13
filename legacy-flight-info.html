@@ -9,10 +9,12 @@
   LEGACY FLIGHT INFO WINDOW — standalone recreation
 ═══════════════════════════════════════════════════════════════════════════════
 
-  This is a 1:1 recreation of the classic ("Legacy") avionics flight window
-  that lives inline in flight.js (populateAircraftInfoWindow). The PFD SVG,
-  its animation engine, and the ND (nav.html iframe) are copied verbatim.
-  Everything else is the same window, restructured so it is easy to edit:
+  This IS the Legacy flight window: flight.js loads this page in the shared
+  flight-window iframe whenever the Legacy presentation is selected. It is a
+  1:1 recreation of the avionics window that used to live inline in flight.js
+  (populateAircraftInfoWindow). The PFD SVG, its animation engine, and the ND
+  (nav.html iframe) were copied verbatim from that implementation. Everything
+  else is the same window, restructured so it is easy to edit:
 
     · All styling lives in ONE stylesheet below, organised by section, with
       the shared palette pulled out into design tokens (:root variables).
@@ -52,16 +54,10 @@
     OUT  { type: 'SIMPLE_WINDOW_ACTION', action }  'replay' | 'tripcard' | 'follow' | 'pin'
     OUT  { type: 'NAVIGATE_TO_AIRPORT', icao }     tapping an ICAO / "Full airport window"
 
-  To run it live inside the app, set the opt-in flag and pick the Legacy
-  window mode:      localStorage.setItem('legacyIframeWindow', '1')
-
-  KNOWN SIMPLIFICATIONS vs the inline original
-  ────────────────────────────────────────────
-  · The hero shows the first community photo (the host's multi-photo swipe
+  KNOWN SIMPLIFICATIONS vs the old inline implementation
+  ──────────────────────────────────────────────────────
+  · The hero shows the first community photo (the old multi-photo swipe
     carousel is not recreated).
-  · The FMS list's per-leg distance column needs waypoint coordinates the
-    shared payload doesn't carry; it shows '----' until the host provides
-    them (demo mode computes real values).
   · VA partner ad banners are host-page widgets and stay empty here.
 ═══════════════════════════════════════════════════════════════════════════════
 -->
@@ -247,6 +243,12 @@ body.loaded #legacy-window { display: block; }
 .route-node .time-source-label {
     opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px;
     margin-top: 1px; text-transform: uppercase;
+}
+/* Filed gate chip (same look the old inline injector used). */
+.route-node .node-gate {
+    color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px;
+    background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px;
+    width: fit-content; display: inline-block;
 }
 
 .route-visual {
@@ -794,6 +796,7 @@ body.loaded #legacy-window { display: block; }
             </span>
             <span class="time-small" id="ac-bar-atd">--:--</span>
             <span class="time-source-label" id="ac-bar-atd-label"></span>
+            <span class="node-gate" id="ac-dep-gate" style="display:none;"></span>
         </div>
 
         <div class="route-visual">
@@ -820,6 +823,7 @@ body.loaded #legacy-window { display: block; }
             </span>
             <span class="time-small" id="ac-bar-eta">--:--</span>
             <span class="time-source-label" id="ac-bar-eta-label"></span>
+            <span class="node-gate" id="ac-arr-gate" style="display:none;"></span>
         </div>
     </div>
 </div>
@@ -1148,6 +1152,8 @@ body.loaded #legacy-window { display: block; }
     <div class="ac-info-card-bar acx-card aircraft-card">
         <div class="acx-row"><span class="l">Registration</span><span id="ac-registration" class="v">---</span></div>
         <div class="acx-row"><span class="l">Class</span><span id="ac-category" class="v" style="font-family: inherit; text-transform: capitalize;">Commercial</span></div>
+        <div class="acx-row" id="ac-pax-row" style="display:none;"><span class="l">Passengers</span><span id="ac-pax" class="v"></span></div>
+        <div class="acx-row" id="ac-fuel-row" style="display:none;"><span class="l">Block fuel</span><span id="ac-fuel" class="v"></span></div>
         <div class="acx-row" id="ac-photo-row" style="display:none;"><span class="l">Photo</span><span id="ac-photo-by" class="v" style="font-family: inherit;"></span></div>
     </div>
 
@@ -1875,8 +1881,8 @@ function renderFmsLegs(waypoints) {
         if (group.startsWith('SID')) procTag = '<span class="proc-tag sid">SID</span>';
         else if (group.startsWith('STAR')) procTag = '<span class="proc-tag star">STAR</span>';
         else if (group.startsWith('APPR')) procTag = '<span class="proc-tag star">APPR</span>';
-        // Per-leg distance needs waypoint coordinates the shared payload
-        // doesn't carry — the host may provide wp.legDistNm; '----' otherwise.
+        // Leg length from the previous fix, computed host-side
+        // (formatDataForSimpleWindow) — '----' for the first fix.
         const dist = (wp.legDistNm != null && isFinite(wp.legDistNm)) ? String(Math.round(wp.legDistNm)) : '----';
         const rowClass = wp.active ? ' active-leg' : (wp.passed ? ' passed-leg' : '');
         html += `
@@ -2078,9 +2084,29 @@ function applyFlightData(d) {
     $('fms-total-dist').textContent = (totalNm != null ? totalNm : '----') + ' NM';
     $('fms-total-ete').textContent = r.ete || '--:--';
 
+    /* Filed dispatch details: gate chips under the route bar + aircraft rows */
+    const fp = d.filedPlan || null;
+    const depGateEl = $('ac-dep-gate'), arrGateEl = $('ac-arr-gate');
+    if (fp && fp.depGate) {
+        depGateEl.innerHTML = `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${escapeHtml(fp.depGate)}`;
+        depGateEl.style.display = '';
+    } else depGateEl.style.display = 'none';
+    if (fp && fp.arrGate) {
+        arrGateEl.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${escapeHtml(fp.arrGate)}`;
+        arrGateEl.style.display = '';
+    } else arrGateEl.style.display = 'none';
+
     /* Aircraft card */
     $('ac-registration').textContent = (d.aircraft && d.aircraft.registration) || '---';
     if (d.category) $('ac-category').textContent = d.category;
+    if (fp && fp.passengers != null) {
+        $('ac-pax').textContent = String(fp.passengers);
+        $('ac-pax-row').style.display = '';
+    } else $('ac-pax-row').style.display = 'none';
+    if (fp && fp.fuelKg) {
+        $('ac-fuel').innerHTML = `${Math.round(fp.fuelKg / 1000)}k<span class="unit">kg</span>`;
+        $('ac-fuel-row').style.display = '';
+    } else $('ac-fuel-row').style.display = 'none';
     const credit = d.images && d.images.credit;
     const singlePhoto = !(d.images && Array.isArray(d.images.list) && d.images.list.length > 1);
     if (credit && credit !== 'IF Community' && singlePhoto) {
@@ -2551,6 +2577,8 @@ function buildPayload() {
         phaseClass: 'phase-cruise',
         phaseIcon: 'fa-route',
         pilotState: 0,
+        category: 'Commercial',
+        filedPlan: { passengers: 214, fuelKg: 54200, depGate: 'B16', arrGate: 'A5' },
         locationText: locationTextFor(sim.flownNm),
         telemetry: {
             altitude: Math.round(sim.alt),

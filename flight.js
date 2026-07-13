@@ -651,13 +651,11 @@ window.pinFlight = function(flightId) {
     let filterSettingsWindow = null; // <-- ADD THIS NEW VARIABLE
     let aircraftInfoWindowRecallBtn = null;
     let currentFlightInWindow = null; // Stores the flightId of the last selected aircraft
-    let activePfdUpdateInterval = null; // Interval for updating the PFD display
     let activeGeocodeUpdateInterval = null; // NEW: Interval for reverse geocoding
     let activeWeatherUpdateInterval = null;
     let currentAircraftPositionForGeocode = null; // NEW: Stores the latest position
     let lastGeocodeCoords = { lat: 0, lon: 0 }; // NEW: Prevents redundant calls
-    // --- FIX: Added roll_deg to state to prevent flickering ---
-    let lastPfdState = { track_deg: 0, timestamp: 0, roll_deg: 0 };
+    let lastGeocodeText = null; // Latest reverse-geocode result, carried into the flight-window payload
     // --- NEW: To cache flight data when switching to stats view ---
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
 let mapFilters = {
@@ -750,8 +748,8 @@ let mapFilters = {
         // window) or 'embed' (embed-airport.html — the embed's airport card).
         airportWindowMode: 'standard',
         // Auto-advance the aircraft photo carousel (with a soft crossfade) in
-        // both the regular and simple flight windows. On by default; the
-        // "Auto-Cycle Photos" toggle turns it off. See buildHeroPhotoCarousel().
+        // the flight windows. On by default; the "Auto-Cycle Photos" toggle
+        // turns it off. Consumed by the window iframes (flightinfo.html).
         autoCyclePhotos: true,
         planeIconSize: 0.15,
         themeStartColor: '#18181b',
@@ -9972,42 +9970,32 @@ async function fetchAndDisplayGeocode(lat, lon) {
     if (!lat || !lon) return;
 
     // [USER REQ] Distance check removed to force time-based updates.
-    
+
     // 1. Store new coordinates (still useful, though not for distance check)
     lastGeocodeCoords = { lat, lon };
-    
-    // [FIX] Query all *before* the await to set loading state
-    const initialElements = document.querySelectorAll('#ac-location');
-    if (initialElements.length === 0) return;
 
-    initialElements.forEach(el => {
-        el.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; // Loading state
-    });
-
+    // The flight windows are iframes now, so the result is cached here and
+    // carried into every FLIGHT_DATA_UPDATE payload as `locationText` (the
+    // "Currently over" line). Any #ac-location element left in the host DOM
+    // (e.g. older overlays) is still updated directly as before.
     try {
-        // 3. Call your new Netlify Function
         const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/reverse-geocode?lat=${lat}&lon=${lon}`);
-
-        // [CRITICAL FIX] Query all *after* the await to get the (potentially) new DOM structure
-        const currentElements = document.querySelectorAll('#ac-location');
 
         if (response.ok) {
             const data = await response.json();
-            currentElements.forEach(el => {
-                el.textContent = data.location || 'Remote Area';
-            });
+            lastGeocodeText = data.location || 'Remote Area';
         } else {
             // API returned an error (e.g., 404 for ocean)
-            currentElements.forEach(el => {
-                el.textContent = 'Ocean / Remote Area';
-            });
+            lastGeocodeText = 'Ocean / Remote Area';
         }
     } catch (error) {
         console.error("Geocode fetch error:", error);
-        // [CRITICAL FIX] Query all *after* the await, even in the catch block
-        const currentElements = document.querySelectorAll('#ac-location');
-        currentElements.forEach(el => {
-            el.textContent = 'N/A'; // Fetch failed
+        lastGeocodeText = null; // Fetch failed — windows keep their last value
+    }
+
+    if (lastGeocodeText) {
+        document.querySelectorAll('#ac-location').forEach(el => {
+            el.textContent = lastGeocodeText;
         });
     }
 }
@@ -10809,12 +10797,9 @@ function handleSocketFlightUpdate(data) {
                 // Both the Simple and Embed ("Card") windows are iframes fed the
                 // same FLIGHT_DATA_UPDATE payload, so a single live-update path
                 // serves both. Legacy stays on the avionics DOM path below.
-                // Keyed on the iframe's presence rather than the mode: the
-                // frame only exists in Simple / Card mode, or in Legacy mode
-                // under the legacyIframeWindow preview flag — all of which
-                // consume the same FLIGHT_DATA_UPDATE payload.
+                // Every window mode (Legacy recreation / Simple / Card) is an
+                // iframe consuming the same FLIGHT_DATA_UPDATE payload.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
-                const _liveFwMode = getFlightWindowMode();
                 if (simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
                          fullFlightProps,
@@ -10832,18 +10817,12 @@ function handleSocketFlightUpdate(data) {
                          cachedFlightDataForStatsView.filedPlanData || null
                      );
                      simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                } else if (_liveFwMode === 'legacy') {
-                    updatePfdDisplay(flight.position);
-                    updateNavPanelData(
-                        flight.position.lat, 
-                        flight.position.lon, 
-                        flight.position.heading_deg,
-                        cachedOat,
-                        cachedWindDir,
-                        cachedWindSpd
-                    );
-                    updateAircraftInfoWindow(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
                 }
+
+                // iOS Live Activity (lock screen / Dynamic Island) — used to
+                // live inside the inline legacy window's update pass; now a
+                // standalone tick that runs for every window mode.
+                pushLiveActivityUpdate(fullFlightProps, cachedFlightDataForStatsView.plan, localTrail);
 
                 // 6.5 Update Navigation Display Iframe — either embedded
                 // directly in the legacy DOM (#nav-display-frame) or nested
@@ -11392,632 +11371,9 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         } catch (_) {}
     }
 
-    // --- [NEW] PFD Constants and Functions ---
-    const PFD_PITCH_SCALE = 8;
-    const PFD_SPEED_SCALE = 7;
-    const PFD_SPEED_CENTER_Y = 238;
-    const PFD_SPEED_REF_VALUE = 120;
-    const PFD_ALTITUDE_SCALE = 0.7;
-    const PFD_ALTITUDE_CENTER_Y = 234;
-    const PFD_ALTITUDE_REF_VALUE = 0;
-    const PFD_REEL_SPACING = 30;
-    const PFD_HEADING_SCALE = 5;
-    const PFD_HEADING_CENTER_X = 406;
-    const PFD_HEADING_REF_VALUE = 0;
-
-    function createPfdDisplay() {
-        const SVG_NS = "http://www.w3.org/2000/svg";
-        
-        // --- Existing Groups ---
-        const attitudeGroup = document.getElementById('attitude_group');
-        const speedTapeGroup = document.getElementById('speed_tape_group');
-        const altitudeTapeGroup = document.getElementById('altitude_tape_group');
-        const tensReelGroup = document.getElementById('altitude_tens_reel_group');
-        const headingTapeGroup = document.getElementById('heading_tape_group');
-        
-        // --- NEW: Select the main PFD group to attach the FMA ---
-        const pfdGroup = document.getElementById('PFD');
-
-        // Safety check
-        if (!attitudeGroup || !speedTapeGroup || !altitudeTapeGroup || !tensReelGroup || !headingTapeGroup || !pfdGroup) {
-            return;
-        }
-        
-        // Prevent double-initialization
-        if (attitudeGroup.dataset.initialized === 'true') return;
-
-        // 1. Generate Attitude Indicators (Existing Logic)
-        function generateAttitudeIndicators() {
-            const centerX = 401.5;
-            const centerY = 312.5;
-            for (let p = -90; p <= 90; p += 2.5) {
-                if (p === 0) continue;
-                const y = centerY - (p * PFD_PITCH_SCALE);
-                const isMajor = (p % 10 === 0);
-                const isMinor = (p % 5 === 0);
-                if (isMajor || isMinor) {
-                    const lineWidth = isMajor ? 80 : 40;
-                    const line = document.createElementNS(SVG_NS, 'line');
-                    line.setAttribute('x1', centerX - lineWidth / 2);
-                    line.setAttribute('x2', centerX + lineWidth / 2);
-                    line.setAttribute('y1', y);
-                    line.setAttribute('y2', y);
-                    line.setAttribute('stroke', 'white');
-                    line.setAttribute('stroke-width', 2);
-                    attitudeGroup.appendChild(line);
-                    if (isMajor) {
-                        const textLeft = document.createElementNS(SVG_NS, 'text');
-                        textLeft.setAttribute('x', centerX - lineWidth / 2 - 10);
-                        textLeft.setAttribute('y', y + 5);
-                        textLeft.setAttribute('fill', 'white');
-                        textLeft.setAttribute('font-size', '18');
-                        textLeft.setAttribute('text-anchor', 'end');
-                        textLeft.textContent = Math.abs(p);
-                        attitudeGroup.appendChild(textLeft);
-                        const textRight = document.createElementNS(SVG_NS, 'text');
-                        textRight.setAttribute('x', centerX + lineWidth / 2 + 10);
-                        textRight.setAttribute('y', y + 5);
-                        textRight.setAttribute('fill', 'white');
-                        textRight.setAttribute('font-size', '18');
-                        textRight.setAttribute('text-anchor', 'start');
-                        textRight.textContent = Math.abs(p);
-                        attitudeGroup.appendChild(textRight);
-                    }
-                }
-            }
-        }
-
-        // 2. Generate Speed Tape (Existing Logic)
-        function generateSpeedTape() {
-            const MIN_SPEED = 0, MAX_SPEED = 999;
-            for (let s = MIN_SPEED; s <= MAX_SPEED; s += 5) {
-                const yPos = PFD_SPEED_CENTER_Y - (s - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('y1', yPos); tick.setAttribute('y2', yPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '2');
-                if (s % 10 === 0) {
-                    tick.setAttribute('x1', '67'); tick.setAttribute('x2', '52');
-                    const text = document.createElementNS(SVG_NS, 'text');
-                    text.setAttribute('x', '37'); text.setAttribute('y', yPos + 5);
-                    text.setAttribute('fill', 'white'); text.setAttribute('font-size', '18');
-                    text.setAttribute('text-anchor', 'middle'); text.textContent = s;
-                    speedTapeGroup.appendChild(text);
-                } else {
-                    tick.setAttribute('x1', '67'); tick.setAttribute('x2', '60');
-                }
-                speedTapeGroup.appendChild(tick);
-            }
-        }
-
-        // 3. Generate Altitude Tape (Existing Logic)
-        function generateAltitudeTape() {
-            const MIN_ALTITUDE = 0, MAX_ALTITUDE = 50000;
-            for (let alt = MIN_ALTITUDE; alt <= MAX_ALTITUDE; alt += 20) {
-                const yPos = PFD_ALTITUDE_CENTER_Y - (alt - PFD_ALTITUDE_REF_VALUE) * PFD_ALTITUDE_SCALE;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('y1', yPos); tick.setAttribute('y2', yPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '2');
-                tick.setAttribute('x1', '72');
-                if (alt % 100 === 0) {
-                    tick.setAttribute('x2', '52');
-                    const text = document.createElementNS(SVG_NS, 'text');
-                    text.setAttribute('x', '25'); text.setAttribute('y', yPos + 5);
-                    text.setAttribute('fill', 'white'); text.setAttribute('font-size', '18');
-                    text.setAttribute('text-anchor', 'middle'); text.textContent = alt / 100;
-                    altitudeTapeGroup.appendChild(text);
-                } else {
-                    tick.setAttribute('x2', '62');
-                }
-                altitudeTapeGroup.appendChild(tick);
-            }
-        }
-
-        // 4. Generate Reels (Existing Logic)
-        function generateAltitudeTensReel() {
-            const center_y = 316;
-            for (let i = -5; i < 10; i++) {
-                let value = (i * 20); value = (value < 0) ? 100 + (value % 100) : value % 100;
-                const displayValue = String(value).padStart(2, '0');
-                const yPos = center_y - (i * PFD_REEL_SPACING);
-                const text = document.createElementNS(SVG_NS, 'text');
-                text.setAttribute('x', '745'); text.setAttribute('y', yPos);
-                text.setAttribute('fill', '#00FF00'); text.setAttribute('font-size', '32');
-                text.setAttribute('font-weight', 'bold'); text.textContent = displayValue;
-                tensReelGroup.appendChild(text);
-            }
-        }
-
-        // 5. Generate Heading Tape (Existing Logic)
-        function generateHeadingTape() {
-            const y_text = 650, y_tick_top = 620, y_tick_bottom_major = 635, y_tick_bottom_minor = 628;
-            for (let h = -360; h <= 720; h += 5) {
-                const xPos = PFD_HEADING_CENTER_X + (h - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
-                const normalizedH = (h + 360) % 360;
-                if (normalizedH % 90 === 0) continue;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('x1', xPos); tick.setAttribute('x2', xPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '1.5');
-                tick.setAttribute('y1', y_tick_top); tick.setAttribute('y2', (h % 10 === 0) ? y_tick_bottom_major : y_tick_bottom_minor);
-                headingTapeGroup.appendChild(tick);
-            }
-            for (let h = 0; h < 360; h += 10) {
-                for (let offset of [-360, 0, 360]) {
-                    const currentH = h + offset;
-                    const xPos = PFD_HEADING_CENTER_X + (currentH - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
-                    const text = document.createElementNS(SVG_NS, 'text');
-                    text.setAttribute('x', xPos); text.setAttribute('y', y_text);
-                    text.setAttribute('fill', 'white'); text.setAttribute('font-size', '16');
-                    text.setAttribute('text-anchor', 'middle');
-                    let displayVal = '';
-                    switch (h) { case 0: displayVal = 'N'; break; case 90: displayVal = 'E'; break; case 180: displayVal = 'S'; break; case 270: displayVal = 'W'; break; default: if (h % 30 === 0) { displayVal = h / 10; } }
-                    if (displayVal !== '') { text.textContent = displayVal; headingTapeGroup.appendChild(text); }
-                }
-            }
-        }
-        
-        // --- 6. NEW: Generate Flight Mode Annunciator (FMA) ---
-        function generateFMA() {
-            // FMA Container Group
-            const fmaGroup = document.createElementNS(SVG_NS, 'g');
-            fmaGroup.setAttribute('id', 'fma_group');
-            
-            // Background Box (Top of PFD)
-            // UPDATED: Height 100
-            const fmaBg = document.createElementNS(SVG_NS, 'rect');
-            fmaBg.setAttribute('x', '0');
-            fmaBg.setAttribute('y', '0'); 
-            fmaBg.setAttribute('width', '787');
-            fmaBg.setAttribute('height', '100'); // Taller
-            fmaBg.setAttribute('fill', '#101010'); 
-            fmaBg.setAttribute('stroke', '#555');
-            fmaBg.setAttribute('stroke-width', '0'); 
-            fmaGroup.appendChild(fmaBg);
-
-            // Separator Lines (5 Columns -> 4 lines)
-            const colWidth = 157.4;
-            for (let i = 1; i < 5; i++) {
-                const x = i * colWidth;
-                const line = document.createElementNS(SVG_NS, 'line');
-                line.setAttribute('x1', x); line.setAttribute('x2', x);
-                // UPDATED: y2 is 100
-                line.setAttribute('y1', '0'); line.setAttribute('y2', '100');
-                line.setAttribute('stroke', '#555'); 
-                line.setAttribute('stroke-width', '1');
-                fmaGroup.appendChild(line);
-            }
-
-            // Text Placeholders
-            // UPDATED: Centered vertically for 100px height (~58px) and increased font size
-            
-            // Col 1: Auto-Thrust
-            const textCol1 = document.createElementNS(SVG_NS, 'text');
-            textCol1.setAttribute('id', 'fma_col1_text');
-            textCol1.setAttribute('x', '78');
-            textCol1.setAttribute('y', '58'); 
-            textCol1.setAttribute('fill', '#00FF00'); 
-            textCol1.setAttribute('font-family', 'monospace');
-            textCol1.setAttribute('font-size', '24'); // Larger
-            textCol1.setAttribute('font-weight', 'bold');
-            textCol1.setAttribute('text-anchor', 'middle');
-            textCol1.textContent = ""; 
-            fmaGroup.appendChild(textCol1);
-
-            // Col 2: Vertical Mode
-            const textCol2 = document.createElementNS(SVG_NS, 'text');
-            textCol2.setAttribute('id', 'fma_col2_text');
-            textCol2.setAttribute('x', '235');
-            textCol2.setAttribute('y', '58');
-            textCol2.setAttribute('fill', '#00FF00');
-            textCol2.setAttribute('font-family', 'monospace');
-            textCol2.setAttribute('font-size', '24');
-            textCol2.setAttribute('font-weight', 'bold');
-            textCol2.setAttribute('text-anchor', 'middle');
-            textCol2.textContent = ""; 
-            fmaGroup.appendChild(textCol2);
-
-            // Col 3: Lateral Mode
-            const textCol3 = document.createElementNS(SVG_NS, 'text');
-            textCol3.setAttribute('id', 'fma_col3_text');
-            textCol3.setAttribute('x', '392');
-            textCol3.setAttribute('y', '58');
-            textCol3.setAttribute('fill', '#00FF00');
-            textCol3.setAttribute('font-family', 'monospace');
-            textCol3.setAttribute('font-size', '24');
-            textCol3.setAttribute('font-weight', 'bold');
-            textCol3.setAttribute('text-anchor', 'middle');
-            textCol3.textContent = ""; 
-            fmaGroup.appendChild(textCol3);
-
-            // Col 4: Approach Capability
-            const textCol4 = document.createElementNS(SVG_NS, 'text');
-            textCol4.setAttribute('id', 'fma_col4_text');
-            textCol4.setAttribute('x', '549');
-            textCol4.setAttribute('y', '52'); // Slightly higher
-            textCol4.setAttribute('fill', '#FFFFFF'); 
-            textCol4.setAttribute('font-family', 'monospace');
-            textCol4.setAttribute('font-size', '20'); // Larger
-            textCol4.setAttribute('text-anchor', 'middle');
-            
-            const tspan1 = document.createElementNS(SVG_NS, 'tspan');
-            tspan1.setAttribute('x', '549');
-            tspan1.setAttribute('dy', '0');
-            tspan1.textContent = ""; 
-            textCol4.appendChild(tspan1);
-            
-            const tspan2 = document.createElementNS(SVG_NS, 'tspan');
-            tspan2.setAttribute('x', '549');
-            tspan2.setAttribute('dy', '22');
-            tspan2.textContent = ""; 
-            textCol4.appendChild(tspan2);
-            
-            fmaGroup.appendChild(textCol4);
-            
-            // --- Add a divider line at the bottom of the FMA ---
-            const bottomBorder = document.createElementNS(SVG_NS, 'line');
-            bottomBorder.setAttribute('x1', '0'); bottomBorder.setAttribute('x2', '787');
-            // UPDATED: y 100
-            bottomBorder.setAttribute('y1', '100'); bottomBorder.setAttribute('y2', '100');
-            bottomBorder.setAttribute('stroke', '#ffffff');
-            bottomBorder.setAttribute('stroke-width', '2');
-            fmaGroup.appendChild(bottomBorder);
-
-            // Append FMA to PFD Group (Last = On Top)
-            pfdGroup.appendChild(fmaGroup);
-        }
-
-        generateAttitudeIndicators();
-        generateSpeedTape();
-        generateAltitudeTape();
-        generateAltitudeTensReel();
-        generateHeadingTape();
-        generateFMA(); // <-- Call the new generator
-
-        attitudeGroup.dataset.initialized = 'true'; 
-    }
-    
-
-function updatePfdDisplay(pfdData) {
-  if (!pfdData) return;
-
-  // ---- tolerate common key names ----
-  const gs_kt =
-    pfdData.gs_kt ??
-    pfdData.groundspeed_kts ??
-    pfdData.groundspeed ??
-    pfdData.gs ??
-    (pfdData.speed && (pfdData.speed.kt || pfdData.speed.kts)) ??
-    0;
-
-  const track_deg =
-    pfdData.heading_deg ??
-    pfdData.track_deg ??
-    pfdData.track ??
-    pfdData.hdg ??
-    0;
-
-  const alt_ft = pfdData.alt_ft ?? pfdData.altitude_ft ?? pfdData.altitude ?? 0;
-  const vs_fpm = pfdData.vs_fpm ?? pfdData.vertical_speed_fpm ?? pfdData.vs ?? 0;
-
-  // ---- [FIX] DOM elements are now selected via querySelectorAll ----
-  const attitudeGroups     = document.querySelectorAll('#attitude_group');
-  const speedTapeGroups    = document.querySelectorAll('#speed_tape_group');
-  const altitudeTapeGroups = document.querySelectorAll('#altitude_tape_group');
-  const tensReelGroups     = document.querySelectorAll('#altitude_tens_reel_group');
-  const headingTapeGroups  = document.querySelectorAll('#heading_tape_group');
-  const speedReadouts      = document.querySelectorAll('#speed_readout');
-  const altReadoutHunds    = document.querySelectorAll('#altitude_readout_hundreds');
-  const headingReadouts    = document.querySelectorAll('#heading_readout');
-  
-  if (attitudeGroups.length === 0) return; // No PFDs found, exit
-  
-  // ---- tunables ----
-  const WINDOW_SEC          = 2.4;   // regression window
-  const LATCH_ON_TURN       = 0.20;  // deg/s to latch "turning"
-  const LATCH_OFF_TURN      = 0.10;  // deg/s to unlatch
-  const LATCH_HOLD_MS       = 400;   // chatter guard
-  const MAX_BANK_DEG        = 35;
-  const MAX_ROLL_RATE       = 60;    // display slew (deg/s)
-  const MIN_GS_FOR_TURN     = 1;
-  const PITCH_LIMIT         = 25;
-
-  const DATA_HOLD_MS        = 1400;  // hold last turn-rate after last fresh packet
-  const STALE_MS            = 4000;  // after this, allow full decay/unlatch
-  const HDG_EPS             = 0.4;   // unwrapped degrees to consider heading "changed"
-  const GS_EPS              = 0.5;   // kt change to consider GS "changed"
-  const DECAY_TO_LEVEL_DPS  = 12;    // decay when not turning
-  const MICRO_DECAY_FACTOR  = 0.25;  // softer decay before STALE_MS
-
-  const EMA_ALPHA           = 0.35;  // EMA smoothing on turn-rate (0..1)
-  const SIGN_MIN_DEG        = 3.0;   // min magnitude to accept L/R sign flip
-  const SIGN_HOLD_MS        = 250;   // new sign must persist this long
-
-  const now = performance.now();
-
-  // ---- persistent state ----
-  if (!window.lastPfdState || typeof window.lastPfdState !== 'object') {
-    window.lastPfdState = {
-      unwrapped: track_deg,
-      lastTime: now,
-      buf: [],                  // [{t, hdg}] for fresh samples only
-      rollDisp: 0,
-      turning: false,
-      lastTurnLatchTs: 0,
-
-      // freshness / hold
-      lastDataTs: 0,
-      lastTurnRate: 0,
-      lastRawTrack: track_deg,
-      lastRawGs: gs_kt,
-      prevUnwrapped: track_deg,
-
-      // smoothing & sign guard
-      turnRateEma: 0,
-      rollSign: 0,
-      lastSignChangeTs: 0
-    };
-  }
-  const S = window.lastPfdState;
-
-  // ---- unwrap heading ----
-  let delta = track_deg - (S.unwrapped % 360);
-  if (delta > 180)  delta -= 360;
-  if (delta < -180) delta += 360;
-  const unwrapped = S.unwrapped + delta;
-
-  // ---- detect "fresh" API packet vs. render tick (use unwrapped delta) ----
-  const unwrappedDelta = Math.abs(unwrapped - S.unwrapped);
-  const isFresh =
-    unwrappedDelta > HDG_EPS ||
-    Math.abs(gs_kt - S.lastRawGs) > GS_EPS;
-
-  // ---- manage regression buffer (only for fresh samples) ----
-  const tNow = now / 1000;
-  if (isFresh) {
-    S.lastDataTs = now;
-    S.lastRawTrack = track_deg;
-    S.lastRawGs = gs_kt;
-    const cutoff = tNow - WINDOW_SEC;
-    S.buf.push({ t: tNow, hdg: unwrapped });
-    while (S.buf.length && S.buf[0].t < cutoff) S.buf.shift();
-  }
-
-  // ---- turn-rate estimate (deg/s): fresh -> compute; else -> hold previous ----
-  let turnRate = S.lastTurnRate;
-  if (isFresh) {
-    if (S.buf.length >= 3 && gs_kt > MIN_GS_FOR_TURN) {
-      // linear regression slope
-      const t0 = S.buf[0].t;
-      let sumT = 0, sumH = 0, sumTT = 0, sumTH = 0, n = S.buf.length;
-      for (let i = 0; i < n; i++) {
-        const ti = S.buf[i].t - t0;
-        const hi = S.buf[i].hdg;
-        sumT  += ti;
-        sumH  += hi;
-        sumTT += ti * ti;
-        sumTH += ti * hi;
-      }
-      const denom = n * sumTT - sumT * sumT;
-      if (denom !== 0) {
-        turnRate = (n * sumTH - sumT * sumH) / denom; // deg/s
-      } else {
-        const dtS = Math.max(0.02, (now - S.lastTime) / 1000);
-        turnRate = (unwrapped - S.prevUnwrapped) / dtS;
-      }
-    } else {
-      const dtS = Math.max(0.02, (now - S.lastTime) / 1000);
-      turnRate = (unwrapped - S.prevUnwrapped) / dtS;
-    }
-    S.lastTurnRate = turnRate;
-  }
-
-  // ---- EMA smoothing on turn-rate ----
-  S.turnRateEma = EMA_ALPHA * turnRate + (1 - EMA_ALPHA) * S.turnRateEma;
-
-  // ---- hysteresis + data-hold for "turning" ----
-  const sinceFresh = now - S.lastDataTs;
-  const rateAbs    = Math.abs(S.turnRateEma);
-  const wasTurning = S.turning;
-  const forceTurningByHold = sinceFresh <= DATA_HOLD_MS && Math.abs(S.lastTurnRate) >= LATCH_OFF_TURN;
-
-  if (!wasTurning) {
-    if (rateAbs >= LATCH_ON_TURN || forceTurningByHold) {
-      S.turning = true;
-      S.lastTurnLatchTs = now;
-    }
-  } else {
-    const timeSinceLatch = now - S.lastTurnLatchTs;
-    const allowUnlatch = rateAbs < LATCH_OFF_TURN && timeSinceLatch > LATCH_HOLD_MS && sinceFresh > DATA_HOLD_MS;
-    if (allowUnlatch && sinceFresh > STALE_MS) {
-      S.turning = false;
-    } else if (rateAbs >= LATCH_OFF_TURN || forceTurningByHold) {
-      S.lastTurnLatchTs = now;
-    }
-  }
-
-  // ---- coordinated-turn bank target from smoothed rate ----
-  const Vms   = Math.max(0, gs_kt) * 0.514444;
-  const omega = (S.turnRateEma * Math.PI) / 180; // rad/s
-  const bankAbs = Math.atan(Math.abs(omega) * Vms / 9.81) * 180 / Math.PI;
-  let targetRoll = (S.turnRateEma >= 0 ? 1 : -1) * Math.min(bankAbs, MAX_BANK_DEG);
-
-  // ---- sign stickiness (prevents brief L/R flips) ----
-  const desiredSign = Math.sign(targetRoll);
-  if (desiredSign !== 0 && desiredSign !== S.rollSign) {
-    const bigEnough = Math.abs(targetRoll) >= SIGN_MIN_DEG;
-    const persisted = (now - S.lastSignChangeTs) >= SIGN_HOLD_MS;
-    if (bigEnough && persisted) {
-      S.rollSign = desiredSign;
-      S.lastSignChangeTs = now;
-    } else {
-      targetRoll = Math.abs(targetRoll) * (S.rollSign || desiredSign);
-    }
-  } else if (S.rollSign === 0 && desiredSign !== 0) {
-    S.rollSign = desiredSign;
-    S.lastSignChangeTs = now;
-  }
-
-  // ---- when not turning: decay toward level (hold pose before STALE_MS) ----
-  if (!S.turning) {
-    const dt = Math.max(0.01, (now - S.lastTime) / 1000);
-    const base = DECAY_TO_LEVEL_DPS * dt;
-    const decayStep = sinceFresh <= STALE_MS ? base * MICRO_DECAY_FACTOR : base;
-    targetRoll = (Math.abs(S.rollDisp) <= decayStep) ? 0 : S.rollDisp - Math.sign(S.rollDisp) * decayStep;
-  }
-
-  // ---- slew-limit the displayed roll ----
-  {
-    const dt = Math.max(0.01, (now - S.lastTime) / 1000);
-    const maxStep = dt * MAX_ROLL_RATE;
-    const diff = targetRoll - S.rollDisp;
-    S.rollDisp += Math.abs(diff) > maxStep ? Math.sign(diff) * maxStep : diff;
-  }
-
-  // ---- update state timestamps/unwraps ----
-  S.unwrapped = unwrapped;
-  S.prevUnwrapped = unwrapped;
-  S.lastTime = now;
-
-  // ---- pitch from VS ----
-  const pitch_deg = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, (vs_fpm / 1000) * 4));
-
-  // ---- [FIX] Apply transforms to ALL found elements ----
-  const rollForSvg = -S.rollDisp; // SVG rotation sense
-  const attitudeTransform = `translate(0, ${pitch_deg * PFD_PITCH_SCALE}) rotate(${rollForSvg}, 401.5, 312.5)`;
-  attitudeGroups.forEach(el => el.setAttribute('transform', attitudeTransform));
-
-  // ---- [FIX] Apply tape/readout updates to ALL found elements ----
-  const speedYOffset = (gs_kt - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
-  speedReadouts.forEach(el => el.textContent = Math.round(gs_kt));
-  speedTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${speedYOffset})`));
-
-  const altitude = Math.max(0, alt_ft);
-  const tapeYOffset = altitude * PFD_ALTITUDE_SCALE;
-  altReadoutHunds.forEach(el => el.textContent = Math.floor(altitude / 100));
-  altitudeTapeGroups.forEach(el => el.setAttribute('transform', `translate(0, ${tapeYOffset})`));
-
-  const tensValue = altitude % 100;
-  // [FIXED] Removed negative sign. Moves DOWN (positive Y) as value increases to reveal numbers from above.
-  const reelYOffset = (tensValue / 20) * PFD_REEL_SPACING;
-  tensReelGroups.forEach(el => el.setAttribute('transform', `translate(0, ${reelYOffset})`));
-
-  const hdg = ((Math.round(track_deg) % 360) + 360) % 360;
-  const xOffset = -(track_deg - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
-  headingReadouts.forEach(el => el.textContent = String(hdg).padStart(3, '0'));
-  headingTapeGroups.forEach(el => el.setAttribute('transform', `translate(${xOffset}, 0)`));
-
-  // ---------------------------------------------------------
-  // ---- NEW: UPDATE FMA TEXT (Flight Mode Annunciator) ----
-  // ---------------------------------------------------------
-  
-  // 1. Determine Modes Logic
-  let thrustMode = "SPEED";
-  let vertMode = "ALT";
-  let latMode = "NAV";
-  let catStatus = ""; // E.g., "CAT3\nDUAL"
-
-  // -- Logic: Phase Detection --
-  const isClimbing = vs_fpm > 400;
-  const isDescending = vs_fpm < -400;
-  const isOnGround = alt_ft < 50 && gs_kt > 30; // Pseudo-takeoff
-  const isTurning = Math.abs(S.rollDisp) > 3.0;
-  
-  // Use inferred alignment logic (Low alt, low speed, steady roll)
-  // Note: This assumes landing configuration without checking runways directly (simulated)
-  const isLandingConfig = alt_ft < 2500 && gs_kt < 180 && !isClimbing; 
-  const isEstablished = isLandingConfig && !isTurning;
-
-  // -- Col 1: Auto-Thrust --
-  if (isOnGround) {
-      thrustMode = "TOGA";
-  } else if (isClimbing) {
-      thrustMode = "THR CLB";
-  } else if (isDescending) {
-      thrustMode = "THR IDLE";
-  } else {
-      thrustMode = "SPEED";
-  }
-
-  // -- Col 2: Vertical Mode --
-  if (isClimbing) {
-      vertMode = "CLB";
-  } else if (isDescending) {
-      vertMode = "DES";
-  } else if (isEstablished && isLandingConfig) {
-      vertMode = "G/S";
-  } else {
-      vertMode = "ALT"; // Level flight
-  }
-
-  // -- Col 3: Lateral Mode --
-  if (isOnGround) {
-      latMode = "RWY";
-  } else if (isEstablished && isLandingConfig) {
-      latMode = "LOC";
-  } else if (isTurning) {
-      latMode = "HDG";
-  } else {
-      latMode = "NAV";
-  }
-
-  // -- Col 4: Approach Status (Simulated) --
-  if (latMode === "LOC" && vertMode === "G/S" && alt_ft < 1000) {
-      catStatus = "CAT3\nDUAL"; 
-  }
-
-  // 2. Update DOM
-  const fmaCol1 = document.getElementById('fma_col1_text');
-  const fmaCol2 = document.getElementById('fma_col2_text');
-  const fmaCol3 = document.getElementById('fma_col3_text');
-  const fmaCol4 = document.getElementById('fma_col4_text');
-
-  if (fmaCol1) fmaCol1.textContent = thrustMode;
-  if (fmaCol2) fmaCol2.textContent = vertMode;
-  if (fmaCol3) fmaCol3.textContent = latMode;
-
-  if (fmaCol4) {
-      // Handle multiline logic for Col 4
-      const lines = catStatus.split('\n');
-      const spans = fmaCol4.querySelectorAll('tspan');
-      if (spans.length >= 2) {
-          spans[0].textContent = lines[0] || "";
-          spans[1].textContent = lines[1] || "";
-      }
-  }
-}
-
-    /**
-     * --- [NEW] Resets the PFD state and visuals to neutral. ---
-     * Call this when selecting a new aircraft to prevent displaying stale data.
-     */
-    function resetPfdState() {
-        // 1. Invalidate the persistent state object.
-        //    This forces updatePfdDisplay to re-initialize it on its next run.
-        window.lastPfdState = null;
-
-        // 2. Immediately set the core SVG elements to a neutral, "level flight" state.
-        const attitudeGroup = document.getElementById('attitude_group');
-        const speedReadout = document.getElementById('speed_readout');
-        const altReadoutHund = document.getElementById('altitude_readout_hundreds');
-        const headingReadout = document.getElementById('heading_readout');
-        const speedTapeGroup = document.getElementById('speed_tape_group');
-        const altitudeTapeGroup = document.getElementById('altitude_tape_group');
-        const headingTapeGroup = document.getElementById('heading_tape_group');
-
-        if (attitudeGroup) {
-            // Set to zero pitch translation and zero roll rotation.
-            attitudeGroup.setAttribute('transform', 'translate(0, 0) rotate(0, 401.5, 312.5)');
-        }
-        
-        // 3. Clear readouts to avoid showing the last aircraft's data.
-        if (speedReadout) speedReadout.textContent = '---';
-        if (altReadoutHund) altReadoutHund.textContent = '---';
-        if (headingReadout) headingReadout.textContent = '---';
-
-        // 4. Reset tape positions to zero.
-        if (speedTapeGroup) speedTapeGroup.setAttribute('transform', 'translate(0, 0)');
-        if (altitudeTapeGroup) altitudeTapeGroup.setAttribute('transform', 'translate(0, 0)');
-        if (headingTapeGroup) headingTapeGroup.setAttribute('transform', 'translate(0, 0)');
-    }
+    // The PFD (constants, createPfdDisplay, updatePfdDisplay, resetPfdState)
+    // lives in legacy-flight-info.html now — the Legacy window renders in an
+    // iframe and owns its own avionics.
 
 // Add this helper to flight.js
 async function fetchAirportData(icao) {
@@ -14576,6 +13932,13 @@ function handleSimpleWindowAction(action) {
         case 'tripcard':
             if (typeof toggleTripCardMode === 'function') toggleTripCardMode(true);
             break;
+        case 'pin':
+            // Legacy recreation's thumbtack — same multi-track pin the old
+            // inline window's hero button drove.
+            if (typeof window.toggleFlightPin === 'function' && currentFlightInWindow) {
+                window.toggleFlightPin(currentFlightInWindow);
+            }
+            break;
         case 'follow':
             if (typeof window.handleTrackmeBellClick === 'function' && currentFlightInWindow) {
                 window.handleTrackmeBellClick({
@@ -14741,7 +14104,15 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         flatList.forEach((wp, idx) => {
             const distKm = getDistanceKm(pos.lat, pos.lon, wp.location.latitude, wp.location.longitude);
             const distNM = distKm / 1.852;
-            
+
+            // Leg length from the previous fix — drives the legacy window's
+            // FMS DIST column.
+            let legDistNm = null;
+            if (idx > 0 && flatList[idx - 1].location) {
+                const prev = flatList[idx - 1].location;
+                legDistNm = getDistanceKm(prev.latitude, prev.longitude, wp.location.latitude, wp.location.longitude) / 1.852;
+            }
+
             structuredWaypoints.push({
                 ident: wp.identifier || wp.name,
                 name: wp.name,
@@ -14749,10 +14120,24 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 group: wp.group,
                 active: (idx === activeIndex),
                 passed: (idx < activeIndex),
-                time: idx === activeIndex ? `${distNM.toFixed(1)} NM` : (idx < activeIndex ? 'PASS' : '')
+                time: idx === activeIndex ? `${distNM.toFixed(1)} NM` : (idx < activeIndex ? 'PASS' : ''),
+                legDistNm
             });
         });
     }
+
+    // Cruise target derived from the highest waypoint altitude in the plan —
+    // feeds the legacy window's "Cruise" / "Off cruise" readouts.
+    let cruiseAltFt = null;
+    try {
+        const _wpAlts = ((plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [])
+            .map(wp => (typeof wp.altitude === 'number' ? wp.altitude : null))
+            .filter(a => a != null && a > 0);
+        if (_wpAlts.length > 0) cruiseAltFt = Math.max(..._wpAlts);
+    } catch (_) { /* leave as null */ }
+
+    // Nearest airport (the legacy window's "Nearest airport" row).
+    const nearestApt = computeNearestAirport(pos.lat, pos.lon);
 
     // --- Source-tagged times (SCHEDULED / ACTUAL / ESTIMATED), reusing the legacy helpers ---
     let depInfo = null, arrInfo = null;
@@ -14846,6 +14231,17 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
         pilotState: flightProps.pilotState !== undefined ? flightProps.pilotState : 0,
+        category: flightProps.category || null,
+        // Filed dispatch details (Passengers / Block fuel rows in the legacy
+        // window's Aircraft card).
+        filedPlan: filedPlanData ? {
+            passengers: filedPlanData.passengers != null ? filedPlanData.passengers : null,
+            fuelKg: filedPlanData.fuel_used != null ? filedPlanData.fuel_used : null,
+            depGate: filedPlanData.dep_gate || null,
+            arrGate: filedPlanData.arr_gate || null
+        } : null,
+        // Reverse-geocoded "Currently over" line, cached by fetchAndDisplayGeocode.
+        locationText: lastGeocodeText,
         telemetry: {
             altitude: pos.alt_ft,
             groundSpeed: pos.gs_kt,
@@ -14859,7 +14255,9 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             lat: pos.lat,
             lon: pos.lon,
             nextWpName: activeWp ? (activeWp.ident || '---') : '---',
-            nextWpDist: activeWp ? (activeWp.time || '') : ''
+            nextWpDist: activeWp ? (activeWp.time || '') : '',
+            nearestApt: nearestApt ? nearestApt.icao : null,
+            nearestAptDist: nearestApt ? nearestApt.distNm : null
         },
         aircraft: {
             aircraftName: aircraft.aircraftName,
@@ -14910,9 +14308,103 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             times: times,
             distRemainingNm: distRemainingNm,
             distFlownNm: distFlownNm,
+            cruiseAltFt: cruiseAltFt,
             waypoints: structuredWaypoints
         }
     };
+}
+
+/**
+ * Nearest airport to a position, scanning airportsData within a ~2° window
+ * (same optimisation the old inline nav panel used). Returns
+ * { icao, distNm } or null.
+ */
+function computeNearestAirport(lat, lon) {
+    if (lat == null || lon == null) return null;
+    if (typeof airportsData === 'undefined' || !airportsData) return null;
+    let nearestICAO = null;
+    let minDistKm = Infinity;
+    for (const icao in airportsData) {
+        const apt = airportsData[icao];
+        if (!apt || apt.lat == null || apt.lon == null) continue;
+        if (Math.abs(apt.lat - lat) > 2 || Math.abs(apt.lon - lon) > 2) continue;
+        const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
+        if (dist < minDistKm) {
+            minDistKm = dist;
+            nearestICAO = icao;
+        }
+    }
+    return nearestICAO ? { icao: nearestICAO, distNm: minDistKm / 1.852 } : null;
+}
+
+/**
+ * iOS Live Activity (Lock Screen / Dynamic Island) tick. Extracted from the
+ * old inline legacy window's update pass so it runs for every window mode.
+ * Fires only when the user has marked this flight as "mine" via the bell.
+ * Reuses the same SCHEDULED/ACTUAL/ESTIMATED cascade the windows consume,
+ * so the lock-screen ETE countdown agrees with the in-app card.
+ */
+function pushLiveActivityUpdate(baseProps, plan, sortedRoutePoints) {
+    try {
+        if (!window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) return;
+
+        // Remaining distance to the plan's final fix.
+        let distanceToDestNM = 0;
+        try {
+            const wpObjs = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function')
+                ? getFlatWaypointObjects(plan.flightPlanItems) : [];
+            const lastWp = wpObjs[wpObjs.length - 1];
+            if (lastWp && lastWp.location && baseProps.position) {
+                distanceToDestNM = getDistanceKm(
+                    baseProps.position.lat, baseProps.position.lon,
+                    lastWp.location.latitude, lastWp.location.longitude
+                ) / 1.852;
+            }
+        } catch (_) { /* fall through with 0 */ }
+
+        const filedPlanData = (cachedFlightDataForStatsView && cachedFlightDataForStatsView.filedPlanData) || null;
+        let depIcao = null;
+        if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
+            depIcao = plan.flightPlanItems[0]?.identifier?.trim().toUpperCase() || null;
+        }
+        const _depInfoLive = computeDepartureTimeInfo(baseProps, sortedRoutePoints, filedPlanData, depIcao);
+        const _arrInfoLive = computeArrivalTimeInfo(baseProps, filedPlanData, distanceToDestNM);
+
+        const _gsLA = baseProps.position?.gs_kt || 0;
+        const etaMs = _arrInfoLive?.timestamp
+            ? _arrInfoLive.timestamp.getTime()
+            : (distanceToDestNM > 0 && _gsLA > 50
+                ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
+                : null);
+        // ATD only counts when we have real GPS history (label ACTUAL).
+        // Otherwise leave it undefined so the widget shows the scheduled
+        // departure verbatim instead of pretending we know the takeoff time.
+        const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
+            ? _depInfoLive.timestamp.getTime()
+            : undefined;
+        const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
+                            && _gsLA < 40 && distanceToDestNM < 5);
+        // Bail without an update if we genuinely have no ETA value to send.
+        // The Swift `update` defaults a missing ETA to Date.now(), which
+        // would zero out the lock-screen countdown ("0 min remaining") --
+        // much worse than just skipping a tick.
+        if (etaMs) {
+            window.InflightLiveActivity.update({
+                flightId: baseProps.flightId,
+                currentEta: etaMs,
+                currentAtd: atdMs,
+                distanceToDestinationNm: distanceToDestNM,
+                isLanded
+            });
+        }
+        if (isLanded) {
+            setTimeout(() => {
+                window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
+            }, 30000);
+        }
+    } catch (laErr) {
+        console.warn('[LiveActivity] update tick failed:', laErr);
+    }
 }
 
 /**
@@ -18526,57 +18018,6 @@ async function formatAirportSummary(icao) {
 }
 
 /**
- * Renders a formatAirportSummary payload as the destination dropdown's panel
- * body. Used by the legacy window, which hosts the dropdown in-page; the
- * Simple / Card iframes carry their own copy of this template so they stay
- * self-contained documents.
- */
-function buildDestSummaryPanelHTML(a) {
-    const esc = escapeHtml;
-    const heroUrl = a.heroUrl || '';
-    const fb = a.heroFallbackUrl || '';
-    const hero = heroUrl
-        ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(a.icao || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
-        : '';
-    const cc = String(a.cc || '').toLowerCase();
-    const flag = /^[a-z]{2}$/.test(cc)
-        ? `<img class="dest-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">` : '';
-    const loc = [a.city, cc.toUpperCase()].filter(Boolean).join(', ') || '—';
-    const elev = (a.elevation != null && isFinite(a.elevation)) ? `${Math.round(a.elevation)} ft` : '—';
-    const rwyCount = (a.runwayCount != null) ? String(a.runwayCount) : '—';
-    const longest = a.longestFt ? `${Number(a.longestFt).toLocaleString()} ft` : '—';
-
-    const m = a.metar;
-    const metar = m ? `
-        <div class="dest-metar">
-            <div class="dest-metar-h"><span>METAR</span><span class="dest-pill" style="color:${m.color};border-color:${m.color}">${esc(m.cat)}</span></div>
-            <div class="dest-mgrid">
-                <div><span class="l">Wind</span><span class="v">${esc(m.wind)}</span></div>
-                <div><span class="l">Vis</span><span class="v">${esc(m.vis)}</span></div>
-                <div><span class="l">Temp</span><span class="v">${esc(m.temp)}</span></div>
-                <div><span class="l">QNH</span><span class="v">${esc(m.qnh)}</span></div>
-            </div>
-        </div>` : `
-        <div class="dest-metar"><div class="dest-metar-h"><span>METAR</span></div>
-            <div class="dest-status">Weather unavailable.</div></div>`;
-
-    const sun = a.sun ? `<span class="dest-sun" style="color:${esc(a.sun.color)}"><i class="fa-solid ${esc(a.sun.icon)}"></i> ${esc(a.sun.label)}</span>` : '';
-
-    return `
-        ${hero}
-        <div class="dest-loc">${flag}<span>${esc(loc)}</span>${sun}</div>
-        <div class="dest-grid">
-            <div class="dest-cell"><span class="l">Elevation</span><span class="v">${esc(elev)}</span></div>
-            <div class="dest-cell"><span class="l">Runways</span><span class="v">${esc(rwyCount)}</span></div>
-            <div class="dest-cell"><span class="l">Longest RWY</span><span class="v">${esc(longest)}</span></div>
-        </div>
-        ${metar}
-        <button type="button" class="dest-open-btn ac-icao-link" data-icao="${esc(a.icao || '')}" title="Open full airport window">
-            <i class="fa-solid fa-up-right-from-square"></i> Full airport window
-        </button>`;
-}
-
-/**
  * Renders the embed-style airport window: an iframe hosting embed-airport.html,
  * fed the formatDataForEmbedAirport payload. The iframe sizes itself to content
  * and reports its height back via EMBED_AIRPORT_HEIGHT (handled in
@@ -19063,14 +18504,12 @@ function closeAircraftWindow() {
     clearLiveFlightPath(currentFlightInWindow);
 
     // Reset intervals
-    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
     if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
     if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
 
     // CRITICAL FIX: Reset state
-    currentFlightInWindow = null; 
+    currentFlightInWindow = null;
     currentAircraftPositionForGeocode = null;
-    resetPfdState();
 
     // Trigger Landing UI only if airport window is also closed
     if (!currentAirportInWindow) {
@@ -19119,16 +18558,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     isAircraftWindowLoading = true;
 
-    if (activePfdUpdateInterval) {
-        clearInterval(activePfdUpdateInterval);
-        activePfdUpdateInterval = null;
-    }
     if (activeGeocodeUpdateInterval) {
         clearInterval(activeGeocodeUpdateInterval);
         activeGeocodeUpdateInterval = null;
     }
-    
-    if (typeof resetPfdState === 'function') resetPfdState();
 
     if (currentFlightInWindow && currentFlightInWindow !== flightProps.flightId) {
         if (!window.pinnedFlights || !window.pinnedFlights.has(currentFlightInWindow)) {
@@ -19220,14 +18653,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
         cachedFlightDataForStatsView = { flightProps, plan };
 
+        // Every window mode is an iframe fed the same FLIGHT_DATA_UPDATE
+        // payload: Legacy loads the standalone avionics recreation
+        // (legacy-flight-info.html — the old inline DOM path it replaced
+        // lived here in flight.js), Simple loads flightinfo.html, and Card
+        // loads the FR24-style embed page.
         const _fwMode = getFlightWindowMode();
-        // Opt-in preview of the standalone Legacy recreation
-        // (legacy-flight-info.html): flip localStorage.legacyIframeWindow to
-        // '1' and the Legacy mode loads as an iframe through the exact same
-        // plumbing as Simple/Card instead of the inline avionics DOM. Off by
-        // default so the shipped Legacy path is untouched.
-        const _legacyIframe = _fwMode === 'legacy' && localStorage.getItem('legacyIframeWindow') === '1';
-        if (_fwMode === 'simple' || _fwMode === 'embed' || _legacyIframe) {
+        {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
             // Prime the peek height from the saved layout preset, then choose the
@@ -19239,9 +18671,6 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 && window.MobileUIHandler.isMobile());
             const initialPhase = onMobile ? 'collapsed' : 'expanded';
             applySimpleWindowPhase(initialPhase);
-            // The embed ("Card") mode loads the FR24-style card page; Simple loads
-            // the full flightinfo.html. Both share the #simple-flight-window-frame
-            // id and FLIGHT_DATA_UPDATE payload so the live-update plumbing is common.
             // On desktop the card gets ?desktop=1 so it opens straight into the full
             // layout with no peek bar or collapse-to-peek (those are sheet gestures
             // that only make sense on mobile).
@@ -19249,14 +18678,14 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // display:block (overflow scroll), so flex-grow does nothing and the
             // iframe would collapse to the browser's ~150px default. On mobile
             // .mobile-legacy-sheet has its own !important rules that win anyway.
-            const _fwSrc = _legacyIframe
+            const _fwSrc = _fwMode === 'legacy'
                 ? 'legacy-flight-info.html'
                 : (_fwMode === 'embed'
                     ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
                     : 'flightinfo.html');
             // data-window="legacy" marks the frame as hosting its own ND, so
             // the nav-display update path knows to forward ND_DATA into it.
-            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" ${_legacyIframe ? 'data-window="legacy" ' : ''}src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
+            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" ${_fwMode === 'legacy' ? 'data-window="legacy" ' : ''}src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {
@@ -19267,8 +18696,6 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                     iframe.contentWindow.postMessage({ type: 'SET_PHASE', phase: 'expanded' }, '*');
                 }
             };
-        } else if (typeof populateAircraftInfoWindow === 'function') {
-            populateAircraftInfoWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
         }
 
         if (typeof fetchAndDisplayGeocode === 'function') {
@@ -19328,15 +18755,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // the live samples captured since the window was opened. Live ticks
             // keep extending it from here.
             try {
-                // The iframe exists in Simple / Card mode and in the Legacy
-                // preview (legacyIframeWindow flag); the inline avionics DOM
-                // path is the only one without it.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 if (simpleIframe && simpleIframe.contentWindow) {
                     const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
                     simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                } else if (getFlightWindowMode() === 'legacy' && typeof updateAircraftInfoWindow === 'function') {
-                    updateAircraftInfoWindow(flightProps, plan, sortedRoutePoints);
                 }
             } catch (_) { /* non-fatal: live ticks will populate the graph */ }
         }
@@ -19479,14 +18901,12 @@ function closeAircraftWindow() {
     }
 
     // Reset intervals
-    if (activePfdUpdateInterval) clearInterval(activePfdUpdateInterval);
     if (activeGeocodeUpdateInterval) clearInterval(activeGeocodeUpdateInterval);
     if (activeWeatherUpdateInterval) clearInterval(activeWeatherUpdateInterval);
 
     // CRITICAL FIX: Reset state
-    currentFlightInWindow = null; 
+    currentFlightInWindow = null;
     currentAircraftPositionForGeocode = null;
-    resetPfdState();
 
     // Trigger Landing UI only if airport window is also closed
     if (!currentAirportInWindow) {
@@ -19501,1376 +18921,9 @@ function closeAircraftWindow() {
     }
 }
 
-// Make the aircraft-window hero swipeable when the airframe has more than one
-// community photo. Rather than overlaying a second image layer (which would
-// cover the callsign/route content and changed the photo's framing), this
-// reuses the hero's own background-image — the exact same rendering the single
-// -photo hero already uses — and just swaps the source on swipe or dot tap. The
-// only things added on top are small dot indicators and a per-photo credit,
-// placed in the empty lower strip so nothing existing is hidden.
-// How long each aircraft photo is shown before the carousel softly advances.
-const HERO_PHOTO_CYCLE_MS = 5000;
-
-function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
-    if (!panel) return;
-    // A previous open may have left an auto-cycle timer running on a now-detached
-    // panel; clear it so we never accumulate stacked timers across reopens.
-    if (window.__heroAutoTimer) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
-    // Re-render replaces innerHTML, so any prior carousel is already gone; this
-    // guard just avoids double-building within a single render pass.
-    if (panel.dataset.heroCarousel === '1') return;
-    if (!Array.isArray(photos) || photos.length < 2) return;
-    panel.dataset.heroCarousel = '1';
-
-    // Soft crossfade layer. z-index:-1 keeps it directly above the panel's own
-    // background photo but BELOW every child (the gradient overlay, the
-    // callsign/aircraft text, badges, buttons, dots) — positioned or not — so
-    // the incoming photo fades in without ever covering the UI.
-    // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
-    const fadeLayer = document.createElement('div');
-    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
-    panel.insertBefore(fadeLayer, panel.firstChild);
-
-    const dots = document.createElement('div');
-    dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
-    const dotEls = photos.map((_, i) => {
-        const d = document.createElement('span');
-        d.style.cssText = 'width:7px;height:7px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 2px rgba(0,0,0,.6);';
-        d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
-        dots.appendChild(d);
-        return d;
-    });
-
-    // Credit sits bottom-right at the flight-state badge's height, but it must
-    // read as a faint photo watermark — not a solid UI badge that could be
-    // mistaken for pilot info — so it's deliberately see-through with no border.
-    const credit = document.createElement('div');
-    credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
-
-    let index = 0;
-    let fadeCommit = null;
-    const show = (i) => {
-        const next = (i + photos.length) % photos.length;
-        const src = photos[next].src;
-        // Crossfade: paint the incoming photo on the fade layer, fade it in,
-        // then commit it to the panel background and reset the layer instantly
-        // (no transition) so it's invisible and ready for the next swap.
-        if (next !== index) {
-            if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
-            fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
-            requestAnimationFrame(() => { fadeLayer.style.opacity = '1'; });
-            fadeCommit = setTimeout(() => {
-                panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
-                fadeLayer.style.transition = 'none';
-                fadeLayer.style.opacity = '0';
-                requestAnimationFrame(() => { fadeLayer.style.transition = 'opacity .6s ease'; });
-                fadeCommit = null;
-            }, 600);
-        }
-        index = next;
-        panel.dataset.currentPath = src;
-        dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
-        const n = photos[index].photographer;
-        credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
-        credit.style.display = credit.textContent ? '' : 'none';
-    };
-
-    panel.appendChild(dots);
-    panel.appendChild(credit);
-
-    // --- Auto-advance (soft) -------------------------------------------------
-    // Cycle through the photos on a timer so users don't have to swipe/drag —
-    // gated by the "Auto-Cycle Photos" setting. Pause while the pointer is over
-    // the hero (so people can look at a shot) and briefly after manual paging.
-    let paused = false;
-    const autoOn = !(typeof mapFilters !== 'undefined' && mapFilters.autoCyclePhotos === false);
-    const startAuto = () => {
-        if (!autoOn || window.__heroAutoTimer) return;
-        window.__heroAutoTimer = setInterval(() => {
-            if (!paused && document.body.contains(panel)) show(index + 1);
-            else if (!document.body.contains(panel)) { clearInterval(window.__heroAutoTimer); window.__heroAutoTimer = null; }
-        }, HERO_PHOTO_CYCLE_MS);
-    };
-    if (autoOn) {
-        panel.addEventListener('mouseenter', () => { paused = true; });
-        panel.addEventListener('mouseleave', () => { paused = false; });
-        startAuto();
-    }
-
-    // Horizontal swipe to page through photos. Pointer events cover both touch
-    // (iOS) and mouse; taps on the hero buttons are ignored so they still work.
-    let downX = null, downY = null, moved = false;
-    panel.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('.hero-btn, .overview-actions')) return;
-        downX = e.clientX; downY = e.clientY; moved = false;
-    });
-    panel.addEventListener('pointermove', (e) => {
-        if (downX == null) return;
-        if (Math.abs(e.clientX - downX) > 10 && Math.abs(e.clientX - downX) > Math.abs(e.clientY - downY)) moved = true;
-    });
-    panel.addEventListener('pointerup', (e) => {
-        if (downX == null) return;
-        const dx = e.clientX - downX;
-        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
-        downX = downY = null; moved = false;
-    });
-
-    show(0);
-}
-
-function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
-    // --- Safety Check: Ensure the container exists ---
-    const windowEl = document.getElementById('aircraft-info-window');
-    if (!windowEl) return;
-
-    // Clickable origin/destination ICAOs — inject the hover affordance once.
-    if (!document.getElementById('ac-icao-link-style')) {
-        const s = document.createElement('style');
-        s.id = 'ac-icao-link-style';
-        s.textContent = `.ac-icao-link{cursor:pointer;border-radius:4px;transition:color .15s ease,text-shadow .15s ease;}`
-            + `.ac-icao-link:hover{color:#38bdf8;text-shadow:0 0 12px rgba(56,189,248,0.5);}`;
-        document.head.appendChild(s);
-    }
-
-    // Destination dropdown styles (legacy window) — injected once, shared with
-    // the panel markup produced by buildDestSummaryPanelHTML.
-    if (!document.getElementById('ac-dest-card-style')) {
-        const s = document.createElement('style');
-        s.id = 'ac-dest-card-style';
-        s.textContent = `
-            #aircraft-info-window .dest-card {
-                background: rgba(255,255,255,0.03);
-                border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden;
-            }
-            #aircraft-info-window .dest-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; background: transparent; border: none; color: #fff; cursor: pointer; font-family: inherit; text-align: left; }
-            #aircraft-info-window .dest-toggle-l { display: flex; align-items: center; gap: 11px; min-width: 0; }
-            #aircraft-info-window .dest-toggle-ic { color: #f59e0b; font-size: 14px; flex: 0 0 auto; }
-            #aircraft-info-window .dest-toggle-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-            #aircraft-info-window .dest-toggle-code { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 800; letter-spacing: .5px; }
-            #aircraft-info-window .dest-toggle-sub { font-size: 8px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: #94a3b8; }
-            #aircraft-info-window .dest-chev { color: #94a3b8; font-size: 12px; transition: transform .22s ease; flex: 0 0 auto; }
-            #aircraft-info-window .dest-card.open .dest-chev { transform: rotate(180deg); }
-            #aircraft-info-window .dest-panel { padding: 0 20px 16px; display: flex; flex-direction: column; gap: 11px; }
-            #aircraft-info-window .dest-panel[hidden] { display: none; }
-            #aircraft-info-window .dest-status { color: #94a3b8; font-size: 12px; font-weight: 600; padding: 4px 0; }
-            #aircraft-info-window .dest-hero { position: relative; width: 100%; height: 150px; border-radius: 10px; overflow: hidden; background: rgba(15, 23, 42, 0.5); }
-            #aircraft-info-window .dest-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-            #aircraft-info-window .dest-hero-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%); }
-            #aircraft-info-window .dest-hero-cap { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-            #aircraft-info-window .dest-hero-cap b { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.7); flex: 0 0 auto; }
-            #aircraft-info-window .dest-hero-cap span { font-size: 12px; font-weight: 600; color: #f4f4f5; text-shadow: 0 1px 4px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .dest-loc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; }
-            #aircraft-info-window .dest-sun { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
-            #aircraft-info-window .dest-flag { height: 14px; border-radius: 2px; flex: 0 0 auto; }
-            #aircraft-info-window .dest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-            #aircraft-info-window .dest-cell { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-            #aircraft-info-window .dest-cell .l { font-size: 8px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .dest-cell .v { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .dest-metar { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; padding: 11px 12px; }
-            #aircraft-info-window .dest-metar-h { display: flex; align-items: center; justify-content: space-between; font-size: 9px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: #94a3b8; margin-bottom: 9px; }
-            #aircraft-info-window .dest-pill { font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
-            #aircraft-info-window .dest-mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-            #aircraft-info-window .dest-mgrid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-            #aircraft-info-window .dest-mgrid .l { font-size: 8px; font-weight: 700; text-transform: uppercase; color: #94a3b8; }
-            #aircraft-info-window .dest-mgrid .v { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .dest-open-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(15, 23, 42, 0.5); color: #fff; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 700; transition: border-color .2s, background .2s; }
-            #aircraft-info-window .dest-open-btn:hover { border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); }
-        `;
-        document.head.appendChild(s);
-    }
-
-    // Shared card system for the legacy window's post-ND section (graph /
-    // stats / navigation / aircraft cards) — injected once. Replaces the old
-    // per-element inline styling so the section reads as one design.
-    if (!document.getElementById('ac-legacy-cards-style')) {
-        const s = document.createElement('style');
-        s.id = 'ac-legacy-cards-style';
-        s.textContent = `
-            /* Calm, editorial card system — the Card window's language: bold
-               headings sitting OUTSIDE quiet monochrome surfaces, sentence-case
-               labels, no decoration. Colour appears only where it means
-               something (the live progress fill, phase colours in values). */
-            #aircraft-info-window .acx-sec {
-                font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.01em;
-                margin: 8px 2px 0; line-height: 1.2;
-            }
-            #aircraft-info-window .acx-card {
-                background: rgba(255,255,255,0.03);
-                border: 1px solid rgba(255,255,255,0.07);
-                border-radius: 16px; padding: 15px 16px;
-            }
-            #aircraft-info-window .acx-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 12px; }
-            #aircraft-info-window .acx-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-            #aircraft-info-window .acx-l { color: #9a9aa2; font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .acx-v { color: #fff; font-size: 14.5px; font-weight: 600; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            #aircraft-info-window .acx-v .unit, #aircraft-info-window .acx-v small { font-size: 10px; color: #9a9aa2; font-weight: 500; margin-left: 2px; }
-
-            /* Sub-headings inside a card ("Position", "Atmosphere") */
-            #aircraft-info-window .acx-group-label {
-                font-size: 11.5px; color: #9a9aa2; font-weight: 600;
-                margin: 16px 0 10px; padding-top: 13px;
-                border-top: 1px solid rgba(255,255,255,0.06);
-            }
-            #aircraft-info-window .acx-group-label:first-child { margin-top: 0; padding-top: 0; border-top: none; }
-
-            /* Journey numbers + thin live progress line (This flight card) */
-            #aircraft-info-window .acx-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; }
-            #aircraft-info-window .acx-hero-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 400; color: #fff; line-height: 1; white-space: nowrap; }
-            #aircraft-info-window .acx-hero-num .unit { font-size: 12px; color: #9a9aa2; font-weight: 500; margin-left: 3px; }
-            #aircraft-info-window .acx-hero-l { font-size: 11px; color: #9a9aa2; font-weight: 500; margin-top: 4px; }
-            #aircraft-info-window .acx-bar { position: relative; height: 3px; border-radius: 1.5px; background: rgba(255,255,255,0.10); margin: 14px 0 4px; }
-            #aircraft-info-window .acx-bar-fill {
-                position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
-                border-radius: 1.5px; background: #38bdf8;
-                transition: width 0.6s ease;
-            }
-            #aircraft-info-window .acx-bar-fill i {
-                position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
-                color: #fff; font-size: 10px;
-            }
-
-            /* Key-value rows with hairline dividers (details lists) */
-            #aircraft-info-window .acx-row {
-                display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-                padding: 9px 0; border-top: 1px solid rgba(255,255,255,0.06);
-            }
-            #aircraft-info-window .acx-row:first-child { border-top: none; padding-top: 0; }
-            #aircraft-info-window .acx-rows { margin-top: 14px; }
-            #aircraft-info-window .acx-rows .acx-row:first-child { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 9px; }
-            #aircraft-info-window .acx-row:last-child { padding-bottom: 0; }
-            #aircraft-info-window .acx-row .l { font-size: 12.5px; color: #9a9aa2; font-weight: 500; white-space: nowrap; }
-            #aircraft-info-window .acx-row .v { font-size: 13.5px; color: #fff; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            #aircraft-info-window .acx-row .v .unit { font-size: 10px; color: #9a9aa2; font-weight: 500; margin-left: 2px; }
-
-            #aircraft-info-window .acx-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
-            #aircraft-info-window .acx-foot .acx-l { margin-bottom: 3px; }
-            #aircraft-info-window .acx-graph { min-height: 150px; }
-            #aircraft-info-window .acx-graph svg { display: block; width: 100%; }
-        `;
-        document.head.appendChild(s);
-    }
-
-    // --- Helper function to update all elements matching a selector ---
-    const updateAll = (selector, value, isHTML = false) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            if (isHTML) {
-                el.innerHTML = value;
-            } else {
-                el.textContent = value;
-            }
-        });
-    };
-
-    // --- Get Original Data ---
-    const originalFlatWaypoints = (plan && plan.flightPlanItems && typeof flattenWaypointsFromPlan === 'function') ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems && typeof getFlatWaypointObjects === 'function') ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypoints.length >= 2;
-
-    // --- State Persistence Logic ---
-    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
-    const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
-
-    // --- Aircraft Info ---
-    const aircraftName = baseProps.aircraft?.aircraftName || 'Unknown Type';
-    const airlineName = baseProps.aircraft?.liveryName || 'Generic Livery';
-    const liveryName = baseProps.aircraft?.liveryName || '';
-    const reg = baseProps.aircraft?.registration || 'N/A';
-    const flightPhase = baseProps.flightPhase || "CRUISE";
-
-let totalDistanceNM = 0;
-    let distanceToDestNM = 0;
-    let progress = 0;
-    let ete = '--:--';
-    let eta = '--:--';
-
-    if (hasPlan && originalFlatWaypoints.length >= 2) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        totalDistanceNM = totalDistanceKm / 1.852;
-
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            distanceToDestNM = remainingDistanceKm / 1.852;
-            
-            // Use direct distance from origin to destination to fix the sluggish scaling
-            const [originLon, originLat] = originalFlatWaypoints[0];
-            const totalDirectDistanceNM = getDistanceKm(originLat, originLon, destLat, destLon) / 1.852;
-            const scaleDist = totalDirectDistanceNM > 0 ? totalDirectDistanceNM : totalDistanceNM;
-
-            progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / scaleDist)) * 100));
-
-            if (baseProps.position.gs_kt > 50) {
-                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
-                const hours = Math.floor(timeHours);
-                const minutes = Math.round((timeHours - hours) * 60);
-                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
-                // Compute the actual clock time the user will arrive (UTC HH:MM)
-                if (timeHours > 0 && timeHours < 48) {
-                    const arrivalDate = new Date(Date.now() + (timeHours * 3600000));
-                    eta = arrivalDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-                }
-            }
-        }
-    }
-
-    // --- Logo Logic ---
-    const words = liveryName.trim().split(/\s+/);
-    let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-    const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-    const logoPath = sanitizedLogoName ? `Images/airline_logos/${sanitizedLogoName}.png` : '';
-    const logoHtml = logoPath ? `<img src="${logoPath}" alt="${liveryName}" class="ac-header-logo" onerror="this.style.display='none'">` : '';
-
-    // --- Times ---
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-
-    const departureIcao = hasPlan ? originalFlatWaypointObjects[0]?.identifier || originalFlatWaypointObjects[0]?.name : 'N/A';
-    const arrivalIcao = hasPlan ? originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.identifier || originalFlatWaypointObjects[originalFlatWaypointObjects.length - 1]?.name : 'N/A';
-
-    // Make the origin/destination ICAOs clickable so the user can jump straight
-    // to that airport's window. Only codes we actually have airport data for
-    // become links — fixes/waypoints and 'N/A' stay as plain text.
-    const renderClickableIcao = (icao) => {
-        const code = (icao == null) ? '' : String(icao).trim();
-        const isAirport = code && typeof airportsData !== 'undefined' && airportsData[code];
-        if (!isAirport) return code || 'N/A';
-        return `<span class="ac-icao-link" data-icao="${code}" role="button" tabindex="0" title="View ${code} airport">${code}</span>`;
-    };
-    const departureIcaoHtml = renderClickableIcao(departureIcao);
-    const arrivalIcaoHtml = renderClickableIcao(arrivalIcao);
-
-    // --- Source-tagged time info (SCHEDULED / ACTUAL / ESTIMATED) ---
-    // Falls back to a back-calculated estimate so we never render '--:--' when we have any data at all.
-    const depTimeInfo = computeDepartureTimeInfo(baseProps, sortedRoutePoints, filedPlanData, departureIcao);
-    const arrTimeInfo = computeArrivalTimeInfo(baseProps, filedPlanData, distanceToDestNM);
-
-    // Cache filed-plan info on the window element so the live-update path (which doesn't receive
-    // filedPlanData as an arg) can still produce SCHEDULED-tagged times.
-    if (filedPlanData && filedPlanData.dep_time) {
-        windowEl.dataset.filedDepTime = filedPlanData.dep_time;
-    } else {
-        delete windowEl.dataset.filedDepTime;
-    }
-    if (filedPlanData && filedPlanData.duration_minutes) {
-        windowEl.dataset.filedDuration = String(filedPlanData.duration_minutes);
-    } else {
-        delete windowEl.dataset.filedDuration;
-    }
-    windowEl.dataset.depIcao = departureIcao || '';
-    windowEl.dataset.arrIcao = arrivalIcao || '';
-
-    // --- Derive a cruise altitude target from the highest waypoint altitude in the plan ---
-    // Used by the redesigned VSD card to show CRZ TGT and ALT Δ readouts.
-    let cruiseAltFt = null;
-    try {
-        const _wpAlts = (originalFlatWaypointObjects || [])
-            .map(wp => (typeof wp.altitude === 'number' ? wp.altitude : null))
-            .filter(a => a != null && a > 0);
-        if (_wpAlts.length > 0) cruiseAltFt = Math.max(..._wpAlts);
-    } catch (_) { /* leave as null */ }
-    const cruiseAltText = cruiseAltFt
-        ? (cruiseAltFt >= 18000 ? `FL${Math.round(cruiseAltFt / 100)}` : `${Math.round(cruiseAltFt).toLocaleString()} ft`)
-        : '---';
-    if (cruiseAltFt) {
-        windowEl.dataset.cruiseAltFt = String(cruiseAltFt);
-    } else {
-        delete windowEl.dataset.cruiseAltFt;
-    }
-    
-    const pilotUsername = baseProps.username || 'N/A';
-    const pilotReportTabText = (pilotUsername !== 'N/A' && pilotUsername) ? pilotUsername : 'Pilot Report';
-
-    // --- DYNAMIC IMAGE & CONTRIBUTOR LOGIC ---
-    let techCardImagePath = '/CommunityPlanes/default.png';
-    let photographerName = 'IF Community';
-    let techCardTail = reg;
-    // Ordered list of {src, photographer} for the hero carousel (up to 3). A
-    // single photo renders as a static background exactly as before; two or
-    // more become a swipeable carousel (see buildHeroPhotoCarousel below).
-    let techCardPhotos = [];
-
-    // Zip a set of image URLs with their aligned contributor entries, falling
-    // back to a single legacy url/name when the arrays are absent.
-    const collectCommunityPhotos = (urls, contributors, fallbackUrl, fallbackName) => {
-        // Feature properties can survive a Mapbox round-trip as JSON strings, so
-        // tolerate both real arrays and their stringified form.
-        const asArray = (v) => {
-            if (Array.isArray(v)) return v;
-            if (typeof v === 'string' && v.trim().startsWith('[')) { try { return JSON.parse(v); } catch { return []; } }
-            return [];
-        };
-        urls = asArray(urls);
-        contributors = asArray(contributors);
-        let list = urls.filter(Boolean);
-        if (!list.length && fallbackUrl) list = [fallbackUrl];
-        return list.map((src, i) => ({
-            src,
-            photographer: (contributors && contributors[i] && contributors[i].name) || fallbackName || 'IF Community'
-        }));
-    };
-
-    if (Array.isArray(communityAircraftData)) {
-        communityAircraftData = communityAircraftData.length > 0 ? communityAircraftData[0] : null;
-    }
-    if (communityAircraftData && (communityAircraftData.imageUrl || (Array.isArray(communityAircraftData.imageUrls) && communityAircraftData.imageUrls.length))) {
-        techCardPhotos = collectCommunityPhotos(
-            communityAircraftData.imageUrls, communityAircraftData.imageContributors,
-            communityAircraftData.imageUrl, communityAircraftData.contributorName
-        );
-        if (communityAircraftData.tailNumber) {
-            techCardTail = communityAircraftData.tailNumber;
-        }
-    } else if (baseProps.communityImageUrl || (Array.isArray(baseProps.communityImageUrls) && baseProps.communityImageUrls.length)) {
-        // Fallback to the photo(s) already cached on the live feature (populated
-        // by the background hover-card lookup). Keeps the Standard window's
-        // hero photo in sync with the Simple window, which already uses this
-        // fallback, so the plane image still shows when the synchronous
-        // lookup comes back empty.
-        techCardPhotos = collectCommunityPhotos(
-            baseProps.communityImageUrls, baseProps.imageContributors,
-            baseProps.communityImageUrl, baseProps.contributorName
-        );
-        if (baseProps.tailNumber) {
-            techCardTail = baseProps.tailNumber;
-        }
-    }
-    if (techCardPhotos.length) {
-        techCardImagePath = techCardPhotos[0].src;
-        photographerName = techCardPhotos[0].photographer || 'IF Community';
-    }
-
-    // --- REAL-TIME COCKPIT STATE LOGIC ---
-    const pilotStateValue = (typeof baseProps.pilotState !== 'undefined') ? Number(baseProps.pilotState) : 0;
-
-    let psTitle = "ACTIVE";
-    let psIcon = "fa-user-check";
-    let psColor = "#4ade80";
-    let psDesc = "Pilot is active";
-    switch (pilotStateValue) {
-        case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break;
-        case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break;
-        case 3: psTitle = "AUTO-PILOT+"; psIcon = "fa-cloud-arrow-up"; psColor = "#60a5fa"; psDesc = "Cloud Session"; break;
-    }
-
-    // --- GENERATE FMS LEGS HTML ---
-    let fmsLegsHtml = '';
-    const safeGetDistance = (typeof getDistanceKm === 'function') ? getDistanceKm : (lat1, lon1, lat2, lon2) => 0;
-    if (originalFlatWaypointObjects.length > 0) {
-        originalFlatWaypointObjects.forEach((wp, index) => {
-            const ident = wp.identifier || wp.name || `WP${index + 1}`;
-            let distDisplay = '----';
-            if (index > 0) {
-                const prev = originalFlatWaypointObjects[index - 1];
-                if (prev.location && wp.location) {
-                    const d = safeGetDistance(prev.location.latitude, prev.location.longitude, wp.location.latitude, wp.location.longitude);
-                    distDisplay = (d / 1.852).toFixed(0);
-                }
-            }
-            let procTag = '';
-            if (index <= 1 && hasPlan) procTag = `<span class="proc-tag sid">SID</span>`;
-            else if (index >= originalFlatWaypointObjects.length - 2 && hasPlan) procTag = `<span class="proc-tag star">STAR</span>`;
-
-            fmsLegsHtml += `
-            <div class="fms-row ${index === 0 ? 'active-leg' : ''}" style="display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.03);">
-                 <span style="display:flex; align-items:center; gap:8px; flex: 2; text-align: left; font-weight: 500; font-family: 'JetBrains Mono', monospace;">
-                    <i class="fa-solid fa-diamond" style="font-size: 6px; color: ${index === 0 ? '#4ade80' : '#475569'};"></i> ${ident} ${procTag}
-                 </span>
-                 <span class="text-center" style="color:#94a3b8; flex: 1; font-size: 11px;">---°</span>
-                 <span class="text-right" style="flex: 1; color: #fff; font-weight: 600;">${distDisplay} <small style="font-size: 8px; color: #64748b;">NM</small></span>
-            </div>`;
-        });
-    } else {
-        fmsLegsHtml = `<div class="fms-empty-state" style="padding: 40px; text-align: center; color: #475569; font-size: 12px; font-weight: 600; letter-spacing: 1px;">NO ROUTE DATA AVAILABLE</div>`;
-    }
-
-    // Determine initial active classes for rendering
-    const flightDataActiveClass = currentActiveTab === 'ac-tab-flight-data' ? 'active' : '';
-    const pilotReportActiveClass = currentActiveTab === 'ac-tab-pilot-report' ? 'active' : '';
-    const flightDataDisplay = currentActiveTab === 'ac-tab-flight-data' ? 'flex' : 'none';
-    const pilotReportDisplay = currentActiveTab === 'ac-tab-pilot-report' ? 'block' : 'none';
-    const highlightX = currentActiveTab === 'ac-tab-pilot-report' ? '100%' : '0%';
-
-    // --- Lookup City Names ---
-    const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure';
-    const arrCity = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.city) || 'Arrival';
-
-    // --- Destination dropdown (collapsible arrival-airport info + image) ---
-    // Only rendered when the plan ends at a real airport; fixes/waypoints and
-    // 'N/A' get no dropdown. Wired up post-render below.
-    const destValidIcao = (() => {
-        const code = String(arrivalIcao || '').trim().toUpperCase();
-        return (/^[A-Z0-9]{3,4}$/.test(code) && code !== 'N/A') ? code : null;
-    })();
-    const destCardHtml = destValidIcao ? `
-                <div class="dest-card" id="legacy-dest-card" data-icao="${destValidIcao}">
-                    <button type="button" class="dest-toggle" aria-expanded="false" title="Destination airport info">
-                        <span class="dest-toggle-l">
-                            <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
-                            <span class="dest-toggle-txt">
-                                <span class="dest-toggle-code">${destValidIcao}</span>
-                                <span class="dest-toggle-sub">Arriving at · tap for info</span>
-                            </span>
-                        </span>
-                        <i class="fa-solid fa-chevron-down dest-chev"></i>
-                    </button>
-                    <div class="dest-panel" hidden></div>
-                </div>` : '';
-
-    // --- Determine Phase Color/Icon ---
-    let statusColor = '#4ade80'; // Green
-    let statusPulse = 'pulse';
-    if (flightPhase.includes('CRUISE')) statusColor = '#38bdf8'; // Blue 
-    if (flightPhase.includes('DESCENT')) statusColor = '#fbbf24'; // Orange 
-    if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED')) {
-        statusColor = '#94a3b8'; // Grey 
-        statusPulse = '';
-    }
-
-    // --- HTML Construction ---
-    windowEl.innerHTML = `
-    <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; height: auto; min-height: 220px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
-            <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
-            <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
-                <div class="ac-identity-group" style="max-width: calc(100% - 168px);">
-                    <h1 style="font-size: 24px; font-weight: 800; color: #fff; margin: 0; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">${logoHtml} ${baseProps.callsign}</h1>
-                    <div class="ac-sub-identity" style=" font-size: 11px; font-weight: 500; color: #cbd5e1; margin-top: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                        <span>${aircraftName}</span>
-                        <span style="width: 3px; height: 3px; background: #94a3b8; border-radius: 50%;"></span>
-                        <span>${liveryName}</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="overview-actions">
-    <button id="pin-flight-btn" class="hero-btn aircraft-window-pin-btn" title="Pin Flight">
-        <i class="fa-solid fa-thumbtack"></i>
-    </button>
-
-    ${(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative() && window.InflightLiveActivity && window.InflightLiveActivity.isSupported()) ? `
-    <button class="hero-btn aircraft-window-trackme-btn" id="trackme-btn-${baseProps.flightId}" data-flight-id="${baseProps.flightId}" title="This is my flight">
-        <i class="fa-solid ${window.InflightLiveActivity.isTrackingFlight(baseProps.flightId) ? 'fa-bell-slash' : 'fa-bell'}"></i>
-    </button>` : ''}
-
-    <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
-        <i class="fa-solid fa-circle-play"></i>
-    </button>
-
-    <button class="hero-btn aircraft-window-share-btn" title="Trip Card">
-        <i class="fa-solid fa-camera"></i>
-    </button>
-</div>
-
-            <div class="ac-partner-hero" style="position: relative; margin: auto 24px 45px 24px; max-width: calc(100% - 48px); z-index: 2; display: flex; align-items: flex-end;">
-                ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
-            </div>
-        </div>
-
-        <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
-        <div class="ac-route-info-bar" style=" background: #3a3a3a; backdrop-filter: blur(16px); margin: -32px 16px 0 16px; border-radius: 12px; padding: 14px 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; position: relative; z-index: 5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
-            <div class="route-node">
-        <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${depCity}</span>
-        <span class="icao-large" style="display: flex; align-items: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
-            ${departureIcaoHtml}
-            <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
-        </span>
-        <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' Z'}</span>
-        <span class="time-source-label" id="ac-bar-atd-label" style="color: ${depTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${depTimeInfo.label}</span>
-    </div>
-            
-            <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-                <div class="phase-badge-route" style="display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 8px; max-width: 100%;">
-                    <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite; flex-shrink: 0;"></div>
-                    <span id="ac-phase-text" style="font-size: 9px; font-weight: 800; color: #fff; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${flightPhase}</span>
-                </div>
-                <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-<div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(0deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
-</div>
-                </div>
-                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
-                    <span>${Math.round(totalDistanceNM)} NM</span>
-                    <span>ETE: ${ete}</span>
-                </div>
-            </div>
-
-            <div class="route-node end" style="text-align: right; align-items: flex-end;">
-                <span class="city-name" style="color: #94a3b8; font-size: 9px; font-weight: 600; text-transform: uppercase;">${arrCity}</span>
-                <span class="icao-large" style="display: flex; align-items: center; gap: 8px; flex-direction: row-reverse; color: #fff; font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1.1;">
-                    ${arrivalIcaoHtml}
-                    <img id="ac-bar-arr-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
-                </span>
-                <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' Z'}</span>
-                <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
-            </div>
-        </div>
-        </div>
-
-    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
-            <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
-                 <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
-                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
-                 </button>
-                 <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
-                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
-                 </button>
-                 <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3a3f4a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX}); box-shadow: 0 6px 16px rgba(0,0,0,0.22);"></div>
-            </div>
-            <button id="ac-dock-toggle-btn" class="ac-dock-toggle-btn" title="Move Window">
-    <i class="fa-solid fa-arrows-left-right-to-line"></i>
-</button>
-    </div>
-
-    <div class="unified-display-main-content">
-            <div id="ac-tab-flight-data" class="ac-tab-pane ${flightDataActiveClass}" style="gap: 6px; display: ${flightDataDisplay};">
-                <div class="pfd-and-location-grid">
-                     <div class="pfd-main-panel">
-                      <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
-                            <div class="crt-container scanlines" id="pfd-container">
-                                <svg width="787" height="800" viewBox="0 0 787 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                     <defs>
-                                        <clipPath id="clip0_1_2890"><rect width="787" height="800" fill="white"/></clipPath>
-                                        <clipPath id="tensReelClip"><rect x="732" y="269" width="50" height="75"/></clipPath>
-                                        <clipPath id="headingClip"><rect x="243" y="620" width="326" height="45"/></clipPath>
-                                        <clipPath id="speedTapeClip"><rect x="28" y="73" width="97" height="477"/></clipPath>
-                                        <clipPath id="altTapeClip"><rect x="675" y="73" width="72" height="476"/></clipPath>
-                                    </defs>
-                                    <g id="PFD" clip-path="url(#clip0_1_2890)">
-                                        <g transform="translate(0, 100)">
-                                            <g id="attitude_group">
-                                                <rect id="Sky" x="-186" y="-222" width="1121" height="600" fill="#0596FF"/>
-                                                <rect id="Ground" x="-138" y="307" width="1024" height="527" fill="#9A4710"/>
-                                            </g>
-                                            
-                                            <rect id="Rectangle 1" x="-6" y="5" width="191" height="566" fill="#030309"/>
-                                            <rect id="Rectangle 9" x="609" width="185" height="566" fill="#030309"/>
-                                            <path id="Rectangle 2" d="M273.905 84.9424L180.983 183.181L-23 -9.76114L69.9218 -108L273.905 84.9424Z" fill="#030309"/>
-                                            <path id="Rectangle 8" d="M303.215 77.0814L187.591 147.198L42 -92.8829L157.624 -163L303.215 77.0814Z" fill="#030309"/>
-                                            <path id="Rectangle 7" d="M372.606 54.0171L244.59 97.5721L154.152 -168.242L282.169 -211.796L372.606 54.0171Z" fill="#030309"/>
-                                            <rect id="Rectangle 10" x="25" y="487.905" width="168.696" height="262.947" transform="rotate(-31.8041 25 487.905)" fill="#030309"/>
-                                            <rect id="Rectangle 14" width="67.3639" height="53.5561" transform="matrix(-0.972506 0.23288 0.23288 0.972506 482.512 537)" fill="#030309"/>
-                                            <rect id="Rectangle 19" width="80.8905" height="53.5561" transform="matrix(-0.999899 0.0142423 0.0142423 0.999899 442.882 549.506)" fill="#030309"/>
-                                            <rect id="Rectangle 18" width="46.2297" height="53.5561" transform="matrix(-0.988103 -0.153795 -0.153795 0.988103 369.916 549.11)" fill="#030309"/>
-                                            <rect id="Rectangle 17" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 337.709 546.749)" fill="#030309"/>
-                                            <rect id="Rectangle 16" width="46.2297" height="53.5561" transform="matrix(-0.940186 -0.340662 -0.340662 0.940186 299.709 531.749)" fill="#030309"/>
-                                            <rect id="Rectangle 15" x="387" y="587.269" width="168.696" height="262.947" transform="rotate(-27.6434 387 587.269)" fill="#030309"/>
-                                            <rect id="Rectangle 13" x="86" y="584.104" width="168.696" height="262.947" transform="rotate(-46.8648 86 584.104)" fill="#030309"/>
-                                            <rect id="Rectangle 11" x="527" y="532.777" width="168.696" height="262.947" transform="rotate(-51.9135 527 532.777)" fill="#030309"/>
-                                            <rect id="Rectangle 12" x="503" y="527.247" width="168.696" height="262.947" transform="rotate(-31.9408 503 527.247)" fill="#030309"/>
-                                            <rect id="Rectangle 6" x="456.715" y="60.2651" width="131.991" height="278.153" transform="rotate(-177.303 456.715 60.2651)" fill="#030309"/>
-                                            <rect id="Rectangle 5" x="525.118" y="90.4898" width="131.991" height="274.627" transform="rotate(-158.368 525.118 90.4898)" fill="#030309"/>
-                                            <rect id="Rectangle 4" x="570.695" y="127.633" width="109.94" height="223.222" transform="rotate(-142.051 570.695 127.633)" fill="#030309"/>
-                                            <rect id="Rectangle 3" x="613.292" y="189.098" width="99.2768" height="223.222" transform="rotate(-128.125 613.292 189.098)" fill="#030309"/>
-                                            <path id="Vector 3" d="M609 183V422.5" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 1" d="M185.5 425.5L185 180" stroke="#DBDBDC" stroke-width="4"/>
-                                            <path id="Vector 2" d="M185 181.502C185 181.502 269.8 52.0936 397 56.0907C524.2 60.0879 576.603 135.189 609 184" stroke="#DBDBDC" stroke-width="4"/>
-                                            <path id="Vector 4" d="M608.5 424.5C608.5 424.5 557 548 396 550.5C235 553 185 424.5 185 424.5" stroke="#DBDBDC" stroke-width="4"/>
-                                            <path id="Polygon 1" d="M396.252 65.2333L377.848 35.8138L414.647 35.8079L396.252 65.2333Z" fill="#E7F013"/>
-                                            <path id="Polygon 2" d="M407.919 38.9482L396.431 59.4193L384.446 38.7244L407.919 38.9482Z" fill="#030309"/>
-                                            <path id="Vector 6" d="M307 76L302 64.5L312 60.5L317 71" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 7" d="M279.5 91L268.5 73.5L259 79L269.5 97.5" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 8" d="M225 135L206.5 117" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 9" d="M477.153 71.5794L479.366 59.3018L489.886 61.5697L488.226 73.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 10" d="M347.928 61.4888L346.352 49.0483L357.072 48.0112L358.929 59.4917" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 11" d="M435.153 59.5794L437.366 47.3018L447.886 49.5697L446.226 61.0218" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 12" d="M514.032 86.1754L522.756 72.2658L533.956 78.0405L525.5 93.5" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 13" d="M569.5 131.5L585.5 116" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 15" d="M183.5 193.5L173 187" stroke="#029705" stroke-width="4"/>
-                                            <path id="Vector 16" d="M184 203L173.5 196.5" stroke="#029705" stroke-width="4"/>
-                                            <path id="Vector 17" d="M610 193.5L619 188" stroke="#029705" stroke-width="3"/>
-                                            <path id="Vector 18" d="M610 199.5L619 194" stroke="#029705" stroke-width="3"/>
-                                            <line id="Line 1" x1="184" y1="211" x2="184" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                            <line id="Line 2" x1="610" y1="211" x2="610" y2="184" stroke="#DBDBDC" stroke-width="2"/>
-                                            <rect id="altitude_bg" x="675" y="73" width="72" height="476" fill="#76767A"/>
-                                            <g clip-path="url(#altTapeClip)">
-                                                <svg x="675" y="73" width="72" height="476"><g id="altitude_tape_group"></g></svg>
-                                            </g>
-                                            <g id="altitude_indicator_static">
-                                                <rect id="altitude_1" x="675" y="280" width="73" height="49" fill="#030309"/>
-                                                <text id="altitude_readout_hundreds" x="740" y="316" fill="#00FF00" font-size="32" text-anchor="end" font-weight="bold">0</text>
-                                                <g id="altitude_tens_reel_container" clip-path="url(#tensReelClip)"><g id="altitude_tens_reel_group"></g></g>
-                                                <line id="Line 8" x1="669" y1="307" x2="618" y2="307" stroke="#DDDF07" stroke-width="8"/>
-                                            </g>
-                                            <path id="limit" d="M636 336.08L621.413 307.511L650.858 307.651L636 336.08Z" fill="#C477C6"/>
-                                            <path id="limit2" d="M636 279L650.722 307.5H621.278L636 279Z" fill="#C477C6"/>
-                                            <path id="limit3" d="M636 285L643.794 303H628.206L636 285Z" fill="#100010"/>
-                                            <path id="limit4" d="M636.191 329.14L628.276 311.242L643.534 310.999L636.191 329.14Z" fill="#030309"/>
-                                            <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
-                                            <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
-                                            <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
-                                            <g id="Ellipse 3">
-                                                <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
-                                                <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
-                                            </g>
-                                            <rect id="speed" x="28" y="73" width="97" height="477" fill="#76767A"/>
-                                            <g clip-path="url(#speedTapeClip)">
-                                                <svg x="28" y="73" width="97" height="477"><g id="speed_tape_group"></g></svg>
-                                            </g>
-                                            <g id="speed_indicator_static">
-                                                <path id="Polygon 9" d="M128.036 311.591L150.451 301.561L150.513 321.482L128.036 311.591Z" fill="#FDFD03"/>
-                                                <path id="Vector 20" d="M137 311H96.5" stroke="#FDFD03" stroke-width="4"/>
-                                                <rect x="50" y="296" width="45" height="30" fill="black" stroke="#999" stroke-width="1"/>
-                                                <text id="speed_readout" x="72.5" y="318" fill="#00FF00" font-size="20" text-anchor="middle" font-weight="bold">0</text>
-                                            </g>
-                                            <path id="Vector 19" d="M19.5 311H31" stroke="#FDFD03" stroke-width="4"/>
-                                            <path id="Vector 21" d="M29 73H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 22" d="M28 549H151.5" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 23" d="M672.5 73H774" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 24" d="M672 548.5H773" stroke="#E7E6E8" stroke-width="4"/>
-                                            <path id="Vector 25" d="M745 549.5L746 347" stroke="#E7E6E8" stroke-width="3"/>
-                                            <path id="Vector 26" d="M745 73V265" stroke="#E7E6E8" stroke-width="3"/>
-                                            <g id="wings">
-                                                <rect id="Rectangle 21" x="280" y="315" width="11" height="25" fill="#030309"/>
-                                                <rect id="Rectangle 23" x="522" y="304" width="71" height="12" fill="#030309"/>
-                                                <rect id="Rectangle 22" x="512" y="305" width="13" height="35" fill="#030309"/>
-                                                <rect id="Rectangle 20" x="208" y="304" width="83" height="13" fill="#030309"/>
-                                                <g id="wing">
-                                                    <path d="M278.591 316.857H208V304H291.608V340H278.591V316.857Z" stroke="#FEFE03" stroke-width="3"/>
-                                                    <path d="M511.392 340V304H595V316.857H524.409V340H511.392Z" stroke="#FEFE03" stroke-width="3"/>
-                                                </g>
-                                            </g>
-                                            <g id="middle">
-                                                <rect id="middle_2" x="393" y="304" width="17" height="17" fill="#0CC704"/>
-                                                <rect id="Rectangle 24" x="395" y="307" width="13" height="11" fill="#030309"/>
-                                            </g>
-                                            <rect id="Rectangle 25" y="571" width="787" height="140" fill="#030309"/>
-                                            <rect id="header" x="243" y="599" width="326" height="66" fill="#76767A"/>
-                                            <g id="heading_indicator">
-                                                <g id="heading_tape_container" clip-path="url(#headingClip)"><g id="heading_tape_group"></g></g>
-                                                <g id="heading_static_elements">
-                                                    <line x1="406" y1="620" x2="406" y2="635" stroke="#FDFD03" stroke-width="3"/>
-                                                    <rect x="381" y="599" width="50" height="20" fill="black" stroke="#FFFFFF" stroke-width="1"/>
-                                                    <text id="heading_readout" x="406" y="615" fill="#00FF00" font-size="16" text-anchor="middle" font-weight="bold">000</text>
-                                                </g>
-                                            </g>
-                                            <path id="Vector 27" d="M243 599V667" stroke="#FCFCFF" stroke-width="4"/>
-                                            <g id="Line 5"><line id="Line 5_2" x1="745" y1="264.5" x2="787" y2="264.5" stroke="#ECED06" stroke-width="3"/></g>
-                                            <line id="Line 6_2" x1="671" y1="279.5" x2="748" y2="279.5" stroke="#ECED06" stroke-width="3"/>
-                                            <line id="Line 7" x1="671" y1="329.5" x2="748" y2="329.5" stroke="#ECED06" stroke-width="3"/>
-                                            <line id="Line 3" x1="746" y1="345.5" x2="786" y2="345.5" stroke="#ECED06" stroke-width="3"/>
-                                        </g>
-                                    </g>
-                                </svg>
-                            </div>
-                         </div>
-
-                        <!-- Full VA banner artwork: the flight's own VA (or
-                             route-hub partner), shown uncropped at its natural
-                             aspect ratio, directly under the PFD. Hidden until
-                             hydrated so it adds no empty gap. -->
-                        <div id="ac-va-full-banner" class="va-ad-banner-slot" style="margin: 8px 0 0; display: none;"></div>
-                    </div>
-
-                <div class="info-right-col" style="gap: 6px; display: flex; flex-direction: column; height: 100%; justify-content: space-between;">
-    <div class="modern-status-card" style="background: linear-gradient(165deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 12px; position: relative; overflow: hidden; backdrop-filter: blur(12px); flex: 1; display: flex; flex-direction: column; justify-content: center;">
-        <div class="status-glow" style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: ${psColor}; filter: blur(35px); opacity: 0.2;"></div>
-        
-        <div style="display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 2;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div style="width: 30px; height: 30px; border-radius: 8px; background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: ${psColor}; border: 1px solid ${psColor}40;">
-                     <i class="fa-solid ${psIcon}" style="font-size: 14px; filter: drop-shadow(0 0 8px ${psColor}60);"></i>
-                </div>
-                <div class="tech-ping" style="width: 6px; height: 6px; position: relative;">
-                    <span class="animate" style="background: ${psColor}; position: absolute; inset: 0; border-radius: 50%; opacity: 0.6;"></span>
-                    <span style="background: ${psColor}; position: absolute; inset: 0; border-radius: 50%;"></span>
-                </div>
-            </div>
-            <div>
-                <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1px;">Pilot Status</span>
-                <span style="display: block; font-size: 14px; color: #fff; font-weight: 800; letter-spacing: 0.5px;">${psTitle}</span>
-                <span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>
-            </div>
-        </div>
-    </div>
-
-    <div class="modern-timer-stack" style="display: flex; flex-direction: column; gap: 4px;">
-        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #64748b; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 8px;"></i>
-                <span style="display: block; font-size: 7px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Elapsed</span>
-            </div>
-            <span id="ac-sensor-elapsed" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #fff; font-weight: 500;">--:--</span>
-        </div>
-
-        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #38bdf8; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 8px;"></i>
-                <span style="display: block; font-size: 7px; color: #38bdf8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Remaining</span>
-            </div>
-            <span id="ac-sensor-ete" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
-        </div>
-
-        <div class="timer-node" style="background: transparent; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05);">
-            <span style="font-size: 7px; color: #475569; text-transform: uppercase; font-weight: 700;">Total</span>
-            <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; font-weight: 600;">--:--</span>
-        </div>
-    </div>
-</div>
-                </div>
-
-                <div class="nd-full-width-section">
-                    <div class="modern-view-switcher" style="margin-bottom: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.05);">
-                         <button class="display-toggle-btn ${currentViewTarget === 'nd-view' ? 'active' : ''}" data-target="nd-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
-                            <i class="fa-solid fa-compass" style="margin-right: 6px;"></i> Navigation
-                         </button>
-                         <button class="display-toggle-btn ${currentViewTarget === 'fmc-view' ? 'active' : ''}" data-target="fmc-view" style="flex: 1; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding: 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease;">
-                            <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Flight Plan
-                         </button>
-                         <div class="switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${currentViewTarget === 'fmc-view' ? '100%' : '0%'});"></div>
-                    </div>
-
-                    <div class="display-bezel" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
-                        <div class="crt-container scanlines" style="aspect-ratio: 1/1; display: flex; flex-direction: column; overflow: hidden;">
-                             <div id="nd-view-container" style="width: 100%; height: 100%; display: ${currentViewTarget === 'nd-view' ? 'block' : 'none'};">
-                                <div id="nd-container">
-                                    <iframe id="nav-display-frame" src="nav.html" scrolling="no"></iframe>
-                                 </div>
-                            </div>
-
-                            <div id="fmc-view-container" style="display: ${currentViewTarget === 'fmc-view' ? 'flex' : 'none'}; width: 100%; height: 100%; background: #000; flex-direction: column;">
-                                <div class="fms-module-container" style="height: 100%; max-height: 100%; width: 100%; border: none; background: transparent; box-shadow: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;">
-                                    <div class="fms-header" style="background: rgba(255,255,255,0.05); padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
-                                        <span class="tech-module-title" style="font-weight: 700; font-size: 11px; letter-spacing: 1px;"><i class="fa-solid fa-route" style="color: #38bdf8;"></i> ROUTE PROFILE</span>
-                                        <span class="fms-page-count" style="font-family: monospace; font-size: 10px; color: #475569;">PAGE 01/01</span>
-                                    </div>
-                                    <div class="fms-columns" style="border-bottom: 1px dashed rgba(255,255,255,0.1); display: flex; justify-content: space-between; padding: 8px 14px; flex-shrink: 0; background: rgba(0,0,0,0.2);">
-                                        <span class="col-wpt" style="flex: 2; text-align: left; font-size: 9px; color: #64748b; text-transform: uppercase;">Waypoint Ident</span>
-                                        <span class="col-data text-center" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">CRS</span>
-                                        <span class="col-data text-right" style="flex: 1; font-size: 9px; color: #64748b; text-transform: uppercase;">DIST</span>
-                                    </div>
-                                    <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
-                                        ${fmsLegsHtml}
-                                    </div>
-                                     <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
-                                        <div class="fms-stat">
-                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
-                                            <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
-                                        </div>
-                                        <div class="fms-stat">
-                                             <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
-                                            <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- VA partner ad: the flight's own VA, falling back to route-hub
-                     partners. Hidden until hydrated so it adds no empty gap. -->
-                <div id="ac-va-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
-
-                <!-- Hidden legacy elements: FMS-view footer copies their innerHTML/textContent. Keep them so legacy code keeps working. -->
-                <span id="ac-dist" style="display:none;"></span>
-                <span id="ac-ete" style="display:none;"></span>
-
-                <!-- ════════════ SPEED & ALTITUDE (parity with Simple/Card) ════════════ -->
-                <h2 class="acx-sec">Speed &amp; altitude</h2>
-                <div class="ac-info-card-bar acx-card graph-card">
-                    <div id="ac-sa-graph" class="acx-graph"></div>
-                </div>
-
-                <!-- Previous Flights (multi-leg journey) — filled by the live
-                     update path once a completed leg is detected in the trail. -->
-                <div id="ac-legs-host"></div>
-
-                <!-- ════════════ THIS FLIGHT (journey numbers + live stats) ════════════ -->
-                <h2 class="acx-sec">This flight</h2>
-                <div class="ac-info-card-bar acx-card stats-card">
-                    <div class="acx-hero">
-                        <div><div id="ac-flown" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Flown</div></div>
-                        <div style="text-align: right;"><div id="ac-dist" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Remaining</div></div>
-                    </div>
-                    <div class="acx-bar"><div id="ac-progress-bar" class="acx-bar-fill" style="width: ${progress}%;"><i class="fa-solid fa-plane"></i></div></div>
-                    <div class="acx-rows">
-                        <div class="acx-row"><span class="l">Time airborne</span><span id="ac-elapsed" class="v">--:--</span></div>
-                        <div class="acx-row"><span class="l">Average ground speed</span><span id="ac-avg-gs" class="v">---<span class="unit">kt</span></span></div>
-                        <div class="acx-row"><span class="l">Max ground speed</span><span id="ac-max-gs" class="v">---<span class="unit">kt</span></span></div>
-                        <div class="acx-row"><span class="l">Max altitude</span><span id="ac-max-alt" class="v">---<span class="unit">ft</span></span></div>
-                    </div>
-                </div>
-
-                <!-- ════════════ NAVIGATION ════════════ -->
-                <h2 class="acx-sec">Navigation</h2>
-                <div class="ac-info-card-bar acx-card nav-card">
-                    <div class="acx-group-label">Position</div>
-                    <div class="acx-grid">
-                        <div class="acx-cell"><span class="acx-l">Latitude</span><span id="ac-lat" class="acx-v">---</span></div>
-                        <div class="acx-cell"><span class="acx-l">Longitude</span><span id="ac-lon" class="acx-v">---</span></div>
-                        <div class="acx-cell"><span class="acx-l">Altitude</span><span id="ac-alt" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">ft</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Heading</span><span id="ac-heading" class="acx-v">---°</span></div>
-                        <div class="acx-cell"><span class="acx-l">Ground speed</span><span id="ac-gs" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Vertical speed</span><span id="ac-vs" class="acx-v">---</span></div>
-                    </div>
-
-                    <div class="acx-group-label">Atmosphere &amp; plan</div>
-                    <div class="acx-grid">
-                        <div class="acx-cell"><span class="acx-l">Wind</span><span id="ac-env-wind" class="acx-v">---/--</span></div>
-                        <div class="acx-cell"><span class="acx-l">Outside air</span><span id="ac-env-oat" class="acx-v">--°C</span></div>
-                        <div class="acx-cell"><span class="acx-l">True airspeed</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Cruise</span><span id="ac-cruise-tgt" class="acx-v">${cruiseAltText}</span></div>
-                        <div class="acx-cell"><span class="acx-l">Off cruise</span><span id="ac-alt-delta" class="acx-v">---</span></div>
-                    </div>
-
-                    <div class="acx-rows">
-                        <div class="acx-row"><span class="l">Next waypoint</span><span class="v"><span id="ac-next-wp">---</span> · <span id="ac-next-wp-dist">--.-</span><span class="unit">NM</span></span></div>
-                        <div class="acx-row"><span class="l">Nearest airport</span><span class="v"><span id="ac-nearest-apt">---</span> · <span id="ac-nearest-apt-dist">--.-</span><span class="unit">NM</span></span></div>
-                    </div>
-
-                    <!-- Geocoded position text -->
-                    <div class="acx-foot">
-                        <span class="acx-l" style="display: block;">Currently over</span>
-                        <span id="ac-location" style="color: #fff; font-size: 13px; font-weight: 500;">Scanning...</span>
-                    </div>
-                </div>
-
-               <!-- ════════════ AIRCRAFT (slimmed — no duplicate name/callsign/airline) ════════════ -->
-               <h2 class="acx-sec">Aircraft</h2>
-               <div class="ac-info-card-bar acx-card aircraft-card">
-                    <div class="acx-row"><span class="l">Registration</span><span class="v">${techCardTail}</span></div>
-                    <div class="acx-row"><span class="l">Class</span><span class="v" style="font-family: inherit; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span></div>
-                    ${filedPlanData ? `
-                    <div class="acx-row"><span class="l">Passengers</span><span class="v">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span></div>
-                    <div class="acx-row"><span class="l">Block fuel</span><span class="v">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'}<span class="unit">kg</span></span></div>` : ''}
-                    ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
-                    <div class="acx-row"><span class="l">Photo</span><span class="v" style="font-family: inherit;">${photographerName}</span></div>` : ''}
-                </div>
-
-                ${destCardHtml}
-            </div>
- 
-            <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
-                 <div id="pilot-stats-display" style="width: 100%; min-height: 200px;"></div>
-            </div>
-        </div>
-    </div>
-    `;
-
-    // --- POST-RENDER LOGIC ---
-    // Destination dropdown: expand/collapse, fetching the airport summary
-    // (info + image) lazily on first open. Same summary the Simple / Card
-    // windows request over postMessage, called directly here since the legacy
-    // window lives in the host page.
-    const destCardEl = windowEl.querySelector('#legacy-dest-card');
-    if (destCardEl) {
-        const destToggleEl = destCardEl.querySelector('.dest-toggle');
-        const destPanelEl = destCardEl.querySelector('.dest-panel');
-        let destLoaded = false;
-        destToggleEl.addEventListener('click', async () => {
-            const open = destCardEl.classList.toggle('open');
-            destToggleEl.setAttribute('aria-expanded', open ? 'true' : 'false');
-            destPanelEl.hidden = !open;
-            if (!open || destLoaded) return;
-            destLoaded = true;
-            destPanelEl.innerHTML = '<div class="dest-status">Loading airport…</div>';
-            try {
-                const summary = await formatAirportSummary(destCardEl.dataset.icao);
-                destPanelEl.innerHTML = summary
-                    ? buildDestSummaryPanelHTML(summary)
-                    : '<div class="dest-status">Airport info unavailable.</div>';
-            } catch (_) {
-                destPanelEl.innerHTML = '<div class="dest-status">Airport info unavailable.</div>';
-            }
-        });
-    }
-
-    // Speed & Altitude graph — first paint. With no trail yet this renders the
-    // "Awaiting flight history…" placeholder; the live-update path re-renders
-    // once /history arrives and whenever the trail length changes.
-    try {
-        const _graphEl = windowEl.querySelector('#ac-sa-graph');
-        if (_graphEl && window.FlightGraph) {
-            window.FlightGraph.render(_graphEl, sortedRoutePoints || [], { height: 150 });
-            _graphEl.dataset.pts = String((sortedRoutePoints || []).length);
-        }
-        const _stats = computeLegacyTrailStats(sortedRoutePoints);
-        if (_stats) {
-            const _set = (id, html) => { const el = windowEl.querySelector('#' + id); if (el) el.innerHTML = html; };
-            _set('ac-flown', `${Math.round(_stats.flownNm).toLocaleString()}<span class="unit">NM</span>`);
-            _set('ac-elapsed', _stats.elapsedTxt);
-            if (_stats.avgGsKt != null) _set('ac-avg-gs', `${_stats.avgGsKt}<span class="unit">kt</span>`);
-            _set('ac-max-gs', `${_stats.maxGsKt}<span class="unit">kt</span>`);
-            _set('ac-max-alt', `${Math.round(_stats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`);
-        }
-    } catch (_) { /* best-effort */ }
-
-    if(typeof createPfdDisplay === 'function') createPfdDisplay();
-    if(typeof updatePfdDisplay === 'function') updatePfdDisplay(baseProps.position);
-    
-    if (currentActiveTab === 'ac-tab-pilot-report' && typeof displayPilotStats === 'function') {
-        displayPilotStats(baseProps.userId, pilotUsername);
-    }
-
-    const imagePath = techCardImagePath;
-    const fallbackPath = '/CommunityPlanes/default.png';
-    const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
-
-    const overviewPanels = document.querySelectorAll('#ac-overview-panel');
-    overviewPanels.forEach(overviewPanel => {
-        overviewPanel.style.backgroundImage = newImageUrl;
-        overviewPanel.dataset.currentPath = imagePath;
-        buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
-
-        // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
-        // it to a logo-only chip a few seconds after the window opens (hovering or
-        // focusing re-expands it, via CSS). The badge only exists when the flight's
-        // callsign matches a partner VA, so this no-ops otherwise.
-        const partnerBadge = overviewPanel.querySelector('.ac-partner-hero .va-cs-info');
-        if (partnerBadge && partnerBadge.dataset.vaWired !== '1') {
-            partnerBadge.dataset.vaWired = '1';
-            const adId = partnerBadge.getAttribute('data-va-ad-id');
-            if (adId && window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') {
-                const openVa = () => window.InflightVaAds.openPartners(adId);
-                partnerBadge.addEventListener('click', openVa);
-                partnerBadge.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVa(); }
-                });
-            }
-            setTimeout(() => {
-                if (document.body.contains(partnerBadge)) partnerBadge.classList.add('va-cs-collapsed');
-            }, 4000);
-        }
-    });
-
-    // In-window VA ad beneath the ND/FMC display: prefer the flight's own VA,
-    // fall back to route-hub partners. Defensive — never blocks the window.
-    if (window.InflightVaAds && typeof window.InflightVaAds.hydrateFlightBanner === 'function') {
-        try {
-            window.InflightVaAds.hydrateFlightBanner(windowEl, {
-                callsign: baseProps.callsign,
-                depIcao: departureIcao,
-                arrIcao: arrivalIcao
-            });
-        } catch (e) { /* ads must never break the flight window */ }
-    }
-
-    // --- SENSOR TIMER LOGIC ---
-    const updateSensorTimers = () => {
-        const elElapsed = document.getElementById('ac-sensor-elapsed');
-        const elEte = document.getElementById('ac-sensor-ete');
-        const elTotal = document.getElementById('ac-sensor-total');
-        const sourceEte = document.getElementById('ac-ete');
-        
-        if (elElapsed && atdTimestamp) {
-            const now = Date.now();
-            const start = new Date(atdTimestamp).getTime();
-            const diff = now - start;
-            if (diff >= 0) {
-                const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000);
-                elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-            }
-        }
-
-        if (elEte && sourceEte && elTotal) {
-            const currentEte = sourceEte.textContent;
-            if (currentEte && currentEte.includes(':')) {
-                elEte.textContent = currentEte;
-                if (elElapsed && elElapsed.textContent !== '--:--') {
-                    const [eH, eM] = elElapsed.textContent.split(':').map(Number);
-                    const [rH, rM] = currentEte.split(':').map(Number);
-                    let tM = eM + rM;
-                    let tH = eH + rH + Math.floor(tM / 60);
-                    tM = tM % 60;
-                    elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
-                }
-            }
-        }
-    };
-    
-    if (window.sensorTimerInterval) clearInterval(window.sensorTimerInterval);
-    updateSensorTimers();
-    window.sensorTimerInterval = setInterval(updateSensorTimers, 1000);
-
-    // --- REDESIGNED DISPLAY TOGGLE LOGIC ---
-    const mainTabBtns = windowEl.querySelectorAll('.ac-info-tab-btn');
-    const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
-    const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
-
-    mainTabBtns.forEach((btn, index) => {
-        btn.addEventListener('click', (e) => {
-            mainTabBtns.forEach(b => {
-                b.classList.remove('active');
-                b.style.color = '#94a3b8';
-            });
-            e.currentTarget.classList.add('active');
-            e.currentTarget.style.color = '#fff';
-
-            if (mainHighlight) {
-                mainHighlight.style.transform = `translateX(${index * 100}%)`;
-            }
-
-            const targetId = e.currentTarget.dataset.tab;
-            tabPanes.forEach(pane => {
-                pane.classList.remove('active');
-                const displayType = targetId === 'ac-tab-pilot-report' ? 'block' : 'flex';
-                pane.style.display = pane.id === targetId ? displayType : 'none';
-            });
-       
-             if (e.currentTarget.classList.contains('pilot-tab-btn')) {
-                const uid = e.currentTarget.dataset.userId;
-                const uname = e.currentTarget.dataset.username;
-                if (typeof displayPilotStats === 'function') displayPilotStats(uid, uname);
-            }
-        });
-        if (btn.classList.contains('active')) btn.style.color = '#fff';
-    });
-
-    const toggleBtns = windowEl.querySelectorAll('.display-toggle-btn');
-    const displayHighlight = windowEl.querySelector('.switcher-highlight:not(#main-switcher-highlight)');
-    const ndContainer = windowEl.querySelector('#nd-view-container');
-    const fmcContainer = windowEl.querySelector('#fmc-view-container');
-
-    toggleBtns.forEach((btn, index) => {
-        btn.addEventListener('click', (e) => {
-            toggleBtns.forEach(b => {
-                b.classList.remove('active');
-                b.style.color = '#94a3b8';
-            });
-            e.currentTarget.classList.add('active');
-            e.currentTarget.style.color = '#fff';
-            
-            if (displayHighlight) {
-                displayHighlight.style.transform = `translateX(${index * 100}%)`;
-            }
-
-            const target = e.currentTarget.dataset.target; 
-            if (target === 'nd-view') {
-                if(ndContainer) ndContainer.style.display = 'block';
-               if(fmcContainer) fmcContainer.style.display = 'none';
-            } else {
-                if(ndContainer) ndContainer.style.display = 'none';
-                if(fmcContainer) fmcContainer.style.display = 'flex';
-            }
-        });
-        if (btn.classList.contains('active')) btn.style.color = '#fff';
-    });
-
-    // --- Run an immediate update pass so the phase badge / live data
-    // render correctly on first paint instead of lingering on the
-    // "CRUISE" default for several seconds.
-    try {
-        if (typeof updateAircraftInfoWindow === 'function') {
-            updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints);
-        }
-    } catch (err) {
-        console.warn('Initial phase update pass failed:', err);
-    }
-
-    // --- POST-RENDER LOGIC: Inject Multi-Track Pin Button ---
-    const actionsContainer = windowEl.querySelector('.info-window-actions');
-    if (actionsContainer && !document.getElementById('pin-flight-btn')) {
-        const isPinned = window.pinnedFlights.has(baseProps.flightId);
-        const pinBtnHTML = `
-            <button id="pin-flight-btn" class="pin-btn ${isPinned ? 'active-pin' : ''}" title="Pin Flight (Multi-Track)" onclick="window.toggleFlightPin('${baseProps.flightId}')" style="background: transparent; border: none; font-size: 0.9rem; margin-right: 8px; cursor: pointer; transition: all 0.2s; color: ${isPinned ? '#38bdf8' : '#94a3b8'};">
-                <i class="fa-solid fa-thumbtack"></i>
-            </button>
-        `;
-        actionsContainer.insertAdjacentHTML('afterbegin', pinBtnHTML);
-    }
-
-    // --- DOCK TOGGLE LOGIC ---
-const dockBtn = windowEl.querySelector('#ac-dock-toggle-btn');
-if (dockBtn) {
-    // Check saved preference on load
-    const isDockedLeft = localStorage.getItem('acWindowDock') === 'left';
-    if (isDockedLeft) {
-        windowEl.classList.add('dock-left');
-        dockBtn.classList.add('docked-left');
-    } else {
-        windowEl.classList.remove('dock-left');
-        dockBtn.classList.remove('docked-left');
-    }
-    
-    // Attach listener
-    dockBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation(); // Prevent tab switching from intercepting
-        
-        const isLeft = windowEl.classList.toggle('dock-left');
-        dockBtn.classList.toggle('docked-left', isLeft);
-        
-        // Save preference to localStorage
-        localStorage.setItem('acWindowDock', isLeft ? 'left' : 'right');
-    });
-}
-} // <-- End of populateAircraftInfoWindow
-
-/**
- * --- [UPDATED] Updates the Navigation Data Panel ---
- */
-function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
-    // 1. Update Coordinates (Clean formatting)
-    const latEl = document.getElementById('ac-lat');
-    const lonEl = document.getElementById('ac-lon');
-    
-    // Use toFixed(3) to save space and prevent "falling out"
-    if (latEl) latEl.textContent = lat.toFixed(3);
-    if (lonEl) lonEl.textContent = lon.toFixed(3);
-
-    // 1b. Heading — previously this argument was passed in but never displayed.
-    if (heading != null && !isNaN(heading)) {
-        const hdgInt = Math.round(((heading % 360) + 360) % 360);
-        document.querySelectorAll('#ac-heading').forEach(el => {
-            el.textContent = `${String(hdgInt).padStart(3, '0')}°`;
-        });
-    }
-
-    // 2. Update Environment
-    const windEl = document.getElementById('ac-env-wind');
-    const oatEl = document.getElementById('ac-env-oat');
-    
-    // Format: 270 / 15
-    if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}`;
-    if (oatEl) oatEl.textContent = `${oat}°C`;
-
-    // 3. Nearest Airport Logic (Unchanged, just targets)
-    if (airportsData && Object.keys(airportsData).length > 0) {
-        let nearestICAO = '---';
-        let minDist = Infinity;
-        
-        // Optimization: Only check airports within ~2 degrees lat/lon
-        for (const icao in airportsData) {
-            const apt = airportsData[icao];
-            if (!apt || apt.lat == null || apt.lon == null) continue;
-
-            const latDiff = Math.abs(apt.lat - lat);
-            const lonDiff = Math.abs(apt.lon - lon);
-
-            if (latDiff > 2 || lonDiff > 2) continue;
-
-            const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
-            if (dist < minDist) {
-                minDist = dist;
-                nearestICAO = icao;
-            }
-        }
-
-        const nearestEl = document.getElementById('ac-nearest-apt');
-        const nearestDistEl = document.getElementById('ac-nearest-apt-dist');
-        
-        if (nearestEl && minDist !== Infinity) {
-            nearestEl.textContent = nearestICAO;
-            const distNM = (minDist / 1.852).toFixed(1);
-            // The "NM" unit is rendered as a sibling <span> in the markup, so write only the number.
-            nearestDistEl.textContent = distNM;
-        }
-    }
-}
-
-function updateSeatSensor(flightProps) {
-    const seatCpt = document.getElementById('seat-cpt');
-    const seatFo = document.getElementById('seat-fo');
-    const statusCpt = document.getElementById('status-cpt-text');
-    const statusFo = document.getElementById('status-fo-text');
-    const narrative = document.getElementById('seat-narrative-text');
-    
-    // Overlays
-    const parkingOverlay = document.getElementById('icon-parking-overlay');
-    const coffeeOverlay = document.getElementById('icon-coffee-overlay');
-    const cloudOverlay = document.getElementById('icon-cloud-overlay');
-
-    if (!seatCpt || !seatFo) return;
-
-    // 1. DETERMINE STATE
-    // Default to 0 (Active) if undefined
-    let state = flightProps.pilotState !== undefined ? flightProps.pilotState : 0;
-
-    // 2. RESET VISUALS
-    // Remove all active color classes
-    seatCpt.classList.remove('active-green', 'active-amber', 'active-blue');
-    seatFo.classList.remove('active-green', 'active-amber', 'active-blue');
-    
-    // Reset pills
-    statusCpt.className = 'status-pill';
-    statusFo.className = 'status-pill';
-    
-    // Hide all overlays
-    if(parkingOverlay) parkingOverlay.classList.remove('visible');
-    if(coffeeOverlay) coffeeOverlay.classList.remove('visible');
-    if(cloudOverlay) cloudOverlay.classList.remove('visible');
-
-    // Reset Narrative Display
-    if(narrative) narrative.style.display = 'block';
-
-    // 3. APPLY LOGIC
-    switch (state) {
-        case 0: // ACTIVE
-            seatCpt.classList.add('active-green');
-            
-            statusCpt.classList.add('green');
-            statusCpt.textContent = 'CMD: PILOT';
-            
-            statusFo.textContent = 'FO: MONITOR';
-            
-            narrative.textContent = "Manual inputs detected. Pilot has controls.";
-            break;
-
-        case 1: // AWAY (IN FLIGHT) - Monitoring
-            seatCpt.classList.add('active-amber');
-            
-            statusCpt.classList.add('amber');
-            statusCpt.textContent = 'CMD: AUTO';
-            
-            statusFo.textContent = 'FO: MONITOR';
-            
-            if(coffeeOverlay) coffeeOverlay.classList.add('visible');
-            narrative.textContent = "No recent inputs. Pilot is monitoring cruise systems.";
-            break;
-
-        case 2: // AWAY (PARKED) - Secured
-            // Seats remain dark/grey (no active class)
-            
-            statusCpt.classList.add('red'); // Use red border/text for park brake
-            statusCpt.textContent = 'PARK BRK: SET';
-            statusCpt.style.width = '100%'; // Span full width
-            statusCpt.style.textAlign = 'center';
-            
-            statusFo.style.display = 'none'; // Hide FO pill in this specific state
-            
-            if(parkingOverlay) parkingOverlay.classList.add('visible');
-            narrative.textContent = "Cockpit secured. Parking brake set.";
-            break;
-
-        case 3: // BACKGROUND - Relief Pilot / Rest
-            seatFo.classList.add('active-blue');
-            
-            statusCpt.textContent = 'CMD: REST';
-            
-            statusFo.classList.add('blue');
-            statusFo.textContent = 'FO: ACTIVE';
-            
-            if(cloudOverlay) cloudOverlay.classList.add('visible');
-            
-            // [MODIFIED] Removed the "Relief Pilot" text and hid the element to push content up
-            if(narrative) {
-                narrative.textContent = ""; 
-                narrative.style.display = 'none';
-            }
-            break;
-
-        default:
-            narrative.textContent = "No telemetry data available.";
-            break;
-    }
-
-    // Restore FO display if not in state 2
-    if (state !== 2) {
-        statusFo.style.display = 'block';
-        statusCpt.style.width = 'auto';
-        statusCpt.style.textAlign = 'left';
-    }
-}
+// The legacy window template (hero carousel, populateAircraftInfoWindow,
+// nav panel, seat sensor) moved to legacy-flight-info.html, which the
+// Legacy mode now loads as an iframe fed FLIGHT_DATA_UPDATE payloads.
 
 /**
  * --- [SPICED UP v3.0] Renders the Pilot Report with enhanced typography 
@@ -21218,846 +19271,6 @@ function computeDetailedFlightPhase(baseProps, plan, sortedRoutePoints, progress
     }
 
     return { flightPhase, phaseClass, phaseIcon };
-}
-
-/**
- * Trail-derived flight statistics for the legacy window's Flight Stats card:
- * distance flown, time airborne, average / max ground speed and max altitude.
- * Points are the flat /history + live-trail shape ({latitude, longitude,
- * altitude, groundSpeed, date}). Returns null when the trail is too short to
- * say anything meaningful.
- */
-function computeLegacyTrailStats(points) {
-    if (!Array.isArray(points) || points.length < 2) return null;
-    let flownKm = 0, maxAltFt = 0, maxGsKt = 0;
-    let prevLat = null, prevLon = null;
-    let firstT = null;
-    for (const p of points) {
-        if (!p) continue;
-        const lat = (p.latitude != null) ? p.latitude : p.position?.lat;
-        const lon = (p.longitude != null) ? p.longitude : p.position?.lon;
-        if (lat != null && lon != null) {
-            if (prevLat != null) flownKm += getDistanceKm(prevLat, prevLon, lat, lon);
-            prevLat = lat; prevLon = lon;
-        }
-        const alt = (p.altitude != null) ? p.altitude : p.position?.alt_ft;
-        if (typeof alt === 'number' && alt > maxAltFt) maxAltFt = alt;
-        const gs = (p.groundSpeed != null) ? p.groundSpeed : p.position?.gs_kt;
-        if (typeof gs === 'number' && gs > maxGsKt) maxGsKt = gs;
-        if (firstT == null && p.date) {
-            const t = Date.parse(p.date);
-            if (!isNaN(t)) firstT = t;
-        }
-    }
-    const flownNm = flownKm / 1.852;
-    const elapsedMs = firstT != null ? Math.max(0, Date.now() - firstT) : null;
-    const elapsedHrs = elapsedMs != null ? elapsedMs / 3600000 : null;
-    let elapsedTxt = '--:--';
-    if (elapsedMs != null) {
-        const h = Math.floor(elapsedMs / 3600000);
-        const m = Math.floor((elapsedMs % 3600000) / 60000);
-        elapsedTxt = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    }
-    // Average GS over the whole trail — distance over time, not a sample mean,
-    // so taxi idling weighs it honestly.
-    const avgGsKt = (elapsedHrs && elapsedHrs > 0.01) ? Math.round(flownNm / elapsedHrs) : null;
-    return { flownNm, elapsedTxt, maxAltFt, maxGsKt: Math.round(maxGsKt), avgGsKt };
-}
-
-function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
-    const updateAll = (selector, value, isHTML = false) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            if (isHTML) {
-                el.innerHTML = value;
-            } else {
-                el.textContent = value;
-            }
-        });
-    };
-
-    const styleAll = (selector, property, value) => {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => {
-            el.style[property] = value;
-        });
-    };
-
-    const originalFlatWaypoints = (plan && plan.flightPlanItems) ? flattenWaypointsFromPlan(plan.flightPlanItems) : [];
-    const originalFlatWaypointObjects = (plan && plan.flightPlanItems) ? getFlatWaypointObjects(plan.flightPlanItems) : [];
-    const hasPlan = originalFlatWaypoints.length >= 2;
-
-    let progress = 0, ete = '--:--', distanceToDestNM = 0;
-    let totalDistanceNM = 0;
-    let nextWpName = '---', nextWpDistNM = '---';
-
-    if (hasPlan) {
-        let totalDistanceKm = 0;
-        for (let i = 0; i < originalFlatWaypoints.length - 1; i++) {
-            const [lon1, lat1] = originalFlatWaypoints[i];
-            const [lon2, lat2] = originalFlatWaypoints[i + 1];
-            totalDistanceKm += getDistanceKm(lat1, lon1, lat2, lon2);
-        }
-        totalDistanceNM = totalDistanceKm / 1.852;
-
-        if (totalDistanceNM > 0) {
-            const [destLon, destLat] = originalFlatWaypoints[originalFlatWaypoints.length - 1];
-            const remainingDistanceKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, destLat, destLon);
-            distanceToDestNM = remainingDistanceKm / 1.852;
-            
-            // Use direct distance from origin to destination to fix the sluggish scaling
-            const [originLon, originLat] = originalFlatWaypoints[0];
-            const totalDirectDistanceNM = getDistanceKm(originLat, originLon, destLat, destLon) / 1.852;
-            const scaleDist = totalDirectDistanceNM > 0 ? totalDirectDistanceNM : totalDistanceNM;
-
-            progress = Math.max(0, Math.min(100, (1 - (distanceToDestNM / scaleDist)) * 100));
-
-            if (baseProps.position.gs_kt > 50) {
-                const timeHours = distanceToDestNM / baseProps.position.gs_kt;
-                const hours = Math.floor(timeHours);
-                const minutes = Math.round((timeHours - hours) * 60);
-                ete = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-            }
-
-            let minScore = Infinity;
-            const currentTrack = baseProps.position.heading_deg;
-            for (let i = 1; i < originalFlatWaypointObjects.length; i++) {
-                const wp = originalFlatWaypointObjects[i];
-                if (!wp.location) continue;
-                
-                const distanceToWpKm = getDistanceKm(baseProps.position.lat, baseProps.position.lon, wp.location.latitude, wp.location.longitude);
-                const bearingToWp = getBearing(baseProps.position.lat, baseProps.position.lon, wp.location.latitude, wp.location.longitude);
-                const bearingDiff = Math.abs(normalizeBearingDiff(currentTrack - bearingToWp));
-                
-                if (bearingDiff <= 95 && distanceToWpKm < minScore) {
-                    minScore = distanceToWpKm;
-                    nextWpName = wp.identifier || wp.name || 'N/A';
-                    nextWpDistNM = (minScore / 1.852).toFixed(1);
-                }
-            }
-
-            if (nextWpName === '---' && distanceToDestNM < 10) {
-                nextWpName = "DEST";
-                nextWpDistNM = distanceToDestNM.toFixed(1);
-            }
-        }
-    }
-
-    updateAll('#ac-next-wp', nextWpName);
-    updateAll('#ac-next-wp-dist', `${nextWpDistNM === '---' ? '--.-' : nextWpDistNM}`, false);
-    updateAll('#ac-dist', `${Math.round(distanceToDestNM)}<span class="unit">NM</span>`, true);
-    updateAll('#ac-ete', ete);
-
-    // The Live Activity push used to live here, but it was computing
-    // its own ETA / ATD with a broken fallback ("now + 1h" when the
-    // aircraft was slow) and a typo (filedPlanData.departureTime — the
-    // real field is dep_time). It now lives below, after the same
-    // SCHEDULED/ACTUAL/ESTIMATED cascade the in-app card consumes, so
-    // the lock screen and the card always agree.
-
-    // --- New nav-card live readouts (heading / G·S / TAS / ALT / ALT Δ) ---
-    {
-        const _gs = baseProps.position.gs_kt || 0;
-        const _alt = baseProps.position.alt_ft || 0;
-        const _hdg = baseProps.position.heading_deg;
-        const _vs = baseProps.position.vs_fpm || 0;
-        const _oat_c = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
-            ? (currentAircraftPositionForGeocode.oat_c ?? 15)
-            : 15;
-        const _tas = (typeof calculateTas === 'function') ? calculateTas(_alt, _oat_c, _gs) : Math.round(_gs);
-
-        if (_hdg != null && !isNaN(_hdg)) {
-            updateAll('#ac-heading', `${String(Math.round(((_hdg % 360) + 360) % 360)).padStart(3, '0')}°`);
-        }
-        updateAll('#ac-gs', `${Math.round(_gs)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
-        updateAll('#ac-tas', `${Math.round(_tas)} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">kt</span>`, true);
-        updateAll('#ac-alt', `${Math.round(_alt).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`, true);
-
-        // V/S — always live, independent of whether a flight plan is loaded.
-        const _vsArrow = _vs > 100 ? '▲' : _vs < -100 ? '▼' : '·';
-        const _vsColor = _vs > 100 ? '#4ade80' : _vs < -100 ? '#fbbf24' : '#94a3b8';
-        const _vsSign = _vs > 0 ? '+' : '';
-        updateAll('#ac-vs',
-            `<span style="color: ${_vsColor};">${_vsArrow}</span> ${_vsSign}${Math.round(_vs).toLocaleString()} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">fpm</span>`,
-            true);
-
-        // ALT delta vs cached cruise target
-        const _windowEl2 = document.getElementById('aircraft-info-window');
-        const _cruiseAlt = (_windowEl2 && _windowEl2.dataset.cruiseAltFt)
-            ? parseFloat(_windowEl2.dataset.cruiseAltFt) : null;
-        if (_cruiseAlt && _cruiseAlt > 0) {
-            const _delta = Math.round(_alt - _cruiseAlt);
-            const _arrow = _delta > 50 ? '▲' : _delta < -50 ? '▼' : '·';
-            const _color = _delta > 50 ? '#fbbf24' : _delta < -50 ? '#fbbf24' : '#4ade80';
-            const _sign = _delta > 0 ? '+' : '';
-            const _txt = `<span style="color: ${_color};">${_arrow}</span> ${_sign}${Math.abs(_delta) >= 1000 ? (_delta / 1000).toFixed(1) + 'k' : _delta} <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">ft</span>`;
-            updateAll('#ac-alt-delta', _txt, true);
-        } else {
-            updateAll('#ac-alt-delta', '---', false);
-        }
-    }
-
-    // --- Flight Stats card (trail-derived, live) ---
-    try {
-        const trailStats = computeLegacyTrailStats(sortedRoutePoints);
-        if (trailStats) {
-            updateAll('#ac-flown', `${Math.round(trailStats.flownNm).toLocaleString()}<span class="unit">NM</span>`, true);
-            updateAll('#ac-elapsed', trailStats.elapsedTxt);
-            if (trailStats.avgGsKt != null) updateAll('#ac-avg-gs', `${trailStats.avgGsKt}<span class="unit">kt</span>`, true);
-            updateAll('#ac-max-gs', `${trailStats.maxGsKt}<span class="unit">kt</span>`, true);
-            updateAll('#ac-max-alt', `${Math.round(trailStats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`, true);
-        }
-    } catch (_) { /* stats are best-effort — never break live updates */ }
-
-    const altitude = baseProps.position.alt_ft || 0;
-
-    let departureIcao = null;
-    let arrivalIcao = null;
-
-    if (plan && Array.isArray(plan.flightPlanItems) && plan.flightPlanItems.length >= 2) {
-        departureIcao = plan.flightPlanItems[0]?.identifier?.trim().toUpperCase();
-        arrivalIcao = plan.flightPlanItems[plan.flightPlanItems.length - 1]?.identifier?.trim().toUpperCase();
-    }
-
-    // Detailed flying-state detection is shared with the simple flight-info
-    // window (see computeDetailedFlightPhase) so both surfaces report the same
-    // phase rather than diverging.
-    let { flightPhase, phaseClass, phaseIcon } = computeDetailedFlightPhase(
-        baseProps, plan, sortedRoutePoints, progress, distanceToDestNM, totalDistanceNM, hasPlan
-    );
-
-    const vsdPanels = document.querySelectorAll('#vsd-panel');
-    const planId = (plan && (plan.flightPlanId || plan.id)) || 'unknown';
-
-    vsdPanels.forEach(vsdPanel => {
-        if (!hasPlan) return;
-
-        const vsdAircraftIcon = vsdPanel.querySelector('#vsd-aircraft-icon');
-        const vsdGraphWindow = vsdPanel.querySelector('#vsd-graph-window');
-        const vsdGraphContent = vsdPanel.querySelector('#vsd-graph-content');
-        const vsdProfilePath = vsdPanel.querySelector('#vsd-profile-path');
-        const vsdFlownPath = vsdPanel.querySelector('#vsd-flown-path');
-        const vsdWpLabels = vsdPanel.querySelector('#vsd-waypoint-labels');
-
-        if (!vsdGraphContent || !vsdAircraftIcon) return;
-
-        const VSD_HEIGHT_PX = vsdGraphContent.clientHeight || 210;
-        const MAX_ALT_FT = 45000;
-        const Y_SCALE_PX_PER_FT = VSD_HEIGHT_PX / MAX_ALT_FT;
-        const FIXED_X_SCALE_PX_PER_NM = 4;
-
-        if (vsdPanel.dataset.profileBuilt !== 'true' || vsdPanel.dataset.planId !== planId) {
-            let flatWaypointObjects = JSON.parse(JSON.stringify(originalFlatWaypointObjects));
-
-            if (flatWaypointObjects.length > 0) {
-                let cumulativeNM = 0;
-                for(let i = 0; i < flatWaypointObjects.length; i++) {
-                    if(i > 0) {
-                        cumulativeNM += getDistanceKm(flatWaypointObjects[i-1].location.latitude, flatWaypointObjects[i-1].location.longitude, flatWaypointObjects[i].location.latitude, flatWaypointObjects[i].location.longitude) / 1.852;
-                    }
-                    flatWaypointObjects[i].cumulativeNM = cumulativeNM;
-                }
-
-                const lastIdx = flatWaypointObjects.length - 1;
-                if (flatWaypointObjects[0].altitude == null) {
-                    flatWaypointObjects[0].altitude = plan?.origin?.elevation_ft || 0;
-                }
-                if (flatWaypointObjects[lastIdx].altitude == null) {
-                    const prevAlt = (lastIdx > 0) ? flatWaypointObjects[lastIdx - 1]?.altitude : null;
-                    flatWaypointObjects[lastIdx].altitude = (prevAlt != null) ? prevAlt : (plan?.destination?.elevation_ft || 0);
-                }
-
-                for (let i = 1; i < lastIdx; i++) {
-                    const wp = flatWaypointObjects[i];
-                    if (wp.altitude == null || (typeof wp.altitude === 'number' && wp.altitude <= 0)) {
-                        wp.altitude = null;
-                    }
-                }
-
-                let lastValidAltIndex = 0;
-                for (let i = 1; i < flatWaypointObjects.length; i++) {
-                    const wp = flatWaypointObjects[i];
-                    if (wp.altitude != null && typeof wp.altitude === 'number') {
-                        if (i > lastValidAltIndex + 1) {
-                            const gapStartIndex = lastValidAltIndex;
-                            const gapEndIndex = i;
-                            const startAlt = flatWaypointObjects[gapStartIndex].altitude;
-                            const endAlt = flatWaypointObjects[gapEndIndex].altitude;
-                            const numStepsInGap = gapEndIndex - gapStartIndex;
-
-                            for (let j = 1; j < numStepsInGap; j++) {
-                                const stepIndex = gapStartIndex + j;
-                                const fraction = j / numStepsInGap;
-                                const interpolatedAlt = startAlt + (endAlt - startAlt) * fraction;
-                                flatWaypointObjects[stepIndex].altitude = Math.round(interpolatedAlt);
-                            }
-                        }
-                        lastValidAltIndex = i;
-                    }
-                }
-            }
-
-            if (vsdGraphWindow && !vsdGraphWindow.querySelector('#vsd-y-axis')) {
-                let yAxisHtml = '<div id="vsd-y-axis">';
-                const altLabels = [10000, 20000, 30000, 40000];
-                for (const alt of altLabels) {
-                    const yPos = VSD_HEIGHT_PX - (alt * Y_SCALE_PX_PER_FT);
-                    yAxisHtml += `<div class="y-axis-label" style="top: ${yPos}px;">${alt / 1000}K</div>`;
-                }
-                yAxisHtml += '</div>';
-                vsdGraphWindow.insertAdjacentHTML('afterbegin', yAxisHtml);
-            }
-
-            let path_d = "";
-            let labels_html = "";
-            let current_x_px = 0;
-            let last_label_x_px = -1000;
-            let stagger_level = 0;
-            const MIN_LABEL_SPACING_PX = 80;
-
-            if (flatWaypointObjects.length > 0) {
-                for (let i = 0; i < flatWaypointObjects.length; i++) {
-                    const wp = flatWaypointObjects[i];
-                    const wpAltFt = (typeof wp.altitude === 'number' && !isNaN(wp.altitude)) ? wp.altitude : 0;
-                    const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
-                    const cumulativeNM = (typeof wp.cumulativeNM === 'number' && !isNaN(wp.cumulativeNM)) ? wp.cumulativeNM : 0;
-                    
-                    current_x_px = cumulativeNM * FIXED_X_SCALE_PX_PER_NM;
-                    const safeX = isNaN(current_x_px) ? 0 : current_x_px;
-                    const safeY = isNaN(wpAltPx) ? 0 : wpAltPx;
-
-                    if (i === 0) {
-                        path_d = `M ${safeX} ${safeY}`;
-                    } else {
-                        path_d += ` L ${safeX} ${safeY}`;
-                    }
-
-                    let label_top_px;
-                    let label_class = '';
-                    if (current_x_px - last_label_x_px < MIN_LABEL_SPACING_PX) {
-                        stagger_level = 1 - stagger_level;
-                    } else {
-                        stagger_level = 0;
-                    }
-
-                    if (stagger_level === 1) {
-                        label_class = 'low-label';
-                        label_top_px = safeY + 12;
-                    } else {
-                        label_class = 'high-label';
-                        label_top_px = safeY - 42;
-                    }
-                    last_label_x_px = current_x_px;
-
-                    labels_html += `
-                    <div class="vsd-wp-label ${label_class}" style="left: ${safeX}px; top: ${label_top_px}px;">
-                        <span class="wp-name">${wp.identifier || 'WPT'}</span>
-                        <span class="wp-alt">${Math.round(wpAltFt)}ft</span>
-                    </div>`;
-                }
-                vsdGraphContent.style.width = `${current_x_px + 100}px`;
-                vsdProfilePath.closest('svg').style.width = `${current_x_px + 100}px`;
-                vsdProfilePath.setAttribute('d', path_d);
-                vsdWpLabels.innerHTML = labels_html;
-                vsdPanel.dataset.profileBuilt = 'true';
-                vsdPanel.dataset.planId = planId;
-            }
-        }
-
-        if (vsdFlownPath && hasPlan && originalFlatWaypointObjects.length > 0) {
-            let flown_path_d = "";
-            let lastFlownLat, lastFlownLon;
-            let currentFlightRoutePoints = [...sortedRoutePoints];
-
-            const originLat = plan?.origin?.latitude;
-            const originLon = plan?.origin?.longitude;
-
-            if (originLat != null && originLon != null && sortedRoutePoints.length > 10) {
-                let startIndex = -1;
-                for (let i = sortedRoutePoints.length - 1; i > 0; i--) {
-                    const point = sortedRoutePoints[i];
-                    if (!point.latitude || !point.longitude || point.altitude == null) continue;
-                    const distKm = getDistanceKm(point.latitude, point.longitude, originLat, originLon);
-                    if (point.altitude < 1000 && distKm < 25) {
-                        startIndex = i;
-                        break;
-                    }
-                }
-                if (startIndex !== -1) {
-                    currentFlightRoutePoints = sortedRoutePoints.slice(startIndex);
-                }
-            }
-
-            const fullFlownRoute = [];
-            if (currentFlightRoutePoints && currentFlightRoutePoints.length > 0) {
-                fullFlownRoute.push(...currentFlightRoutePoints);
-                lastFlownLat = currentFlightRoutePoints[0].latitude;
-                lastFlownLon = currentFlightRoutePoints[0].longitude;
-            }
-            fullFlownRoute.push({
-                latitude: baseProps.position.lat,
-                longitude: baseProps.position.lon,
-                altitude: baseProps.position.alt_ft,
-                groundSpeed: baseProps.position.gs_kt
-            });
-
-            const flownPathPoints = [];
-            let totalActualFlownNM = 0;
-
-            if (fullFlownRoute.length > 0) {
-                if (!lastFlownLat) {
-                    lastFlownLat = fullFlownRoute[0].latitude;
-                    lastFlownLon = fullFlownRoute[0].longitude;
-                }
-
-                const startAltFt = originalFlatWaypointObjects[0]?.altitude || fullFlownRoute[0].altitude;
-                const startAltPx = VSD_HEIGHT_PX - (startAltFt * Y_SCALE_PX_PER_FT);
-
-                for (let i = 0; i < fullFlownRoute.length; i++) {
-                    const point = fullFlownRoute[i];
-                    const wpAltFt = typeof point.altitude === 'number' ? point.altitude : 0;
-                    const wpAltPx = VSD_HEIGHT_PX - (wpAltFt * Y_SCALE_PX_PER_FT);
-                    const wpLat = point.latitude;
-                    const wpLon = point.longitude;
-
-                    let segmentDistNM = 0;
-                    if (i > 0) {
-                        segmentDistNM = getDistanceKm(lastFlownLat, lastFlownLon, wpLat, wpLon) / 1.852;
-                    }
-                    totalActualFlownNM += segmentDistNM;
-
-                    flownPathPoints.push({
-                        x_nm: totalActualFlownNM,
-                        y_px_alt: wpAltPx
-                    });
-
-                    lastFlownLat = wpLat;
-                    lastFlownLon = wpLon;
-                }
-
-                const safePlannedProgressNM = totalDistanceNM - distanceToDestNM;
-                const safeTotalActualFlownNM = (typeof totalActualFlownNM === 'number' && !isNaN(totalActualFlownNM)) ? totalActualFlownNM : 0;
-                const scaleFactor = (safeTotalActualFlownNM > 0.1 && safePlannedProgressNM > 0.01) ? (safePlannedProgressNM / safeTotalActualFlownNM) : 1;
-                const safeScaleFactor = isNaN(scaleFactor) ? 1 : scaleFactor;
-
-                for (let i = 0; i < flownPathPoints.length; i++) {
-                    const point = flownPathPoints[i];
-                    const safeXNm = (typeof point.x_nm === 'number' && !isNaN(point.x_nm)) ? point.x_nm : 0;
-                    const safeYPxAlt = (typeof point.y_px_alt === 'number' && !isNaN(point.y_px_alt)) ? point.y_px_alt : VSD_HEIGHT_PX;
-
-                    const scaled_x_px = safeXNm * safeScaleFactor * FIXED_X_SCALE_PX_PER_NM;
-                    const finalX = isNaN(scaled_x_px) ? 0 : scaled_x_px;
-
-                    if (i === 0) {
-                        const safeStartAltPx = isNaN(startAltPx) ? VSD_HEIGHT_PX : startAltPx;
-                        flown_path_d = `M 0 ${safeStartAltPx}`;
-                        if (flownPathPoints.length === 1) {
-                            flown_path_d += ` L ${finalX} ${safeYPxAlt}`;
-                        }
-                    } else {
-                        flown_path_d += ` L ${finalX} ${safeYPxAlt}`;
-                    }
-                }
-                vsdFlownPath.setAttribute('d', flown_path_d);
-            }
-        }
-
-        const safeAltitude = (typeof altitude === 'number' && !isNaN(altitude)) ? altitude : 0;
-        const currentAltPx = VSD_HEIGHT_PX - (safeAltitude * Y_SCALE_PX_PER_FT);
-        vsdAircraftIcon.style.top = `${isNaN(currentAltPx) ? 0 : currentAltPx}px`;
-
-        if (vsdGraphWindow && vsdGraphWindow.clientWidth > 0) {
-            const distanceFlownNM = Math.max(0, totalDistanceNM - distanceToDestNM);
-            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
-            const vsdViewportWidth = vsdGraphWindow.clientWidth;
-            const totalProfileWidthPx = vsdGraphContent.scrollWidth;
-
-            const centerOffset = (vsdViewportWidth / 2) + 35;
-            const desiredTranslateX = centerOffset - scrollOffsetPx;
-            const maxTranslateX = 0;
-            const minTranslateX = Math.min(0, vsdViewportWidth - totalProfileWidthPx);
-
-            const finalTranslateX = Math.max(minTranslateX, Math.min(maxTranslateX, desiredTranslateX));
-
-            vsdGraphContent.style.transform = `translateX(${isNaN(finalTranslateX) ? 0 : finalTranslateX - 35}px)`;
-
-            const iconLeftPx = scrollOffsetPx + finalTranslateX;
-            vsdAircraftIcon.style.left = `${isNaN(iconLeftPx) ? 0 : iconLeftPx}px`;
-        } else {
-            const distanceFlownNM = Math.max(0, totalDistanceNM - distanceToDestNM);
-            const scrollOffsetPx = (distanceFlownNM * FIXED_X_SCALE_PX_PER_NM);
-            const translateX = 75 - scrollOffsetPx;
-            vsdGraphContent.style.transform = `translateX(${isNaN(translateX) ? 0 : translateX - 35}px)`;
-            vsdAircraftIcon.style.left = `75px`;
-        }
-
-        // Note: #ac-vs is now updated centrally in the live readouts block above so the
-        // formatting stays consistent across the nav/VSD card. We keep this hook in case
-        // future code re-introduces a VSD-specific V/S display.
-    });
-
-    const flightDataTabContainer = document.getElementById('ac-tab-flight-data');
-    
-    // Check if the user is Pro (replace with your actual auth/pro flag logic)
-    // Assuming true for implementation testing
-    const isProUser = true; 
-
-    if (flightDataTabContainer && isProUser) {
-        // Because populateAircraftInfoWindow resets innerHTML, we must re-init the layout engine
-        // to re-apply the grid orders and sizes to the freshly generated DOM nodes.
-    
-    }
-
-    styleAll('#ac-progress-bar', 'width', `${progress.toFixed(1)}%`);
-    updateAll('#ac-phase-indicator', `<i class="fa-solid ${phaseIcon}"></i> ${flightPhase}`, true);
-
-    const phaseIndicators = document.querySelectorAll('#ac-phase-indicator');
-    phaseIndicators.forEach(el => {
-        el.className = `flight-phase-indicator ${phaseClass}`;
-    });
-
-    // --- Update floating route bar phase badge (text + dot color) ---
-    let badgeStatusColor = '#4ade80'; // default green
-    let badgeStatusPulse = 'pulse';
-    if (flightPhase.includes('CRUISE')) badgeStatusColor = '#38bdf8';
-    else if (flightPhase.includes('DESCENT') || flightPhase.includes('APPROACH') || flightPhase.includes('FINAL') || flightPhase.includes('FLARE') || flightPhase.includes('LANDING')) badgeStatusColor = '#fbbf24';
-    else if (flightPhase.includes('PUSHBACK')) badgeStatusColor = '#fb923c'; // orange, pulsing (transition out of gate)
-    else if (flightPhase.includes('BOARDING')) badgeStatusColor = '#4ade80'; // green, pulsing (active prep)
-    else if (flightPhase.includes('CLIMB') || flightPhase.includes('LIFTOFF') || flightPhase.includes('TAKEOFF')) badgeStatusColor = '#4ade80';
-    else if (flightPhase.includes('GROUND') || flightPhase.includes('PARKED') || flightPhase.includes('TAXI') || flightPhase.includes('HOLDING')) {
-        badgeStatusColor = '#94a3b8';
-        badgeStatusPulse = 'none';
-    }
-
-    document.querySelectorAll('#ac-phase-text').forEach(el => {
-        el.textContent = flightPhase;
-    });
-    document.querySelectorAll('#ac-phase-dot').forEach(el => {
-        el.style.background = badgeStatusColor;
-        el.style.boxShadow = `0 0 8px ${badgeStatusColor}`;
-        el.style.animation = badgeStatusPulse === 'none' ? 'none' : `${badgeStatusPulse} 2s infinite`;
-    });
-    // VSD card phase chip — color tracks the same palette as the route-bar phase badge
-    document.querySelectorAll('#ac-vsd-phase').forEach(el => {
-        el.textContent = flightPhase;
-        el.style.color = badgeStatusColor;
-    });
-
-    const atdTimestamp = (sortedRoutePoints && sortedRoutePoints.length > 0) ? sortedRoutePoints[0].date : null;
-    const atdTime = atdTimestamp ? formatTimeFromTimestamp(atdTimestamp) : '--:--';
-
-    // --- Source-aware time updates (SCHEDULED / ACTUAL / ESTIMATED) ---
-    // updateAircraftInfoWindow doesn't receive filedPlanData directly, so we read it from
-    // the cache that populateAircraftInfoWindow stashed on the window element.
-    const _windowEl = document.getElementById('aircraft-info-window');
-    const _cachedFiledPlan = (_windowEl && _windowEl.dataset.filedDepTime) ? {
-        dep_time: _windowEl.dataset.filedDepTime,
-        duration_minutes: _windowEl.dataset.filedDuration ? parseFloat(_windowEl.dataset.filedDuration) : null
-    } : null;
-    const _depIcaoLive = (_windowEl && _windowEl.dataset.depIcao) || departureIcao || '';
-    const _arrIcaoLive = (_windowEl && _windowEl.dataset.arrIcao) || arrivalIcao || '';
-
-    const _depInfoLive = computeDepartureTimeInfo(baseProps, sortedRoutePoints, _cachedFiledPlan, _depIcaoLive);
-    const _arrInfoLive = computeArrivalTimeInfo(baseProps, _cachedFiledPlan, distanceToDestNM);
-
-    // --- Live Activity push (iOS Lock Screen / Dynamic Island) ---
-    // Fires only when the user has marked this flight as "mine" via the
-    // bell button. We reuse the same SCHEDULED/ACTUAL/ESTIMATED cascade
-    // the in-app card just consumed (_depInfoLive / _arrInfoLive), so
-    // the lock-screen ETE countdown agrees with the card and the
-    // departure time only shows ACTUAL once we have real GPS history.
-    try {
-        if (window.InflightLiveActivity?.isTrackingFlight(baseProps.flightId)) {
-            const _gsLA = baseProps.position?.gs_kt || 0;
-            const etaMs = _arrInfoLive?.timestamp
-                ? _arrInfoLive.timestamp.getTime()
-                : (distanceToDestNM > 0 && _gsLA > 50
-                    ? Date.now() + (distanceToDestNM / _gsLA) * 3600 * 1000
-                    : null);
-            // ATD only counts when we have real GPS history (label
-            // ACTUAL). Otherwise leave it undefined so the widget shows
-            // the scheduled departure verbatim instead of pretending
-            // we know the takeoff time.
-            const atdMs = (_depInfoLive?.timestamp && _depInfoLive.label === 'ACTUAL')
-                ? _depInfoLive.timestamp.getTime()
-                : undefined;
-            const isLanded = !!(baseProps.position?.alt_ft != null && baseProps.position.alt_ft < 100
-                                && _gsLA < 40 && distanceToDestNM < 5);
-            // Bail without an update if we genuinely have no ETA value
-            // to send. The Swift `update` defaults a missing ETA to
-            // Date.now(), which would zero out the lock-screen
-            // countdown ("0 min remaining") -- much worse than just
-            // skipping a tick.
-            if (etaMs) {
-                window.InflightLiveActivity.update({
-                    flightId: baseProps.flightId,
-                    currentEta: etaMs,
-                    currentAtd: atdMs,
-                    distanceToDestinationNm: distanceToDestNM,
-                    isLanded
-                });
-            }
-            if (isLanded) {
-                setTimeout(() => {
-                    window.InflightLiveActivity?.end({ flightId: baseProps.flightId, immediate: false });
-                }, 30000);
-            }
-        }
-    } catch (laErr) {
-        console.warn('[LiveActivity] update tick failed:', laErr);
-    }
-
-    const depCountryCode = countryCodeForAirport(departureIcao).toLowerCase();
-    const arrCountryCode = countryCodeForAirport(arrivalIcao).toLowerCase();
-    const depFlagSrc = depCountryCode ? `https://flagcdn.com/w20/${depCountryCode}.png` : '';
-    const arrFlagSrc = arrCountryCode ? `https://flagcdn.com/w20/${arrCountryCode}.png` : '';
-
-    applyRouteTimeInfoToDom('atd', _depInfoLive);
-    applyRouteTimeInfoToDom('eta', _arrInfoLive);
-    
-    document.querySelectorAll('#ac-bar-dep-flag').forEach(el => {
-        el.src = depFlagSrc;
-        el.alt = depCountryCode;
-        el.style.display = depCountryCode ? 'block' : 'none';
-    });
-
-    document.querySelectorAll('#ac-bar-arr-flag').forEach(el => {
-        el.src = arrFlagSrc;
-        el.alt = arrCountryCode;
-        el.style.display = arrCountryCode ? 'block' : 'none';
-    });
-
-    updateFmsLegsModule(plan, baseProps.position);
-    updateSeatSensor(baseProps);
-
-    const rulesDisplay = document.getElementById('flight-rules-display');
-        if (rulesDisplay) {
-            if (typeof determineFlightRules === 'function') {
-                const rule = determineFlightRules(baseProps, plan);
-                rulesDisplay.className = `flight-rules-badge ${rule.class}`;
-                rulesDisplay.innerHTML = `<i class="fa-solid ${rule.icon}"></i> ${rule.label}`;
-            } else {
-                console.warn("determineFlightRules helper missing.");
-                rulesDisplay.textContent = "RULES UNKNOWN";
-            }
-        }
-
-        const routeBar = document.querySelector('.ac-route-info-bar');
-        if (routeBar) {
-            const depNode = routeBar.querySelector('.route-node:not(.end)');
-            const arrNode = routeBar.querySelector('.route-node.end');
-            
-            if (depNode && !document.getElementById('ac-dep-gate')) {
-                depNode.style.display = 'flex';
-                depNode.style.flexDirection = 'column';
-                const depGateEl = document.createElement('span');
-                depGateEl.id = 'ac-dep-gate';
-                depGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
-                depGateEl.innerHTML = '<i class="fa-solid fa-door-open"></i> Loading...';
-                depNode.appendChild(depGateEl);
-            }
-            
-            if (arrNode && !document.getElementById('ac-arr-gate')) {
-                arrNode.style.display = 'flex';
-                arrNode.style.flexDirection = 'column';
-                arrNode.style.alignItems = 'flex-end';
-                const arrGateEl = document.createElement('span');
-                arrGateEl.id = 'ac-arr-gate';
-                arrGateEl.style.cssText = 'color: #cbd5e1; font-size: 10px; font-weight: 700; margin-top: 4px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px; width: fit-content; display: inline-block;';
-                arrGateEl.innerHTML = '<i class="fa-solid fa-door-closed"></i> Loading...';
-                arrNode.appendChild(arrGateEl);
-            }
-        }
-    }
-
-function updateFmsLegsModule(plan, currentPos) {
-    const listContainer = document.getElementById('fms-legs-list');
-    const totalDistEl = document.getElementById('fms-total-dist');
-    const totalEteEl = document.getElementById('fms-total-ete');
-    
-    if (!listContainer) return;
-
-    // 1. Basic Validation
-    if (!plan || !plan.flightPlanItems || plan.flightPlanItems.length === 0) {
-        listContainer.innerHTML = '<div class="fms-empty-state">NO ROUTE LOADED</div>';
-        if(totalDistEl) totalDistEl.textContent = '---- NM';
-        if(totalEteEl) totalEteEl.textContent = '--:--';
-        return;
-    }
-
-    // --- Capture current scroll position ---
-    const previousScrollTop = listContainer.scrollTop;
-
-    let html = '';
-    let globalLeafIndex = 0; // Tracks index of actual flyable waypoints
-    
-    // Find the "Active" waypoint index
-    const flatWaypoints = getFlatWaypointObjects(plan.flightPlanItems);
-    let activeWpIndex = 0;
-    let minDist = Infinity;
-    
-    if (currentPos && flatWaypoints.length > 0) {
-        flatWaypoints.forEach((wp, idx) => {
-            if (!wp.location) return;
-            const d = getDistanceKm(currentPos.lat, currentPos.lon, wp.location.latitude, wp.location.longitude);
-            if (d < minDist) {
-                minDist = d;
-                activeWpIndex = idx;
-            }
-        });
-    }
-
-    // Track previous coords for Distance/Bearing calc
-    let prevLat = (plan.origin && plan.origin.latitude) || currentPos.lat;
-    let prevLon = (plan.origin && plan.origin.longitude) || currentPos.lon;
-
-    // --- MAIN LOOP: Iterate the Top-Level Items ---
-    plan.flightPlanItems.forEach((item, index) => {
-        const hasChildren = Array.isArray(item.children) && item.children.length > 0;
-        
-        // --- 2. HEADER LOGIC (SID/STAR/APPR detection) ---
-        if (hasChildren) {
-            let typeTag = 'PROC'; 
-            let typeClass = '';
-            const ident = (item.identifier || item.name || '').toUpperCase();
-            
-            // A. SID Logic (Start of plan)
-            if (index <= 1) { 
-                typeTag = 'SID'; 
-                typeClass = 'sid';
-            } 
-            // B. Approach Logic (Pattern match or explicit type)
-            else {
-                // Regex: Starts with exactly 1 Letter [A-Z], followed by 2 digits \d{2}, 
-                // optionally followed by L, R, or C.
-                const isApproachPattern = /^[A-Z]\d{2}[LRC]?$/.test(ident);
-
-                if (isApproachPattern) {
-                    typeTag = 'APPR';
-                    typeClass = 'appr';
-                } else {
-                    typeTag = 'STAR'; 
-                    typeClass = 'star';
-                }
-            }
-
-            // Render The Header Row
-            html += `
-                <div class="fms-proc-header">
-                    <span class="proc-tag ${typeClass}">${typeTag}</span>
-                    <span>${ident}</span>
-                </div>
-            `;
-
-            // --- 3. CHILDREN LOOP (With isLast detection) ---
-            item.children.forEach((child, cIdx) => {
-                const isLast = cIdx === item.children.length - 1;
-                html += renderLegRow(child, true, isLast); 
-            });
-
-        } else {
-            // --- 4. STANDARD ROW ---
-            html += renderLegRow(item, false, false);
-        }
-    });
-
-    // --- Helper to Render a Single Waypoint Row ---
-    function renderLegRow(wp, isChild, isLastChild) {
-        if (!wp.location || wp.location.latitude == null) return '';
-
-        // Calc Leg Data
-        const distKm = getDistanceKm(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
-        const distNM = distKm / 1.852;
-        const bearing = getBearing(prevLat, prevLon, wp.location.latitude, wp.location.longitude);
-
-        // Determine Row State
-        let rowClass = '';
-        if (globalLeafIndex < activeWpIndex) rowClass = 'passed-leg';
-        else if (globalLeafIndex === activeWpIndex) rowClass = 'active-leg';
-        
-        const ident = wp.identifier || wp.name || 'WPT';
-        const crsDisplay = Math.round(bearing).toString().padStart(3, '0') + '°';
-        const distDisplay = distNM.toFixed(1);
-
-        // Update Prev coords for next loop
-        prevLat = wp.location.latitude;
-        prevLon = wp.location.longitude;
-
-        globalLeafIndex++;
-        
-        // --- NEW: Add is-last-child class if applicable ---
-        const childClasses = isChild ? `is-child ${isLastChild ? 'is-last-child' : ''}` : '';
-
-        return `
-            <div class="fms-row ${rowClass} ${childClasses}" id="leg-${globalLeafIndex}">
-                <span class="col-wpt">${ident}</span>
-                <span class="col-data text-center">${crsDisplay}</span>
-                <span class="col-data text-right">${distDisplay}</span>
-            </div>
-        `;
-    }
-
-    listContainer.innerHTML = html;
-
-    // --- Restore scroll position ---
-    if (previousScrollTop > 0) {
-        listContainer.scrollTop = previousScrollTop;
-    }
-
-    // --- [FIXED] Scroll Active Leg into View (ONCE) without scrolling parent window ---
-    if (listContainer.dataset.initialScrollComplete !== 'true') {
-        setTimeout(() => {
-            const activeRow = listContainer.querySelector('.active-leg');
-            if (activeRow) {
-                // Calculate position manually to avoid 'scrollIntoView' bubbling up to the main window
-                const rowTop = activeRow.offsetTop;
-                const rowHeight = activeRow.offsetHeight;
-                const containerHeight = listContainer.clientHeight;
-                
-                // Center the row: Row Top - Half Container + Half Row
-                listContainer.scrollTo({
-                    top: rowTop - (containerHeight / 2) + (rowHeight / 2),
-                    behavior: 'smooth'
-                });
-
-                listContainer.dataset.initialScrollComplete = 'true';
-            }
-        }, 100);
-    }
-
-    // --- Footer Stats ---
-    if(totalDistEl && document.getElementById('ac-dist')) {
-        totalDistEl.innerHTML = document.getElementById('ac-dist').innerHTML;
-    }
-    if(totalEteEl && document.getElementById('ac-ete')) {
-        totalEteEl.textContent = document.getElementById('ac-ete').textContent;
-    }
-
-    // --- Speed & Altitude history graph (drawn from the /history breadcrumbs) ---
-    // The graph card lives in the window template (right under the ND, with
-    // the rest of the redesigned cards); here we just re-render it whenever
-    // the trail length changes, so a live tick that adds one sample doesn't
-    // rebuild the SVG for nothing.
-    if (typeof FlightGraph !== 'undefined' && FlightGraph) {
-        const graphHost = document.getElementById('ac-sa-graph');
-        const ptsLen = (sortedRoutePoints && sortedRoutePoints.length) || 0;
-        if (graphHost && (graphHost.dataset.pts !== String(ptsLen) || !graphHost.firstChild)) {
-            FlightGraph.render(graphHost, sortedRoutePoints, { height: 150 });
-            graphHost.dataset.pts = String(ptsLen);
-        }
-
-        // --- Previous Flights (multi-leg journey reconstructed from the trail) ---
-        // Fills the template's #ac-legs-host under the graph card; only shows
-        // once at least one completed leg (a landing) is detected.
-        if (typeof FlightLegs !== 'undefined' && FlightLegs) {
-            const legsHost = document.getElementById('ac-legs-host');
-            if (legsHost && legsHost.dataset.pts !== String(ptsLen)) {
-                const legs = FlightLegs.detect(sortedRoutePoints, (typeof airportsData !== 'undefined') ? airportsData : {});
-                legsHost.innerHTML = FlightLegs.renderHTML(legs);
-                legsHost.dataset.pts = String(ptsLen);
-            }
-        }
-    }
 }
 
     /**
