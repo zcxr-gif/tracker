@@ -24,6 +24,18 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.5',
+            date: 'July 2026',
+            title: 'Legacy, Reborn',
+            tagline: 'The Legacy flight window below the navigation display is redesigned from scratch — colour-coded cards, big journey numbers and live flight stats.',
+            entries: [
+                { tag: 'improved', icon: 'fa-layer-group', text: 'Everything under the ND is rebuilt as colour-coded glass cards — cyan Speed & Altitude, amber Flight Stats, emerald Navigation, violet Aircraft — each with its own accent glow.' },
+                { tag: 'new', icon: 'fa-stopwatch', text: 'New Flight Stats card — big flown / remaining readouts around a live progress bar, plus time airborne, average and max ground speed, and max altitude, straight from the flight’s history.' },
+                { tag: 'improved', icon: 'fa-chart-area', text: 'The Speed & Altitude graph moved into the card lineup under the ND, matching the Simple and Card windows.' },
+                { tag: 'improved', icon: 'fa-location-crosshairs', text: 'Navigation is now grouped into Position and Atmosphere & Plan clusters, with every readout in its own tile.' }
+            ]
+        },
+        {
             id: '2026.07.4',
             date: 'July 2026',
             title: 'Know Where You’re Landing',
@@ -31,8 +43,6 @@
             entries: [
                 { tag: 'new', icon: 'fa-plane-arrival', text: 'Destination dropdown — every flight window (Legacy, Simple and Card, desktop and mobile) now has a tap-to-open panel about the airport you’re flying to: its photo, location, elevation, runways and live METAR, plus a one-tap jump to the full airport window.' },
                 { tag: 'new', icon: 'fa-sun', text: 'The destination panel shows whether it’s day, sunset, twilight or night at the field right now — know what light you’ll be landing in.' },
-                { tag: 'new', icon: 'fa-stopwatch', text: 'New Flight Stats card in the Legacy window — distance flown and remaining, time airborne, average and max ground speed, and max altitude, all live from the flight’s history.' },
-                { tag: 'improved', icon: 'fa-layer-group', text: 'The Legacy window below the navigation display has been redesigned — Speed & Altitude, Flight Stats, Navigation and Aircraft now read as one matching set of cards, with the graph moved into the lineup.' },
                 { tag: 'new', icon: 'fa-sliders', text: 'The Simple window’s layout studio gained a Destination section — drag it anywhere in your layout or hide it entirely, like every other block.' },
                 { tag: 'improved', icon: 'fa-image', text: 'Airport Cards now lead with the airport’s own photo when we have one — the top-down aerial view steps in only when there’s no photo (or it fails to load).' },
                 { tag: 'improved', icon: 'fa-wand-magic-sparkles', text: 'First launch now shows all three window styles — Legacy, Simple and Card — as live examples, so you pick from the full lineup from day one.' }
