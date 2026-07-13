@@ -17716,7 +17716,8 @@ window.globalNatTracks = natTracks;
                 event.data.type === 'SIMPLE_WINDOW_PEEK_HEIGHT' ||
                 event.data.type === 'SIMPLE_WINDOW_EDIT_MODE' ||
                 event.data.type === 'NAVIGATE_TO_AIRPORT' ||
-                event.data.type === 'EMBED_AIRPORT_HEIGHT'
+                event.data.type === 'EMBED_AIRPORT_HEIGHT' ||
+                event.data.type === 'REQUEST_AIRPORT_SUMMARY'
             )) {
                 handleIframeMessage(event);
             }
@@ -18412,6 +18413,14 @@ async function formatDataForEmbedAirport(icao) {
     let sun = null;
     try { sun = computeSunPhase(lat, lon); } catch (_) {}
 
+    // Hero image: prefer the backend's own airport photo when it supplied one;
+    // otherwise fall back to the key-less Esri aerial (top-down) view so every
+    // field still gets a real image. The aerial is also handed over as the
+    // fallback so a broken backend photo degrades to the top-view rather than
+    // leaving the card with no image at all.
+    const aerialUrl = airportAerialImageUrl(lat, lon);
+    const backendImageUrl = airportMetadata?.imageUrl || null;
+
     return {
         icao, name, city, cc, elevation,
         coords: { lat, lon },
@@ -18420,8 +18429,134 @@ async function formatDataForEmbedAirport(icao) {
         runways, runwayRecs,
         atcLive, atcRecent,
         gates, occupants,
-        heroUrl: airportAerialImageUrl(lat, lon)
+        heroUrl: backendImageUrl || aerialUrl,
+        heroFallbackUrl: backendImageUrl ? aerialUrl : null
     };
+}
+
+/**
+ * Compact airport summary backing the flight Card's destination dropdown:
+ * name / city / country, elevation, a runway summary, a parsed METAR headline,
+ * and a hero image (backend photo preferred, Esri aerial as the fallback).
+ * Deliberately far lighter than formatDataForEmbedAirport — no traffic, ATIS,
+ * ATC or gate fetches — since it only feeds a small inline panel opened on
+ * demand.
+ */
+async function formatAirportSummary(icao) {
+    const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
+    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Live name / city / coords (same endpoint the airport windows use).
+    let liveData = null;
+    try {
+        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
+    } catch (_) {}
+
+    const name = liveData?.name || staticData.name || airportMetadata?.name || icao;
+    const city = liveData?.city || staticData.city || '';
+    const cc = (countryCodeForAirport(icao) || liveData?.country?.isoCode || '').toLowerCase();
+    const elevation = liveData?.elevation ?? staticData.elevation_ft ?? null;
+    const lat = liveData?.latitude ?? staticData.lat;
+    const lon = liveData?.longitude ?? staticData.lon;
+
+    // Parsed METAR headline — same shape/logic as the airport Card.
+    let metar = null;
+    try {
+        if (window.WeatherService) {
+            const w = await window.WeatherService.fetchAndParseMetar(icao);
+            if (w && w.raw && w.raw !== 'Not Available') {
+                let cat = 'VFR', color = '#4ade80';
+                if (w.raw.includes('LIFR')) { cat = 'LIFR'; color = '#c084fc'; }
+                else if (w.raw.includes('IFR') || w.raw.includes('VV')) { cat = 'IFR'; color = '#f87171'; }
+                else if (w.raw.includes('MVFR')) { cat = 'MVFR'; color = '#60a5fa'; }
+                let wind = 'Calm';
+                if (w.windVariable) wind = `VRB ${w.windSpeed}kt`;
+                else if (w.windDir != null) wind = `${String(w.windDir).padStart(3, '0')}° ${w.windSpeed}kt`;
+                else if (w.windSpeed) wind = `${w.windSpeed}kt`;
+                if (w.windGust) wind += ` G${w.windGust}`;
+                metar = {
+                    cat, color, wind,
+                    vis: w.visibility || '—',
+                    temp: w.temp || (w.tempC != null ? `${w.tempC}°C` : '—'),
+                    qnh: w.qnh != null ? String(w.qnh) : '—',
+                    raw: w.raw
+                };
+            }
+        }
+    } catch (_) {}
+
+    // Runway summary — open runways plus the longest hard length.
+    const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
+    const openRunways = rawRunways.filter(r => !r.closed && (r.le_ident || r.he_ident));
+    const runwayCount = openRunways.length;
+    const longestFt = openRunways.reduce((m, r) => Math.max(m, r.length_ft || 0), 0) || null;
+
+    // Day/night phase at the field from solar elevation (pure math, no API) —
+    // same chip the airport Card shows.
+    let sun = null;
+    try { sun = computeSunPhase(lat, lon); } catch (_) {}
+
+    const aerialUrl = airportAerialImageUrl(lat, lon);
+    const backendImageUrl = airportMetadata?.imageUrl || null;
+
+    return {
+        icao, name, city, cc, elevation,
+        metar, runwayCount, longestFt, sun,
+        heroUrl: backendImageUrl || aerialUrl,
+        heroFallbackUrl: backendImageUrl ? aerialUrl : null
+    };
+}
+
+/**
+ * Renders a formatAirportSummary payload as the destination dropdown's panel
+ * body. Used by the legacy window, which hosts the dropdown in-page; the
+ * Simple / Card iframes carry their own copy of this template so they stay
+ * self-contained documents.
+ */
+function buildDestSummaryPanelHTML(a) {
+    const esc = escapeHtml;
+    const heroUrl = a.heroUrl || '';
+    const fb = a.heroFallbackUrl || '';
+    const hero = heroUrl
+        ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(a.icao || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
+        : '';
+    const cc = String(a.cc || '').toLowerCase();
+    const flag = /^[a-z]{2}$/.test(cc)
+        ? `<img class="dest-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">` : '';
+    const loc = [a.city, cc.toUpperCase()].filter(Boolean).join(', ') || '—';
+    const elev = (a.elevation != null && isFinite(a.elevation)) ? `${Math.round(a.elevation)} ft` : '—';
+    const rwyCount = (a.runwayCount != null) ? String(a.runwayCount) : '—';
+    const longest = a.longestFt ? `${Number(a.longestFt).toLocaleString()} ft` : '—';
+
+    const m = a.metar;
+    const metar = m ? `
+        <div class="dest-metar">
+            <div class="dest-metar-h"><span>METAR</span><span class="dest-pill" style="color:${m.color};border-color:${m.color}">${esc(m.cat)}</span></div>
+            <div class="dest-mgrid">
+                <div><span class="l">Wind</span><span class="v">${esc(m.wind)}</span></div>
+                <div><span class="l">Vis</span><span class="v">${esc(m.vis)}</span></div>
+                <div><span class="l">Temp</span><span class="v">${esc(m.temp)}</span></div>
+                <div><span class="l">QNH</span><span class="v">${esc(m.qnh)}</span></div>
+            </div>
+        </div>` : `
+        <div class="dest-metar"><div class="dest-metar-h"><span>METAR</span></div>
+            <div class="dest-status">Weather unavailable.</div></div>`;
+
+    const sun = a.sun ? `<span class="dest-sun" style="color:${esc(a.sun.color)}"><i class="fa-solid ${esc(a.sun.icon)}"></i> ${esc(a.sun.label)}</span>` : '';
+
+    return `
+        ${hero}
+        <div class="dest-loc">${flag}<span>${esc(loc)}</span>${sun}</div>
+        <div class="dest-grid">
+            <div class="dest-cell"><span class="l">Elevation</span><span class="v">${esc(elev)}</span></div>
+            <div class="dest-cell"><span class="l">Runways</span><span class="v">${esc(rwyCount)}</span></div>
+            <div class="dest-cell"><span class="l">Longest RWY</span><span class="v">${esc(longest)}</span></div>
+        </div>
+        ${metar}
+        <button type="button" class="dest-open-btn ac-icao-link" data-icao="${esc(a.icao || '')}" title="Open full airport window">
+            <i class="fa-solid fa-up-right-from-square"></i> Full airport window
+        </button>`;
 }
 
 /**
@@ -19469,6 +19604,50 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
         document.head.appendChild(s);
     }
 
+    // Destination dropdown styles (legacy window) — injected once, shared with
+    // the panel markup produced by buildDestSummaryPanelHTML.
+    if (!document.getElementById('ac-dest-card-style')) {
+        const s = document.createElement('style');
+        s.id = 'ac-dest-card-style';
+        s.textContent = `
+            #aircraft-info-window .dest-card { background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-md); overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+            #aircraft-info-window .dest-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; background: transparent; border: none; color: #fff; cursor: pointer; font-family: inherit; text-align: left; }
+            #aircraft-info-window .dest-toggle-l { display: flex; align-items: center; gap: 11px; min-width: 0; }
+            #aircraft-info-window .dest-toggle-ic { color: #f59e0b; font-size: 14px; flex: 0 0 auto; }
+            #aircraft-info-window .dest-toggle-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            #aircraft-info-window .dest-toggle-code { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 800; letter-spacing: .5px; }
+            #aircraft-info-window .dest-toggle-sub { font-size: 8px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: #94a3b8; }
+            #aircraft-info-window .dest-chev { color: #94a3b8; font-size: 12px; transition: transform .22s ease; flex: 0 0 auto; }
+            #aircraft-info-window .dest-card.open .dest-chev { transform: rotate(180deg); }
+            #aircraft-info-window .dest-panel { padding: 0 20px 16px; display: flex; flex-direction: column; gap: 11px; }
+            #aircraft-info-window .dest-panel[hidden] { display: none; }
+            #aircraft-info-window .dest-status { color: #94a3b8; font-size: 12px; font-weight: 600; padding: 4px 0; }
+            #aircraft-info-window .dest-hero { position: relative; width: 100%; height: 150px; border-radius: 10px; overflow: hidden; background: rgba(15, 23, 42, 0.5); }
+            #aircraft-info-window .dest-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            #aircraft-info-window .dest-hero-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%); }
+            #aircraft-info-window .dest-hero-cap { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+            #aircraft-info-window .dest-hero-cap b { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.7); flex: 0 0 auto; }
+            #aircraft-info-window .dest-hero-cap span { font-size: 12px; font-weight: 600; color: #f4f4f5; text-shadow: 0 1px 4px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #aircraft-info-window .dest-loc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; }
+            #aircraft-info-window .dest-sun { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+            #aircraft-info-window .dest-flag { height: 14px; border-radius: 2px; flex: 0 0 auto; }
+            #aircraft-info-window .dest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+            #aircraft-info-window .dest-cell { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            #aircraft-info-window .dest-cell .l { font-size: 8px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #aircraft-info-window .dest-cell .v { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #aircraft-info-window .dest-metar { background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; padding: 11px 12px; }
+            #aircraft-info-window .dest-metar-h { display: flex; align-items: center; justify-content: space-between; font-size: 9px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: #94a3b8; margin-bottom: 9px; }
+            #aircraft-info-window .dest-pill { font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+            #aircraft-info-window .dest-mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+            #aircraft-info-window .dest-mgrid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            #aircraft-info-window .dest-mgrid .l { font-size: 8px; font-weight: 700; text-transform: uppercase; color: #94a3b8; }
+            #aircraft-info-window .dest-mgrid .v { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #aircraft-info-window .dest-open-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(15, 23, 42, 0.5); color: #fff; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 700; transition: border-color .2s, background .2s; }
+            #aircraft-info-window .dest-open-btn:hover { border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); }
+        `;
+        document.head.appendChild(s);
+    }
+
     // --- Helper function to update all elements matching a selector ---
     const updateAll = (selector, value, isHTML = false) => {
         const elements = document.querySelectorAll(selector);
@@ -19719,6 +19898,28 @@ let totalDistanceNM = 0;
     // --- Lookup City Names ---
     const depCity = (typeof airportsData !== 'undefined' && airportsData[departureIcao]?.city) || 'Departure';
     const arrCity = (typeof airportsData !== 'undefined' && airportsData[arrivalIcao]?.city) || 'Arrival';
+
+    // --- Destination dropdown (collapsible arrival-airport info + image) ---
+    // Only rendered when the plan ends at a real airport; fixes/waypoints and
+    // 'N/A' get no dropdown. Wired up post-render below.
+    const destValidIcao = (() => {
+        const code = String(arrivalIcao || '').trim().toUpperCase();
+        return (/^[A-Z0-9]{3,4}$/.test(code) && code !== 'N/A') ? code : null;
+    })();
+    const destCardHtml = destValidIcao ? `
+                <div class="dest-card" id="legacy-dest-card" data-icao="${destValidIcao}">
+                    <button type="button" class="dest-toggle" aria-expanded="false" title="Destination airport info">
+                        <span class="dest-toggle-l">
+                            <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
+                            <span class="dest-toggle-txt">
+                                <span class="dest-toggle-code">${destValidIcao}</span>
+                                <span class="dest-toggle-sub">Arriving at · tap for info</span>
+                            </span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down dest-chev"></i>
+                    </button>
+                    <div class="dest-panel" hidden></div>
+                </div>` : '';
 
     // --- Determine Phase Color/Icon ---
     let statusColor = '#4ade80'; // Green
@@ -20202,6 +20403,8 @@ let totalDistanceNM = 0;
                         <span style="font-size: 9px; color: #94a3b8;">Photo · ${photographerName}</span>
                     </div>` : ''}
                 </div>
+
+                ${destCardHtml}
             </div>
  
             <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
@@ -20212,6 +20415,33 @@ let totalDistanceNM = 0;
     `;
 
     // --- POST-RENDER LOGIC ---
+    // Destination dropdown: expand/collapse, fetching the airport summary
+    // (info + image) lazily on first open. Same summary the Simple / Card
+    // windows request over postMessage, called directly here since the legacy
+    // window lives in the host page.
+    const destCardEl = windowEl.querySelector('#legacy-dest-card');
+    if (destCardEl) {
+        const destToggleEl = destCardEl.querySelector('.dest-toggle');
+        const destPanelEl = destCardEl.querySelector('.dest-panel');
+        let destLoaded = false;
+        destToggleEl.addEventListener('click', async () => {
+            const open = destCardEl.classList.toggle('open');
+            destToggleEl.setAttribute('aria-expanded', open ? 'true' : 'false');
+            destPanelEl.hidden = !open;
+            if (!open || destLoaded) return;
+            destLoaded = true;
+            destPanelEl.innerHTML = '<div class="dest-status">Loading airport…</div>';
+            try {
+                const summary = await formatAirportSummary(destCardEl.dataset.icao);
+                destPanelEl.innerHTML = summary
+                    ? buildDestSummaryPanelHTML(summary)
+                    : '<div class="dest-status">Airport info unavailable.</div>';
+            } catch (_) {
+                destPanelEl.innerHTML = '<div class="dest-status">Airport info unavailable.</div>';
+            }
+        });
+    }
+
     if(typeof createPfdDisplay === 'function') createPfdDisplay();
     if(typeof updatePfdDisplay === 'function') updatePfdDisplay(baseProps.position);
     
@@ -22053,6 +22283,25 @@ async function handleIframeMessage(event) {
         if (iframe) {
             const h = Math.max(120, Math.min(parseInt(event.data.height, 10) || 300, 2000));
             iframe.style.height = h + 'px';
+        }
+        return;
+    }
+
+    // 2e. [NEW] A flight window's destination dropdown asks for a compact
+    // summary (info + image) of the airport being flown to. Gather it and hand
+    // it back to the frame, which renders it inline. Reply to whichever frame
+    // asked (Simple and Card both host the dropdown), falling back to the
+    // shared flight-window iframe id.
+    if (event.data && event.data.type === 'REQUEST_AIRPORT_SUMMARY') {
+        const icao = event.data.icao;
+        const target = event.source
+            || document.getElementById('simple-flight-window-frame')?.contentWindow;
+        if (!icao || !target) return;
+        try {
+            const summary = await formatAirportSummary(icao);
+            target.postMessage({ type: 'AIRPORT_SUMMARY', icao, payload: summary }, '*');
+        } catch (_) {
+            try { target.postMessage({ type: 'AIRPORT_SUMMARY', icao, error: true }, '*'); } catch (_) {}
         }
         return;
     }

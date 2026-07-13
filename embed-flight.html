@@ -351,6 +351,61 @@
     .apt-btn.arr .r { color: var(--warn); }
     .apt-btn .code { font-family: var(--font-data); font-size: 19px; font-weight: 800; letter-spacing: .5px; }
 
+    /* --- Destination dropdown: collapsible info + image for the arrival field --- */
+    .dest-card {
+        background: var(--card-bg); border: 1px solid var(--border-glass);
+        border-radius: 16px; overflow: hidden;
+    }
+    .dest-toggle {
+        width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 13px 14px; background: transparent; border: none; color: #fff;
+        cursor: pointer; font-family: inherit; text-align: left;
+    }
+    .dest-toggle-l { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .dest-toggle-ic { color: var(--warn); font-size: 15px; flex: 0 0 auto; }
+    .dest-toggle-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .dest-toggle-code { font-family: var(--font-data); font-size: 18px; font-weight: 800; letter-spacing: .5px; }
+    .dest-toggle-sub { font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary); }
+    .dest-chev { color: var(--text-secondary); font-size: 13px; transition: transform .22s ease; flex: 0 0 auto; }
+    .dest-card.open .dest-chev { transform: rotate(180deg); }
+    .dest-panel { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 11px; }
+    .dest-panel[hidden] { display: none; }
+    .dest-status { color: var(--text-secondary); font-size: 12.5px; font-weight: 600; padding: 4px 0; }
+
+    .dest-hero { position: relative; width: 100%; height: 150px; border-radius: 12px; overflow: hidden; background: #101018; }
+    .dest-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .dest-hero-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%); }
+    .dest-hero-cap { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .dest-hero-cap b { font-family: var(--font-data); font-size: 18px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.7); flex: 0 0 auto; }
+    .dest-hero-cap span { font-size: 12.5px; font-weight: 600; color: #f4f4f5; text-shadow: 0 1px 4px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .dest-loc { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+    .dest-sun { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+    .dest-flag { height: 14px; border-radius: 2px; flex: 0 0 auto; }
+    .dest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .dest-cell {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass);
+        border-radius: 11px; padding: 9px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0;
+    }
+    .dest-cell .l { font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dest-cell .v { font-family: var(--font-data); font-size: 14px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .dest-metar { background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 12px; padding: 11px 12px; }
+    .dest-metar-h { display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 9px; }
+    .dest-open-btn {
+        width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 11px 14px; border-radius: 12px; border: 1px solid var(--border-glass);
+        background: rgba(255,255,255,0.03); color: #fff; cursor: pointer;
+        font-family: inherit; font-size: 12px; font-weight: 700;
+        transition: border-color .2s, background .2s;
+    }
+    .dest-open-btn:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06); }
+    .dest-pill { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+    .dest-mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .dest-mgrid > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .dest-mgrid .l { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); }
+    .dest-mgrid .v { font-family: var(--font-data); font-size: 13px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
     /* --- Graph / legs cards --- */
     .panel-card {
         background: var(--card-bg); border: 1px solid var(--border-glass);
@@ -666,6 +721,21 @@
                         <span class="r"><i class="fa-solid fa-plane-arrival"></i> Landing</span><span class="code">${esc(arr)}</span></button>` : ''}
                 </div>` : ''}
 
+                ${arr ? `
+                <div class="dest-card" id="dest-card" data-icao="${esc(arr)}">
+                    <button type="button" class="dest-toggle" aria-expanded="false" title="Destination airport info">
+                        <span class="dest-toggle-l">
+                            <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
+                            <span class="dest-toggle-txt">
+                                <span class="dest-toggle-code">${esc(arr)}</span>
+                                <span class="dest-toggle-sub">Arriving at · tap for info</span>
+                            </span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down dest-chev"></i>
+                    </button>
+                    <div class="dest-panel" hidden></div>
+                </div>` : ''}
+
                 <div id="ac-va-banner" class="va-ad-banner-slot" style="display:none"></div>
 
                 <div class="panel-card" id="graph-card">
@@ -901,7 +971,7 @@
             try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_ACTION', action: act.getAttribute('data-act') }, '*'); } catch (_) {}
             return;
         }
-        const el = e.target.closest('.apt-btn, .rh-icao');
+        const el = e.target.closest('.apt-btn, .rh-icao, .dest-open-btn');
         if (!el) return;
         const icao = el.getAttribute('data-icao');
         if (icao) {
@@ -909,11 +979,91 @@
         }
     });
 
+    // Destination dropdown: expand/collapse the arrival-airport info panel, and
+    // lazily ask the host for its summary (info + image) the first time it opens.
+    // The host replies with an AIRPORT_SUMMARY message handled below.
+    document.addEventListener('click', (e) => {
+        const toggle = e.target.closest('.dest-toggle');
+        if (!toggle) return;
+        const card = toggle.closest('.dest-card');
+        if (!card) return;
+        const open = card.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const panel = card.querySelector('.dest-panel');
+        if (panel) panel.hidden = !open;
+        if (open && !card.dataset.loaded) {
+            card.dataset.loaded = 'pending';
+            if (panel) panel.innerHTML = '<div class="dest-status">Loading airport…</div>';
+            const icao = card.getAttribute('data-icao');
+            try { window.parent.postMessage({ type: 'REQUEST_AIRPORT_SUMMARY', icao }, '*'); } catch (_) {}
+        }
+    });
+
+    // Render the host's airport summary into the destination dropdown, if it
+    // still matches the card's current arrival field.
+    function renderDestInfo(msg) {
+        const card = document.getElementById('dest-card');
+        if (!card || !msg || msg.icao !== card.getAttribute('data-icao')) return;
+        const panel = card.querySelector('.dest-panel');
+        if (!panel) return;
+        card.dataset.loaded = '1';
+        if (msg.error || !msg.payload) {
+            panel.innerHTML = '<div class="dest-status">Airport info unavailable.</div>';
+            return;
+        }
+        panel.innerHTML = destPanelHTML(msg.payload);
+    }
+
+    function destPanelHTML(a) {
+        const heroUrl = a.heroUrl || '';
+        const fb = a.heroFallbackUrl || '';
+        const hero = heroUrl
+            ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(a.icao || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
+            : '';
+        const cc = String(a.cc || '').toLowerCase();
+        const flag = /^[a-z]{2}$/.test(cc)
+            ? `<img class="dest-flag" src="https://flagcdn.com/w40/${cc}.png" alt="" onerror="this.style.display='none'">` : '';
+        const loc = [a.city, cc.toUpperCase()].filter(Boolean).join(', ') || '—';
+        const elev = (a.elevation != null && isFinite(a.elevation)) ? `${Math.round(a.elevation)} ft` : '—';
+        const rwyCount = (a.runwayCount != null) ? String(a.runwayCount) : '—';
+        const longest = a.longestFt ? `${Number(a.longestFt).toLocaleString()} ft` : '—';
+
+        const m = a.metar;
+        const metar = m ? `
+            <div class="dest-metar">
+                <div class="dest-metar-h"><span>METAR</span><span class="dest-pill" style="color:${m.color};border-color:${m.color}">${esc(m.cat)}</span></div>
+                <div class="dest-mgrid">
+                    <div><span class="l">Wind</span><span class="v">${esc(m.wind)}</span></div>
+                    <div><span class="l">Vis</span><span class="v">${esc(m.vis)}</span></div>
+                    <div><span class="l">Temp</span><span class="v">${esc(m.temp)}</span></div>
+                    <div><span class="l">QNH</span><span class="v">${esc(m.qnh)}</span></div>
+                </div>
+            </div>` : `
+            <div class="dest-metar"><div class="dest-metar-h"><span>METAR</span></div>
+                <div class="dest-status">Weather unavailable.</div></div>`;
+
+        const sun = a.sun ? `<span class="dest-sun" style="color:${esc(a.sun.color)}"><i class="fa-solid ${esc(a.sun.icon)}"></i> ${esc(a.sun.label)}</span>` : '';
+
+        return `
+            ${hero}
+            <div class="dest-loc">${flag}<span>${esc(loc)}</span>${sun}</div>
+            <div class="dest-grid">
+                <div class="dest-cell"><span class="l">Elevation</span><span class="v">${esc(elev)}</span></div>
+                <div class="dest-cell"><span class="l">Runways</span><span class="v">${esc(rwyCount)}</span></div>
+                <div class="dest-cell"><span class="l">Longest RWY</span><span class="v">${esc(longest)}</span></div>
+            </div>
+            ${metar}
+            <button type="button" class="dest-open-btn" data-icao="${esc(a.icao || '')}" title="Open full airport window">
+                <i class="fa-solid fa-up-right-from-square"></i> Full airport window
+            </button>`;
+    }
+
     window.addEventListener('message', (event) => {
         const d = event.data;
         if (!d || typeof d !== 'object') return;
         if (d.type === 'FLIGHT_DATA_UPDATE') render(d.payload);
         if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed', false);
+        if (d.type === 'AIRPORT_SUMMARY') renderDestInfo(d);
     });
 
     // Redraw the graph when the panel is resized (desktop drag / rotation).

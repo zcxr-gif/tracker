@@ -24,6 +24,19 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.4',
+            date: 'July 2026',
+            title: 'Know Where You’re Landing',
+            tagline: 'Every flight window now carries a destination dropdown, and airports show their real photos.',
+            entries: [
+                { tag: 'new', icon: 'fa-plane-arrival', text: 'Destination dropdown — every flight window (Legacy, Simple and Card, desktop and mobile) now has a tap-to-open panel about the airport you’re flying to: its photo, location, elevation, runways and live METAR, plus a one-tap jump to the full airport window.' },
+                { tag: 'new', icon: 'fa-sun', text: 'The destination panel shows whether it’s day, sunset, twilight or night at the field right now — know what light you’ll be landing in.' },
+                { tag: 'new', icon: 'fa-sliders', text: 'The Simple window’s layout studio gained a Destination section — drag it anywhere in your layout or hide it entirely, like every other block.' },
+                { tag: 'improved', icon: 'fa-image', text: 'Airport Cards now lead with the airport’s own photo when we have one — the top-down aerial view steps in only when there’s no photo (or it fails to load).' },
+                { tag: 'improved', icon: 'fa-wand-magic-sparkles', text: 'First launch now shows all three window styles — Legacy, Simple and Card — as live examples, so you pick from the full lineup from day one.' }
+            ]
+        },
+        {
             id: '2026.07.3',
             date: 'July 2026',
             title: 'The Card Window',
