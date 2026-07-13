@@ -22,6 +22,9 @@
     'use strict';
 
     const API_BASE = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/va-ads';
+    // Public (no-auth, CORS-open) VA endpoints on the same backend — see
+    // docs/PUBLIC-API.md. :id is the VA ad id from /api/va-ads.
+    const PUBLIC_API_BASE = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/public/va';
 
     // ---------------------------------------------------------------------
     // Tiny helpers
@@ -186,6 +189,23 @@
         return arr.map(normalizeAd).filter(Boolean);
     }
 
+    // One upcoming event from the public events endpoint. Anything without a
+    // parseable start time is dropped rather than rendered as "Invalid Date".
+    function normalizeEvent(ev) {
+        if (!ev || typeof ev !== 'object') return null;
+        const startsAt = Date.parse(ev.startsAt || ev.starts_at || '');
+        if (!isFinite(startsAt)) return null;
+        const title = String(ev.title || '').trim();
+        if (!title) return null;
+        return {
+            id: ev.id || ev._id || '',
+            title: title,
+            description: String(ev.description || '').trim(),
+            link: safeUrl(ev.link),
+            startsAt: startsAt
+        };
+    }
+
     // ---------------------------------------------------------------------
     // Data API
     // ---------------------------------------------------------------------
@@ -214,6 +234,16 @@
         if (!id) return null;
         const payload = await getJSON(`${API_BASE}/${encodeURIComponent(id)}`);
         return normalizeAd(payload && payload.data ? payload.data : payload);
+    }
+
+    // Upcoming events for a VA (soonest first). The endpoint already filters
+    // to events starting later than 12h ago and caps at 50; we re-sort locally
+    // so the UI never depends on server ordering.
+    async function events(id) {
+        if (!id) return [];
+        const payload = await getJSON(`${PUBLIC_API_BASE}/${encodeURIComponent(id)}/events`);
+        const arr = payload && Array.isArray(payload.events) ? payload.events : [];
+        return arr.map(normalizeEvent).filter(Boolean).sort((a, b) => a.startsAt - b.startsAt);
     }
 
     // ---------------------------------------------------------------------
@@ -689,7 +719,43 @@
             .va-fleet-empty i { display: block; font-size: 1.3rem; margin-bottom: 8px; color: rgba(255,255,255,0.3); }
             .va-ad-pill.va-ad-pill-live {
                 background: rgba(56,189,248,0.14); color: #7dd3fc; border-color: rgba(56,189,248,0.4);
-            }`;
+            }
+
+            /* ---- Upcoming events (partner detail) ---- */
+            .va-events-list { display: flex; flex-direction: column; gap: 10px; }
+            .va-event-card {
+                display: flex; gap: 12px; align-items: flex-start;
+                padding: 12px 14px; border-radius: 14px;
+                background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.08);
+            }
+            .va-event-date {
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                width: 46px; padding: 7px 0; border-radius: 10px; flex: 0 0 auto;
+                background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.3);
+            }
+            .va-event-mon {
+                font-size: 0.56rem; font-weight: 800; letter-spacing: .09em;
+                text-transform: uppercase; color: #7dd3fc;
+            }
+            .va-event-day {
+                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-size: 1.05rem; font-weight: 800; color: #fff; line-height: 1.15;
+            }
+            .va-event-meta { min-width: 0; flex: 1; }
+            .va-event-title {
+                font-weight: 700; color: #fff; font-size: 0.92rem;
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            }
+            .va-event-when {
+                font-size: 0.76rem; color: rgba(255,255,255,0.6); margin-top: 3px;
+                display: flex; align-items: center; gap: 6px;
+            }
+            .va-event-when i { color: #7dd3fc; font-size: 0.7rem; }
+            .va-event-desc {
+                font-size: 0.8rem; color: rgba(255,255,255,0.72); line-height: 1.5;
+                margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere;
+            }
+            .va-event-link { margin-top: 9px; padding: 5px 11px; font-size: 0.7rem; border-radius: 8px; gap: 6px; }`;
         document.head.appendChild(style);
     }
 
@@ -998,6 +1064,49 @@
     }
 
     // ---------------------------------------------------------------------
+    // Upcoming events (partner detail)
+    // ---------------------------------------------------------------------
+
+    // Coarse countdown for the event pill. The endpoint returns events that
+    // started up to 12h ago, so "already started" reads as live, not stale.
+    function eventRelLabel(startsAt) {
+        const diff = startsAt - Date.now();
+        if (diff <= 0) return 'Live now';
+        const mins = Math.round(diff / 60000);
+        if (mins < 60) return `in ${mins}m`;
+        const hours = Math.round(mins / 60);
+        if (hours < 48) return `in ${hours}h`;
+        return `in ${Math.round(hours / 24)}d`;
+    }
+
+    function eventCardHTML(ev) {
+        const d = new Date(ev.startsAt);
+        const mon = d.toLocaleString(undefined, { month: 'short' }).toUpperCase();
+        const day = d.getDate();
+        const when = d.toLocaleString(undefined, {
+            weekday: 'short', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+        const live = ev.startsAt <= Date.now();
+        const pill = live
+            ? '<span class="va-ad-pill">Live now</span>'
+            : `<span class="va-ad-pill va-ad-pill-live">${esc(eventRelLabel(ev.startsAt))}</span>`;
+        return `
+            <div class="va-event-card">
+                <div class="va-event-date" aria-hidden="true">
+                    <span class="va-event-mon">${esc(mon)}</span>
+                    <span class="va-event-day">${esc(day)}</span>
+                </div>
+                <div class="va-event-meta">
+                    <div class="va-event-title">${esc(ev.title)} ${pill}</div>
+                    <div class="va-event-when"><i class="fa-regular fa-clock"></i> ${esc(when)}</div>
+                    ${ev.description ? `<div class="va-event-desc">${esc(ev.description)}</div>` : ''}
+                    ${ev.link ? `<a class="va-ad-btn va-event-link" href="${esc(ev.link)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square"></i> Event details</a>` : ''}
+                </div>
+            </div>`;
+    }
+
+    // ---------------------------------------------------------------------
     // Partners slide-over
     // ---------------------------------------------------------------------
 
@@ -1138,7 +1247,13 @@
         const body = overlayEl.querySelector('.va-partners-body');
         body.innerHTML = `<div class="va-partners-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>`;
         try {
-            const [ad] = await Promise.all([get(id), loadDirectory().catch(() => {})]);
+            // Events fail soft to an empty list — the events endpoint must
+            // never take the whole partner detail down with it.
+            const [ad, upcoming] = await Promise.all([
+                get(id),
+                events(id).catch(() => []),
+                loadDirectory().catch(() => {})
+            ]);
             if (!ad) { body.innerHTML = `<div class="va-partners-empty">Partner not found.</div>`; return; }
 
             const pills = [];
@@ -1212,6 +1327,12 @@
                     ${fleet.length
                         ? `<div class="va-fleet-grid">${fleetCards}</div>`
                         : `<div class="va-fleet-empty"><i class="fa-solid fa-plane-slash"></i>No ${esc(ad.name)} aircraft in the air right now — check back soon.</div>`}
+                    ${upcoming.length ? `
+                    <div class="va-fleet-title">
+                        <h4>Upcoming Events</h4>
+                        <span class="va-fleet-count">${upcoming.length}</span>
+                    </div>
+                    <div class="va-events-list">${upcoming.map(eventCardHTML).join('')}</div>` : ''}
                     ${ad.description ? `<p class="desc" style="margin-top:16px">${esc(ad.description)}</p>` : ''}
                     ${chips ? `<div class="va-ad-chips" style="margin-top:12px">${chips}</div>` : ''}
                     ${actions.length ? `<div class="va-ad-actions">${actions.join('')}</div>` : ''}
@@ -1297,6 +1418,7 @@
         list,
         banner,
         get,
+        events,
         hydrateAirportBanner,
         hydrateFlightBanner,
         openPartners,
