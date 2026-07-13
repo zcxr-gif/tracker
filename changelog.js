@@ -24,6 +24,18 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.5',
+            date: 'July 2026',
+            title: 'Legacy, Reborn',
+            tagline: 'The Legacy flight window below the navigation display is redesigned — the Card window’s calm look, big journey numbers and live flight stats.',
+            entries: [
+                { tag: 'improved', icon: 'fa-layer-group', text: 'Everything under the ND now wears the Card window’s calm, monochrome look — clear headings over quiet surfaces, plain-language labels, and colour saved for the data that means something.' },
+                { tag: 'new', icon: 'fa-stopwatch', text: 'New This Flight card — big flown / remaining readouts around a live progress line, with time airborne, average and max ground speed, and max altitude straight from the flight’s history.' },
+                { tag: 'improved', icon: 'fa-chart-area', text: 'The Speed & Altitude graph moved into the lineup under the ND, matching the Simple and Card windows.' },
+                { tag: 'improved', icon: 'fa-location-crosshairs', text: 'Navigation is grouped into Position and Atmosphere & Plan, and the waypoint / nearest-airport readouts read as simple detail rows.' }
+            ]
+        },
+        {
             id: '2026.07.4',
             date: 'July 2026',
             title: 'Know Where You’re Landing',
