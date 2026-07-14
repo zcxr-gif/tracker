@@ -217,6 +217,45 @@
     }
 
     // ---------------------------------------------------------------------
+    // Public per-VA data — pilot roster + scheduled events. These live on the
+    // same InGdo backend under /api/public/va/:id/* (no auth, open CORS,
+    // cacheable 60s). :id is the VA ad's own id — the same id used by get()
+    // above. Both fail soft to an empty shape so a missing/slow feed never
+    // breaks the partner detail panel.
+    // ---------------------------------------------------------------------
+
+    const PUBLIC_BASE = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/public/va';
+
+    // Roster page: { total, rosterTotal, pilots:[{username, addedAt}] }.
+    // opts may carry q (search), limit (default 500, max 2000) and skip (paging).
+    async function pilots(id, opts) {
+        const empty = { total: 0, rosterTotal: 0, pilots: [] };
+        if (!id) return empty;
+        try {
+            const payload = await getJSON(`${PUBLIC_BASE}/${encodeURIComponent(id)}/pilots${buildQuery(opts)}`);
+            return {
+                total: Number(payload && payload.total) || 0,
+                rosterTotal: Number(payload && payload.rosterTotal) || 0,
+                pilots: Array.isArray(payload && payload.pilots) ? payload.pilots : []
+            };
+        } catch (e) {
+            return empty;
+        }
+    }
+
+    // Upcoming scheduled events (soonest first, max 50) — each
+    // { id, title, description, link, startsAt, createdAt }.
+    async function events(id) {
+        if (!id) return [];
+        try {
+            const payload = await getJSON(`${PUBLIC_BASE}/${encodeURIComponent(id)}/events`);
+            return Array.isArray(payload && payload.events) ? payload.events : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // Callsign directory — maps partner VA callsign codes to their ad so a
     // live flight can be matched to the VA whose code its callsign starts with.
     // ---------------------------------------------------------------------
@@ -689,7 +728,90 @@
             .va-fleet-empty i { display: block; font-size: 1.3rem; margin-bottom: 8px; color: rgba(255,255,255,0.3); }
             .va-ad-pill.va-ad-pill-live {
                 background: rgba(56,189,248,0.14); color: #7dd3fc; border-color: rgba(56,189,248,0.4);
-            }`;
+            }
+
+            /* ---- Events calendar ---- */
+            .va-cal {
+                border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+                background: rgba(0,0,0,0.35); padding: 12px; margin-top: 2px;
+            }
+            .va-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+            .va-cal-month { font-weight: 800; color: #fff; font-size: 0.92rem; letter-spacing: -0.2px; }
+            .va-cal-nav {
+                background: rgba(255,255,255,0.06); border: none; color: #cbd5e1; cursor: pointer;
+                width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 0.72rem;
+            }
+            .va-cal-nav:hover { background: rgba(56,189,248,0.2); color: #7dd3fc; }
+            .va-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+            .va-cal-dow { margin-bottom: 4px; }
+            .va-cal-dowcell {
+                text-align: center; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.5px;
+                text-transform: uppercase; color: rgba(255,255,255,0.4); padding: 2px 0;
+            }
+            .va-cal-cell {
+                position: relative; aspect-ratio: 1 / 1; border-radius: 8px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 0.72rem; color: rgba(255,255,255,0.5);
+            }
+            .va-cal-empty { visibility: hidden; }
+            .va-cal-has {
+                cursor: pointer; color: #fff; font-weight: 700;
+                background: rgba(56,189,248,0.14); border: 1px solid rgba(56,189,248,0.35);
+            }
+            .va-cal-has:hover { background: rgba(56,189,248,0.28); }
+            .va-cal-today { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4); }
+            .va-cal-selected { background: #7dd3fc !important; color: #05202b !important; border-color: #7dd3fc !important; }
+            .va-cal-selected .va-cal-dot { background: #05202b; }
+            .va-cal-dot {
+                position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+                width: 4px; height: 4px; border-radius: 50%; background: #7dd3fc;
+            }
+            .va-cal-clear { margin: 12px 0 0; }
+
+            .va-events-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+            .va-events-empty {
+                color: rgba(255,255,255,0.5); font-size: 0.84rem; text-align: center;
+                padding: 20px 10px; border: 1px dashed rgba(255,255,255,0.14); border-radius: 12px;
+            }
+            .va-events-empty i { margin-right: 6px; color: rgba(255,255,255,0.35); }
+            .va-event-row {
+                display: flex; gap: 12px; padding: 10px 12px; border-radius: 12px;
+                background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+            }
+            .va-event-date {
+                flex: 0 0 auto; width: 44px; display: flex; flex-direction: column;
+                align-items: center; justify-content: center; border-radius: 9px;
+                background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3);
+            }
+            .va-event-mon { font-size: 0.54rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #7dd3fc; }
+            .va-event-day { font-size: 1.05rem; font-weight: 800; color: #fff; line-height: 1.15; }
+            .va-event-main { min-width: 0; flex: 1; }
+            .va-event-title { font-size: 0.88rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+            .va-event-link { color: #7dd3fc; text-decoration: none; font-size: 0.75rem; }
+            .va-event-link:hover { color: #bae6fd; }
+            .va-event-when { font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 3px; }
+            .va-event-when i { color: #7dd3fc; margin-right: 5px; }
+            .va-event-desc { font-size: 0.78rem; color: rgba(255,255,255,0.72); margin-top: 5px; line-height: 1.5; white-space: pre-wrap; }
+
+            /* ---- Pilot roster ---- */
+            .va-roster-search { margin: 2px 0 10px; }
+            .va-roster-search input {
+                width: 100%; box-sizing: border-box; padding: 8px 11px; border-radius: 10px;
+                background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.12); color: #fff; font-size: 0.82rem;
+            }
+            .va-roster-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+            .va-roster-list .va-events-empty { grid-column: 1 / -1; }
+            .va-roster-row {
+                display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px;
+                background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.07); min-width: 0;
+            }
+            .va-roster-avatar {
+                flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+                display: grid; place-items: center; font-size: 0.72rem; font-weight: 800; color: #05202b;
+                background: linear-gradient(135deg, #7dd3fc, #38bdf8);
+            }
+            .va-roster-name { font-size: 0.82rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+            .va-roster-since { font-size: 0.62rem; color: rgba(255,255,255,0.45); white-space: nowrap; flex: 0 0 auto; }`;
         document.head.appendChild(style);
     }
 
@@ -1134,11 +1256,220 @@
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Events calendar + pilot roster (partner-detail sections)
+    // ---------------------------------------------------------------------
+
+    const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+    const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Local Y-M-D key so events group onto the calendar day the viewer actually
+    // sees in their own timezone (the feed carries a UTC startsAt).
+    function dayKey(d) {
+        return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    }
+
+    function fmtEventTime(d) {
+        try {
+            return d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        } catch (e) {
+            return d.toISOString();
+        }
+    }
+
+    function eventRowHTML(it) {
+        const link = it.link
+            ? `<a class="va-event-link" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer" title="Open event link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
+            : '';
+        return `
+            <div class="va-event-row">
+                <div class="va-event-date">
+                    <span class="va-event-mon">${MONTHS[it.when.getMonth()].slice(0, 3)}</span>
+                    <span class="va-event-day">${it.when.getDate()}</span>
+                </div>
+                <div class="va-event-main">
+                    <div class="va-event-title">${esc(it.title)}${link}</div>
+                    <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}</div>
+                    ${it.description ? `<div class="va-event-desc">${esc(it.description)}</div>` : ''}
+                </div>
+            </div>`;
+    }
+
+    function eventsSectionHTML(state, items, byDay) {
+        const { year, month, selected } = state;
+        const todayKey = dayKey(new Date());
+        const startWeekday = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        let cells = '';
+        for (let i = 0; i < startWeekday; i++) cells += `<div class="va-cal-cell va-cal-empty"></div>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const k = `${year}-${month}-${d}`;
+            const has = byDay.has(k);
+            const cls = ['va-cal-cell'];
+            if (has) cls.push('va-cal-has');
+            if (k === todayKey) cls.push('va-cal-today');
+            if (k === selected) cls.push('va-cal-selected');
+            cells += `<div class="${cls.join(' ')}"${has ? ` data-va-cal-day="${k}" role="button" tabindex="0" title="${byDay.get(k).length} event${byDay.get(k).length === 1 ? '' : 's'}"` : ''}><span class="va-cal-num">${d}</span>${has ? '<span class="va-cal-dot"></span>' : ''}</div>`;
+        }
+
+        // The list shows every upcoming event, or just the picked day's events.
+        const listItems = selected ? (byDay.get(selected) || []) : items;
+        const list = listItems.length
+            ? listItems.map(eventRowHTML).join('')
+            : `<div class="va-events-empty"><i class="fa-regular fa-calendar-xmark"></i> No ${selected ? 'events on this day' : 'upcoming events'}.</div>`;
+
+        return `
+            <div class="va-fleet-title">
+                <h4>Events</h4>
+                <span class="va-fleet-count">${items.length ? items.length + ' upcoming' : ''}</span>
+            </div>
+            <div class="va-cal">
+                <div class="va-cal-head">
+                    <button class="va-cal-nav" data-va-cal-nav="-1" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span class="va-cal-month">${MONTHS[month]} ${year}</span>
+                    <button class="va-cal-nav" data-va-cal-nav="1" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+                <div class="va-cal-grid va-cal-dow">${WEEKDAYS.map((w) => `<div class="va-cal-dowcell">${w}</div>`).join('')}</div>
+                <div class="va-cal-grid">${cells}</div>
+            </div>
+            ${selected ? `<button class="va-ad-back va-cal-clear"><i class="fa-solid fa-arrow-left"></i> All upcoming events</button>` : ''}
+            <div class="va-events-list">${list}</div>`;
+    }
+
+    // Render the Events section (month calendar + event list) into a container.
+    // View state (shown month, selected day) rides on a redraw closure so month
+    // navigation and day-picking don't need any persistent element wiring.
+    function renderEvents(container, evs) {
+        if (!container) return;
+        injectStyles();
+        const items = (evs || [])
+            .map((e) => {
+                const when = new Date(e.startsAt);
+                if (isNaN(when.getTime())) return null;
+                return {
+                    id: String(e.id || ''),
+                    title: String(e.title || 'Untitled event'),
+                    description: String(e.description || ''),
+                    link: safeUrl(e.link),
+                    when
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.when - b.when);
+
+        const byDay = new Map();
+        items.forEach((it) => {
+            const k = dayKey(it.when);
+            if (!byDay.has(k)) byDay.set(k, []);
+            byDay.get(k).push(it);
+        });
+
+        // Open on the first upcoming event's month (today's month when empty).
+        const first = items.length ? items[0].when : new Date();
+        const state = { year: first.getFullYear(), month: first.getMonth(), selected: null };
+
+        const draw = () => {
+            container.innerHTML = eventsSectionHTML(state, items, byDay);
+            container.querySelectorAll('[data-va-cal-nav]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    let m = state.month + Number(btn.getAttribute('data-va-cal-nav'));
+                    let y = state.year;
+                    if (m < 0) { m = 11; y--; }
+                    if (m > 11) { m = 0; y++; }
+                    state.month = m; state.year = y; state.selected = null;
+                    draw();
+                });
+            });
+            container.querySelectorAll('[data-va-cal-day]').forEach((cell) => {
+                cell.addEventListener('click', () => {
+                    const k = cell.getAttribute('data-va-cal-day');
+                    state.selected = state.selected === k ? null : k; // toggle off on re-click
+                    draw();
+                });
+            });
+            const clear = container.querySelector('.va-cal-clear');
+            if (clear) clear.addEventListener('click', () => { state.selected = null; draw(); });
+        };
+        draw();
+    }
+
+    function rosterCountText(data, q) {
+        if (q) return `${data.total} of ${data.rosterTotal}`;
+        return `${data.rosterTotal} pilot${data.rosterTotal === 1 ? '' : 's'}`;
+    }
+
+    function rosterListHTML(data, q) {
+        if (!data.pilots.length) {
+            return `<div class="va-events-empty"><i class="fa-solid fa-user-slash"></i> ${q ? 'No pilots match your search.' : 'No pilots on the roster yet.'}</div>`;
+        }
+        return data.pilots.map((p) => {
+            const uname = String(p.username || '').trim();
+            let added = '';
+            const d = p.addedAt ? new Date(p.addedAt) : null;
+            if (d && !isNaN(d.getTime())) {
+                try { added = d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { /* keep blank */ }
+            }
+            const initial = (uname[0] || '?').toUpperCase();
+            return `
+                <div class="va-roster-row">
+                    <span class="va-roster-avatar">${esc(initial)}</span>
+                    <span class="va-roster-name">${esc(uname || '—')}</span>
+                    ${added ? `<span class="va-roster-since">${esc(added)}</span>` : ''}
+                </div>`;
+        }).join('');
+    }
+
+    function rosterSectionHTML(data, q) {
+        return `
+            <div class="va-fleet-title">
+                <h4>Roster</h4>
+                <span class="va-fleet-count va-roster-count">${esc(rosterCountText(data, q))}</span>
+            </div>
+            <div class="va-roster-search"><input type="text" placeholder="Search pilots…" autocomplete="off"></div>
+            <div class="va-roster-list">${rosterListHTML(data, q)}</div>`;
+    }
+
+    // Render the Roster section into a container. The search box re-queries the
+    // backend (server-side q=) with a debounce and swaps only the count + list
+    // so the input never loses focus mid-type. Fails soft to an empty roster.
+    function renderRoster(container, id, initial) {
+        if (!container) return;
+        injectStyles();
+        container.innerHTML = rosterSectionHTML(initial || { total: 0, rosterTotal: 0, pilots: [] }, '');
+        const input = container.querySelector('.va-roster-search input');
+        if (!input) return;
+        let searchTimer = 0;
+        input.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            const val = input.value.trim();
+            const listEl = container.querySelector('.va-roster-list');
+            searchTimer = setTimeout(async () => {
+                if (listEl) listEl.innerHTML = `<div class="va-events-empty"><i class="fa-solid fa-spinner fa-spin"></i> Searching…</div>`;
+                const res = await pilots(id, { q: val || undefined, limit: 500 });
+                // The search may have moved on while this request was in flight;
+                // only paint if the box still holds the query we searched for.
+                if (input.value.trim() !== val) return;
+                const countEl = container.querySelector('.va-roster-count');
+                if (countEl) countEl.textContent = rosterCountText(res, val);
+                if (listEl) listEl.innerHTML = rosterListHTML(res, val);
+            }, 280);
+        });
+    }
+
     async function showDetail(id) {
         const body = overlayEl.querySelector('.va-partners-body');
         body.innerHTML = `<div class="va-partners-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>`;
         try {
-            const [ad] = await Promise.all([get(id), loadDirectory().catch(() => {})]);
+            // Pull the ad, its scheduled events and its pilot roster together;
+            // the events/roster feeds fail soft so the panel still renders.
+            const [ad, evs, roster] = await Promise.all([
+                get(id),
+                events(id),
+                pilots(id, { limit: 500 }),
+                loadDirectory().catch(() => {})
+            ]);
             if (!ad) { body.innerHTML = `<div class="va-partners-empty">Partner not found.</div>`; return; }
 
             const pills = [];
@@ -1212,6 +1543,8 @@
                     ${fleet.length
                         ? `<div class="va-fleet-grid">${fleetCards}</div>`
                         : `<div class="va-fleet-empty"><i class="fa-solid fa-plane-slash"></i>No ${esc(ad.name)} aircraft in the air right now — check back soon.</div>`}
+                    <div class="va-events-section"></div>
+                    <div class="va-roster-section"></div>
                     ${ad.description ? `<p class="desc" style="margin-top:16px">${esc(ad.description)}</p>` : ''}
                     ${chips ? `<div class="va-ad-chips" style="margin-top:12px">${chips}</div>` : ''}
                     ${actions.length ? `<div class="va-ad-actions">${actions.join('')}</div>` : ''}
@@ -1227,6 +1560,10 @@
                     if (entry) openFleetFlight(entry);
                 });
             });
+
+            // Scheduled events (month calendar + list) and the pilot roster.
+            renderEvents(body.querySelector('.va-events-section'), evs);
+            renderRoster(body.querySelector('.va-roster-section'), id, roster);
 
             // Hydrate aircraft photos lazily: community shot for the exact
             // type+livery, else the type's Generic livery, else default art.
@@ -1297,6 +1634,8 @@
         list,
         banner,
         get,
+        pilots,
+        events,
         hydrateAirportBanner,
         hydrateFlightBanner,
         openPartners,
