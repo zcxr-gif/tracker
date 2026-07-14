@@ -850,15 +850,62 @@
     }
 
     // ── Roster mode ───────────────────────────────────────────────────────────
+
+    // Flip the mobile peek open/closed and keep the toggle's label + chevron in
+    // sync. Only the CSS media query actually collapses anything, so this is a
+    // no-op on desktop (the body shows in full regardless of the class).
+    function setPeekExpanded(root, on) {
+        root.classList.toggle('is-expanded', on);
+        const btn = root.querySelector('.emb-peek-toggle');
+        if (btn) {
+            btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+            const lbl = btn.querySelector('.emb-peek-toggle-label');
+            if (lbl) lbl.textContent = on ? 'Show less' : `Show all ${root.querySelectorAll('.emb-row').length} airborne`;
+        }
+        if (on) { const body = root.querySelector('.emb-body'); if (body) body.scrollTop = 0; }
+    }
+
+    // Wire the grip, the header and the bottom toggle button to open/close the
+    // peek. The header's Powered-by link is exempt so tapping it still navigates.
+    function wirePeek(root) {
+        const toggle = () => setPeekExpanded(root, !root.classList.contains('is-expanded'));
+        const grip = root.querySelector('.emb-grip');
+        if (grip) {
+            grip.addEventListener('click', toggle);
+            grip.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+            });
+        }
+        const btn = root.querySelector('.emb-peek-toggle');
+        if (btn) btn.addEventListener('click', toggle);
+        const head = root.querySelector('.emb-head');
+        if (head) head.addEventListener('click', (e) => { if (!e.target.closest('a')) toggle(); });
+    }
+
     function renderRoster(cfg, pilots) {
         const root = rootEl();
         if (!root) return;
+        // Peek only makes sense on the roster (not the map) and only once there
+        // are more pilots than the two-row peek already shows. The CSS gates the
+        // actual collapsing to phone widths; the class is harmless on desktop.
+        const peek = cfg.mode !== 'map' && pilots.length > 2;
+        root.classList.toggle('emb-peek', peek);
+        if (!peek) root.classList.remove('is-expanded');
+        // Preserve the open/closed state the visitor last chose across polls
+        // (the root element — and so its classes — survives each re-render).
+        const expanded = root.classList.contains('is-expanded');
         root.innerHTML = `
+            ${peek ? '<div class="emb-grip" role="button" tabindex="0" aria-label="Expand or collapse the pilot list"></div>' : ''}
             ${cfg.hideHeader ? '' : headerHTML(cfg, pilots.length)}
             <div class="emb-body">
                 ${pilots.length ? pilots.map(pilotRowHTML).join('') : emptyHTML(cfg)}
             </div>
+            ${peek ? `<button class="emb-peek-toggle" type="button" aria-expanded="${expanded}">
+                <span class="emb-peek-toggle-label">${expanded ? 'Show less' : `Show all ${pilots.length} airborne`}</span>
+                <i class="emb-peek-chevron" aria-hidden="true">▾</i>
+            </button>` : ''}
             ${cfg.hideHeader ? floatBrandHTML(cfg, pilots.length) : ''}`;
+        if (peek) wirePeek(root);
     }
 
     // ── Map mode ────────────────────────────────────────────────────────────────

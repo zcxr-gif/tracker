@@ -218,6 +218,56 @@
         }
         .emb-row-metrics b { color: var(--text); font-weight: 700; font-size: 13px; }
 
+        /* ── Mobile peek / expand (roster) ──────────────────────────────────
+           On phones the roster opens collapsed to a peek — the header plus the
+           top two airborne pilots — and slides open to the full list when the
+           grip, header or toggle is tapped. It stays opaque and fills its
+           iframe, so it never steals taps from the host page and needs no
+           changes on the VA's site. The grip and toggle are hidden by default
+           and only appear at phone widths (and only when there's more to show,
+           via the .emb-peek class embed.js adds). */
+        .emb-grip { display: none; }
+        .emb-peek-toggle { display: none; }
+
+        @media (max-width: 640px) {
+            #inflight-embed.emb-peek .emb-grip {
+                display: block; flex: 0 0 auto;
+                width: 40px; height: 4px; border-radius: 999px;
+                background: var(--text-3); margin: 8px auto 2px;
+                cursor: pointer; -webkit-tap-highlight-color: transparent;
+            }
+            #inflight-embed.emb-peek .emb-head { cursor: pointer; }
+
+            /* Collapsed: keep the body at its natural height and reveal only the
+               first two pilot rows, so the header + peek + toggle stack neatly
+               at the top. */
+            #inflight-embed.emb-peek:not(.is-expanded) .emb-body {
+                flex: 0 0 auto; overflow: hidden;
+            }
+            #inflight-embed.emb-peek:not(.is-expanded) .emb-row:nth-child(n+3) { display: none; }
+            /* Fade the second row so it reads as "there's more below". */
+            #inflight-embed.emb-peek:not(.is-expanded) .emb-row:nth-child(2) {
+                -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent);
+                mask-image: linear-gradient(to bottom, #000 45%, transparent);
+            }
+            #inflight-embed.emb-peek.is-expanded .emb-body { overflow-y: auto; }
+
+            #inflight-embed.emb-peek .emb-peek-toggle {
+                display: flex; align-items: center; justify-content: center; gap: 7px;
+                flex: 0 0 auto; width: 100%; box-sizing: border-box; margin: 0;
+                padding: 12px 15px;
+                background: var(--surface); color: var(--text);
+                border: none; border-top: 1px solid var(--border);
+                font: inherit; font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+                cursor: pointer; -webkit-tap-highlight-color: transparent;
+            }
+            #inflight-embed.emb-peek .emb-peek-toggle:hover { background: var(--surface-2); }
+            #inflight-embed.emb-peek .emb-peek-chevron {
+                font-style: normal; color: var(--text-2); transition: transform .25s ease;
+            }
+            #inflight-embed.emb-peek.is-expanded .emb-peek-chevron { transform: rotate(180deg); }
+        }
+
         /* Map body */
         .emb-map { flex: 1 1 auto; min-height: 0; }
 
