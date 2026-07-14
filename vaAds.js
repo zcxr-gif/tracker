@@ -775,9 +775,18 @@
             }
             .va-events-empty i { margin-right: 6px; color: rgba(255,255,255,0.35); }
             .va-event-row {
-                display: flex; gap: 12px; padding: 10px 12px; border-radius: 12px;
+                border-radius: 12px; overflow: hidden;
                 background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
             }
+            /* Animated WebP animates natively as an <img>; a 16:6 event banner
+               strip sits above the row body. Placeholder colour shows while it
+               loads and stays if the image errors (the <img> hides itself). */
+            .va-event-banner {
+                display: block; width: 100%; aspect-ratio: 16 / 6; object-fit: cover;
+                background: #0e1420; border-bottom: 1px solid rgba(255,255,255,0.06);
+            }
+            .va-event-body { display: flex; gap: 12px; padding: 10px 12px; }
+            .va-event-dep { margin-left: 10px; }
             .va-event-date {
                 flex: 0 0 auto; width: 44px; display: flex; flex-direction: column;
                 align-items: center; justify-content: center; border-radius: 9px;
@@ -1282,16 +1291,26 @@
         const link = it.link
             ? `<a class="va-event-link" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer" title="Open event link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
             : '';
+        // Event banners are .webp; an animated upload comes back as ANIMATED
+        // WebP and plays by itself inside an <img>. It MUST stay an <img> (never
+        // a <canvas> or a background paint of a frame) or it freezes on frame 1.
+        const banner = it.banner
+            ? `<img class="va-event-banner" src="${esc(it.banner)}" alt="${esc(it.title)}" loading="lazy" decoding="async" onerror="this.style.display='none'">`
+            : '';
+        const dep = it.dep ? `<span class="va-event-dep"><i class="fa-solid fa-plane-departure"></i>${esc(it.dep)}</span>` : '';
         return `
-            <div class="va-event-row">
-                <div class="va-event-date">
-                    <span class="va-event-mon">${MONTHS[it.when.getMonth()].slice(0, 3)}</span>
-                    <span class="va-event-day">${it.when.getDate()}</span>
-                </div>
-                <div class="va-event-main">
-                    <div class="va-event-title">${esc(it.title)}${link}</div>
-                    <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}</div>
-                    ${it.description ? `<div class="va-event-desc">${esc(it.description)}</div>` : ''}
+            <div class="va-event-row${it.banner ? ' va-event-has-banner' : ''}">
+                ${banner}
+                <div class="va-event-body">
+                    <div class="va-event-date">
+                        <span class="va-event-mon">${MONTHS[it.when.getMonth()].slice(0, 3)}</span>
+                        <span class="va-event-day">${it.when.getDate()}</span>
+                    </div>
+                    <div class="va-event-main">
+                        <div class="va-event-title">${esc(it.title)}${link}</div>
+                        <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}${dep}</div>
+                        ${it.description ? `<div class="va-event-desc">${esc(it.description)}</div>` : ''}
+                    </div>
                 </div>
             </div>`;
     }
@@ -1353,6 +1372,8 @@
                     title: String(e.title || 'Untitled event'),
                     description: String(e.description || ''),
                     link: safeUrl(e.link),
+                    banner: safeUrl(e.bannerUrl || e.banner),
+                    dep: String(e.departureIcao || '').trim().toUpperCase(),
                     when
                 };
             })

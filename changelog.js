@@ -24,6 +24,18 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.6',
+            date: 'July 2026',
+            title: 'Every VA Has a Calendar',
+            tagline: 'Partner pages now carry the VA’s events calendar and pilot roster — with animated event banners.',
+            entries: [
+                { tag: 'new', icon: 'fa-calendar-days', text: 'Events calendar on every partner page — a month view that marks the days a VA has something planned; tap a day to see just its events, or browse the full upcoming list underneath.' },
+                { tag: 'new', icon: 'fa-image', text: 'Events can carry their own banner artwork — including animated ones, which play right in the list.' },
+                { tag: 'new', icon: 'fa-users', text: 'Pilot roster — each partner page now shows the VA’s registered pilots and a running count, with a quick search to find anyone on the roster.' },
+                { tag: 'new', icon: 'fa-plane-departure', text: 'Event cards show the departure airport at a glance when the VA sets one.' }
+            ]
+        },
+        {
             id: '2026.07.5',
             date: 'July 2026',
             title: 'Legacy, Reborn',
