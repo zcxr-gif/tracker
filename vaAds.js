@@ -146,6 +146,116 @@
 
     // The backend's exact field names aren't pinned down here, so normalise the
     // common variants into one predictable shape the renderers can rely on.
+    // ---------------------------------------------------------------------
+    // Normalizes the OPTIONAL `events` and `pilots` a VA may attach to its ad
+    // object into clean, display-safe arrays. Loose in, strict out: every field
+    // is coerced/validated here so nothing downstream has to trust a VA's
+    // payload.
+    //   - dates accept an ISO string OR epoch ms, and come out as ISO strings;
+    //   - links must be http(s) or they're dropped (never rendered);
+    //   - `type` falls back to "other" outside the known set;
+    //   - `isNew` is honoured if sent, else derived from a 21-day join window.
+    // ---------------------------------------------------------------------
+
+    const EVENT_TYPES = ['group-flight', 'training', 'exam', 'social', 'flyout', 'other'];
+    const NEW_PILOT_WINDOW_MS = 21 * 24 * 60 * 60 * 1000; // "new" = joined in last 21 days
+    const MAX_STR = 500;   // clip any free-text field rather than reject the item
+    const MAX_EVENTS = 100;
+    const MAX_PILOTS = 2000;
+
+    // Trim + clip a value to a string, or '' when absent. Never throws.
+    const feedStr = (v, max = MAX_STR) => {
+        const s = String(v == null ? '' : v).trim();
+        return s.length > max ? s.slice(0, max).trim() : s;
+    };
+
+    // http(s) URLs only — anything else (javascript:, data:, relative, junk) → ''.
+    const httpUrl = (v) => {
+        const s = feedStr(v, 2048);
+        try {
+            const u = new URL(s);
+            return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
+        } catch { return ''; }
+    };
+
+    // ISO string OR epoch ms → a valid Date, or null. Numeric strings count as ms.
+    const toDate = (v) => {
+        if (v == null || v === '') return null;
+        const d = (typeof v === 'number' || /^\d+$/.test(String(v).trim()))
+            ? new Date(Number(v))
+            : new Date(String(v));
+        return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    // First present alias wins.
+    const pick = (obj, ...keys) => {
+        for (const k of keys) if (obj[k] != null && obj[k] !== '') return obj[k];
+        return undefined;
+    };
+
+    function normalizeEvents(raw) {
+        if (!Array.isArray(raw)) return [];
+        const out = [];
+        for (const e of raw) {
+            if (!e || typeof e !== 'object') continue;
+            const title = feedStr(pick(e, 'title', 'name'), 256);
+            const startsAt = toDate(pick(e, 'startsAt', 'start', 'date'));
+            if (!title || !startsAt) continue; // both are required
+            const endsAt = toDate(pick(e, 'endsAt', 'end'));
+            const typeRaw = feedStr(e.type).toLowerCase();
+            out.push({
+                title,
+                startsAt: startsAt.toISOString(),
+                endsAt: endsAt ? endsAt.toISOString() : null,
+                type: EVENT_TYPES.includes(typeRaw) ? typeRaw : 'other',
+                route: feedStr(e.route, 120),
+                server: feedStr(e.server, 40),
+                description: feedStr(pick(e, 'description', 'desc'), 1000),
+                link: httpUrl(e.link),
+            });
+            if (out.length >= MAX_EVENTS) break;
+        }
+        out.sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)); // soonest first
+        return out;
+    }
+
+    function normalizePilots(raw) {
+        if (!Array.isArray(raw)) return [];
+        const now = Date.now();
+        const out = [];
+        const seen = new Set();
+        for (const p of raw) {
+            if (!p || typeof p !== 'object') continue;
+            const username = feedStr(pick(p, 'username', 'name'), 80).replace(/^@+/, '').trim();
+            if (!username) continue; // required
+            const key = username.toLowerCase();
+            if (seen.has(key)) continue; // de-dupe, first wins
+            seen.add(key);
+            const joined = toDate(pick(p, 'joinedAt', 'joined'));
+            const isNew = typeof p.isNew === 'boolean'
+                ? p.isNew
+                : (joined ? (now - joined.getTime()) <= NEW_PILOT_WINDOW_MS : false);
+            out.push({
+                username,
+                rank: feedStr(p.rank, 60),
+                joinedAt: joined ? joined.toISOString() : null,
+                isNew,
+            });
+            if (out.length >= MAX_PILOTS) break;
+        }
+        return out;
+    }
+
+    // Reads both arrays off a VA ad, honouring the documented aliases
+    // (`calendar` for events; `roster`/`newPilots` for pilots).
+    function normalizeVaFeed(d) {
+        const obj = (d && typeof d === 'object') ? d : {};
+        return {
+            events: normalizeEvents(pick(obj, 'events', 'calendar')),
+            pilots: normalizePilots(pick(obj, 'pilots', 'roster', 'newPilots')),
+        };
+    }
+
     function normalizeAd(ad) {
         if (!ad || typeof ad !== 'object') return null;
         const tags = Array.isArray(ad.tags)
@@ -175,7 +285,10 @@
             website: safeUrl(ad.website || ad.websiteUrl || ad.website_url || ad.url || ad.link),
             discord: safeUrl(ad.discord || ad.discordUrl || ad.discord_url),
             icao: icao.map((c) => String(c).toUpperCase()),
-            views: Number(ad.views != null ? ad.views : (ad.viewCount != null ? ad.viewCount : 0)) || 0
+            views: Number(ad.views != null ? ad.views : (ad.viewCount != null ? ad.viewCount : 0)) || 0,
+            // Optional calendar/roster payload — usually present only on the
+            // single-ad detail response, absent (→ []) on list responses.
+            ...normalizeVaFeed(ad)
         };
     }
 
@@ -689,7 +802,78 @@
             .va-fleet-empty i { display: block; font-size: 1.3rem; margin-bottom: 8px; color: rgba(255,255,255,0.3); }
             .va-ad-pill.va-ad-pill-live {
                 background: rgba(56,189,248,0.14); color: #7dd3fc; border-color: rgba(56,189,248,0.4);
-            }`;
+            }
+
+            /* In-tracker VA events calendar + new-pilot roster */
+            .va-events-section { margin-top: 18px; }
+            .va-events-h {
+                display: flex; align-items: center; gap: 8px;
+                font-size: 0.78rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;
+                color: rgba(255,255,255,0.62); margin: 0 0 10px;
+            }
+            .va-events-h i { color: #7dd3fc; }
+            .va-events-count {
+                font-size: 0.64rem; font-weight: 700; color: rgba(255,255,255,0.5);
+                background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+                padding: 1px 7px; border-radius: 999px;
+            }
+            .va-events-sub {
+                font-size: 0.62rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;
+                color: rgba(255,255,255,0.42); margin: 14px 0 8px;
+            }
+            .va-cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+            .va-cal-month { font-size: 0.86rem; font-weight: 800; color: #fff; }
+            .va-cal-nav button {
+                background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #e8eaed;
+                width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: 0.72rem;
+                display: grid; place-items: center; transition: background .12s, border-color .12s;
+            }
+            .va-cal-nav button:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.22); }
+            .va-cal-nav button.tbtn { width: auto; padding: 0 10px; font-size: 0.68rem; font-weight: 700; }
+            .va-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+            .va-cal-dow {
+                text-align: center; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.4px;
+                color: rgba(255,255,255,0.34); text-transform: uppercase; padding-bottom: 3px;
+            }
+            .va-cal-cell {
+                position: relative; min-height: 38px; border-radius: 7px; padding: 3px 4px;
+                background: rgba(255,255,255,0.03); border: 1px solid transparent;
+                display: flex; flex-direction: column; gap: 2px;
+            }
+            .va-cal-cell.blank { background: transparent; }
+            .va-cal-cell.has { cursor: pointer; border-color: rgba(255,255,255,0.08); }
+            .va-cal-cell.has:hover { background: rgba(255,255,255,0.07); }
+            .va-cal-cell.today { background: rgba(56,189,248,0.14); box-shadow: inset 0 0 0 1px rgba(56,189,248,0.7); }
+            .va-cal-cell.selected { box-shadow: inset 0 0 0 2px #7dd3fc; }
+            .va-cal-cell .dn { font-size: 0.64rem; font-weight: 700; color: rgba(255,255,255,0.6); }
+            .va-cal-cell.today .dn { color: #7dd3fc; }
+            .va-cal-dots { display: flex; flex-wrap: wrap; gap: 2px; margin-top: auto; }
+            .va-cal-dot { width: 5px; height: 5px; border-radius: 50%; background: #94a3b8; }
+            .va-cal-dot.np { background: #34d399; box-shadow: 0 0 0 1.5px rgba(52,211,153,0.3); }
+            .va-cal-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 9px; }
+            .va-cal-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 0.6rem; color: rgba(255,255,255,0.42); }
+            .va-cal-legend i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+            .va-day-detail { margin-top: 9px; padding: 9px 11px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
+            .va-day-date { font-size: 0.68rem; font-weight: 800; color: rgba(255,255,255,0.6); margin-bottom: 8px; }
+            .va-events-list { display: flex; flex-direction: column; gap: 7px; }
+            .va-ev { display: flex; gap: 10px; padding: 9px 11px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
+            .va-ev-date { flex: none; width: 42px; text-align: center; border-radius: 8px; padding: 4px 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
+            .va-ev-date .m { display: block; font-size: 0.52rem; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: #7dd3fc; }
+            .va-ev-date .d { display: block; font-size: 1rem; font-weight: 800; line-height: 1; margin-top: 1px; color: #fff; }
+            .va-ev-main { min-width: 0; flex: 1; }
+            .va-ev-title { font-weight: 700; font-size: 0.82rem; color: #fff; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+            .va-ev-chip { font-size: 0.52rem; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; padding: 2px 5px; border-radius: 4px; color: #0b1220; white-space: nowrap; }
+            .va-ev-time { font-size: 0.68rem; color: #7dd3fc; margin-top: 2px; }
+            .va-ev-meta { font-size: 0.68rem; color: rgba(255,255,255,0.55); margin-top: 2px; }
+            .va-ev-desc { font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 4px; line-height: 1.4; }
+            .va-ev-link { font-size: 0.7rem; color: #7dd3fc; text-decoration: none; font-weight: 700; margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; }
+            .va-ev-link:hover { text-decoration: underline; }
+            .va-events-empty { border: 1px dashed rgba(255,255,255,0.12); border-radius: 10px; padding: 16px 12px; text-align: center; color: rgba(255,255,255,0.45); font-size: 0.76rem; }
+            .va-np { margin-top: 14px; }
+            .va-np-list { display: flex; flex-wrap: wrap; gap: 6px; }
+            .va-np-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 4px; border-radius: 999px; background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3); }
+            .va-np-av { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(52,211,153,0.25); font-size: 0.56rem; font-weight: 800; color: #d1fae5; }
+            .va-np-name { font-size: 0.74rem; font-weight: 600; color: #fff; }`;
         document.head.appendChild(style);
     }
 
@@ -1212,6 +1396,7 @@
                     ${fleet.length
                         ? `<div class="va-fleet-grid">${fleetCards}</div>`
                         : `<div class="va-fleet-empty"><i class="fa-solid fa-plane-slash"></i>No ${esc(ad.name)} aircraft in the air right now — check back soon.</div>`}
+                    <div class="va-events-section" data-va-events></div>
                     ${ad.description ? `<p class="desc" style="margin-top:16px">${esc(ad.description)}</p>` : ''}
                     ${chips ? `<div class="va-ad-chips" style="margin-top:12px">${chips}</div>` : ''}
                     ${actions.length ? `<div class="va-ad-actions">${actions.join('')}</div>` : ''}
@@ -1219,6 +1404,9 @@
 
             const back = body.querySelector('.va-ad-back');
             if (back) back.addEventListener('click', () => loadPartnersList(''));
+
+            // In-tracker events calendar + new-pilot roster for this VA.
+            mountVaEvents(body.querySelector('[data-va-events]'), ad);
 
             // Wire fleet cards → open that flight on the map.
             body.querySelectorAll('[data-va-fleet-idx]').forEach((el) => {
@@ -1239,6 +1427,176 @@
         } catch (e) {
             body.innerHTML = `<div class="va-partners-empty">Couldn't load this partner.</div>`;
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // In-tracker VA events calendar + new-pilot roster (rendered inside the
+    // partner detail view, from ad.events / ad.pilots).
+    // ---------------------------------------------------------------------
+
+    const EVENT_TYPE_LABELS = {
+        'group-flight': 'Group Flight', training: 'Training', exam: 'Exam',
+        social: 'Social', flyout: 'Fly-out', other: 'Event'
+    };
+    const EVENT_TYPE_COLORS = {
+        'group-flight': '#7dd3fc', training: '#a78bfa', exam: '#fbbf24',
+        social: '#f472b6', flyout: '#2dd4bf', other: '#94a3b8'
+    };
+    const NEW_PILOT_COLOR = '#34d399';
+
+    function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+    function dayKeyOf(ts) { const d = new Date(ts); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+    function fmtT(ts) { return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
+    function initialsOf(name) {
+        return String(name || '?').trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
+    }
+
+    function mountVaEvents(host, ad) {
+        if (!host) return;
+        const events = (ad && ad.events) || [];
+        const pilots = (ad && ad.pilots) || [];
+        const newPilots = pilots.filter((p) => p.isNew);
+        // Nothing at all — drop the section so the detail view stays clean.
+        if (!events.length && !newPilots.length) { host.remove(); return; }
+
+        // Dates arrive as ISO strings from the normalizer; parse to epoch ms
+        // wherever we compare or sort.
+        const ms = (v) => new Date(v).getTime();
+        const firstUpcoming = events.find((e) => ms(e.startsAt) >= Date.now());
+        const state = {
+            month: startOfMonth(firstUpcoming ? new Date(firstUpcoming.startsAt) : new Date()),
+            selected: null
+        };
+
+        function dayIndex() {
+            const idx = {};
+            const bucket = (k) => (idx[k] || (idx[k] = { events: [], newPilots: [] }));
+            events.forEach((e) => bucket(dayKeyOf(e.startsAt)).events.push(e));
+            newPilots.forEach((p) => { if (p.joinedAt) bucket(dayKeyOf(p.joinedAt)).newPilots.push(p); });
+            return idx;
+        }
+
+        function eventRowHTML(e) {
+            const d = new Date(e.startsAt);
+            const mon = d.toLocaleDateString(undefined, { month: 'short' });
+            const time = fmtT(e.startsAt) + (e.endsAt ? ' – ' + fmtT(e.endsAt) : '');
+            const meta = [e.route ? '✈ ' + esc(e.route) : '', e.server ? esc(e.server) : ''].filter(Boolean).join(' · ');
+            const color = EVENT_TYPE_COLORS[e.type] || EVENT_TYPE_COLORS.other;
+            return `<div class="va-ev">
+                <div class="va-ev-date"><span class="m">${esc(mon)}</span><span class="d">${d.getDate()}</span></div>
+                <div class="va-ev-main">
+                    <div class="va-ev-title">${esc(e.title)} <span class="va-ev-chip" style="background:${color}">${esc(EVENT_TYPE_LABELS[e.type] || 'Event')}</span></div>
+                    <div class="va-ev-time">${esc(time)}</div>
+                    ${meta ? `<div class="va-ev-meta">${meta}</div>` : ''}
+                    ${e.description ? `<div class="va-ev-desc">${esc(e.description)}</div>` : ''}
+                    ${e.link ? `<a class="va-ev-link" href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">Details <i class="fa-solid fa-arrow-right"></i></a>` : ''}
+                </div>
+            </div>`;
+        }
+        function pilotChipHTML(p) {
+            return `<div class="va-np-chip" title="${esc(p.username)}${p.rank ? ' · ' + esc(p.rank) : ''}">
+                <span class="va-np-av">${esc(initialsOf(p.username))}</span>
+                <span class="va-np-name">${esc(p.username)}</span>
+            </div>`;
+        }
+        function dayDetailHTML(key, bucket) {
+            const parts = key.split('-');
+            const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+            const dateLabel = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+            const evs = bucket.events.slice().sort((a, b) => ms(a.startsAt) - ms(b.startsAt));
+            let inner = evs.map(eventRowHTML).join('');
+            if (bucket.newPilots.length) {
+                inner += `<div class="va-events-sub" style="color:${NEW_PILOT_COLOR}">Joined this day</div>` +
+                    `<div class="va-np-list">${bucket.newPilots.map(pilotChipHTML).join('')}</div>`;
+            }
+            if (!inner) inner = `<div class="va-events-empty">Nothing scheduled.</div>`;
+            return `<div class="va-day-detail"><div class="va-day-date">${esc(dateLabel)}</div>${inner}</div>`;
+        }
+
+        function render() {
+            const idx = dayIndex();
+            const vm = state.month;
+            const monthLabel = vm.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+            const dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+            const firstDow = vm.getDay();
+            const daysInMonth = new Date(vm.getFullYear(), vm.getMonth() + 1, 0).getDate();
+            const todayKey = dayKeyOf(Date.now());
+
+            let cells = '';
+            for (let i = 0; i < 7; i++) cells += `<div class="va-cal-dow">${dows[i]}</div>`;
+            for (let b = 0; b < firstDow; b++) cells += `<div class="va-cal-cell blank"></div>`;
+            for (let day = 1; day <= daysInMonth; day++) {
+                const key = dayKeyOf(new Date(vm.getFullYear(), vm.getMonth(), day).getTime());
+                const bucket = idx[key];
+                let cls = 'va-cal-cell';
+                if (key === todayKey) cls += ' today';
+                if (key === state.selected) cls += ' selected';
+                if (bucket) cls += ' has';
+                let dots = '';
+                if (bucket) {
+                    dots = '<div class="va-cal-dots">' +
+                        bucket.events.slice(0, 4).map((e) =>
+                            `<span class="va-cal-dot" style="background:${EVENT_TYPE_COLORS[e.type] || EVENT_TYPE_COLORS.other}"></span>`).join('') +
+                        (bucket.newPilots.length ? `<span class="va-cal-dot np"></span>` : '') + '</div>';
+                }
+                cells += `<div class="${cls}" data-day="${key}"><span class="dn">${day}</span>${dots}</div>`;
+            }
+
+            const present = {};
+            events.forEach((e) => { present[e.type] = true; });
+            let legend = Object.keys(EVENT_TYPE_LABELS).filter((t) => present[t]).map((t) =>
+                `<span><i style="background:${EVENT_TYPE_COLORS[t]}"></i>${EVENT_TYPE_LABELS[t]}</span>`).join('');
+            if (newPilots.length) legend += `<span><i style="background:${NEW_PILOT_COLOR}"></i>New pilot</span>`;
+
+            const detail = (state.selected && idx[state.selected]) ? dayDetailHTML(state.selected, idx[state.selected]) : '';
+
+            const upcoming = events.filter((e) => ms(e.endsAt || e.startsAt) >= Date.now());
+            const upHTML = upcoming.length
+                ? upcoming.slice(0, 8).map(eventRowHTML).join('')
+                : `<div class="va-events-empty">No upcoming events scheduled.</div>`;
+
+            const npHTML = newPilots.length ? `
+                <div class="va-np">
+                    <div class="va-events-h" style="color:${NEW_PILOT_COLOR}"><i class="fa-solid fa-user-plus"></i> New Pilots <span class="va-events-count">${newPilots.length}</span></div>
+                    <div class="va-np-list">${newPilots.slice(0, 16).map(pilotChipHTML).join('')}</div>
+                </div>` : '';
+
+            host.innerHTML = `
+                <div class="va-events-h"><i class="fa-regular fa-calendar"></i> Events${events.length ? ` <span class="va-events-count">${events.length}</span>` : ''}</div>
+                ${events.length ? `
+                <div class="va-cal-nav">
+                    <button data-nav="prev" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span class="va-cal-month">${esc(monthLabel)}</span>
+                    <span style="display:flex;gap:6px">
+                        <button data-nav="today" class="tbtn">Today</button>
+                        <button data-nav="next" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
+                    </span>
+                </div>
+                <div class="va-cal-grid">${cells}</div>
+                ${legend ? `<div class="va-cal-legend">${legend}</div>` : ''}
+                ${detail}` : ''}
+                <div class="va-events-sub">Upcoming</div>
+                <div class="va-events-list">${upHTML}</div>
+                ${npHTML}`;
+            bind();
+        }
+
+        function bind() {
+            host.querySelectorAll('[data-nav]').forEach((b) => b.addEventListener('click', () => {
+                const dir = b.getAttribute('data-nav');
+                if (dir === 'prev') state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1);
+                else if (dir === 'next') state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1);
+                else { state.month = startOfMonth(new Date()); state.selected = dayKeyOf(Date.now()); }
+                render();
+            }));
+            host.querySelectorAll('.va-cal-cell.has').forEach((c) => c.addEventListener('click', () => {
+                const k = c.getAttribute('data-day');
+                state.selected = (state.selected === k) ? null : k;
+                render();
+            }));
+        }
+
+        render();
     }
 
     function openPartners(adId) {
