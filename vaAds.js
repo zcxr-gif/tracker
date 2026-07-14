@@ -816,6 +816,53 @@
             .va-event-when i { color: #7dd3fc; margin-right: 5px; }
             .va-event-desc { font-size: 0.78rem; color: rgba(255,255,255,0.72); margin-top: 5px; line-height: 1.5; white-space: pre-wrap; }
 
+            /* At-a-glance "Next up" card above the calendar */
+            .va-next-up {
+                width: 100%; box-sizing: border-box; text-align: left; cursor: pointer;
+                display: flex; flex-direction: column; gap: 3px; padding: 11px 14px; margin: 2px 0 10px;
+                border-radius: 12px; color: #fff;
+                background: linear-gradient(135deg, rgba(56,189,248,0.16), rgba(56,189,248,0.04));
+                border: 1px solid rgba(56,189,248,0.35);
+                transition: border-color .15s ease, transform .15s ease;
+            }
+            .va-next-up:hover { border-color: rgba(56,189,248,0.6); transform: translateY(-1px); }
+            .va-next-up.is-live {
+                background: linear-gradient(135deg, rgba(74,222,128,0.18), rgba(74,222,128,0.04));
+                border-color: rgba(74,222,128,0.45);
+            }
+            .va-next-up-eyebrow {
+                font-size: 0.58rem; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
+                color: #7dd3fc; display: inline-flex; align-items: center; gap: 6px;
+            }
+            .va-next-up.is-live .va-next-up-eyebrow { color: #4ade80; }
+            .va-next-up-title { font-size: 0.95rem; font-weight: 800; color: #fff; }
+            .va-next-up-when { font-size: 0.72rem; color: rgba(255,255,255,0.7); }
+
+            /* Pulsing "live" dot, shared by the next-up card, event pills and legend */
+            .va-live-dot {
+                width: 7px; height: 7px; border-radius: 50%; background: #4ade80; flex: 0 0 auto;
+                box-shadow: 0 0 0 0 rgba(74,222,128,0.55); animation: va-live-pulse 1.8s infinite;
+            }
+            @keyframes va-live-pulse {
+                0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.55); }
+                70%  { box-shadow: 0 0 0 7px rgba(74,222,128,0); }
+                100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+            }
+
+            /* Per-event status pill: countdown, or a green "Happening now" */
+            .va-event-status {
+                margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+                font-size: 0.6rem; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+                padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+                background: rgba(56,189,248,0.14); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3);
+            }
+            .va-event-status.va-event-live { background: rgba(74,222,128,0.16); color: #4ade80; border-color: rgba(74,222,128,0.4); }
+            .va-event-row.is-live { border-color: rgba(74,222,128,0.4); }
+
+            /* Calendar day holding a live event */
+            .va-cal-live { background: rgba(74,222,128,0.16) !important; border: 1px solid rgba(74,222,128,0.45) !important; color: #fff; }
+            .va-cal-live .va-cal-dot { background: #4ade80; }
+
             /* ---- Pilot roster ---- */
             .va-roster-search { margin: 2px 0 10px; }
             .va-roster-search input {
@@ -1301,6 +1348,43 @@
         }
     }
 
+    // Whether an event is under way now. The feed only keeps events until ~12h
+    // after they start, so a start time already in the past means it is (almost
+    // certainly) happening right now rather than long over.
+    function isLiveEvent(when) {
+        return when.getTime() <= Date.now();
+    }
+
+    // A short, glanceable countdown: "Happening now" once it has started, else
+    // "in 8m" / "in 5h" / "in 3d" / "in 2w".
+    function relativeWhen(when) {
+        const diff = when.getTime() - Date.now();
+        if (diff <= 0) return 'Happening now';
+        const min = 60000, hr = 60 * min, day = 24 * hr;
+        if (diff < hr) return `in ${Math.max(1, Math.round(diff / min))}m`;
+        if (diff < day) return `in ${Math.round(diff / hr)}h`;
+        if (diff < 14 * day) return `in ${Math.round(diff / day)}d`;
+        return `in ${Math.round(diff / (7 * day))}w`;
+    }
+
+    // The at-a-glance "Next up" card above the calendar — the soonest event
+    // (or the one under way now), with its countdown. Clicking it jumps the
+    // calendar to that event's day. Empty when there are no events.
+    function nextUpHTML(items) {
+        if (!items.length) return '';
+        const it = items[0];
+        const live = isLiveEvent(it.when);
+        const eyebrow = live
+            ? '<span class="va-live-dot"></span> Happening now'
+            : '<i class="fa-regular fa-clock"></i> Next up';
+        return `
+            <button class="va-next-up${live ? ' is-live' : ''}" data-va-nextup type="button" title="Show on calendar">
+                <span class="va-next-up-eyebrow">${eyebrow}</span>
+                <span class="va-next-up-title">${esc(it.title)}</span>
+                <span class="va-next-up-when">${esc(relativeWhen(it.when))} · ${esc(fmtEventTime(it.when))}</span>
+            </button>`;
+    }
+
     function eventRowHTML(it) {
         const link = it.link
             ? `<a class="va-event-link" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer" title="Open event link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
@@ -1312,8 +1396,13 @@
             ? `<img class="va-event-banner" src="${esc(it.banner)}" alt="${esc(it.title)}" loading="lazy" decoding="async" onerror="this.style.display='none'">`
             : '';
         const dep = it.dep ? `<span class="va-event-dep"><i class="fa-solid fa-plane-departure"></i>${esc(it.dep)}</span>` : '';
+        // Live badge once it has started, otherwise a countdown chip.
+        const live = isLiveEvent(it.when);
+        const status = live
+            ? `<span class="va-event-status va-event-live"><span class="va-live-dot"></span>Happening now</span>`
+            : `<span class="va-event-status">${esc(relativeWhen(it.when))}</span>`;
         return `
-            <div class="va-event-row${it.banner ? ' va-event-has-banner' : ''}">
+            <div class="va-event-row${it.banner ? ' va-event-has-banner' : ''}${live ? ' is-live' : ''}">
                 ${banner}
                 <div class="va-event-body">
                     <div class="va-event-date">
@@ -1321,7 +1410,7 @@
                         <span class="va-event-day">${it.when.getDate()}</span>
                     </div>
                     <div class="va-event-main">
-                        <div class="va-event-title">${esc(it.title)}${link}</div>
+                        <div class="va-event-title">${esc(it.title)}${link}${status}</div>
                         <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}${dep}</div>
                         ${it.description ? `<div class="va-event-desc">${esc(it.description)}</div>` : ''}
                     </div>
@@ -1335,6 +1424,10 @@
         const startWeekday = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
 
+        // Days that hold an event under way right now get a live accent.
+        const liveDays = new Set();
+        byDay.forEach((evs, k) => { if (evs.some((e) => isLiveEvent(e.when))) liveDays.add(k); });
+
         let cells = '';
         for (let i = 0; i < startWeekday; i++) cells += `<div class="va-cal-cell va-cal-empty"></div>`;
         for (let d = 1; d <= daysInMonth; d++) {
@@ -1342,6 +1435,7 @@
             const has = byDay.has(k);
             const cls = ['va-cal-cell'];
             if (has) cls.push('va-cal-has');
+            if (liveDays.has(k)) cls.push('va-cal-live');
             if (k === todayKey) cls.push('va-cal-today');
             if (k === selected) cls.push('va-cal-selected');
             cells += `<div class="${cls.join(' ')}"${has ? ` data-va-cal-day="${k}" role="button" tabindex="0" title="${byDay.get(k).length} event${byDay.get(k).length === 1 ? '' : 's'}"` : ''}><span class="va-cal-num">${d}</span>${has ? '<span class="va-cal-dot"></span>' : ''}</div>`;
@@ -1358,6 +1452,7 @@
                 <h4>Events</h4>
                 <span class="va-fleet-count">${items.length ? items.length + ' upcoming' : ''}</span>
             </div>
+            ${nextUpHTML(items)}
             <div class="va-cal">
                 <div class="va-cal-head">
                     <button class="va-cal-nav" data-va-cal-nav="-1" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
@@ -1426,6 +1521,17 @@
             });
             const clear = container.querySelector('.va-cal-clear');
             if (clear) clear.addEventListener('click', () => { state.selected = null; draw(); });
+            // "Next up" jumps the calendar to that event's month + day.
+            const nextBtn = container.querySelector('[data-va-nextup]');
+            if (nextBtn && items.length) {
+                nextBtn.addEventListener('click', () => {
+                    const it = items[0];
+                    state.year = it.when.getFullYear();
+                    state.month = it.when.getMonth();
+                    state.selected = dayKey(it.when);
+                    draw();
+                });
+            }
         };
         draw();
     }
