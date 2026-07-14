@@ -43,6 +43,17 @@
         return /^https?:\/\//i.test(s) ? s : '';
     }
 
+    // A VA/event banner as an <img>, never a CSS background paint. bannerUrl is
+    // always .webp and an animated upload comes back as ANIMATED WebP — it plays
+    // by itself inside an <img>, but a frame painted into a background-image
+    // would freeze on frame 1. The class sizes/crops it; a broken URL hides the
+    // element so the slot collapses instead of showing a gap.
+    function bannerImgHTML(url, cls, alt) {
+        return url
+            ? `<img class="${cls}" src="${esc(url)}" alt="${esc(alt || '')}" loading="lazy" decoding="async" onerror="this.style.display='none'">`
+            : '';
+    }
+
     // A callsign with all separators removed, upper-cased — "Air Canada 001VA"
     // → "AIRCANADA001VA", "Ocean XXVA" → "OCEANXXVA".
     //
@@ -453,7 +464,7 @@
             .va-ad-full:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-1px); }
             .va-ad-full-img { display: block; width: 100%; height: auto; transition: opacity .25s ease; }
             .va-ad-full .va-ad-dots { padding-top: 8px; }
-            .va-ad-feature-banner { height: 84px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
+            .va-ad-feature-banner { display: block; width: 100%; height: 84px; object-fit: cover; background-color: rgba(56,189,248,0.08); }
             .va-ad-feature-body { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; }
             .va-ad-feature-meta { min-width: 0; flex: 1; }
             .va-ad-feature .va-ad-name { white-space: normal; }
@@ -593,7 +604,10 @@
             }
             .va-ad-card .va-ad-card-body { flex: 1 1 auto; }
             .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
-            .va-ad-card-banner { height: 92px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
+            /* No explicit display: it's a flex child of .va-ad-card (so already
+               block-level, no inline gap) and the mobile rule below hides it
+               with display:none — setting display here would override that. */
+            .va-ad-card-banner { width: 100%; height: 92px; object-fit: cover; background-color: rgba(56,189,248,0.08); }
             .va-ad-card-body { padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
             .va-ad-card-body .va-ad-logo { width: 40px; height: 40px; }
             .va-ad-card-title { font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -601,7 +615,7 @@
             .va-ad-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
             .va-ad-chip { font-size: 0.62rem; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); border-radius: 999px; padding: 2px 8px; }
 
-            .va-ad-detail-banner { height: 140px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); border-radius: 14px; }
+            .va-ad-detail-banner { display: block; width: 100%; height: 140px; object-fit: cover; background-color: rgba(56,189,248,0.1); border-radius: 14px; }
             .va-ad-detail h3 { color: #fff; font-size: 1.2rem; font-weight: 800; margin: 14px 0 4px; }
             .va-ad-detail p.desc { color: rgba(255,255,255,0.75); font-size: 0.88rem; line-height: 1.55; white-space: pre-wrap; }
             .va-ad-detail .va-ad-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
@@ -945,7 +959,7 @@
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
         const chips = (ad.tags || []).slice(0, 3).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
         return `
-            ${ad.banner ? `<div class="va-ad-feature-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+            ${bannerImgHTML(ad.banner, 'va-ad-feature-banner', ad.name)}
             <div class="va-ad-feature-body">
                 ${logo}
                 <div class="va-ad-feature-meta">
@@ -1218,7 +1232,7 @@
         const chips = (ad.tags || []).slice(0, 4).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
         return `
             <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
-                ${ad.banner ? `<div class="va-ad-card-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+                ${bannerImgHTML(ad.banner, 'va-ad-card-banner', ad.name)}
                 <div class="va-ad-card-body">
                     ${logo}
                     <div style="min-width:0; flex:1;">
@@ -1544,7 +1558,7 @@
             body.innerHTML = `
                 <div class="va-ad-detail">
                     <button class="va-ad-back"><i class="fa-solid fa-arrow-left"></i> All partners</button>
-                    ${ad.banner ? `<div class="va-ad-detail-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+                    ${bannerImgHTML(ad.banner, 'va-ad-detail-banner', ad.name)}
                     <div class="va-detail-head">
                         ${logo}
                         <div class="va-detail-titles">
