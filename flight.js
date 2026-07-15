@@ -9833,88 +9833,6 @@ function ensureVaFilterAd() {
 
 window.setVaFilter = setVaFilter;
 
-// Render the "Filter Map by VA" list into #va-filter-list, auto-populated from
-// the VA directory and reflecting the current focus. Single-select: a row
-// focuses the map on that VA; the "All aircraft" row clears it.
-function renderVaFilterList(filterText) {
-    const listEl = document.getElementById('va-filter-list');
-    if (!listEl) return;
-    injectVaFilterStyles();
-    const VA = window.InflightVaAds;
-    const escVa = (s) => String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-    const paint = () => {
-        let ads = (VA && VA.allPartners ? VA.allPartners() : []).slice();
-        const q = String(filterText || '').trim().toLowerCase();
-        if (q) ads = ads.filter(a =>
-            String(a.name || '').toLowerCase().includes(q) ||
-            String(a.callsign || '').toLowerCase().includes(q) ||
-            String(a.region || '').toLowerCase().includes(q));
-        ads.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-        const activeId = mapFilters.vaFilterId ? String(mapFilters.vaFilterId) : '';
-        const row = (ad) => {
-            const on = String(ad.id) === activeId;
-            const logo = ad.logo
-                ? `<img class="va-filter-logo" src="${escVa(ad.logo)}" alt="" onerror="this.style.display='none'">`
-                : `<span class="va-filter-logo va-filter-logo-fb">${escVa(String(ad.name || '?').slice(0, 2).toUpperCase())}</span>`;
-            const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
-            return `<button type="button" class="va-filter-row${on ? ' active' : ''}" data-va-filter-id="${escVa(ad.id)}">
-                ${logo}
-                <span class="va-filter-meta"><span class="va-filter-name">${escVa(ad.name)}</span>${sub ? `<span class="va-filter-sub">${escVa(sub)}</span>` : ''}</span>
-                <i class="fa-solid fa-check va-filter-check"></i>
-            </button>`;
-        };
-        listEl.innerHTML =
-            `<button type="button" class="va-filter-row va-filter-all${activeId ? '' : ' active'}" data-va-filter-id="">
-                <span class="va-filter-logo va-filter-logo-fb"><i class="fa-solid fa-globe"></i></span>
-                <span class="va-filter-meta"><span class="va-filter-name">All aircraft</span><span class="va-filter-sub">No VA filter</span></span>
-                <i class="fa-solid fa-check va-filter-check"></i>
-            </button>` +
-            (ads.length ? ads.map(row).join('') : `<div class="va-filter-empty">${q ? 'No VAs match your search.' : 'No virtual airlines available yet.'}</div>`);
-        listEl.querySelectorAll('[data-va-filter-id]').forEach(el => {
-            el.addEventListener('click', () => {
-                const id = el.getAttribute('data-va-filter-id') || null;
-                setVaFilter(id);
-                renderVaFilterList(filterText);   // repaint so the tick moves
-            });
-        });
-    };
-
-    if (VA && VA.loadDirectory) {
-        if (!(VA.allPartners && VA.allPartners().length)) {
-            listEl.innerHTML = `<div class="va-filter-empty">Loading virtual airlines…</div>`;
-        }
-        VA.loadDirectory().then(paint).catch(paint);
-    } else {
-        listEl.innerHTML = `<div class="va-filter-empty">VA directory unavailable.</div>`;
-    }
-}
-
-function injectVaFilterStyles() {
-    if (document.getElementById('va-filter-styles')) return;
-    const s = document.createElement('style');
-    s.id = 'va-filter-styles';
-    s.textContent = `
-        .va-filter-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; }
-        .va-filter-row { display:flex; align-items:center; gap:10px; width:100%; text-align:left; cursor:pointer;
-            padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.03);
-            border:1px solid rgba(255,255,255,0.08); color:#e4e4e7; font:inherit; transition:border-color .15s ease, background .15s ease; }
-        .va-filter-row:hover { border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.06); }
-        .va-filter-row.active { border-color:rgba(56,189,248,0.6); background:rgba(56,189,248,0.12); }
-        .va-filter-logo { width:28px; height:28px; border-radius:7px; object-fit:cover; flex:0 0 auto;
-            background:rgba(255,255,255,0.08); display:grid; place-items:center; }
-        .va-filter-logo-fb { font-size:0.62rem; font-weight:800; color:#7dd3fc; }
-        .va-filter-meta { min-width:0; flex:1; display:flex; flex-direction:column; }
-        .va-filter-name { font-size:0.85rem; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .va-filter-sub { font-size:0.7rem; color:#a1a1aa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .va-filter-check { color:#38bdf8; opacity:0; flex:0 0 auto; }
-        .va-filter-row.active .va-filter-check { opacity:1; }
-        .va-filter-empty { color:#71717a; font-size:0.8rem; text-align:center; padding:16px 8px; }
-    `;
-    document.head.appendChild(s);
-}
 
 // Floating compass button: appears only when the map has been rotated or
 // tilted (e.g. an accidental two-finger twist) and snaps the view back to
@@ -16466,17 +16384,6 @@ renderCategory(catId) {
                         </div>
 
                         <div class="settings-section">
-                            <label class="config-header">Filter Map by VA</label>
-                            <input type="text" id="va-filter-search" class="settings-text-input" placeholder="Search virtual airlines…" autocomplete="off" style="width:100%; box-sizing:border-box; margin-bottom:8px;">
-                            <div id="va-filter-list" class="va-filter-list"><div class="va-filter-empty">Loading virtual airlines…</div></div>
-                            <p style="margin: 8px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
-                                Focus the live map on a single VA — every other aircraft is hidden. This
-                                list fills in automatically as VAs are added. A pilot counts when their
-                                callsign carries the VA's tag (…VA) or they're on that VA's roster.
-                            </p>
-                        </div>
-
-                        <div class="settings-section">
                             <label class="config-header">Discover</label>
                             <button id="set-open-va-partners" class="modal-btn secondary" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
                                 <i class="fa-solid fa-handshake-angle"></i> Browse VA Partners
@@ -16701,21 +16608,6 @@ renderCategory(catId) {
             });
         }
 
-        // Filter Map by VA — a single-select list that auto-fills from the VA
-        // directory. Picking a VA focuses the map on it (setVaFilter); "All
-        // aircraft" clears the focus.
-        const vaFilterListEl = document.getElementById('va-filter-list');
-        if (vaFilterListEl) {
-            const vaFilterSearch = document.getElementById('va-filter-search');
-            let vaFilterSearchTimer = 0;
-            if (vaFilterSearch) {
-                vaFilterSearch.addEventListener('input', () => {
-                    clearTimeout(vaFilterSearchTimer);
-                    vaFilterSearchTimer = setTimeout(() => renderVaFilterList(vaFilterSearch.value), 200);
-                });
-            }
-            renderVaFilterList('');
-        }
 
         // 3D Traffic View — routed through the shared toggle so the map toolbar
         // button stays in sync (it's not a plain mapFilters flag like the rest).
@@ -24140,14 +24032,22 @@ async function initializeApp() {
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch } = e.detail;
-            
+
             // Store incoming tactical filters into global state
             mapFilters.tactical = filters;
             mapFilters.quickSearch = quickSearch;
 
             // Handle boolean group toggle
             mapFilters.showGroupFlights = !!filters.group;
-            
+
+            // Single-VA focus rule from the Tactical Filters modal. LandingUI
+            // seeds the rule from the persisted focus (init + modal open), so
+            // an absent/empty 'va' here genuinely means "no VA focus" — e.g.
+            // the rule was trashed or Reset was hit. Only act on a change so
+            // unrelated filter edits don't re-resolve the VA/roster.
+            const wantVa = filters.va ? String(filters.va) : null;
+            if (wantVa !== (mapFilters.vaFilterId || null)) setVaFilter(wantVa);
+
             // Run the filter update logic
             updateMapFilters();
         });

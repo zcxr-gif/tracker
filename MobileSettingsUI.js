@@ -436,12 +436,6 @@ export const MobileSettingsUI = {
                             <div class="m-settings-list">
                                 ${this.renderToggle('showVaHubMarkers', 'VA Hub Markers', 'fa-handshake-angle')}
                             </div>
-                            <div class="m-va-filter-block">
-                                <div class="m-va-filter-label">Filter Map by VA</div>
-                                <input type="text" class="m-va-filter-search" placeholder="Search virtual airlines…" autocomplete="off">
-                                <div class="m-va-filter-list" id="m-va-filter-list"><div class="m-va-filter-empty">Loading virtual airlines…</div></div>
-                                <p class="m-va-filter-hint">Focus the live map on a single VA — every other aircraft is hidden. This list fills in as VAs are added; a pilot counts by their callsign tag (…VA) or the VA's roster.</p>
-                            </div>
 
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">
@@ -531,6 +525,13 @@ export const MobileSettingsUI = {
                 ${this.renderToggle('showVaOnly', 'VA Members Only', 'fa-star')}
                 ${this.renderToggle('showGroupFlights', 'Show Group Flights', 'fa-users')}
                 ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
+            </div>
+
+            <div class="mobile-section-header">Virtual Airline</div>
+            <div class="m-va-filter-block">
+                <input type="text" class="m-va-filter-search" placeholder="Search virtual airlines…" autocomplete="off">
+                <div class="m-va-filter-list" id="m-va-filter-list"><div class="m-va-filter-empty">Loading virtual airlines…</div></div>
+                <p class="m-va-filter-hint">Focus the live map on a single VA — every other aircraft is hidden. This list fills in as VAs are added; a pilot counts by their callsign tag (…VA) or the VA's roster.</p>
             </div>
 
             <div class="mobile-section-header">Aircraft &amp; Airline</div>
@@ -1022,6 +1023,7 @@ export const MobileSettingsUI = {
                     const id = el.getAttribute('data-va-filter-id') || null;
                     if (typeof window.setVaFilter === 'function') window.setVaFilter(id);
                     this.renderVaFilterListMobile(sheet, filterText);   // repaint so the tick moves
+                    this.updateFilterBadge();                           // it counts as an active rule
                 });
             });
         };
@@ -1326,6 +1328,8 @@ export const MobileSettingsUI = {
         });
         // Airport-proximity filter counts as one active rule.
         if (t.airportRadius && t.airportRadius.icao && t.airportRadius.radiusNm) n++;
+        // Single-VA map focus counts as one active rule.
+        if (window.mapFilters && window.mapFilters.vaFilterId) n++;
         return n;
     },
 
@@ -1358,6 +1362,11 @@ export const MobileSettingsUI = {
 
     resetTacticalFilters(root) {
         if (window.mapFilters) window.mapFilters.tactical = {};
+        // The single-VA focus lives on the board too now, so Reset clears it
+        // with everything else (setVaFilter persists + re-runs the map filter).
+        if (window.mapFilters && window.mapFilters.vaFilterId && typeof window.setVaFilter === 'function') {
+            window.setVaFilter(null);
+        }
         const container = root || document.getElementById('mobile-tactical-nexus');
         if (container) {
             container.querySelectorAll('.m-combo-input').forEach(i => { i.value = ''; });
@@ -1366,6 +1375,7 @@ export const MobileSettingsUI = {
                 p.classList.toggle('active', p.dataset.value === '');
             });
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
+            if (container.querySelector('.m-va-filter-block')) this.renderVaFilterListMobile(container, '');
         }
         if (window.updateMapFilters) window.updateMapFilters();
         // Flush to the cloud immediately (not via the debounce) so a reset
@@ -1402,6 +1412,10 @@ export const MobileSettingsUI = {
     attachTacticalHandlers(root) {
         if (!root || root.dataset.tacticalBound === '1') return;
         root.dataset.tacticalBound = '1';
+
+        // Filter Map by VA — single-select list, auto-populated from the VA
+        // directory. Drives the shared window.setVaFilter (flight.js).
+        this.attachVaFilter(root);
 
         // Traffic quick toggles (write mapFilters[setting] directly).
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
@@ -1547,6 +1561,12 @@ export const MobileSettingsUI = {
         const filters = window.mapFilters || {};
         const tactical = filters.tactical || {};
 
+        // Repaint the VA picker so its tick reflects the current focus (it can
+        // change elsewhere — e.g. a reset — between sheet openings).
+        if (root.querySelector && root.querySelector('.m-va-filter-block')) {
+            this.renderVaFilterListMobile(root, '');
+        }
+
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
             input.checked = !!filters[input.dataset.setting];
         });
@@ -1653,10 +1673,6 @@ export const MobileSettingsUI = {
 
         // ATC Tag Studio controls (write into mapFilters.atcTagConfig).
         this.attachAtcTagHandlers(sheet);
-
-        // Filter Map by VA — single-select list, auto-populated from the VA
-        // directory. Shares window.setVaFilter with the desktop settings tab.
-        this.attachVaFilter(sheet);
 
         // Checkbox Listener (skips label-field and ATC-tag rows, handled separately)
         sheet.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input):not(.m-atc-input)').forEach(input => {
@@ -2201,9 +2217,8 @@ export const MobileSettingsUI = {
 
                 .m-settings-list { padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
 
-                /* Filter Map by VA (mobile) */
+                /* Filter Map by VA (Filters tab) */
                 .m-va-filter-block { padding: 8px 20px 0; }
-                .m-va-filter-label { font-size: 0.72rem; font-weight: 800; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.6px; margin: 4px 2px 8px; }
                 .m-va-filter-search {
                     width: 100%; box-sizing: border-box; padding: 11px 13px; border-radius: 12px;
                     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
