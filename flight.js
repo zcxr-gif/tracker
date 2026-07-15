@@ -10979,6 +10979,9 @@ function handleSocketFlightUpdate(data) {
                     if (source) {
                         const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
                         source.setData(newRouteData);
+                        // Progress fractions shift as the line grows — re-apply
+                        // the altitude gradient against the new geometry.
+                        applyFlownPathGradient(layerId, newRouteData);
                     }
                 }
             }
@@ -11015,9 +11018,11 @@ function handleSocketFlightUpdate(data) {
             const flownLayerId = `flown-path-${flightId}`;
 
             if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
+                // Same gradient-line generator as the focused flight so pinned
+                // trails colour and update identically.
                 const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
                 sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
+                applyFlownPathGradient(flownLayerId, newPinnedRouteData);
             }
 
             // Update Mini Card Stats
@@ -18128,11 +18133,11 @@ if (flightProps) {
     const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
     const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-    sectorOpsMap.addSource(`flown-path-${flightId}`, { 
-        type: 'geojson', 
+    sectorOpsMap.addSource(`flown-path-${flightId}`, {
+        type: 'geojson',
         data: routeFeature,
-        lineMetrics: true, // CRITICAL for gradients
-        tolerance: 0       // Don't simplify segments away at low zoom
+        lineMetrics: true, // CRITICAL for the line-gradient altitude colouring
+        tolerance: 0       // Don't simplify the path away at low zoom
     });
 
     sectorOpsMap.addLayer({
@@ -18146,19 +18151,12 @@ if (flightProps) {
                 paint: {
                     'line-width': 4,
                     'line-opacity': 1,
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'altitude'],
-                        0, '#94a3b8',       // Ground / Taxi / Parked (Grey)
-                        3000, '#c084fc',    // Approach / Initial Climb (Purple)
-                        12000, '#f59e0b',   // Lower Descent / Climb (Orange)
-                        20000, '#10b981',   // Climb / High Descent (Green)
-                        30000, '#38bdf8',   // Cruise (Blue)
-                        45000, '#0284c7'    // High Cruise (Darker Blue)
-                    ]
+                    // Solid fallback — the altitude line-gradient applied just
+                    // below overrides this whenever the trail supports one.
+                    'line-color': '#38bdf8'
                 }
             }, getUnderAircraftAnchor());
+    applyFlownPathGradient(`flown-path-${flightId}`, routeFeature);
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -19062,8 +19060,72 @@ function appendTrailPoint(localTrail, newRoutePoint) {
     return true;
 }
 
+// Altitude → colour palette for the flown path (same stops the old
+// per-segment 'interpolate' paint used). Shared by flownAltColor() so the
+// line-gradient renders identical colours to the previous approach.
+const FLOWN_PATH_ALT_STOPS = [
+    [0,     [148, 163, 184]], // #94a3b8 Ground / Taxi / Parked (Grey)
+    [3000,  [192, 132, 252]], // #c084fc Approach / Initial Climb (Purple)
+    [12000, [245, 158, 11]],  // #f59e0b Lower Descent / Climb (Orange)
+    [20000, [16, 185, 129]],  // #10b981 Climb / High Descent (Green)
+    [30000, [56, 189, 248]],  // #38bdf8 Cruise (Blue)
+    [45000, [2, 132, 199]]    // #0284c7 High Cruise (Darker Blue)
+];
+
+function flownAltColor(alt) {
+    const s = FLOWN_PATH_ALT_STOPS;
+    const a = Number.isFinite(alt) ? alt : 0;
+    if (a <= s[0][0]) return `rgb(${s[0][1][0]},${s[0][1][1]},${s[0][1][2]})`;
+    for (let i = 1; i < s.length; i++) {
+        if (a <= s[i][0]) {
+            const t = (a - s[i - 1][0]) / (s[i][0] - s[i - 1][0]);
+            const c0 = s[i - 1][1], c1 = s[i][1];
+            return `rgb(${Math.round(c0[0] + (c1[0] - c0[0]) * t)},${Math.round(c0[1] + (c1[1] - c0[1]) * t)},${Math.round(c0[2] + (c1[2] - c0[2]) * t)})`;
+        }
+    }
+    const last = s[s.length - 1][1];
+    return `rgb(${last[0]},${last[1]},${last[2]})`;
+}
+
+// Build the 'line-gradient' expression that paints the single flown-path
+// LineString by altitude. Progress along the line is cumulative planar
+// distance (lon scaled by cos(lat) so high-latitude legs aren't stretched);
+// stops are downsampled to ≤96 so the expression stays small no matter how
+// long the flight is — altitude changes far slower than the point spacing,
+// so nothing visible is lost. Returns null when the geometry is degenerate.
+function buildFlownPathGradient(points) {
+    if (!points || points.length < 2) return null;
+    const cum = new Array(points.length);
+    cum[0] = 0;
+    for (let i = 1; i < points.length; i++) {
+        const midLat = ((points[i].lat + points[i - 1].lat) / 2) * Math.PI / 180;
+        const dx = (points[i].unwrappedLon - points[i - 1].unwrappedLon) * Math.cos(midLat);
+        const dy = points[i].lat - points[i - 1].lat;
+        cum[i] = cum[i - 1] + Math.sqrt(dx * dx + dy * dy);
+    }
+    const total = cum[points.length - 1];
+    if (!(total > 0)) return null;
+
+    // stride sized so interior stops (< length-1) number ≤95; +1 final = ≤96.
+    const stride = Math.max(1, Math.ceil(points.length / 95));
+    const idxs = [];
+    for (let i = 0; i < points.length - 1; i += stride) idxs.push(i);
+    idxs.push(points.length - 1);
+
+    const expr = ['interpolate', ['linear'], ['line-progress']];
+    let prevProgress = -1;
+    for (const idx of idxs) {
+        const progress = idx === 0 ? 0 : (idx === points.length - 1 ? 1 : cum[idx] / total);
+        // line-progress stops must be strictly ascending.
+        if (progress <= prevProgress + 1e-6) continue;
+        expr.push(progress, flownAltColor(points[idx].alt));
+        prevProgress = progress;
+    }
+    // An interpolate expression needs at least two stops (3 header + 2×2).
+    return expr.length >= 7 ? expr : null;
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
-    const features = [];
     const allPoints = [...(trailPoints || [])];
 
     // The trail history (route API) and the live position (flight feed) come
@@ -19127,28 +19189,39 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         ? generateSmoothPath(unwrappedPoints, 0.5)
         : unwrappedPoints;
 
-    // Create a distinct LineString feature for EVERY segment so each can be colored
-    // by its own altitude property via the layer's interpolate expression.
-    for (let i = 0; i < smoothedPoints.length - 1; i++) {
-        const p1 = smoothedPoints[i];
-        const p2 = smoothedPoints[i + 1];
-
-        features.push({
+    // ONE continuous LineString, coloured along its length by a line-gradient
+    // (see buildFlownPathGradient). The old approach — a distinct 2-point
+    // feature per smoothed segment, coloured via a per-feature altitude
+    // property — fell apart when zoomed out: tens of thousands of sub-pixel
+    // features collapse in the tile pipeline into beads and gaps, and every
+    // trail tick re-tiled the whole swarm. A single feature renders with
+    // proper joins at every zoom and tiles in one pass. The gradient
+    // expression rides along as a foreign member (__altGradient — valid
+    // GeoJSON, ignored by Mapbox) so callers can apply it to the layer via
+    // applyFlownPathGradient after setData.
+    const coordinates = smoothedPoints.map(p => [p.unwrappedLon, p.lat]);
+    const fc = {
+        type: 'FeatureCollection',
+        features: [{
             type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: [
-                    [p1.unwrappedLon, p1.lat],
-                    [p2.unwrappedLon, p2.lat]
-                ]
-            },
-            properties: {
-                altitude: p1.alt
-            }
-        });
-    }
+            geometry: { type: 'LineString', coordinates },
+            properties: {}
+        }]
+    };
+    fc.__altGradient = buildFlownPathGradient(smoothedPoints);
+    return fc;
+}
 
-    return { type: 'FeatureCollection', features: features };
+// Apply the altitude gradient carried on a flown-path FeatureCollection to
+// its layer. line-gradient needs the source created with lineMetrics: true;
+// when the gradient couldn't be built (degenerate trail) the layer's solid
+// line-color fallback shows instead. Never fatal.
+function applyFlownPathGradient(layerId, routeData) {
+    if (!sectorOpsMap || !routeData || !routeData.__altGradient) return;
+    if (!sectorOpsMap.getLayer || !sectorOpsMap.getLayer(layerId)) return;
+    try {
+        sectorOpsMap.setPaintProperty(layerId, 'line-gradient', routeData.__altGradient);
+    } catch (_) { /* solid line-color fallback still renders */ }
 }
 
 /**
@@ -19472,10 +19545,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
-                data: initialRouteData, // Feed it the FeatureCollection segments
-                tolerance: 0            // Don't simplify segments away at low zoom
+                data: initialRouteData, // Single gradient-coloured LineString
+                lineMetrics: true,      // CRITICAL for the line-gradient colouring
+                tolerance: 0            // Don't simplify the path away at low zoom
             });
-            
+
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
@@ -19487,19 +19561,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 paint: {
                     'line-width': 3,
                     'line-opacity': 1,
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'altitude'],
-                        0, '#94a3b8',       
-                        3000, '#c084fc',    
-                        12000, '#f59e0b',   
-                        20000, '#10b981',   
-                        30000, '#38bdf8',   
-                        45000, '#0284c7'    
-                    ]
+                    // Solid fallback — the altitude line-gradient applied just
+                    // below overrides this whenever the trail supports one.
+                    'line-color': '#38bdf8'
                 }
             }, getUnderAircraftAnchor());
+            applyFlownPathGradient(flownLayerId, initialRouteData);
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
