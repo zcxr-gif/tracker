@@ -369,6 +369,75 @@
         return lt.length > tag.length && lt.endsWith(tag);
     }
 
+    // ---------------------------------------------------------------------
+    // VA membership for the live-map "filter to one VA" feature. A plane counts
+    // for a VA when EITHER its callsign carries that VA's suffix tag OR the pilot
+    // is on the VA's registered roster. The one exception is the generic "VA"
+    // tag: countless VAs share it, so matching on it alone would lump every
+    // "###VA" pilot together — for those we keep the default behaviour (the
+    // leading airline word must resolve to THIS VA, via matchCallsign), which is
+    // exactly how the rest of the tracker already decides membership.
+    // ---------------------------------------------------------------------
+
+    // Does the callsign's flight-number token end in `tag` (e.g. "Indonesia 77GG"
+    // carries "GG")? Mirrors isCallsignMember's tag test, minus the airline-name
+    // requirement — the suffix alone is enough for a distinctive tag.
+    function callsignHasTag(callsign, tag) {
+        const lt = lastToken(callsign);
+        if (!lt || !tag) return false;
+        return lt.length > tag.length && lt.endsWith(tag);
+    }
+
+    // Per-VA roster cache. ensureRoster(adId) pulls the public roster once and
+    // remembers the lower-cased usernames; rosterHas() is the synchronous lookup
+    // the map's per-feature tagging calls. Both fail soft to "no roster".
+    const rosterSets = new Map();     // adId -> Set(usernameLower) once resolved
+    const rosterPromises = new Map(); // adId -> in-flight fetch promise
+
+    function ensureRoster(adId) {
+        const id = String(adId || '');
+        if (!id) return Promise.resolve(new Set());
+        if (rosterSets.has(id)) return Promise.resolve(rosterSets.get(id));
+        if (rosterPromises.has(id)) return rosterPromises.get(id);
+        const p = (async () => {
+            const set = new Set();
+            try {
+                // limit is capped at 2000 server-side — one page covers any roster.
+                const res = await pilots(id, { limit: 2000 });
+                (res.pilots || []).forEach((pl) => {
+                    const u = String(pl.username || '').trim().toLowerCase();
+                    if (u) set.add(u);
+                });
+            } catch (e) { /* keep the empty set — matching falls back to the tag */ }
+            rosterSets.set(id, set);
+            return set;
+        })();
+        rosterPromises.set(id, p);
+        return p;
+    }
+
+    function rosterHas(adId, usernameLower) {
+        const s = rosterSets.get(String(adId || ''));
+        return !!(s && usernameLower && s.has(usernameLower));
+    }
+
+    // The map filter's membership test for one VA. Synchronous — roster hits only
+    // resolve once ensureRoster(ad.id) has run (the caller warms it, then re-tags).
+    function vaFilterMember(callsign, username, ad) {
+        if (!ad) return false;
+        const uname = String(username || '').trim().toLowerCase();
+        if (uname && rosterHas(ad.id, uname)) return true;
+        const tag = vaTag(ad) || 'VA';
+        if (tag === 'VA') {
+            // Generic tag → the leading airline word must resolve to THIS VA and
+            // the callsign must carry the tag (the tracker's default behaviour).
+            const hit = matchCallsign(callsign);
+            return !!hit && String(hit.id) === String(ad.id) && isCallsignMember(callsign, hit);
+        }
+        // Distinctive tag → the suffix alone identifies the VA.
+        return callsignHasTag(callsign, tag);
+    }
+
     // All partner ads hubbed at an airport (from the cached roster — no extra
     // request). Used to flag airports in search results.
     function partnersForIcao(icao) {
@@ -1783,6 +1852,9 @@
         closePartners,
         matchCallsign,
         isCallsignMember,
+        vaFilterMember,
+        ensureRoster,
+        rosterHas,
         callsignBadgeHTML,
         partnersForIcao,
         allPartners,

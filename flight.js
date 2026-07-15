@@ -680,6 +680,11 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
+        // Focus the live map on a single VA: only planes that belong to this VA
+        // ad id are shown (membership = its callsign suffix tag OR its roster;
+        // see vaAds.js vaFilterMember). null = no VA focus. Set via setVaFilter()
+        // from Settings → VA.
+        vaFilterId: null,
         // Opt-in: drop partner VA logos on their hub airports on the live map.
         // Off by default; toggled from Settings → VA. See renderVaHubMarkers().
         showVaHubMarkers: false,
@@ -763,6 +768,13 @@ let mapFilters = {
         // as their ICAO letters. See renderPingedAirportMarkers().
         pingedAirports: []
     };
+
+    // The resolved VA ad the map is currently focused on (its callsign + tag,
+    // for vaFilterMember). Kept alongside mapFilters.vaFilterId; the id persists,
+    // this object is re-resolved on load. vaFilterResolving guards the lazy
+    // restore so it doesn't re-trigger itself. See setVaFilter().
+    let vaFilterAd = null;
+    let vaFilterResolving = false;
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
     window.updateMapFilters = updateMapFilters;
@@ -9753,6 +9765,157 @@ function retagAirportRadius() {
     }
 }
 
+// ── Single-VA map focus ─────────────────────────────────────────────────────
+// __vaMatch is the per-feature keep/drop tag for the VA focus, mirroring
+// __inRadius: 1 = show (or no VA focus active), 0 = not this VA. Membership is
+// decided in vaAds.js (callsign suffix tag OR the VA's roster).
+function computeVaMatch(callsign, username) {
+    if (!vaFilterAd) return 1;   // no VA focus → keep every plane
+    const VA = window.InflightVaAds;
+    return (VA && VA.vaFilterMember && VA.vaFilterMember(callsign, username, vaFilterAd)) ? 1 : 0;
+}
+
+// Re-tag every cached feature for the current VA focus and push it to the
+// source, so a focus change takes effect immediately (not just next poll).
+function retagVaFilter() {
+    Object.values(currentMapFeatures).forEach(f => {
+        if (!f || !f.properties) return;
+        f.properties.__vaMatch = computeVaMatch(f.properties.callsign, f.properties.username);
+    });
+    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
+// Focus the map on one VA (or clear with a falsy id). Resolves the VA ad,
+// warms its roster, then re-applies the layer filter. Persists the id so the
+// focus survives a reload (the ad object is re-resolved by ensureVaFilterAd).
+function setVaFilter(adId) {
+    const id = adId ? String(adId) : null;
+    mapFilters.vaFilterId = id;
+    try { saveFiltersToLocalStorage(); } catch (_) {}
+    if (!id) { vaFilterAd = null; if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); return Promise.resolve(); }
+
+    const VA = window.InflightVaAds;
+    if (!VA) return Promise.resolve();
+    const fromCache = (VA.allPartners ? VA.allPartners() : []).find(a => String(a.id) === id) || null;
+    return Promise.resolve(fromCache || (VA.get ? VA.get(id) : null))
+        .then((ad) => {
+            vaFilterAd = ad || fromCache || null;
+            if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); // instant tag/callsign pass
+            // The roster (roster-only members) and the directory (needed by the
+            // generic-"VA" tag branch of vaFilterMember, which matches on the
+            // leading airline word) both resolve asynchronously — re-apply once
+            // they're warm so those members show too.
+            if (vaFilterAd) {
+                Promise.all([
+                    VA.ensureRoster ? VA.ensureRoster(id) : null,
+                    VA.loadDirectory ? VA.loadDirectory() : null
+                ]).then(() => {
+                    if (mapFilters.vaFilterId === id && typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+                }).catch(() => {});
+            }
+        })
+        .catch(() => { if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); });
+}
+
+// Lazily restore the focus after a reload: mapFilters.vaFilterId persists but
+// vaFilterAd does not, so the first filter pass re-resolves it. The guard keeps
+// setVaFilter's own updateAircraftLayerFilter call from recursing here.
+function ensureVaFilterAd() {
+    if (!mapFilters.vaFilterId || vaFilterAd || vaFilterResolving) return;
+    vaFilterResolving = true;
+    Promise.resolve(setVaFilter(mapFilters.vaFilterId)).finally(() => { vaFilterResolving = false; });
+}
+
+window.setVaFilter = setVaFilter;
+
+// Render the "Filter Map by VA" list into #va-filter-list, auto-populated from
+// the VA directory and reflecting the current focus. Single-select: a row
+// focuses the map on that VA; the "All aircraft" row clears it.
+function renderVaFilterList(filterText) {
+    const listEl = document.getElementById('va-filter-list');
+    if (!listEl) return;
+    injectVaFilterStyles();
+    const VA = window.InflightVaAds;
+    const escVa = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    const paint = () => {
+        let ads = (VA && VA.allPartners ? VA.allPartners() : []).slice();
+        const q = String(filterText || '').trim().toLowerCase();
+        if (q) ads = ads.filter(a =>
+            String(a.name || '').toLowerCase().includes(q) ||
+            String(a.callsign || '').toLowerCase().includes(q) ||
+            String(a.region || '').toLowerCase().includes(q));
+        ads.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        const activeId = mapFilters.vaFilterId ? String(mapFilters.vaFilterId) : '';
+        const row = (ad) => {
+            const on = String(ad.id) === activeId;
+            const logo = ad.logo
+                ? `<img class="va-filter-logo" src="${escVa(ad.logo)}" alt="" onerror="this.style.display='none'">`
+                : `<span class="va-filter-logo va-filter-logo-fb">${escVa(String(ad.name || '?').slice(0, 2).toUpperCase())}</span>`;
+            const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
+            return `<button type="button" class="va-filter-row${on ? ' active' : ''}" data-va-filter-id="${escVa(ad.id)}">
+                ${logo}
+                <span class="va-filter-meta"><span class="va-filter-name">${escVa(ad.name)}</span>${sub ? `<span class="va-filter-sub">${escVa(sub)}</span>` : ''}</span>
+                <i class="fa-solid fa-check va-filter-check"></i>
+            </button>`;
+        };
+        listEl.innerHTML =
+            `<button type="button" class="va-filter-row va-filter-all${activeId ? '' : ' active'}" data-va-filter-id="">
+                <span class="va-filter-logo va-filter-logo-fb"><i class="fa-solid fa-globe"></i></span>
+                <span class="va-filter-meta"><span class="va-filter-name">All aircraft</span><span class="va-filter-sub">No VA filter</span></span>
+                <i class="fa-solid fa-check va-filter-check"></i>
+            </button>` +
+            (ads.length ? ads.map(row).join('') : `<div class="va-filter-empty">${q ? 'No VAs match your search.' : 'No virtual airlines available yet.'}</div>`);
+        listEl.querySelectorAll('[data-va-filter-id]').forEach(el => {
+            el.addEventListener('click', () => {
+                const id = el.getAttribute('data-va-filter-id') || null;
+                setVaFilter(id);
+                renderVaFilterList(filterText);   // repaint so the tick moves
+            });
+        });
+    };
+
+    if (VA && VA.loadDirectory) {
+        if (!(VA.allPartners && VA.allPartners().length)) {
+            listEl.innerHTML = `<div class="va-filter-empty">Loading virtual airlines…</div>`;
+        }
+        VA.loadDirectory().then(paint).catch(paint);
+    } else {
+        listEl.innerHTML = `<div class="va-filter-empty">VA directory unavailable.</div>`;
+    }
+}
+
+function injectVaFilterStyles() {
+    if (document.getElementById('va-filter-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'va-filter-styles';
+    s.textContent = `
+        .va-filter-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; }
+        .va-filter-row { display:flex; align-items:center; gap:10px; width:100%; text-align:left; cursor:pointer;
+            padding:8px 10px; border-radius:10px; background:rgba(255,255,255,0.03);
+            border:1px solid rgba(255,255,255,0.08); color:#e4e4e7; font:inherit; transition:border-color .15s ease, background .15s ease; }
+        .va-filter-row:hover { border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.06); }
+        .va-filter-row.active { border-color:rgba(56,189,248,0.6); background:rgba(56,189,248,0.12); }
+        .va-filter-logo { width:28px; height:28px; border-radius:7px; object-fit:cover; flex:0 0 auto;
+            background:rgba(255,255,255,0.08); display:grid; place-items:center; }
+        .va-filter-logo-fb { font-size:0.62rem; font-weight:800; color:#7dd3fc; }
+        .va-filter-meta { min-width:0; flex:1; display:flex; flex-direction:column; }
+        .va-filter-name { font-size:0.85rem; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .va-filter-sub { font-size:0.7rem; color:#a1a1aa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .va-filter-check { color:#38bdf8; opacity:0; flex:0 0 auto; }
+        .va-filter-row.active .va-filter-check { opacity:1; }
+        .va-filter-empty { color:#71717a; font-size:0.8rem; text-align:center; padding:16px 8px; }
+    `;
+    document.head.appendChild(s);
+}
+
 // Floating compass button: appears only when the map has been rotated or
 // tilted (e.g. an accidental two-finger twist) and snaps the view back to
 // north / level on tap — the familiar Apple/Google Maps behaviour. The needle
@@ -9828,6 +9991,15 @@ function updateAircraftLayerFilter() {
     }
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
+
+    // Single-VA focus. Restore the ad on first pass after a reload, then keep
+    // only planes tagged for that VA (retagged here so a fresh focus applies at
+    // once). No-op when nothing is focused.
+    ensureVaFilterAd();
+    if (mapFilters.vaFilterId && vaFilterAd) {
+        retagVaFilter();
+        filter.push(['==', ['get', '__vaMatch'], 1]);
+    }
 
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
@@ -9957,6 +10129,7 @@ function updateAircraftLayerFilter() {
         if (openFiltersBtn) {
             // Check if any filter in mapFilters is true
             const isFilterActive = mapFilters.showVaOnly ||
+                                   !!mapFilters.vaFilterId ||
                                    mapFilters.hideAtcMarkers ||
                                    mapFilters.hideNoAtcMarkers; // Use the state object
             openFiltersBtn.classList.toggle('active', isFilterActive);
@@ -10689,6 +10862,12 @@ function handleSocketFlightUpdate(data) {
                 const km = getDistanceKm(flight.position.lat, flight.position.lon, apt.lat, apt.lon);
                 return (km <= ar.radiusNm * 1.852) ? 1 : 0;
             })(),
+
+            // Single-VA focus tag. 1 = show (or no VA focus); 0 = not the focused
+            // VA. Mirrors __inRadius; retagVaFilter() recomputes it on a focus
+            // change. See computeVaMatch().
+            __vaMatch: (typeof computeVaMatch === 'function')
+                ? computeVaMatch(flight.callsign, flight.username) : 1,
 
             // --- PREMIUM VISIBILITY FEATURE ---
             // Tag relation (user vs friend) for Mapbox color masking
@@ -16287,6 +16466,17 @@ renderCategory(catId) {
                         </div>
 
                         <div class="settings-section">
+                            <label class="config-header">Filter Map by VA</label>
+                            <input type="text" id="va-filter-search" class="settings-text-input" placeholder="Search virtual airlines…" autocomplete="off" style="width:100%; box-sizing:border-box; margin-bottom:8px;">
+                            <div id="va-filter-list" class="va-filter-list"><div class="va-filter-empty">Loading virtual airlines…</div></div>
+                            <p style="margin: 8px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
+                                Focus the live map on a single VA — every other aircraft is hidden. This
+                                list fills in automatically as VAs are added. A pilot counts when their
+                                callsign carries the VA's tag (…VA) or they're on that VA's roster.
+                            </p>
+                        </div>
+
+                        <div class="settings-section">
                             <label class="config-header">Discover</label>
                             <button id="set-open-va-partners" class="modal-btn secondary" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
                                 <i class="fa-solid fa-handshake-angle"></i> Browse VA Partners
@@ -16509,6 +16699,22 @@ renderCategory(catId) {
                     window.InflightVaAds.openPartners();
                 }
             });
+        }
+
+        // Filter Map by VA — a single-select list that auto-fills from the VA
+        // directory. Picking a VA focuses the map on it (setVaFilter); "All
+        // aircraft" clears the focus.
+        const vaFilterListEl = document.getElementById('va-filter-list');
+        if (vaFilterListEl) {
+            const vaFilterSearch = document.getElementById('va-filter-search');
+            let vaFilterSearchTimer = 0;
+            if (vaFilterSearch) {
+                vaFilterSearch.addEventListener('input', () => {
+                    clearTimeout(vaFilterSearchTimer);
+                    vaFilterSearchTimer = setTimeout(() => renderVaFilterList(vaFilterSearch.value), 200);
+                });
+            }
+            renderVaFilterList('');
         }
 
         // 3D Traffic View — routed through the shared toggle so the map toolbar

@@ -403,6 +403,7 @@
                 : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
                 .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
             return {
+                id: String(hit._id || hit.id || hit.adId || ''),
                 name: hit.name || hit.vaName || hit.title || '',
                 logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : '',
                 hubs
@@ -410,6 +411,38 @@
         } catch (_) {
             return null;
         }
+    }
+
+    // The VA's registered roster (lower-cased usernames) from the public API,
+    // used so a member is shown even when their callsign carries no VA tag.
+    // Fails soft to an empty set — matching then falls back to the callsign.
+    async function fetchRoster(adId) {
+        const set = new Set();
+        if (!adId) return set;
+        try {
+            const data = await getJSON(`${INGDO_BACKEND}/api/public/va/${encodeURIComponent(adId)}/pilots?limit=2000`);
+            const roster = (data && Array.isArray(data.pilots)) ? data.pilots : [];
+            roster.forEach(p => { const u = String(p.username || '').trim().toLowerCase(); if (u) set.add(u); });
+        } catch (_) { /* keep the empty set */ }
+        return set;
+    }
+
+    // Whether a live flight belongs to this VA — the embed's "more advanced"
+    // membership, mirroring the main tracker: the configured prefix/suffix match
+    // (callsignMatches), OR the pilot is on the VA's roster, OR the callsign
+    // carries a distinctive suffix tag (not the generic "VA") on its own. Only
+    // ever ADDS pilots over the old prefix rule, so existing embeds don't lose
+    // anyone.
+    function flightIsMember(f, cfg) {
+        if (!f) return false;
+        if (callsignMatches(f.callsign, cfg)) return true;
+        const uname = String(f.username || '').trim().toLowerCase();
+        if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) return true;
+        if (cfg.suffixes && cfg.suffixes.length) {
+            const tail = stripWeightClass(callsignTokens(f.callsign)).slice(-2);
+            if (cfg.suffixes.some(s => s && s.toUpperCase() !== 'VA' && tail.some(t => tokenHasSuffixTag(t, s)))) return true;
+        }
+        return false;
     }
 
     // ── Live data ──────────────────────────────────────────────────────────────
@@ -534,7 +567,7 @@
             const fj = await getJSON(`${FLIGHTS_BASE}/${s.id}`);
             const flights = fj.flights || fj.data || (Array.isArray(fj) ? fj : []);
             return flights
-                .filter(f => f && callsignMatches(f.callsign, cfg))
+                .filter(f => flightIsMember(f, cfg))
                 .map(f => normalizeFlight(f, s.name, s.id));
         }));
 
@@ -2480,16 +2513,20 @@
             showError(e.message || 'This embed could not be configured.');
             return;
         }
-        // Fill in the partner VA's name/logo from the VA-Ads roster when they
-        // weren't supplied (e.g. preview embeds, or a token without a logo).
-        if (!cfg.logo || cfg.name === cfg.code || !cfg.hubs.length) {
-            const brand = await resolveVaBranding(cfg.code);
-            if (brand) {
-                if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
-                if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
-                if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
-            }
+        // Resolve the VA's ad from the VA-Ads directory — to fill in any missing
+        // name/logo/hubs (preview embeds, or a token without them) AND to pick up
+        // its ad id so we can pull the registered roster below.
+        cfg.rosterSet = new Set();
+        const brand = await resolveVaBranding(cfg.code);
+        if (brand) {
+            if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
+            if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
+            if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
+            cfg.adId = brand.id || '';
         }
+        // Warm the roster so roster-only members (right username, untagged
+        // callsign) are counted. Fails soft to no roster.
+        if (cfg.adId) { try { cfg.rosterSet = await fetchRoster(cfg.adId); } catch (_) { /* no roster */ } }
 
         const root = rootEl();
         root.setAttribute('data-theme', cfg.theme);
