@@ -19076,16 +19076,26 @@ function appendTrailPoint(localTrail, newRoutePoint) {
     return true;
 }
 
-// Altitude → colour palette for the flown path (same stops the old
-// per-segment 'interpolate' paint used). Shared by flownAltColor() so the
-// line-gradient renders identical colours to the previous approach.
+// Altitude → colour palette for the flown path. A fine-grained warm→cool
+// spectrum (FR24-style): grey on the ground, warm oranges/yellows down low,
+// greens through the teens, blues in the twenties/thirties, violet→magenta
+// up high. flownAltColor() blends linearly between stops, so every phase of
+// a climb or descent reads as its own hue on the line-gradient.
 const FLOWN_PATH_ALT_STOPS = [
-    [0,     [148, 163, 184]], // #94a3b8 Ground / Taxi / Parked (Grey)
-    [3000,  [192, 132, 252]], // #c084fc Approach / Initial Climb (Purple)
-    [12000, [245, 158, 11]],  // #f59e0b Lower Descent / Climb (Orange)
-    [20000, [16, 185, 129]],  // #10b981 Climb / High Descent (Green)
-    [30000, [56, 189, 248]],  // #38bdf8 Cruise (Blue)
-    [45000, [2, 132, 199]]    // #0284c7 High Cruise (Darker Blue)
+    [0,     [148, 163, 184]], // #94a3b8 On ground (grey)
+    [500,   [249, 115, 22]],  // #f97316 Rotation / short final (orange)
+    [3000,  [251, 191, 36]],  // #fbbf24 Pattern / initial climb (amber)
+    [6000,  [250, 204, 21]],  // #facc15 Yellow
+    [9000,  [163, 230, 53]],  // #a3e635 Lime
+    [12000, [74, 222, 128]],  // #4ade80 Green
+    [16000, [45, 212, 191]],  // #2dd4bf Teal
+    [20000, [34, 211, 238]],  // #22d3ee Cyan
+    [24000, [56, 189, 248]],  // #38bdf8 Sky blue
+    [28000, [59, 130, 246]],  // #3b82f6 Blue
+    [32000, [99, 102, 241]],  // #6366f1 Indigo
+    [36000, [139, 92, 246]],  // #8b5cf6 Violet
+    [41000, [192, 132, 252]], // #c084fc Light purple
+    [45000, [217, 70, 239]]   // #d946ef Magenta (high cruise+)
 ];
 
 function flownAltColor(alt) {
@@ -19106,9 +19116,10 @@ function flownAltColor(alt) {
 // Build the 'line-gradient' expression that paints the single flown-path
 // LineString by altitude. Progress along the line is cumulative planar
 // distance (lon scaled by cos(lat) so high-latitude legs aren't stretched);
-// stops are downsampled to ≤96 so the expression stays small no matter how
-// long the flight is — altitude changes far slower than the point spacing,
-// so nothing visible is lost. Returns null when the geometry is degenerate.
+// stops are a bounded baseline stride plus altitude-triggered extras (see
+// below) so the expression stays small no matter how long the flight is,
+// while climbs/descents keep full colour resolution. Returns null when the
+// geometry is degenerate.
 function buildFlownPathGradient(points) {
     if (!points || points.length < 2) return null;
     const cum = new Array(points.length);
@@ -19122,20 +19133,25 @@ function buildFlownPathGradient(points) {
     const total = cum[points.length - 1];
     if (!(total > 0)) return null;
 
-    // stride sized so interior stops (< length-1) number ≤95; +1 final = ≤96.
+    // Stop placement: a baseline stride (≤95 interior stops) plus an extra
+    // stop whenever altitude has moved ≥1500 ft since the last one, so short
+    // climbs/descents on very long flights still resolve every hue band of
+    // the palette. The altitude-triggered stops are bounded by total climb +
+    // descent (~48 for a full flight), keeping the expression small.
     const stride = Math.max(1, Math.ceil(points.length / 95));
-    const idxs = [];
-    for (let i = 0; i < points.length - 1; i += stride) idxs.push(i);
-    idxs.push(points.length - 1);
-
     const expr = ['interpolate', ['linear'], ['line-progress']];
     let prevProgress = -1;
-    for (const idx of idxs) {
+    let lastAlt = null;
+    for (let idx = 0; idx < points.length; idx++) {
+        const isEdge = idx === 0 || idx === points.length - 1;
+        const altMoved = lastAlt !== null && Math.abs((points[idx].alt || 0) - lastAlt) >= 1500;
+        if (!isEdge && idx % stride !== 0 && !altMoved) continue;
         const progress = idx === 0 ? 0 : (idx === points.length - 1 ? 1 : cum[idx] / total);
         // line-progress stops must be strictly ascending.
         if (progress <= prevProgress + 1e-6) continue;
         expr.push(progress, flownAltColor(points[idx].alt));
         prevProgress = progress;
+        lastAlt = points[idx].alt || 0;
     }
     // An interpolate expression needs at least two stops (3 header + 2×2).
     return expr.length >= 7 ? expr : null;
