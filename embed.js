@@ -429,15 +429,24 @@
 
     // Whether a live flight belongs to this VA — the embed's "more advanced"
     // membership, mirroring the main tracker: the configured prefix/suffix match
-    // (callsignMatches), OR the pilot is on the VA's roster, OR the callsign
-    // carries a distinctive suffix tag (not the generic "VA") on its own. Only
-    // ever ADDS pilots over the old prefix rule, so existing embeds don't lose
-    // anyone.
+    // (callsignMatches), OR a rostered pilot flying the VA's airline callsign
+    // (roster waives the tag, never the airline), OR the callsign carries a
+    // distinctive suffix tag (not the generic "VA") on its own. Only ever ADDS
+    // pilots over the old prefix rule, so existing embeds don't lose anyone.
     function flightIsMember(f, cfg) {
         if (!f) return false;
         if (callsignMatches(f.callsign, cfg)) return true;
+        // A rostered pilot still has to be flying THIS VA's airline callsign —
+        // the roster only waives the suffix TAG (an untagged "Air Norway 123"
+        // by a registered pilot counts). It must not vouch for whatever else
+        // that pilot is flying: their "Etihad 456FR" for some other VA stays
+        // out of this embed.
         const uname = String(f.username || '').trim().toLowerCase();
-        if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) return true;
+        if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
+            const compact = compactCallsign(f.callsign);
+            if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
+            if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
+        }
         if (cfg.suffixes && cfg.suffixes.length) {
             const tail = stripWeightClass(callsignTokens(f.callsign)).slice(-2);
             if (cfg.suffixes.some(s => s && s.toUpperCase() !== 'VA' && tail.some(t => tokenHasSuffixTag(t, s)))) return true;

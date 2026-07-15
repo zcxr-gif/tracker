@@ -357,35 +357,61 @@
     function isCallsignMember(callsign, ad) {
         const va = ad || matchCallsign(callsign);
         if (!va) return false;
-        const lt = lastToken(callsign);
-        if (!lt) return false;
         // Use the VA's declared tag when it has one (e.g. "Ocean XXVA" → "VA");
         // otherwise fall back to the standard "VA" suffix that denotes a virtual
-        // airline member. We must match a specific tag, not just "any trailing
-        // letters" — otherwise an unrelated suffix like "Air Canada 108AC" (the
-        // pilot's own "AC", not a membership tag) would wrongly count as a
-        // member. "Air Canada 001VA" → member; "108AC"/"500" → not.
+        // airline member. The tag must sit as a REAL tag (whole token, or glued
+        // onto the flight number — see tokenCarriesTag), not just any trailing
+        // letters: "Air Canada 001VA" → member; "108AC"/"500"/"1NOVA" → not.
+        // Checked on the last two tokens so a second trailing tag ("… 001VA CX")
+        // doesn't hide the membership tag, matching the embed's rule.
         const tag = vaTag(va) || 'VA';
-        return lt.length > tag.length && lt.endsWith(tag);
+        return callsignHasTag(callsign, tag);
     }
 
     // ---------------------------------------------------------------------
     // VA membership for the live-map "filter to one VA" feature. A plane counts
-    // for a VA when EITHER its callsign carries that VA's suffix tag OR the pilot
-    // is on the VA's registered roster. The one exception is the generic "VA"
-    // tag: countless VAs share it, so matching on it alone would lump every
-    // "###VA" pilot together — for those we keep the default behaviour (the
-    // leading airline word must resolve to THIS VA, via matchCallsign), which is
-    // exactly how the rest of the tracker already decides membership.
+    // for a VA when EITHER its callsign carries that VA's suffix tag, OR the
+    // pilot is on the VA's registered roster AND is flying the VA's airline
+    // callsign (the roster waives the tag, never the airline — a rostered pilot
+    // flying some other VA's callsign is not this VA's flight). The one
+    // exception is the generic "VA" tag: countless VAs share it, so matching on
+    // it alone would lump every "###VA" pilot together — for those we keep the
+    // default behaviour (the leading airline word must resolve to THIS VA, via
+    // matchCallsign), which is exactly how the rest of the tracker already
+    // decides membership.
     // ---------------------------------------------------------------------
 
-    // Does the callsign's flight-number token end in `tag` (e.g. "Indonesia 77GG"
-    // carries "GG")? Mirrors isCallsignMember's tag test, minus the airline-name
-    // requirement — the suffix alone is enough for a distinctive tag.
+    // Is `tag` actually a TAG on this token, not just letters that happen to end
+    // it? A bare endsWith is far too greedy — "9ANV" would count for an "NV"
+    // VA, "MOSKVA"/"NOVA" for a "VA" one. A tag only counts when it is EITHER
+    // the whole token (declared as its own word: "Air Norway 123 NV") or glued
+    // straight onto the flight number ("123NV" — the char before it is a
+    // digit). Mirrors the embed's tokenHasSuffixTag exactly.
+    function tokenCarriesTag(token, tag) {
+        if (!token || !tag || !token.endsWith(tag)) return false;
+        if (token === tag) return true;                        // standalone tag word
+        const before = token.charAt(token.length - tag.length - 1);
+        return before >= '0' && before <= '9';                 // tag on a number
+    }
+
+    // Does the callsign carry `tag` as a real membership tag? Checked on the
+    // LAST TWO tokens (weight-class words stripped) because pilots often append
+    // a second trailing tag after the VA one — "Air Norway 123NV EX" — and the
+    // tag may be written as its own word ("Air Norway 123 NV").
     function callsignHasTag(callsign, tag) {
-        const lt = lastToken(callsign);
-        if (!lt || !tag) return false;
-        return lt.length > tag.length && lt.endsWith(tag);
+        if (!tag) return false;
+        const tail = stripWeightClass(callsignParts(callsign)).slice(-2);
+        return tail.some((t) => tokenCarriesTag(t, tag));
+    }
+
+    // Does the callsign's leading airline word belong to this ad? The same
+    // word-boundary prefix test matchCallsign runs, but against ONE ad instead
+    // of the whole directory — so it needs no directory warm-up.
+    function callsignMatchesAd(callsign, ad) {
+        const code = vaCodeFromCallsign(ad && ad.callsign);
+        if (!code) return false;
+        const compact = compactCallsign(callsign);
+        return compact.startsWith(code) && callsignBoundaries(callsign).has(code.length);
     }
 
     // Per-VA roster cache. ensureRoster(adId) pulls the public roster once and
@@ -425,8 +451,13 @@
     // resolve once ensureRoster(ad.id) has run (the caller warms it, then re-tags).
     function vaFilterMember(callsign, username, ad) {
         if (!ad) return false;
+        // A rostered pilot still has to be flying THIS VA's airline callsign —
+        // the roster only waives the suffix tag ("Air Norway 123" flown by a
+        // registered Norway pilot counts). It must NOT vouch for whatever else
+        // that pilot happens to be flying: their "Etihad 456FR" for some other
+        // VA stays out of a Norway VA filter.
         const uname = String(username || '').trim().toLowerCase();
-        if (uname && rosterHas(ad.id, uname)) return true;
+        if (uname && rosterHas(ad.id, uname) && callsignMatchesAd(callsign, ad)) return true;
         const tag = vaTag(ad) || 'VA';
         if (tag === 'VA') {
             // Generic tag → the leading airline word must resolve to THIS VA and
