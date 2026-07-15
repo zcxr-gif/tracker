@@ -20137,6 +20137,9 @@ let totalDistanceNM = 0;
     </button>
 </div>
 
+            <div class="ac-partner-hero" style="position: relative; margin: auto 24px 45px 24px; max-width: calc(100% - 48px); z-index: 2; display: flex; align-items: flex-end;">
+                ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(baseProps.callsign, { variant: 'info', isMember: !!baseProps.isVAMember }) : ''}
+            </div>
         </div>
 
         <div class="ac-route-bar-backdrop" style="background: #3a3a3a; position: relative; box-shadow: 0 -24px 36px rgba(58,58,58,0.32);">
@@ -20588,6 +20591,25 @@ let totalDistanceNM = 0;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
 
+        // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
+        // it to a logo-only chip a few seconds after the window opens (hovering or
+        // focusing re-expands it, via CSS). The badge only exists when the flight's
+        // callsign matches a partner VA, so this no-ops otherwise.
+        const partnerBadge = overviewPanel.querySelector('.ac-partner-hero .va-cs-info');
+        if (partnerBadge && partnerBadge.dataset.vaWired !== '1') {
+            partnerBadge.dataset.vaWired = '1';
+            const adId = partnerBadge.getAttribute('data-va-ad-id');
+            if (adId && window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') {
+                const openVa = () => window.InflightVaAds.openPartners(adId);
+                partnerBadge.addEventListener('click', openVa);
+                partnerBadge.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVa(); }
+                });
+            }
+            setTimeout(() => {
+                if (document.body.contains(partnerBadge)) partnerBadge.classList.add('va-cs-collapsed');
+            }, 4000);
+        }
     });
 
     // In-window VA ad beneath the ND/FMC display: prefer the flight's own VA,

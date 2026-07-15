@@ -193,19 +193,11 @@
     .fr24-dots span { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background .2s ease; }
     .fr24-dots span.on { background: #fff; }
 
-    /* --- Identity block: icon tile overlapping the hero, centred title --- */
+    /* --- Identity block: centred title under the hero --- */
     .aw-body { display: flex; flex-direction: column; gap: 12px; padding: 0 12px; min-width: 0; }
-    .aw-icon {
-        width: 76px; height: 76px; margin: -56px auto 0;
-        position: relative; z-index: 5; border-radius: 19px; background: #fff;
-        display: grid; place-items: center; overflow: hidden;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.45);
-    }
-    .aw-icon i { font-size: 32px; color: #26262a; }
-    .aw-icon img { width: 72%; height: 72%; object-fit: contain; }
     .aw-title {
         font-size: 29px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.1;
-        text-align: center; color: #fff; margin: -2px 8px -6px;
+        text-align: center; color: #fff; margin: 14px 8px -6px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .aw-sub {
@@ -598,11 +590,6 @@
             ? `<img src="${esc(va.logo)}" alt="${esc(va.name || '')}" onerror="this.style.display='none'">`
             : `<span>${esc(va.name || '')}</span>`}</div>` : '';
 
-        // App-icon tile: the partner VA's logo when there is one, else the brand plane.
-        const iconInner = (va && va.logo)
-            ? `<img src="${esc(va.logo)}" alt="" onerror="this.style.display='none'">`
-            : '<i class="fa-solid fa-plane"></i>';
-
         // Photo rail (only worth showing when there's more than the hero shot).
         const gallery = _photoList.length >= 2 ? `
             <div class="aw-gallery">
@@ -630,7 +617,6 @@
             </div>
 
             <div class="aw-body">
-                <div class="aw-icon">${iconInner}</div>
                 <h1 class="aw-title" title="${esc(callsign)}">${esc(callsign)}</h1>
                 <div class="aw-sub">
                     <span class="t" title="${esc(actype)}">${esc(actype || 'Flight')}</span>
