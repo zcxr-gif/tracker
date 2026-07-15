@@ -414,10 +414,34 @@
         return compact.startsWith(code) && callsignBoundaries(callsign).has(code.length);
     }
 
+    // Canonical form for an IFC username so a roster entry (typed/pasted by VA
+    // staff) and the live feed's username match even when they differ
+    // cosmetically. Applied identically to BOTH sides:
+    //   • NFKC-normalise Unicode (fullwidth "Ｚｏｅ" → "Zoe")
+    //   • strip zero-width/invisible chars that ride along in mobile copy-paste
+    //   • drop a leading "@" (pasted straight from an IFC mention)
+    //   • remove ALL whitespace (IFC usernames can't contain spaces, so any
+    //     space is a paste artifact or a display-name rendering of the same user)
+    //   • lowercase (IFC usernames are case-insensitive)
+    // Deliberately does NOT collapse "." / "_" / "-": those are legitimate,
+    // distinct IFC usernames ("john.doe" ≠ "john-doe"), and merging them could
+    // match a stranger into the VA.
+    function normalizeUsername(u) {
+        let s = String(u == null ? '' : u);
+        try { s = s.normalize('NFKC'); } catch (e) { /* keep as-is */ }
+        return s
+            .replace(/[\u200B-\u200F\u2060\uFEFF\u00AD]/g, '')
+            .trim()
+            .replace(/^@+/, '')
+            .replace(/\s+/g, '')
+            .toLowerCase();
+    }
+
     // Per-VA roster cache. ensureRoster(adId) pulls the public roster once and
-    // remembers the lower-cased usernames; rosterHas() is the synchronous lookup
-    // the map's per-feature tagging calls. Both fail soft to "no roster".
-    const rosterSets = new Map();     // adId -> Set(usernameLower) once resolved
+    // remembers the canonical usernames (normalizeUsername); rosterHas() is the
+    // synchronous lookup the map's per-feature tagging calls, normalising its
+    // argument the same way. Both fail soft to "no roster".
+    const rosterSets = new Map();     // adId -> Set(canonical username) once resolved
     const rosterPromises = new Map(); // adId -> in-flight fetch promise
 
     function ensureRoster(adId) {
@@ -431,7 +455,7 @@
                 // limit is capped at 2000 server-side — one page covers any roster.
                 const res = await pilots(id, { limit: 2000 });
                 (res.pilots || []).forEach((pl) => {
-                    const u = String(pl.username || '').trim().toLowerCase();
+                    const u = normalizeUsername(pl.username);
                     if (u) set.add(u);
                 });
             } catch (e) { /* keep the empty set — matching falls back to the tag */ }
@@ -442,9 +466,10 @@
         return p;
     }
 
-    function rosterHas(adId, usernameLower) {
+    function rosterHas(adId, username) {
         const s = rosterSets.get(String(adId || ''));
-        return !!(s && usernameLower && s.has(usernameLower));
+        const u = normalizeUsername(username);
+        return !!(s && u && s.has(u));
     }
 
     // The map filter's membership test for one VA. Synchronous — roster hits only
@@ -455,9 +480,10 @@
         // the roster only waives the suffix tag ("Air Norway 123" flown by a
         // registered Norway pilot counts). It must NOT vouch for whatever else
         // that pilot happens to be flying: their "Etihad 456FR" for some other
-        // VA stays out of a Norway VA filter.
-        const uname = String(username || '').trim().toLowerCase();
-        if (uname && rosterHas(ad.id, uname) && callsignMatchesAd(callsign, ad)) return true;
+        // VA stays out of a Norway VA filter. rosterHas canonicalises both
+        // sides (normalizeUsername), so cosmetic differences between the
+        // roster entry and the live feed's username can't break the match.
+        if (rosterHas(ad.id, username) && callsignMatchesAd(callsign, ad)) return true;
         const tag = vaTag(ad) || 'VA';
         if (tag === 'VA') {
             // Generic tag → the leading airline word must resolve to THIS VA and

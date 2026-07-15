@@ -413,7 +413,24 @@
         }
     }
 
-    // The VA's registered roster (lower-cased usernames) from the public API,
+    // Canonical form for an IFC username so a roster entry (typed/pasted by VA
+    // staff) and the live feed's username match despite cosmetic differences:
+    // NFKC Unicode, invisible chars stripped, leading "@" dropped, ALL
+    // whitespace removed (IFC usernames can't contain spaces), lowercased.
+    // "." / "_" / "-" are kept — those distinguish real, different users.
+    // Mirrors normalizeUsername in vaAds.js exactly.
+    function normalizeUsername(u) {
+        let s = String(u == null ? '' : u);
+        try { s = s.normalize('NFKC'); } catch (_) { /* keep as-is */ }
+        return s
+            .replace(/[\u200B-\u200F\u2060\uFEFF\u00AD]/g, '')
+            .trim()
+            .replace(/^@+/, '')
+            .replace(/\s+/g, '')
+            .toLowerCase();
+    }
+
+    // The VA's registered roster (canonical usernames) from the public API,
     // used so a member is shown even when their callsign carries no VA tag.
     // Fails soft to an empty set — matching then falls back to the callsign.
     async function fetchRoster(adId) {
@@ -422,7 +439,7 @@
         try {
             const data = await getJSON(`${INGDO_BACKEND}/api/public/va/${encodeURIComponent(adId)}/pilots?limit=2000`);
             const roster = (data && Array.isArray(data.pilots)) ? data.pilots : [];
-            roster.forEach(p => { const u = String(p.username || '').trim().toLowerCase(); if (u) set.add(u); });
+            roster.forEach(p => { const u = normalizeUsername(p.username); if (u) set.add(u); });
         } catch (_) { /* keep the empty set */ }
         return set;
     }
@@ -440,8 +457,9 @@
         // the roster only waives the suffix TAG (an untagged "Air Norway 123"
         // by a registered pilot counts). It must not vouch for whatever else
         // that pilot is flying: their "Etihad 456FR" for some other VA stays
-        // out of this embed.
-        const uname = String(f.username || '').trim().toLowerCase();
+        // out of this embed. Both sides go through normalizeUsername, so a
+        // pasted "@Name"/stray-space roster entry still matches the feed.
+        const uname = normalizeUsername(f.username);
         if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
             const compact = compactCallsign(f.callsign);
             if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
