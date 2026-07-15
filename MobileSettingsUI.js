@@ -424,7 +424,15 @@ export const MobileSettingsUI = {
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
+                                <div class="m-setting-row is-pro-feature m-tz-row" data-requires-pro="true">
+                                    <div class="m-row-left"><i class="fa-solid fa-clock"></i><span>Time Zone</span></div>
+                                    <div class="m-row-right">
+                                        <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
+                                        <select id="m-user-timezone" class="m-tz-select">${(typeof window !== 'undefined' && window.buildTimezoneOptions) ? window.buildTimezoneOptions((window.mapFilters || {}).userTimezone) : ''}</select>
+                                    </div>
+                                </div>
                             </div>
+                            <p class="m-tz-hint">Show flight-window times (departure / arrival) in your own time zone instead of Zulu.</p>
 
                             <div class="mobile-section-header">Airport Window</div>
                             <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
@@ -2033,6 +2041,22 @@ export const MobileSettingsUI = {
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
+
+        // Pro time-zone picker (flight-window times in the user's own zone).
+        // Gated: ignore changes while the row is locked (non-Pro), and revert
+        // the select back to Zulu so it can't stick on a picked value.
+        const tzSel = sheet.querySelector('#m-user-timezone');
+        if (tzSel) {
+            tzSel.addEventListener('change', (e) => {
+                if (e.target.closest('.locked')) { e.target.value = window.mapFilters.userTimezone || ''; return; }
+                window.InflightHaptics?.select?.();
+                window.mapFilters.userTimezone = e.target.value;
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification('Time zone updated — reopen a flight to apply.', 'info');
+                }
+            });
+        }
     },
 
     // Re-renders the live label preview from the current mapFilters config so
@@ -2117,6 +2141,16 @@ export const MobileSettingsUI = {
             const setting = sel.dataset.setting;
             if (setting) sel.value = filters[setting] || '';
         });
+
+        // Pro time-zone picker: fill options now if the helper wasn't ready at
+        // render time, then reflect the saved value.
+        const tzSel = container.querySelector('#m-user-timezone');
+        if (tzSel) {
+            if (!tzSel.options.length && typeof window.buildTimezoneOptions === 'function') {
+                tzSel.innerHTML = window.buildTimezoneOptions(filters.userTimezone);
+            }
+            tzSel.value = filters.userTimezone || '';
+        }
 
         container.querySelectorAll('.m-range-input[data-setting]').forEach(input => {
             const setting = input.dataset.setting;
@@ -2347,6 +2381,16 @@ export const MobileSettingsUI = {
                 .m-row-left i { color: #38bdf8; width: 16px; text-align: center; }
 
                 .m-row-right { display: flex; align-items: center; gap: 10px; }
+
+                /* Pro time-zone picker: select when unlocked, PRO badge when not. */
+                .m-tz-select {
+                    background: rgba(255,255,255,0.06); color: #fff;
+                    border: 1px solid rgba(255,255,255,0.14); border-radius: 9px;
+                    padding: 8px 10px; font-size: 0.82rem; font-weight: 600;
+                    font-family: inherit; max-width: 52vw; -webkit-appearance: none;
+                }
+                .is-pro-feature.locked .m-tz-select { display: none; }
+                .m-tz-hint { color: #71717a; font-size: 0.72rem; line-height: 1.45; margin: 8px 20px 4px; }
 
                 /* Premium Pro Lock Styles */
                 .pro-lock-badge {

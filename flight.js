@@ -698,6 +698,11 @@ let mapFilters = {
         airborneOnly: false,
         onGroundOnly: false,
         hasPlanOnly: false,
+        // PRO: show flight-window times in the user's own time zone instead of
+        // Zulu. '' = off (Zulu), 'auto' = the device's zone, else an IANA id
+        // like 'Europe/London'. Read via getUserTimeZone(), which also gates
+        // on the Pro entitlement.
+        userTimezone: '',
         // Per-rule Include/Exclude for the tactical filters. A rule id present
         // (and true) here means its match is NEGATED — it hides matching
         // aircraft instead of keeping only them. Set from the shared tactical
@@ -2214,6 +2219,16 @@ function injectCustomStyles() {
 }
 .row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
 .row-label i { color: #52525b; width: 16px; text-align: center; }
+/* Pro time-zone picker. */
+.iw-tz-select {
+    background: rgba(255,255,255,0.05); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 9px;
+    padding: 8px 10px; font-size: 0.82rem; font-family: inherit; font-weight: 600;
+    max-width: 60%; cursor: pointer; outline: none;
+}
+.iw-tz-select:focus { border-color: #38bdf8; }
+.iw-tz-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.iw-tz-hint { color: #71717a; font-size: 0.72rem; line-height: 1.4; margin: 6px 2px 0; }
 /* Segmented control for window-presentation modes (Flight / Airport window). */
 .iw-seg {
     display: flex; gap: 4px; padding: 4px;
@@ -11270,12 +11285,89 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
     }
 
+    // --- Pro: user time zone for flight-window times (else Zulu) ---------
+    // getUserTimeZone() returns the IANA zone a Pro user picked for flight
+    // times ('auto' resolves to the device zone), or null meaning "show
+    // UTC/Zulu". Gated on the Pro entitlement, and any invalid/stale id falls
+    // back to null so time formatting can never throw. getFlightTimeSuffix()
+    // is the short label placed after a time ('Z' for Zulu, else the zone's
+    // short name like 'BST' / 'GMT+9'). Exposed on window so the flight-window
+    // iframes and the mobile settings sheet resolve them the same way.
+    function getUserTimeZone() {
+        try {
+            const isPro = (typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
+            if (!isPro) return null;
+            const tz = mapFilters && mapFilters.userTimezone;
+            if (!tz) return null;
+            const resolved = (tz === 'auto')
+                ? (Intl.DateTimeFormat().resolvedOptions().timeZone || null)
+                : tz;
+            if (!resolved) return null;
+            // An unknown zone throws here — that's the validation.
+            new Intl.DateTimeFormat('en-US', { timeZone: resolved });
+            return resolved;
+        } catch (_) { return null; }
+    }
+
+    function getFlightTimeSuffix() {
+        const tz = getUserTimeZone();
+        if (!tz) return 'Z';
+        try {
+            const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+                .formatToParts(new Date());
+            const name = parts.find(p => p.type === 'timeZoneName');
+            return (name && name.value) ? name.value : 'LT';
+        } catch (_) { return 'LT'; }
+    }
+
+    // Curated time-zone menu for the Pro time-zone picker. 'auto' = device
+    // zone, '' = Zulu/UTC (the default). One list drives both the desktop
+    // settings modal and the mobile settings sheet via buildTimezoneOptions().
+    const INFLIGHT_TIMEZONES = [
+        { v: '',                    label: 'Zulu (UTC) — default' },
+        { v: 'auto',                label: 'Auto — my device time zone' },
+        { v: 'Pacific/Honolulu',    label: 'Honolulu (HST)' },
+        { v: 'America/Anchorage',   label: 'Anchorage (AKST)' },
+        { v: 'America/Los_Angeles', label: 'Los Angeles (PT)' },
+        { v: 'America/Denver',      label: 'Denver (MT)' },
+        { v: 'America/Chicago',     label: 'Chicago (CT)' },
+        { v: 'America/New_York',    label: 'New York (ET)' },
+        { v: 'America/Sao_Paulo',   label: 'São Paulo (BRT)' },
+        { v: 'Europe/London',       label: 'London (GMT/BST)' },
+        { v: 'Europe/Paris',        label: 'Paris · Berlin · Madrid (CET)' },
+        { v: 'Europe/Athens',       label: 'Athens · Cairo (EET)' },
+        { v: 'Europe/Moscow',       label: 'Moscow (MSK)' },
+        { v: 'Asia/Dubai',          label: 'Dubai (GST)' },
+        { v: 'Asia/Karachi',        label: 'Karachi (PKT)' },
+        { v: 'Asia/Kolkata',        label: 'Mumbai · Delhi (IST)' },
+        { v: 'Asia/Bangkok',        label: 'Bangkok · Jakarta (ICT)' },
+        { v: 'Asia/Singapore',      label: 'Singapore · Hong Kong (SGT)' },
+        { v: 'Asia/Shanghai',       label: 'Beijing · Shanghai (CST)' },
+        { v: 'Asia/Tokyo',          label: 'Tokyo · Seoul (JST)' },
+        { v: 'Australia/Sydney',    label: 'Sydney (AEST)' },
+        { v: 'Pacific/Auckland',    label: 'Auckland (NZST)' }
+    ];
+
+    function buildTimezoneOptions(current) {
+        const cur = String(current || '');
+        return INFLIGHT_TIMEZONES
+            .map(o => `<option value="${o.v}" ${cur === o.v ? 'selected' : ''}>${o.label}</option>`)
+            .join('');
+    }
+
+    if (typeof window !== 'undefined') {
+        window.getUserTimeZone = getUserTimeZone;
+        window.getFlightTimeSuffix = getFlightTimeSuffix;
+        window.buildTimezoneOptions = buildTimezoneOptions;
+    }
+
     /**
-     * Returns a UTC HH:MM string for a Date, or null if the date is invalid.
+     * Returns an HH:MM string for a Date in the user's flight-time zone
+     * (Zulu unless a Pro user has chosen otherwise), or null if invalid.
      */
     function _formatUtcHHMM(d) {
         if (!d || isNaN(d.getTime())) return null;
-        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: getUserTimeZone() || 'UTC' });
     }
 
     /**
@@ -14887,8 +14979,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     } catch (e) { /* non-fatal: fall back to plain times */ }
 
     // --- Explicit four-cell time grid (FR24-style): Scheduled/Actual + Scheduled/Estimated ---
+    // Zone-aware like the legacy window: UTC unless a Pro user picked a zone.
+    const _tz = (typeof getUserTimeZone === 'function') ? (getUserTimeZone() || 'UTC') : 'UTC';
     const fmtUtc = (d) => (d && !isNaN(d.getTime()))
-        ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+        ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: _tz })
         : null;
     const times = { depScheduled: null, depActual: null, arrScheduled: null, arrEstimated: null };
     if (filedPlanData && filedPlanData.dep_time) {
@@ -15027,6 +15121,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             depInfo: depInfo,
             arrInfo: arrInfo,
             times: times,
+            // Suffix the iframe appends after each time ('Z' for Zulu, else the
+            // Pro user's zone abbreviation). The times above are already in that
+            // zone, so this just labels them.
+            tzSuffix: (typeof getFlightTimeSuffix === 'function') ? getFlightTimeSuffix() : 'Z',
             distRemainingNm: distRemainingNm,
             distFlownNm: distFlownNm,
             waypoints: structuredWaypoints
@@ -16388,6 +16486,11 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
+                            <div class="settings-row is-pro-feature${!isPro ? ' locked' : ''}">
+                                <div class="row-label"><i class="fa-solid fa-clock"></i> Time Zone${!isPro ? ' <span class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.55rem; margin-right:3px;"></i>PRO</span>' : ''}</div>
+                                <select id="set-user-timezone" class="iw-tz-select" ${!isPro ? 'disabled' : ''}>${buildTimezoneOptions(mapFilters.userTimezone)}</select>
+                            </div>
+                            <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone instead of Zulu.</div>
                         </div>
 
                         <div class="settings-section">
@@ -16615,6 +16718,19 @@ renderCategory(catId) {
         };
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
+
+        // Pro time-zone picker — flight-window times in the user's own zone.
+        const tzSelect = document.getElementById('set-user-timezone');
+        if (tzSelect) {
+            tzSelect.addEventListener('change', (e) => {
+                if (tzSelect.closest('.locked')) return; // non-Pro: ignore
+                mapFilters.userTimezone = e.target.value;
+                saveFiltersToLocalStorage();
+                if (typeof showNotification === 'function') {
+                    showNotification('Time zone updated — reopen a flight to apply.', 'info');
+                }
+            });
+        }
 
         // VA Hub Markers — opt-in map overlay. Persist the flag, then add/remove
         // the hub logo markers immediately (it isn't a plain map-filter layer,
@@ -20097,6 +20213,9 @@ let totalDistanceNM = 0;
     // Falls back to a back-calculated estimate so we never render '--:--' when we have any data at all.
     const depTimeInfo = computeDepartureTimeInfo(baseProps, sortedRoutePoints, filedPlanData, departureIcao);
     const arrTimeInfo = computeArrivalTimeInfo(baseProps, filedPlanData, distanceToDestNM);
+    // 'Z' by default; a Pro user's chosen zone abbreviation when set. The times
+    // above are already formatted in that zone (see _formatUtcHHMM).
+    const timeZoneSuffix = getFlightTimeSuffix();
 
     // Cache filed-plan info on the window element so the live-update path (which doesn't receive
     // filedPlanData as an arg) can still produce SCHEDULED-tagged times.
@@ -20327,7 +20446,7 @@ let totalDistanceNM = 0;
             ${departureIcaoHtml}
             <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
         </span>
-        <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' Z'}</span>
+        <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' ' + timeZoneSuffix}</span>
         <span class="time-source-label" id="ac-bar-atd-label" style="color: ${depTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${depTimeInfo.label}</span>
     </div>
             
@@ -20353,7 +20472,7 @@ let totalDistanceNM = 0;
                     ${arrivalIcaoHtml}
                     <img id="ac-bar-arr-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
                 </span>
-                <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' Z'}</span>
+                <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' ' + timeZoneSuffix}</span>
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>

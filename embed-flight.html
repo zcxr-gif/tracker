@@ -773,19 +773,23 @@
 
         // Times grid — Scheduled row from the filed plan, Actual/Estimated row
         // carries the source-tagged colour and a glowing dot on live estimates.
+        // Times arrive already in the host's chosen zone; suffix labels them
+        // ('Z' for Zulu, else the Pro user's zone abbreviation).
         const times = route.times || {};
-        setTxt('std', times.depScheduled || '--:--');
-        setTxt('sta', times.arrScheduled || '--:--');
+        const tzSuffix = route.tzSuffix || 'Z';
+        const withTz = (v) => (v && v !== '--:--') ? (v + ' ' + tzSuffix) : (v || '--:--');
+        setTxt('std', times.depScheduled ? withTz(times.depScheduled) : '--:--');
+        setTxt('sta', times.arrScheduled ? withTz(times.arrScheduled) : '--:--');
         const atdEl = $f('atd'), etaEl = $f('eta2');
         if (atdEl) {
-            atdEl.textContent = times.depActual || (route.depInfo && route.depInfo.time) || '--:--';
+            atdEl.textContent = withTz(times.depActual || (route.depInfo && route.depInfo.time) || '--:--');
             if (route.depInfo && route.depInfo.color) atdEl.style.color = route.depInfo.color;
             const l = $f('atd-l');
             if (l) l.textContent = (route.depInfo && route.depInfo.label) ? route.depInfo.label : 'Actual';
         }
         if (etaEl) {
             const v = times.arrEstimated || (route.arrInfo && route.arrInfo.time) || (route.eta !== '--:--' ? route.eta : null);
-            etaEl.textContent = v || '--:--';
+            etaEl.textContent = v ? withTz(v) : '--:--';
             if (route.arrInfo && route.arrInfo.color) etaEl.style.color = route.arrInfo.color;
             const l = $f('eta2-l');
             if (l) l.textContent = (route.arrInfo && route.arrInfo.label) ? route.arrInfo.label : 'Estimated';

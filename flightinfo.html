@@ -2287,7 +2287,10 @@
         // Falls back to the single best-known time, then to the plain origin/eta strings.
         function renderTimesGrid(r) {
             const t = r.times || {};
-            const z = (v) => (v && v !== '--:--') ? (v + ' Z') : '--:--';
+            // Times arrive already formatted in the host's chosen zone; r.tzSuffix
+            // labels them ('Z' for Zulu, else the Pro user's zone abbreviation).
+            const suffix = r.tzSuffix || 'Z';
+            const z = (v) => (v && v !== '--:--') ? (v + ' ' + suffix) : '--:--';
 
             // Departure column
             const depSched = t.depScheduled || (r.depInfo && r.depInfo.label === 'SCHEDULED' ? r.depInfo.time : null);
