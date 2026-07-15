@@ -19059,17 +19059,22 @@ function appendTrailPoint(localTrail, newRoutePoint) {
         }
         // The seeded history can run AHEAD of the live feed's clock. Rejecting
         // "older" fixes outright froze the trail at its seed state, so instead
-        // drop the future-dated tail (bounded — a runaway clock difference
-        // must never nuke the whole history) and take the live fix as the head.
+        // drop the future-dated tail and take the live fix as the head. The
+        // trim is TIME-bounded, not count-bounded: any lead under 10 minutes
+        // is a real history-vs-socket freshness gap and is dropped however
+        // many samples it spans (a count cap left leads of >8 samples in
+        // place forever, drawing the path ahead of the aircraft icon), while
+        // a bigger lead means broken clocks — trimming on garbage must never
+        // nuke the whole history.
         const tNew = new Date(newRoutePoint.date || NaN).getTime();
         if (Number.isFinite(tNew)) {
             let newer = 0;
             while (newer < localTrail.length) {
                 const t = new Date(localTrail[localTrail.length - 1 - newer].date || NaN).getTime();
-                if (Number.isFinite(t) && t >= tNew) newer++;
+                if (Number.isFinite(t) && t >= tNew && (t - tNew) < 600000) newer++;
                 else break;
             }
-            if (newer > 0 && newer <= 8) localTrail.length -= newer;
+            if (newer > 0) localTrail.length -= newer;
         }
     }
     localTrail.push(newRoutePoint);
@@ -19169,14 +19174,16 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     if (currentPosition) {
         const liveTs = currentPosition.lastReport ? new Date(currentPosition.lastReport).getTime() : NaN;
         if (Number.isFinite(liveTs)) {
+            // Time-bounded like appendTrailPoint: drop a genuine freshness
+            // lead (<10 min) however many samples it spans; a bigger lead is
+            // a broken clock and must not wipe the trail.
             let newer = 0;
             while (newer < allPoints.length) {
                 const t = new Date(allPoints[allPoints.length - 1 - newer].date || NaN).getTime();
-                if (Number.isFinite(t) && t > liveTs) newer++;
+                if (Number.isFinite(t) && t > liveTs && (t - liveTs) < 600000) newer++;
                 else break;
             }
-            // Bounded: a skewed/broken live timestamp must not wipe the trail.
-            if (newer > 0 && newer <= 8) allPoints.length -= newer;
+            if (newer > 0) allPoints.length -= newer;
         }
         allPoints.push({
             latitude: currentPosition.lat,
@@ -19522,7 +19529,19 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
 
-        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        // Seed the live-trail cache CLAMPED to what the map marker currently
+        // shows. The history endpoint often runs ahead of the socket
+        // broadcast; seeding those future-dated samples made the drawn path
+        // stick out PAST the aircraft icon by roughly a socket frame (the
+        // per-tick trim couldn't remove a lead spanning many samples). The
+        // initial render below applies the same clamp (trailUpToMarker).
+        if (typeof liveTrailCache !== 'undefined') {
+            const mk = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightProps.flightId] : null;
+            const mkMs = mk?.properties?.last_update ? new Date(mk.properties.last_update).getTime() : null;
+            liveTrailCache.set(flightProps.flightId, (mkMs != null)
+                ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= mkMs)
+                : sortedRoutePoints);
+        }
 
         if (typeof FlownPath3D !== 'undefined') {
             FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
