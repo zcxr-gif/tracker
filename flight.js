@@ -18136,8 +18136,11 @@ if (flightProps) {
     sectorOpsMap.addSource(`flown-path-${flightId}`, {
         type: 'geojson',
         data: routeFeature,
-        lineMetrics: true, // CRITICAL for the line-gradient altitude colouring
-        tolerance: 0       // Don't simplify the path away at low zoom
+        lineMetrics: true // CRITICAL for the line-gradient altitude colouring
+        // Default tolerance stays on: zoom-scaled simplification keeps the
+        // single line crisp when zoomed out. (tolerance: 0 was only needed
+        // when the path was thousands of 2-point features that simplification
+        // could drop whole.)
     });
 
     sectorOpsMap.addLayer({
@@ -19000,21 +19003,34 @@ function generateSmoothPath(points, tension = 0.5) {
         );
     };
 
+    // Turn angle at vertex b (degrees) — how sharply the path bends there.
+    const turnDeg = (a, b, c) => {
+        const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
+        const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
+        const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+        if (m1 === 0 || m2 === 0) return 0;
+        const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
+        return Math.acos(cos) * 180 / Math.PI;
+    };
+
     for (let i = 0; i < points.length - 1; i++) {
         const p0 = points[i === 0 ? i : i - 1];
         const p1 = points[i];
         const p2 = points[i + 1];
         const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
 
-        // --- Resolution: dense enough that consecutive segment angles are imperceptible (~3°) ---
-        // For typical IF trail spacing (~0.01–0.05° between samples), the old formula
-        // collapsed to floor(d*2) = 0, clamped to a paltry 2 steps — so smooth curves
-        // were being sampled as 2-point chords. We now guarantee a minimum of 24 steps,
-        // and scale up generously for long inter-sample gaps (e.g. early-flight cold trails).
-        const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-        const steps = Math.max(24, Math.min(64, Math.ceil(d * 400))); 
-        
-        for (let t = 0; t < 1; t += 1 / steps) {
+        // --- Curvature-adaptive resolution ---
+        // Straight stretches (all of cruise) need no subdivision: Catmull-Rom
+        // over collinear samples returns the chord anyway, so extra steps
+        // only add cost. Bends get one step per ~2° of local turn so curves
+        // stay silky (a 30°/sample holding pattern → 15 steps). The old flat
+        // 24–64 steps per sample blew a long-haul trail up to 30k+ points —
+        // tens of thousands of sub-pixel segments that rendered fuzzy when
+        // zoomed out and made every re-tile expensive.
+        const bend = Math.max(turnDeg(p0, p1, p2), turnDeg(p1, p2, p3));
+        const steps = Math.max(1, Math.min(64, Math.ceil(bend / 2)));
+
+        for (let t = 0; t < 1 - 1e-6; t += 1 / steps) {
             result.push({
                 unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
                 lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
@@ -19546,8 +19562,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
                 data: initialRouteData, // Single gradient-coloured LineString
-                lineMetrics: true,      // CRITICAL for the line-gradient colouring
-                tolerance: 0            // Don't simplify the path away at low zoom
+                lineMetrics: true       // CRITICAL for the line-gradient colouring
+                // Default tolerance stays on — see rebuildDynamicLayers' twin
+                // source: zoom-scaled simplification keeps the line crisp.
             });
 
             sectorOpsMap.addLayer({
