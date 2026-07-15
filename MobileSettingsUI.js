@@ -527,6 +527,13 @@ export const MobileSettingsUI = {
                 ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
             </div>
 
+            <div class="mobile-section-header">Virtual Airline</div>
+            <div class="m-va-filter-block">
+                <input type="text" class="m-va-filter-search" placeholder="Search virtual airlines…" autocomplete="off">
+                <div class="m-va-filter-list" id="m-va-filter-list"><div class="m-va-filter-empty">Loading virtual airlines…</div></div>
+                <p class="m-va-filter-hint">Focus the live map on a single VA — every other aircraft is hidden. This list fills in as VAs are added; a pilot counts by their callsign tag (…VA) or the VA's roster.</p>
+            </div>
+
             <div class="mobile-section-header">Aircraft &amp; Airline</div>
             <div class="m-combo-list">
                 ${this.renderCombo('type', 'Aircraft Type', 'fa-plane', 'e.g. A320, 787…', AIRCRAFT_TYPE_PRESETS)}
@@ -953,6 +960,84 @@ export const MobileSettingsUI = {
         }
     },
 
+    // Wire the "Filter Map by VA" list on mobile and paint it. The list itself
+    // is (re)built by renderVaFilterListMobile; the search box filters it.
+    attachVaFilter(sheet) {
+        const block = sheet && sheet.querySelector('.m-va-filter-block');
+        if (!block || block.dataset.vaFilterBound === '1') return;
+        block.dataset.vaFilterBound = '1';
+        const search = block.querySelector('.m-va-filter-search');
+        if (search) {
+            let t = 0;
+            search.addEventListener('input', () => {
+                clearTimeout(t);
+                t = setTimeout(() => this.renderVaFilterListMobile(sheet, search.value), 200);
+            });
+        }
+        this.renderVaFilterListMobile(sheet, '');
+    },
+
+    // Paint the VA list into #m-va-filter-list from the VA directory, reflecting
+    // the current focus (mapFilters.vaFilterId). Single-select: a row focuses
+    // the map on that VA via the shared window.setVaFilter; "All aircraft"
+    // clears it. Mirrors the desktop renderVaFilterList (flight.js).
+    renderVaFilterListMobile(sheet, filterText) {
+        const listEl = sheet ? sheet.querySelector('#m-va-filter-list') : document.getElementById('m-va-filter-list');
+        if (!listEl) return;
+        const VA = window.InflightVaAds;
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        const paint = () => {
+            let ads = (VA && VA.allPartners ? VA.allPartners() : []).slice();
+            const q = String(filterText || '').trim().toLowerCase();
+            if (q) ads = ads.filter(a =>
+                String(a.name || '').toLowerCase().includes(q) ||
+                String(a.callsign || '').toLowerCase().includes(q) ||
+                String(a.region || '').toLowerCase().includes(q));
+            ads.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            const activeId = (window.mapFilters && window.mapFilters.vaFilterId) ? String(window.mapFilters.vaFilterId) : '';
+            const row = (ad) => {
+                const on = String(ad.id) === activeId;
+                const logo = ad.logo
+                    ? `<img class="m-va-filter-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+                    : `<span class="m-va-filter-logo m-va-filter-logo-fb">${esc(String(ad.name || '?').slice(0, 2).toUpperCase())}</span>`;
+                const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
+                return `<button type="button" class="m-va-filter-row${on ? ' active' : ''}" data-va-filter-id="${esc(ad.id)}">
+                    ${logo}
+                    <span class="m-va-filter-meta"><span class="m-va-filter-name">${esc(ad.name)}</span>${sub ? `<span class="m-va-filter-sub">${esc(sub)}</span>` : ''}</span>
+                    <i class="fa-solid fa-check m-va-filter-check"></i>
+                </button>`;
+            };
+            listEl.innerHTML =
+                `<button type="button" class="m-va-filter-row m-va-filter-all${activeId ? '' : ' active'}" data-va-filter-id="">
+                    <span class="m-va-filter-logo m-va-filter-logo-fb"><i class="fa-solid fa-globe"></i></span>
+                    <span class="m-va-filter-meta"><span class="m-va-filter-name">All aircraft</span><span class="m-va-filter-sub">No VA filter</span></span>
+                    <i class="fa-solid fa-check m-va-filter-check"></i>
+                </button>` +
+                (ads.length ? ads.map(row).join('') : `<div class="m-va-filter-empty">${q ? 'No VAs match your search.' : 'No virtual airlines available yet.'}</div>`);
+            listEl.querySelectorAll('[data-va-filter-id]').forEach(el => {
+                el.addEventListener('click', () => {
+                    window.InflightHaptics?.select?.();
+                    const id = el.getAttribute('data-va-filter-id') || null;
+                    if (typeof window.setVaFilter === 'function') window.setVaFilter(id);
+                    this.renderVaFilterListMobile(sheet, filterText);   // repaint so the tick moves
+                    this.updateFilterBadge();                           // it counts as an active rule
+                });
+            });
+        };
+
+        if (VA && VA.loadDirectory) {
+            if (!(VA.allPartners && VA.allPartners().length)) {
+                listEl.innerHTML = `<div class="m-va-filter-empty">Loading virtual airlines…</div>`;
+            }
+            VA.loadDirectory().then(paint).catch(paint);
+        } else {
+            listEl.innerHTML = `<div class="m-va-filter-empty">VA directory unavailable.</div>`;
+        }
+    },
+
     // Reflect mapFilters.atcTagConfig into the studio's controls + preview.
     // Queries are class-based and document-wide (not scoped to the mobile
     // sheet) so a single call keeps *every* mounted studio in sync — the
@@ -1243,6 +1328,8 @@ export const MobileSettingsUI = {
         });
         // Airport-proximity filter counts as one active rule.
         if (t.airportRadius && t.airportRadius.icao && t.airportRadius.radiusNm) n++;
+        // Single-VA map focus counts as one active rule.
+        if (window.mapFilters && window.mapFilters.vaFilterId) n++;
         return n;
     },
 
@@ -1275,6 +1362,11 @@ export const MobileSettingsUI = {
 
     resetTacticalFilters(root) {
         if (window.mapFilters) window.mapFilters.tactical = {};
+        // The single-VA focus lives on the board too now, so Reset clears it
+        // with everything else (setVaFilter persists + re-runs the map filter).
+        if (window.mapFilters && window.mapFilters.vaFilterId && typeof window.setVaFilter === 'function') {
+            window.setVaFilter(null);
+        }
         const container = root || document.getElementById('mobile-tactical-nexus');
         if (container) {
             container.querySelectorAll('.m-combo-input').forEach(i => { i.value = ''; });
@@ -1283,6 +1375,7 @@ export const MobileSettingsUI = {
                 p.classList.toggle('active', p.dataset.value === '');
             });
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
+            if (container.querySelector('.m-va-filter-block')) this.renderVaFilterListMobile(container, '');
         }
         if (window.updateMapFilters) window.updateMapFilters();
         // Flush to the cloud immediately (not via the debounce) so a reset
@@ -1319,6 +1412,10 @@ export const MobileSettingsUI = {
     attachTacticalHandlers(root) {
         if (!root || root.dataset.tacticalBound === '1') return;
         root.dataset.tacticalBound = '1';
+
+        // Filter Map by VA — single-select list, auto-populated from the VA
+        // directory. Drives the shared window.setVaFilter (flight.js).
+        this.attachVaFilter(root);
 
         // Traffic quick toggles (write mapFilters[setting] directly).
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
@@ -1463,6 +1560,12 @@ export const MobileSettingsUI = {
         if (!root) return;
         const filters = window.mapFilters || {};
         const tactical = filters.tactical || {};
+
+        // Repaint the VA picker so its tick reflects the current focus (it can
+        // change elsewhere — e.g. a reset — between sheet openings).
+        if (root.querySelector && root.querySelector('.m-va-filter-block')) {
+            this.renderVaFilterListMobile(root, '');
+        }
 
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
             input.checked = !!filters[input.dataset.setting];
@@ -2113,6 +2216,32 @@ export const MobileSettingsUI = {
                 html.ios-native .m-style-pro { display: none !important; }
 
                 .m-settings-list { padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
+
+                /* Filter Map by VA (Filters tab) */
+                .m-va-filter-block { padding: 8px 20px 0; }
+                .m-va-filter-search {
+                    width: 100%; box-sizing: border-box; padding: 11px 13px; border-radius: 12px;
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                    color: #fff; font: inherit; font-size: 0.9rem; margin-bottom: 8px;
+                }
+                .m-va-filter-list { display: flex; flex-direction: column; gap: 6px; max-height: 44vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+                .m-va-filter-row {
+                    display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer;
+                    padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03);
+                    border: 1px solid rgba(255,255,255,0.08); color: #e4e4e7; font: inherit; transition: 0.15s;
+                }
+                .m-va-filter-row.active { border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.12); }
+                .m-va-filter-logo { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; flex: 0 0 auto;
+                    background: rgba(255,255,255,0.08); display: grid; place-items: center; }
+                .m-va-filter-logo-fb { font-size: 0.66rem; font-weight: 800; color: #7dd3fc; }
+                .m-va-filter-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+                .m-va-filter-name { font-size: 0.9rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .m-va-filter-sub { font-size: 0.72rem; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .m-va-filter-check { color: #38bdf8; opacity: 0; flex: 0 0 auto; }
+                .m-va-filter-row.active .m-va-filter-check { opacity: 1; }
+                .m-va-filter-empty { color: #71717a; font-size: 0.82rem; text-align: center; padding: 18px 8px; }
+                .m-va-filter-hint { margin: 8px 2px 0; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+
                 .m-setting-row {
                     display: flex; justify-content: space-between; align-items: center;
                     background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; transition: 0.2s;

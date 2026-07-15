@@ -680,6 +680,11 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
+        // Focus the live map on a single VA: only planes that belong to this VA
+        // ad id are shown (membership = its callsign suffix tag OR its roster;
+        // see vaAds.js vaFilterMember). null = no VA focus. Set via setVaFilter()
+        // from Settings → VA.
+        vaFilterId: null,
         // Opt-in: drop partner VA logos on their hub airports on the live map.
         // Off by default; toggled from Settings → VA. See renderVaHubMarkers().
         showVaHubMarkers: false,
@@ -763,6 +768,13 @@ let mapFilters = {
         // as their ICAO letters. See renderPingedAirportMarkers().
         pingedAirports: []
     };
+
+    // The resolved VA ad the map is currently focused on (its callsign + tag,
+    // for vaFilterMember). Kept alongside mapFilters.vaFilterId; the id persists,
+    // this object is re-resolved on load. vaFilterResolving guards the lazy
+    // restore so it doesn't re-trigger itself. See setVaFilter().
+    let vaFilterAd = null;
+    let vaFilterResolving = false;
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
     window.updateMapFilters = updateMapFilters;
@@ -9753,6 +9765,75 @@ function retagAirportRadius() {
     }
 }
 
+// ── Single-VA map focus ─────────────────────────────────────────────────────
+// __vaMatch is the per-feature keep/drop tag for the VA focus, mirroring
+// __inRadius: 1 = show (or no VA focus active), 0 = not this VA. Membership is
+// decided in vaAds.js (callsign suffix tag OR the VA's roster).
+function computeVaMatch(callsign, username) {
+    if (!vaFilterAd) return 1;   // no VA focus → keep every plane
+    const VA = window.InflightVaAds;
+    return (VA && VA.vaFilterMember && VA.vaFilterMember(callsign, username, vaFilterAd)) ? 1 : 0;
+}
+
+// Re-tag every cached feature for the current VA focus and push it to the
+// source, so a focus change takes effect immediately (not just next poll).
+function retagVaFilter() {
+    Object.values(currentMapFeatures).forEach(f => {
+        if (!f || !f.properties) return;
+        f.properties.__vaMatch = computeVaMatch(f.properties.callsign, f.properties.username);
+    });
+    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
+// Focus the map on one VA (or clear with a falsy id). Resolves the VA ad,
+// warms its roster, then re-applies the layer filter. Persists the id so the
+// focus survives a reload (the ad object is re-resolved by ensureVaFilterAd).
+function setVaFilter(adId) {
+    const id = adId ? String(adId) : null;
+    mapFilters.vaFilterId = id;
+    try { saveFiltersToLocalStorage(); } catch (_) {}
+    if (!id) { vaFilterAd = null; if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); return Promise.resolve(); }
+
+    const VA = window.InflightVaAds;
+    if (!VA) return Promise.resolve();
+    const fromCache = (VA.allPartners ? VA.allPartners() : []).find(a => String(a.id) === id) || null;
+    return Promise.resolve(fromCache || (VA.get ? VA.get(id) : null))
+        .then((ad) => {
+            vaFilterAd = ad || fromCache || null;
+            if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); // instant tag/callsign pass
+            // The roster (roster-only members) and the directory (needed by the
+            // generic-"VA" tag branch of vaFilterMember, which matches on the
+            // leading airline word) both resolve asynchronously — re-apply once
+            // they're warm so those members show too.
+            if (vaFilterAd) {
+                Promise.all([
+                    VA.ensureRoster ? VA.ensureRoster(id) : null,
+                    VA.loadDirectory ? VA.loadDirectory() : null
+                ]).then(() => {
+                    if (mapFilters.vaFilterId === id && typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+                }).catch(() => {});
+            }
+        })
+        .catch(() => { if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); });
+}
+
+// Lazily restore the focus after a reload: mapFilters.vaFilterId persists but
+// vaFilterAd does not, so the first filter pass re-resolves it. The guard keeps
+// setVaFilter's own updateAircraftLayerFilter call from recursing here.
+function ensureVaFilterAd() {
+    if (!mapFilters.vaFilterId || vaFilterAd || vaFilterResolving) return;
+    vaFilterResolving = true;
+    Promise.resolve(setVaFilter(mapFilters.vaFilterId)).finally(() => { vaFilterResolving = false; });
+}
+
+window.setVaFilter = setVaFilter;
+
+
 // Floating compass button: appears only when the map has been rotated or
 // tilted (e.g. an accidental two-finger twist) and snaps the view back to
 // north / level on tap — the familiar Apple/Google Maps behaviour. The needle
@@ -9828,6 +9909,15 @@ function updateAircraftLayerFilter() {
     }
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
+
+    // Single-VA focus. Restore the ad on first pass after a reload, then keep
+    // only planes tagged for that VA (retagged here so a fresh focus applies at
+    // once). No-op when nothing is focused.
+    ensureVaFilterAd();
+    if (mapFilters.vaFilterId && vaFilterAd) {
+        retagVaFilter();
+        filter.push(['==', ['get', '__vaMatch'], 1]);
+    }
 
     // 2. Tactical Filters (Injected from landingUI.js)
     const tactical = mapFilters.tactical || {};
@@ -9957,6 +10047,7 @@ function updateAircraftLayerFilter() {
         if (openFiltersBtn) {
             // Check if any filter in mapFilters is true
             const isFilterActive = mapFilters.showVaOnly ||
+                                   !!mapFilters.vaFilterId ||
                                    mapFilters.hideAtcMarkers ||
                                    mapFilters.hideNoAtcMarkers; // Use the state object
             openFiltersBtn.classList.toggle('active', isFilterActive);
@@ -10689,6 +10780,12 @@ function handleSocketFlightUpdate(data) {
                 const km = getDistanceKm(flight.position.lat, flight.position.lon, apt.lat, apt.lon);
                 return (km <= ar.radiusNm * 1.852) ? 1 : 0;
             })(),
+
+            // Single-VA focus tag. 1 = show (or no VA focus); 0 = not the focused
+            // VA. Mirrors __inRadius; retagVaFilter() recomputes it on a focus
+            // change. See computeVaMatch().
+            __vaMatch: (typeof computeVaMatch === 'function')
+                ? computeVaMatch(flight.callsign, flight.username) : 1,
 
             // --- PREMIUM VISIBILITY FEATURE ---
             // Tag relation (user vs friend) for Mapbox color masking
@@ -16510,6 +16607,7 @@ renderCategory(catId) {
                 }
             });
         }
+
 
         // 3D Traffic View — routed through the shared toggle so the map toolbar
         // button stays in sync (it's not a plain mapFilters flag like the rest).
@@ -23934,14 +24032,22 @@ async function initializeApp() {
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch } = e.detail;
-            
+
             // Store incoming tactical filters into global state
             mapFilters.tactical = filters;
             mapFilters.quickSearch = quickSearch;
 
             // Handle boolean group toggle
             mapFilters.showGroupFlights = !!filters.group;
-            
+
+            // Single-VA focus rule from the Tactical Filters modal. LandingUI
+            // seeds the rule from the persisted focus (init + modal open), so
+            // an absent/empty 'va' here genuinely means "no VA focus" — e.g.
+            // the rule was trashed or Reset was hit. Only act on a change so
+            // unrelated filter edits don't re-resolve the VA/roster.
+            const wantVa = filters.va ? String(filters.va) : null;
+            if (wantVa !== (mapFilters.vaFilterId || null)) setVaFilter(wantVa);
+
             // Run the filter update logic
             updateMapFilters();
         });

@@ -43,6 +43,17 @@
         return /^https?:\/\//i.test(s) ? s : '';
     }
 
+    // A VA/event banner as an <img>, never a CSS background paint. bannerUrl is
+    // always .webp and an animated upload comes back as ANIMATED WebP — it plays
+    // by itself inside an <img>, but a frame painted into a background-image
+    // would freeze on frame 1. The class sizes/crops it; a broken URL hides the
+    // element so the slot collapses instead of showing a gap.
+    function bannerImgHTML(url, cls, alt) {
+        return url
+            ? `<img class="${cls}" src="${esc(url)}" alt="${esc(alt || '')}" loading="lazy" decoding="async" onerror="this.style.display='none'">`
+            : '';
+    }
+
     // A callsign with all separators removed, upper-cased — "Air Canada 001VA"
     // → "AIRCANADA001VA", "Ocean XXVA" → "OCEANXXVA".
     //
@@ -217,6 +228,45 @@
     }
 
     // ---------------------------------------------------------------------
+    // Public per-VA data — pilot roster + scheduled events. These live on the
+    // same InGdo backend under /api/public/va/:id/* (no auth, open CORS,
+    // cacheable 60s). :id is the VA ad's own id — the same id used by get()
+    // above. Both fail soft to an empty shape so a missing/slow feed never
+    // breaks the partner detail panel.
+    // ---------------------------------------------------------------------
+
+    const PUBLIC_BASE = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/public/va';
+
+    // Roster page: { total, rosterTotal, pilots:[{username, addedAt}] }.
+    // opts may carry q (search), limit (default 500, max 2000) and skip (paging).
+    async function pilots(id, opts) {
+        const empty = { total: 0, rosterTotal: 0, pilots: [] };
+        if (!id) return empty;
+        try {
+            const payload = await getJSON(`${PUBLIC_BASE}/${encodeURIComponent(id)}/pilots${buildQuery(opts)}`);
+            return {
+                total: Number(payload && payload.total) || 0,
+                rosterTotal: Number(payload && payload.rosterTotal) || 0,
+                pilots: Array.isArray(payload && payload.pilots) ? payload.pilots : []
+            };
+        } catch (e) {
+            return empty;
+        }
+    }
+
+    // Upcoming scheduled events (soonest first, max 50) — each
+    // { id, title, description, link, startsAt, createdAt }.
+    async function events(id) {
+        if (!id) return [];
+        try {
+            const payload = await getJSON(`${PUBLIC_BASE}/${encodeURIComponent(id)}/events`);
+            return Array.isArray(payload && payload.events) ? payload.events : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // Callsign directory — maps partner VA callsign codes to their ad so a
     // live flight can be matched to the VA whose code its callsign starts with.
     // ---------------------------------------------------------------------
@@ -307,16 +357,142 @@
     function isCallsignMember(callsign, ad) {
         const va = ad || matchCallsign(callsign);
         if (!va) return false;
-        const lt = lastToken(callsign);
-        if (!lt) return false;
         // Use the VA's declared tag when it has one (e.g. "Ocean XXVA" → "VA");
         // otherwise fall back to the standard "VA" suffix that denotes a virtual
-        // airline member. We must match a specific tag, not just "any trailing
-        // letters" — otherwise an unrelated suffix like "Air Canada 108AC" (the
-        // pilot's own "AC", not a membership tag) would wrongly count as a
-        // member. "Air Canada 001VA" → member; "108AC"/"500" → not.
+        // airline member. The tag must sit as a REAL tag (whole token, or glued
+        // onto the flight number — see tokenCarriesTag), not just any trailing
+        // letters: "Air Canada 001VA" → member; "108AC"/"500"/"1NOVA" → not.
+        // Checked on the last two tokens so a second trailing tag ("… 001VA CX")
+        // doesn't hide the membership tag, matching the embed's rule.
         const tag = vaTag(va) || 'VA';
-        return lt.length > tag.length && lt.endsWith(tag);
+        return callsignHasTag(callsign, tag);
+    }
+
+    // ---------------------------------------------------------------------
+    // VA membership for the live-map "filter to one VA" feature. A plane counts
+    // for a VA when EITHER its callsign carries that VA's suffix tag, OR the
+    // pilot is on the VA's registered roster AND is flying the VA's airline
+    // callsign (the roster waives the tag, never the airline — a rostered pilot
+    // flying some other VA's callsign is not this VA's flight). The one
+    // exception is the generic "VA" tag: countless VAs share it, so matching on
+    // it alone would lump every "###VA" pilot together — for those we keep the
+    // default behaviour (the leading airline word must resolve to THIS VA, via
+    // matchCallsign), which is exactly how the rest of the tracker already
+    // decides membership.
+    // ---------------------------------------------------------------------
+
+    // Is `tag` actually a TAG on this token, not just letters that happen to end
+    // it? A bare endsWith is far too greedy — "9ANV" would count for an "NV"
+    // VA, "MOSKVA"/"NOVA" for a "VA" one. A tag only counts when it is EITHER
+    // the whole token (declared as its own word: "Air Norway 123 NV") or glued
+    // straight onto the flight number ("123NV" — the char before it is a
+    // digit). Mirrors the embed's tokenHasSuffixTag exactly.
+    function tokenCarriesTag(token, tag) {
+        if (!token || !tag || !token.endsWith(tag)) return false;
+        if (token === tag) return true;                        // standalone tag word
+        const before = token.charAt(token.length - tag.length - 1);
+        return before >= '0' && before <= '9';                 // tag on a number
+    }
+
+    // Does the callsign carry `tag` as a real membership tag? Checked on the
+    // LAST TWO tokens (weight-class words stripped) because pilots often append
+    // a second trailing tag after the VA one — "Air Norway 123NV EX" — and the
+    // tag may be written as its own word ("Air Norway 123 NV").
+    function callsignHasTag(callsign, tag) {
+        if (!tag) return false;
+        const tail = stripWeightClass(callsignParts(callsign)).slice(-2);
+        return tail.some((t) => tokenCarriesTag(t, tag));
+    }
+
+    // Does the callsign's leading airline word belong to this ad? The same
+    // word-boundary prefix test matchCallsign runs, but against ONE ad instead
+    // of the whole directory — so it needs no directory warm-up.
+    function callsignMatchesAd(callsign, ad) {
+        const code = vaCodeFromCallsign(ad && ad.callsign);
+        if (!code) return false;
+        const compact = compactCallsign(callsign);
+        return compact.startsWith(code) && callsignBoundaries(callsign).has(code.length);
+    }
+
+    // Canonical form for an IFC username so a roster entry (typed/pasted by VA
+    // staff) and the live feed's username match even when they differ
+    // cosmetically. Applied identically to BOTH sides:
+    //   • NFKC-normalise Unicode (fullwidth "Ｚｏｅ" → "Zoe")
+    //   • strip zero-width/invisible chars that ride along in mobile copy-paste
+    //   • drop a leading "@" (pasted straight from an IFC mention)
+    //   • remove ALL whitespace (IFC usernames can't contain spaces, so any
+    //     space is a paste artifact or a display-name rendering of the same user)
+    //   • lowercase (IFC usernames are case-insensitive)
+    // Deliberately does NOT collapse "." / "_" / "-": those are legitimate,
+    // distinct IFC usernames ("john.doe" ≠ "john-doe"), and merging them could
+    // match a stranger into the VA.
+    function normalizeUsername(u) {
+        let s = String(u == null ? '' : u);
+        try { s = s.normalize('NFKC'); } catch (e) { /* keep as-is */ }
+        return s
+            .replace(/[\u200B-\u200F\u2060\uFEFF\u00AD]/g, '')
+            .trim()
+            .replace(/^@+/, '')
+            .replace(/\s+/g, '')
+            .toLowerCase();
+    }
+
+    // Per-VA roster cache. ensureRoster(adId) pulls the public roster once and
+    // remembers the canonical usernames (normalizeUsername); rosterHas() is the
+    // synchronous lookup the map's per-feature tagging calls, normalising its
+    // argument the same way. Both fail soft to "no roster".
+    const rosterSets = new Map();     // adId -> Set(canonical username) once resolved
+    const rosterPromises = new Map(); // adId -> in-flight fetch promise
+
+    function ensureRoster(adId) {
+        const id = String(adId || '');
+        if (!id) return Promise.resolve(new Set());
+        if (rosterSets.has(id)) return Promise.resolve(rosterSets.get(id));
+        if (rosterPromises.has(id)) return rosterPromises.get(id);
+        const p = (async () => {
+            const set = new Set();
+            try {
+                // limit is capped at 2000 server-side — one page covers any roster.
+                const res = await pilots(id, { limit: 2000 });
+                (res.pilots || []).forEach((pl) => {
+                    const u = normalizeUsername(pl.username);
+                    if (u) set.add(u);
+                });
+            } catch (e) { /* keep the empty set — matching falls back to the tag */ }
+            rosterSets.set(id, set);
+            return set;
+        })();
+        rosterPromises.set(id, p);
+        return p;
+    }
+
+    function rosterHas(adId, username) {
+        const s = rosterSets.get(String(adId || ''));
+        const u = normalizeUsername(username);
+        return !!(s && u && s.has(u));
+    }
+
+    // The map filter's membership test for one VA. Synchronous — roster hits only
+    // resolve once ensureRoster(ad.id) has run (the caller warms it, then re-tags).
+    function vaFilterMember(callsign, username, ad) {
+        if (!ad) return false;
+        // A rostered pilot still has to be flying THIS VA's airline callsign —
+        // the roster only waives the suffix tag ("Air Norway 123" flown by a
+        // registered Norway pilot counts). It must NOT vouch for whatever else
+        // that pilot happens to be flying: their "Etihad 456FR" for some other
+        // VA stays out of a Norway VA filter. rosterHas canonicalises both
+        // sides (normalizeUsername), so cosmetic differences between the
+        // roster entry and the live feed's username can't break the match.
+        if (rosterHas(ad.id, username) && callsignMatchesAd(callsign, ad)) return true;
+        const tag = vaTag(ad) || 'VA';
+        if (tag === 'VA') {
+            // Generic tag → the leading airline word must resolve to THIS VA and
+            // the callsign must carry the tag (the tracker's default behaviour).
+            const hit = matchCallsign(callsign);
+            return !!hit && String(hit.id) === String(ad.id) && isCallsignMember(callsign, hit);
+        }
+        // Distinctive tag → the suffix alone identifies the VA.
+        return callsignHasTag(callsign, tag);
     }
 
     // All partner ads hubbed at an airport (from the cached roster — no extra
@@ -414,7 +590,7 @@
             .va-ad-full:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-1px); }
             .va-ad-full-img { display: block; width: 100%; height: auto; transition: opacity .25s ease; }
             .va-ad-full .va-ad-dots { padding-top: 8px; }
-            .va-ad-feature-banner { height: 84px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
+            .va-ad-feature-banner { display: block; width: 100%; height: 84px; object-fit: cover; background-color: rgba(56,189,248,0.08); }
             .va-ad-feature-body { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; }
             .va-ad-feature-meta { min-width: 0; flex: 1; }
             .va-ad-feature .va-ad-name { white-space: normal; }
@@ -554,7 +730,10 @@
             }
             .va-ad-card .va-ad-card-body { flex: 1 1 auto; }
             .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
-            .va-ad-card-banner { height: 92px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.08); }
+            /* No explicit display: it's a flex child of .va-ad-card (so already
+               block-level, no inline gap) and the mobile rule below hides it
+               with display:none — setting display here would override that. */
+            .va-ad-card-banner { width: 100%; height: 92px; object-fit: cover; background-color: rgba(56,189,248,0.08); }
             .va-ad-card-body { padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
             .va-ad-card-body .va-ad-logo { width: 40px; height: 40px; }
             .va-ad-card-title { font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -562,7 +741,7 @@
             .va-ad-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
             .va-ad-chip { font-size: 0.62rem; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); border-radius: 999px; padding: 2px 8px; }
 
-            .va-ad-detail-banner { height: 140px; background-size: cover; background-position: center; background-color: rgba(56,189,248,0.1); border-radius: 14px; }
+            .va-ad-detail-banner { display: block; width: 100%; height: 140px; object-fit: cover; background-color: rgba(56,189,248,0.1); border-radius: 14px; }
             .va-ad-detail h3 { color: #fff; font-size: 1.2rem; font-weight: 800; margin: 14px 0 4px; }
             .va-ad-detail p.desc { color: rgba(255,255,255,0.75); font-size: 0.88rem; line-height: 1.55; white-space: pre-wrap; }
             .va-ad-detail .va-ad-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
@@ -689,7 +868,146 @@
             .va-fleet-empty i { display: block; font-size: 1.3rem; margin-bottom: 8px; color: rgba(255,255,255,0.3); }
             .va-ad-pill.va-ad-pill-live {
                 background: rgba(56,189,248,0.14); color: #7dd3fc; border-color: rgba(56,189,248,0.4);
-            }`;
+            }
+
+            /* ---- Events calendar ---- */
+            .va-cal {
+                border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+                background: rgba(0,0,0,0.35); padding: 12px; margin-top: 2px;
+            }
+            .va-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+            .va-cal-month { font-weight: 800; color: #fff; font-size: 0.92rem; letter-spacing: -0.2px; }
+            .va-cal-nav {
+                background: rgba(255,255,255,0.06); border: none; color: #cbd5e1; cursor: pointer;
+                width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 0.72rem;
+            }
+            .va-cal-nav:hover { background: rgba(56,189,248,0.2); color: #7dd3fc; }
+            .va-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+            .va-cal-dow { margin-bottom: 4px; }
+            .va-cal-dowcell {
+                text-align: center; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.5px;
+                text-transform: uppercase; color: rgba(255,255,255,0.4); padding: 2px 0;
+            }
+            .va-cal-cell {
+                position: relative; aspect-ratio: 1 / 1; border-radius: 8px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 0.72rem; color: rgba(255,255,255,0.5);
+            }
+            .va-cal-empty { visibility: hidden; }
+            .va-cal-has {
+                cursor: pointer; color: #fff; font-weight: 700;
+                background: rgba(56,189,248,0.14); border: 1px solid rgba(56,189,248,0.35);
+            }
+            .va-cal-has:hover { background: rgba(56,189,248,0.28); }
+            .va-cal-today { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4); }
+            .va-cal-selected { background: #7dd3fc !important; color: #05202b !important; border-color: #7dd3fc !important; }
+            .va-cal-selected .va-cal-dot { background: #05202b; }
+            .va-cal-dot {
+                position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+                width: 4px; height: 4px; border-radius: 50%; background: #7dd3fc;
+            }
+            .va-cal-clear { margin: 12px 0 0; }
+
+            .va-events-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+            .va-events-empty {
+                color: rgba(255,255,255,0.5); font-size: 0.84rem; text-align: center;
+                padding: 20px 10px; border: 1px dashed rgba(255,255,255,0.14); border-radius: 12px;
+            }
+            .va-events-empty i { margin-right: 6px; color: rgba(255,255,255,0.35); }
+            .va-event-row {
+                border-radius: 12px; overflow: hidden;
+                background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+            }
+            /* Animated WebP animates natively as an <img>; a 16:6 event banner
+               strip sits above the row body. Placeholder colour shows while it
+               loads and stays if the image errors (the <img> hides itself). */
+            .va-event-banner {
+                display: block; width: 100%; aspect-ratio: 16 / 6; object-fit: cover;
+                background: #0e1420; border-bottom: 1px solid rgba(255,255,255,0.06);
+            }
+            .va-event-body { display: flex; gap: 12px; padding: 10px 12px; }
+            .va-event-dep { margin-left: 10px; }
+            .va-event-date {
+                flex: 0 0 auto; width: 44px; display: flex; flex-direction: column;
+                align-items: center; justify-content: center; border-radius: 9px;
+                background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3);
+            }
+            .va-event-mon { font-size: 0.54rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #7dd3fc; }
+            .va-event-day { font-size: 1.05rem; font-weight: 800; color: #fff; line-height: 1.15; }
+            .va-event-main { min-width: 0; flex: 1; }
+            .va-event-title { font-size: 0.88rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+            .va-event-link { color: #7dd3fc; text-decoration: none; font-size: 0.75rem; }
+            .va-event-link:hover { color: #bae6fd; }
+            .va-event-when { font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 3px; }
+            .va-event-when i { color: #7dd3fc; margin-right: 5px; }
+            .va-event-desc { font-size: 0.78rem; color: rgba(255,255,255,0.72); margin-top: 5px; line-height: 1.5; white-space: pre-wrap; }
+
+            /* At-a-glance "Next up" card above the calendar */
+            .va-next-up {
+                width: 100%; box-sizing: border-box; text-align: left; cursor: pointer;
+                display: flex; flex-direction: column; gap: 3px; padding: 11px 14px; margin: 2px 0 10px;
+                border-radius: 12px; color: #fff;
+                background: linear-gradient(135deg, rgba(56,189,248,0.16), rgba(56,189,248,0.04));
+                border: 1px solid rgba(56,189,248,0.35);
+                transition: border-color .15s ease, transform .15s ease;
+            }
+            .va-next-up:hover { border-color: rgba(56,189,248,0.6); transform: translateY(-1px); }
+            .va-next-up.is-live {
+                background: linear-gradient(135deg, rgba(74,222,128,0.18), rgba(74,222,128,0.04));
+                border-color: rgba(74,222,128,0.45);
+            }
+            .va-next-up-eyebrow {
+                font-size: 0.58rem; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
+                color: #7dd3fc; display: inline-flex; align-items: center; gap: 6px;
+            }
+            .va-next-up.is-live .va-next-up-eyebrow { color: #4ade80; }
+            .va-next-up-title { font-size: 0.95rem; font-weight: 800; color: #fff; }
+            .va-next-up-when { font-size: 0.72rem; color: rgba(255,255,255,0.7); }
+
+            /* Pulsing "live" dot, shared by the next-up card, event pills and legend */
+            .va-live-dot {
+                width: 7px; height: 7px; border-radius: 50%; background: #4ade80; flex: 0 0 auto;
+                box-shadow: 0 0 0 0 rgba(74,222,128,0.55); animation: va-live-pulse 1.8s infinite;
+            }
+            @keyframes va-live-pulse {
+                0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.55); }
+                70%  { box-shadow: 0 0 0 7px rgba(74,222,128,0); }
+                100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+            }
+
+            /* Per-event status pill: countdown, or a green "Happening now" */
+            .va-event-status {
+                margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+                font-size: 0.6rem; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+                padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+                background: rgba(56,189,248,0.14); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3);
+            }
+            .va-event-status.va-event-live { background: rgba(74,222,128,0.16); color: #4ade80; border-color: rgba(74,222,128,0.4); }
+            .va-event-row.is-live { border-color: rgba(74,222,128,0.4); }
+
+            /* Calendar day holding a live event */
+            .va-cal-live { background: rgba(74,222,128,0.16) !important; border: 1px solid rgba(74,222,128,0.45) !important; color: #fff; }
+            .va-cal-live .va-cal-dot { background: #4ade80; }
+
+            /* ---- Pilot roster ---- */
+            .va-roster-search { margin: 2px 0 10px; }
+            .va-roster-search input {
+                width: 100%; box-sizing: border-box; padding: 8px 11px; border-radius: 10px;
+                background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.12); color: #fff; font-size: 0.82rem;
+            }
+            .va-roster-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+            .va-roster-list .va-events-empty { grid-column: 1 / -1; }
+            .va-roster-row {
+                display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px;
+                background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.07); min-width: 0;
+            }
+            .va-roster-avatar {
+                flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+                display: grid; place-items: center; font-size: 0.72rem; font-weight: 800; color: #05202b;
+                background: linear-gradient(135deg, #7dd3fc, #38bdf8);
+            }
+            .va-roster-name { font-size: 0.82rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+            .va-roster-since { font-size: 0.62rem; color: rgba(255,255,255,0.45); white-space: nowrap; flex: 0 0 auto; }`;
         document.head.appendChild(style);
     }
 
@@ -814,7 +1132,7 @@
         if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
         const chips = (ad.tags || []).slice(0, 3).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
         return `
-            ${ad.banner ? `<div class="va-ad-feature-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+            ${bannerImgHTML(ad.banner, 'va-ad-feature-banner', ad.name)}
             <div class="va-ad-feature-body">
                 ${logo}
                 <div class="va-ad-feature-meta">
@@ -1087,7 +1405,7 @@
         const chips = (ad.tags || []).slice(0, 4).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
         return `
             <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
-                ${ad.banner ? `<div class="va-ad-card-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+                ${bannerImgHTML(ad.banner, 'va-ad-card-banner', ad.name)}
                 <div class="va-ad-card-body">
                     ${logo}
                     <div style="min-width:0; flex:1;">
@@ -1134,11 +1452,291 @@
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Events calendar + pilot roster (partner-detail sections)
+    // ---------------------------------------------------------------------
+
+    const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+    const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Local Y-M-D key so events group onto the calendar day the viewer actually
+    // sees in their own timezone (the feed carries a UTC startsAt).
+    function dayKey(d) {
+        return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    }
+
+    function fmtEventTime(d) {
+        try {
+            return d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        } catch (e) {
+            return d.toISOString();
+        }
+    }
+
+    // Whether an event is under way now. The feed only keeps events until ~12h
+    // after they start, so a start time already in the past means it is (almost
+    // certainly) happening right now rather than long over.
+    function isLiveEvent(when) {
+        return when.getTime() <= Date.now();
+    }
+
+    // A short, glanceable countdown: "Happening now" once it has started, else
+    // "in 8m" / "in 5h" / "in 3d" / "in 2w".
+    function relativeWhen(when) {
+        const diff = when.getTime() - Date.now();
+        if (diff <= 0) return 'Happening now';
+        const min = 60000, hr = 60 * min, day = 24 * hr;
+        if (diff < hr) return `in ${Math.max(1, Math.round(diff / min))}m`;
+        if (diff < day) return `in ${Math.round(diff / hr)}h`;
+        if (diff < 14 * day) return `in ${Math.round(diff / day)}d`;
+        return `in ${Math.round(diff / (7 * day))}w`;
+    }
+
+    // The at-a-glance "Next up" card above the calendar — the soonest event
+    // (or the one under way now), with its countdown. Clicking it jumps the
+    // calendar to that event's day. Empty when there are no events.
+    function nextUpHTML(items) {
+        if (!items.length) return '';
+        const it = items[0];
+        const live = isLiveEvent(it.when);
+        const eyebrow = live
+            ? '<span class="va-live-dot"></span> Happening now'
+            : '<i class="fa-regular fa-clock"></i> Next up';
+        return `
+            <button class="va-next-up${live ? ' is-live' : ''}" data-va-nextup type="button" title="Show on calendar">
+                <span class="va-next-up-eyebrow">${eyebrow}</span>
+                <span class="va-next-up-title">${esc(it.title)}</span>
+                <span class="va-next-up-when">${esc(relativeWhen(it.when))} · ${esc(fmtEventTime(it.when))}</span>
+            </button>`;
+    }
+
+    function eventRowHTML(it) {
+        const link = it.link
+            ? `<a class="va-event-link" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer" title="Open event link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
+            : '';
+        // Event banners are .webp; an animated upload comes back as ANIMATED
+        // WebP and plays by itself inside an <img>. It MUST stay an <img> (never
+        // a <canvas> or a background paint of a frame) or it freezes on frame 1.
+        const banner = it.banner
+            ? `<img class="va-event-banner" src="${esc(it.banner)}" alt="${esc(it.title)}" loading="lazy" decoding="async" onerror="this.style.display='none'">`
+            : '';
+        const dep = it.dep ? `<span class="va-event-dep"><i class="fa-solid fa-plane-departure"></i>${esc(it.dep)}</span>` : '';
+        // Live badge once it has started, otherwise a countdown chip.
+        const live = isLiveEvent(it.when);
+        const status = live
+            ? `<span class="va-event-status va-event-live"><span class="va-live-dot"></span>Happening now</span>`
+            : `<span class="va-event-status">${esc(relativeWhen(it.when))}</span>`;
+        return `
+            <div class="va-event-row${it.banner ? ' va-event-has-banner' : ''}${live ? ' is-live' : ''}">
+                ${banner}
+                <div class="va-event-body">
+                    <div class="va-event-date">
+                        <span class="va-event-mon">${MONTHS[it.when.getMonth()].slice(0, 3)}</span>
+                        <span class="va-event-day">${it.when.getDate()}</span>
+                    </div>
+                    <div class="va-event-main">
+                        <div class="va-event-title">${esc(it.title)}${link}${status}</div>
+                        <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}${dep}</div>
+                        ${it.description ? `<div class="va-event-desc">${esc(it.description)}</div>` : ''}
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function eventsSectionHTML(state, items, byDay) {
+        const { year, month, selected } = state;
+        const todayKey = dayKey(new Date());
+        const startWeekday = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        // Days that hold an event under way right now get a live accent.
+        const liveDays = new Set();
+        byDay.forEach((evs, k) => { if (evs.some((e) => isLiveEvent(e.when))) liveDays.add(k); });
+
+        let cells = '';
+        for (let i = 0; i < startWeekday; i++) cells += `<div class="va-cal-cell va-cal-empty"></div>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const k = `${year}-${month}-${d}`;
+            const has = byDay.has(k);
+            const cls = ['va-cal-cell'];
+            if (has) cls.push('va-cal-has');
+            if (liveDays.has(k)) cls.push('va-cal-live');
+            if (k === todayKey) cls.push('va-cal-today');
+            if (k === selected) cls.push('va-cal-selected');
+            cells += `<div class="${cls.join(' ')}"${has ? ` data-va-cal-day="${k}" role="button" tabindex="0" title="${byDay.get(k).length} event${byDay.get(k).length === 1 ? '' : 's'}"` : ''}><span class="va-cal-num">${d}</span>${has ? '<span class="va-cal-dot"></span>' : ''}</div>`;
+        }
+
+        // The list shows every upcoming event, or just the picked day's events.
+        const listItems = selected ? (byDay.get(selected) || []) : items;
+        const list = listItems.length
+            ? listItems.map(eventRowHTML).join('')
+            : `<div class="va-events-empty"><i class="fa-regular fa-calendar-xmark"></i> No ${selected ? 'events on this day' : 'upcoming events'}.</div>`;
+
+        return `
+            <div class="va-fleet-title">
+                <h4>Events</h4>
+                <span class="va-fleet-count">${items.length ? items.length + ' upcoming' : ''}</span>
+            </div>
+            ${nextUpHTML(items)}
+            <div class="va-cal">
+                <div class="va-cal-head">
+                    <button class="va-cal-nav" data-va-cal-nav="-1" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span class="va-cal-month">${MONTHS[month]} ${year}</span>
+                    <button class="va-cal-nav" data-va-cal-nav="1" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+                <div class="va-cal-grid va-cal-dow">${WEEKDAYS.map((w) => `<div class="va-cal-dowcell">${w}</div>`).join('')}</div>
+                <div class="va-cal-grid">${cells}</div>
+            </div>
+            ${selected ? `<button class="va-ad-back va-cal-clear"><i class="fa-solid fa-arrow-left"></i> All upcoming events</button>` : ''}
+            <div class="va-events-list">${list}</div>`;
+    }
+
+    // Render the Events section (month calendar + event list) into a container.
+    // View state (shown month, selected day) rides on a redraw closure so month
+    // navigation and day-picking don't need any persistent element wiring.
+    function renderEvents(container, evs) {
+        if (!container) return;
+        injectStyles();
+        const items = (evs || [])
+            .map((e) => {
+                const when = new Date(e.startsAt);
+                if (isNaN(when.getTime())) return null;
+                return {
+                    id: String(e.id || ''),
+                    title: String(e.title || 'Untitled event'),
+                    description: String(e.description || ''),
+                    link: safeUrl(e.link),
+                    banner: safeUrl(e.bannerUrl || e.banner),
+                    dep: String(e.departureIcao || '').trim().toUpperCase(),
+                    when
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.when - b.when);
+
+        const byDay = new Map();
+        items.forEach((it) => {
+            const k = dayKey(it.when);
+            if (!byDay.has(k)) byDay.set(k, []);
+            byDay.get(k).push(it);
+        });
+
+        // Open on the first upcoming event's month (today's month when empty).
+        const first = items.length ? items[0].when : new Date();
+        const state = { year: first.getFullYear(), month: first.getMonth(), selected: null };
+
+        const draw = () => {
+            container.innerHTML = eventsSectionHTML(state, items, byDay);
+            container.querySelectorAll('[data-va-cal-nav]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    let m = state.month + Number(btn.getAttribute('data-va-cal-nav'));
+                    let y = state.year;
+                    if (m < 0) { m = 11; y--; }
+                    if (m > 11) { m = 0; y++; }
+                    state.month = m; state.year = y; state.selected = null;
+                    draw();
+                });
+            });
+            container.querySelectorAll('[data-va-cal-day]').forEach((cell) => {
+                cell.addEventListener('click', () => {
+                    const k = cell.getAttribute('data-va-cal-day');
+                    state.selected = state.selected === k ? null : k; // toggle off on re-click
+                    draw();
+                });
+            });
+            const clear = container.querySelector('.va-cal-clear');
+            if (clear) clear.addEventListener('click', () => { state.selected = null; draw(); });
+            // "Next up" jumps the calendar to that event's month + day.
+            const nextBtn = container.querySelector('[data-va-nextup]');
+            if (nextBtn && items.length) {
+                nextBtn.addEventListener('click', () => {
+                    const it = items[0];
+                    state.year = it.when.getFullYear();
+                    state.month = it.when.getMonth();
+                    state.selected = dayKey(it.when);
+                    draw();
+                });
+            }
+        };
+        draw();
+    }
+
+    function rosterCountText(data, q) {
+        if (q) return `${data.total} of ${data.rosterTotal}`;
+        return `${data.rosterTotal} pilot${data.rosterTotal === 1 ? '' : 's'}`;
+    }
+
+    function rosterListHTML(data, q) {
+        if (!data.pilots.length) {
+            return `<div class="va-events-empty"><i class="fa-solid fa-user-slash"></i> ${q ? 'No pilots match your search.' : 'No pilots on the roster yet.'}</div>`;
+        }
+        return data.pilots.map((p) => {
+            const uname = String(p.username || '').trim();
+            let added = '';
+            const d = p.addedAt ? new Date(p.addedAt) : null;
+            if (d && !isNaN(d.getTime())) {
+                try { added = d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { /* keep blank */ }
+            }
+            const initial = (uname[0] || '?').toUpperCase();
+            return `
+                <div class="va-roster-row">
+                    <span class="va-roster-avatar">${esc(initial)}</span>
+                    <span class="va-roster-name">${esc(uname || '—')}</span>
+                    ${added ? `<span class="va-roster-since">${esc(added)}</span>` : ''}
+                </div>`;
+        }).join('');
+    }
+
+    function rosterSectionHTML(data, q) {
+        return `
+            <div class="va-fleet-title">
+                <h4>Roster</h4>
+                <span class="va-fleet-count va-roster-count">${esc(rosterCountText(data, q))}</span>
+            </div>
+            <div class="va-roster-search"><input type="text" placeholder="Search pilots…" autocomplete="off"></div>
+            <div class="va-roster-list">${rosterListHTML(data, q)}</div>`;
+    }
+
+    // Render the Roster section into a container. The search box re-queries the
+    // backend (server-side q=) with a debounce and swaps only the count + list
+    // so the input never loses focus mid-type. Fails soft to an empty roster.
+    function renderRoster(container, id, initial) {
+        if (!container) return;
+        injectStyles();
+        container.innerHTML = rosterSectionHTML(initial || { total: 0, rosterTotal: 0, pilots: [] }, '');
+        const input = container.querySelector('.va-roster-search input');
+        if (!input) return;
+        let searchTimer = 0;
+        input.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            const val = input.value.trim();
+            const listEl = container.querySelector('.va-roster-list');
+            searchTimer = setTimeout(async () => {
+                if (listEl) listEl.innerHTML = `<div class="va-events-empty"><i class="fa-solid fa-spinner fa-spin"></i> Searching…</div>`;
+                const res = await pilots(id, { q: val || undefined, limit: 500 });
+                // The search may have moved on while this request was in flight;
+                // only paint if the box still holds the query we searched for.
+                if (input.value.trim() !== val) return;
+                const countEl = container.querySelector('.va-roster-count');
+                if (countEl) countEl.textContent = rosterCountText(res, val);
+                if (listEl) listEl.innerHTML = rosterListHTML(res, val);
+            }, 280);
+        });
+    }
+
     async function showDetail(id) {
         const body = overlayEl.querySelector('.va-partners-body');
         body.innerHTML = `<div class="va-partners-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>`;
         try {
-            const [ad] = await Promise.all([get(id), loadDirectory().catch(() => {})]);
+            // Pull the ad, its scheduled events and its pilot roster together;
+            // the events/roster feeds fail soft so the panel still renders.
+            const [ad, evs, roster] = await Promise.all([
+                get(id),
+                events(id),
+                pilots(id, { limit: 500 }),
+                loadDirectory().catch(() => {})
+            ]);
             if (!ad) { body.innerHTML = `<div class="va-partners-empty">Partner not found.</div>`; return; }
 
             const pills = [];
@@ -1192,7 +1790,7 @@
             body.innerHTML = `
                 <div class="va-ad-detail">
                     <button class="va-ad-back"><i class="fa-solid fa-arrow-left"></i> All partners</button>
-                    ${ad.banner ? `<div class="va-ad-detail-banner" style="background-image:url('${esc(ad.banner)}')"></div>` : ''}
+                    ${bannerImgHTML(ad.banner, 'va-ad-detail-banner', ad.name)}
                     <div class="va-detail-head">
                         ${logo}
                         <div class="va-detail-titles">
@@ -1212,6 +1810,8 @@
                     ${fleet.length
                         ? `<div class="va-fleet-grid">${fleetCards}</div>`
                         : `<div class="va-fleet-empty"><i class="fa-solid fa-plane-slash"></i>No ${esc(ad.name)} aircraft in the air right now — check back soon.</div>`}
+                    <div class="va-events-section"></div>
+                    <div class="va-roster-section"></div>
                     ${ad.description ? `<p class="desc" style="margin-top:16px">${esc(ad.description)}</p>` : ''}
                     ${chips ? `<div class="va-ad-chips" style="margin-top:12px">${chips}</div>` : ''}
                     ${actions.length ? `<div class="va-ad-actions">${actions.join('')}</div>` : ''}
@@ -1227,6 +1827,10 @@
                     if (entry) openFleetFlight(entry);
                 });
             });
+
+            // Scheduled events (month calendar + list) and the pilot roster.
+            renderEvents(body.querySelector('.va-events-section'), evs);
+            renderRoster(body.querySelector('.va-roster-section'), id, roster);
 
             // Hydrate aircraft photos lazily: community shot for the exact
             // type+livery, else the type's Generic livery, else default art.
@@ -1297,12 +1901,17 @@
         list,
         banner,
         get,
+        pilots,
+        events,
         hydrateAirportBanner,
         hydrateFlightBanner,
         openPartners,
         closePartners,
         matchCallsign,
         isCallsignMember,
+        vaFilterMember,
+        ensureRoster,
+        rosterHas,
         callsignBadgeHTML,
         partnersForIcao,
         allPartners,
