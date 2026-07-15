@@ -692,6 +692,17 @@ let mapFilters = {
         showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
+        // Quick traffic toggles (see updateAircraftLayerFilter). airborneOnly and
+        // onGroundOnly are mutually exclusive in the UI; hasPlanOnly keeps only
+        // aircraft that filed a departure or arrival.
+        airborneOnly: false,
+        onGroundOnly: false,
+        hasPlanOnly: false,
+        // Per-rule Include/Exclude for the tactical filters. A rule id present
+        // (and true) here means its match is NEGATED — it hides matching
+        // aircraft instead of keeping only them. Set from the shared tactical
+        // board (MobileSettingsUI.js), hosted on both mobile and desktop.
+        tacticalExclude: {},
         showAtcAirportsOnly: false,
         hideAtcMarkers: false,
         hideAllAirports: false,
@@ -9919,10 +9930,28 @@ function updateAircraftLayerFilter() {
         filter.push(['==', ['get', '__vaMatch'], 1]);
     }
 
-    // 2. Tactical Filters (Injected from landingUI.js)
+    // 2. Tactical Filters (Injected from landingUI.js / the mobile board)
     const tactical = mapFilters.tactical || {};
 
-    // --- Airport proximity (radius) filter ---
+    // Per-rule Include/Exclude. When a rule id is flagged true in
+    // tacticalExclude, its match condition is negated ('!') — it HIDES matching
+    // aircraft instead of keeping only them. pushRule centralises that so every
+    // rule honours the same switch. Aircraft missing the referenced property
+    // simply don't match, so an exclude never hides traffic that lacks the field.
+    const excl = mapFilters.tacticalExclude || {};
+    const pushRule = (id, cond) => { if (cond) filter.push(excl[id] ? ['!', cond] : cond); };
+
+    // --- Quick traffic toggles: airborne / on-ground / has-plan ---
+    if (mapFilters.airborneOnly) filter.push(['!=', ['get', 'phase'], 'Ground']);
+    if (mapFilters.onGroundOnly) filter.push(['==', ['get', 'phase'], 'Ground']);
+    if (mapFilters.hasPlanOnly) {
+        filter.push(['any',
+            ['!=', ['coalesce', ['get', 'departureIcao'], ''], ''],
+            ['!=', ['coalesce', ['get', 'arrivalIcao'], ''], '']
+        ]);
+    }
+
+    // --- Airport proximity (radius) filter (include-only) ---
     // Keeps only aircraft within `radiusNm` of the chosen airport. Distance is
     // pre-computed per feature into the __inRadius property (here, for instant
     // response, and in the polling loop for moving traffic).
@@ -9935,84 +9964,80 @@ function updateAircraftLayerFilter() {
     // --- Intelligent Aircraft Type Matching ---
     // Matches if user types "A38" and the aircraft is "Airbus A380-800"
     if (tactical.type && tactical.type.trim() !== '') {
-        filter.push(['in', tactical.type.toUpperCase(), ['upcase', ['get', 'aircraftName']]]);
+        pushRule('type', ['in', tactical.type.toUpperCase(), ['upcase', ['get', 'aircraftName']]]);
     }
-
 
     // --- Intelligent Livery Matching ---
     // Matches if user types "Delta" and livery is "Delta Air Lines"
     if (tactical.livery && tactical.livery.trim() !== '') {
-        filter.push(['in', tactical.livery.toUpperCase(), ['upcase', ['get', 'liveryName']]]);
+        pushRule('livery', ['in', tactical.livery.toUpperCase(), ['upcase', ['get', 'liveryName']]]);
     }
 
     // --- Airline Code Matching ---
     // Matches the start of the callsign (e.g., "DAL" matches "DAL123")
     if (tactical.airline && tactical.airline.trim() !== '') {
         const code = tactical.airline.toUpperCase();
-        filter.push(['==', ['slice', ['upcase', ['get', 'callsign']], 0, code.length], code]);
+        pushRule('airline', ['==', ['slice', ['upcase', ['get', 'callsign']], 0, code.length], code]);
     }
 
     // --- Category Filtering (Using your existing icon/category system) ---
     if (tactical.category) {
-        const catMap = { 
+        const catMap = {
             'Heavy': 'jumbo', // Maps UI "Heavy" to your 'jumbo' logic (A380/747)
-            'Widebody': 'widebody', 
-            'Narrowbody': 'narrowbody', 
-            'GA': 'cessna' 
+            'Widebody': 'widebody',
+            'Narrowbody': 'narrowbody',
+            'GA': 'cessna'
         };
         const internalCat = catMap[tactical.category] || tactical.category.toLowerCase();
-        filter.push(['==', ['get', 'category'], internalCat]);
+        pushRule('category', ['==', ['get', 'category'], internalCat]);
     }
 
+    // --- Flight Phase ---
     if (tactical.phase) {
-        filter.push(['==', ['get', 'phase'], tactical.phase]);
+        pushRule('phase', ['==', ['get', 'phase'], tactical.phase]);
     }
 
-    // Altitude Range (Min/Max)
+    // --- Altitude Range (Min/Max) — exclude negates the whole band (OUTSIDE) ---
     if (tactical.altitude) {
-        if (tactical.altitude.min !== '') filter.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
-        if (tactical.altitude.max !== '') filter.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+        const parts = [];
+        if (tactical.altitude.min !== '' && tactical.altitude.min != null) parts.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
+        if (tactical.altitude.max !== '' && tactical.altitude.max != null) parts.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+        if (parts.length) pushRule('altitude', parts.length === 1 ? parts[0] : ['all', ...parts]);
     }
 
-    // Speed Range (Min/Max)
+    // --- Speed Range (Min/Max) — exclude negates the whole band (OUTSIDE) ---
     if (tactical.speed) {
-        if (tactical.speed.min !== '') filter.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
-        if (tactical.speed.max !== '') filter.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+        const parts = [];
+        if (tactical.speed.min !== '' && tactical.speed.min != null) parts.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
+        if (tactical.speed.max !== '' && tactical.speed.max != null) parts.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+        if (parts.length) pushRule('speed', parts.length === 1 ? parts[0] : ['all', ...parts]);
     }
 
-    // Callsign (Partial Text Search - Case Insensitive)
+    // --- Callsign (Partial Text Search - Case Insensitive) ---
     if (tactical.callsign) {
-        filter.push(['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+        pushRule('callsign', ['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
-    // 3. Quick Search Blade
+    // 3. Quick Search Blade (always an include)
     if (mapFilters.quickSearch) {
         filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
+    // --- Registration Country prefix ---
     if (tactical.country && tactical.country !== 'All Countries') {
-    // Extract prefix from UI string "United States (N)" -> "N". Guard against
-    // free-typed values that omit the "(PREFIX)" part so we never throw.
-    const countryMatch = tactical.country.match(/\((.*?)\)/);
-    if (countryMatch) {
-        const prefix = countryMatch[1];
-
-        // FIX: Prioritize the community 'tailNumber' over the system 'registration'
-        filter.push([
-            '==',
-            ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length],
-            prefix
-        ]);
+        // Extract prefix from UI string "United States (N)" -> "N". Guard against
+        // free-typed values that omit the "(PREFIX)" part so we never throw.
+        const countryMatch = tactical.country.match(/\((.*?)\)/);
+        if (countryMatch) {
+            const prefix = countryMatch[1];
+            // Prioritize the community 'tailNumber' over the system 'registration'
+            pushRule('country', ['==', ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length], prefix]);
+        }
     }
-}
 
-    // Existing Filters (Departure/Arrival/Phase/etc.)
-    if (tactical.departureIcao) filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
-    if (tactical.arrivalIcao) filter.push(['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
-    if (tactical.phase) filter.push(['==', ['get', 'phase'], tactical.phase]);
-    
-    // Altitude and Speed Range logic...
-    // [Keep your existing range check logic here]
+    // --- Departure / Arrival ICAO ---
+    if (tactical.departureIcao) pushRule('departureIcao', ['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
+    if (tactical.arrivalIcao) pushRule('arrivalIcao', ['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
 
     setLiveFlightsFilter(filter);
 
@@ -24031,10 +24056,14 @@ async function initializeApp() {
         });
 
         window.addEventListener('filterUpdate', (e) => {
-            const { filters, quickSearch } = e.detail;
+            const { filters, quickSearch, exclude } = e.detail;
 
             // Store incoming tactical filters into global state
             mapFilters.tactical = filters;
+            // Only overwrite exclude when the dispatcher actually carries it, so
+            // a legacy event (no exclude payload) can't wipe the mode set on the
+            // shared board.
+            if (exclude) mapFilters.tacticalExclude = exclude;
             mapFilters.quickSearch = quickSearch;
 
             // Handle boolean group toggle

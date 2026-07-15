@@ -527,6 +527,18 @@ export const MobileSettingsUI = {
                 ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
             </div>
 
+            <div class="mobile-section-header">Flight State</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('airborneOnly', 'Airborne Only', 'fa-plane-up')}
+                ${this.renderToggle('onGroundOnly', 'On Ground Only', 'fa-plane-arrival')}
+                ${this.renderToggle('hasPlanOnly', 'Has a Flight Plan', 'fa-route')}
+            </div>
+
+            <div class="m-filter-hint">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>Every rule below has a <b>Show</b> / <b>Hide</b> switch — <b>Show</b> keeps only matching aircraft, <b>Hide</b> removes them from the map.</span>
+            </div>
+
             <div class="mobile-section-header">Virtual Airline</div>
             <div class="m-va-filter-block">
                 <input type="text" class="m-va-filter-search" placeholder="Search virtual airlines…" autocomplete="off">
@@ -599,6 +611,19 @@ export const MobileSettingsUI = {
         `;
     },
 
+    // Include/Exclude segmented control for a tactical rule. "Show" keeps only
+    // matches (default); "Hide" negates the rule so matches are removed from the
+    // map. Writes mapFilters.tacticalExclude[key] via setTacticalExclude; the
+    // engine (updateAircraftLayerFilter) reads it. Only used on invertible
+    // rules — never airport-radius or the VA focus.
+    renderModeToggle(key) {
+        return `
+            <div class="m-mode-toggle" data-tactical-mode="${key}" role="group" aria-label="Show or hide matches">
+                <button class="m-mode-btn active" data-mode="include" type="button" title="Show only matching aircraft"><i class="fa-solid fa-eye"></i><span>Show</span></button>
+                <button class="m-mode-btn" data-mode="exclude" type="button" title="Hide matching aircraft"><i class="fa-solid fa-eye-slash"></i><span>Hide</span></button>
+            </div>`;
+    },
+
     // A combobox: free-type input + a tap-to-pick preset dropdown. When
     // `presetOnly` is true the input is read-only and values come solely from
     // the menu (used for Country, whose value must carry a "(PREFIX)").
@@ -609,7 +634,10 @@ export const MobileSettingsUI = {
         const hasMenu = presets.length > 0;
         return `
             <div class="m-combo ${presetOnly ? 'is-preset-only' : ''}" data-tactical="${key}">
-                <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label}</span></div>
+                <div class="m-combo-head">
+                    <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label}</span></div>
+                    ${this.renderModeToggle(key)}
+                </div>
                 <div class="m-combo-control">
                     <input type="text" class="m-combo-input" data-tactical="${key}"
                            placeholder="${placeholder}" ${presetOnly ? 'readonly' : ''}
@@ -623,20 +651,27 @@ export const MobileSettingsUI = {
     },
 
     // Pill row for enum tactical filters (category, phase). The leading "All"
-    // pill clears the filter.
+    // pill clears the filter. A Show/Hide toggle sits above the pills.
     renderTacticalPills(key, options) {
         const pills = [`<button class="m-tac-pill active" data-tactical="${key}" data-value="" type="button">All</button>`]
             .concat(options.map(o =>
                 `<button class="m-tac-pill" data-tactical="${key}" data-value="${o.value}" type="button">${o.label}</button>`
             )).join('');
-        return `<div class="m-tac-pill-row">${pills}</div>`;
+        return `
+            <div class="m-tac-pill-block">
+                <div class="m-tac-pill-head">${this.renderModeToggle(key)}</div>
+                <div class="m-tac-pill-row">${pills}</div>
+            </div>`;
     },
 
     // Min/Max numeric range written to mapFilters.tactical[key] = {min, max}.
     renderRangeRow(key, label, icon, unit) {
         return `
             <div class="m-range-row" data-tactical-range="${key}">
-                <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label} <small>(${unit})</small></span></div>
+                <div class="m-combo-head">
+                    <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label} <small>(${unit})</small></span></div>
+                    ${this.renderModeToggle(key)}
+                </div>
                 <div class="m-range-inputs">
                     <input type="number" inputmode="numeric" class="m-range-num" data-bound="min" placeholder="Min">
                     <span class="m-range-dash">–</span>
@@ -1312,6 +1347,19 @@ export const MobileSettingsUI = {
         this.updateFilterBadge();
     },
 
+    // Flip one tactical rule between Show (include) and Hide (exclude). The
+    // engine (updateAircraftLayerFilter) negates the rule when its key is set
+    // here. Mode is remembered even while the field is empty, so it's ready the
+    // moment a value is entered.
+    setTacticalExclude(key, on) {
+        if (!window.mapFilters) return;
+        if (!window.mapFilters.tacticalExclude) window.mapFilters.tacticalExclude = {};
+        if (on) window.mapFilters.tacticalExclude[key] = true;
+        else delete window.mapFilters.tacticalExclude[key];
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+    },
+
     // Counts active tactical filters and reflects it in the tab badge + the
     // in-panel summary line.
     countActiveTactical() {
@@ -1361,7 +1409,14 @@ export const MobileSettingsUI = {
     },
 
     resetTacticalFilters(root) {
-        if (window.mapFilters) window.mapFilters.tactical = {};
+        if (window.mapFilters) {
+            window.mapFilters.tactical = {};
+            window.mapFilters.tacticalExclude = {};
+            // Clear the quick flight-state toggles too so Reset means "no rules".
+            window.mapFilters.airborneOnly = false;
+            window.mapFilters.onGroundOnly = false;
+            window.mapFilters.hasPlanOnly = false;
+        }
         // The single-VA focus lives on the board too now, so Reset clears it
         // with everything else (setVaFilter persists + re-runs the map filter).
         if (window.mapFilters && window.mapFilters.vaFilterId && typeof window.setVaFilter === 'function') {
@@ -1375,6 +1430,14 @@ export const MobileSettingsUI = {
                 p.classList.toggle('active', p.dataset.value === '');
             });
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
+            // Reset every Show/Hide toggle back to Show and drop the exclude tint.
+            container.querySelectorAll('.m-mode-toggle .m-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === 'include'));
+            container.querySelectorAll('.is-exclude-mode').forEach(el => el.classList.remove('is-exclude-mode'));
+            // Uncheck the quick flight-state toggles.
+            ['airborneOnly', 'onGroundOnly', 'hasPlanOnly'].forEach(k => {
+                const box = container.querySelector(`input[type="checkbox"][data-setting="${k}"]`);
+                if (box) box.checked = false;
+            });
             if (container.querySelector('.m-va-filter-block')) this.renderVaFilterListMobile(container, '');
         }
         if (window.updateMapFilters) window.updateMapFilters();
@@ -1422,10 +1485,35 @@ export const MobileSettingsUI = {
             input.addEventListener('change', (e) => {
                 if (e.target.closest('.locked')) return;
                 window.InflightHaptics?.select?.();
-                window.mapFilters[e.target.dataset.setting] = e.target.checked;
+                const setting = e.target.dataset.setting;
+                window.mapFilters[setting] = e.target.checked;
+                // Airborne-only and on-ground-only are mutually exclusive — no
+                // aircraft is both, so turning one on clears the other (and its
+                // checkbox) instead of hiding everything.
+                if (e.target.checked && (setting === 'airborneOnly' || setting === 'onGroundOnly')) {
+                    const other = setting === 'airborneOnly' ? 'onGroundOnly' : 'airborneOnly';
+                    window.mapFilters[other] = false;
+                    const otherBox = root.querySelector(`input[type="checkbox"][data-setting="${other}"]`);
+                    if (otherBox) otherBox.checked = false;
+                }
                 if (window.updateMapFilters) window.updateMapFilters();
                 if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
                 this.updateFilterBadge();
+            });
+        });
+
+        // Show/Hide (include/exclude) segmented toggles on each tactical rule.
+        root.querySelectorAll('.m-mode-toggle[data-tactical-mode]').forEach(tog => {
+            const key = tog.dataset.tacticalMode;
+            const host = tog.closest('.m-combo, .m-tac-pill-block, .m-range-row');
+            tog.querySelectorAll('.m-mode-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    window.InflightHaptics?.select?.();
+                    const on = btn.dataset.mode === 'exclude';
+                    tog.querySelectorAll('.m-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+                    if (host) host.classList.toggle('is-exclude-mode', on);
+                    this.setTacticalExclude(key, on);
+                });
             });
         });
 
@@ -1584,6 +1672,15 @@ export const MobileSettingsUI = {
         root.querySelectorAll('.m-tac-pill').forEach(pill => {
             const current = tactical[pill.dataset.tactical] || '';
             pill.classList.toggle('active', pill.dataset.value === current);
+        });
+
+        // Reflect each rule's Show/Hide (include/exclude) mode.
+        const excl = filters.tacticalExclude || {};
+        root.querySelectorAll('.m-mode-toggle[data-tactical-mode]').forEach(tog => {
+            const on = !!excl[tog.dataset.tacticalMode];
+            tog.querySelectorAll('.m-mode-btn').forEach(b => b.classList.toggle('active', (b.dataset.mode === 'exclude') === on));
+            const host = tog.closest('.m-combo, .m-tac-pill-block, .m-range-row');
+            if (host) host.classList.toggle('is-exclude-mode', on);
         });
         root.querySelectorAll('.m-range-row[data-tactical-range]').forEach(row => {
             const range = tactical[row.dataset.tacticalRange] || {};
@@ -2473,6 +2570,48 @@ export const MobileSettingsUI = {
                 }
                 .m-combo-label i { color: #38bdf8; width: 15px; text-align: center; }
                 .m-combo-label small { color: #71717a; font-weight: 500; }
+
+                /* Label + Show/Hide toggle on one row. */
+                .m-combo-head {
+                    display: flex; align-items: center; justify-content: space-between;
+                    gap: 10px; margin-bottom: 6px;
+                }
+                .m-combo-head .m-combo-label { margin-bottom: 0; }
+
+                /* Show/Hide (include/exclude) segmented control. */
+                .m-mode-toggle {
+                    display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px;
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 999px; padding: 2px;
+                }
+                .m-mode-btn {
+                    display: inline-flex; align-items: center; gap: 5px;
+                    background: transparent; border: none; cursor: pointer;
+                    color: #8a8a94; font-weight: 700; font-size: 0.68rem; letter-spacing: 0.02em;
+                    padding: 5px 10px; border-radius: 999px; -webkit-tap-highlight-color: transparent;
+                    transition: background 0.15s, color 0.15s;
+                }
+                .m-mode-btn i { font-size: 0.66rem; }
+                .m-mode-btn[data-mode="include"].active { background: #38bdf8; color: #000; }
+                .m-mode-btn[data-mode="exclude"].active { background: #ef4444; color: #fff; }
+                /* Exclude tint on the whole rule so a "Hide" rule reads at a glance. */
+                .is-exclude-mode .m-combo-label i { color: #f87171; }
+                .is-exclude-mode.m-combo.has-value .m-combo-input { border-color: rgba(239,68,68,0.5); }
+                .is-exclude-mode .m-tac-pill.active { background: #ef4444; color: #fff; border-color: #ef4444; }
+
+                /* Category / Phase block: toggle above the pills. */
+                .m-tac-pill-block { display: flex; flex-direction: column; gap: 8px; }
+                .m-tac-pill-head { display: flex; justify-content: flex-end; padding: 0 20px; }
+
+                /* Show/Hide explainer under the quick toggles. */
+                .m-filter-hint {
+                    display: flex; gap: 9px; align-items: flex-start;
+                    margin: 12px 20px 2px; padding: 10px 13px; border-radius: 12px;
+                    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+                    font-size: 0.72rem; line-height: 1.45; color: #a1a1aa;
+                }
+                .m-filter-hint i { color: #38bdf8; margin-top: 2px; }
+                .m-filter-hint b { color: #d4d4d8; font-weight: 700; }
 
                 .m-combo-control { position: relative; }
                 .m-combo-input {
