@@ -36,6 +36,27 @@
             .replace(/'/g, '&#39;');
     }
 
+    // Canonical username key for roster ⇆ live-socket matching. The VA-Ads
+    // backend and the live socket feed are two different sources for the SAME
+    // pilot handle, and they don't always agree byte-for-byte: case, stray
+    // whitespace, Unicode compatibility forms (full-width chars), a different
+    // NFC/NFD composition, or an invisible zero-width/BiDi character can all
+    // sneak in on one side and not the other. `.trim().toLowerCase()` alone
+    // misses every case but the first two. Folding both sides through this one
+    // function is what makes them line up: NFKC to collapse compatibility
+    // forms, strip the invisible characters, drop internal whitespace (IF
+    // handles carry none), then trim + lowercase. Both the roster set build and
+    // the socket lookup MUST use this so the two keys are computed identically.
+    function normUsername(u) {
+        let s = String(u == null ? '' : u);
+        try { s = s.normalize('NFKC'); } catch (_) { /* older engine — skip */ }
+        return s
+            // soft hyphen, zero-width chars, BiDi marks, word joiner, BOM
+            .replace(/[\u00AD\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
+            .replace(/\s+/g, '')
+            .toLowerCase();
+    }
+
     // Only allow http(s) links through; anything else (javascript:, etc.) is
     // dropped so external ad data can't smuggle a dangerous href in.
     function safeUrl(u) {
@@ -415,9 +436,10 @@
     }
 
     // Per-VA roster cache. ensureRoster(adId) pulls the public roster once and
-    // remembers the lower-cased usernames; rosterHas() is the synchronous lookup
-    // the map's per-feature tagging calls. Both fail soft to "no roster".
-    const rosterSets = new Map();     // adId -> Set(usernameLower) once resolved
+    // remembers each pilot under its canonical normUsername() key; rosterHas()
+    // is the synchronous lookup the map's per-feature tagging calls, keyed the
+    // same way. Both fail soft to "no roster".
+    const rosterSets = new Map();     // adId -> Set(normUsername) once resolved
     const rosterPromises = new Map(); // adId -> in-flight fetch promise
 
     function ensureRoster(adId) {
@@ -431,7 +453,7 @@
                 // limit is capped at 2000 server-side — one page covers any roster.
                 const res = await pilots(id, { limit: 2000 });
                 (res.pilots || []).forEach((pl) => {
-                    const u = String(pl.username || '').trim().toLowerCase();
+                    const u = normUsername(pl.username);
                     if (u) set.add(u);
                 });
             } catch (e) { /* keep the empty set — matching falls back to the tag */ }
@@ -442,9 +464,12 @@
         return p;
     }
 
-    function rosterHas(adId, usernameLower) {
+    // usernameNorm must already be a normUsername() key (the set is built from
+    // the same function), so the roster and the live socket handle compare as
+    // the same canonical string.
+    function rosterHas(adId, usernameNorm) {
         const s = rosterSets.get(String(adId || ''));
-        return !!(s && usernameLower && s.has(usernameLower));
+        return !!(s && usernameNorm && s.has(usernameNorm));
     }
 
     // The map filter's membership test for one VA. Synchronous — roster hits only
@@ -456,7 +481,7 @@
         // registered Norway pilot counts). It must NOT vouch for whatever else
         // that pilot happens to be flying: their "Etihad 456FR" for some other
         // VA stays out of a Norway VA filter.
-        const uname = String(username || '').trim().toLowerCase();
+        const uname = normUsername(username);
         if (uname && rosterHas(ad.id, uname) && callsignMatchesAd(callsign, ad)) return true;
         const tag = vaTag(ad) || 'VA';
         if (tag === 'VA') {
@@ -1886,6 +1911,7 @@
         vaFilterMember,
         ensureRoster,
         rosterHas,
+        normUsername,
         callsignBadgeHTML,
         partnersForIcao,
         allPartners,

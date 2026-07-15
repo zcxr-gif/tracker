@@ -128,6 +128,22 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // Canonical username key for roster ⇆ live-socket matching. Mirrors
+    // vaAds.js normUsername EXACTLY (the embed is a standalone bundle): the
+    // registered roster and the live socket feed are two sources for the same
+    // handle and don't always agree byte-for-byte — case, stray whitespace,
+    // Unicode compatibility forms, NFC/NFD composition, or an invisible
+    // zero-width/BiDi character can differ on one side. Both the roster set and
+    // the per-flight lookup fold through this so the two keys line up.
+    function normUsername(u) {
+        let s = String(u == null ? '' : u);
+        try { s = s.normalize('NFKC'); } catch (_) { /* older engine — skip */ }
+        return s
+            .replace(/[\u00AD\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
+            .replace(/\s+/g, '')
+            .toLowerCase();
+    }
+
     // Leading callsign word, upper-cased — "Ocean XXVA" / "Ocean 123" → "OCEAN".
     // Mirrors vaAds.js so the matching here behaves identically to the tracker.
     function firstToken(s) {
@@ -413,8 +429,8 @@
         }
     }
 
-    // The VA's registered roster (lower-cased usernames) from the public API,
-    // used so a member is shown even when their callsign carries no VA tag.
+    // The VA's registered roster (canonical normUsername keys) from the public
+    // API, used so a member is shown even when their callsign carries no VA tag.
     // Fails soft to an empty set — matching then falls back to the callsign.
     async function fetchRoster(adId) {
         const set = new Set();
@@ -422,7 +438,7 @@
         try {
             const data = await getJSON(`${INGDO_BACKEND}/api/public/va/${encodeURIComponent(adId)}/pilots?limit=2000`);
             const roster = (data && Array.isArray(data.pilots)) ? data.pilots : [];
-            roster.forEach(p => { const u = String(p.username || '').trim().toLowerCase(); if (u) set.add(u); });
+            roster.forEach(p => { const u = normUsername(p.username); if (u) set.add(u); });
         } catch (_) { /* keep the empty set */ }
         return set;
     }
@@ -441,7 +457,7 @@
         // by a registered pilot counts). It must not vouch for whatever else
         // that pilot is flying: their "Etihad 456FR" for some other VA stays
         // out of this embed.
-        const uname = String(f.username || '').trim().toLowerCase();
+        const uname = normUsername(f.username);
         if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
             const compact = compactCallsign(f.callsign);
             if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
