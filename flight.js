@@ -19173,27 +19173,60 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         return { type: 'FeatureCollection', features: [] };
     }
 
+    // Normalise field names once ({lat, lon, alt}).
+    const raw = allPoints.map(p => ({
+        lat: (p.latitude != null) ? p.latitude : p.lat,
+        lon: (p.longitude != null) ? p.longitude : p.lon,
+        alt: (p.altitude != null) ? p.altitude : (p.alt || 0)
+    }));
+
+    // --- Great-circle densification (polar routes / sparse gaps) ---
+    // Rendered vertices are joined by STRAIGHT lines in lon/lat (mercator)
+    // space. Near the poles that is badly wrong: a plane barely moving on the
+    // ground swings tens of degrees of longitude (≈180° crossing the pole
+    // itself), and the straight chord draws as a huge sideways sweep AROUND
+    // the pole at constant latitude instead of the true track OVER it. Long
+    // sparse-history gaps bend the same way in milder form. Insert points
+    // along the actual great circle wherever a segment spans a big ground
+    // distance or longitude delta, so the drawn path follows the real
+    // geometry (the renderer clips above ~±85°, so a true pole crossing
+    // correctly runs up to the polar cap and back down the far side).
+    const densified = [raw[0]];
+    for (let i = 1; i < raw.length; i++) {
+        const a = raw[i - 1], b = raw[i];
+        let dLon = Math.abs(b.lon - a.lon);
+        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
+        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
+        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
+        if (steps > 1) {
+            for (let s = 1; s < steps; s++) {
+                const f = s / steps;
+                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
+                densified.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
+            }
+        }
+        densified.push(b);
+    }
+
     // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian.
     // We carry the unwrapped longitude on each point (as `unwrappedLon`) so generateSmoothPath
     // can interpolate without hopping the dateline.
     const unwrappedPoints = [];
-    let prevLon = allPoints[0].longitude || allPoints[0].lon;
+    let prevLon = densified[0].lon;
 
     unwrappedPoints.push({
         unwrappedLon: prevLon,
-        lat: allPoints[0].latitude || allPoints[0].lat,
-        alt: allPoints[0].altitude || allPoints[0].alt || 0
+        lat: densified[0].lat,
+        alt: densified[0].alt
     });
 
-    for (let i = 1; i < allPoints.length; i++) {
-        let lon = allPoints[i].longitude || allPoints[i].lon;
-        const lat = allPoints[i].latitude || allPoints[i].lat;
-        const alt = allPoints[i].altitude || allPoints[i].alt || 0;
+    for (let i = 1; i < densified.length; i++) {
+        let lon = densified[i].lon;
 
         while (lon - prevLon > 180) lon -= 360;
         while (prevLon - lon > 180) lon += 360;
 
-        unwrappedPoints.push({ unwrappedLon: lon, lat, alt });
+        unwrappedPoints.push({ unwrappedLon: lon, lat: densified[i].lat, alt: densified[i].alt });
         prevLon = lon;
     }
 
