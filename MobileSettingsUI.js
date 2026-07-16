@@ -424,7 +424,7 @@ export const MobileSettingsUI = {
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
-                                <div class="m-setting-row is-pro-feature m-tz-row" data-requires-pro="true">
+                                <div class="m-setting-row is-pro-feature m-tz-row">
                                     <div class="m-row-left"><i class="fa-solid fa-clock"></i><span>Time Zone</span></div>
                                     <div class="m-row-right">
                                         <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>

@@ -11287,18 +11287,19 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
     }
 
-    // --- Pro: user time zone for flight-window times (else Zulu) ---------
-    // getUserTimeZone() returns the IANA zone a Pro user picked for flight
-    // times ('auto' resolves to the device zone), or null meaning "show
-    // UTC/Zulu". Gated on the Pro entitlement, and any invalid/stale id falls
-    // back to null so time formatting can never throw. getFlightTimeSuffix()
-    // is the short label placed after a time ('Z' for Zulu, else the zone's
-    // short name like 'BST' / 'GMT+9'). Exposed on window so the flight-window
+    // --- User time zone for flight-window times (else Zulu) --------------
+    // getUserTimeZone() returns the IANA zone the user picked for flight times
+    // ('auto' resolves to the device zone), or null meaning "show UTC/Zulu".
+    // Gated on being signed in (the same tier the picker unlocks at — see the
+    // Settings → Flight Window row), and any invalid/stale id falls back to
+    // null so time formatting can never throw. getFlightTimeSuffix() is the
+    // short label placed after a time ('Z' for Zulu, else the zone's short
+    // name like 'BST' / 'GMT+9'). Exposed on window so the flight-window
     // iframes and the mobile settings sheet resolve them the same way.
     function getUserTimeZone() {
         try {
-            const isPro = (typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
-            if (!isPro) return null;
+            const signedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser);
+            if (!signedIn) return null;
             const tz = mapFilters && mapFilters.userTimezone;
             if (!tz) return null;
             const resolved = (tz === 'auto')
@@ -16488,8 +16489,8 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            <div class="settings-row is-pro-feature${!isPro ? ' locked' : ''}">
-                                <div class="row-label"><i class="fa-solid fa-clock"></i> Time Zone${!isPro ? ' <span class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.55rem; margin-right:3px;"></i>PRO</span>' : ''}</div>
+                            <div class="settings-row is-pro-feature${!isSignedIn ? ' locked' : ''}">
+                                <div class="row-label"><i class="fa-solid fa-clock"></i> Time Zone${!isSignedIn ? ' <span class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.55rem; margin-right:3px;"></i>PRO</span>' : ''}</div>
                                 <select id="set-user-timezone" class="iw-tz-select">${buildTimezoneOptions(mapFilters.userTimezone)}</select>
                             </div>
                             <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone instead of Zulu.</div>
