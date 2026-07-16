@@ -182,6 +182,55 @@
         .acsub-link:hover { color: var(--acc-a); }
         .acsub-link i { margin-right: 5px; }
 
+        /* One-time "want to submit?" invite toast */
+        .acsub-toast {
+            position: fixed; z-index: 19000;
+            left: max(env(safe-area-inset-left, 0px), 16px);
+            bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+            width: 320px; max-width: calc(100vw - 32px);
+            display: flex; gap: 12px; padding: 14px 14px 14px 16px;
+            background: rgba(18, 20, 38, 0.96);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-left: 3px solid var(--acc-a);
+            border-radius: 14px; box-shadow: 0 18px 44px rgba(0,0,0,0.5);
+            color: #e6e9ff; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            transform: translateY(140%); opacity: 0;
+            transition: transform .35s cubic-bezier(.16,.84,.44,1), opacity .35s ease;
+        }
+        .acsub-toast.visible { transform: translateY(0); opacity: 1; }
+        .acsub-toast-icon {
+            flex: 0 0 auto; width: 38px; height: 38px; border-radius: 11px;
+            display: grid; place-items: center; font-size: 1.05rem; color: #fff;
+            background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
+        }
+        .acsub-toast-body { flex: 1 1 auto; min-width: 0; }
+        .acsub-toast-body strong { display: block; font-size: .92rem; font-weight: 700; }
+        .acsub-toast-body p { margin: 3px 0 0; font-size: .8rem; color: #9aa2c9; line-height: 1.35; }
+        .acsub-toast-actions { display: flex; gap: 8px; margin-top: 10px; }
+        .acsub-toast-cta {
+            border: none; cursor: pointer; color: #fff;
+            padding: 7px 14px; border-radius: 9px; font-size: .82rem; font-weight: 700;
+            background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
+            transition: filter .15s ease;
+        }
+        .acsub-toast-cta:hover { filter: brightness(1.08); }
+        .acsub-toast-later {
+            border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+            color: #c5cae9; cursor: pointer;
+            padding: 7px 12px; border-radius: 9px; font-size: .82rem; font-weight: 600;
+            transition: background .15s ease;
+        }
+        .acsub-toast-later:hover { background: rgba(255,255,255,0.1); }
+        .acsub-toast-x {
+            position: absolute; top: 8px; right: 9px;
+            width: 22px; height: 22px; border-radius: 50%;
+            border: none; background: transparent; color: #6b73a0;
+            font-size: 1rem; line-height: 1; cursor: pointer;
+            display: grid; place-items: center; transition: color .15s ease;
+        }
+        .acsub-toast-x:hover { color: #fff; }
+
         @media (max-width: 420px) {
             .acsub-head, .acsub-body, .acsub-foot { padding-left: 16px; padding-right: 16px; }
         }`;
@@ -417,6 +466,82 @@
     }
 
     // ---------------------------------------------------------------------
+    // One-time "want to submit your own plane images?" invite
+    //
+    // Shows a single amber toast, once ever, after a randomised delay so it
+    // feels organic rather than firing the instant the map loads. It's marked
+    // seen the moment it appears, so ignoring it counts — it never returns.
+    // Anyone who's already a contributor (has a saved credit name) is skipped.
+    // ---------------------------------------------------------------------
+    const INVITE_KEY = 'inflight_submit_invite_seen';
+    const inviteSeen = () => { try { return localStorage.getItem(INVITE_KEY) === '1'; } catch (_) { return true; } };
+    const markInviteSeen = () => { try { localStorage.setItem(INVITE_KEY, '1'); } catch (_) {} };
+
+    // A few flavours so the nudge feels a little different each rollout.
+    const INVITES = [
+        { h: 'Got great plane shots?', p: 'Add your Infinite Flight liveries to the community gallery — takes a few seconds.' },
+        { h: 'Fly with a camera?', p: 'Share your best aircraft photos and get credited across the tracker.' },
+        { h: 'Missing your favourite livery?', p: 'Submit your own plane images — staff review every one on Discord.' }
+    ];
+
+    let toastEl = null, toastTimer = null;
+
+    function dismissInvite() {
+        if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+        if (!toastEl) return;
+        toastEl.classList.remove('visible');
+        const el = toastEl; toastEl = null;
+        setTimeout(() => el.remove(), 400);
+    }
+
+    function showInvite() {
+        if (toastEl || typeof document === 'undefined') return;
+        markInviteSeen(); // one-time: appearing is enough to retire it
+        injectStyles();
+
+        const pick = INVITES[Math.floor(Math.random() * INVITES.length)];
+        toastEl = document.createElement('div');
+        toastEl.className = 'acsub-toast';
+        toastEl.setAttribute('role', 'dialog');
+        toastEl.setAttribute('aria-label', 'Submit your plane photos');
+        toastEl.innerHTML = `
+            <button type="button" class="acsub-toast-x" aria-label="Dismiss">&times;</button>
+            <div class="acsub-toast-icon"><i class="fa-solid fa-camera-retro"></i></div>
+            <div class="acsub-toast-body">
+                <strong>${pick.h}</strong>
+                <p>${pick.p}</p>
+                <div class="acsub-toast-actions">
+                    <button type="button" class="acsub-toast-cta">Submit a photo</button>
+                    <button type="button" class="acsub-toast-later">Not now</button>
+                </div>
+            </div>`;
+        document.body.appendChild(toastEl);
+
+        toastEl.querySelector('.acsub-toast-x').addEventListener('click', dismissInvite);
+        toastEl.querySelector('.acsub-toast-later').addEventListener('click', dismissInvite);
+        toastEl.querySelector('.acsub-toast-cta').addEventListener('click', () => { dismissInvite(); open(); });
+
+        requestAnimationFrame(() => toastEl.classList.add('visible'));
+        // Auto-retire if left untouched for a while.
+        toastTimer = setTimeout(dismissInvite, 18000);
+    }
+
+    function maybeScheduleInvite() {
+        if (window !== window.parent) return;                               // not inside embeds/iframes
+        if (inviteSeen()) return;                                           // already shown once
+        if (savedName()) { markInviteSeen(); return; }                      // already a contributor
+        if (!document.getElementById('toolbar-submit-photo-btn')) return;   // tracker chrome only
+        // 18–50s by default; a site can override via window.INFLIGHT_INVITE_DELAY_MS.
+        const override = Number(window.INFLIGHT_INVITE_DELAY_MS);
+        const delay = Number.isFinite(override) ? override : 18000 + Math.random() * 32000;
+        setTimeout(() => {
+            if (inviteSeen()) return;                                        // set/submitted meanwhile
+            if (overlayEl && overlayEl.classList.contains('visible')) return; // don't stack on the modal
+            showInvite();
+        }, delay);
+    }
+
+    // ---------------------------------------------------------------------
     // Toolbar launcher + wiring
     // ---------------------------------------------------------------------
     function wireToolbarButton() {
@@ -428,10 +553,11 @@
     }
 
     if (typeof document !== 'undefined') {
+        const init = () => { wireToolbarButton(); maybeScheduleInvite(); };
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', wireToolbarButton);
+            document.addEventListener('DOMContentLoaded', init);
         } else {
-            wireToolbarButton();
+            init();
         }
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && overlayEl && overlayEl.classList.contains('visible')) close();
