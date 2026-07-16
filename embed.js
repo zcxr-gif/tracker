@@ -128,6 +128,22 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // Canonical username key for roster ⇆ live-socket matching. Mirrors
+    // vaAds.js normUsername EXACTLY (the embed is a standalone bundle): the
+    // registered roster and the live socket feed are two sources for the same
+    // handle and don't always agree byte-for-byte — case, stray whitespace,
+    // Unicode compatibility forms, NFC/NFD composition, or an invisible
+    // zero-width/BiDi character can differ on one side. Both the roster set and
+    // the per-flight lookup fold through this so the two keys line up.
+    function normUsername(u) {
+        let s = String(u == null ? '' : u);
+        try { s = s.normalize('NFKC'); } catch (_) { /* older engine — skip */ }
+        return s
+            .replace(/[\u00AD\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
+            .replace(/\s+/g, '')
+            .toLowerCase();
+    }
+
     // Leading callsign word, upper-cased — "Ocean XXVA" / "Ocean 123" → "OCEAN".
     // Mirrors vaAds.js so the matching here behaves identically to the tracker.
     function firstToken(s) {
@@ -403,6 +419,7 @@
                 : (typeof hubsRaw === 'string' ? hubsRaw.split(',') : []))
                 .map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
             return {
+                id: String(hit._id || hit.id || hit.adId || ''),
                 name: hit.name || hit.vaName || hit.title || '',
                 logo: /^https?:\/\//i.test(rawLogo) ? rawLogo : '',
                 hubs
@@ -410,6 +427,47 @@
         } catch (_) {
             return null;
         }
+    }
+
+    // The VA's registered roster (canonical normUsername keys) from the public
+    // API, used so a member is shown even when their callsign carries no VA tag.
+    // Fails soft to an empty set — matching then falls back to the callsign.
+    async function fetchRoster(adId) {
+        const set = new Set();
+        if (!adId) return set;
+        try {
+            const data = await getJSON(`${INGDO_BACKEND}/api/public/va/${encodeURIComponent(adId)}/pilots?limit=2000`);
+            const roster = (data && Array.isArray(data.pilots)) ? data.pilots : [];
+            roster.forEach(p => { const u = normUsername(p.username); if (u) set.add(u); });
+        } catch (_) { /* keep the empty set */ }
+        return set;
+    }
+
+    // Whether a live flight belongs to this VA — the embed's "more advanced"
+    // membership, mirroring the main tracker: the configured prefix/suffix match
+    // (callsignMatches), OR a rostered pilot flying the VA's airline callsign
+    // (roster waives the tag, never the airline), OR the callsign carries a
+    // distinctive suffix tag (not the generic "VA") on its own. Only ever ADDS
+    // pilots over the old prefix rule, so existing embeds don't lose anyone.
+    function flightIsMember(f, cfg) {
+        if (!f) return false;
+        if (callsignMatches(f.callsign, cfg)) return true;
+        // A rostered pilot still has to be flying THIS VA's airline callsign —
+        // the roster only waives the suffix TAG (an untagged "Air Norway 123"
+        // by a registered pilot counts). It must not vouch for whatever else
+        // that pilot is flying: their "Etihad 456FR" for some other VA stays
+        // out of this embed.
+        const uname = normUsername(f.username);
+        if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
+            const compact = compactCallsign(f.callsign);
+            if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
+            if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
+        }
+        if (cfg.suffixes && cfg.suffixes.length) {
+            const tail = stripWeightClass(callsignTokens(f.callsign)).slice(-2);
+            if (cfg.suffixes.some(s => s && s.toUpperCase() !== 'VA' && tail.some(t => tokenHasSuffixTag(t, s)))) return true;
+        }
+        return false;
     }
 
     // ── Live data ──────────────────────────────────────────────────────────────
@@ -534,7 +592,7 @@
             const fj = await getJSON(`${FLIGHTS_BASE}/${s.id}`);
             const flights = fj.flights || fj.data || (Array.isArray(fj) ? fj : []);
             return flights
-                .filter(f => f && callsignMatches(f.callsign, cfg))
+                .filter(f => flightIsMember(f, cfg))
                 .map(f => normalizeFlight(f, s.name, s.id));
         }));
 
@@ -850,15 +908,62 @@
     }
 
     // ── Roster mode ───────────────────────────────────────────────────────────
+
+    // Flip the mobile peek open/closed and keep the toggle's label + chevron in
+    // sync. Only the CSS media query actually collapses anything, so this is a
+    // no-op on desktop (the body shows in full regardless of the class).
+    function setPeekExpanded(root, on) {
+        root.classList.toggle('is-expanded', on);
+        const btn = root.querySelector('.emb-peek-toggle');
+        if (btn) {
+            btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+            const lbl = btn.querySelector('.emb-peek-toggle-label');
+            if (lbl) lbl.textContent = on ? 'Show less' : `Show all ${root.querySelectorAll('.emb-row').length} airborne`;
+        }
+        if (on) { const body = root.querySelector('.emb-body'); if (body) body.scrollTop = 0; }
+    }
+
+    // Wire the grip, the header and the bottom toggle button to open/close the
+    // peek. The header's Powered-by link is exempt so tapping it still navigates.
+    function wirePeek(root) {
+        const toggle = () => setPeekExpanded(root, !root.classList.contains('is-expanded'));
+        const grip = root.querySelector('.emb-grip');
+        if (grip) {
+            grip.addEventListener('click', toggle);
+            grip.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+            });
+        }
+        const btn = root.querySelector('.emb-peek-toggle');
+        if (btn) btn.addEventListener('click', toggle);
+        const head = root.querySelector('.emb-head');
+        if (head) head.addEventListener('click', (e) => { if (!e.target.closest('a')) toggle(); });
+    }
+
     function renderRoster(cfg, pilots) {
         const root = rootEl();
         if (!root) return;
+        // Peek only makes sense on the roster (not the map) and only once there
+        // are more pilots than the two-row peek already shows. The CSS gates the
+        // actual collapsing to phone widths; the class is harmless on desktop.
+        const peek = cfg.mode !== 'map' && pilots.length > 2;
+        root.classList.toggle('emb-peek', peek);
+        if (!peek) root.classList.remove('is-expanded');
+        // Preserve the open/closed state the visitor last chose across polls
+        // (the root element — and so its classes — survives each re-render).
+        const expanded = root.classList.contains('is-expanded');
         root.innerHTML = `
+            ${peek ? '<div class="emb-grip" role="button" tabindex="0" aria-label="Expand or collapse the pilot list"></div>' : ''}
             ${cfg.hideHeader ? '' : headerHTML(cfg, pilots.length)}
             <div class="emb-body">
                 ${pilots.length ? pilots.map(pilotRowHTML).join('') : emptyHTML(cfg)}
             </div>
+            ${peek ? `<button class="emb-peek-toggle" type="button" aria-expanded="${expanded}">
+                <span class="emb-peek-toggle-label">${expanded ? 'Show less' : `Show all ${pilots.length} airborne`}</span>
+                <i class="emb-peek-chevron" aria-hidden="true">▾</i>
+            </button>` : ''}
             ${cfg.hideHeader ? floatBrandHTML(cfg, pilots.length) : ''}`;
+        if (peek) wirePeek(root);
     }
 
     // ── Map mode ────────────────────────────────────────────────────────────────
@@ -2433,16 +2538,20 @@
             showError(e.message || 'This embed could not be configured.');
             return;
         }
-        // Fill in the partner VA's name/logo from the VA-Ads roster when they
-        // weren't supplied (e.g. preview embeds, or a token without a logo).
-        if (!cfg.logo || cfg.name === cfg.code || !cfg.hubs.length) {
-            const brand = await resolveVaBranding(cfg.code);
-            if (brand) {
-                if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
-                if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
-                if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
-            }
+        // Resolve the VA's ad from the VA-Ads directory — to fill in any missing
+        // name/logo/hubs (preview embeds, or a token without them) AND to pick up
+        // its ad id so we can pull the registered roster below.
+        cfg.rosterSet = new Set();
+        const brand = await resolveVaBranding(cfg.code);
+        if (brand) {
+            if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
+            if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
+            if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
+            cfg.adId = brand.id || '';
         }
+        // Warm the roster so roster-only members (right username, untagged
+        // callsign) are counted. Fails soft to no roster.
+        if (cfg.adId) { try { cfg.rosterSet = await fetchRoster(cfg.adId); } catch (_) { /* no roster */ } }
 
         const root = rootEl();
         root.setAttribute('data-theme', cfg.theme);

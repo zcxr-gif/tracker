@@ -24,6 +24,37 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.7',
+            date: 'July 2026',
+            title: 'A Sharper Trail',
+            tagline: 'The flown path is rebuilt end-to-end — crisp at every zoom, an altitude rainbow, true polar routes — and Filters learn to hide what you don’t want.',
+            entries: [
+                { tag: 'improved', icon: 'fa-route', text: 'Flown path rebuilt — one continuous altitude-coloured line instead of thousands of tiny pieces. It stays crisp however far you zoom out and updates the moment each position report arrives, even hours into a long-haul.' },
+                { tag: 'new', icon: 'fa-palette', text: 'Fourteen altitude colours — the trail sweeps a full warm-to-cool spectrum: orange at rotation, yellows and greens through the climb, blues at cruise, violet and magenta up high. Every climb and descent reads like an altitude rainbow.' },
+                { tag: 'fixed', icon: 'fa-earth-americas', text: 'Polar routes draw correctly — a path over the top (or bottom) of the world now follows the real great circle across the pole instead of sweeping sideways around it.' },
+                { tag: 'fixed', icon: 'fa-location-crosshairs', text: 'The path now ends exactly at the aircraft — no more trail poking out ahead of the plane.' },
+                { tag: 'new', icon: 'fa-eye-slash', text: 'Filters can hide, not just show — every rule (aircraft type, airline, category, phase, altitude, speed, route and more) now has a Show / Hide switch: Show keeps only matching aircraft, Hide removes them from the map.' },
+                { tag: 'new', icon: 'fa-plane-up', text: 'New Flight State quick filters — Airborne Only, On Ground Only, and Has a Flight Plan.' },
+                { tag: 'fixed', icon: 'fa-user-check', text: 'VA rosters match more reliably — pilot usernames from the VA directory and the live feed are now normalised identically, so rostered pilots no longer drop out of VA filters or rosters over invisible character differences.' },
+                { tag: 'new', icon: 'fa-clock', text: 'Local time in flight windows — show departure and arrival times in your own time zone (or your device’s) and switch between 24-hour and 12-hour (AM/PM). Open to everyone, under Settings → Flight Window.' },
+                { tag: 'improved', icon: 'fa-id-card', text: 'The Card flight window dropped the big logo tile between the photo and the callsign — the callsign now sits cleanly under the hero shot.' }
+            ]
+        },
+        {
+            id: '2026.07.6',
+            date: 'July 2026',
+            title: 'Every VA Has a Calendar',
+            tagline: 'Partner pages now carry the VA’s events calendar and pilot roster — with animated event banners.',
+            entries: [
+                { tag: 'new', icon: 'fa-calendar-days', text: 'Events calendar on every partner page — a month view that marks the days a VA has something planned; tap a day to see just its events, or browse the full upcoming list underneath.' },
+                { tag: 'new', icon: 'fa-image', text: 'Events can carry their own banner artwork — including animated ones, which play right in the list.' },
+                { tag: 'new', icon: 'fa-users', text: 'Pilot roster — each partner page now shows the VA’s registered pilots and a running count, with a quick search to find anyone on the roster.' },
+                { tag: 'new', icon: 'fa-plane-departure', text: 'Event cards show the departure airport at a glance when the VA sets one.' },
+                { tag: 'new', icon: 'fa-satellite-dish', text: 'See when an event is on — a live “Happening now” badge marks events under way, and every other one shows a countdown (in 20m, in 3h, in 2d) so you know how long you’ve got.' },
+                { tag: 'new', icon: 'fa-bolt', text: 'A “Next up” card sits above each calendar with the soonest event and its countdown — tap it to jump straight to that day on the calendar.' }
+            ]
+        },
+        {
             id: '2026.07.5',
             date: 'July 2026',
             title: 'Legacy, Reborn',

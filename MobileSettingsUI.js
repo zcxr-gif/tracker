@@ -424,7 +424,15 @@ export const MobileSettingsUI = {
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
+                                ${this.renderToggle('use12hClock', '12-Hour Clock (AM/PM)', 'fa-clock')}
+                                <div class="m-setting-row m-tz-row">
+                                    <div class="m-row-left"><i class="fa-solid fa-earth-americas"></i><span>Time Zone</span></div>
+                                    <div class="m-row-right">
+                                        <select id="m-user-timezone" class="m-tz-select">${(typeof window !== 'undefined' && window.buildTimezoneOptions) ? window.buildTimezoneOptions((window.mapFilters || {}).userTimezone) : ''}</select>
+                                    </div>
+                                </div>
                             </div>
+                            <p class="m-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</p>
 
                             <div class="mobile-section-header">Airport Window</div>
                             <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
@@ -527,6 +535,25 @@ export const MobileSettingsUI = {
                 ${this.renderToggle('hideAllAircraft', 'Hide All Aircraft', 'fa-eye-slash')}
             </div>
 
+            <div class="mobile-section-header">Flight State</div>
+            <div class="m-settings-list">
+                ${this.renderToggle('airborneOnly', 'Airborne Only', 'fa-plane-up')}
+                ${this.renderToggle('onGroundOnly', 'On Ground Only', 'fa-plane-arrival')}
+                ${this.renderToggle('hasPlanOnly', 'Has a Flight Plan', 'fa-route')}
+            </div>
+
+            <div class="m-filter-hint">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>Every rule below has a <b>Show</b> / <b>Hide</b> switch — <b>Show</b> keeps only matching aircraft, <b>Hide</b> removes them from the map.</span>
+            </div>
+
+            <div class="mobile-section-header">Virtual Airline</div>
+            <div class="m-va-filter-block">
+                <input type="text" class="m-va-filter-search" placeholder="Search virtual airlines…" autocomplete="off">
+                <div class="m-va-filter-list" id="m-va-filter-list"><div class="m-va-filter-empty">Loading virtual airlines…</div></div>
+                <p class="m-va-filter-hint">Focus the live map on a single VA — every other aircraft is hidden. This list fills in as VAs are added; a pilot counts by their callsign tag (…VA) or the VA's roster.</p>
+            </div>
+
             <div class="mobile-section-header">Aircraft &amp; Airline</div>
             <div class="m-combo-list">
                 ${this.renderCombo('type', 'Aircraft Type', 'fa-plane', 'e.g. A320, 787…', AIRCRAFT_TYPE_PRESETS)}
@@ -592,6 +619,19 @@ export const MobileSettingsUI = {
         `;
     },
 
+    // Include/Exclude segmented control for a tactical rule. "Show" keeps only
+    // matches (default); "Hide" negates the rule so matches are removed from the
+    // map. Writes mapFilters.tacticalExclude[key] via setTacticalExclude; the
+    // engine (updateAircraftLayerFilter) reads it. Only used on invertible
+    // rules — never airport-radius or the VA focus.
+    renderModeToggle(key) {
+        return `
+            <div class="m-mode-toggle" data-tactical-mode="${key}" role="group" aria-label="Show or hide matches">
+                <button class="m-mode-btn active" data-mode="include" type="button" title="Show only matching aircraft"><i class="fa-solid fa-eye"></i><span>Show</span></button>
+                <button class="m-mode-btn" data-mode="exclude" type="button" title="Hide matching aircraft"><i class="fa-solid fa-eye-slash"></i><span>Hide</span></button>
+            </div>`;
+    },
+
     // A combobox: free-type input + a tap-to-pick preset dropdown. When
     // `presetOnly` is true the input is read-only and values come solely from
     // the menu (used for Country, whose value must carry a "(PREFIX)").
@@ -602,7 +642,10 @@ export const MobileSettingsUI = {
         const hasMenu = presets.length > 0;
         return `
             <div class="m-combo ${presetOnly ? 'is-preset-only' : ''}" data-tactical="${key}">
-                <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label}</span></div>
+                <div class="m-combo-head">
+                    <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label}</span></div>
+                    ${this.renderModeToggle(key)}
+                </div>
                 <div class="m-combo-control">
                     <input type="text" class="m-combo-input" data-tactical="${key}"
                            placeholder="${placeholder}" ${presetOnly ? 'readonly' : ''}
@@ -616,20 +659,27 @@ export const MobileSettingsUI = {
     },
 
     // Pill row for enum tactical filters (category, phase). The leading "All"
-    // pill clears the filter.
+    // pill clears the filter. A Show/Hide toggle sits above the pills.
     renderTacticalPills(key, options) {
         const pills = [`<button class="m-tac-pill active" data-tactical="${key}" data-value="" type="button">All</button>`]
             .concat(options.map(o =>
                 `<button class="m-tac-pill" data-tactical="${key}" data-value="${o.value}" type="button">${o.label}</button>`
             )).join('');
-        return `<div class="m-tac-pill-row">${pills}</div>`;
+        return `
+            <div class="m-tac-pill-block">
+                <div class="m-tac-pill-head">${this.renderModeToggle(key)}</div>
+                <div class="m-tac-pill-row">${pills}</div>
+            </div>`;
     },
 
     // Min/Max numeric range written to mapFilters.tactical[key] = {min, max}.
     renderRangeRow(key, label, icon, unit) {
         return `
             <div class="m-range-row" data-tactical-range="${key}">
-                <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label} <small>(${unit})</small></span></div>
+                <div class="m-combo-head">
+                    <div class="m-combo-label"><i class="fa-solid ${icon}"></i><span>${label} <small>(${unit})</small></span></div>
+                    ${this.renderModeToggle(key)}
+                </div>
                 <div class="m-range-inputs">
                     <input type="number" inputmode="numeric" class="m-range-num" data-bound="min" placeholder="Min">
                     <span class="m-range-dash">–</span>
@@ -953,6 +1003,84 @@ export const MobileSettingsUI = {
         }
     },
 
+    // Wire the "Filter Map by VA" list on mobile and paint it. The list itself
+    // is (re)built by renderVaFilterListMobile; the search box filters it.
+    attachVaFilter(sheet) {
+        const block = sheet && sheet.querySelector('.m-va-filter-block');
+        if (!block || block.dataset.vaFilterBound === '1') return;
+        block.dataset.vaFilterBound = '1';
+        const search = block.querySelector('.m-va-filter-search');
+        if (search) {
+            let t = 0;
+            search.addEventListener('input', () => {
+                clearTimeout(t);
+                t = setTimeout(() => this.renderVaFilterListMobile(sheet, search.value), 200);
+            });
+        }
+        this.renderVaFilterListMobile(sheet, '');
+    },
+
+    // Paint the VA list into #m-va-filter-list from the VA directory, reflecting
+    // the current focus (mapFilters.vaFilterId). Single-select: a row focuses
+    // the map on that VA via the shared window.setVaFilter; "All aircraft"
+    // clears it. Mirrors the desktop renderVaFilterList (flight.js).
+    renderVaFilterListMobile(sheet, filterText) {
+        const listEl = sheet ? sheet.querySelector('#m-va-filter-list') : document.getElementById('m-va-filter-list');
+        if (!listEl) return;
+        const VA = window.InflightVaAds;
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        const paint = () => {
+            let ads = (VA && VA.allPartners ? VA.allPartners() : []).slice();
+            const q = String(filterText || '').trim().toLowerCase();
+            if (q) ads = ads.filter(a =>
+                String(a.name || '').toLowerCase().includes(q) ||
+                String(a.callsign || '').toLowerCase().includes(q) ||
+                String(a.region || '').toLowerCase().includes(q));
+            ads.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            const activeId = (window.mapFilters && window.mapFilters.vaFilterId) ? String(window.mapFilters.vaFilterId) : '';
+            const row = (ad) => {
+                const on = String(ad.id) === activeId;
+                const logo = ad.logo
+                    ? `<img class="m-va-filter-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+                    : `<span class="m-va-filter-logo m-va-filter-logo-fb">${esc(String(ad.name || '?').slice(0, 2).toUpperCase())}</span>`;
+                const sub = [ad.type, ad.region].filter(Boolean).join(' · ');
+                return `<button type="button" class="m-va-filter-row${on ? ' active' : ''}" data-va-filter-id="${esc(ad.id)}">
+                    ${logo}
+                    <span class="m-va-filter-meta"><span class="m-va-filter-name">${esc(ad.name)}</span>${sub ? `<span class="m-va-filter-sub">${esc(sub)}</span>` : ''}</span>
+                    <i class="fa-solid fa-check m-va-filter-check"></i>
+                </button>`;
+            };
+            listEl.innerHTML =
+                `<button type="button" class="m-va-filter-row m-va-filter-all${activeId ? '' : ' active'}" data-va-filter-id="">
+                    <span class="m-va-filter-logo m-va-filter-logo-fb"><i class="fa-solid fa-globe"></i></span>
+                    <span class="m-va-filter-meta"><span class="m-va-filter-name">All aircraft</span><span class="m-va-filter-sub">No VA filter</span></span>
+                    <i class="fa-solid fa-check m-va-filter-check"></i>
+                </button>` +
+                (ads.length ? ads.map(row).join('') : `<div class="m-va-filter-empty">${q ? 'No VAs match your search.' : 'No virtual airlines available yet.'}</div>`);
+            listEl.querySelectorAll('[data-va-filter-id]').forEach(el => {
+                el.addEventListener('click', () => {
+                    window.InflightHaptics?.select?.();
+                    const id = el.getAttribute('data-va-filter-id') || null;
+                    if (typeof window.setVaFilter === 'function') window.setVaFilter(id);
+                    this.renderVaFilterListMobile(sheet, filterText);   // repaint so the tick moves
+                    this.updateFilterBadge();                           // it counts as an active rule
+                });
+            });
+        };
+
+        if (VA && VA.loadDirectory) {
+            if (!(VA.allPartners && VA.allPartners().length)) {
+                listEl.innerHTML = `<div class="m-va-filter-empty">Loading virtual airlines…</div>`;
+            }
+            VA.loadDirectory().then(paint).catch(paint);
+        } else {
+            listEl.innerHTML = `<div class="m-va-filter-empty">VA directory unavailable.</div>`;
+        }
+    },
+
     // Reflect mapFilters.atcTagConfig into the studio's controls + preview.
     // Queries are class-based and document-wide (not scoped to the mobile
     // sheet) so a single call keeps *every* mounted studio in sync — the
@@ -1227,6 +1355,19 @@ export const MobileSettingsUI = {
         this.updateFilterBadge();
     },
 
+    // Flip one tactical rule between Show (include) and Hide (exclude). The
+    // engine (updateAircraftLayerFilter) negates the rule when its key is set
+    // here. Mode is remembered even while the field is empty, so it's ready the
+    // moment a value is entered.
+    setTacticalExclude(key, on) {
+        if (!window.mapFilters) return;
+        if (!window.mapFilters.tacticalExclude) window.mapFilters.tacticalExclude = {};
+        if (on) window.mapFilters.tacticalExclude[key] = true;
+        else delete window.mapFilters.tacticalExclude[key];
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+    },
+
     // Counts active tactical filters and reflects it in the tab badge + the
     // in-panel summary line.
     countActiveTactical() {
@@ -1243,6 +1384,8 @@ export const MobileSettingsUI = {
         });
         // Airport-proximity filter counts as one active rule.
         if (t.airportRadius && t.airportRadius.icao && t.airportRadius.radiusNm) n++;
+        // Single-VA map focus counts as one active rule.
+        if (window.mapFilters && window.mapFilters.vaFilterId) n++;
         return n;
     },
 
@@ -1274,7 +1417,19 @@ export const MobileSettingsUI = {
     },
 
     resetTacticalFilters(root) {
-        if (window.mapFilters) window.mapFilters.tactical = {};
+        if (window.mapFilters) {
+            window.mapFilters.tactical = {};
+            window.mapFilters.tacticalExclude = {};
+            // Clear the quick flight-state toggles too so Reset means "no rules".
+            window.mapFilters.airborneOnly = false;
+            window.mapFilters.onGroundOnly = false;
+            window.mapFilters.hasPlanOnly = false;
+        }
+        // The single-VA focus lives on the board too now, so Reset clears it
+        // with everything else (setVaFilter persists + re-runs the map filter).
+        if (window.mapFilters && window.mapFilters.vaFilterId && typeof window.setVaFilter === 'function') {
+            window.setVaFilter(null);
+        }
         const container = root || document.getElementById('mobile-tactical-nexus');
         if (container) {
             container.querySelectorAll('.m-combo-input').forEach(i => { i.value = ''; });
@@ -1283,6 +1438,15 @@ export const MobileSettingsUI = {
                 p.classList.toggle('active', p.dataset.value === '');
             });
             container.querySelectorAll('.m-combo').forEach(c => c.classList.remove('has-value'));
+            // Reset every Show/Hide toggle back to Show and drop the exclude tint.
+            container.querySelectorAll('.m-mode-toggle .m-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === 'include'));
+            container.querySelectorAll('.is-exclude-mode').forEach(el => el.classList.remove('is-exclude-mode'));
+            // Uncheck the quick flight-state toggles.
+            ['airborneOnly', 'onGroundOnly', 'hasPlanOnly'].forEach(k => {
+                const box = container.querySelector(`input[type="checkbox"][data-setting="${k}"]`);
+                if (box) box.checked = false;
+            });
+            if (container.querySelector('.m-va-filter-block')) this.renderVaFilterListMobile(container, '');
         }
         if (window.updateMapFilters) window.updateMapFilters();
         // Flush to the cloud immediately (not via the debounce) so a reset
@@ -1320,15 +1484,44 @@ export const MobileSettingsUI = {
         if (!root || root.dataset.tacticalBound === '1') return;
         root.dataset.tacticalBound = '1';
 
+        // Filter Map by VA — single-select list, auto-populated from the VA
+        // directory. Drives the shared window.setVaFilter (flight.js).
+        this.attachVaFilter(root);
+
         // Traffic quick toggles (write mapFilters[setting] directly).
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
             input.addEventListener('change', (e) => {
                 if (e.target.closest('.locked')) return;
                 window.InflightHaptics?.select?.();
-                window.mapFilters[e.target.dataset.setting] = e.target.checked;
+                const setting = e.target.dataset.setting;
+                window.mapFilters[setting] = e.target.checked;
+                // Airborne-only and on-ground-only are mutually exclusive — no
+                // aircraft is both, so turning one on clears the other (and its
+                // checkbox) instead of hiding everything.
+                if (e.target.checked && (setting === 'airborneOnly' || setting === 'onGroundOnly')) {
+                    const other = setting === 'airborneOnly' ? 'onGroundOnly' : 'airborneOnly';
+                    window.mapFilters[other] = false;
+                    const otherBox = root.querySelector(`input[type="checkbox"][data-setting="${other}"]`);
+                    if (otherBox) otherBox.checked = false;
+                }
                 if (window.updateMapFilters) window.updateMapFilters();
                 if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
                 this.updateFilterBadge();
+            });
+        });
+
+        // Show/Hide (include/exclude) segmented toggles on each tactical rule.
+        root.querySelectorAll('.m-mode-toggle[data-tactical-mode]').forEach(tog => {
+            const key = tog.dataset.tacticalMode;
+            const host = tog.closest('.m-combo, .m-tac-pill-block, .m-range-row');
+            tog.querySelectorAll('.m-mode-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    window.InflightHaptics?.select?.();
+                    const on = btn.dataset.mode === 'exclude';
+                    tog.querySelectorAll('.m-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+                    if (host) host.classList.toggle('is-exclude-mode', on);
+                    this.setTacticalExclude(key, on);
+                });
             });
         });
 
@@ -1464,6 +1657,12 @@ export const MobileSettingsUI = {
         const filters = window.mapFilters || {};
         const tactical = filters.tactical || {};
 
+        // Repaint the VA picker so its tick reflects the current focus (it can
+        // change elsewhere — e.g. a reset — between sheet openings).
+        if (root.querySelector && root.querySelector('.m-va-filter-block')) {
+            this.renderVaFilterListMobile(root, '');
+        }
+
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
             input.checked = !!filters[input.dataset.setting];
         });
@@ -1481,6 +1680,15 @@ export const MobileSettingsUI = {
         root.querySelectorAll('.m-tac-pill').forEach(pill => {
             const current = tactical[pill.dataset.tactical] || '';
             pill.classList.toggle('active', pill.dataset.value === current);
+        });
+
+        // Reflect each rule's Show/Hide (include/exclude) mode.
+        const excl = filters.tacticalExclude || {};
+        root.querySelectorAll('.m-mode-toggle[data-tactical-mode]').forEach(tog => {
+            const on = !!excl[tog.dataset.tacticalMode];
+            tog.querySelectorAll('.m-mode-btn').forEach(b => b.classList.toggle('active', (b.dataset.mode === 'exclude') === on));
+            const host = tog.closest('.m-combo, .m-tac-pill-block, .m-range-row');
+            if (host) host.classList.toggle('is-exclude-mode', on);
         });
         root.querySelectorAll('.m-range-row[data-tactical-range]').forEach(row => {
             const range = tactical[row.dataset.tacticalRange] || {};
@@ -1833,6 +2041,22 @@ export const MobileSettingsUI = {
                 if (window.updateMapFilters) window.updateMapFilters();
             });
         });
+
+        // Pro time-zone picker (flight-window times in the user's own zone).
+        // Gated: ignore changes while the row is locked (non-Pro), and revert
+        // the select back to Zulu so it can't stick on a picked value.
+        const tzSel = sheet.querySelector('#m-user-timezone');
+        if (tzSel) {
+            tzSel.addEventListener('change', (e) => {
+                if (e.target.closest('.locked')) { e.target.value = window.mapFilters.userTimezone || ''; return; }
+                window.InflightHaptics?.select?.();
+                window.mapFilters.userTimezone = e.target.value;
+                if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification('Time zone updated — reopen a flight to apply.', 'info');
+                }
+            });
+        }
     },
 
     // Re-renders the live label preview from the current mapFilters config so
@@ -1917,6 +2141,16 @@ export const MobileSettingsUI = {
             const setting = sel.dataset.setting;
             if (setting) sel.value = filters[setting] || '';
         });
+
+        // Pro time-zone picker: fill options now if the helper wasn't ready at
+        // render time, then reflect the saved value.
+        const tzSel = container.querySelector('#m-user-timezone');
+        if (tzSel) {
+            if (!tzSel.options.length && typeof window.buildTimezoneOptions === 'function') {
+                tzSel.innerHTML = window.buildTimezoneOptions(filters.userTimezone);
+            }
+            tzSel.value = filters.userTimezone || '';
+        }
 
         container.querySelectorAll('.m-range-input[data-setting]').forEach(input => {
             const setting = input.dataset.setting;
@@ -2113,6 +2347,32 @@ export const MobileSettingsUI = {
                 html.ios-native .m-style-pro { display: none !important; }
 
                 .m-settings-list { padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
+
+                /* Filter Map by VA (Filters tab) */
+                .m-va-filter-block { padding: 8px 20px 0; }
+                .m-va-filter-search {
+                    width: 100%; box-sizing: border-box; padding: 11px 13px; border-radius: 12px;
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                    color: #fff; font: inherit; font-size: 0.9rem; margin-bottom: 8px;
+                }
+                .m-va-filter-list { display: flex; flex-direction: column; gap: 6px; max-height: 44vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+                .m-va-filter-row {
+                    display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer;
+                    padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03);
+                    border: 1px solid rgba(255,255,255,0.08); color: #e4e4e7; font: inherit; transition: 0.15s;
+                }
+                .m-va-filter-row.active { border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.12); }
+                .m-va-filter-logo { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; flex: 0 0 auto;
+                    background: rgba(255,255,255,0.08); display: grid; place-items: center; }
+                .m-va-filter-logo-fb { font-size: 0.66rem; font-weight: 800; color: #7dd3fc; }
+                .m-va-filter-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+                .m-va-filter-name { font-size: 0.9rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .m-va-filter-sub { font-size: 0.72rem; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .m-va-filter-check { color: #38bdf8; opacity: 0; flex: 0 0 auto; }
+                .m-va-filter-row.active .m-va-filter-check { opacity: 1; }
+                .m-va-filter-empty { color: #71717a; font-size: 0.82rem; text-align: center; padding: 18px 8px; }
+                .m-va-filter-hint { margin: 8px 2px 0; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+
                 .m-setting-row {
                     display: flex; justify-content: space-between; align-items: center;
                     background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; transition: 0.2s;
@@ -2121,6 +2381,16 @@ export const MobileSettingsUI = {
                 .m-row-left i { color: #38bdf8; width: 16px; text-align: center; }
 
                 .m-row-right { display: flex; align-items: center; gap: 10px; }
+
+                /* Pro time-zone picker: select when unlocked, PRO badge when not. */
+                .m-tz-select {
+                    background: rgba(255,255,255,0.06); color: #fff;
+                    border: 1px solid rgba(255,255,255,0.14); border-radius: 9px;
+                    padding: 8px 10px; font-size: 0.82rem; font-weight: 600;
+                    font-family: inherit; max-width: 52vw; -webkit-appearance: none;
+                }
+                .is-pro-feature.locked .m-tz-select { display: none; }
+                .m-tz-hint { color: #71717a; font-size: 0.72rem; line-height: 1.45; margin: 8px 20px 4px; }
 
                 /* Premium Pro Lock Styles */
                 .pro-lock-badge {
@@ -2344,6 +2614,48 @@ export const MobileSettingsUI = {
                 }
                 .m-combo-label i { color: #38bdf8; width: 15px; text-align: center; }
                 .m-combo-label small { color: #71717a; font-weight: 500; }
+
+                /* Label + Show/Hide toggle on one row. */
+                .m-combo-head {
+                    display: flex; align-items: center; justify-content: space-between;
+                    gap: 10px; margin-bottom: 6px;
+                }
+                .m-combo-head .m-combo-label { margin-bottom: 0; }
+
+                /* Show/Hide (include/exclude) segmented control. */
+                .m-mode-toggle {
+                    display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px;
+                    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 999px; padding: 2px;
+                }
+                .m-mode-btn {
+                    display: inline-flex; align-items: center; gap: 5px;
+                    background: transparent; border: none; cursor: pointer;
+                    color: #8a8a94; font-weight: 700; font-size: 0.68rem; letter-spacing: 0.02em;
+                    padding: 5px 10px; border-radius: 999px; -webkit-tap-highlight-color: transparent;
+                    transition: background 0.15s, color 0.15s;
+                }
+                .m-mode-btn i { font-size: 0.66rem; }
+                .m-mode-btn[data-mode="include"].active { background: #38bdf8; color: #000; }
+                .m-mode-btn[data-mode="exclude"].active { background: #ef4444; color: #fff; }
+                /* Exclude tint on the whole rule so a "Hide" rule reads at a glance. */
+                .is-exclude-mode .m-combo-label i { color: #f87171; }
+                .is-exclude-mode.m-combo.has-value .m-combo-input { border-color: rgba(239,68,68,0.5); }
+                .is-exclude-mode .m-tac-pill.active { background: #ef4444; color: #fff; border-color: #ef4444; }
+
+                /* Category / Phase block: toggle above the pills. */
+                .m-tac-pill-block { display: flex; flex-direction: column; gap: 8px; }
+                .m-tac-pill-head { display: flex; justify-content: flex-end; padding: 0 20px; }
+
+                /* Show/Hide explainer under the quick toggles. */
+                .m-filter-hint {
+                    display: flex; gap: 9px; align-items: flex-start;
+                    margin: 12px 20px 2px; padding: 10px 13px; border-radius: 12px;
+                    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+                    font-size: 0.72rem; line-height: 1.45; color: #a1a1aa;
+                }
+                .m-filter-hint i { color: #38bdf8; margin-top: 2px; }
+                .m-filter-hint b { color: #d4d4d8; font-weight: 700; }
 
                 .m-combo-control { position: relative; }
                 .m-combo-input {

@@ -680,6 +680,11 @@ let mapFilters = {
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
+        // Focus the live map on a single VA: only planes that belong to this VA
+        // ad id are shown (membership = its callsign suffix tag OR its roster;
+        // see vaAds.js vaFilterMember). null = no VA focus. Set via setVaFilter()
+        // from Settings → VA.
+        vaFilterId: null,
         // Opt-in: drop partner VA logos on their hub airports on the live map.
         // Off by default; toggled from Settings → VA. See renderVaHubMarkers().
         showVaHubMarkers: false,
@@ -687,6 +692,23 @@ let mapFilters = {
         showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
+        // Quick traffic toggles (see updateAircraftLayerFilter). airborneOnly and
+        // onGroundOnly are mutually exclusive in the UI; hasPlanOnly keeps only
+        // aircraft that filed a departure or arrival.
+        airborneOnly: false,
+        onGroundOnly: false,
+        hasPlanOnly: false,
+        // Flight-window clock (open to everyone). userTimezone: '' = Zulu
+        // (default), 'auto' = the device's zone, else an IANA id like
+        // 'Europe/London' — read via getUserTimeZone(). use12hClock switches
+        // the times between 24-hour (default) and 12-hour AM/PM.
+        userTimezone: '',
+        use12hClock: false,
+        // Per-rule Include/Exclude for the tactical filters. A rule id present
+        // (and true) here means its match is NEGATED — it hides matching
+        // aircraft instead of keeping only them. Set from the shared tactical
+        // board (MobileSettingsUI.js), hosted on both mobile and desktop.
+        tacticalExclude: {},
         showAtcAirportsOnly: false,
         hideAtcMarkers: false,
         hideAllAirports: false,
@@ -763,6 +785,13 @@ let mapFilters = {
         // as their ICAO letters. See renderPingedAirportMarkers().
         pingedAirports: []
     };
+
+    // The resolved VA ad the map is currently focused on (its callsign + tag,
+    // for vaFilterMember). Kept alongside mapFilters.vaFilterId; the id persists,
+    // this object is re-resolved on load. vaFilterResolving guards the lazy
+    // restore so it doesn't re-trigger itself. See setVaFilter().
+    let vaFilterAd = null;
+    let vaFilterResolving = false;
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
     window.updateMapFilters = updateMapFilters;
@@ -2191,6 +2220,18 @@ function injectCustomStyles() {
 }
 .row-label { color: #e4e4e7; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
 .row-label i { color: #52525b; width: 16px; text-align: center; }
+/* Pro time-zone picker. */
+.iw-tz-select {
+    background: rgba(255,255,255,0.05); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 9px;
+    padding: 8px 10px; font-size: 0.82rem; font-family: inherit; font-weight: 600;
+    max-width: 60%; cursor: pointer; outline: none;
+}
+.iw-tz-select:focus { border-color: #38bdf8; }
+/* When locked (non-Pro) the PRO badge stands in for the select, and a click
+   anywhere on the row routes to the upsell — matching every other pro row. */
+.is-pro-feature.locked .iw-tz-select { display: none; }
+.iw-tz-hint { color: #71717a; font-size: 0.72rem; line-height: 1.4; margin: 6px 2px 0; }
 /* Segmented control for window-presentation modes (Flight / Airport window). */
 .iw-seg {
     display: flex; gap: 4px; padding: 4px;
@@ -9753,6 +9794,75 @@ function retagAirportRadius() {
     }
 }
 
+// ── Single-VA map focus ─────────────────────────────────────────────────────
+// __vaMatch is the per-feature keep/drop tag for the VA focus, mirroring
+// __inRadius: 1 = show (or no VA focus active), 0 = not this VA. Membership is
+// decided in vaAds.js (callsign suffix tag OR the VA's roster).
+function computeVaMatch(callsign, username) {
+    if (!vaFilterAd) return 1;   // no VA focus → keep every plane
+    const VA = window.InflightVaAds;
+    return (VA && VA.vaFilterMember && VA.vaFilterMember(callsign, username, vaFilterAd)) ? 1 : 0;
+}
+
+// Re-tag every cached feature for the current VA focus and push it to the
+// source, so a focus change takes effect immediately (not just next poll).
+function retagVaFilter() {
+    Object.values(currentMapFeatures).forEach(f => {
+        if (!f || !f.properties) return;
+        f.properties.__vaMatch = computeVaMatch(f.properties.callsign, f.properties.username);
+    });
+    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
+        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
+            type: 'FeatureCollection',
+            features: Object.values(currentMapFeatures)
+        });
+    }
+}
+
+// Focus the map on one VA (or clear with a falsy id). Resolves the VA ad,
+// warms its roster, then re-applies the layer filter. Persists the id so the
+// focus survives a reload (the ad object is re-resolved by ensureVaFilterAd).
+function setVaFilter(adId) {
+    const id = adId ? String(adId) : null;
+    mapFilters.vaFilterId = id;
+    try { saveFiltersToLocalStorage(); } catch (_) {}
+    if (!id) { vaFilterAd = null; if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); return Promise.resolve(); }
+
+    const VA = window.InflightVaAds;
+    if (!VA) return Promise.resolve();
+    const fromCache = (VA.allPartners ? VA.allPartners() : []).find(a => String(a.id) === id) || null;
+    return Promise.resolve(fromCache || (VA.get ? VA.get(id) : null))
+        .then((ad) => {
+            vaFilterAd = ad || fromCache || null;
+            if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); // instant tag/callsign pass
+            // The roster (roster-only members) and the directory (needed by the
+            // generic-"VA" tag branch of vaFilterMember, which matches on the
+            // leading airline word) both resolve asynchronously — re-apply once
+            // they're warm so those members show too.
+            if (vaFilterAd) {
+                Promise.all([
+                    VA.ensureRoster ? VA.ensureRoster(id) : null,
+                    VA.loadDirectory ? VA.loadDirectory() : null
+                ]).then(() => {
+                    if (mapFilters.vaFilterId === id && typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+                }).catch(() => {});
+            }
+        })
+        .catch(() => { if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); });
+}
+
+// Lazily restore the focus after a reload: mapFilters.vaFilterId persists but
+// vaFilterAd does not, so the first filter pass re-resolves it. The guard keeps
+// setVaFilter's own updateAircraftLayerFilter call from recursing here.
+function ensureVaFilterAd() {
+    if (!mapFilters.vaFilterId || vaFilterAd || vaFilterResolving) return;
+    vaFilterResolving = true;
+    Promise.resolve(setVaFilter(mapFilters.vaFilterId)).finally(() => { vaFilterResolving = false; });
+}
+
+window.setVaFilter = setVaFilter;
+
+
 // Floating compass button: appears only when the map has been rotated or
 // tilted (e.g. an accidental two-finger twist) and snaps the view back to
 // north / level on tap — the familiar Apple/Google Maps behaviour. The needle
@@ -9829,10 +9939,37 @@ function updateAircraftLayerFilter() {
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
 
-    // 2. Tactical Filters (Injected from landingUI.js)
+    // Single-VA focus. Restore the ad on first pass after a reload, then keep
+    // only planes tagged for that VA (retagged here so a fresh focus applies at
+    // once). No-op when nothing is focused.
+    ensureVaFilterAd();
+    if (mapFilters.vaFilterId && vaFilterAd) {
+        retagVaFilter();
+        filter.push(['==', ['get', '__vaMatch'], 1]);
+    }
+
+    // 2. Tactical Filters (Injected from landingUI.js / the mobile board)
     const tactical = mapFilters.tactical || {};
 
-    // --- Airport proximity (radius) filter ---
+    // Per-rule Include/Exclude. When a rule id is flagged true in
+    // tacticalExclude, its match condition is negated ('!') — it HIDES matching
+    // aircraft instead of keeping only them. pushRule centralises that so every
+    // rule honours the same switch. Aircraft missing the referenced property
+    // simply don't match, so an exclude never hides traffic that lacks the field.
+    const excl = mapFilters.tacticalExclude || {};
+    const pushRule = (id, cond) => { if (cond) filter.push(excl[id] ? ['!', cond] : cond); };
+
+    // --- Quick traffic toggles: airborne / on-ground / has-plan ---
+    if (mapFilters.airborneOnly) filter.push(['!=', ['get', 'phase'], 'Ground']);
+    if (mapFilters.onGroundOnly) filter.push(['==', ['get', 'phase'], 'Ground']);
+    if (mapFilters.hasPlanOnly) {
+        filter.push(['any',
+            ['!=', ['coalesce', ['get', 'departureIcao'], ''], ''],
+            ['!=', ['coalesce', ['get', 'arrivalIcao'], ''], '']
+        ]);
+    }
+
+    // --- Airport proximity (radius) filter (include-only) ---
     // Keeps only aircraft within `radiusNm` of the chosen airport. Distance is
     // pre-computed per feature into the __inRadius property (here, for instant
     // response, and in the polling loop for moving traffic).
@@ -9845,84 +9982,80 @@ function updateAircraftLayerFilter() {
     // --- Intelligent Aircraft Type Matching ---
     // Matches if user types "A38" and the aircraft is "Airbus A380-800"
     if (tactical.type && tactical.type.trim() !== '') {
-        filter.push(['in', tactical.type.toUpperCase(), ['upcase', ['get', 'aircraftName']]]);
+        pushRule('type', ['in', tactical.type.toUpperCase(), ['upcase', ['get', 'aircraftName']]]);
     }
-
 
     // --- Intelligent Livery Matching ---
     // Matches if user types "Delta" and livery is "Delta Air Lines"
     if (tactical.livery && tactical.livery.trim() !== '') {
-        filter.push(['in', tactical.livery.toUpperCase(), ['upcase', ['get', 'liveryName']]]);
+        pushRule('livery', ['in', tactical.livery.toUpperCase(), ['upcase', ['get', 'liveryName']]]);
     }
 
     // --- Airline Code Matching ---
     // Matches the start of the callsign (e.g., "DAL" matches "DAL123")
     if (tactical.airline && tactical.airline.trim() !== '') {
         const code = tactical.airline.toUpperCase();
-        filter.push(['==', ['slice', ['upcase', ['get', 'callsign']], 0, code.length], code]);
+        pushRule('airline', ['==', ['slice', ['upcase', ['get', 'callsign']], 0, code.length], code]);
     }
 
     // --- Category Filtering (Using your existing icon/category system) ---
     if (tactical.category) {
-        const catMap = { 
+        const catMap = {
             'Heavy': 'jumbo', // Maps UI "Heavy" to your 'jumbo' logic (A380/747)
-            'Widebody': 'widebody', 
-            'Narrowbody': 'narrowbody', 
-            'GA': 'cessna' 
+            'Widebody': 'widebody',
+            'Narrowbody': 'narrowbody',
+            'GA': 'cessna'
         };
         const internalCat = catMap[tactical.category] || tactical.category.toLowerCase();
-        filter.push(['==', ['get', 'category'], internalCat]);
+        pushRule('category', ['==', ['get', 'category'], internalCat]);
     }
 
+    // --- Flight Phase ---
     if (tactical.phase) {
-        filter.push(['==', ['get', 'phase'], tactical.phase]);
+        pushRule('phase', ['==', ['get', 'phase'], tactical.phase]);
     }
 
-    // Altitude Range (Min/Max)
+    // --- Altitude Range (Min/Max) — exclude negates the whole band (OUTSIDE) ---
     if (tactical.altitude) {
-        if (tactical.altitude.min !== '') filter.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
-        if (tactical.altitude.max !== '') filter.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+        const parts = [];
+        if (tactical.altitude.min !== '' && tactical.altitude.min != null) parts.push(['>=', ['get', 'altitude'], parseFloat(tactical.altitude.min)]);
+        if (tactical.altitude.max !== '' && tactical.altitude.max != null) parts.push(['<=', ['get', 'altitude'], parseFloat(tactical.altitude.max)]);
+        if (parts.length) pushRule('altitude', parts.length === 1 ? parts[0] : ['all', ...parts]);
     }
 
-    // Speed Range (Min/Max)
+    // --- Speed Range (Min/Max) — exclude negates the whole band (OUTSIDE) ---
     if (tactical.speed) {
-        if (tactical.speed.min !== '') filter.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
-        if (tactical.speed.max !== '') filter.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+        const parts = [];
+        if (tactical.speed.min !== '' && tactical.speed.min != null) parts.push(['>=', ['get', 'speed'], parseFloat(tactical.speed.min)]);
+        if (tactical.speed.max !== '' && tactical.speed.max != null) parts.push(['<=', ['get', 'speed'], parseFloat(tactical.speed.max)]);
+        if (parts.length) pushRule('speed', parts.length === 1 ? parts[0] : ['all', ...parts]);
     }
 
-    // Callsign (Partial Text Search - Case Insensitive)
+    // --- Callsign (Partial Text Search - Case Insensitive) ---
     if (tactical.callsign) {
-        filter.push(['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
+        pushRule('callsign', ['in', tactical.callsign.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
-    // 3. Quick Search Blade
+    // 3. Quick Search Blade (always an include)
     if (mapFilters.quickSearch) {
         filter.push(['in', mapFilters.quickSearch.toUpperCase(), ['upcase', ['get', 'callsign']]]);
     }
 
+    // --- Registration Country prefix ---
     if (tactical.country && tactical.country !== 'All Countries') {
-    // Extract prefix from UI string "United States (N)" -> "N". Guard against
-    // free-typed values that omit the "(PREFIX)" part so we never throw.
-    const countryMatch = tactical.country.match(/\((.*?)\)/);
-    if (countryMatch) {
-        const prefix = countryMatch[1];
-
-        // FIX: Prioritize the community 'tailNumber' over the system 'registration'
-        filter.push([
-            '==',
-            ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length],
-            prefix
-        ]);
+        // Extract prefix from UI string "United States (N)" -> "N". Guard against
+        // free-typed values that omit the "(PREFIX)" part so we never throw.
+        const countryMatch = tactical.country.match(/\((.*?)\)/);
+        if (countryMatch) {
+            const prefix = countryMatch[1];
+            // Prioritize the community 'tailNumber' over the system 'registration'
+            pushRule('country', ['==', ['slice', ['coalesce', ['get', 'tailNumber'], ['get', 'registration'], ''], 0, prefix.length], prefix]);
+        }
     }
-}
 
-    // Existing Filters (Departure/Arrival/Phase/etc.)
-    if (tactical.departureIcao) filter.push(['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
-    if (tactical.arrivalIcao) filter.push(['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
-    if (tactical.phase) filter.push(['==', ['get', 'phase'], tactical.phase]);
-    
-    // Altitude and Speed Range logic...
-    // [Keep your existing range check logic here]
+    // --- Departure / Arrival ICAO ---
+    if (tactical.departureIcao) pushRule('departureIcao', ['==', ['upcase', ['get', 'departureIcao']], tactical.departureIcao.toUpperCase()]);
+    if (tactical.arrivalIcao) pushRule('arrivalIcao', ['==', ['upcase', ['get', 'arrivalIcao']], tactical.arrivalIcao.toUpperCase()]);
 
     setLiveFlightsFilter(filter);
 
@@ -9957,6 +10090,7 @@ function updateAircraftLayerFilter() {
         if (openFiltersBtn) {
             // Check if any filter in mapFilters is true
             const isFilterActive = mapFilters.showVaOnly ||
+                                   !!mapFilters.vaFilterId ||
                                    mapFilters.hideAtcMarkers ||
                                    mapFilters.hideNoAtcMarkers; // Use the state object
             openFiltersBtn.classList.toggle('active', isFilterActive);
@@ -10690,6 +10824,12 @@ function handleSocketFlightUpdate(data) {
                 return (km <= ar.radiusNm * 1.852) ? 1 : 0;
             })(),
 
+            // Single-VA focus tag. 1 = show (or no VA focus); 0 = not the focused
+            // VA. Mirrors __inRadius; retagVaFilter() recomputes it on a focus
+            // change. See computeVaMatch().
+            __vaMatch: (typeof computeVaMatch === 'function')
+                ? computeVaMatch(flight.callsign, flight.username) : 1,
+
             // --- PREMIUM VISIBILITY FEATURE ---
             // Tag relation (user vs friend) for Mapbox color masking
             pilotRelation: (() => {
@@ -10857,6 +10997,9 @@ function handleSocketFlightUpdate(data) {
                     if (source) {
                         const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
                         source.setData(newRouteData);
+                        // Progress fractions shift as the line grows — re-apply
+                        // the altitude gradient against the new geometry.
+                        applyFlownPathGradient(layerId, newRouteData);
                     }
                 }
             }
@@ -10893,9 +11036,11 @@ function handleSocketFlightUpdate(data) {
             const flownLayerId = `flown-path-${flightId}`;
 
             if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                // Use the exact same segmented generator for pinned flights so the altitude colors update smoothly
+                // Same gradient-line generator as the focused flight so pinned
+                // trails colour and update identically.
                 const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
                 sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
+                applyFlownPathGradient(flownLayerId, newPinnedRouteData);
             }
 
             // Update Mini Card Stats
@@ -11143,12 +11288,95 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
     }
 
+    // --- User time zone for flight-window times (else Zulu) --------------
+    // getUserTimeZone() returns the IANA zone the user picked for flight times
+    // ('auto' resolves to the device zone), or null meaning "show UTC/Zulu".
+    // Open to everyone (no gating); any invalid/stale id falls back to null so
+    // time formatting can never throw. getFlightTimeSuffix() is the short label
+    // placed after a time ('Z' for Zulu, else the zone's short name like
+    // 'BST' / 'GMT+9'). Exposed on window so the flight-window iframes and the
+    // mobile settings sheet resolve them the same way.
+    function getUserTimeZone() {
+        try {
+            const tz = mapFilters && mapFilters.userTimezone;
+            if (!tz) return null;
+            const resolved = (tz === 'auto')
+                ? (Intl.DateTimeFormat().resolvedOptions().timeZone || null)
+                : tz;
+            if (!resolved) return null;
+            // An unknown zone throws here — that's the validation.
+            new Intl.DateTimeFormat('en-US', { timeZone: resolved });
+            return resolved;
+        } catch (_) { return null; }
+    }
+
+    function getFlightTimeSuffix() {
+        const tz = getUserTimeZone();
+        if (!tz) return 'Z';
+        try {
+            const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+                .formatToParts(new Date());
+            const name = parts.find(p => p.type === 'timeZoneName');
+            return (name && name.value) ? name.value : 'LT';
+        } catch (_) { return 'LT'; }
+    }
+
+    // Curated time-zone menu for the Pro time-zone picker. 'auto' = device
+    // zone, '' = Zulu/UTC (the default). One list drives both the desktop
+    // settings modal and the mobile settings sheet via buildTimezoneOptions().
+    const INFLIGHT_TIMEZONES = [
+        { v: '',                    label: 'Zulu (UTC) — default' },
+        { v: 'auto',                label: 'Auto — my device time zone' },
+        { v: 'Pacific/Honolulu',    label: 'Honolulu (HST)' },
+        { v: 'America/Anchorage',   label: 'Anchorage (AKST)' },
+        { v: 'America/Los_Angeles', label: 'Los Angeles (PT)' },
+        { v: 'America/Denver',      label: 'Denver (MT)' },
+        { v: 'America/Chicago',     label: 'Chicago (CT)' },
+        { v: 'America/New_York',    label: 'New York (ET)' },
+        { v: 'America/Sao_Paulo',   label: 'São Paulo (BRT)' },
+        { v: 'Europe/London',       label: 'London (GMT/BST)' },
+        { v: 'Europe/Paris',        label: 'Paris · Berlin · Madrid (CET)' },
+        { v: 'Europe/Athens',       label: 'Athens · Cairo (EET)' },
+        { v: 'Europe/Moscow',       label: 'Moscow (MSK)' },
+        { v: 'Asia/Dubai',          label: 'Dubai (GST)' },
+        { v: 'Asia/Karachi',        label: 'Karachi (PKT)' },
+        { v: 'Asia/Kolkata',        label: 'Mumbai · Delhi (IST)' },
+        { v: 'Asia/Bangkok',        label: 'Bangkok · Jakarta (ICT)' },
+        { v: 'Asia/Singapore',      label: 'Singapore · Hong Kong (SGT)' },
+        { v: 'Asia/Shanghai',       label: 'Beijing · Shanghai (CST)' },
+        { v: 'Asia/Tokyo',          label: 'Tokyo · Seoul (JST)' },
+        { v: 'Australia/Sydney',    label: 'Sydney (AEST)' },
+        { v: 'Pacific/Auckland',    label: 'Auckland (NZST)' }
+    ];
+
+    function buildTimezoneOptions(current) {
+        const cur = String(current || '');
+        return INFLIGHT_TIMEZONES
+            .map(o => `<option value="${o.v}" ${cur === o.v ? 'selected' : ''}>${o.label}</option>`)
+            .join('');
+    }
+
+    if (typeof window !== 'undefined') {
+        window.getUserTimeZone = getUserTimeZone;
+        window.getFlightTimeSuffix = getFlightTimeSuffix;
+        window.buildTimezoneOptions = buildTimezoneOptions;
+    }
+
     /**
-     * Returns a UTC HH:MM string for a Date, or null if the date is invalid.
+     * Formats a Date for the flight windows: in the user's chosen zone (Zulu
+     * by default) and 24-hour or 12-hour AM/PM per mapFilters.use12hClock.
+     * Returns null if the date is invalid. The canonical flight-time formatter
+     * — the legacy window and the Simple/Card iframe payload both route here.
      */
     function _formatUtcHHMM(d) {
         if (!d || isNaN(d.getTime())) return null;
-        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        const use12 = !!(mapFilters && mapFilters.use12hClock);
+        return d.toLocaleTimeString(use12 ? 'en-US' : 'en-GB', {
+            hour: use12 ? 'numeric' : '2-digit',
+            minute: '2-digit',
+            hour12: use12,
+            timeZone: getUserTimeZone() || 'UTC'
+        });
     }
 
     /**
@@ -14636,7 +14864,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             const startTime = new Date(firstPoint.date).getTime();
             const now = Date.now();
             
-            originTime = new Date(startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+            originTime = _formatUtcHHMM(new Date(startTime)) || '--:--';
             
             const diffMs = now - startTime;
             if (diffMs > 0) {
@@ -14725,7 +14953,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 ete = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
                 
                 const arrivalDate = new Date(Date.now() + (hours * 3600000));
-                eta = arrivalDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+                eta = _formatUtcHHMM(arrivalDate) || '--:--';
             }
         }
 
@@ -14760,9 +14988,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     } catch (e) { /* non-fatal: fall back to plain times */ }
 
     // --- Explicit four-cell time grid (FR24-style): Scheduled/Actual + Scheduled/Estimated ---
-    const fmtUtc = (d) => (d && !isNaN(d.getTime()))
-        ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
-        : null;
+    // Same canonical formatter as the legacy window (chosen zone + 12/24h).
+    const fmtUtc = (d) => _formatUtcHHMM(d);
     const times = { depScheduled: null, depActual: null, arrScheduled: null, arrEstimated: null };
     if (filedPlanData && filedPlanData.dep_time) {
         const d = new Date(filedPlanData.dep_time);
@@ -14900,6 +15127,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             depInfo: depInfo,
             arrInfo: arrInfo,
             times: times,
+            // Suffix the iframe appends after each time ('Z' for Zulu, else the
+            // Pro user's zone abbreviation). The times above are already in that
+            // zone, so this just labels them.
+            tzSuffix: (typeof getFlightTimeSuffix === 'function') ? getFlightTimeSuffix() : 'Z',
             distRemainingNm: distRemainingNm,
             distFlownNm: distFlownNm,
             waypoints: structuredWaypoints
@@ -15946,7 +16177,7 @@ renderCategory(catId) {
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="is-pro-feature"><!-- pro rows: locked + upsell via the generic intercept when signed out -->
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-city"></i> 3D Buildings</div>
                                     <label class="toggle-switch">
@@ -15966,7 +16197,7 @@ renderCategory(catId) {
 
                         <div class="settings-section">
                             <label class="config-header"><span class="ios-hide">Pro </span>Base Map Detail</label>
-                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="is-pro-feature"><!-- pro rows: locked + upsell via the generic intercept when signed out -->
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
                                     <label class="toggle-switch">
@@ -16045,7 +16276,7 @@ renderCategory(catId) {
                                 Color used for pilots on your watchlist.
                             </p>
 
-                            <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="settings-row pro-feature-row is-pro-feature" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
                                 <div class="row-label">
                                     <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
                                 </div>
@@ -16261,6 +16492,15 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-clock"></i> 12-Hour Clock (AM/PM)</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-12h-clock" ${mapFilters.use12hClock ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Time Zone</div>
+                                <select id="set-user-timezone" class="iw-tz-select">${buildTimezoneOptions(mapFilters.userTimezone)}</select>
+                            </div>
+                            <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</div>
                         </div>
 
                         <div class="settings-section">
@@ -16303,7 +16543,7 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <label class="config-header">Window Appearance</label>
                             
-                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="is-pro-feature"><!-- pro rows: locked + upsell via the generic intercept when signed out -->
                                 <div class="settings-row">
                                     <div class="row-label">Gradient Start Color</div>
                                     <input type="color" id="set-theme-start" class="settings-color-input" value="${mapFilters.themeStartColor || '#18181b'}" ${!isSignedIn ? 'disabled' : ''}>
@@ -16444,6 +16684,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-auto-cycle-photos': 'autoCyclePhotos',
+            'set-12h-clock': 'use12hClock',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
             'set-taws-enabled': 'terrainTawsEnabled'
@@ -16489,6 +16730,19 @@ renderCategory(catId) {
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
+        // Pro time-zone picker — flight-window times in the user's own zone.
+        const tzSelect = document.getElementById('set-user-timezone');
+        if (tzSelect) {
+            tzSelect.addEventListener('change', (e) => {
+                if (tzSelect.closest('.locked')) return; // non-Pro: ignore
+                mapFilters.userTimezone = e.target.value;
+                saveFiltersToLocalStorage();
+                if (typeof showNotification === 'function') {
+                    showNotification('Time zone updated — reopen a flight to apply.', 'info');
+                }
+            });
+        }
+
         // VA Hub Markers — opt-in map overlay. Persist the flag, then add/remove
         // the hub logo markers immediately (it isn't a plain map-filter layer,
         // so it gets its own refresh rather than going through updateMapFilters).
@@ -16510,6 +16764,7 @@ renderCategory(catId) {
                 }
             });
         }
+
 
         // 3D Traffic View — routed through the shared toggle so the map toolbar
         // button stays in sync (it's not a plain mapFilters flag like the rest).
@@ -16649,9 +16904,14 @@ if (upgradeBtn) {
 
         // ---- Ported mobile controls (style cards / pills / label designer) ----
         const content = document.getElementById('settings-category-content');
+        let _upsellPending = false;
         const openProUpsell = () => {
             // App Store compliance: no in-app upgrade path on iOS native.
             if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
+            // Idempotent: overlapping capture handlers (the generic .is-pro-feature
+            // intercept below plus any per-feature ones) must open the upsell once.
+            if (_upsellPending) return;
+            _upsellPending = true;
             this.toggle(false);
             setTimeout(() => {
                 if (window.AuthUI && typeof window.AuthUI.open === 'function') {
@@ -16659,8 +16919,24 @@ if (upgradeBtn) {
                 } else if (window.initInflightPro) {
                     window.initInflightPro();
                 }
+                _upsellPending = false;
             }, 250);
         };
+
+        // Generic Pro intercept: any locked pro control anywhere in the settings
+        // content routes a click to the upsell, exactly like the mobile sheet
+        // (MobileSettingsUI attachMobileListeners). This is the single source of
+        // truth so no pro row can be missed — the per-feature handlers below are
+        // now redundant safety nets, kept harmless by openProUpsell's guard.
+        content?.querySelectorAll('.is-pro-feature').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (row.classList.contains('locked')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openProUpsell();
+                }
+            }, true);
+        });
 
         // Map style preview cards
         content?.querySelectorAll('.m-style-card').forEach(card => {
@@ -18005,11 +18281,14 @@ if (flightProps) {
     const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
     const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
 
-    sectorOpsMap.addSource(`flown-path-${flightId}`, { 
-        type: 'geojson', 
+    sectorOpsMap.addSource(`flown-path-${flightId}`, {
+        type: 'geojson',
         data: routeFeature,
-        lineMetrics: true, // CRITICAL for gradients
-        tolerance: 0       // Don't simplify segments away at low zoom
+        lineMetrics: true // CRITICAL for the line-gradient altitude colouring
+        // Default tolerance stays on: zoom-scaled simplification keeps the
+        // single line crisp when zoomed out. (tolerance: 0 was only needed
+        // when the path was thousands of 2-point features that simplification
+        // could drop whole.)
     });
 
     sectorOpsMap.addLayer({
@@ -18023,19 +18302,12 @@ if (flightProps) {
                 paint: {
                     'line-width': 4,
                     'line-opacity': 1,
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'altitude'],
-                        0, '#94a3b8',       // Ground / Taxi / Parked (Grey)
-                        3000, '#c084fc',    // Approach / Initial Climb (Purple)
-                        12000, '#f59e0b',   // Lower Descent / Climb (Orange)
-                        20000, '#10b981',   // Climb / High Descent (Green)
-                        30000, '#38bdf8',   // Cruise (Blue)
-                        45000, '#0284c7'    // High Cruise (Darker Blue)
-                    ]
+                    // Solid fallback — the altitude line-gradient applied just
+                    // below overrides this whenever the trail supports one.
+                    'line-color': '#38bdf8'
                 }
             }, getUnderAircraftAnchor());
+    applyFlownPathGradient(`flown-path-${flightId}`, routeFeature);
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -18879,21 +19151,34 @@ function generateSmoothPath(points, tension = 0.5) {
         );
     };
 
+    // Turn angle at vertex b (degrees) — how sharply the path bends there.
+    const turnDeg = (a, b, c) => {
+        const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
+        const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
+        const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+        if (m1 === 0 || m2 === 0) return 0;
+        const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
+        return Math.acos(cos) * 180 / Math.PI;
+    };
+
     for (let i = 0; i < points.length - 1; i++) {
         const p0 = points[i === 0 ? i : i - 1];
         const p1 = points[i];
         const p2 = points[i + 1];
         const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
 
-        // --- Resolution: dense enough that consecutive segment angles are imperceptible (~3°) ---
-        // For typical IF trail spacing (~0.01–0.05° between samples), the old formula
-        // collapsed to floor(d*2) = 0, clamped to a paltry 2 steps — so smooth curves
-        // were being sampled as 2-point chords. We now guarantee a minimum of 24 steps,
-        // and scale up generously for long inter-sample gaps (e.g. early-flight cold trails).
-        const d = Math.sqrt(Math.pow(p2.unwrappedLon - p1.unwrappedLon, 2) + Math.pow(p2.lat - p1.lat, 2));
-        const steps = Math.max(24, Math.min(64, Math.ceil(d * 400))); 
-        
-        for (let t = 0; t < 1; t += 1 / steps) {
+        // --- Curvature-adaptive resolution ---
+        // Straight stretches (all of cruise) need no subdivision: Catmull-Rom
+        // over collinear samples returns the chord anyway, so extra steps
+        // only add cost. Bends get one step per ~2° of local turn so curves
+        // stay silky (a 30°/sample holding pattern → 15 steps). The old flat
+        // 24–64 steps per sample blew a long-haul trail up to 30k+ points —
+        // tens of thousands of sub-pixel segments that rendered fuzzy when
+        // zoomed out and made every re-tile expensive.
+        const bend = Math.max(turnDeg(p0, p1, p2), turnDeg(p1, p2, p3));
+        const steps = Math.max(1, Math.min(64, Math.ceil(bend / 2)));
+
+        for (let t = 0; t < 1 - 1e-6; t += 1 / steps) {
             result.push({
                 unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
                 lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
@@ -18922,25 +19207,110 @@ function appendTrailPoint(localTrail, newRoutePoint) {
         }
         // The seeded history can run AHEAD of the live feed's clock. Rejecting
         // "older" fixes outright froze the trail at its seed state, so instead
-        // drop the future-dated tail (bounded — a runaway clock difference
-        // must never nuke the whole history) and take the live fix as the head.
+        // drop the future-dated tail and take the live fix as the head. The
+        // trim is TIME-bounded, not count-bounded: any lead under 10 minutes
+        // is a real history-vs-socket freshness gap and is dropped however
+        // many samples it spans (a count cap left leads of >8 samples in
+        // place forever, drawing the path ahead of the aircraft icon), while
+        // a bigger lead means broken clocks — trimming on garbage must never
+        // nuke the whole history.
         const tNew = new Date(newRoutePoint.date || NaN).getTime();
         if (Number.isFinite(tNew)) {
             let newer = 0;
             while (newer < localTrail.length) {
                 const t = new Date(localTrail[localTrail.length - 1 - newer].date || NaN).getTime();
-                if (Number.isFinite(t) && t >= tNew) newer++;
+                if (Number.isFinite(t) && t >= tNew && (t - tNew) < 600000) newer++;
                 else break;
             }
-            if (newer > 0 && newer <= 8) localTrail.length -= newer;
+            if (newer > 0) localTrail.length -= newer;
         }
     }
     localTrail.push(newRoutePoint);
     return true;
 }
 
+// Altitude → colour palette for the flown path. A fine-grained warm→cool
+// spectrum (FR24-style): grey on the ground, warm oranges/yellows down low,
+// greens through the teens, blues in the twenties/thirties, violet→magenta
+// up high. flownAltColor() blends linearly between stops, so every phase of
+// a climb or descent reads as its own hue on the line-gradient.
+const FLOWN_PATH_ALT_STOPS = [
+    [0,     [148, 163, 184]], // #94a3b8 On ground (grey)
+    [500,   [249, 115, 22]],  // #f97316 Rotation / short final (orange)
+    [3000,  [251, 191, 36]],  // #fbbf24 Pattern / initial climb (amber)
+    [6000,  [250, 204, 21]],  // #facc15 Yellow
+    [9000,  [163, 230, 53]],  // #a3e635 Lime
+    [12000, [74, 222, 128]],  // #4ade80 Green
+    [16000, [45, 212, 191]],  // #2dd4bf Teal
+    [20000, [34, 211, 238]],  // #22d3ee Cyan
+    [24000, [56, 189, 248]],  // #38bdf8 Sky blue
+    [28000, [59, 130, 246]],  // #3b82f6 Blue
+    [32000, [99, 102, 241]],  // #6366f1 Indigo
+    [36000, [139, 92, 246]],  // #8b5cf6 Violet
+    [41000, [192, 132, 252]], // #c084fc Light purple
+    [45000, [217, 70, 239]]   // #d946ef Magenta (high cruise+)
+];
+
+function flownAltColor(alt) {
+    const s = FLOWN_PATH_ALT_STOPS;
+    const a = Number.isFinite(alt) ? alt : 0;
+    if (a <= s[0][0]) return `rgb(${s[0][1][0]},${s[0][1][1]},${s[0][1][2]})`;
+    for (let i = 1; i < s.length; i++) {
+        if (a <= s[i][0]) {
+            const t = (a - s[i - 1][0]) / (s[i][0] - s[i - 1][0]);
+            const c0 = s[i - 1][1], c1 = s[i][1];
+            return `rgb(${Math.round(c0[0] + (c1[0] - c0[0]) * t)},${Math.round(c0[1] + (c1[1] - c0[1]) * t)},${Math.round(c0[2] + (c1[2] - c0[2]) * t)})`;
+        }
+    }
+    const last = s[s.length - 1][1];
+    return `rgb(${last[0]},${last[1]},${last[2]})`;
+}
+
+// Build the 'line-gradient' expression that paints the single flown-path
+// LineString by altitude. Progress along the line is cumulative planar
+// distance (lon scaled by cos(lat) so high-latitude legs aren't stretched);
+// stops are a bounded baseline stride plus altitude-triggered extras (see
+// below) so the expression stays small no matter how long the flight is,
+// while climbs/descents keep full colour resolution. Returns null when the
+// geometry is degenerate.
+function buildFlownPathGradient(points) {
+    if (!points || points.length < 2) return null;
+    const cum = new Array(points.length);
+    cum[0] = 0;
+    for (let i = 1; i < points.length; i++) {
+        const midLat = ((points[i].lat + points[i - 1].lat) / 2) * Math.PI / 180;
+        const dx = (points[i].unwrappedLon - points[i - 1].unwrappedLon) * Math.cos(midLat);
+        const dy = points[i].lat - points[i - 1].lat;
+        cum[i] = cum[i - 1] + Math.sqrt(dx * dx + dy * dy);
+    }
+    const total = cum[points.length - 1];
+    if (!(total > 0)) return null;
+
+    // Stop placement: a baseline stride (≤95 interior stops) plus an extra
+    // stop whenever altitude has moved ≥1500 ft since the last one, so short
+    // climbs/descents on very long flights still resolve every hue band of
+    // the palette. The altitude-triggered stops are bounded by total climb +
+    // descent (~48 for a full flight), keeping the expression small.
+    const stride = Math.max(1, Math.ceil(points.length / 95));
+    const expr = ['interpolate', ['linear'], ['line-progress']];
+    let prevProgress = -1;
+    let lastAlt = null;
+    for (let idx = 0; idx < points.length; idx++) {
+        const isEdge = idx === 0 || idx === points.length - 1;
+        const altMoved = lastAlt !== null && Math.abs((points[idx].alt || 0) - lastAlt) >= 1500;
+        if (!isEdge && idx % stride !== 0 && !altMoved) continue;
+        const progress = idx === 0 ? 0 : (idx === points.length - 1 ? 1 : cum[idx] / total);
+        // line-progress stops must be strictly ascending.
+        if (progress <= prevProgress + 1e-6) continue;
+        expr.push(progress, flownAltColor(points[idx].alt));
+        prevProgress = progress;
+        lastAlt = points[idx].alt || 0;
+    }
+    // An interpolate expression needs at least two stops (3 header + 2×2).
+    return expr.length >= 7 ? expr : null;
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
-    const features = [];
     const allPoints = [...(trailPoints || [])];
 
     // The trail history (route API) and the live position (flight feed) come
@@ -18952,14 +19322,16 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     if (currentPosition) {
         const liveTs = currentPosition.lastReport ? new Date(currentPosition.lastReport).getTime() : NaN;
         if (Number.isFinite(liveTs)) {
+            // Time-bounded like appendTrailPoint: drop a genuine freshness
+            // lead (<10 min) however many samples it spans; a bigger lead is
+            // a broken clock and must not wipe the trail.
             let newer = 0;
             while (newer < allPoints.length) {
                 const t = new Date(allPoints[allPoints.length - 1 - newer].date || NaN).getTime();
-                if (Number.isFinite(t) && t > liveTs) newer++;
+                if (Number.isFinite(t) && t > liveTs && (t - liveTs) < 600000) newer++;
                 else break;
             }
-            // Bounded: a skewed/broken live timestamp must not wipe the trail.
-            if (newer > 0 && newer <= 8) allPoints.length -= newer;
+            if (newer > 0) allPoints.length -= newer;
         }
         allPoints.push({
             latitude: currentPosition.lat,
@@ -18972,27 +19344,60 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         return { type: 'FeatureCollection', features: [] };
     }
 
+    // Normalise field names once ({lat, lon, alt}).
+    const raw = allPoints.map(p => ({
+        lat: (p.latitude != null) ? p.latitude : p.lat,
+        lon: (p.longitude != null) ? p.longitude : p.lon,
+        alt: (p.altitude != null) ? p.altitude : (p.alt || 0)
+    }));
+
+    // --- Great-circle densification (polar routes / sparse gaps) ---
+    // Rendered vertices are joined by STRAIGHT lines in lon/lat (mercator)
+    // space. Near the poles that is badly wrong: a plane barely moving on the
+    // ground swings tens of degrees of longitude (≈180° crossing the pole
+    // itself), and the straight chord draws as a huge sideways sweep AROUND
+    // the pole at constant latitude instead of the true track OVER it. Long
+    // sparse-history gaps bend the same way in milder form. Insert points
+    // along the actual great circle wherever a segment spans a big ground
+    // distance or longitude delta, so the drawn path follows the real
+    // geometry (the renderer clips above ~±85°, so a true pole crossing
+    // correctly runs up to the polar cap and back down the far side).
+    const densified = [raw[0]];
+    for (let i = 1; i < raw.length; i++) {
+        const a = raw[i - 1], b = raw[i];
+        let dLon = Math.abs(b.lon - a.lon);
+        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
+        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
+        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
+        if (steps > 1) {
+            for (let s = 1; s < steps; s++) {
+                const f = s / steps;
+                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
+                densified.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
+            }
+        }
+        densified.push(b);
+    }
+
     // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian.
     // We carry the unwrapped longitude on each point (as `unwrappedLon`) so generateSmoothPath
     // can interpolate without hopping the dateline.
     const unwrappedPoints = [];
-    let prevLon = allPoints[0].longitude || allPoints[0].lon;
+    let prevLon = densified[0].lon;
 
     unwrappedPoints.push({
         unwrappedLon: prevLon,
-        lat: allPoints[0].latitude || allPoints[0].lat,
-        alt: allPoints[0].altitude || allPoints[0].alt || 0
+        lat: densified[0].lat,
+        alt: densified[0].alt
     });
 
-    for (let i = 1; i < allPoints.length; i++) {
-        let lon = allPoints[i].longitude || allPoints[i].lon;
-        const lat = allPoints[i].latitude || allPoints[i].lat;
-        const alt = allPoints[i].altitude || allPoints[i].alt || 0;
+    for (let i = 1; i < densified.length; i++) {
+        let lon = densified[i].lon;
 
         while (lon - prevLon > 180) lon -= 360;
         while (prevLon - lon > 180) lon += 360;
 
-        unwrappedPoints.push({ unwrappedLon: lon, lat, alt });
+        unwrappedPoints.push({ unwrappedLon: lon, lat: densified[i].lat, alt: densified[i].alt });
         prevLon = lon;
     }
 
@@ -19004,28 +19409,39 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         ? generateSmoothPath(unwrappedPoints, 0.5)
         : unwrappedPoints;
 
-    // Create a distinct LineString feature for EVERY segment so each can be colored
-    // by its own altitude property via the layer's interpolate expression.
-    for (let i = 0; i < smoothedPoints.length - 1; i++) {
-        const p1 = smoothedPoints[i];
-        const p2 = smoothedPoints[i + 1];
-
-        features.push({
+    // ONE continuous LineString, coloured along its length by a line-gradient
+    // (see buildFlownPathGradient). The old approach — a distinct 2-point
+    // feature per smoothed segment, coloured via a per-feature altitude
+    // property — fell apart when zoomed out: tens of thousands of sub-pixel
+    // features collapse in the tile pipeline into beads and gaps, and every
+    // trail tick re-tiled the whole swarm. A single feature renders with
+    // proper joins at every zoom and tiles in one pass. The gradient
+    // expression rides along as a foreign member (__altGradient — valid
+    // GeoJSON, ignored by Mapbox) so callers can apply it to the layer via
+    // applyFlownPathGradient after setData.
+    const coordinates = smoothedPoints.map(p => [p.unwrappedLon, p.lat]);
+    const fc = {
+        type: 'FeatureCollection',
+        features: [{
             type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: [
-                    [p1.unwrappedLon, p1.lat],
-                    [p2.unwrappedLon, p2.lat]
-                ]
-            },
-            properties: {
-                altitude: p1.alt
-            }
-        });
-    }
+            geometry: { type: 'LineString', coordinates },
+            properties: {}
+        }]
+    };
+    fc.__altGradient = buildFlownPathGradient(smoothedPoints);
+    return fc;
+}
 
-    return { type: 'FeatureCollection', features: features };
+// Apply the altitude gradient carried on a flown-path FeatureCollection to
+// its layer. line-gradient needs the source created with lineMetrics: true;
+// when the gradient couldn't be built (degenerate trail) the layer's solid
+// line-color fallback shows instead. Never fatal.
+function applyFlownPathGradient(layerId, routeData) {
+    if (!sectorOpsMap || !routeData || !routeData.__altGradient) return;
+    if (!sectorOpsMap.getLayer || !sectorOpsMap.getLayer(layerId)) return;
+    try {
+        sectorOpsMap.setPaintProperty(layerId, 'line-gradient', routeData.__altGradient);
+    } catch (_) { /* solid line-color fallback still renders */ }
 }
 
 /**
@@ -19261,7 +19677,19 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
         }
 
-        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightProps.flightId, sortedRoutePoints);
+        // Seed the live-trail cache CLAMPED to what the map marker currently
+        // shows. The history endpoint often runs ahead of the socket
+        // broadcast; seeding those future-dated samples made the drawn path
+        // stick out PAST the aircraft icon by roughly a socket frame (the
+        // per-tick trim couldn't remove a lead spanning many samples). The
+        // initial render below applies the same clamp (trailUpToMarker).
+        if (typeof liveTrailCache !== 'undefined') {
+            const mk = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightProps.flightId] : null;
+            const mkMs = mk?.properties?.last_update ? new Date(mk.properties.last_update).getTime() : null;
+            liveTrailCache.set(flightProps.flightId, (mkMs != null)
+                ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= mkMs)
+                : sortedRoutePoints);
+        }
 
         if (typeof FlownPath3D !== 'undefined') {
             FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
@@ -19349,10 +19777,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
                 type: 'geojson',
-                data: initialRouteData, // Feed it the FeatureCollection segments
-                tolerance: 0            // Don't simplify segments away at low zoom
+                data: initialRouteData, // Single gradient-coloured LineString
+                lineMetrics: true       // CRITICAL for the line-gradient colouring
+                // Default tolerance stays on — see rebuildDynamicLayers' twin
+                // source: zoom-scaled simplification keeps the line crisp.
             });
-            
+
             sectorOpsMap.addLayer({
                 id: flownLayerId,
                 type: 'line',
@@ -19364,19 +19794,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 paint: {
                     'line-width': 3,
                     'line-opacity': 1,
-                    'line-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'altitude'],
-                        0, '#94a3b8',       
-                        3000, '#c084fc',    
-                        12000, '#f59e0b',   
-                        20000, '#10b981',   
-                        30000, '#38bdf8',   
-                        45000, '#0284c7'    
-                    ]
+                    // Solid fallback — the altitude line-gradient applied just
+                    // below overrides this whenever the trail supports one.
+                    'line-color': '#38bdf8'
                 }
             }, getUnderAircraftAnchor());
+            applyFlownPathGradient(flownLayerId, initialRouteData);
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
@@ -19822,6 +20245,9 @@ let totalDistanceNM = 0;
     // Falls back to a back-calculated estimate so we never render '--:--' when we have any data at all.
     const depTimeInfo = computeDepartureTimeInfo(baseProps, sortedRoutePoints, filedPlanData, departureIcao);
     const arrTimeInfo = computeArrivalTimeInfo(baseProps, filedPlanData, distanceToDestNM);
+    // 'Z' by default; a Pro user's chosen zone abbreviation when set. The times
+    // above are already formatted in that zone (see _formatUtcHHMM).
+    const timeZoneSuffix = getFlightTimeSuffix();
 
     // Cache filed-plan info on the window element so the live-update path (which doesn't receive
     // filedPlanData as an arg) can still produce SCHEDULED-tagged times.
@@ -20052,7 +20478,7 @@ let totalDistanceNM = 0;
             ${departureIcaoHtml}
             <img id="ac-bar-dep-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
         </span>
-        <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' Z'}</span>
+        <span class="time-small" id="ac-bar-atd" style="color: ${depTimeInfo.color}; font-size: 11px; font-weight: 600;">${depTimeInfo.time === '--:--' ? '--:--' : depTimeInfo.time + ' ' + timeZoneSuffix}</span>
         <span class="time-source-label" id="ac-bar-atd-label" style="color: ${depTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${depTimeInfo.label}</span>
     </div>
             
@@ -20078,7 +20504,7 @@ let totalDistanceNM = 0;
                     ${arrivalIcaoHtml}
                     <img id="ac-bar-arr-flag" src="" style="height: 14px; border-radius: 2px; display: none; opacity: 0.8;" onerror="this.style.display='none'">
                 </span>
-                <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' Z'}</span>
+                <span class="time-small" id="ac-bar-eta" style="color: ${arrTimeInfo.color}; font-size: 11px; font-weight: 600;">${arrTimeInfo.time === '--:--' ? '--:--' : arrTimeInfo.time + ' ' + timeZoneSuffix}</span>
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
@@ -23933,15 +24359,27 @@ async function initializeApp() {
         });
 
         window.addEventListener('filterUpdate', (e) => {
-            const { filters, quickSearch } = e.detail;
-            
+            const { filters, quickSearch, exclude } = e.detail;
+
             // Store incoming tactical filters into global state
             mapFilters.tactical = filters;
+            // Only overwrite exclude when the dispatcher actually carries it, so
+            // a legacy event (no exclude payload) can't wipe the mode set on the
+            // shared board.
+            if (exclude) mapFilters.tacticalExclude = exclude;
             mapFilters.quickSearch = quickSearch;
 
             // Handle boolean group toggle
             mapFilters.showGroupFlights = !!filters.group;
-            
+
+            // Single-VA focus rule from the Tactical Filters modal. LandingUI
+            // seeds the rule from the persisted focus (init + modal open), so
+            // an absent/empty 'va' here genuinely means "no VA focus" — e.g.
+            // the rule was trashed or Reset was hit. Only act on a change so
+            // unrelated filter edits don't re-resolve the VA/roster.
+            const wantVa = filters.va ? String(filters.va) : null;
+            if (wantVa !== (mapFilters.vaFilterId || null)) setVaFilter(wantVa);
+
             // Run the filter update logic
             updateMapFilters();
         });

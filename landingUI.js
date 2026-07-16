@@ -35,7 +35,11 @@ export const LandingUI = {
                 { id: 'departureIcao', label: 'Departure', icon: 'fa-plane-departure', type: 'text', placeholder: 'ICAO' },
                 { id: 'arrivalIcao', label: 'Arrival', icon: 'fa-plane-arrival', type: 'text', placeholder: 'ICAO' },
                 { id: 'callsign', label: 'Callsign', icon: 'fa-id-badge', type: 'text', placeholder: 'Search...' },
-                { id: 'group', label: 'Group Flight', icon: 'fa-users', type: 'boolean' } 
+                { id: 'group', label: 'Group Flight', icon: 'fa-users', type: 'boolean' },
+                // Single-VA focus: value is the VA ad's id (or '' until picked).
+                // Rendered as a searchable picker (see renderInputControl) and
+                // executed by flight.js's filterUpdate listener via setVaFilter.
+                { id: 'va', label: 'Virtual Airline', icon: 'fa-handshake-angle', type: 'va' }
             ]
         }
     },
@@ -61,6 +65,15 @@ export const LandingUI = {
         this.render();
         this.attachListeners();
         this.applyMobileChrome();
+
+        // The single-VA map focus persists across reloads (mapFilters.vaFilterId,
+        // restored by flight.js before this init runs). Seed it as an active
+        // rule so the modal — and the filters orb dot — reflect it, and so a
+        // later dispatch doesn't silently clear it.
+        if (window.mapFilters && window.mapFilters.vaFilterId) {
+            this._activeFilters.va = String(window.mapFilters.vaFilterId);
+            this.refreshUI();
+        }
     },
 
     applyMobileOptimizations() {
@@ -724,6 +737,13 @@ export const LandingUI = {
             this._modalOpen = state;
             modalOverlay?.classList.toggle('open', state);
             if (state) {
+                // Sync the VA rule with the map's actual focus before painting:
+                // the focus persists across reloads and can change from the
+                // mobile Filters board, and this modal's rule must mirror it —
+                // otherwise Apply would re-assert a stale value.
+                const curVa = (window.mapFilters && window.mapFilters.vaFilterId) || '';
+                if (curVa) this._activeFilters.va = String(curVa);
+                else delete this._activeFilters.va;
                 this.refreshUI();
                 document.body.style.overflow = 'hidden';
             } else {
@@ -907,6 +927,12 @@ export const LandingUI = {
                 const def = this.allFilters.find(f => f.id === id);
                 const val = this._activeFilters[id];
                 let displayVal = def.type === 'range' ? `${val.min || 0} - ${val.max || 'Max'}` : (def.type === 'boolean' ? 'ON' : (val || 'Any'));
+                if (def.type === 'va') {
+                    // val is the VA ad's id — show its name instead.
+                    const ad = val && window.InflightVaAds && window.InflightVaAds.allPartners
+                        ? window.InflightVaAds.allPartners().find(a => String(a.id) === String(val)) : null;
+                    displayVal = ad ? ad.name : (val ? 'Selected VA' : 'Any');
+                }
                 return `<div class="preview-line"><i class="fa-solid ${def.icon}"></i><span class="preview-label">${def.label}:</span><span class="preview-value">${displayVal}</span></div>`;
             }).join('');
         } else {
@@ -925,6 +951,9 @@ export const LandingUI = {
             if (def.type === 'range') this._activeFilters[id] = { min: '', max: '' };
             else if (def.type === 'boolean') this._activeFilters[id] = true;
             else if (def.type === 'select') this._activeFilters[id] = def.options[0];
+            // VA rule: start from the map's current focus so re-adding the rule
+            // reflects (rather than clears) a focus set elsewhere.
+            else if (def.type === 'va') this._activeFilters[id] = (window.mapFilters && window.mapFilters.vaFilterId) || '';
             else this._activeFilters[id] = '';
         }
         this.refreshUI();
@@ -980,6 +1009,73 @@ export const LandingUI = {
         container.querySelectorAll('.data-input').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value)));
         container.querySelectorAll('.data-input-min').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'min')));
         container.querySelectorAll('.data-input-max').forEach(input => input.addEventListener('input', (e) => this.updateFilterValue(e.target.dataset.id, e.target.value, 'max')));
+
+        // VA rule: paint the picker rows and wire its local search box.
+        const vaPicker = container.querySelector('.va-rule-picker');
+        if (vaPicker) {
+            this._paintVaRuleList(vaPicker, '');
+            const search = vaPicker.querySelector('.va-rule-search');
+            if (search) {
+                let t = 0;
+                search.addEventListener('input', () => {
+                    clearTimeout(t);
+                    t = setTimeout(() => this._paintVaRuleList(vaPicker, search.value), 200);
+                });
+            }
+        }
+    },
+
+    // Paint the VA rows inside the tactical modal's VA rule card, auto-filled
+    // from the VA directory (new backend VAs appear on their own). Single
+    // select: a row sets the rule's value (the ad id) via updateFilterValue —
+    // flight.js's filterUpdate listener turns that into setVaFilter. "All
+    // aircraft" sets '' (rule present but inactive).
+    _paintVaRuleList(picker, query) {
+        const listEl = picker.querySelector('.va-rule-list');
+        if (!listEl) return;
+        const VA = window.InflightVaAds;
+        if (!VA || typeof VA.loadDirectory !== 'function') {
+            listEl.innerHTML = `<div class="va-rule-empty">VA directory unavailable.</div>`;
+            return;
+        }
+        const esc = this._esc.bind(this);
+        const paint = () => {
+            let ads = (VA.allPartners ? VA.allPartners() : []).slice();
+            const q = String(query || '').trim().toLowerCase();
+            if (q) ads = ads.filter(a =>
+                String(a.name || '').toLowerCase().includes(q) ||
+                String(a.callsign || '').toLowerCase().includes(q) ||
+                String(a.region || '').toLowerCase().includes(q));
+            ads.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            const activeId = String(this._activeFilters.va || '');
+            const row = (id, logoHtml, name, sub) => `
+                <button type="button" class="va-rule-row${String(id) === activeId ? ' active' : ''}" data-va-id="${esc(id)}">
+                    ${logoHtml}
+                    <span class="va-rule-meta"><span class="va-rule-name">${esc(name)}</span>${sub ? `<span class="va-rule-sub">${esc(sub)}</span>` : ''}</span>
+                    <i class="fa-solid fa-check va-rule-check"></i>
+                </button>`;
+            listEl.innerHTML =
+                row('', `<span class="va-rule-logo va-rule-logo-fb"><i class="fa-solid fa-globe"></i></span>`, 'All aircraft', 'No VA filter') +
+                (ads.length
+                    ? ads.map(ad => row(
+                        ad.id,
+                        ad.logo
+                            ? `<img class="va-rule-logo" src="${esc(ad.logo)}" alt="" onerror="this.style.display='none'">`
+                            : `<span class="va-rule-logo va-rule-logo-fb">${esc(String(ad.name || '?').slice(0, 2).toUpperCase())}</span>`,
+                        ad.name,
+                        [ad.type, ad.region].filter(Boolean).join(' · '))).join('')
+                    : `<div class="va-rule-empty">${q ? 'No VAs match your search.' : 'No virtual airlines available yet.'}</div>`);
+            listEl.querySelectorAll('[data-va-id]').forEach(el => {
+                el.addEventListener('click', () => {
+                    this.updateFilterValue('va', el.getAttribute('data-va-id') || '');
+                    this._paintVaRuleList(picker, query);   // move the tick, keep the search text
+                });
+            });
+        };
+        if (!(VA.allPartners && VA.allPartners().length)) {
+            listEl.innerHTML = `<div class="va-rule-empty">Loading virtual airlines…</div>`;
+        }
+        VA.loadDirectory().then(paint).catch(paint);
     },
 
     getUniqueValues(property) {
@@ -1036,6 +1132,15 @@ export const LandingUI = {
 
     renderInputControl(id, value) {
         const def = this.allFilters.find(f => f.id === id);
+        if (def.type === 'va') {
+            // Searchable single-select VA picker; rows are painted (and bound)
+            // by _paintVaRuleList after refreshUI sets this innerHTML.
+            return `
+                <div class="va-rule-picker">
+                    <input type="text" class="row-input va-rule-search" placeholder="Search virtual airlines…" autocomplete="off">
+                    <div class="va-rule-list custom-scroll"><div class="va-rule-empty">Loading virtual airlines…</div></div>
+                </div>`;
+        }
         if (def.type === 'select') return `<div class="input-wrapper select-wrapper"><select class="row-input-select data-input" data-id="${id}">${def.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select></div>`;
         if (def.type === 'range') return `<div class="range-pill-container"><div class="range-half"><span class="range-label">MIN</span><input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}"></div><div class="range-divider"></div><div class="range-half"><span class="range-label">MAX</span><input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}"></div></div>`;
         if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
@@ -1155,6 +1260,33 @@ export const LandingUI = {
                 padding: 24px;
                 overflow: visible !important;
             }
+
+            /* --- Virtual Airline rule picker (single-VA map focus) --- */
+            .va-rule-picker { display: flex; flex-direction: column; gap: 8px; }
+            .va-rule-list {
+                display: flex; flex-direction: column; gap: 6px;
+                max-height: 220px; overflow-y: auto;
+            }
+            .va-rule-row {
+                display: flex; align-items: center; gap: 10px; width: 100%;
+                text-align: left; cursor: pointer; padding: 8px 10px; border-radius: 12px;
+                background: var(--lui-bg-input); border: 1px solid var(--lui-border-base);
+                color: var(--lui-text-primary); font: inherit;
+                transition: border-color .15s ease, background .15s ease;
+            }
+            .va-rule-row:hover { border-color: var(--lui-accent); }
+            .va-rule-row.active { border-color: var(--lui-accent); background: var(--lui-accent-hover); }
+            .va-rule-logo {
+                width: 28px; height: 28px; border-radius: 8px; object-fit: cover; flex: 0 0 auto;
+                background: var(--lui-hover-bg); display: grid; place-items: center;
+            }
+            .va-rule-logo-fb { font-size: 0.62rem; font-weight: 800; color: var(--lui-accent); }
+            .va-rule-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+            .va-rule-name { font-size: 0.86rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .va-rule-sub { font-size: 0.7rem; color: var(--lui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .va-rule-check { color: var(--lui-accent); opacity: 0; flex: 0 0 auto; }
+            .va-rule-row.active .va-rule-check { opacity: 1; }
+            .va-rule-empty { color: var(--lui-text-secondary); font-size: 0.82rem; text-align: center; padding: 14px 8px; }
 
             .autocomplete-wrapper {
                 position: relative;
