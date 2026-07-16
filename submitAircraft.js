@@ -41,6 +41,11 @@
         const style = document.createElement('style');
         style.id = 'inflight-acsub-styles';
         style.textContent = `
+        :root {
+            --acc-a: #f59e0b;   /* amber */
+            --acc-b: #f97316;   /* orange */
+            --acc-soft: rgba(245, 158, 11, 0.08);
+        }
         .acsub-overlay {
             position: fixed; inset: 0; z-index: 20000;
             display: flex; align-items: center; justify-content: center;
@@ -78,7 +83,7 @@
         .acsub-head-icon {
             flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px;
             display: grid; place-items: center; font-size: 1.05rem;
-            color: #fff; background: linear-gradient(135deg, #00a8ff, #4361ee);
+            color: #fff; background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
         }
         .acsub-head-text { flex: 1 1 auto; min-width: 0; }
         .acsub-head-text h3 { margin: 0; font-size: 1.12rem; font-weight: 700; letter-spacing: -.01em; }
@@ -110,8 +115,8 @@
         }
         .acsub-input::placeholder { color: #6b73a0; }
         .acsub-input:focus {
-            outline: none; border-color: #00a8ff;
-            background: rgba(0,168,255,0.06);
+            outline: none; border-color: var(--acc-a);
+            background: var(--acc-soft);
         }
 
         /* Drop zone */
@@ -122,12 +127,12 @@
             transition: border-color .15s ease, background .15s ease;
         }
         .acsub-drop:hover, .acsub-drop.dragover {
-            border-color: #00a8ff; background: rgba(0,168,255,0.06);
+            border-color: var(--acc-a); background: var(--acc-soft);
         }
         .acsub-drop input[type="file"] {
             position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
         }
-        .acsub-drop-icon { font-size: 1.5rem; color: #00a8ff; }
+        .acsub-drop-icon { font-size: 1.5rem; color: var(--acc-a); }
         .acsub-drop-title { margin-top: 6px; font-size: .9rem; font-weight: 600; color: #e6e9ff; }
         .acsub-drop-sub { margin-top: 2px; font-size: .76rem; color: #9aa2c9; }
 
@@ -157,7 +162,7 @@
             width: 100%; border: none; cursor: pointer;
             padding: 12px 16px; border-radius: 11px;
             font-size: .96rem; font-weight: 700; color: #fff;
-            background: linear-gradient(135deg, #00a8ff, #4361ee);
+            background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
             transition: filter .15s ease, opacity .15s ease;
         }
         .acsub-submit:hover { filter: brightness(1.08); }
@@ -168,6 +173,14 @@
         }
         .acsub-status.ok { color: #3ddc84; }
         .acsub-status.err { color: #ff6b81; }
+        .acsub-link {
+            display: block; width: 100%; margin-top: 12px;
+            background: none; border: none; cursor: pointer;
+            color: #9aa2c9; font-size: .82rem; font-weight: 600;
+            transition: color .15s ease;
+        }
+        .acsub-link:hover { color: var(--acc-a); }
+        .acsub-link i { margin-right: 5px; }
 
         @media (max-width: 420px) {
             .acsub-head, .acsub-body, .acsub-foot { padding-left: 16px; padding-right: 16px; }
@@ -237,6 +250,9 @@
                 <div class="acsub-foot">
                     <button type="submit" class="acsub-submit">Submit for review</button>
                     <p id="acSubmitStatus" class="acsub-status" role="status" aria-live="polite"></p>
+                    <button type="button" class="acsub-link" id="acSubGalleryLink">
+                        <i class="fa-solid fa-images"></i> Browse the community gallery
+                    </button>
                 </div>
             </form>
         </div>`;
@@ -264,7 +280,24 @@
 
         fileInputEl.addEventListener('change', renderPreviews);
         formEl.addEventListener('submit', onSubmit);
+
+        // Cross-link to the community gallery (opens if that module is present,
+        // otherwise falls back to the standalone gallery page).
+        const galleryLink = overlayEl.querySelector('#acSubGalleryLink');
+        if (galleryLink) galleryLink.addEventListener('click', () => {
+            if (window.InflightAircraftGallery && window.InflightAircraftGallery.open) {
+                window.InflightAircraftGallery.open();
+            } else {
+                window.location.href = 'gallery.html';
+            }
+        });
     }
+
+    // Contributor name is shared with the gallery via localStorage so setting it
+    // in one place ("show my work") also credits future submissions.
+    const NAME_KEY = 'inflight_contributor_name';
+    const savedName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch (_) { return ''; } };
+    const saveName = (n) => { try { if (n) localStorage.setItem(NAME_KEY, n); } catch (_) {} };
 
     const say = (msg, kind) => {
         if (!statusEl) return;
@@ -328,6 +361,10 @@
         const hiddenId = formEl.querySelector('input[name="collaboratorId"]');
         if (hiddenId && !hiddenId.value && linkedId) hiddenId.value = linkedId;
 
+        // Remember the credit name so the gallery can match "my work" later.
+        const creditInput = formEl.querySelector('input[name="collaboratorName"]');
+        if (creditInput && creditInput.value.trim()) saveName(creditInput.value.trim());
+
         // FormData sends every field + all files under "images", exactly what
         // the endpoint expects. Do NOT set Content-Type — the browser adds the
         // multipart boundary.
@@ -366,9 +403,11 @@
     function open() {
         buildModal();
         say('');
-        // Prefill credit with the known display name when we have one.
+        // Prefill credit with the name we already know: the one the user set in
+        // the gallery ("my work"), else their signed-in display name.
         const nameInput = formEl && formEl.querySelector('input[name="collaboratorName"]');
-        const known = (window.InflightUser && (window.InflightUser.displayName || window.InflightUser.username)) || '';
+        const known = savedName() ||
+            (window.InflightUser && (window.InflightUser.displayName || window.InflightUser.username)) || '';
         if (nameInput && !nameInput.value && known) nameInput.value = known;
         requestAnimationFrame(() => overlayEl.classList.add('visible'));
     }

@@ -15,8 +15,8 @@
             font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
             color: #e6e9ff;
             background:
-                radial-gradient(1200px 600px at 20% -10%, rgba(0,168,255,0.18), transparent 60%),
-                radial-gradient(1000px 500px at 90% 110%, rgba(67,97,238,0.20), transparent 60%),
+                radial-gradient(1200px 600px at 20% -10%, rgba(245,158,11,0.18), transparent 60%),
+                radial-gradient(1000px 500px at 90% 110%, rgba(249,115,22,0.20), transparent 60%),
                 #060814;
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
@@ -34,11 +34,18 @@
             margin-top: 26px; display: inline-flex; align-items: center; gap: 10px;
             border: none; cursor: pointer; color: #fff;
             padding: 14px 24px; border-radius: 12px; font-size: 1rem; font-weight: 700;
-            background: linear-gradient(135deg, #00a8ff, #4361ee);
-            box-shadow: 0 12px 30px rgba(0,168,255,0.28);
+            background: linear-gradient(135deg, #f59e0b, #f97316);
+            box-shadow: 0 12px 30px rgba(245,158,11,0.28);
             transition: filter .15s ease, transform .15s ease;
         }
         .cta:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .cta.ghost {
+            background: rgba(255,255,255,0.05); box-shadow: none;
+            border: 1px solid rgba(255,255,255,0.14); color: #e6e9ff;
+        }
+        .cta.ghost:hover { background: rgba(255,255,255,0.1); }
+        .cta-row { margin-top: 26px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+        .cta-row .cta { margin-top: 0; }
         .back { margin-top: 20px; }
         .back a { color: #9aa2c9; text-decoration: none; font-size: .88rem; }
         .back a:hover { color: #fff; }
@@ -47,22 +54,30 @@
 <body>
     <div class="hero">
         <img src="Images/inflight.png" alt="InFlight"
-             onerror="this.onerror=null;this.src='https://ui-avatars.com/api/?name=In+Flight&background=00a8ff&color=fff';">
+             onerror="this.onerror=null;this.src='https://ui-avatars.com/api/?name=In+Flight&background=f59e0b&color=fff';">
         <h1>Submit an aircraft photo</h1>
         <p>Spotted a livery we're missing? Share your Infinite Flight aircraft photos with the community. Staff review every submission on Discord before it goes live in the tracker.</p>
-        <button type="button" class="cta" id="openSubmitBtn">
-            <i class="fa-solid fa-camera"></i> Submit a photo
-        </button>
+        <div class="cta-row">
+            <button type="button" class="cta" id="openSubmitBtn">
+                <i class="fa-solid fa-camera"></i> Submit a photo
+            </button>
+            <button type="button" class="cta ghost" id="openGalleryBtn">
+                <i class="fa-solid fa-images"></i> Browse the gallery
+            </button>
+        </div>
         <div class="back"><a href="index.html"><i class="fa-solid fa-arrow-left"></i> Back to the tracker</a></div>
     </div>
 
+    <script src="communityGallery.js"></script>
     <script src="submitAircraft.js"></script>
     <script>
         (function () {
-            const openIt = () => window.InflightAircraftSubmit && window.InflightAircraftSubmit.open();
-            document.getElementById('openSubmitBtn').addEventListener('click', openIt);
-            // Open the modal straight away so the page IS the submission form.
-            window.addEventListener('load', openIt);
+            const openSubmit = () => window.InflightAircraftSubmit && window.InflightAircraftSubmit.open();
+            const openGallery = () => window.InflightAircraftGallery && window.InflightAircraftGallery.open();
+            document.getElementById('openSubmitBtn').addEventListener('click', openSubmit);
+            document.getElementById('openGalleryBtn').addEventListener('click', openGallery);
+            // Open the submission modal straight away so the page IS the form.
+            window.addEventListener('load', openSubmit);
         })();
     </script>
 </body>
