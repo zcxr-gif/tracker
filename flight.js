@@ -2227,7 +2227,9 @@ function injectCustomStyles() {
     max-width: 60%; cursor: pointer; outline: none;
 }
 .iw-tz-select:focus { border-color: #38bdf8; }
-.iw-tz-select:disabled { opacity: 0.5; cursor: not-allowed; }
+/* When locked (non-Pro) the PRO badge stands in for the select, and a click
+   anywhere on the row routes to the upsell — matching every other pro row. */
+.is-pro-feature.locked .iw-tz-select { display: none; }
 .iw-tz-hint { color: #71717a; font-size: 0.72rem; line-height: 1.4; margin: 6px 2px 0; }
 /* Segmented control for window-presentation modes (Flight / Airport window). */
 .iw-seg {
@@ -16171,7 +16173,7 @@ renderCategory(catId) {
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="is-pro-feature"><!-- pro rows: locked + upsell via the generic intercept when signed out -->
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-city"></i> 3D Buildings</div>
                                     <label class="toggle-switch">
@@ -16191,7 +16193,7 @@ renderCategory(catId) {
 
                         <div class="settings-section">
                             <label class="config-header"><span class="ios-hide">Pro </span>Base Map Detail</label>
-                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="is-pro-feature"><!-- pro rows: locked + upsell via the generic intercept when signed out -->
                                 <div class="settings-row">
                                     <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Political Borders</div>
                                     <label class="toggle-switch">
@@ -16270,7 +16272,7 @@ renderCategory(catId) {
                                 Color used for pilots on your watchlist.
                             </p>
 
-                            <div class="settings-row pro-feature-row" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); ${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="settings-row pro-feature-row is-pro-feature" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
                                 <div class="row-label">
                                     <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
                                 </div>
@@ -16488,7 +16490,7 @@ renderCategory(catId) {
                             </div>
                             <div class="settings-row is-pro-feature${!isPro ? ' locked' : ''}">
                                 <div class="row-label"><i class="fa-solid fa-clock"></i> Time Zone${!isPro ? ' <span class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.55rem; margin-right:3px;"></i>PRO</span>' : ''}</div>
-                                <select id="set-user-timezone" class="iw-tz-select" ${!isPro ? 'disabled' : ''}>${buildTimezoneOptions(mapFilters.userTimezone)}</select>
+                                <select id="set-user-timezone" class="iw-tz-select">${buildTimezoneOptions(mapFilters.userTimezone)}</select>
                             </div>
                             <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone instead of Zulu.</div>
                         </div>
@@ -16533,7 +16535,7 @@ renderCategory(catId) {
                         <div class="settings-section">
                             <label class="config-header">Window Appearance</label>
                             
-                            <div style="${!isSignedIn ? 'opacity: 0.5; pointer-events: none;' : ''}">
+                            <div class="is-pro-feature"><!-- pro rows: locked + upsell via the generic intercept when signed out -->
                                 <div class="settings-row">
                                     <div class="row-label">Gradient Start Color</div>
                                     <input type="color" id="set-theme-start" class="settings-color-input" value="${mapFilters.themeStartColor || '#18181b'}" ${!isSignedIn ? 'disabled' : ''}>
@@ -16893,9 +16895,14 @@ if (upgradeBtn) {
 
         // ---- Ported mobile controls (style cards / pills / label designer) ----
         const content = document.getElementById('settings-category-content');
+        let _upsellPending = false;
         const openProUpsell = () => {
             // App Store compliance: no in-app upgrade path on iOS native.
             if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
+            // Idempotent: overlapping capture handlers (the generic .is-pro-feature
+            // intercept below plus any per-feature ones) must open the upsell once.
+            if (_upsellPending) return;
+            _upsellPending = true;
             this.toggle(false);
             setTimeout(() => {
                 if (window.AuthUI && typeof window.AuthUI.open === 'function') {
@@ -16903,8 +16910,24 @@ if (upgradeBtn) {
                 } else if (window.initInflightPro) {
                     window.initInflightPro();
                 }
+                _upsellPending = false;
             }, 250);
         };
+
+        // Generic Pro intercept: any locked pro control anywhere in the settings
+        // content routes a click to the upsell, exactly like the mobile sheet
+        // (MobileSettingsUI attachMobileListeners). This is the single source of
+        // truth so no pro row can be missed — the per-feature handlers below are
+        // now redundant safety nets, kept harmless by openProUpsell's guard.
+        content?.querySelectorAll('.is-pro-feature').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (row.classList.contains('locked')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openProUpsell();
+                }
+            }, true);
+        });
 
         // Map style preview cards
         content?.querySelectorAll('.m-style-card').forEach(card => {
