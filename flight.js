@@ -698,11 +698,12 @@ let mapFilters = {
         airborneOnly: false,
         onGroundOnly: false,
         hasPlanOnly: false,
-        // PRO: show flight-window times in the user's own time zone instead of
-        // Zulu. '' = off (Zulu), 'auto' = the device's zone, else an IANA id
-        // like 'Europe/London'. Read via getUserTimeZone(), which also gates
-        // on the Pro entitlement.
+        // Flight-window clock (open to everyone). userTimezone: '' = Zulu
+        // (default), 'auto' = the device's zone, else an IANA id like
+        // 'Europe/London' — read via getUserTimeZone(). use12hClock switches
+        // the times between 24-hour (default) and 12-hour AM/PM.
         userTimezone: '',
+        use12hClock: false,
         // Per-rule Include/Exclude for the tactical filters. A rule id present
         // (and true) here means its match is NEGATED — it hides matching
         // aircraft instead of keeping only them. Set from the shared tactical
@@ -11290,16 +11291,13 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     // --- User time zone for flight-window times (else Zulu) --------------
     // getUserTimeZone() returns the IANA zone the user picked for flight times
     // ('auto' resolves to the device zone), or null meaning "show UTC/Zulu".
-    // Gated on being signed in (the same tier the picker unlocks at — see the
-    // Settings → Flight Window row), and any invalid/stale id falls back to
-    // null so time formatting can never throw. getFlightTimeSuffix() is the
-    // short label placed after a time ('Z' for Zulu, else the zone's short
-    // name like 'BST' / 'GMT+9'). Exposed on window so the flight-window
-    // iframes and the mobile settings sheet resolve them the same way.
+    // Open to everyone (no gating); any invalid/stale id falls back to null so
+    // time formatting can never throw. getFlightTimeSuffix() is the short label
+    // placed after a time ('Z' for Zulu, else the zone's short name like
+    // 'BST' / 'GMT+9'). Exposed on window so the flight-window iframes and the
+    // mobile settings sheet resolve them the same way.
     function getUserTimeZone() {
         try {
-            const signedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser);
-            if (!signedIn) return null;
             const tz = mapFilters && mapFilters.userTimezone;
             if (!tz) return null;
             const resolved = (tz === 'auto')
@@ -11365,12 +11363,20 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     }
 
     /**
-     * Returns an HH:MM string for a Date in the user's flight-time zone
-     * (Zulu unless a Pro user has chosen otherwise), or null if invalid.
+     * Formats a Date for the flight windows: in the user's chosen zone (Zulu
+     * by default) and 24-hour or 12-hour AM/PM per mapFilters.use12hClock.
+     * Returns null if the date is invalid. The canonical flight-time formatter
+     * — the legacy window and the Simple/Card iframe payload both route here.
      */
     function _formatUtcHHMM(d) {
         if (!d || isNaN(d.getTime())) return null;
-        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: getUserTimeZone() || 'UTC' });
+        const use12 = !!(mapFilters && mapFilters.use12hClock);
+        return d.toLocaleTimeString(use12 ? 'en-US' : 'en-GB', {
+            hour: use12 ? 'numeric' : '2-digit',
+            minute: '2-digit',
+            hour12: use12,
+            timeZone: getUserTimeZone() || 'UTC'
+        });
     }
 
     /**
@@ -14858,7 +14864,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             const startTime = new Date(firstPoint.date).getTime();
             const now = Date.now();
             
-            originTime = new Date(startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+            originTime = _formatUtcHHMM(new Date(startTime)) || '--:--';
             
             const diffMs = now - startTime;
             if (diffMs > 0) {
@@ -14947,7 +14953,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
                 ete = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
                 
                 const arrivalDate = new Date(Date.now() + (hours * 3600000));
-                eta = arrivalDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+                eta = _formatUtcHHMM(arrivalDate) || '--:--';
             }
         }
 
@@ -14982,11 +14988,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     } catch (e) { /* non-fatal: fall back to plain times */ }
 
     // --- Explicit four-cell time grid (FR24-style): Scheduled/Actual + Scheduled/Estimated ---
-    // Zone-aware like the legacy window: UTC unless a Pro user picked a zone.
-    const _tz = (typeof getUserTimeZone === 'function') ? (getUserTimeZone() || 'UTC') : 'UTC';
-    const fmtUtc = (d) => (d && !isNaN(d.getTime()))
-        ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: _tz })
-        : null;
+    // Same canonical formatter as the legacy window (chosen zone + 12/24h).
+    const fmtUtc = (d) => _formatUtcHHMM(d);
     const times = { depScheduled: null, depActual: null, arrScheduled: null, arrEstimated: null };
     if (filedPlanData && filedPlanData.dep_time) {
         const d = new Date(filedPlanData.dep_time);
@@ -16489,11 +16492,15 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            <div class="settings-row is-pro-feature${!isSignedIn ? ' locked' : ''}">
-                                <div class="row-label"><i class="fa-solid fa-clock"></i> Time Zone${!isSignedIn ? ' <span class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.55rem; margin-right:3px;"></i>PRO</span>' : ''}</div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-clock"></i> 12-Hour Clock (AM/PM)</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-12h-clock" ${mapFilters.use12hClock ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Time Zone</div>
                                 <select id="set-user-timezone" class="iw-tz-select">${buildTimezoneOptions(mapFilters.userTimezone)}</select>
                             </div>
-                            <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone instead of Zulu.</div>
+                            <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</div>
                         </div>
 
                         <div class="settings-section">
@@ -16677,6 +16684,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-auto-cycle-photos': 'autoCyclePhotos',
+            'set-12h-clock': 'use12hClock',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
             'set-taws-enabled': 'terrainTawsEnabled'

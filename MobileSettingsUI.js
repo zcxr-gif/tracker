@@ -424,15 +424,15 @@ export const MobileSettingsUI = {
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
-                                <div class="m-setting-row is-pro-feature m-tz-row">
-                                    <div class="m-row-left"><i class="fa-solid fa-clock"></i><span>Time Zone</span></div>
+                                ${this.renderToggle('use12hClock', '12-Hour Clock (AM/PM)', 'fa-clock')}
+                                <div class="m-setting-row m-tz-row">
+                                    <div class="m-row-left"><i class="fa-solid fa-earth-americas"></i><span>Time Zone</span></div>
                                     <div class="m-row-right">
-                                        <div class="pro-lock-badge"><i class="fa-solid fa-lock" style="font-size:0.6rem; margin-right:4px;"></i>PRO</div>
                                         <select id="m-user-timezone" class="m-tz-select">${(typeof window !== 'undefined' && window.buildTimezoneOptions) ? window.buildTimezoneOptions((window.mapFilters || {}).userTimezone) : ''}</select>
                                     </div>
                                 </div>
                             </div>
-                            <p class="m-tz-hint">Show flight-window times (departure / arrival) in your own time zone instead of Zulu.</p>
+                            <p class="m-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</p>
 
                             <div class="mobile-section-header">Airport Window</div>
                             <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
