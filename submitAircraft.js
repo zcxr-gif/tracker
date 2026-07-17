@@ -42,197 +42,231 @@
         style.id = 'inflight-acsub-styles';
         style.textContent = `
         :root {
-            --acc-a: #f59e0b;   /* amber */
-            --acc-b: #f97316;   /* orange */
-            --acc-soft: rgba(245, 158, 11, 0.08);
+            --acc-a: #fbbf24;                       /* warm gold */
+            --acc-b: #f59e0b;                       /* amber */
+            --acc-ink: #241a02;                     /* readable text on gold */
+            --acc-soft: rgba(251, 191, 36, 0.10);
+            --acc-ring: rgba(251, 191, 36, 0.22);
+            --acc-glow: rgba(245, 158, 11, 0.30);
+            --acs-surface: rgba(19, 21, 40, 0.98);
+            --acs-line: rgba(255, 255, 255, 0.08);
+            --acs-t1: #eef0ff;
+            --acs-t2: #9aa2c9;
+            --acs-t3: #6b7299;
         }
         .acsub-overlay {
             position: fixed; inset: 0; z-index: 20000;
             display: flex; align-items: center; justify-content: center;
             padding: max(env(safe-area-inset-top, 0px), 16px) 16px
                      max(env(safe-area-inset-bottom, 0px), 16px);
-            background: rgba(6, 8, 20, 0.62);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
+            background: radial-gradient(120% 120% at 50% 0%, rgba(24,18,4,0.34), rgba(4,5,14,0.74));
+            backdrop-filter: blur(8px) saturate(1.1);
+            -webkit-backdrop-filter: blur(8px) saturate(1.1);
             opacity: 0; visibility: hidden;
-            transition: opacity .22s ease, visibility .22s ease;
+            transition: opacity .25s ease, visibility .25s ease;
         }
         .acsub-overlay.visible { opacity: 1; visibility: visible; }
 
         .acsub-card {
-            width: 100%; max-width: 460px;
-            max-height: calc(100vh - 32px);
+            position: relative; width: 100%; max-width: 472px;
+            max-height: calc(100dvh - 32px);
             display: flex; flex-direction: column;
-            background: rgba(18, 20, 38, 0.94);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 18px;
-            box-shadow: 0 24px 60px rgba(0,0,0,0.55);
-            color: #e6e9ff;
+            background: var(--acs-surface);
+            border: 1px solid var(--acs-line);
+            border-radius: 22px;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+            color: var(--acs-t1);
             font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-            transform: translateY(14px) scale(.98);
-            transition: transform .22s ease;
+            transform: translateY(16px) scale(.985); opacity: .5;
+            transition: transform .28s cubic-bezier(.16,.84,.44,1), opacity .28s ease;
             overflow: hidden;
         }
-        .acsub-overlay.visible .acsub-card { transform: translateY(0) scale(1); }
+        .acsub-overlay.visible .acsub-card { transform: none; opacity: 1; }
+        .acsub-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, transparent, var(--acc-a), var(--acc-b), transparent);
+        }
 
         .acsub-head {
-            display: flex; align-items: flex-start; gap: 12px;
-            padding: 20px 22px 14px;
-            border-bottom: 1px solid rgba(255,255,255,0.07);
+            position: relative; display: flex; align-items: center; gap: 14px;
+            padding: 24px 56px 20px 24px;
+            border-bottom: 1px solid var(--acs-line);
+            background: radial-gradient(130% 190% at 92% -50%, rgba(251,191,36,0.13), transparent 62%);
         }
         .acsub-head-icon {
-            flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px;
-            display: grid; place-items: center; font-size: 1.05rem;
-            color: #fff; background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
+            flex: 0 0 auto; width: 46px; height: 46px; border-radius: 14px;
+            display: grid; place-items: center; font-size: 1.15rem; color: var(--acc-a);
+            background: var(--acc-soft); border: 1px solid rgba(251,191,36,0.28);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
         }
         .acsub-head-text { flex: 1 1 auto; min-width: 0; }
-        .acsub-head-text h3 { margin: 0; font-size: 1.12rem; font-weight: 700; letter-spacing: -.01em; }
-        .acsub-head-text p { margin: 3px 0 0; font-size: .82rem; color: #9aa2c9; line-height: 1.35; }
+        .acsub-head-text h3 { margin: 0; font-size: 1.2rem; font-weight: 750; letter-spacing: -.02em; color: #fff; }
+        .acsub-head-text p { margin: 4px 0 0; font-size: .82rem; color: var(--acs-t2); line-height: 1.4; }
         .acsub-close {
-            flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%;
-            border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.05);
-            color: #c5cae9; font-size: 1rem; cursor: pointer; line-height: 1;
-            display: grid; place-items: center; transition: background .15s ease, color .15s ease;
+            position: absolute; top: 16px; right: 16px;
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 1px solid var(--acs-line); background: rgba(255,255,255,0.04);
+            color: var(--acs-t2); font-size: 1.05rem; cursor: pointer; line-height: 1;
+            display: grid; place-items: center; transition: all .18s ease;
         }
-        .acsub-close:hover { background: rgba(255,255,255,0.14); color: #fff; }
+        .acsub-close:hover { background: rgba(255,255,255,0.12); color: #fff; transform: rotate(90deg); }
 
-        .acsub-body { padding: 16px 22px 4px; overflow-y: auto; }
+        .acsub-body { padding: 20px 24px 8px; overflow-y: auto; }
 
-        .acsub-field { display: block; margin-bottom: 14px; }
-        .acsub-field > span {
-            display: block; font-size: .74rem; font-weight: 600;
-            text-transform: uppercase; letter-spacing: .04em;
-            color: #9aa2c9; margin-bottom: 6px;
+        .acsub-field { display: block; margin-bottom: 15px; }
+        .acsub-field-label {
+            display: flex; align-items: center; gap: 6px;
+            font-size: .8rem; font-weight: 600; color: var(--acs-t2); margin-bottom: 7px;
         }
-        .acsub-field > span .req { color: #ff6b81; margin-left: 2px; }
+        .acsub-field-label .req { color: var(--acc-a); font-weight: 700; }
+        .acsub-field-label .opt { color: var(--acs-t3); font-weight: 400; font-size: .74rem; }
         .acsub-input {
             width: 100%; box-sizing: border-box;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.12);
-            border-radius: 10px; color: #fff;
-            padding: 10px 12px; font-size: .92rem;
-            transition: border-color .15s ease, background .15s ease;
+            background: rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 12px; color: #fff;
+            padding: 12px 14px; font-size: .92rem; line-height: 1.2;
+            transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
         }
-        .acsub-input::placeholder { color: #6b73a0; }
+        .acsub-input::placeholder { color: var(--acs-t3); }
+        .acsub-input:hover { border-color: rgba(255,255,255,0.18); }
         .acsub-input:focus {
-            outline: none; border-color: var(--acc-a);
-            background: var(--acc-soft);
+            outline: none; border-color: var(--acc-b);
+            background: rgba(251,191,36,0.05); box-shadow: 0 0 0 3px var(--acc-ring);
         }
 
         /* Drop zone */
         .acsub-drop {
-            position: relative; display: block; cursor: pointer;
-            border: 1.5px dashed rgba(255,255,255,0.20);
-            border-radius: 12px; padding: 20px 16px; text-align: center;
-            transition: border-color .15s ease, background .15s ease;
+            position: relative; display: flex; flex-direction: column; align-items: center;
+            cursor: pointer; text-align: center;
+            border: 1.5px dashed rgba(255,255,255,0.18);
+            border-radius: 16px; padding: 26px 16px;
+            background: rgba(255,255,255,0.02);
+            transition: border-color .18s ease, background .18s ease;
         }
         .acsub-drop:hover, .acsub-drop.dragover {
-            border-color: var(--acc-a); background: var(--acc-soft);
+            border-color: var(--acc-b); background: rgba(251,191,36,0.06);
         }
         .acsub-drop input[type="file"] {
             position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
         }
-        .acsub-drop-icon { font-size: 1.5rem; color: var(--acc-a); }
-        .acsub-drop-title { margin-top: 6px; font-size: .9rem; font-weight: 600; color: #e6e9ff; }
-        .acsub-drop-sub { margin-top: 2px; font-size: .76rem; color: #9aa2c9; }
+        .acsub-drop-icon {
+            width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+            font-size: 1.25rem; color: var(--acc-a); background: var(--acc-soft);
+            border: 1px solid rgba(251,191,36,0.25); margin-bottom: 10px;
+            transition: transform .18s ease;
+        }
+        .acsub-drop:hover .acsub-drop-icon, .acsub-drop.dragover .acsub-drop-icon { transform: translateY(-2px); }
+        .acsub-drop-title { font-size: .92rem; font-weight: 650; color: var(--acs-t1); }
+        .acsub-drop-title b { color: var(--acc-a); font-weight: 700; }
+        .acsub-drop-sub { margin-top: 3px; font-size: .76rem; color: var(--acs-t2); }
 
         .acsub-previews {
-            display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+            display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px;
         }
         .acsub-previews:empty { display: none; }
         .acsub-thumb {
-            position: relative; width: 72px; height: 72px; border-radius: 10px;
+            position: relative; width: 76px; height: 76px; border-radius: 12px;
             overflow: hidden; border: 1px solid rgba(255,255,255,0.12);
-            background: #0c0e1f;
+            background: #0c0e1f; box-shadow: 0 4px 12px rgba(0,0,0,0.35);
         }
         .acsub-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .acsub-thumb button {
-            position: absolute; top: 3px; right: 3px;
+            position: absolute; top: 4px; right: 4px;
             width: 20px; height: 20px; border-radius: 50%;
-            border: none; background: rgba(0,0,0,0.65); color: #fff;
-            font-size: .75rem; line-height: 1; cursor: pointer; display: grid; place-items: center;
+            border: none; background: rgba(0,0,0,0.7); color: #fff;
+            font-size: .78rem; line-height: 1; cursor: pointer; display: grid; place-items: center;
+            transition: background .15s ease;
         }
-        .acsub-thumb button:hover { background: #ff4757; }
+        .acsub-thumb button:hover { background: #fb7185; }
 
-        .acsub-foot {
-            padding: 12px 22px 20px;
-            border-top: 1px solid rgba(255,255,255,0.07);
-        }
+        .acsub-foot { padding: 8px 24px 22px; }
         .acsub-submit {
             width: 100%; border: none; cursor: pointer;
-            padding: 12px 16px; border-radius: 11px;
-            font-size: .96rem; font-weight: 700; color: #fff;
+            padding: 14px 16px; border-radius: 13px;
+            font-size: .98rem; font-weight: 700; color: var(--acc-ink); letter-spacing: .01em;
             background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
-            transition: filter .15s ease, opacity .15s ease;
+            box-shadow: 0 10px 24px var(--acc-glow);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
         }
-        .acsub-submit:hover { filter: brightness(1.08); }
-        .acsub-submit:disabled { opacity: .55; cursor: not-allowed; }
+        .acsub-submit:hover { transform: translateY(-1px); box-shadow: 0 14px 30px var(--acc-glow); filter: brightness(1.04); }
+        .acsub-submit:active { transform: translateY(0); }
+        .acsub-submit:disabled { opacity: .6; cursor: not-allowed; transform: none; box-shadow: none; }
         .acsub-status {
-            margin: 10px 0 0; font-size: .84rem; text-align: center; min-height: 1.1em;
-            color: #9aa2c9; line-height: 1.4;
+            margin: 12px 0 0; font-size: .84rem; text-align: center; min-height: 1.1em;
+            color: var(--acs-t2); line-height: 1.4;
         }
-        .acsub-status.ok { color: #3ddc84; }
-        .acsub-status.err { color: #ff6b81; }
+        .acsub-status.ok { color: #34d399; }
+        .acsub-status.err { color: #fb7185; }
         .acsub-link {
-            display: block; width: 100%; margin-top: 12px;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            width: 100%; margin-top: 14px; padding: 0;
             background: none; border: none; cursor: pointer;
-            color: #9aa2c9; font-size: .82rem; font-weight: 600;
-            transition: color .15s ease;
+            color: var(--acs-t2); font-size: .82rem; font-weight: 600; transition: color .15s ease;
         }
         .acsub-link:hover { color: var(--acc-a); }
-        .acsub-link i { margin-right: 5px; }
 
         /* One-time "want to submit?" invite toast */
         .acsub-toast {
             position: fixed; z-index: 19000;
-            left: max(env(safe-area-inset-left, 0px), 16px);
-            bottom: max(env(safe-area-inset-bottom, 0px), 16px);
-            width: 320px; max-width: calc(100vw - 32px);
-            display: flex; gap: 12px; padding: 14px 14px 14px 16px;
-            background: rgba(18, 20, 38, 0.96);
-            border: 1px solid rgba(255,255,255,0.10);
-            border-left: 3px solid var(--acc-a);
-            border-radius: 14px; box-shadow: 0 18px 44px rgba(0,0,0,0.5);
-            color: #e6e9ff; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-            transform: translateY(140%); opacity: 0;
-            transition: transform .35s cubic-bezier(.16,.84,.44,1), opacity .35s ease;
+            left: max(env(safe-area-inset-left, 0px), 18px);
+            bottom: max(env(safe-area-inset-bottom, 0px), 18px);
+            width: 340px; max-width: calc(100vw - 36px);
+            overflow: hidden;
+            background: var(--acs-surface);
+            border: 1px solid var(--acs-line);
+            border-radius: 18px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.55);
+            color: var(--acs-t1); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            transform: translateY(24px) scale(.96); opacity: 0;
+            transition: transform .4s cubic-bezier(.16,.84,.44,1), opacity .4s ease;
         }
-        .acsub-toast.visible { transform: translateY(0); opacity: 1; }
+        .acsub-toast.visible { transform: none; opacity: 1; }
+        .acsub-toast::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, var(--acc-a), var(--acc-b));
+        }
+        .acsub-toast-inner { display: flex; gap: 13px; padding: 17px 16px 16px; }
         .acsub-toast-icon {
-            flex: 0 0 auto; width: 38px; height: 38px; border-radius: 11px;
-            display: grid; place-items: center; font-size: 1.05rem; color: #fff;
+            flex: 0 0 auto; width: 42px; height: 42px; border-radius: 13px;
+            display: grid; place-items: center; font-size: 1.1rem; color: var(--acc-ink);
             background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
+            box-shadow: 0 6px 16px var(--acc-glow);
         }
-        .acsub-toast-body { flex: 1 1 auto; min-width: 0; }
-        .acsub-toast-body strong { display: block; font-size: .92rem; font-weight: 700; }
-        .acsub-toast-body p { margin: 3px 0 0; font-size: .8rem; color: #9aa2c9; line-height: 1.35; }
-        .acsub-toast-actions { display: flex; gap: 8px; margin-top: 10px; }
+        .acsub-toast-body { flex: 1 1 auto; min-width: 0; padding-right: 12px; }
+        .acsub-toast-body strong { display: block; font-size: .95rem; font-weight: 700; color: #fff; letter-spacing: -.01em; }
+        .acsub-toast-body p { margin: 4px 0 0; font-size: .8rem; color: var(--acs-t2); line-height: 1.4; }
+        .acsub-toast-actions { display: flex; gap: 8px; margin-top: 12px; }
         .acsub-toast-cta {
-            border: none; cursor: pointer; color: #fff;
-            padding: 7px 14px; border-radius: 9px; font-size: .82rem; font-weight: 700;
+            border: none; cursor: pointer; color: var(--acc-ink);
+            padding: 8px 15px; border-radius: 10px; font-size: .82rem; font-weight: 700;
             background: linear-gradient(135deg, var(--acc-a), var(--acc-b));
-            transition: filter .15s ease;
+            box-shadow: 0 6px 14px var(--acc-glow);
+            transition: transform .15s ease, filter .15s ease;
         }
-        .acsub-toast-cta:hover { filter: brightness(1.08); }
+        .acsub-toast-cta:hover { transform: translateY(-1px); filter: brightness(1.05); }
         .acsub-toast-later {
-            border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
-            color: #c5cae9; cursor: pointer;
-            padding: 7px 12px; border-radius: 9px; font-size: .82rem; font-weight: 600;
-            transition: background .15s ease;
+            border: 1px solid var(--acs-line); background: rgba(255,255,255,0.03);
+            color: var(--acs-t2); cursor: pointer;
+            padding: 8px 13px; border-radius: 10px; font-size: .82rem; font-weight: 600;
+            transition: background .15s ease, color .15s ease;
         }
-        .acsub-toast-later:hover { background: rgba(255,255,255,0.1); }
+        .acsub-toast-later:hover { background: rgba(255,255,255,0.09); color: #fff; }
         .acsub-toast-x {
-            position: absolute; top: 8px; right: 9px;
+            position: absolute; top: 10px; right: 11px;
             width: 22px; height: 22px; border-radius: 50%;
-            border: none; background: transparent; color: #6b73a0;
-            font-size: 1rem; line-height: 1; cursor: pointer;
-            display: grid; place-items: center; transition: color .15s ease;
+            border: none; background: transparent; color: var(--acs-t3);
+            font-size: 1.05rem; line-height: 1; cursor: pointer;
+            display: grid; place-items: center; transition: color .15s ease, background .15s ease;
         }
-        .acsub-toast-x:hover { color: #fff; }
+        .acsub-toast-x:hover { color: #fff; background: rgba(255,255,255,0.08); }
 
         @media (max-width: 420px) {
-            .acsub-head, .acsub-body, .acsub-foot { padding-left: 16px; padding-right: 16px; }
+            .acsub-head { padding-left: 18px; padding-right: 50px; }
+            .acsub-body, .acsub-foot { padding-left: 18px; padding-right: 18px; }
+            .acsub-toast { width: auto; right: max(env(safe-area-inset-right, 0px), 18px); }
         }`;
         document.head.appendChild(style);
     }
@@ -265,28 +299,28 @@
                     <label class="acsub-drop" id="acSubDrop">
                         <input type="file" name="images" accept="image/*" multiple required>
                         <div class="acsub-drop-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-                        <div class="acsub-drop-title">Tap or drop photos here</div>
-                        <div class="acsub-drop-sub">Up to ${MAX_IMAGES} images &middot; JPG, PNG, WEBP</div>
+                        <div class="acsub-drop-title">Drop photos here or <b>browse</b></div>
+                        <div class="acsub-drop-sub">Up to ${MAX_IMAGES} images &middot; JPG, PNG or WEBP</div>
                     </label>
                     <div class="acsub-previews" id="acSubPreviews"></div>
 
-                    <label class="acsub-field" style="margin-top:14px;">
-                        <span>Aircraft type<span class="req">*</span></span>
+                    <label class="acsub-field" style="margin-top:16px;">
+                        <span class="acsub-field-label">Aircraft type <span class="req">*</span></span>
                         <input class="acsub-input" type="text" name="aircraftType" placeholder="e.g. A320neo" required>
                     </label>
 
                     <label class="acsub-field">
-                        <span>Livery<span class="req">*</span></span>
+                        <span class="acsub-field-label">Livery <span class="req">*</span></span>
                         <input class="acsub-input" type="text" name="liveryName" placeholder="e.g. IndiGo" required>
                     </label>
 
                     <label class="acsub-field">
-                        <span>Tail number <span style="text-transform:none;font-weight:400;color:#6b73a0;">(optional)</span></span>
+                        <span class="acsub-field-label">Tail number <span class="opt">optional</span></span>
                         <input class="acsub-input" type="text" name="tailNumber" placeholder="e.g. VT-IZA">
                     </label>
 
                     <label class="acsub-field">
-                        <span>Your name / credit <span style="text-transform:none;font-weight:400;color:#6b73a0;">(optional)</span></span>
+                        <span class="acsub-field-label">Your name / credit <span class="opt">optional</span></span>
                         <input class="acsub-input" type="text" name="collaboratorName" placeholder="Shown as the contributor">
                     </label>
 
@@ -297,7 +331,7 @@
                 </div>
 
                 <div class="acsub-foot">
-                    <button type="submit" class="acsub-submit">Submit for review</button>
+                    <button type="submit" class="acsub-submit"><i class="fa-solid fa-paper-plane"></i> Submit for review</button>
                     <p id="acSubmitStatus" class="acsub-status" role="status" aria-live="polite"></p>
                     <button type="button" class="acsub-link" id="acSubGalleryLink">
                         <i class="fa-solid fa-images"></i> Browse the community gallery
@@ -494,9 +528,13 @@
         setTimeout(() => el.remove(), 400);
     }
 
-    function showInvite() {
-        if (toastEl || typeof document === 'undefined') return;
-        markInviteSeen(); // one-time: appearing is enough to retire it
+    // showInvite({ force }) — force:true previews it on demand without
+    // consuming the one-time flag (used by the public invite() trigger).
+    function showInvite(opts) {
+        if (typeof document === 'undefined') return;
+        const force = !!(opts && opts.force);
+        if (toastEl) { if (!force) return; dismissInvite(); }
+        if (!force) markInviteSeen(); // one-time: appearing is enough to retire it
         injectStyles();
 
         const pick = INVITES[Math.floor(Math.random() * INVITES.length)];
@@ -506,13 +544,15 @@
         toastEl.setAttribute('aria-label', 'Submit your plane photos');
         toastEl.innerHTML = `
             <button type="button" class="acsub-toast-x" aria-label="Dismiss">&times;</button>
-            <div class="acsub-toast-icon"><i class="fa-solid fa-camera-retro"></i></div>
-            <div class="acsub-toast-body">
-                <strong>${pick.h}</strong>
-                <p>${pick.p}</p>
-                <div class="acsub-toast-actions">
-                    <button type="button" class="acsub-toast-cta">Submit a photo</button>
-                    <button type="button" class="acsub-toast-later">Not now</button>
+            <div class="acsub-toast-inner">
+                <div class="acsub-toast-icon"><i class="fa-solid fa-camera-retro"></i></div>
+                <div class="acsub-toast-body">
+                    <strong>${pick.h}</strong>
+                    <p>${pick.p}</p>
+                    <div class="acsub-toast-actions">
+                        <button type="button" class="acsub-toast-cta">Submit a photo</button>
+                        <button type="button" class="acsub-toast-later">Not now</button>
+                    </div>
                 </div>
             </div>`;
         document.body.appendChild(toastEl);
@@ -564,5 +604,12 @@
         });
     }
 
-    window.InflightAircraftSubmit = { open, close };
+    window.InflightAircraftSubmit = {
+        open,
+        close,
+        // Manually show the invite toast (e.g. from a menu item or for preview).
+        // Bypasses the "already seen" one-time guard.
+        invite: () => showInvite({ force: true }),
+        dismissInvite
+    };
 })();
