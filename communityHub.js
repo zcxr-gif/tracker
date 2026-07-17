@@ -177,8 +177,9 @@
         }
         .ach-tile {
             position: relative; aspect-ratio: 4 / 3; border-radius: 16px; overflow: hidden;
-            background: var(--ach-elev); border: 1px solid var(--ach-line2); cursor: default;
+            background: var(--ach-elev); border: 1px solid var(--ach-line2); cursor: pointer;
         }
+        .ach-tile:active { transform: scale(.98); }
         .ach-tile.mine { border-color: var(--ach-sky); box-shadow: 0 0 0 1.5px var(--ach-sky-ring); }
         .ach-tile-img {
             position: absolute; inset: 0; width: 100%; height: 100%;
@@ -218,6 +219,58 @@
             background-size: 200% 100%; animation: achShimmer 1.2s ease-in-out infinite;
         }
         @keyframes achShimmer { to { background-position: -200% 0; } }
+
+        /* ---- Lightbox (tap a tile to open a large view) ---- */
+        .ach-lb {
+            position: fixed; inset: 0; z-index: 20010;
+            display: flex; align-items: center; justify-content: center;
+            padding: max(env(safe-area-inset-top,0px),16px) 16px max(env(safe-area-inset-bottom,0px),16px);
+            background: rgba(0,0,0,0.9);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            opacity: 0; visibility: hidden; transition: opacity .25s ease, visibility .25s ease;
+        }
+        .ach-lb.visible { opacity: 1; visibility: visible; }
+        .ach-lb-stage {
+            width: 100%; max-width: 920px; display: flex; flex-direction: column; align-items: center;
+            transform: scale(.97); transition: transform .25s cubic-bezier(.16,.84,.44,1);
+        }
+        .ach-lb.visible .ach-lb-stage { transform: none; }
+        .ach-lb-imgwrap {
+            position: relative; width: 100%; border-radius: 16px; overflow: hidden;
+            background: #101014; box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+        }
+        .ach-lb-img { display: block; width: 100%; max-height: 68vh; object-fit: contain; background: #08080a; }
+        .ach-lb-you {
+            position: absolute; top: 12px; left: 12px; z-index: 2;
+            font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+            color: var(--ach-ink); background: var(--ach-sky); padding: 4px 10px; border-radius: 99px;
+        }
+        .ach-lb-meta { width: 100%; padding: 16px 6px 4px; }
+        .ach-lb-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: #fff; line-height: 1.1; }
+        .ach-lb-sub { margin-top: 4px; font-size: 0.95rem; font-weight: 600; color: var(--ach-t2); }
+        .ach-lb-credit { margin-top: 8px; font-size: 0.8rem; color: var(--ach-t3); }
+        .ach-lb-credit:empty { display: none; }
+        .ach-lb-count { margin-top: 14px; font-size: 0.76rem; font-weight: 700; color: var(--ach-t3); letter-spacing: .04em; }
+        .ach-lb-count:empty { display: none; }
+        .ach-lb-x, .ach-lb-nav {
+            position: absolute; z-index: 3; width: 42px; height: 42px; border-radius: 50%; border: none; cursor: pointer;
+            display: grid; place-items: center; font-size: 18px; color: #fff;
+            background: rgba(30,30,34,0.7); border: 1px solid rgba(255,255,255,0.14);
+            -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: background .15s ease, transform .15s ease;
+        }
+        .ach-lb-x { top: 16px; right: 16px; }
+        .ach-lb-x:hover, .ach-lb-nav:hover { background: rgba(60,60,66,0.85); }
+        .ach-lb-x:active, .ach-lb-nav:active { transform: scale(.92); }
+        .ach-lb-nav { top: 50%; transform: translateY(-50%); }
+        .ach-lb-nav:active { transform: translateY(-50%) scale(.92); }
+        .ach-lb-prev { left: 16px; }
+        .ach-lb-next { right: 16px; }
+        .ach-lb-nav[hidden] { display: none; }
+        @media (max-width: 560px) {
+            .ach-lb-nav { top: auto; bottom: 24px; transform: none; }
+            .ach-lb-nav:active { transform: scale(.92); }
+            .ach-lb-title { font-size: 1.25rem; }
+        }
 
         /* ---- Submit ---- */
         .ach-form { padding: 0 20px 24px; }
@@ -384,6 +437,25 @@
                     </form>
                 </div>
             </div>
+        </div>
+
+        <!-- Lightbox: large view of a tapped photo -->
+        <div class="ach-lb" id="achLb" aria-hidden="true">
+                <button type="button" class="ach-lb-x" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="ach-lb-nav ach-lb-prev" aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></button>
+                <div class="ach-lb-stage">
+                    <div class="ach-lb-imgwrap">
+                        <span class="ach-lb-you" hidden>You</span>
+                        <img class="ach-lb-img" alt="">
+                    </div>
+                    <div class="ach-lb-meta">
+                        <div class="ach-lb-title"></div>
+                        <div class="ach-lb-sub"></div>
+                        <div class="ach-lb-credit"></div>
+                    </div>
+                    <div class="ach-lb-count"></div>
+                </div>
+                <button type="button" class="ach-lb-nav ach-lb-next" aria-label="Next"><i class="fa-solid fa-chevron-right"></i></button>
         </div>`;
 
         document.body.appendChild(overlayEl);
@@ -403,7 +475,16 @@
             file: overlayEl.querySelector('input[name="images"]'),
             previews: overlayEl.querySelector('#achPreviews'),
             submit: overlayEl.querySelector('.ach-submit'),
-            status: overlayEl.querySelector('#achStatus')
+            status: overlayEl.querySelector('#achStatus'),
+            lb: overlayEl.querySelector('#achLb'),
+            lbImg: overlayEl.querySelector('.ach-lb-img'),
+            lbYou: overlayEl.querySelector('.ach-lb-you'),
+            lbTitle: overlayEl.querySelector('.ach-lb-title'),
+            lbSub: overlayEl.querySelector('.ach-lb-sub'),
+            lbCredit: overlayEl.querySelector('.ach-lb-credit'),
+            lbCount: overlayEl.querySelector('.ach-lb-count'),
+            lbPrev: overlayEl.querySelector('.ach-lb-prev'),
+            lbNext: overlayEl.querySelector('.ach-lb-next')
         };
 
         // Dismiss
@@ -412,6 +493,28 @@
 
         // Tabs
         els.tabs.forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
+
+        // Lightbox: open on tile tap, navigate, dismiss
+        els.grid.addEventListener('click', (e) => {
+            const tile = e.target.closest('.ach-tile');
+            if (tile && tile.dataset.idx != null) openLightbox(+tile.dataset.idx);
+        });
+        els.grid.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const tile = e.target.closest('.ach-tile');
+            if (tile && tile.dataset.idx != null) { e.preventDefault(); openLightbox(+tile.dataset.idx); }
+        });
+        els.lb.addEventListener('click', (e) => { if (e.target === els.lb || e.target === els.lb.querySelector('.ach-lb-stage')) closeLightbox(); });
+        els.lb.querySelector('.ach-lb-x').addEventListener('click', closeLightbox);
+        els.lbPrev.addEventListener('click', () => stepLightbox(-1));
+        els.lbNext.addEventListener('click', () => stepLightbox(1));
+        let touchX = null;
+        els.lb.addEventListener('touchstart', (e) => { touchX = e.changedTouches[0].clientX; }, { passive: true });
+        els.lb.addEventListener('touchend', (e) => {
+            if (touchX == null) return;
+            const dx = e.changedTouches[0].clientX - touchX; touchX = null;
+            if (Math.abs(dx) > 45) stepLightbox(dx < 0 ? 1 : -1);
+        }, { passive: true });
 
         // Gallery controls
         els.search.addEventListener('input', renderGallery);
@@ -495,12 +598,12 @@
     const BATCH = 24;
     let renderList = [], renderCursor = 0, tileObserver = null, sentinelEl = null;
 
-    function tileHTML(p, me) {
+    function tileHTML(p, me, idx) {
         const isMine = me && norm(p.contributor) === me;
         const credit = p.contributor && p.contributor !== 'IF Community'
             ? `<span class="ach-credit">© ${esc(p.contributor)}</span>` : '';
         return `
-            <div class="ach-tile${isMine ? ' mine' : ''}">
+            <div class="ach-tile${isMine ? ' mine' : ''}" data-idx="${idx}" role="button" tabindex="0">
                 <img class="ach-tile-img" loading="lazy" decoding="async" alt="${esc(p.type)} — ${esc(p.livery)}"
                      src="${esc(p.url)}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
                 <div class="ach-tile-fade"></div>
@@ -519,7 +622,7 @@
         if (renderCursor < end) {
             const me = norm(els.name && els.name.value);
             let html = '';
-            for (; renderCursor < end; renderCursor++) html += tileHTML(renderList[renderCursor], me);
+            for (; renderCursor < end; renderCursor++) html += tileHTML(renderList[renderCursor], me, renderCursor);
             if (sentinelEl) els.grid.insertBefore(rangeFromHTML(html), sentinelEl);
             else els.grid.insertAdjacentHTML('beforeend', html);
         }
@@ -584,9 +687,44 @@
             tileObserver.observe(sentinelEl);
         } else {
             renderCursor = renderList.length;
-            els.grid.insertAdjacentHTML('beforeend', list.map(p => tileHTML(p, me)).join(''));
+            els.grid.insertAdjacentHTML('beforeend', list.map((p, i) => tileHTML(p, me, i)).join(''));
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Lightbox — large view of a tapped photo, with prev/next over the
+    // current (filtered) list.
+    // ---------------------------------------------------------------------
+    let lightIdx = 0;
+
+    function openLightbox(idx) {
+        if (!els.lb || !renderList.length) return;
+        lightIdx = ((idx % renderList.length) + renderList.length) % renderList.length;
+        paintLightbox();
+        els.lb.classList.add('visible');
+        els.lb.setAttribute('aria-hidden', 'false');
+    }
+
+    function paintLightbox() {
+        const p = renderList[lightIdx];
+        if (!p) return;
+        const me = norm(els.name && els.name.value);
+        els.lbImg.onerror = () => { els.lbImg.onerror = null; els.lbImg.src = FALLBACK_IMG; };
+        els.lbImg.src = p.url;
+        els.lbImg.alt = `${p.type} — ${p.livery}`;
+        els.lbTitle.textContent = p.type;
+        els.lbSub.textContent = p.livery + (p.tail ? ' · ' + p.tail : '');
+        els.lbCredit.textContent = (p.contributor && p.contributor !== 'IF Community') ? 'Photo by ' + p.contributor : '';
+        els.lbYou.hidden = !(me && norm(p.contributor) === me);
+        const multi = renderList.length > 1;
+        els.lbCount.textContent = multi ? `${lightIdx + 1} / ${renderList.length}` : '';
+        els.lbPrev.hidden = !multi;
+        els.lbNext.hidden = !multi;
+    }
+
+    function stepLightbox(d) { if (renderList.length) openLightbox(lightIdx + d); }
+    function closeLightbox() { if (els.lb) { els.lb.classList.remove('visible'); els.lb.setAttribute('aria-hidden', 'true'); els.lbImg.src = ''; } }
+    const lightboxOpen = () => els.lb && els.lb.classList.contains('visible');
 
     // ---------------------------------------------------------------------
     // Submit
@@ -756,7 +894,16 @@
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
         else init();
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && overlayEl && overlayEl.classList.contains('visible')) close();
+            if (!overlayEl) return;
+            if (e.key === 'Escape') {
+                if (lightboxOpen()) closeLightbox();
+                else if (overlayEl.classList.contains('visible')) close();
+                return;
+            }
+            if (lightboxOpen()) {
+                if (e.key === 'ArrowLeft') stepLightbox(-1);
+                else if (e.key === 'ArrowRight') stepLightbox(1);
+            }
         });
     }
 
