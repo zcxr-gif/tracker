@@ -181,10 +181,12 @@
         }
         .ach-tile.mine { border-color: var(--ach-sky); box-shadow: 0 0 0 1.5px var(--ach-sky-ring); }
         .ach-tile-img {
-            position: absolute; inset: 0; background-size: cover; background-position: center;
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; display: block; background: #101014;
             transition: transform .5s ease;
         }
         .ach-tile:hover .ach-tile-img { transform: scale(1.05); }
+        .ach-sentinel { grid-column: 1 / -1; height: 1px; }
         .ach-tile-fade {
             position: absolute; inset: 0; pointer-events: none;
             background: linear-gradient(to bottom, rgba(10,10,11,0) 42%, rgba(10,10,11,0.4) 66%, rgba(10,10,11,0.9) 100%);
@@ -395,6 +397,7 @@
             mine: overlayEl.querySelector('.ach-mine'),
             stats: overlayEl.querySelector('.ach-stats'),
             grid: overlayEl.querySelector('.ach-grid'),
+            scroll: overlayEl.querySelector('.ach-scroll'),
             form: overlayEl.querySelector('#achForm'),
             drop: overlayEl.querySelector('#achDrop'),
             file: overlayEl.querySelector('input[name="images"]'),
@@ -485,6 +488,55 @@
         if (els.stats) els.stats.textContent = '';
     }
 
+    // Incremental rendering: build tiles in small batches and let native lazy
+    // loading fetch/decode images only as they scroll into view. This keeps the
+    // main thread free so opening the gallery doesn't spike, however many
+    // images the backend returns.
+    const BATCH = 24;
+    let renderList = [], renderCursor = 0, tileObserver = null, sentinelEl = null;
+
+    function tileHTML(p, me) {
+        const isMine = me && norm(p.contributor) === me;
+        const credit = p.contributor && p.contributor !== 'IF Community'
+            ? `<span class="ach-credit">© ${esc(p.contributor)}</span>` : '';
+        return `
+            <div class="ach-tile${isMine ? ' mine' : ''}">
+                <img class="ach-tile-img" loading="lazy" decoding="async" alt="${esc(p.type)} — ${esc(p.livery)}"
+                     src="${esc(p.url)}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                <div class="ach-tile-fade"></div>
+                ${isMine ? '<span class="ach-you">You</span>' : ''}
+                ${credit}
+                <div class="ach-tile-cap">
+                    <div class="t">${esc(p.type)}</div>
+                    <div class="s">${esc(p.livery)}${p.tail ? ' · ' + esc(p.tail) : ''}</div>
+                </div>
+            </div>`;
+    }
+
+    function appendBatch() {
+        if (!els.grid) return;
+        const end = Math.min(renderCursor + BATCH, renderList.length);
+        if (renderCursor < end) {
+            const me = norm(els.name && els.name.value);
+            let html = '';
+            for (; renderCursor < end; renderCursor++) html += tileHTML(renderList[renderCursor], me);
+            if (sentinelEl) els.grid.insertBefore(rangeFromHTML(html), sentinelEl);
+            else els.grid.insertAdjacentHTML('beforeend', html);
+        }
+        // Done — retire the sentinel/observer.
+        if (renderCursor >= renderList.length && tileObserver) {
+            tileObserver.disconnect(); tileObserver = null;
+            if (sentinelEl) { sentinelEl.remove(); sentinelEl = null; }
+        }
+    }
+
+    // Parse an HTML string into a fragment we can insert before the sentinel.
+    function rangeFromHTML(html) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        return tpl.content;
+    }
+
     function renderGallery() {
         if (!els.grid) return;
         const me = norm(els.name && els.name.value);
@@ -507,26 +559,33 @@
             els.stats.textContent = loaded ? s : '';
         }
 
+        // Reset any in-progress incremental render.
+        if (tileObserver) { tileObserver.disconnect(); tileObserver = null; }
+        sentinelEl = null;
+        els.grid.innerHTML = '';
+
         if (!list.length) {
             els.grid.innerHTML = `<div class="ach-empty">${mineOnly ? 'No uploads under that contributor name yet.' : 'No images match your search.'}</div>`;
             return;
         }
 
-        els.grid.innerHTML = list.map((p) => {
-            const isMine = me && norm(p.contributor) === me;
-            const credit = p.contributor && p.contributor !== 'IF Community' ? `<span class="ach-credit">© ${esc(p.contributor)}</span>` : '';
-            return `
-            <div class="ach-tile${isMine ? ' mine' : ''}">
-                <div class="ach-tile-img" style="background-image:url('${esc(p.url)}'), url('${FALLBACK_IMG}')"></div>
-                <div class="ach-tile-fade"></div>
-                ${isMine ? '<span class="ach-you">You</span>' : ''}
-                ${credit}
-                <div class="ach-tile-cap">
-                    <div class="t">${esc(p.type)}</div>
-                    <div class="s">${esc(p.livery)}${p.tail ? ' · ' + esc(p.tail) : ''}</div>
-                </div>
-            </div>`;
-        }).join('');
+        renderList = list;
+        renderCursor = 0;
+
+        // First batch now; the rest stream in as the sentinel nears the viewport.
+        if (list.length > BATCH && 'IntersectionObserver' in window && els.scroll) {
+            sentinelEl = document.createElement('div');
+            sentinelEl.className = 'ach-sentinel';
+            els.grid.appendChild(sentinelEl);
+            appendBatch();
+            tileObserver = new IntersectionObserver((entries) => {
+                if (entries.some(e => e.isIntersecting)) appendBatch();
+            }, { root: els.scroll, rootMargin: '600px 0px' });
+            tileObserver.observe(sentinelEl);
+        } else {
+            renderCursor = renderList.length;
+            els.grid.insertAdjacentHTML('beforeend', list.map(p => tileHTML(p, me)).join(''));
+        }
     }
 
     // ---------------------------------------------------------------------
