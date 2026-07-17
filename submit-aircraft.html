@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Submit an Aircraft Photo — InFlight</title>
+    <meta name="description" content="Share an Infinite Flight livery with the InFlight community. Staff review every submission before it goes live.">
+    <link rel="icon" href="Images/inflight.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            color: #e4e4e7;
+            background:
+                radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,0.16), transparent 60%),
+                radial-gradient(1000px 500px at 90% 110%, rgba(56,189,248,0.12), transparent 60%),
+                #0a0a0b;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            text-align: center; padding: 32px 20px;
+            min-height: 100vh;
+        }
+        .hero { max-width: 560px; }
+        .hero img { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; }
+        .hero h1 {
+            margin: 20px 0 10px; font-size: clamp(1.7rem, 5vw, 2.4rem);
+            font-weight: 800; letter-spacing: -.02em;
+        }
+        .hero p { margin: 0 auto; max-width: 440px; color: #a1a1aa; font-size: 1rem; line-height: 1.5; }
+        .cta {
+            margin-top: 26px; display: inline-flex; align-items: center; gap: 10px;
+            border: none; cursor: pointer; color: #04141d;
+            padding: 14px 24px; border-radius: 13px; font-size: 1rem; font-weight: 800;
+            background: #38bdf8;
+            box-shadow: 0 12px 30px rgba(56,189,248,0.28);
+            transition: filter .15s ease, transform .15s ease;
+        }
+        .cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
+        .cta.ghost {
+            background: rgba(255,255,255,0.05); box-shadow: none;
+            border: 1px solid rgba(255,255,255,0.14); color: #e4e4e7;
+        }
+        .cta.ghost:hover { background: rgba(255,255,255,0.1); }
+        .cta-row { margin-top: 26px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+        .cta-row .cta { margin-top: 0; }
+        .back { margin-top: 20px; }
+        .back a { color: #9aa2c9; text-decoration: none; font-size: .88rem; }
+        .back a:hover { color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <img src="Images/inflight.png" alt="InFlight"
+             onerror="this.onerror=null;this.src='https://ui-avatars.com/api/?name=In+Flight&background=38bdf8&color=fff';">
+        <h1>Submit an aircraft photo</h1>
+        <p>Spotted a livery we're missing? Share your Infinite Flight aircraft photos with the community. Staff review every submission on Discord before it goes live in the tracker.</p>
+        <div class="cta-row">
+            <button type="button" class="cta" id="openSubmitBtn">
+                <i class="fa-solid fa-camera"></i> Submit a photo
+            </button>
+            <button type="button" class="cta ghost" id="openGalleryBtn">
+                <i class="fa-solid fa-images"></i> Browse the gallery
+            </button>
+        </div>
+        <div class="back"><a href="index.html"><i class="fa-solid fa-arrow-left"></i> Back to the tracker</a></div>
+    </div>
+
+    <script src="communityHub.js"></script>
+    <script>
+        (function () {
+            const openSubmit = () => window.InflightCommunity && window.InflightCommunity.open('submit');
+            const openGallery = () => window.InflightCommunity && window.InflightCommunity.open('gallery');
+            document.getElementById('openSubmitBtn').addEventListener('click', openSubmit);
+            document.getElementById('openGalleryBtn').addEventListener('click', openGallery);
+            // Open the hub on the Submit tab straight away so the page IS the form.
+            window.addEventListener('load', openSubmit);
+        })();
+    </script>
+</body>
+</html>
