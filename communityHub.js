@@ -299,7 +299,15 @@
         .ach-toast-x { position: absolute; top: 10px; right: 11px; width: 22px; height: 22px; border-radius: 50%; border: none;
             background: transparent; color: var(--ach-t3); font-size: 1.05rem; line-height: 1; cursor: pointer;
             display: grid; place-items: center; transition: .15s; }
-        .ach-toast-x:hover { color: #fff; background: rgba(255,255,255,0.08); }`;
+        .ach-toast-x:hover { color: #fff; background: rgba(255,255,255,0.08); }
+
+        /* Clear the mobile bottom tab bar so the toast isn't hidden behind it. */
+        @media (max-width: 768px) {
+            .ach-toast {
+                left: 12px; right: 12px; width: auto;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+            }
+        }`;
         document.head.appendChild(style);
     }
 

@@ -95,6 +95,10 @@ export const MobileLandingChromeUI = {
                     <i class="fa-solid fa-handshake-angle"></i>
                     <span class="ios-tab-label">Partners</span>
                 </button>
+                <button type="button" class="ios-tab" data-action="photos">
+                    <i class="fa-solid fa-images"></i>
+                    <span class="ios-tab-label">Photos</span>
+                </button>
                 <button type="button" class="ios-tab" data-action="weather">
                     <i class="fa-solid fa-cloud-sun-rain"></i>
                     <span class="ios-tab-label">Weather</span>
@@ -451,6 +455,9 @@ export const MobileLandingChromeUI = {
         switch (action) {
             case 'partners':
                 this._openPartners();
+                break;
+            case 'photos':
+                if (window.InflightCommunity) window.InflightCommunity.open('gallery');
                 break;
             case 'server':
                 this._openServerSheet();
