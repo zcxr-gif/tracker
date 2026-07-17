@@ -31,6 +31,10 @@
 
     const NAME_KEY = 'inflight_contributor_name';
     const INVITE_KEY = 'inflight_submit_invite_seen';
+    const RULES_KEY = 'inflight_submit_rules_ack';
+
+    const rulesAck = () => { try { return localStorage.getItem(RULES_KEY) === '1'; } catch (_) { return false; } };
+    const markRulesAck = () => { try { localStorage.setItem(RULES_KEY, '1'); } catch (_) {} };
 
     const savedName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch (_) { return ''; } };
     const saveName = (n) => { try { n ? localStorage.setItem(NAME_KEY, n) : localStorage.removeItem(NAME_KEY); } catch (_) {} };
@@ -272,6 +276,41 @@
             .ach-lb-title { font-size: 1.25rem; }
         }
 
+        /* ---- Submission rules gate ---- */
+        .ach-rules { padding: 4px 20px 24px; }
+        .ach-rules-intro { font-size: .88rem; color: var(--ach-t2); line-height: 1.5; margin: 6px 0 16px; }
+        .ach-rules-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 13px; }
+        .ach-rules-list > li { display: flex; gap: 12px; align-items: flex-start; }
+        .ach-rule-ic {
+            flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+            font-size: .92rem; color: var(--ach-sky); background: var(--ach-sky-soft); border: 1px solid var(--ach-sky-ring);
+        }
+        .ach-rule-tx { min-width: 0; }
+        .ach-rule-tx b { display: block; font-size: .9rem; font-weight: 700; color: #fff; }
+        .ach-rule-tx > span { display: block; font-size: .8rem; color: var(--ach-t2); line-height: 1.45; margin-top: 2px; }
+        .ach-rules-must {
+            margin-top: 16px; padding: 14px; border-radius: 14px;
+            background: rgba(56,189,248,0.08); border: 1px solid var(--ach-sky-ring);
+        }
+        .ach-rules-must .h { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--ach-sky); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+        .ach-rules-must ul { margin: 0; padding-left: 18px; }
+        .ach-rules-must li { font-size: .82rem; color: #e4e4e7; line-height: 1.5; margin-bottom: 5px; }
+        .ach-rules-note { margin: 8px 0 0; font-size: .76rem; color: var(--ach-t3); line-height: 1.45; }
+        .ach-rules-reward { margin-top: 14px; font-size: .82rem; color: var(--ach-t2); line-height: 1.45; display: flex; gap: 9px; align-items: flex-start; }
+        .ach-rules-reward i { color: var(--ach-sky); margin-top: 2px; }
+        .ach-ack {
+            display: flex; align-items: flex-start; gap: 11px; margin-top: 18px; cursor: pointer;
+            background: var(--ach-row); border: 1px solid var(--ach-line); border-radius: 12px; padding: 13px 14px;
+        }
+        .ach-ack input { margin: 1px 0 0; width: 18px; height: 18px; accent-color: var(--ach-sky); flex: 0 0 auto; cursor: pointer; }
+        .ach-ack span { font-size: .86rem; font-weight: 600; color: #e4e4e7; line-height: 1.4; }
+        .ach-rules-link {
+            display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin: 0 0 6px;
+            background: none; border: none; cursor: pointer; font: inherit; font-size: .82rem; font-weight: 700; color: var(--ach-t2);
+            padding: 6px; transition: color .15s ease;
+        }
+        .ach-rules-link:hover { color: var(--ach-sky); }
+
         /* ---- Submit ---- */
         .ach-form { padding: 0 20px 24px; }
         .ach-drop {
@@ -403,7 +442,38 @@
 
                 <!-- Submit -->
                 <div class="ach-panel" data-panel="submit">
-                    <form class="ach-form" id="achForm" enctype="multipart/form-data" novalidate>
+                    <!-- Rules gate: must be acknowledged before the form shows -->
+                    <div class="ach-rules" id="achRules" hidden>
+                        <div class="ach-sec" style="padding-left:0;">Submission rules</div>
+                        <p class="ach-rules-intro">We love showcasing your aircraft! To keep the gallery clean and consistent, every photo must follow these rules — submissions that break them will be rejected.</p>
+                        <ul class="ach-rules-list">
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-eye-slash"></i></span><span class="ach-rule-tx"><b>Hide the UI</b><span>No menus, widgets or overlays. We want the plane — not your battery indicator or game buttons.</span></span></li>
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-wand-magic-sparkles"></i></span><span class="ach-rule-tx"><b>Keep it natural</b><span>Original, unedited photos only — no filters or colour grading.</span></span></li>
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-crop-simple"></i></span><span class="ach-rule-tx"><b>The whole picture</b><span>Don't crop. Submit the full frame.</span></span></li>
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-crosshairs"></i></span><span class="ach-rule-tx"><b>Centre the aircraft</b><span>Keep the aircraft centred in the shot.</span></span></li>
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-sun"></i></span><span class="ach-rule-tx"><b>Good lighting</b><span>No backlit shots — the side you're focusing on should be well lit.</span></span></li>
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-camera-retro"></i></span><span class="ach-rule-tx"><b>Spotter-style shots</b><span>Aim for JetPhotos-style photos. Mid-air shots are likely to be rejected.</span></span></li>
+                            <li><span class="ach-rule-ic"><i class="fa-solid fa-tag"></i></span><span class="ach-rule-tx"><b>Tell us what it is</b><span>Include the aircraft type and livery, e.g. British Airways Airbus A380.</span></span></li>
+                        </ul>
+                        <div class="ach-rules-must">
+                            <div class="h"><i class="fa-solid fa-circle-exclamation"></i> Required</div>
+                            <ul>
+                                <li>Photos <b>must</b> be taken with Infinite Flight's built-in HD screenshot feature in replay mode.</li>
+                                <li>Photos <b>must</b> be taken in the beta app — 25.1 renders are no longer accepted.</li>
+                                <li>Cropped, edited or UI-obstructed submissions <b>will not</b> be accepted.</li>
+                            </ul>
+                            <p class="ach-rules-note">Known beta screenshot issue — try taking photos in a live session until it's fixed.</p>
+                        </div>
+                        <div class="ach-rules-reward"><i class="fa-solid fa-award"></i> Make the cut and you'll earn the Contributor role, plus a shout-out when the gallery updates.</div>
+                        <label class="ach-ack">
+                            <input type="checkbox" id="achAck">
+                            <span>I've read these rules and my photos follow them.</span>
+                        </label>
+                        <button type="button" class="ach-submit" id="achRulesContinue" disabled><i class="fa-solid fa-check"></i> Continue to submission</button>
+                    </div>
+
+                    <form class="ach-form" id="achForm" enctype="multipart/form-data" novalidate hidden>
+                        <button type="button" class="ach-rules-link" id="achRulesLink"><i class="fa-solid fa-book-open"></i> Review submission rules</button>
                         <div class="ach-sec" style="padding-left:0;">Photos</div>
                         <label class="ach-drop" id="achDrop">
                             <input type="file" name="images" accept="image/*" multiple required>
@@ -471,10 +541,14 @@
             grid: overlayEl.querySelector('.ach-grid'),
             scroll: overlayEl.querySelector('.ach-scroll'),
             form: overlayEl.querySelector('#achForm'),
+            rules: overlayEl.querySelector('#achRules'),
+            ack: overlayEl.querySelector('#achAck'),
+            rulesContinue: overlayEl.querySelector('#achRulesContinue'),
+            rulesLink: overlayEl.querySelector('#achRulesLink'),
             drop: overlayEl.querySelector('#achDrop'),
             file: overlayEl.querySelector('input[name="images"]'),
             previews: overlayEl.querySelector('#achPreviews'),
-            submit: overlayEl.querySelector('.ach-submit'),
+            submit: overlayEl.querySelector('#achForm .ach-submit'),
             status: overlayEl.querySelector('#achStatus'),
             lb: overlayEl.querySelector('#achLb'),
             lbImg: overlayEl.querySelector('.ach-lb-img'),
@@ -529,6 +603,11 @@
             mineOnly = !mineOnly; renderGallery();
         });
 
+        // Rules gate
+        els.ack.addEventListener('change', () => { els.rulesContinue.disabled = !els.ack.checked; });
+        els.rulesContinue.addEventListener('click', () => { markRulesAck(); showRules(false); prefillCredit(); });
+        els.rulesLink.addEventListener('click', () => showRules(true));
+
         // Submit interactions
         ['dragenter', 'dragover'].forEach(ev => els.drop.addEventListener(ev, (e) => { e.preventDefault(); els.drop.classList.add('dragover'); }));
         ['dragleave', 'drop'].forEach(ev => els.drop.addEventListener(ev, (e) => { e.preventDefault(); els.drop.classList.remove('dragover'); }));
@@ -536,12 +615,29 @@
         els.form.addEventListener('submit', onSubmit);
     }
 
+    // Toggle between the rules gate and the form. Once acknowledged the gate is
+    // remembered, but the rules stay reachable via the "Review rules" link.
+    function showRules(show) {
+        if (!els.rules) return;
+        els.rules.hidden = !show;
+        els.form.hidden = show;
+        if (show) {
+            const acked = rulesAck();
+            els.ack.checked = acked;
+            els.rulesContinue.disabled = !acked;
+        }
+        if (els.scroll) els.scroll.scrollTop = 0;
+    }
+
     function setTab(tab) {
         currentTab = tab;
         els.tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
         els.panels.forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
         if (tab === 'gallery') load();
-        if (tab === 'submit') prefillCredit();
+        if (tab === 'submit') {
+            if (rulesAck()) { showRules(false); prefillCredit(); }
+            else { showRules(true); }
+        }
     }
 
     // ---------------------------------------------------------------------
