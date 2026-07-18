@@ -11073,6 +11073,14 @@ function handleSocketFlightUpdate(data) {
                 mapAnimator.removeFlight(flightId);
             }
             delete currentMapFeatures[flightId];
+            // Drop the numeric-id mapping too. Without this the map grows
+            // unboundedly for the life of the tab as flights come and go —
+            // a slow memory leak over a long-running session. The numericId
+            // only needs to stay stable while a flight is live; if the same
+            // flightId reappears it simply gets a fresh feature-state id.
+            if (window.flightNumericIdMap) {
+                window.flightNumericIdMap.delete(flightId);
+            }
         }
     }
 
