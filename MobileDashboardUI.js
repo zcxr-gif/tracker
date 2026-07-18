@@ -79,6 +79,24 @@ export const MobileDashboardUI = {
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
 
+    // ── Fleet (virtual hangar) — mirrors the desktop ProfileUI feature ──────
+    // Built from a deep slice of the IF logbook (several pages, not just the
+    // dashboard's page 1) so the hangar covers more than the last 10 flights.
+    _aircraftMap: new Map(),   // aircraftId -> name (from /api/metadata)
+    _liveryMap:   new Map(),   // liveryId -> { liveryName, aircraftName }
+    _fleet: {
+        loading: false,
+        loaded: false,
+        error: null,
+        flights: [],        // flattened logbook pages used to build the hangar
+        scannedCount: 0,    // how many flights the hangar is derived from
+        totalCount: 0,      // pilot's total logged flights (API count)
+        search: '',
+        filter: 'all',      // 'all' | 'flying' | 'parked'
+        sort: 'recent',     // 'recent' | 'flights' | 'hours' | 'name'
+    },
+    _FLEET_MAX_PAGES: 10,
+
     // ─── Shared Premium Accents ─────────────────────────────────────────────
     _ACCENT_PRESETS: {
         azure:   { label: 'Sky',     light: { c: '#007aff', h: '#0a84ff', s: 'rgba(0,122,255,0.12)',   g: 'rgba(0,122,255,0.24)'   },
@@ -147,6 +165,12 @@ init(supabaseClient) {
                     );
                     if (this._isOpen && this._activeTab === 'dashboard') {
                         if (this._liveFlights.length > 0 || prev) this._updateLiveBanner();
+                    }
+
+                    // Keep hangar cards' live status (in flight / parked,
+                    // telemetry) in sync while the Fleet tab is open.
+                    if (this._isOpen && this._activeTab === 'fleet' && this._fleet.loaded) {
+                        if (this._liveFlights.length > 0 || prev) this._updateFleetDOM();
                     }
                 }
 
@@ -293,6 +317,11 @@ init(supabaseClient) {
             this._airspaceTimer = setInterval(() => {
                 if (this._isOpen && this._activeTab === 'airspace-intel') this._updateAirspaceDOM();
             }, 8000);
+        }
+
+        // Lazily hydrate the fleet hangar the first time the tab is opened.
+        if (tabId === 'fleet') {
+            this._fetchFleetData();
         }
     },
 
@@ -612,6 +641,7 @@ init(supabaseClient) {
         return [
             { id: 'dashboard',        icon: 'fa-solid fa-house',             label: 'Home'     },
             { id: 'career-deep-dive', icon: 'fa-solid fa-id-card',           label: 'Dossier'  },
+            { id: 'fleet',            icon: 'fa-solid fa-plane-up',          label: 'Fleet'    },
             { id: 'airspace-intel',   icon: 'fa-solid fa-tower-broadcast',   label: 'Traffic'  },
             { id: 'flight-plan',      icon: 'fa-solid fa-route',             label: 'Dispatch' },
             { id: 'watchlist',        icon: 'fa-solid fa-binoculars',        label: 'Watchlist'},
@@ -655,6 +685,7 @@ init(supabaseClient) {
         return ({
             dashboard:         'Home',
             'career-deep-dive':'Dossier',
+            fleet:             'Fleet',
             'airspace-intel':  'Traffic',
             'flight-plan':     'Dispatch',
             watchlist:         'Watchlist',
@@ -667,6 +698,7 @@ init(supabaseClient) {
         return ({
             dashboard:         'Command Center',
             'career-deep-dive':'Pilot Dossier',
+            fleet:             'Virtual Hangar',
             'airspace-intel':  'Airspace Radar',
             'flight-plan':     'Flight Dispatch',
             watchlist:         'Pilot Watchlist',
@@ -710,6 +742,7 @@ init(supabaseClient) {
             case 'onboarding':        return this._tabOnboarding();
             case 'dashboard':         return this._tabDashboard();
             case 'career-deep-dive':  return this._tabCareer();
+            case 'fleet':             return this._tabFleet();
             case 'airspace-intel':    return this._tabAirspace();
             case 'flight-plan':       return this._tabDispatch();
             case 'watchlist':         return this._tabWatchlist();
@@ -1477,6 +1510,454 @@ init(supabaseClient) {
     },
 
     // ── Flight Dispatch ───────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+    // FLEET (VIRTUAL HANGAR) — mobile mirror of the desktop ProfileUI feature.
+    // Groups the pilot's logbook by airframe (aircraft + livery), overlays the
+    // live flight feed to mark what is currently in the air, and renders a
+    // searchable hangar: state, current location, last flight, and per-frame
+    // career stats.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    _fleetEsc(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+
+    /** Short relative timestamp — "just now", "4h ago", "3d ago", "Mar 3". */
+    _fleetTimeAgo(ts) {
+        if (!ts) return '';
+        const diff = Date.now() - ts;
+        if (diff < 3600000) return 'just now';
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+        if (diff < 86400000 * 14) return `${Math.floor(diff / 86400000)}d ago`;
+        return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    },
+
+    /** Resolves a human-readable aircraft name from API UUIDs. */
+    _resolveAircraftName(aircraftId, liveryId) {
+        if (!aircraftId) return 'Unknown Airframe';
+        const aId = String(aircraftId).toLowerCase();
+        const lId = liveryId ? String(liveryId).toLowerCase() : null;
+        if (lId && this._liveryMap.has(lId)) {
+            const lData = this._liveryMap.get(lId);
+            if (lData.aircraftName) return lData.aircraftName;
+        }
+        if (this._aircraftMap.has(aId)) return this._aircraftMap.get(aId);
+        return 'Unknown Airframe';
+    },
+
+    /**
+     * Pull a deep slice of the logbook (up to _FLEET_MAX_PAGES pages) so the
+     * hangar is built from more history than the dashboard's first page.
+     * Resolves the IF userId and metadata maps itself if the dashboard fetch
+     * hasn't run yet.
+     */
+    async _fetchFleetData(force = false) {
+        if (this._fleet.loading) return;
+        if (this._fleet.loaded && !force) return;
+
+        const ifUsername = this._currentUser?.user_metadata?.if_username;
+        if (!ifUsername) return; // tab renders its "not linked" state
+
+        this._fleet.loading = true;
+        this._fleet.error = null;
+        this._refreshFleetTab();
+
+        try {
+            let userId = this._ifData.userId;
+            if (!userId) {
+                const userRes = await fetch(`${this._backendUrl}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ discourseNames: [ifUsername], userHashes: [ifUsername] })
+                });
+                const userData = await userRes.json();
+                userId = userData?.users?.[0]?.userId;
+                if (userId) this._ifData.userId = userId;
+            }
+            if (!userId) throw new Error('Could not find an Infinite Flight account with that username.');
+
+            if (this._aircraftMap.size === 0 || this._liveryMap.size === 0) {
+                const metaJson = await fetch(`${this._backendUrl}/api/metadata`).then(r => r.json()).catch(() => null);
+                if (metaJson && metaJson.ok) {
+                    this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
+                    this._liveryMap = new Map((metaJson.liveries || []).map(l => [
+                        String(l.id).toLowerCase(),
+                        { liveryName: l.name, aircraftName: l.aircraftName }
+                    ]));
+                }
+            }
+
+            // Page 1 reveals the page size and total; remaining pages fetch in parallel.
+            const first = await fetch(`${this._backendUrl}/api/users/${userId}/flights?page=1`).then(r => r.json());
+            if (!first?.ok) throw new Error('Flight logbook is unavailable right now.');
+
+            const flights = [...(first.flights || [])];
+            const total = first.totalCount || flights.length;
+            const pageSize = flights.length;
+
+            if (pageSize > 0 && total > pageSize) {
+                const lastPage = Math.min(Math.ceil(total / pageSize), this._FLEET_MAX_PAGES);
+                const pagePromises = [];
+                for (let p = 2; p <= lastPage; p++) {
+                    pagePromises.push(
+                        fetch(`${this._backendUrl}/api/users/${userId}/flights?page=${p}`)
+                            .then(r => r.json())
+                            .catch(() => null)
+                    );
+                }
+                const pages = await Promise.all(pagePromises);
+                pages.forEach(pg => {
+                    if (pg?.ok && Array.isArray(pg.flights)) flights.push(...pg.flights);
+                });
+            }
+
+            this._fleet.flights = flights;
+            this._fleet.scannedCount = flights.length;
+            this._fleet.totalCount = total;
+            this._fleet.loaded = true;
+            this._fleet.loading = false;
+        } catch (err) {
+            console.error('Failed to fetch fleet data:', err);
+            this._fleet.error = err.message;
+            this._fleet.loading = false;
+        }
+
+        this._refreshFleetTab();
+    },
+
+    _refreshFleetTab() {
+        if (this._isOpen && this._activeTab === 'fleet') this._render();
+    },
+
+    /**
+     * Build the hangar model: one entry per airframe (aircraft + livery).
+     * Each entry carries career stats for that frame, its last flight, and —
+     * when the pilot is currently online in it — the live flight overlay.
+     */
+    _buildFleetModel() {
+        const entries = new Map();
+
+        for (const f of (this._fleet.flights || [])) {
+            const aId = f.aircraftId || f.aircraftID;
+            if (!aId) continue;
+            const lId = f.liveryId || f.liveryID || '';
+            const key = `${String(aId).toLowerCase()}|${String(lId).toLowerCase()}`;
+
+            let e = entries.get(key);
+            if (!e) {
+                e = {
+                    key,
+                    aircraftName: this._resolveAircraftName(aId, lId),
+                    liveryName: lId ? (this._liveryMap.get(String(lId).toLowerCase())?.liveryName || '') : '',
+                    flightCount: 0,
+                    totalMinutes: 0,
+                    landings: 0,
+                    lastFlight: null,
+                    lastFlightTs: 0,
+                    live: null,
+                };
+                entries.set(key, e);
+            }
+
+            e.flightCount++;
+            e.totalMinutes += f.totalTime || 0;
+            e.landings += f.landingCount || 0;
+
+            const ts = f.created ? new Date(f.created).getTime() : 0;
+            if (!e.lastFlight || ts > e.lastFlightTs) {
+                e.lastFlight = f;
+                e.lastFlightTs = ts;
+            }
+        }
+
+        let list = Array.from(entries.values());
+
+        // Live overlay — the socket hub keeps _liveFlights current for this
+        // pilot. Match by livery first, then by airframe name; if the frame
+        // has never appeared in the scanned logbook, surface it anyway.
+        for (const lf of (this._liveFlights || [])) {
+            const liveAcft = lf.aircraft?.aircraftName || '';
+            const liveLivery = lf.aircraft?.liveryName || '';
+            let match =
+                list.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) ||
+                list.find(e => !e.live && e.aircraftName === liveAcft);
+            if (!match) {
+                match = {
+                    key: `live|${lf.flightId || lf.callsign || Math.random()}`,
+                    aircraftName: liveAcft || 'Unknown Aircraft',
+                    liveryName: liveLivery,
+                    flightCount: 0,
+                    totalMinutes: 0,
+                    landings: 0,
+                    lastFlight: null,
+                    lastFlightTs: 0,
+                    live: null,
+                };
+                list.push(match);
+            }
+            match.live = lf;
+        }
+
+        for (const e of list) {
+            if (e.live) {
+                const gs = e.live.position?.gs_kt || 0;
+                e.status = gs >= 45 ? 'flying' : 'ground';
+                e.location = e.live.arrivalIcao || null;
+            } else {
+                e.status = 'parked';
+                e.location = e.lastFlight?.destinationAirport || e.lastFlight?.originAirport || null;
+                e.locationIsArrival = !!e.lastFlight?.destinationAirport;
+                // Approximate "parked since": flight start + logged duration.
+                e.parkedSince = e.lastFlightTs
+                    ? e.lastFlightTs + (e.lastFlight?.totalTime || 0) * 60000
+                    : 0;
+            }
+        }
+
+        return list;
+    },
+
+    /** Apply the current search / filter / sort to the hangar model. */
+    _filterFleetModel(list) {
+        const q = this._fleet.search.trim().toLowerCase();
+        let out = list;
+
+        if (this._fleet.filter === 'flying') out = out.filter(e => e.live);
+        if (this._fleet.filter === 'parked') out = out.filter(e => !e.live);
+
+        if (q) {
+            out = out.filter(e => {
+                const hay = [
+                    e.aircraftName, e.liveryName, e.location,
+                    e.lastFlight?.originAirport, e.lastFlight?.destinationAirport,
+                    e.lastFlight?.callsign,
+                    e.live?.callsign, e.live?.departureIcao, e.live?.arrivalIcao,
+                ].filter(Boolean).join(' ').toLowerCase();
+                return hay.includes(q);
+            });
+        }
+
+        const sorters = {
+            recent:  (a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.lastFlightTs - a.lastFlightTs,
+            flights: (a, b) => b.flightCount - a.flightCount,
+            hours:   (a, b) => b.totalMinutes - a.totalMinutes,
+            name:    (a, b) => a.aircraftName.localeCompare(b.aircraftName) || (a.liveryName || '').localeCompare(b.liveryName || ''),
+        };
+        return [...out].sort(sorters[this._fleet.sort] || sorters.recent);
+    },
+
+    _tabFleet() {
+        const ifUsername = this._currentUser?.user_metadata?.if_username || '';
+
+        if (!ifUsername) {
+            return `
+                <div class="mdui-fade-up">
+                    <p class="mdui-page-sub">Every aircraft you've flown — what it's doing, where it is, and where it's been.</p>
+                    <div class="mdui-empty-state">
+                        <i class="fa-solid fa-link-slash"></i>
+                        <h4>Account not linked</h4>
+                        <p>Link your Infinite Flight account in Settings to build your virtual hangar.</p>
+                    </div>
+                </div>`;
+        }
+
+        // Skeletons while the first fetch runs (or is about to run — switchTab
+        // kicks it off right after this render).
+        if (!this._fleet.loaded && !this._fleet.error) {
+            return `
+                <div class="mdui-fade-up">
+                    <p class="mdui-page-sub">Every aircraft you've flown — what it's doing, where it is, and where it's been.</p>
+                    ${[1, 2, 3, 4].map(() => `<div class="mdui-skel" style="height:132px;border-radius:var(--mdui-radius);margin-bottom:12px;"></div>`).join('')}
+                </div>`;
+        }
+
+        if (this._fleet.error && !this._fleet.loaded) {
+            return `
+                <div class="mdui-fade-up">
+                    <p class="mdui-page-sub">Every aircraft you've flown — what it's doing, where it is, and where it's been.</p>
+                    <div class="mdui-empty-state">
+                        <i class="fa-solid fa-circle-xmark"></i>
+                        <h4>Couldn't load your fleet</h4>
+                        <p>${this._fleetEsc(this._fleet.error)}</p>
+                        <button class="mdui-btn-primary" id="mdui-fleet-retry" style="margin-top:14px;">Try again</button>
+                    </div>
+                </div>`;
+        }
+
+        const model = this._buildFleetModel();
+        const liveCount = model.filter(e => e.live).length;
+        const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
+
+        const scanNote = this._fleet.totalCount > this._fleet.scannedCount
+            ? `From your last ${this._fleet.scannedCount.toLocaleString()} of ${this._fleet.totalCount.toLocaleString()} flights.`
+            : `From ${this._fleet.scannedCount.toLocaleString()} logged flights.`;
+
+        const chips = [
+            { id: 'all',    label: `All (${model.length})` },
+            { id: 'flying', label: `In flight (${liveCount})` },
+            { id: 'parked', label: `Parked (${model.length - liveCount})` },
+        ];
+
+        return `
+            <div class="mdui-fade-up">
+                <p class="mdui-page-sub">Every aircraft you've flown — what it's doing, where it is, and where it's been.</p>
+
+                <div class="mdui-fleet-summary">
+                    <div class="mdui-fleet-sum-tile">
+                        <span class="value">${model.length}</span>
+                        <span class="label">Aircraft</span>
+                    </div>
+                    <div class="mdui-fleet-sum-tile">
+                        <span class="value ${liveCount > 0 ? 'is-live' : ''}">${liveCount}</span>
+                        <span class="label">In the air</span>
+                    </div>
+                    <div class="mdui-fleet-sum-tile">
+                        <span class="value">${totalHours.toLocaleString(undefined, { maximumFractionDigits: 0 })}h</span>
+                        <span class="label">Fleet hours</span>
+                    </div>
+                </div>
+
+                <div class="mdui-section">
+                    <div class="mdui-capsule-row" style="margin-bottom:10px;">
+                        <div class="mdui-capsule">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="mdui-fleet-search" class="mdui-capsule-input"
+                                   placeholder="Search aircraft, livery, airport…"
+                                   autocomplete="off"
+                                   value="${this._fleetEsc(this._fleet.search)}">
+                        </div>
+                        <button class="mdui-icon-btn" id="mdui-fleet-refresh" aria-label="Refresh fleet" style="flex:0 0 auto;">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                    </div>
+                    <div class="mdui-fleet-controls">
+                        <div class="mdui-fleet-chips">
+                            ${chips.map(c => `<button class="mdui-fleet-chip ${this._fleet.filter === c.id ? 'active' : ''}" data-filter="${c.id}">${c.label}</button>`).join('')}
+                        </div>
+                        <select id="mdui-fleet-sort" class="mdui-fleet-sort" aria-label="Sort fleet">
+                            <option value="recent"  ${this._fleet.sort === 'recent'  ? 'selected' : ''}>Recently flown</option>
+                            <option value="flights" ${this._fleet.sort === 'flights' ? 'selected' : ''}>Most flights</option>
+                            <option value="hours"   ${this._fleet.sort === 'hours'   ? 'selected' : ''}>Most hours</option>
+                            <option value="name"    ${this._fleet.sort === 'name'    ? 'selected' : ''}>Name A–Z</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="mdui-fleet-grid-container" class="mdui-section" style="margin-top:4px;">
+                    ${this._getFleetCardsHTML(model)}
+                </div>
+
+                <p class="mdui-fleet-note">${scanNote}</p>
+            </div>
+        `;
+    },
+
+    _getFleetCardsHTML(model = null) {
+        const list = this._filterFleetModel(model || this._buildFleetModel());
+
+        if (list.length === 0) {
+            const q = this._fleet.search.trim();
+            return `
+                <div class="mdui-empty-state">
+                    <i class="fa-solid fa-plane-slash"></i>
+                    <h4>${q ? 'No aircraft match your search' : 'No aircraft yet'}</h4>
+                    <p>${q ? `Nothing in the hangar matches “${this._fleetEsc(q)}”.` : 'Fly a few flights in Infinite Flight and your hangar will fill itself.'}</p>
+                </div>`;
+        }
+
+        const cards = list.map((e, i) => {
+            const esc = (s) => this._fleetEsc(s);
+            const live = e.live;
+
+            let badge, whereHTML;
+            if (live) {
+                const flying = e.status === 'flying';
+                badge = `<span class="mdui-fleet-badge live"><span class="mdui-fleet-dot"></span>${flying ? 'In flight' : 'On the ground'}</span>`;
+
+                const dep = live.departureIcao || '----';
+                const arr = live.arrivalIcao || '----';
+                const alt = Math.round(live.position?.alt_ft || 0).toLocaleString();
+                const gs = Math.round(live.position?.gs_kt || 0);
+                const cs = live.callsign || '';
+                whereHTML = `
+                    <div class="mdui-fleet-where is-live" ${dep !== '----' ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>
+                        <div class="mdui-fleet-route mdui-mono">
+                            ${esc(dep)} <i class="fa-solid fa-plane"></i> ${esc(arr)}
+                            ${cs ? `<span class="mdui-fleet-cs">${esc(cs)}</span>` : ''}
+                        </div>
+                        <div class="mdui-fleet-tele mdui-mono">${alt} ft · ${gs} kt</div>
+                    </div>`;
+            } else {
+                badge = `<span class="mdui-fleet-badge parked">Parked</span>`;
+                const since = e.parkedSince ? ` · ${this._fleetTimeAgo(e.parkedSince)}` : '';
+                whereHTML = e.location
+                    ? `<div class="mdui-fleet-where" data-drill="icao" data-icao="${esc(e.location)}">
+                           <i class="fa-solid fa-location-dot"></i>
+                           <span>${e.locationIsArrival ? 'Parked at' : 'Last seen at'} <strong class="mdui-mono">${esc(e.location)}</strong>${since}</span>
+                       </div>`
+                    : `<div class="mdui-fleet-where"><i class="fa-solid fa-location-dot"></i><span>Location unknown</span></div>`;
+            }
+
+            // Last completed flight (from the logbook) — the live leg isn't logged yet.
+            let lastHTML = '';
+            const lf = e.lastFlight;
+            if (lf) {
+                const dep = lf.originAirport || '????';
+                const arr = lf.destinationAirport || '????';
+                const hrs = ((lf.totalTime || 0) / 60).toFixed(1);
+                const dateStr = lf.created
+                    ? new Date(lf.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    : '';
+                const planBtn = (lf.originAirport && lf.destinationAirport)
+                    ? `<button class="mdui-fleet-plan-btn" data-action="fleet-plan" data-dep="${esc(dep)}" data-arr="${esc(arr)}" aria-label="Plan this route again"><i class="fa-solid fa-route"></i></button>`
+                    : '';
+                lastHTML = `
+                    <div class="mdui-fleet-last">
+                        <span class="label">Last flight</span>
+                        <span class="mdui-mono">${esc(dep)} → ${esc(arr)}</span>
+                        <span class="meta">${hrs}h${dateStr ? ` · ${dateStr}` : ''}${lf.callsign ? ` · ${esc(lf.callsign)}` : ''}</span>
+                        ${planBtn}
+                    </div>`;
+            } else if (live) {
+                lastHTML = `
+                    <div class="mdui-fleet-last">
+                        <span class="label">Last flight</span>
+                        <span class="meta">First flight in this aircraft — happening right now.</span>
+                    </div>`;
+            }
+
+            return `
+                <div class="mdui-fleet-card ${live ? 'is-live' : ''}" style="animation-delay:${Math.min(i, 8) * 0.04}s;">
+                    <div class="mdui-fleet-top">
+                        <span class="mdui-fleet-glyph"><i class="fa-solid ${live ? 'fa-plane-up' : 'fa-plane'}"></i></span>
+                        <div class="mdui-fleet-id">
+                            <span class="mdui-fleet-name">${esc(e.aircraftName)}</span>
+                            <span class="mdui-fleet-livery">${esc(e.liveryName) || 'Standard livery'}</span>
+                        </div>
+                        ${badge}
+                    </div>
+                    ${whereHTML}
+                    ${lastHTML}
+                    <div class="mdui-fleet-foot">
+                        <span><strong>${e.flightCount.toLocaleString()}</strong> ${e.flightCount === 1 ? 'flight' : 'flights'}</span>
+                        <span><strong>${(e.totalMinutes / 60).toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong> hrs</span>
+                        <span><strong>${e.landings.toLocaleString()}</strong> ${e.landings === 1 ? 'landing' : 'landings'}</span>
+                    </div>
+                </div>`;
+        }).join('');
+
+        return `<div class="mdui-fleet-grid">${cards}</div>`;
+    },
+
+    /** Re-render just the hangar cards (keeps the search input + focus intact). */
+    _updateFleetDOM() {
+        const host = document.getElementById('mdui-fleet-grid-container');
+        if (!host) return;
+        host.innerHTML = this._getFleetCardsHTML();
+    },
+
     _tabDispatch() {
         let ticketsHTML = '';
         if (this._flightPlansData?.length > 0) {
@@ -2438,6 +2919,54 @@ _attachListeners() {
                     alert('Setup failed: ' + err.message);
                     if (btn) { btn.disabled = false; btn.textContent = 'Complete Setup'; }
                 }
+            });
+        }
+
+        // ─── Fleet (Virtual Hangar) Listeners ─────────────────────────────
+        if (this._activeTab === 'fleet') {
+            const searchInput = document.getElementById('mdui-fleet-search');
+            searchInput?.addEventListener('input', () => {
+                this._fleet.search = searchInput.value;
+                this._updateFleetDOM();
+            });
+
+            document.querySelectorAll('.mdui-fleet-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    this._fleet.filter = chip.dataset.filter;
+                    document.querySelectorAll('.mdui-fleet-chip').forEach(c => c.classList.toggle('active', c === chip));
+                    this._updateFleetDOM();
+                });
+            });
+
+            document.getElementById('mdui-fleet-sort')?.addEventListener('change', (e) => {
+                this._fleet.sort = e.target.value;
+                this._updateFleetDOM();
+            });
+
+            document.getElementById('mdui-fleet-refresh')?.addEventListener('click', () => {
+                this._fetchFleetData(true);
+            });
+            document.getElementById('mdui-fleet-retry')?.addEventListener('click', () => {
+                this._fetchFleetData(true);
+            });
+
+            // "Plan this route again" — delegated so it survives grid-only
+            // refreshes. Jumps to Dispatch with the route pre-filled.
+            const fleetGrid = document.getElementById('mdui-fleet-grid-container');
+            fleetGrid?.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-action="fleet-plan"]');
+                if (!btn) return;
+                e.stopPropagation();
+                const dep = btn.dataset.dep;
+                const arr = btn.dataset.arr;
+                this.switchTab('flight-plan');
+                setTimeout(() => {
+                    document.getElementById('mdui-toggle-form')?.click();
+                    const depInput = document.getElementById('mdui-new-dep');
+                    const arrInput = document.getElementById('mdui-new-arr');
+                    if (depInput) depInput.value = dep;
+                    if (arrInput) arrInput.value = arr;
+                }, 150);
             });
         }
 
@@ -4051,6 +4580,181 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-onb-title { font-size: 30px; font-weight: 700; text-align: center; margin: 0 0 8px; color: var(--mdui-text); letter-spacing: -0.7px; }
             .mdui-onb-sub { text-align: center; color: var(--mdui-muted); font-size: 15.5px; line-height: 1.45; margin: 0; letter-spacing: -0.2px; }
             .mdui-onb-note { font-size: 13px; color: var(--mdui-tertiary); text-align: center; margin: 14px 0 0; letter-spacing: -0.1px; }
+
+            /* ══════════════════════ FLEET (VIRTUAL HANGAR) ═════════════════ */
+            .mdui-fleet-summary {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin-bottom: 18px;
+            }
+            .mdui-fleet-sum-tile {
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius);
+                padding: 12px 10px;
+                display: flex; flex-direction: column; align-items: center; gap: 3px;
+                text-align: center;
+            }
+            .mdui-fleet-sum-tile .value {
+                font-size: 20px; font-weight: 700; letter-spacing: -0.4px;
+                color: var(--mdui-text); line-height: 1.1;
+            }
+            .mdui-fleet-sum-tile .value.is-live { color: var(--mdui-success); }
+            .mdui-fleet-sum-tile .label {
+                font-size: 10.5px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: 0.05em;
+                color: var(--mdui-tertiary);
+            }
+            .mdui-fleet-controls {
+                display: flex; align-items: center; gap: 10px;
+                flex-wrap: wrap;
+            }
+            .mdui-fleet-chips { display: flex; gap: 7px; flex-wrap: wrap; flex: 1; min-width: 0; }
+            .mdui-fleet-chip {
+                border: 0.5px solid var(--mdui-border);
+                background: var(--mdui-surface);
+                color: var(--mdui-muted);
+                font-family: inherit; font-size: 12.5px; font-weight: 600;
+                letter-spacing: -0.1px;
+                padding: 7px 13px; border-radius: 999px;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: all 0.18s ease;
+            }
+            .mdui-fleet-chip:active { transform: scale(0.95); }
+            .mdui-fleet-chip.active {
+                background: var(--mdui-accent);
+                border-color: var(--mdui-accent);
+                color: var(--mdui-on-accent);
+            }
+            .mdui-fleet-sort {
+                flex: 0 0 auto;
+                font-family: inherit; font-size: 12.5px; font-weight: 600;
+                color: var(--mdui-text);
+                background: var(--mdui-input);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: 999px;
+                padding: 7px 12px;
+                -webkit-appearance: none; appearance: none;
+            }
+            .mdui-fleet-grid { display: flex; flex-direction: column; gap: 12px; }
+            .mdui-fleet-card {
+                background: var(--mdui-surface);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: var(--mdui-radius);
+                padding: 14px;
+                display: flex; flex-direction: column; gap: 11px;
+                animation: mdui-fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+            }
+            .mdui-fleet-card.is-live {
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--mdui-success-soft), transparent 55%),
+                    var(--mdui-surface);
+                border-color: rgba(48,209,88,0.35);
+            }
+            .mdui-fleet-top { display: flex; align-items: center; gap: 11px; }
+            .mdui-fleet-glyph {
+                width: 36px; height: 36px; flex: 0 0 auto;
+                border-radius: 11px;
+                background: var(--mdui-accent-soft);
+                color: var(--mdui-accent);
+                display: grid; place-items: center;
+                font-size: 15px;
+            }
+            .mdui-fleet-card.is-live .mdui-fleet-glyph {
+                background: var(--mdui-success-soft);
+                color: var(--mdui-success);
+            }
+            .mdui-fleet-id { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+            .mdui-fleet-name {
+                font-size: 15px; font-weight: 650; letter-spacing: -0.2px;
+                color: var(--mdui-text);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .mdui-fleet-livery {
+                font-size: 12.5px; color: var(--mdui-muted); letter-spacing: -0.1px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .mdui-fleet-badge {
+                flex: 0 0 auto;
+                display: inline-flex; align-items: center; gap: 5px;
+                font-size: 10px; font-weight: 700;
+                text-transform: uppercase; letter-spacing: 0.05em;
+                padding: 4px 9px; border-radius: 999px;
+            }
+            .mdui-fleet-badge.parked { background: var(--mdui-hover); color: var(--mdui-tertiary); }
+            .mdui-fleet-badge.live { background: var(--mdui-success-soft); color: var(--mdui-success); }
+            .mdui-fleet-dot {
+                width: 5px; height: 5px; border-radius: 50%;
+                background: var(--mdui-success);
+                animation: mdui-fleet-pulse 1.6s ease-in-out infinite;
+            }
+            @keyframes mdui-fleet-pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50%      { opacity: 0.4; transform: scale(0.75); }
+            }
+            .mdui-fleet-where {
+                display: flex; align-items: center; gap: 8px;
+                font-size: 13px; color: var(--mdui-muted); letter-spacing: -0.1px;
+                background: var(--mdui-input);
+                border: 0.5px solid var(--mdui-border-light);
+                border-radius: 12px;
+                padding: 10px 12px;
+                -webkit-tap-highlight-color: transparent;
+            }
+            .mdui-fleet-where i { color: var(--mdui-tertiary); font-size: 12px; }
+            .mdui-fleet-where strong { color: var(--mdui-text); font-weight: 700; }
+            .mdui-fleet-where.is-live {
+                flex-direction: column; align-items: stretch; gap: 6px;
+            }
+            .mdui-fleet-route {
+                display: flex; align-items: center; gap: 8px;
+                font-size: 14px; font-weight: 700; color: var(--mdui-text);
+            }
+            .mdui-fleet-route i { font-size: 11px; color: var(--mdui-success); }
+            .mdui-fleet-cs { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--mdui-muted); }
+            .mdui-fleet-tele { font-size: 12px; color: var(--mdui-muted); }
+            .mdui-fleet-last {
+                position: relative;
+                display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+                padding-right: 36px; /* room for the pinned plan-again button */
+                min-height: 28px;
+                font-size: 12.5px; color: var(--mdui-muted); letter-spacing: -0.1px;
+            }
+            .mdui-fleet-last .label {
+                font-size: 10px; font-weight: 700;
+                text-transform: uppercase; letter-spacing: 0.05em;
+                color: var(--mdui-tertiary);
+            }
+            .mdui-fleet-last .mdui-mono { color: var(--mdui-text); font-weight: 700; font-size: 12.5px; }
+            .mdui-fleet-last .meta { color: var(--mdui-tertiary); font-size: 12px; }
+            .mdui-fleet-plan-btn {
+                position: absolute;
+                right: 0; top: 50%; transform: translateY(-50%);
+                width: 28px; height: 28px; flex: 0 0 auto;
+                border: 0.5px solid var(--mdui-border);
+                border-radius: 999px;
+                background: var(--mdui-surface);
+                color: var(--mdui-accent);
+                font-size: 11px;
+                display: grid; place-items: center;
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: transform 0.16s ease;
+            }
+            .mdui-fleet-plan-btn:active { transform: translateY(-50%) scale(0.9); }
+            .mdui-fleet-foot {
+                display: flex; gap: 15px;
+                padding-top: 10px;
+                border-top: 0.5px solid var(--mdui-border-light);
+                font-size: 12px; color: var(--mdui-tertiary); letter-spacing: -0.1px;
+            }
+            .mdui-fleet-foot strong { color: var(--mdui-text); font-weight: 700; }
+            .mdui-fleet-note {
+                font-size: 12px; color: var(--mdui-tertiary);
+                text-align: center; margin: 16px 0 0; letter-spacing: -0.1px;
+            }
         `;
 
         const style       = document.createElement('style');
