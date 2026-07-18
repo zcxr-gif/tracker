@@ -10735,6 +10735,13 @@ function handleSocketFlightUpdate(data) {
     const flights = data.flights;
     const updatedFlightIds = new Set();
 
+    // Batch all per-flight map mutations into a single source.setData() at the
+    // end of this handler. Without this, each updateFlight()/removeFlight()
+    // rebuilds the entire FeatureCollection and re-tessellates the map layer,
+    // making a single packet O(n²) in the number of live flights — the main
+    // driver of the high CPU usage and GC/memory pressure under heavy traffic.
+    if (isMapReady) mapAnimator.beginBatch();
+
     flights.forEach(flight => {
         if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
             return; // Skip this flight
@@ -11068,6 +11075,9 @@ function handleSocketFlightUpdate(data) {
             delete currentMapFeatures[flightId];
         }
     }
+
+    // Flush every accumulated add/update/remove to the map in one setData().
+    if (isMapReady) mapAnimator.endBatch();
 
     // Push the new positions to the 3D dot field (no-op unless it's showing).
     if (isMapReady && LiveTraffic3D.isVisible()) LiveTraffic3D.refresh();

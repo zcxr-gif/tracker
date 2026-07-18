@@ -35,8 +35,32 @@ export class MapAnimator {
         this.map = map;
         this.sourceName = sourceName;
         this.currentMapFeatures = featuresObject; // This is a SHARED REFERENCE
-        
+
+        // When batching, individual updateFlight/removeFlight calls mutate the
+        // shared features object but defer the expensive source.setData() until
+        // endBatch(). This turns a per-flight O(n²) rebuild storm (one full
+        // FeatureCollection rebuild + Mapbox re-tessellation per flight, per
+        // packet) into a single rebuild per packet.
+        this._batching = false;
+
         // No animation state or loop IDs are needed for teleporting.
+    }
+
+    /**
+     * Begin a batch. While batching, updateFlight()/removeFlight() mutate the
+     * feature set but do NOT push to the map source. Call endBatch() to flush.
+     */
+    beginBatch() {
+        this._batching = true;
+    }
+
+    /**
+     * End a batch and push all accumulated changes to the map in a single
+     * source.setData() call.
+     */
+    endBatch() {
+        this._batching = false;
+        this._updateMapSource();
     }
 
     /**
@@ -98,6 +122,9 @@ export class MapAnimator {
      * This is called by updateFlight and removeFlight.
      */
     _updateMapSource() {
+        // Defer while batching — endBatch() will flush once at the end.
+        if (this._batching) return;
+
         const source = this.map.getSource(this.sourceName);
         if (!source || !this.map.isStyleLoaded()) {
             // If source/style isn't ready, it's fine.
