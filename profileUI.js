@@ -127,18 +127,17 @@ export const ProfileUI = {
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
 
     // ── Fleet (virtual hangar) ───────────────────────────────────────────────
-    // Built from a deep slice of the IF logbook (several pages, not just the
-    // dashboard's page 1) so the hangar covers more than the last 10 flights.
+    // The fleet lists only aircraft currently on the live map. A deep slice of
+    // the IF logbook (several pages, not just the dashboard's page 1) enriches
+    // each live card with that airframe's career stats and previous leg.
     _fleet: {
         loading: false,
         loaded: false,
         error: null,
-        flights: [],        // flattened logbook pages used to build the hangar
-        scannedCount: 0,    // how many flights the hangar is derived from
+        flights: [],        // flattened logbook pages used to enrich live cards
+        scannedCount: 0,    // how many flights the stats are derived from
         totalCount: 0,      // pilot's total logged flights (API count)
         search: '',
-        filter: 'all',      // 'all' | 'flying' | 'parked'
-        sort: 'recent',     // 'recent' | 'flights' | 'hours' | 'name'
     },
     _FLEET_MAX_PAGES: 10,
 
@@ -3487,19 +3486,6 @@ const contentRoot = document.getElementById('pui-content');
                 this._refreshFleetGrid();
             });
 
-            document.querySelectorAll('.pui-hangar-chip').forEach(chip => {
-                chip.addEventListener('click', () => {
-                    this._fleet.filter = chip.dataset.filter;
-                    document.querySelectorAll('.pui-hangar-chip').forEach(c => c.classList.toggle('active', c === chip));
-                    this._refreshFleetGrid();
-                });
-            });
-
-            document.getElementById('pui-fleet-sort')?.addEventListener('change', (e) => {
-                this._fleet.sort = e.target.value;
-                this._refreshFleetGrid();
-            });
-
             document.getElementById('pui-fleet-refresh')?.addEventListener('click', () => {
                 this._fetchFleetData(true);
             });
@@ -4121,17 +4107,6 @@ const contentRoot = document.getElementById('pui-content');
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     },
 
-    /** Short relative timestamp — "just now", "4h ago", "3d ago", "Mar 3". */
-    _fleetTimeAgo(ts) {
-        if (!ts) return '';
-        const diff = Date.now() - ts;
-        if (diff < 3600000) return 'just now';
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-        if (diff < 86400000 * 14) return `${Math.floor(diff / 86400000)}d ago`;
-        const dateLocale = this._locale === 'en' ? 'en-US' : this._locale;
-        return new Date(ts).toLocaleDateString(dateLocale, { month: 'short', day: 'numeric', timeZone: this._timezone });
-    },
-
     /**
      * Pull a deep slice of the logbook (up to _FLEET_MAX_PAGES pages) so the
      * hangar is built from more history than the dashboard's first page.
@@ -4261,23 +4236,25 @@ const contentRoot = document.getElementById('pui-content');
             }
         }
 
-        let list = Array.from(entries.values());
+        const groups = Array.from(entries.values());
 
-        // Live overlay — an aircraft only counts as being on the map when one
-        // of its logged flight ids matches a live flight's flightId. Flights
-        // that have left the map are just past flights: they never light up a
-        // card, and name similarity alone is not proof it's the same flight.
-        const logbookHasIds = list.some(e => e.flightIds.size > 0);
+        // The fleet is ONLY the aircraft currently present on the live map —
+        // one card per live flight, matched to its logbook airframe by flight
+        // id. Flights that have left the map are just past flights: they
+        // enrich a live card with career stats and the previous completed
+        // leg, but they never produce a fleet entry of their own.
+        const logbookHasIds = groups.some(e => e.flightIds.size > 0);
+        const list = [];
         for (const lf of (this._liveFlights || [])) {
             const liveId = lf.flightId ? String(lf.flightId).toLowerCase() : null;
-            let match = (liveId && list.find(e => !e.live && e.flightIds.has(liveId))) || null;
+            let match = (liveId && groups.find(e => !e.live && e.flightIds.has(liveId))) || null;
 
             // Data-shape guard: only if this logbook carries no flight ids at
             // all does an exact airframe + livery match stand in for the id.
             if (!match && !logbookHasIds) {
                 const liveAcft = lf.aircraft?.aircraftName || '';
                 const liveLivery = lf.aircraft?.liveryName || '';
-                match = list.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) || null;
+                match = groups.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) || null;
             }
 
             if (!match) {
@@ -4296,71 +4273,47 @@ const contentRoot = document.getElementById('pui-content');
                     flights: [],
                     flightIds: new Set(),
                 };
-                list.push(match);
             }
             match.live = lf;
+            list.push(match);
         }
 
         for (const e of list) {
-            if (e.live) {
-                const gs = e.live.position?.gs_kt || 0;
-                e.status = gs >= 45 ? 'flying' : 'ground';
-                e.location = e.live.arrivalIcao || null;
+            const gs = e.live.position?.gs_kt || 0;
+            e.status = gs >= 45 ? 'flying' : 'ground';
+            e.location = e.live.arrivalIcao || null;
 
-                // The in-progress leg is already logged, so "last flight"
-                // should show the previous completed leg, not the live one.
-                const liveId = e.live.flightId ? String(e.live.flightId).toLowerCase() : null;
-                if (liveId && e.lastFlight && String(e.lastFlight.id || '').toLowerCase() === liveId) {
-                    let best = null, bestTs = 0;
-                    for (const f of e.flights) {
-                        if (String(f.id || '').toLowerCase() === liveId) continue;
-                        const ts = f.created ? new Date(f.created).getTime() : 0;
-                        if (!best || ts > bestTs) { best = f; bestTs = ts; }
-                    }
-                    e.lastFlight = best;
-                    e.lastFlightTs = bestTs;
+            // The in-progress leg is already logged, so "last flight" should
+            // show the previous completed leg, not the live one.
+            const liveId = e.live.flightId ? String(e.live.flightId).toLowerCase() : null;
+            if (liveId && e.lastFlight && String(e.lastFlight.id || '').toLowerCase() === liveId) {
+                let best = null, bestTs = 0;
+                for (const f of e.flights) {
+                    if (String(f.id || '').toLowerCase() === liveId) continue;
+                    const ts = f.created ? new Date(f.created).getTime() : 0;
+                    if (!best || ts > bestTs) { best = f; bestTs = ts; }
                 }
-            } else {
-                e.status = 'parked';
-                e.location = e.lastFlight?.destinationAirport || e.lastFlight?.originAirport || null;
-                e.locationIsArrival = !!e.lastFlight?.destinationAirport;
-                // Approximate "parked since": flight start + logged duration.
-                e.parkedSince = e.lastFlightTs
-                    ? e.lastFlightTs + (e.lastFlight?.totalTime || 0) * 60000
-                    : 0;
+                e.lastFlight = best;
+                e.lastFlightTs = bestTs;
             }
         }
 
         return list;
     },
 
-    /** Apply the current search / filter / sort to the hangar model. */
+    /** Apply the current search to the hangar model (live cards only). */
     _filterFleetModel(list) {
         const q = this._fleet.search.trim().toLowerCase();
-        let out = list;
-
-        if (this._fleet.filter === 'flying') out = out.filter(e => e.live);
-        if (this._fleet.filter === 'parked') out = out.filter(e => !e.live);
-
-        if (q) {
-            out = out.filter(e => {
-                const hay = [
-                    e.aircraftName, e.liveryName, e.location,
-                    e.lastFlight?.originAirport, e.lastFlight?.destinationAirport,
-                    e.lastFlight?.callsign,
-                    e.live?.callsign, e.live?.departureIcao, e.live?.arrivalIcao,
-                ].filter(Boolean).join(' ').toLowerCase();
-                return hay.includes(q);
-            });
-        }
-
-        const sorters = {
-            recent:  (a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.lastFlightTs - a.lastFlightTs,
-            flights: (a, b) => b.flightCount - a.flightCount,
-            hours:   (a, b) => b.totalMinutes - a.totalMinutes,
-            name:    (a, b) => a.aircraftName.localeCompare(b.aircraftName) || (a.liveryName || '').localeCompare(b.liveryName || ''),
-        };
-        return [...out].sort(sorters[this._fleet.sort] || sorters.recent);
+        if (!q) return list;
+        return list.filter(e => {
+            const hay = [
+                e.aircraftName, e.liveryName,
+                e.lastFlight?.originAirport, e.lastFlight?.destinationAirport,
+                e.lastFlight?.callsign,
+                e.live?.callsign, e.live?.departureIcao, e.live?.arrivalIcao,
+            ].filter(Boolean).join(' ').toLowerCase();
+            return hay.includes(q);
+        });
     },
 
     _getFleetTabHTML() {
@@ -4370,7 +4323,7 @@ const contentRoot = document.getElementById('pui-content');
             <div class="pui-tab-header pui-fade-in">
                 <div>
                     <h2>${this.t('tab.fleet')}</h2>
-                    <p>Every aircraft you've flown — what it's doing, where it is, and where it's been.</p>
+                    <p>Your aircraft currently on the live map — where they're headed and their track record.</p>
                 </div>
                 <div class="pui-tab-header-actions">
                     <div class="pui-input-wrapper" style="width:230px;">
@@ -4415,37 +4368,20 @@ const contentRoot = document.getElementById('pui-content');
         }
 
         const model = this._buildFleetModel();
-        const liveCount = model.filter(e => e.live).length;
+        const airborne = model.filter(e => e.status === 'flying').length;
         const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
 
-        const chips = [
-            { id: 'all',    label: `All (${model.length})` },
-            { id: 'flying', label: `In flight (${liveCount})` },
-            { id: 'parked', label: `Parked (${model.length - liveCount})` },
-        ];
-
         const scanNote = this._fleet.totalCount > this._fleet.scannedCount
-            ? `from your last ${this._fleet.scannedCount.toLocaleString()} of ${this._fleet.totalCount.toLocaleString()} flights`
-            : `from ${this._fleet.scannedCount.toLocaleString()} logged flights`;
+            ? `career stats from your last ${this._fleet.scannedCount.toLocaleString()} of ${this._fleet.totalCount.toLocaleString()} flights`
+            : `career stats from ${this._fleet.scannedCount.toLocaleString()} logged flights`;
 
         return `
             ${header}
             <div class="pui-hangar-summary pui-fade-in">
-                <div class="pui-hangar-stat"><span class="value">${model.length}</span><span class="label">Aircraft</span></div>
-                <div class="pui-hangar-stat"><span class="value ${liveCount > 0 ? 'pui-hangar-live-text' : ''}">${liveCount}</span><span class="label">In the air</span></div>
-                <div class="pui-hangar-stat"><span class="value">${totalHours.toLocaleString(undefined, { maximumFractionDigits: 0 })}h</span><span class="label">Fleet hours</span></div>
+                <div class="pui-hangar-stat"><span class="value ${model.length > 0 ? 'pui-hangar-live-text' : ''}" id="pui-fleet-stat-count">${model.length}</span><span class="label">On the map</span></div>
+                <div class="pui-hangar-stat"><span class="value" id="pui-fleet-stat-air">${airborne}</span><span class="label">Airborne</span></div>
+                <div class="pui-hangar-stat"><span class="value" id="pui-fleet-stat-hours">${totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })}h</span><span class="label">Career hours</span></div>
                 <div class="pui-hangar-summary-note">${scanNote}</div>
-            </div>
-            <div class="pui-hangar-toolbar pui-fade-in">
-                <div class="pui-hangar-chips">
-                    ${chips.map(c => `<button class="pui-hangar-chip ${this._fleet.filter === c.id ? 'active' : ''}" data-filter="${c.id}">${c.label}</button>`).join('')}
-                </div>
-                <select id="pui-fleet-sort" class="pui-input pui-hangar-sort" title="Sort fleet">
-                    <option value="recent"  ${this._fleet.sort === 'recent'  ? 'selected' : ''}>Recently flown</option>
-                    <option value="flights" ${this._fleet.sort === 'flights' ? 'selected' : ''}>Most flights</option>
-                    <option value="hours"   ${this._fleet.sort === 'hours'   ? 'selected' : ''}>Most hours</option>
-                    <option value="name"    ${this._fleet.sort === 'name'    ? 'selected' : ''}>Name A–Z</option>
-                </select>
             </div>
             <div id="pui-fleet-grid" class="pui-hangar-grid pui-fade-in">
                 ${this._getFleetGridHTML(model)}
@@ -4462,50 +4398,37 @@ const contentRoot = document.getElementById('pui-content');
             return `
                 <div class="pui-empty-state" style="grid-column: 1 / -1;">
                     <i class="fa-solid fa-plane-slash"></i>
-                    <h4>${q ? 'No aircraft match your search' : 'No aircraft yet'}</h4>
-                    <p>${q ? `Nothing in the hangar matches “${this._fleetEsc(q)}”.` : 'Fly a few flights in Infinite Flight and your hangar will fill itself.'}</p>
+                    <h4>${q ? 'No aircraft match your search' : 'No aircraft on the map'}</h4>
+                    <p>${q
+                        ? `None of your live aircraft match “${this._fleetEsc(q)}”.`
+                        : 'Your fleet shows the aircraft from your flights currently on the live map. Past flights are just history — take off in Infinite Flight and your aircraft will appear here.'}</p>
                 </div>`;
         }
 
         return list.map(e => {
             const esc = (s) => this._fleetEsc(s);
             const live = e.live;
+            const flying = e.status === 'flying';
+            const statusPill = `<span class="pui-hangar-status live"><span class="pui-hangar-dot"></span>${flying ? 'In flight' : 'On the ground'}</span>`;
 
-            let statusPill, whereHTML;
-            if (live) {
-                const flying = e.status === 'flying';
-                statusPill = `<span class="pui-hangar-status live"><span class="pui-hangar-dot"></span>${flying ? 'In flight' : 'On the ground'}</span>`;
-
-                const dep = live.departureIcao || '----';
-                const arr = live.arrivalIcao || '----';
-                const alt = Math.round(live.position?.alt_ft || 0).toLocaleString();
-                const gs = Math.round(live.position?.gs_kt || 0);
-                const cs = live.callsign || '';
-                whereHTML = `
-                    <div class="pui-hangar-where live">
-                        <div class="pui-hangar-route">
-                            <span class="pui-hangar-icao pui-drillable" ${dep !== '----' ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>${esc(dep)}</span>
-                            <i class="fa-solid fa-plane pui-hangar-route-plane"></i>
-                            <span class="pui-hangar-icao pui-drillable" ${arr !== '----' ? `data-drill="icao" data-icao="${esc(arr)}"` : ''}>${esc(arr)}</span>
-                            ${cs ? `<span class="pui-hangar-cs pui-mono pui-drillable" data-drill="callsign" data-callsign="${esc(cs)}">${esc(cs)}</span>` : ''}
-                        </div>
-                        <div class="pui-hangar-tele">
-                            <span><span class="label">ALT</span> ${alt} ft</span>
-                            <span><span class="label">GS</span> ${gs} kt</span>
-                        </div>
-                    </div>`;
-            } else {
-                statusPill = `<span class="pui-hangar-status parked">Parked</span>`;
-                const since = e.parkedSince ? ` · ${this._fleetTimeAgo(e.parkedSince)}` : '';
-                whereHTML = e.location
-                    ? `<div class="pui-hangar-where">
-                           <i class="fa-solid fa-location-dot"></i>
-                           <span>${e.locationIsArrival ? 'Parked at' : 'Last seen at'}
-                               <span class="pui-hangar-icao pui-drillable" data-drill="icao" data-icao="${esc(e.location)}">${esc(e.location)}</span>${since}
-                           </span>
-                       </div>`
-                    : `<div class="pui-hangar-where"><i class="fa-solid fa-location-dot"></i><span>Location unknown</span></div>`;
-            }
+            const dep = live.departureIcao || '----';
+            const arr = live.arrivalIcao || '----';
+            const alt = Math.round(live.position?.alt_ft || 0).toLocaleString();
+            const gs = Math.round(live.position?.gs_kt || 0);
+            const cs = live.callsign || '';
+            const whereHTML = `
+                <div class="pui-hangar-where live">
+                    <div class="pui-hangar-route">
+                        <span class="pui-hangar-icao pui-drillable" ${dep !== '----' ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>${esc(dep)}</span>
+                        <i class="fa-solid fa-plane pui-hangar-route-plane"></i>
+                        <span class="pui-hangar-icao pui-drillable" ${arr !== '----' ? `data-drill="icao" data-icao="${esc(arr)}"` : ''}>${esc(arr)}</span>
+                        ${cs ? `<span class="pui-hangar-cs pui-mono pui-drillable" data-drill="callsign" data-callsign="${esc(cs)}">${esc(cs)}</span>` : ''}
+                    </div>
+                    <div class="pui-hangar-tele">
+                        <span><span class="label">ALT</span> ${alt} ft</span>
+                        <span><span class="label">GS</span> ${gs} kt</span>
+                    </div>
+                </div>`;
 
             // Last completed flight (from the logbook) — the live leg isn't logged yet.
             let lastFlightHTML = '';
@@ -4553,11 +4476,26 @@ const contentRoot = document.getElementById('pui-content');
         }).join('');
     },
 
-    /** Re-render just the hangar grid (keeps the search input + focus intact). */
+    /** Re-render the hangar grid + summary tiles in place (keeps the search
+     *  input and its focus intact). */
     _refreshFleetGrid() {
         const grid = document.getElementById('pui-fleet-grid');
         if (!grid) return;
-        grid.innerHTML = this._getFleetGridHTML();
+        const model = this._buildFleetModel();
+        grid.innerHTML = this._getFleetGridHTML(model);
+
+        const countEl = document.getElementById('pui-fleet-stat-count');
+        const airEl = document.getElementById('pui-fleet-stat-air');
+        const hoursEl = document.getElementById('pui-fleet-stat-hours');
+        if (countEl) {
+            countEl.textContent = model.length;
+            countEl.classList.toggle('pui-hangar-live-text', model.length > 0);
+        }
+        if (airEl) airEl.textContent = model.filter(e => e.status === 'flying').length;
+        if (hoursEl) {
+            const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
+            hoursEl.textContent = totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 }) + 'h';
+        }
     },
 
     _getPersonalRecordsHTML() {
@@ -7727,40 +7665,6 @@ const contentRoot = document.getElementById('pui-content');
                 font-size: 0.72rem;
                 color: var(--pui-text-tertiary);
             }
-            .pui-hangar-toolbar {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: var(--pui-gap-md);
-                margin-bottom: var(--pui-gap-md);
-                flex-wrap: wrap;
-            }
-            .pui-hangar-chips { display: flex; gap: 8px; flex-wrap: wrap; }
-            .pui-hangar-chip {
-                border: 1px solid var(--pui-border);
-                background: var(--pui-bg-card);
-                color: var(--pui-text-secondary);
-                font: inherit;
-                font-size: 0.78rem;
-                font-weight: 600;
-                padding: 6px 14px;
-                border-radius: 999px;
-                cursor: pointer;
-                transition: all var(--pui-d-fast) var(--pui-ease);
-            }
-            .pui-hangar-chip:hover { border-color: var(--pui-border-strong); color: var(--pui-text-primary); }
-            .pui-hangar-chip.active {
-                background: var(--pui-accent);
-                border-color: var(--pui-accent);
-                color: var(--pui-text-on-accent);
-            }
-            .pui-hangar-sort {
-                width: auto;
-                min-width: 150px;
-                font-size: 0.8rem;
-                padding-top: 8px;
-                padding-bottom: 8px;
-            }
             .pui-hangar-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -7824,10 +7728,6 @@ const contentRoot = document.getElementById('pui-content');
                 letter-spacing: 0.06em;
                 padding: 4px 10px;
                 border-radius: 999px;
-            }
-            .pui-hangar-status.parked {
-                background: var(--pui-hover);
-                color: var(--pui-text-tertiary);
             }
             .pui-hangar-status.live {
                 background: rgba(109, 179, 128, 0.14);

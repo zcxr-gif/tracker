@@ -80,20 +80,19 @@ export const MobileDashboardUI = {
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
 
     // ── Fleet (virtual hangar) — mirrors the desktop ProfileUI feature ──────
-    // Built from a deep slice of the IF logbook (several pages, not just the
-    // dashboard's page 1) so the hangar covers more than the last 10 flights.
+    // The fleet lists only aircraft currently on the live map. A deep slice of
+    // the IF logbook (several pages, not just the dashboard's page 1) enriches
+    // each live card with that airframe's career stats and previous leg.
     _aircraftMap: new Map(),   // aircraftId -> name (from /api/metadata)
     _liveryMap:   new Map(),   // liveryId -> { liveryName, aircraftName }
     _fleet: {
         loading: false,
         loaded: false,
         error: null,
-        flights: [],        // flattened logbook pages used to build the hangar
-        scannedCount: 0,    // how many flights the hangar is derived from
+        flights: [],        // flattened logbook pages used to enrich live cards
+        scannedCount: 0,    // how many flights the stats are derived from
         totalCount: 0,      // pilot's total logged flights (API count)
         search: '',
-        filter: 'all',      // 'all' | 'flying' | 'parked'
-        sort: 'recent',     // 'recent' | 'flights' | 'hours' | 'name'
     },
     _FLEET_MAX_PAGES: 10,
 
@@ -1524,16 +1523,6 @@ init(supabaseClient) {
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     },
 
-    /** Short relative timestamp — "just now", "4h ago", "3d ago", "Mar 3". */
-    _fleetTimeAgo(ts) {
-        if (!ts) return '';
-        const diff = Date.now() - ts;
-        if (diff < 3600000) return 'just now';
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-        if (diff < 86400000 * 14) return `${Math.floor(diff / 86400000)}d ago`;
-        return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    },
-
     /** Resolves a human-readable aircraft name from API UUIDs. */
     _resolveAircraftName(aircraftId, liveryId) {
         if (!aircraftId) return 'Unknown Airframe';
@@ -1676,23 +1665,25 @@ init(supabaseClient) {
             }
         }
 
-        let list = Array.from(entries.values());
+        const groups = Array.from(entries.values());
 
-        // Live overlay — an aircraft only counts as being on the map when one
-        // of its logged flight ids matches a live flight's flightId. Flights
-        // that have left the map are just past flights: they never light up a
-        // card, and name similarity alone is not proof it's the same flight.
-        const logbookHasIds = list.some(e => e.flightIds.size > 0);
+        // The fleet is ONLY the aircraft currently present on the live map —
+        // one card per live flight, matched to its logbook airframe by flight
+        // id. Flights that have left the map are just past flights: they
+        // enrich a live card with career stats and the previous completed
+        // leg, but they never produce a fleet entry of their own.
+        const logbookHasIds = groups.some(e => e.flightIds.size > 0);
+        const list = [];
         for (const lf of (this._liveFlights || [])) {
             const liveId = lf.flightId ? String(lf.flightId).toLowerCase() : null;
-            let match = (liveId && list.find(e => !e.live && e.flightIds.has(liveId))) || null;
+            let match = (liveId && groups.find(e => !e.live && e.flightIds.has(liveId))) || null;
 
             // Data-shape guard: only if this logbook carries no flight ids at
             // all does an exact airframe + livery match stand in for the id.
             if (!match && !logbookHasIds) {
                 const liveAcft = lf.aircraft?.aircraftName || '';
                 const liveLivery = lf.aircraft?.liveryName || '';
-                match = list.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) || null;
+                match = groups.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) || null;
             }
 
             if (!match) {
@@ -1711,71 +1702,47 @@ init(supabaseClient) {
                     flights: [],
                     flightIds: new Set(),
                 };
-                list.push(match);
             }
             match.live = lf;
+            list.push(match);
         }
 
         for (const e of list) {
-            if (e.live) {
-                const gs = e.live.position?.gs_kt || 0;
-                e.status = gs >= 45 ? 'flying' : 'ground';
-                e.location = e.live.arrivalIcao || null;
+            const gs = e.live.position?.gs_kt || 0;
+            e.status = gs >= 45 ? 'flying' : 'ground';
+            e.location = e.live.arrivalIcao || null;
 
-                // The in-progress leg is already logged, so "last flight"
-                // should show the previous completed leg, not the live one.
-                const liveId = e.live.flightId ? String(e.live.flightId).toLowerCase() : null;
-                if (liveId && e.lastFlight && String(e.lastFlight.id || '').toLowerCase() === liveId) {
-                    let best = null, bestTs = 0;
-                    for (const f of e.flights) {
-                        if (String(f.id || '').toLowerCase() === liveId) continue;
-                        const ts = f.created ? new Date(f.created).getTime() : 0;
-                        if (!best || ts > bestTs) { best = f; bestTs = ts; }
-                    }
-                    e.lastFlight = best;
-                    e.lastFlightTs = bestTs;
+            // The in-progress leg is already logged, so "last flight" should
+            // show the previous completed leg, not the live one.
+            const liveId = e.live.flightId ? String(e.live.flightId).toLowerCase() : null;
+            if (liveId && e.lastFlight && String(e.lastFlight.id || '').toLowerCase() === liveId) {
+                let best = null, bestTs = 0;
+                for (const f of e.flights) {
+                    if (String(f.id || '').toLowerCase() === liveId) continue;
+                    const ts = f.created ? new Date(f.created).getTime() : 0;
+                    if (!best || ts > bestTs) { best = f; bestTs = ts; }
                 }
-            } else {
-                e.status = 'parked';
-                e.location = e.lastFlight?.destinationAirport || e.lastFlight?.originAirport || null;
-                e.locationIsArrival = !!e.lastFlight?.destinationAirport;
-                // Approximate "parked since": flight start + logged duration.
-                e.parkedSince = e.lastFlightTs
-                    ? e.lastFlightTs + (e.lastFlight?.totalTime || 0) * 60000
-                    : 0;
+                e.lastFlight = best;
+                e.lastFlightTs = bestTs;
             }
         }
 
         return list;
     },
 
-    /** Apply the current search / filter / sort to the hangar model. */
+    /** Apply the current search to the hangar model (live cards only). */
     _filterFleetModel(list) {
         const q = this._fleet.search.trim().toLowerCase();
-        let out = list;
-
-        if (this._fleet.filter === 'flying') out = out.filter(e => e.live);
-        if (this._fleet.filter === 'parked') out = out.filter(e => !e.live);
-
-        if (q) {
-            out = out.filter(e => {
-                const hay = [
-                    e.aircraftName, e.liveryName, e.location,
-                    e.lastFlight?.originAirport, e.lastFlight?.destinationAirport,
-                    e.lastFlight?.callsign,
-                    e.live?.callsign, e.live?.departureIcao, e.live?.arrivalIcao,
-                ].filter(Boolean).join(' ').toLowerCase();
-                return hay.includes(q);
-            });
-        }
-
-        const sorters = {
-            recent:  (a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.lastFlightTs - a.lastFlightTs,
-            flights: (a, b) => b.flightCount - a.flightCount,
-            hours:   (a, b) => b.totalMinutes - a.totalMinutes,
-            name:    (a, b) => a.aircraftName.localeCompare(b.aircraftName) || (a.liveryName || '').localeCompare(b.liveryName || ''),
-        };
-        return [...out].sort(sorters[this._fleet.sort] || sorters.recent);
+        if (!q) return list;
+        return list.filter(e => {
+            const hay = [
+                e.aircraftName, e.liveryName,
+                e.lastFlight?.originAirport, e.lastFlight?.destinationAirport,
+                e.lastFlight?.callsign,
+                e.live?.callsign, e.live?.departureIcao, e.live?.arrivalIcao,
+            ].filter(Boolean).join(' ').toLowerCase();
+            return hay.includes(q);
+        });
     },
 
     _tabFleet() {
@@ -1817,40 +1784,34 @@ init(supabaseClient) {
         }
 
         const model = this._buildFleetModel();
-        const liveCount = model.filter(e => e.live).length;
+        const airborne = model.filter(e => e.status === 'flying').length;
         const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
 
         const scanNote = this._fleet.totalCount > this._fleet.scannedCount
-            ? `From your last ${this._fleet.scannedCount.toLocaleString()} of ${this._fleet.totalCount.toLocaleString()} flights.`
-            : `From ${this._fleet.scannedCount.toLocaleString()} logged flights.`;
-
-        const chips = [
-            { id: 'all',    label: `All (${model.length})` },
-            { id: 'flying', label: `In flight (${liveCount})` },
-            { id: 'parked', label: `Parked (${model.length - liveCount})` },
-        ];
+            ? `Career stats from your last ${this._fleet.scannedCount.toLocaleString()} of ${this._fleet.totalCount.toLocaleString()} flights.`
+            : `Career stats from ${this._fleet.scannedCount.toLocaleString()} logged flights.`;
 
         return `
             <div class="mdui-fade-up">
-                <p class="mdui-page-sub">Every aircraft you've flown — what it's doing, where it is, and where it's been.</p>
+                <p class="mdui-page-sub">Your aircraft currently on the live map — where they're headed and their track record.</p>
 
                 <div class="mdui-fleet-summary">
                     <div class="mdui-fleet-sum-tile">
-                        <span class="value">${model.length}</span>
-                        <span class="label">Aircraft</span>
+                        <span class="value ${model.length > 0 ? 'is-live' : ''}" id="mdui-fleet-stat-count">${model.length}</span>
+                        <span class="label">On the map</span>
                     </div>
                     <div class="mdui-fleet-sum-tile">
-                        <span class="value ${liveCount > 0 ? 'is-live' : ''}">${liveCount}</span>
-                        <span class="label">In the air</span>
+                        <span class="value" id="mdui-fleet-stat-air">${airborne}</span>
+                        <span class="label">Airborne</span>
                     </div>
                     <div class="mdui-fleet-sum-tile">
-                        <span class="value">${totalHours.toLocaleString(undefined, { maximumFractionDigits: 0 })}h</span>
-                        <span class="label">Fleet hours</span>
+                        <span class="value" id="mdui-fleet-stat-hours">${totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })}h</span>
+                        <span class="label">Career hours</span>
                     </div>
                 </div>
 
                 <div class="mdui-section">
-                    <div class="mdui-capsule-row" style="margin-bottom:10px;">
+                    <div class="mdui-capsule-row" style="margin-bottom:0;">
                         <div class="mdui-capsule">
                             <i class="fa-solid fa-magnifying-glass"></i>
                             <input type="text" id="mdui-fleet-search" class="mdui-capsule-input"
@@ -1861,17 +1822,6 @@ init(supabaseClient) {
                         <button class="mdui-icon-btn" id="mdui-fleet-refresh" aria-label="Refresh fleet" style="flex:0 0 auto;">
                             <i class="fa-solid fa-rotate"></i>
                         </button>
-                    </div>
-                    <div class="mdui-fleet-controls">
-                        <div class="mdui-fleet-chips">
-                            ${chips.map(c => `<button class="mdui-fleet-chip ${this._fleet.filter === c.id ? 'active' : ''}" data-filter="${c.id}">${c.label}</button>`).join('')}
-                        </div>
-                        <select id="mdui-fleet-sort" class="mdui-fleet-sort" aria-label="Sort fleet">
-                            <option value="recent"  ${this._fleet.sort === 'recent'  ? 'selected' : ''}>Recently flown</option>
-                            <option value="flights" ${this._fleet.sort === 'flights' ? 'selected' : ''}>Most flights</option>
-                            <option value="hours"   ${this._fleet.sort === 'hours'   ? 'selected' : ''}>Most hours</option>
-                            <option value="name"    ${this._fleet.sort === 'name'    ? 'selected' : ''}>Name A–Z</option>
-                        </select>
                     </div>
                 </div>
 
@@ -1892,43 +1842,32 @@ init(supabaseClient) {
             return `
                 <div class="mdui-empty-state">
                     <i class="fa-solid fa-plane-slash"></i>
-                    <h4>${q ? 'No aircraft match your search' : 'No aircraft yet'}</h4>
-                    <p>${q ? `Nothing in the hangar matches “${this._fleetEsc(q)}”.` : 'Fly a few flights in Infinite Flight and your hangar will fill itself.'}</p>
+                    <h4>${q ? 'No aircraft match your search' : 'No aircraft on the map'}</h4>
+                    <p>${q
+                        ? `None of your live aircraft match “${this._fleetEsc(q)}”.`
+                        : 'Your fleet shows the aircraft from your flights currently on the live map. Past flights are just history — take off in Infinite Flight and your aircraft will appear here.'}</p>
                 </div>`;
         }
 
         const cards = list.map((e, i) => {
             const esc = (s) => this._fleetEsc(s);
             const live = e.live;
+            const flying = e.status === 'flying';
+            const badge = `<span class="mdui-fleet-badge live"><span class="mdui-fleet-dot"></span>${flying ? 'In flight' : 'On the ground'}</span>`;
 
-            let badge, whereHTML;
-            if (live) {
-                const flying = e.status === 'flying';
-                badge = `<span class="mdui-fleet-badge live"><span class="mdui-fleet-dot"></span>${flying ? 'In flight' : 'On the ground'}</span>`;
-
-                const dep = live.departureIcao || '----';
-                const arr = live.arrivalIcao || '----';
-                const alt = Math.round(live.position?.alt_ft || 0).toLocaleString();
-                const gs = Math.round(live.position?.gs_kt || 0);
-                const cs = live.callsign || '';
-                whereHTML = `
-                    <div class="mdui-fleet-where is-live" ${dep !== '----' ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>
-                        <div class="mdui-fleet-route mdui-mono">
-                            ${esc(dep)} <i class="fa-solid fa-plane"></i> ${esc(arr)}
-                            ${cs ? `<span class="mdui-fleet-cs">${esc(cs)}</span>` : ''}
-                        </div>
-                        <div class="mdui-fleet-tele mdui-mono">${alt} ft · ${gs} kt</div>
-                    </div>`;
-            } else {
-                badge = `<span class="mdui-fleet-badge parked">Parked</span>`;
-                const since = e.parkedSince ? ` · ${this._fleetTimeAgo(e.parkedSince)}` : '';
-                whereHTML = e.location
-                    ? `<div class="mdui-fleet-where" data-drill="icao" data-icao="${esc(e.location)}">
-                           <i class="fa-solid fa-location-dot"></i>
-                           <span>${e.locationIsArrival ? 'Parked at' : 'Last seen at'} <strong class="mdui-mono">${esc(e.location)}</strong>${since}</span>
-                       </div>`
-                    : `<div class="mdui-fleet-where"><i class="fa-solid fa-location-dot"></i><span>Location unknown</span></div>`;
-            }
+            const dep = live.departureIcao || '----';
+            const arr = live.arrivalIcao || '----';
+            const alt = Math.round(live.position?.alt_ft || 0).toLocaleString();
+            const gs = Math.round(live.position?.gs_kt || 0);
+            const cs = live.callsign || '';
+            const whereHTML = `
+                <div class="mdui-fleet-where is-live" ${dep !== '----' ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>
+                    <div class="mdui-fleet-route mdui-mono">
+                        ${esc(dep)} <i class="fa-solid fa-plane"></i> ${esc(arr)}
+                        ${cs ? `<span class="mdui-fleet-cs">${esc(cs)}</span>` : ''}
+                    </div>
+                    <div class="mdui-fleet-tele mdui-mono">${alt} ft · ${gs} kt</div>
+                </div>`;
 
             // Last completed flight (from the logbook) — the live leg isn't logged yet.
             let lastHTML = '';
@@ -1981,11 +1920,26 @@ init(supabaseClient) {
         return `<div class="mdui-fleet-grid">${cards}</div>`;
     },
 
-    /** Re-render just the hangar cards (keeps the search input + focus intact). */
+    /** Re-render the hangar cards + summary tiles in place (keeps the search
+     *  input and its keyboard focus intact). */
     _updateFleetDOM() {
         const host = document.getElementById('mdui-fleet-grid-container');
         if (!host) return;
-        host.innerHTML = this._getFleetCardsHTML();
+        const model = this._buildFleetModel();
+        host.innerHTML = this._getFleetCardsHTML(model);
+
+        const countEl = document.getElementById('mdui-fleet-stat-count');
+        const airEl = document.getElementById('mdui-fleet-stat-air');
+        const hoursEl = document.getElementById('mdui-fleet-stat-hours');
+        if (countEl) {
+            countEl.textContent = model.length;
+            countEl.classList.toggle('is-live', model.length > 0);
+        }
+        if (airEl) airEl.textContent = model.filter(e => e.status === 'flying').length;
+        if (hoursEl) {
+            const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
+            hoursEl.textContent = totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 }) + 'h';
+        }
     },
 
     _tabDispatch() {
@@ -2957,19 +2911,6 @@ _attachListeners() {
             const searchInput = document.getElementById('mdui-fleet-search');
             searchInput?.addEventListener('input', () => {
                 this._fleet.search = searchInput.value;
-                this._updateFleetDOM();
-            });
-
-            document.querySelectorAll('.mdui-fleet-chip').forEach(chip => {
-                chip.addEventListener('click', () => {
-                    this._fleet.filter = chip.dataset.filter;
-                    document.querySelectorAll('.mdui-fleet-chip').forEach(c => c.classList.toggle('active', c === chip));
-                    this._updateFleetDOM();
-                });
-            });
-
-            document.getElementById('mdui-fleet-sort')?.addEventListener('change', (e) => {
-                this._fleet.sort = e.target.value;
                 this._updateFleetDOM();
             });
 
@@ -4636,38 +4577,6 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 text-transform: uppercase; letter-spacing: 0.05em;
                 color: var(--mdui-tertiary);
             }
-            .mdui-fleet-controls {
-                display: flex; align-items: center; gap: 10px;
-                flex-wrap: wrap;
-            }
-            .mdui-fleet-chips { display: flex; gap: 7px; flex-wrap: wrap; flex: 1; min-width: 0; }
-            .mdui-fleet-chip {
-                border: 0.5px solid var(--mdui-border);
-                background: var(--mdui-surface);
-                color: var(--mdui-muted);
-                font-family: inherit; font-size: 12.5px; font-weight: 600;
-                letter-spacing: -0.1px;
-                padding: 7px 13px; border-radius: 999px;
-                cursor: pointer;
-                -webkit-tap-highlight-color: transparent;
-                transition: all 0.18s ease;
-            }
-            .mdui-fleet-chip:active { transform: scale(0.95); }
-            .mdui-fleet-chip.active {
-                background: var(--mdui-accent);
-                border-color: var(--mdui-accent);
-                color: var(--mdui-on-accent);
-            }
-            .mdui-fleet-sort {
-                flex: 0 0 auto;
-                font-family: inherit; font-size: 12.5px; font-weight: 600;
-                color: var(--mdui-text);
-                background: var(--mdui-input);
-                border: 0.5px solid var(--mdui-border-light);
-                border-radius: 999px;
-                padding: 7px 12px;
-                -webkit-appearance: none; appearance: none;
-            }
             .mdui-fleet-grid { display: flex; flex-direction: column; gap: 12px; }
             .mdui-fleet-card {
                 background: var(--mdui-surface);
@@ -4713,7 +4622,6 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 text-transform: uppercase; letter-spacing: 0.05em;
                 padding: 4px 9px; border-radius: 999px;
             }
-            .mdui-fleet-badge.parked { background: var(--mdui-hover); color: var(--mdui-tertiary); }
             .mdui-fleet-badge.live { background: var(--mdui-success-soft); color: var(--mdui-success); }
             .mdui-fleet-dot {
                 width: 5px; height: 5px; border-radius: 50%;
