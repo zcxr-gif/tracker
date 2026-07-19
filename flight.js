@@ -19611,6 +19611,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             }
         }
 
+        // Feed the top-left weather pill (weatherWidget.js) — it only renders
+        // while this window is displayed, so it just needs the route context.
+        window.dispatchEvent(new CustomEvent('flight-window-weather', {
+            detail: { flightId: flightProps.flightId, depIcao, arrIcao }
+        }));
+
         const filedPlanData = await FlightDispatchService.getFiledPlan(
             flightProps.username,
             depIcao,
