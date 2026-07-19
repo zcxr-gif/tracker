@@ -22765,8 +22765,16 @@ function setupFlightHoverPopups() {
     let hoveredFlightId = null;
 
     const onAircraftRichHover = (e) => {
-        const isHoverDevice = window.matchMedia('(hover: hover)').matches;
-        if (!isHoverDevice || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
+        // Use (any-hover) rather than (hover): the latter reflects only the
+        // PRIMARY pointer, which some OS/browser combos flip to "no hover"
+        // after any touch input (or in tablet mode) until the machine is
+        // rebooted — the classic cause of hover cards silently not appearing
+        // on a mouse/trackpad-equipped laptop. (any-hover: hover) stays true
+        // as long as ANY connected input is capable of hovering.
+        const canHover = !window.matchMedia || window.matchMedia('(any-hover: hover)').matches;
+        // Still suppress the card on genuine touch taps so mobile doesn't get
+        // a popup stuck under the finger.
+        if (!canHover || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
             return;
         }
 
