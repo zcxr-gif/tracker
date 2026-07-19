@@ -3,9 +3,11 @@
  *
  * A small glass pill pinned to the top-left of the map that appears ONLY
  * while the flight info window (#aircraft-info-window) is being displayed.
- * Collapsed it shows the destination airport's condition icon + temperature;
- * tapping it expands a popover with full METAR details for both the
- * departure and arrival airports.
+ * Collapsed it shows conditions where the aircraft currently IS — the METAR
+ * station nearest its live position — with a sun/moon icon that reflects the
+ * actual local day/night at the aircraft (solar altitude, not the viewer's
+ * clock). Tapping expands a popover with that nearby station plus full METAR
+ * details for the departure and arrival airports.
  *
  * Wiring:
  *  • flight.js dispatches `flight-window-weather` with
@@ -23,21 +25,48 @@
     'use strict';
 
     const REFRESH_MS = 10 * 60 * 1000; // METARs update at most every 10 min
+    const POSITION_MS = 60 * 1000;     // re-read the aircraft position every minute
 
     const state = {
-        ctx: null,          // { flightId, depIcao, arrIcao }
+        ctx: null,          // { flightId, depIcao, arrIcao, lat, lon }
+        position: null,     // latest known aircraft position { lat, lon }
+        nowStation: null,   // nearest METAR station to the aircraft { icao, parsed, km }
         metars: { dep: null, arr: null },
         fetchedAt: 0,
         fetchSeq: 0,        // guards against out-of-order fetches
+        nowSeq: 0,          // same, for the nearest-station resolution
         windowShown: false,
         popoverOpen: false,
         refreshTimer: null,
+        positionTimer: null,
     };
 
     let root = null, pill = null, popover = null;
 
-    // ── Icon selection from a parsed METAR ─────────────────────────────────
-    function iconFor(parsed) {
+    // ── Day / night at a coordinate ────────────────────────────────────────
+    // Solar altitude via the standard low-precision solar position formulas
+    // (SunCalc-style). Below -6° (civil twilight) counts as night, so the
+    // icon flips to the moon roughly when the sky actually gets dark where
+    // the aircraft is right now.
+    function isNightAt(lat, lon, date = new Date()) {
+        if (lat == null || lon == null) return false;
+        const rad = Math.PI / 180;
+        const d = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+        const g = (357.529 + 0.98560028 * d) * rad;                  // mean anomaly
+        const q = 280.459 + 0.98564736 * d;                          // mean longitude
+        const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+        const e = (23.439 - 0.00000036 * d) * rad;                   // obliquity
+        const RA = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+        const dec = Math.asin(Math.sin(e) * Math.sin(L));
+        const GMST = (18.697374558 + 24.06570982441908 * d) % 24;
+        const H = (((GMST + lon / 15) % 24) * 15 * rad) - RA;        // hour angle
+        const sinAlt = Math.sin(lat * rad) * Math.sin(dec)
+                     + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(H);
+        return (Math.asin(sinAlt) / rad) < -6;
+    }
+
+    // ── Icon selection from a parsed METAR + local day/night ───────────────
+    function iconFor(parsed, night = false) {
         const raw = parsed?.raw || '';
         if (/\bTS/.test(raw)) return 'fa-cloud-bolt';
         if (/\b(?:\+|-)?(?:SH)?(?:SN|SG|PL|IC|GS|GR)\b/.test(raw)) return 'fa-snowflake';
@@ -45,8 +74,16 @@
         if (/\b(FG|BR|HZ|FU|DU|SA|VA)\b/.test(raw)) return 'fa-smog';
         const cover = parsed?.clouds?.[0]?.cover;
         if (cover === 'BKN' || cover === 'OVC' || cover === 'VV') return 'fa-cloud';
-        if (cover === 'FEW' || cover === 'SCT') return 'fa-cloud-sun';
-        return 'fa-sun';
+        if (cover === 'FEW' || cover === 'SCT') return night ? 'fa-cloud-moon' : 'fa-cloud-sun';
+        return night ? 'fa-moon' : 'fa-sun';
+    }
+
+    /** Day/night for a station: prefer its airport coordinates, falling back
+     *  to the aircraft's position (they're near each other for the NEAR row). */
+    function nightForStation(icao) {
+        const coords = (typeof window.getAirportCoords === 'function' ? window.getAirportCoords(icao) : null)
+            || state.position;
+        return coords ? isNightAt(coords.lat, coords.lon) : false;
     }
 
     function fmtWind(p) {
@@ -241,9 +278,11 @@
     }
 
     // ── Rendering ──────────────────────────────────────────────────────────
-    // The pill leads with the arrival airport — the weather a pilot is
-    // flying toward — and falls back to departure when no arrival is known.
+    // The pill leads with the weather where the aircraft currently IS (the
+    // nearest METAR station to its live position), falling back to arrival
+    // then departure when the position or a nearby station is unknown.
     function primaryStation() {
+        if (state.nowStation) return state.nowStation;
         if (state.ctx?.arrIcao && state.metars.arr) return { icao: state.ctx.arrIcao, parsed: state.metars.arr };
         if (state.ctx?.depIcao && state.metars.dep) return { icao: state.ctx.depIcao, parsed: state.metars.dep };
         const icao = state.ctx?.arrIcao || state.ctx?.depIcao || null;
@@ -256,8 +295,12 @@
         const p = st.parsed;
         const temp = (p && p.tempC !== null) ? `${p.tempC}°` : '--°';
         const wind = p ? fmtWind(p) : '';
+        // The pill's sun/moon reflects the local time at the aircraft itself.
+        const night = state.position
+            ? isNightAt(state.position.lat, state.position.lon)
+            : nightForStation(st.icao);
         pill.innerHTML = `
-            <i class="fa-solid ${p ? iconFor(p) : 'fa-cloud'} wx-pill-icon"></i>
+            <i class="fa-solid ${p ? iconFor(p, night) : 'fa-cloud'} wx-pill-icon"></i>
             <span class="wx-pill-temp">${temp}</span>
             <span class="wx-pill-meta">
                 <span class="wx-pill-icao">${esc(st.icao)}</span>
@@ -283,7 +326,7 @@
                 <div class="wx-station-top">
                     <span class="tag">${tag}</span>
                     <span class="icao">${esc(icao)}</span>
-                    <span class="temp"><i class="fa-solid ${iconFor(p)}"></i>${p.tempC !== null ? `${p.tempC}°C` : '—'}</span>
+                    <span class="temp"><i class="fa-solid ${iconFor(p, nightForStation(icao))}"></i>${p.tempC !== null ? `${p.tempC}°C` : '—'}</span>
                 </div>
                 <div class="wx-rows">
                     <div class="wx-row"><span class="k">Wind</span><span class="v">${esc(fmtWind(p))}</span></div>
@@ -298,11 +341,19 @@
 
     function renderPopover() {
         if (!state.ctx) return;
+        // NEAR = the station closest to where the aircraft is right now.
+        // Skip it when it duplicates a route airport the popover already shows.
+        const now = state.nowStation;
+        const nowIsRoute = now && (now.icao === state.ctx.depIcao || now.icao === state.ctx.arrIcao);
+        const nowHTML = (now && !nowIsRoute)
+            ? stationHTML(now.km != null ? `NEAR · ${Math.round(now.km)} km` : 'NEAR', now.icao, now.parsed)
+            : '';
         popover.innerHTML = `
             <div class="wx-pop-head">
                 <span class="title">Route Weather</span>
                 <span class="age">${ageLabel()}</span>
             </div>
+            ${nowHTML}
             ${stationHTML('DEP', state.ctx.depIcao, state.metars.dep)}
             ${stationHTML('ARR', state.ctx.arrIcao, state.metars.arr)}
         `;
@@ -339,12 +390,41 @@
 
         if (show && !state.refreshTimer) {
             state.refreshTimer = setInterval(() => {
-                if (state.windowShown && state.ctx) fetchMetars(true);
+                if (state.windowShown && state.ctx) {
+                    fetchMetars(true);
+                    resolveNowStation(true);
+                }
             }, REFRESH_MS);
         } else if (!show && state.refreshTimer) {
             clearInterval(state.refreshTimer);
             state.refreshTimer = null;
         }
+
+        // Track the aircraft while the pill is up: refresh its position from
+        // the live feed so the nearest station and the day/night icon follow
+        // the flight instead of freezing at where it was when clicked.
+        if (show && !state.positionTimer) {
+            state.positionTimer = setInterval(updateAircraftPosition, POSITION_MS);
+        } else if (!show && state.positionTimer) {
+            clearInterval(state.positionTimer);
+            state.positionTimer = null;
+        }
+    }
+
+    function updateAircraftPosition() {
+        if (!state.ctx?.flightId || typeof window.getLiveFlightData !== 'function') return;
+        try {
+            const feature = window.getLiveFlightData().find(f =>
+                (f.properties?.flightId || null) === state.ctx.flightId);
+            const coords = feature?.geometry?.coordinates;
+            if (coords && coords.length >= 2) {
+                state.position = { lat: coords[1], lon: coords[0] };
+                resolveNowStation();
+            }
+        } catch (_) { /* live feed unavailable — keep the last known position */ }
+        // Even without movement the sun sets: keep the day/night icon honest.
+        renderPill();
+        if (state.popoverOpen) renderPopover();
     }
 
     function observeWindow() {
@@ -360,6 +440,37 @@
     }
 
     // ── Data ───────────────────────────────────────────────────────────────
+    /**
+     * Resolve the METAR station nearest to the aircraft's current position.
+     * airports.json holds thousands of strips that never publish METARs, so
+     * walk the closest proper-ICAO candidates and keep the first that
+     * actually returns one.
+     */
+    async function resolveNowStation(force = false) {
+        if (!state.position || typeof window.findNearestAirports !== 'function' || !window.WeatherService) return;
+        const seq = ++state.nowSeq;
+        const prevIcao = state.nowStation?.icao || null;
+
+        const candidates = window.findNearestAirports(state.position.lat, state.position.lon, 4);
+        for (const cand of candidates) {
+            // Same station as before — keep it (just refresh the distance)
+            // unless this is the periodic refresh, which refetches its METAR.
+            if (cand.icao === prevIcao && !force) {
+                state.nowStation.km = cand.km;
+                break;
+            }
+            const parsed = await window.WeatherService.fetchAndParseMetar(cand.icao).catch(() => null);
+            if (seq !== state.nowSeq) return; // superseded by a newer resolve
+            if (parsed && parsed.raw !== 'Not Available') {
+                state.nowStation = { icao: cand.icao, parsed, km: cand.km };
+                break;
+            }
+        }
+
+        renderPill();
+        if (state.popoverOpen) renderPopover();
+    }
+
     async function fetchMetars(isRefresh = false) {
         if (!state.ctx || !window.WeatherService) return;
         const seq = ++state.fetchSeq;
@@ -389,13 +500,21 @@
             || state.ctx.arrIcao !== arrIcao;
 
         state.ctx = { flightId: detail?.flightId || null, depIcao, arrIcao };
+        if (detail?.lat != null && detail?.lon != null) {
+            state.position = { lat: detail.lat, lon: detail.lon };
+        } else if (changed) {
+            state.position = null;
+        }
 
         if (changed) {
             state.metars = { dep: null, arr: null };
+            state.nowStation = null;
+            state.nowSeq++;
             state.fetchedAt = 0;
             setPopover(false);
             renderPill();
             fetchMetars();
+            resolveNowStation();
         }
         syncVisibility();
     }
@@ -415,5 +534,9 @@
     }
 
     // Exposed for debugging / tests
-    window.FlightWeatherWidget = { setContext, syncVisibility: () => syncVisibility() };
+    window.FlightWeatherWidget = {
+        setContext,
+        syncVisibility: () => syncVisibility(),
+        _tick: () => updateAircraftPosition(),
+    };
 })();
