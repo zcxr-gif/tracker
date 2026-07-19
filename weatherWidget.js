@@ -6,8 +6,11 @@
  * Collapsed it shows conditions where the aircraft currently IS — the METAR
  * station nearest its live position — with a sun/moon icon that reflects the
  * actual local day/night at the aircraft (solar altitude, not the viewer's
- * clock). Tapping expands a popover with that nearby station plus full METAR
- * details for the departure and arrival airports.
+ * clock). When the aircraft sits inside an active SIGMET / AIRMET polygon
+ * (via the app's Netlify hazard proxy) the pill grows a pulsing warning
+ * badge tinted by the worst hazard. Tapping expands a popover with active
+ * hazards at the aircraft, that nearby station, and full METAR details for
+ * the departure and arrival airports.
  *
  * Wiring:
  *  • flight.js dispatches `flight-window-weather` with
@@ -26,6 +29,17 @@
 
     const REFRESH_MS = 10 * 60 * 1000; // METARs update at most every 10 min
     const POSITION_MS = 60 * 1000;     // re-read the aircraft position every minute
+    const SIGMET_TTL_MS = 5 * 60 * 1000; // advisories: match the proxy's cache window
+
+    // Same origin shim flight.js uses: inside the native app (capacitor://)
+    // or local dev, relative netlify-function calls must hit production.
+    const SIGMET_URL = (() => {
+        const isLocalOrApp = window.location.hostname === 'localhost'
+            || window.location.protocol === 'file:'
+            || window.location.protocol === 'capacitor:';
+        const origin = isLocalOrApp ? 'https://inflight.info' : window.location.origin;
+        return `${origin}/.netlify/functions/sigmets`;
+    })();
 
     const state = {
         ctx: null,          // { flightId, depIcao, arrIcao, lat, lon }
@@ -35,6 +49,10 @@
         fetchedAt: 0,
         fetchSeq: 0,        // guards against out-of-order fetches
         nowSeq: 0,          // same, for the nearest-station resolution
+        sigmets: [],        // cached advisory features (polygons + metadata)
+        sigmetsAt: 0,       // when they were fetched
+        sigmetSeq: 0,
+        hazardsHere: [],    // advisories whose polygon contains the aircraft
         windowShown: false,
         popoverOpen: false,
         refreshTimer: null,
@@ -193,6 +211,22 @@
                 letter-spacing: 0.04em;
             }
             #wx-pill .wx-pill-wind { font-size: 10px; color: var(--text-secondary, #a1a1aa); white-space: nowrap; }
+            #wx-pill .wx-pill-hazard {
+                display: inline-flex;
+                align-items: center;
+                gap: 3px;
+                margin-left: 2px;
+                font-size: 13px;
+                animation: wx-haz-pulse 1.8s ease-in-out infinite;
+            }
+            #wx-pill .wx-pill-hazard .n {
+                font-size: 10px;
+                font-weight: 800;
+            }
+            @keyframes wx-haz-pulse {
+                0%, 100% { opacity: 1; }
+                50%      { opacity: 0.55; }
+            }
             @keyframes wx-fade-in {
                 from { opacity: 0; transform: translateY(-8px); }
                 to   { opacity: 1; transform: translateY(0); }
@@ -221,6 +255,45 @@
             }
             .wx-pop-head .title { font-size: 12.5px; font-weight: 700; color: var(--text-primary, #fafafa); }
             .wx-pop-head .age { font-size: 10px; color: var(--text-secondary, #a1a1aa); }
+            .wx-hazards {
+                padding: 4px 0;
+                border-bottom: 1px solid var(--border-glass, rgba(255,255,255,0.1));
+            }
+            .wx-haz {
+                display: flex;
+                gap: 10px;
+                padding: 8px 15px;
+            }
+            .wx-haz > i { font-size: 13px; margin-top: 2px; flex: 0 0 auto; }
+            .wx-haz-main { min-width: 0; flex: 1; }
+            .wx-haz-title {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 8px;
+                font-size: 12px;
+                font-weight: 700;
+                color: var(--text-primary, #fafafa);
+            }
+            .wx-haz-title .until {
+                font-size: 10px;
+                font-weight: 600;
+                color: var(--text-secondary, #a1a1aa);
+                white-space: nowrap;
+            }
+            .wx-haz-src { font-size: 10.5px; color: var(--text-secondary, #a1a1aa); margin-top: 1px; }
+            .wx-haz-raw {
+                margin-top: 4px;
+                font-family: var(--font-data, ui-monospace, monospace);
+                font-size: 9px;
+                line-height: 1.45;
+                color: var(--text-dim, #94a3b8);
+                word-break: break-word;
+                display: -webkit-box;
+                -webkit-line-clamp: 3;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
             .wx-station { padding: 11px 15px; }
             .wx-station + .wx-station { border-top: 1px solid var(--border-glass, rgba(255,255,255,0.1)); }
             .wx-station-top {
@@ -299,6 +372,117 @@
         }, true);
     }
 
+    // ── SIGMET / AIRMET awareness ──────────────────────────────────────────
+    // Hazard-code → label / colour / severity rank. Colours mirror the map's
+    // SIGMET layer so the badge and the layer tell the same story.
+    const HAZARDS = {
+        TS: { label: 'Convective', color: '#ff3b30', rank: 0 },
+        TSGR: { label: 'Convective', color: '#ff3b30', rank: 0 },
+        TC: { label: 'Tropical cyclone', color: '#ff3b30', rank: 0 },
+        CONVECTIVE: { label: 'Convective', color: '#ff3b30', rank: 0 },
+        TURB: { label: 'Turbulence', color: '#ff9500', rank: 1 },
+        ICE: { label: 'Icing', color: '#00bfff', rank: 2 },
+        ICING: { label: 'Icing', color: '#00bfff', rank: 2 },
+        MTW: { label: 'Mountain wave', color: '#bf5af2', rank: 3 },
+        VA: { label: 'Volcanic ash', color: '#8e8e93', rank: 4 },
+        ASH: { label: 'Volcanic ash', color: '#8e8e93', rank: 4 },
+        DS: { label: 'Dust storm', color: '#d4a017', rank: 5 },
+        SS: { label: 'Sandstorm', color: '#d4a017', rank: 5 },
+        IFR: { label: 'IFR conditions', color: '#34c759', rank: 6 },
+        'MTN OBSCN': { label: 'Mountain obscuration', color: '#34c759', rank: 6 },
+    };
+    const hazardMeta = (code) => HAZARDS[String(code || '').toUpperCase()]
+        || { label: code || 'Advisory', color: '#888888', rank: 9 };
+
+    // Even-odd ray casting across every ring, so polygon holes are honoured.
+    function pointInRings(lat, lon, rings) {
+        let inside = false;
+        for (const ring of rings) {
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const [xi, yi] = ring[i], [xj, yj] = ring[j]; // [lon, lat]
+                if (((yi > lat) !== (yj > lat)) &&
+                    (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+        }
+        return inside;
+    }
+
+    function pointInFeature(lat, lon, geometry) {
+        if (!geometry) return false;
+        if (geometry.type === 'Polygon') return pointInRings(lat, lon, geometry.coordinates || []);
+        if (geometry.type === 'MultiPolygon') {
+            return (geometry.coordinates || []).some(poly => pointInRings(lat, lon, poly));
+        }
+        return false;
+    }
+
+    // AWC mixes ISO strings (isigmet) and epoch seconds (airsigmet).
+    function parseAwcTime(v) {
+        if (v == null) return null;
+        if (typeof v === 'number') return v * (v < 1e12 ? 1000 : 1);
+        const t = Date.parse(v);
+        return Number.isNaN(t) ? null : t;
+    }
+
+    async function fetchSigmets(force = false) {
+        if (!force && Date.now() - state.sigmetsAt < SIGMET_TTL_MS) return;
+        if (state.sigmetsLoading) return;
+        state.sigmetsLoading = true;
+        const seq = ++state.sigmetSeq;
+        try {
+            const res = await fetch(SIGMET_URL);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const geojson = await res.json();
+            if (seq !== state.sigmetSeq) return;
+            state.sigmets = Array.isArray(geojson?.features)
+                ? geojson.features.filter(f => f && f.geometry)
+                : [];
+            state.sigmetsAt = Date.now();
+        } catch (_) {
+            // Advisory feed down — keep whatever we had; the pill just won't
+            // warn rather than erroring out.
+            if (seq === state.sigmetSeq) state.sigmetsAt = Date.now();
+        }
+        state.sigmetsLoading = false;
+        evaluateHazards();
+    }
+
+    /** Re-test which advisories contain the aircraft's current position. */
+    function evaluateHazards() {
+        const pos = state.position;
+        if (!pos) {
+            state.hazardsHere = [];
+            return;
+        }
+        const now = Date.now();
+        const hits = [];
+        for (const f of state.sigmets) {
+            const p = f.properties || {};
+            const until = parseAwcTime(p.validTimeTo);
+            if (until && until < now) continue; // expired advisory
+            if (!pointInFeature(pos.lat, pos.lon, f.geometry)) continue;
+            const meta = hazardMeta(p.hazard);
+            const lo = p.base ?? p.altitudeLow1 ?? null;
+            const hi = p.top ?? p.altitudeHi1 ?? null;
+            hits.push({
+                label: meta.label,
+                color: meta.color,
+                rank: meta.rank,
+                qualifier: p.qualifier || p.severity || '',
+                source: [p.firName, p.icaoId].filter(Boolean).join(' · '),
+                band: (lo || hi) ? `${lo ? Number(lo).toLocaleString() : 'SFC'}–${hi ? Number(hi).toLocaleString() : '∞'} ft` : '',
+                until,
+                raw: p.rawSigmet || p.rawAirSigmet || '',
+            });
+        }
+        hits.sort((a, b) => a.rank - b.rank);
+        state.hazardsHere = hits;
+        renderPill();
+        if (state.popoverOpen) renderPopover();
+    }
+
     // ── Rendering ──────────────────────────────────────────────────────────
     // The pill leads with the weather where the aircraft currently IS (the
     // nearest METAR station to its live position), falling back to arrival
@@ -321,6 +505,14 @@
         const night = state.position
             ? isNightAt(state.position.lat, state.position.lon)
             : nightForStation(st.icao);
+        // Hazard badge: the aircraft is inside at least one active SIGMET /
+        // AIRMET polygon — tinted by the most severe hazard present.
+        const haz = state.hazardsHere;
+        const hazBadge = haz.length
+            ? `<span class="wx-pill-hazard" style="color:${haz[0].color};" title="${esc(haz.map(h => h.label).join(', '))}">
+                   <i class="fa-solid fa-triangle-exclamation"></i>${haz.length > 1 ? `<span class="n">${haz.length}</span>` : ''}
+               </span>`
+            : '';
         pill.innerHTML = `
             <i class="fa-solid ${p ? iconFor(p, night) : 'fa-cloud'} wx-pill-icon"></i>
             <span class="wx-pill-temp">${temp}</span>
@@ -328,6 +520,7 @@
                 <span class="wx-pill-icao">${esc(st.icao)}</span>
                 ${wind && wind !== '—' ? `<span class="wx-pill-wind">${esc(wind)}</span>` : ''}
             </span>
+            ${hazBadge}
         `;
     }
 
@@ -370,11 +563,33 @@
         const nowHTML = (now && !nowIsRoute)
             ? stationHTML(now.km != null ? `NEAR · ${Math.round(now.km)} km` : 'NEAR', now.icao, now.parsed)
             : '';
+        // Active hazards at the aircraft's position, most severe first.
+        const hazHTML = state.hazardsHere.length ? `
+            <div class="wx-hazards">
+                ${state.hazardsHere.map(h => {
+                    const untilStr = h.until
+                        ? `until ${new Date(h.until).toISOString().slice(11, 16)}Z`
+                        : '';
+                    return `
+                    <div class="wx-haz">
+                        <i class="fa-solid fa-triangle-exclamation" style="color:${h.color};"></i>
+                        <div class="wx-haz-main">
+                            <div class="wx-haz-title">
+                                <span>${esc([h.qualifier, h.label].filter(Boolean).join(' '))}</span>
+                                <span class="until">${esc([h.band, untilStr].filter(Boolean).join(' · '))}</span>
+                            </div>
+                            ${h.source ? `<div class="wx-haz-src">${esc(h.source)}</div>` : ''}
+                            ${h.raw ? `<div class="wx-haz-raw">${esc(h.raw)}</div>` : ''}
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>` : '';
         popover.innerHTML = `
             <div class="wx-pop-head">
                 <span class="title">Route Weather</span>
                 <span class="age">${ageLabel()}</span>
             </div>
+            ${hazHTML}
             ${nowHTML}
             ${stationHTML('DEP', state.ctx.depIcao, state.metars.dep)}
             ${stationHTML('ARR', state.ctx.arrIcao, state.metars.arr)}
@@ -411,10 +626,12 @@
         if (!show && state.popoverOpen) setPopover(false);
 
         if (show && !state.refreshTimer) {
+            fetchSigmets(); // hydrate advisories as soon as the pill appears
             state.refreshTimer = setInterval(() => {
                 if (state.windowShown && state.ctx) {
                     fetchMetars(true);
                     resolveNowStation(true);
+                    fetchSigmets(true);
                 }
             }, REFRESH_MS);
         } else if (!show && state.refreshTimer) {
@@ -442,6 +659,7 @@
             if (coords && coords.length >= 2) {
                 state.position = { lat: coords[1], lon: coords[0] };
                 resolveNowStation();
+                evaluateHazards();
             }
         } catch (_) { /* live feed unavailable — keep the last known position */ }
         // Even without movement the sun sets: keep the day/night icon honest.
@@ -537,6 +755,8 @@
             renderPill();
             fetchMetars();
             resolveNowStation();
+            evaluateHazards();
+            fetchSigmets();
         }
         syncVisibility();
     }
