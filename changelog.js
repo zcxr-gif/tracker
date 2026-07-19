@@ -24,6 +24,88 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.8',
+            date: 'July 2026',
+            title: 'Your Fleet & The Weather Up Front',
+            tagline: 'A live hangar of the aircraft you’re flying right now, and an Apple Maps-style weather pill that knows where your flight is, what time it is there, and what the sky is doing.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-plane-up',
+                    text: 'New Fleet tab in the Pro dashboard — on the desktop dock and the mobile tab bar. Every aircraft you currently have on the live map gets its own card: live route and telemetry, that airframe’s career record from your logbook (flights, hours, landings), its previous leg, and a one-tap way to plan the route again.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row">
+                                <span class="glyph"><i class="fa-solid fa-plane-up"></i></span>
+                                <span class="who"><b>Boeing 777-300ER</b><span>Emirates</span></span>
+                                <span class="cl-vis-badge"><span class="dot"></span>IN FLIGHT</span>
+                            </div>
+                            <div class="row cl-vis-mono" style="font-weight:700; color:#fff;">
+                                EGLL <i class="fa-solid fa-plane" style="font-size:9px; color:#4ade80;"></i> KJFK
+                                <span class="cl-vis-dim" style="margin-left:auto; font-weight:600;">36,000 ft · 481 kt</span>
+                            </div>
+                            <div class="row cl-vis-dim" style="font-size:10px;">
+                                <b style="color:#d4d4d8;">20</b> flights&nbsp;·&nbsp;<b style="color:#d4d4d8;">136.4</b> hrs&nbsp;·&nbsp;<b style="color:#d4d4d8;">19</b> landings
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-cloud-sun-rain',
+                    text: 'Weather pill — whenever a flight window is open, a small glass pill sits top-left with the conditions where your aircraft is right now, from the nearest reporting station. Tap it for the full picture: that nearby station plus departure and arrival METARs — wind, visibility, clouds, altimeter and the raw report.',
+                    visual: `
+                        <div class="cl-vis-pill">
+                            <i class="fa-solid fa-cloud-moon-rain"></i>
+                            <span class="t">18°</span>
+                            <span class="m"><b>EGLL</b><span>240° @ 12 kt G22</span></span>
+                        </div>
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b style="color:#fff; font-size:11px;">Route Weather</b>
+                                <span class="cl-vis-dim" style="font-size:9px;">updated just now</span>
+                            </div>
+                            <div class="row">
+                                <span class="cl-vis-dim" style="font-size:8.5px; font-weight:800; letter-spacing:.06em;">NEAR · 12 KM</span>
+                                <b class="cl-vis-mono" style="color:#fff;">EGLL</b>
+                                <span style="margin-left:auto; color:#fff; font-weight:700;">18°C</span>
+                            </div>
+                            <div class="row cl-vis-dim" style="font-size:10px;">Wind <b style="color:#d4d4d8;">240° @ 12 kt G22</b> · Ceiling <b style="color:#d4d4d8;">2,500 ft</b> · <b style="color:#d4d4d8;">1013 hPa</b></div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-moon',
+                    text: 'The pill’s sun or moon is real — computed from the sun’s actual position over your aircraft, so it shows a moon when it’s dark where you’re flying, whatever your own clock says. Condition icons are little scenes too: rain under the cloud with the sun or moon behind it, a bolt for storms, wind for gusty clear days.'
+                },
+                {
+                    tag: 'new', icon: 'fa-triangle-exclamation',
+                    text: 'SIGMET awareness — the pill grows a pulsing hazard badge when your flight is inside an active SIGMET or AIRMET area, tinted by the worst hazard (storms, turbulence, icing and more). The panel lists each advisory with its altitude band, expiry time and the raw text.',
+                    visual: `
+                        <div class="cl-vis-pill">
+                            <i class="fa-solid fa-cloud"></i>
+                            <span class="t">24°</span>
+                            <span class="m"><b>KJFK</b><span>280° @ 8 kt</span></span>
+                            <span class="hz"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                        </div>
+                        <div class="cl-vis-card">
+                            <div class="row cl-vis-haz">
+                                <i class="fa-solid fa-triangle-exclamation" style="color:#ff9500;"></i>
+                                <span class="hz-main"><b>SEV Turbulence</b><span>24,000–38,000 ft · until 17:30Z · MUMBAI FIR</span></span>
+                            </div>
+                            <div class="row cl-vis-haz">
+                                <i class="fa-solid fa-triangle-exclamation" style="color:#ff3b30;"></i>
+                                <span class="hz-main"><b>EMBD Convective</b><span>tops FL450 · until 16:30Z</span></span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'improved', icon: 'fa-palette',
+                    text: 'The weather pill wears the flight window’s own colours — re-theme the window and the pill re-tints with it, live.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-mobile-screen-button',
+                    text: 'On phones the pill knows the sheet — it steps aside while the flight sheet is fully expanded and returns when you drop back to the peek view. And dismissing the weather panel never closes the flight window behind it.'
+                }
+            ]
+        },
+        {
             id: '2026.07.7',
             date: 'July 2026',
             title: 'A Sharper Trail',
@@ -279,6 +361,76 @@
             }
             .cl-cta:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(56,189,248,0.4); }
 
+            /* Optional "See it" visual dropdown under an entry */
+            .cl-visual { margin-top: 8px; }
+            .cl-visual summary {
+                display: inline-flex; align-items: center; gap: 6px;
+                list-style: none; cursor: pointer; user-select: none;
+                font-size: 0.66rem; font-weight: 700; letter-spacing: .04em;
+                color: #7dd3fc; padding: 4px 10px; border-radius: 999px;
+                background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.2);
+                transition: background .15s ease;
+            }
+            .cl-visual summary::-webkit-details-marker { display: none; }
+            .cl-visual summary:hover { background: rgba(56,189,248,0.15); }
+            .cl-visual-chev { font-size: 0.55rem; transition: transform .2s ease; }
+            .cl-visual[open] .cl-visual-chev { transform: rotate(180deg); }
+            .cl-visual-body {
+                margin-top: 10px; padding: 16px 12px;
+                border-radius: 12px; border: 1px solid rgba(255,255,255,0.07);
+                background:
+                    radial-gradient(120% 120% at 20% 0%, rgba(56,189,248,0.06), transparent 55%),
+                    rgba(0,0,0,0.35);
+                display: flex; flex-direction: column; align-items: center; gap: 10px;
+                animation: cl-vis-in .25s ease;
+            }
+            @keyframes cl-vis-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+            /* Miniature mockups used inside the visuals */
+            .cl-vis-pill {
+                display: inline-flex; align-items: center; gap: 8px;
+                padding: 8px 12px; border-radius: 14px;
+                background: linear-gradient(135deg, rgba(45,45,45,0.95), rgba(30,30,34,0.95));
+                border: 1px solid rgba(255,255,255,0.12);
+                box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            }
+            .cl-vis-pill > i { font-size: 15px; color: #cbd5e1; }
+            .cl-vis-pill .t { font-size: 15px; font-weight: 800; color: #fff; }
+            .cl-vis-pill .m { display: flex; flex-direction: column; line-height: 1.15; }
+            .cl-vis-pill .m b { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #94a3b8; letter-spacing: .04em; }
+            .cl-vis-pill .m span { font-size: 9px; color: #64748b; }
+            .cl-vis-pill .hz { color: #ff9500; font-size: 12px; animation: cl-vis-pulse 1.8s ease-in-out infinite; }
+            @keyframes cl-vis-pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+            .cl-vis-card {
+                width: min(300px, 100%);
+                border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+                background: rgba(28,28,32,0.95); overflow: hidden;
+                text-align: left; font-size: 11px; color: #d4d4d8;
+            }
+            .cl-vis-card .row { display: flex; align-items: center; gap: 9px; padding: 9px 11px; }
+            .cl-vis-card .row + .row { border-top: 1px solid rgba(255,255,255,0.06); }
+            .cl-vis-card .glyph {
+                width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto;
+                display: grid; place-items: center; font-size: 12px;
+                background: rgba(74,222,128,0.12); color: #4ade80;
+            }
+            .cl-vis-card .who { min-width: 0; flex: 1; }
+            .cl-vis-card .who b { display: block; color: #fff; font-size: 12px; }
+            .cl-vis-card .who span { color: #71717a; font-size: 10px; }
+            .cl-vis-badge {
+                flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+                font-size: 8.5px; font-weight: 800; letter-spacing: .06em;
+                padding: 3px 8px; border-radius: 999px;
+                background: rgba(74,222,128,0.14); color: #4ade80;
+            }
+            .cl-vis-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: #4ade80; animation: cl-vis-pulse 1.6s ease-in-out infinite; }
+            .cl-vis-mono { font-family: 'JetBrains Mono', monospace; }
+            .cl-vis-dim { color: #71717a; }
+            .cl-vis-haz { display: flex; gap: 8px; align-items: flex-start; }
+            .cl-vis-haz > i { margin-top: 1px; font-size: 12px; }
+            .cl-vis-haz .hz-main b { display: block; color: #fff; font-size: 11px; }
+            .cl-vis-haz .hz-main span { color: #71717a; font-size: 9.5px; }
+
             /* Inline flavor for the desktop Settings pane (no card chrome —
                the config pane already provides the surface + scrolling). */
             .cl-inline .cl-release-head h3 { font-size: 1.02rem; }
@@ -292,12 +444,20 @@
 
     function entryHTML(e) {
         const meta = TAG_META[e.tag] || TAG_META.new;
+        // e.visual is trusted markup authored in this file (never user data):
+        // a small inline mockup shown behind an optional <details> dropdown.
+        const visual = e.visual ? `
+            <details class="cl-visual">
+                <summary><i class="fa-solid fa-eye"></i> See it <i class="fa-solid fa-chevron-down cl-visual-chev"></i></summary>
+                <div class="cl-visual-body">${e.visual}</div>
+            </details>` : '';
         return `
             <div class="cl-item">
                 <div class="cl-item-icon"><i class="fa-solid ${esc(e.icon || 'fa-sparkles')}"></i></div>
                 <div class="cl-item-main">
                     <span class="cl-tag ${meta.cls}">${meta.label}</span>
                     <div class="cl-item-text">${esc(e.text)}</div>
+                    ${visual}
                 </div>
             </div>`;
     }
