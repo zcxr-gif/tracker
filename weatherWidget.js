@@ -66,15 +66,26 @@
     }
 
     // ── Icon selection from a parsed METAR + local day/night ───────────────
+    // Composite glyphs so the pill reads like a tiny weather scene: rain
+    // streaks under the cloud, the sun or moon peeking through light rain or
+    // scattered cloud, a bolt under the cloud in thunderstorms.
     function iconFor(parsed, night = false) {
         const raw = parsed?.raw || '';
-        if (/\bTS/.test(raw)) return 'fa-cloud-bolt';
-        if (/\b(?:\+|-)?(?:SH)?(?:SN|SG|PL|IC|GS|GR)\b/.test(raw)) return 'fa-snowflake';
-        if (/\b(?:\+|-)?(?:SH|FZ)?(?:RA|DZ)\b/.test(raw)) return 'fa-cloud-rain';
-        if (/\b(FG|BR|HZ|FU|DU|SA|VA)\b/.test(raw)) return 'fa-smog';
         const cover = parsed?.clouds?.[0]?.cover;
-        if (cover === 'BKN' || cover === 'OVC' || cover === 'VV') return 'fa-cloud';
+        const shut = cover === 'BKN' || cover === 'OVC' || cover === 'VV';
+
+        if (/\bTS/.test(raw)) return 'fa-cloud-bolt';                       // lightning under the cloud
+        if (/\b(?:\+|-)?(?:SH)?(?:SN|SG|PL|IC|GS|GR)\b/.test(raw)) return 'fa-snowflake';
+        if (/\b(?:\+|-)?(?:SH|FZ)?(?:RA|DZ)\b/.test(raw)) {
+            // Heavy rain, or a shut sky: rain streaks under a full cloud.
+            if (/\+(?:SH|FZ)?(?:RA|DZ)/.test(raw) || shut) return 'fa-cloud-showers-heavy';
+            // Lighter rain with the sun / moon still visible behind it.
+            return night ? 'fa-cloud-moon-rain' : 'fa-cloud-sun-rain';
+        }
+        if (/\b(FG|BR|HZ|FU|DU|SA|VA)\b/.test(raw)) return 'fa-smog';
+        if (shut) return 'fa-cloud';
         if (cover === 'FEW' || cover === 'SCT') return night ? 'fa-cloud-moon' : 'fa-cloud-sun';
+        if ((parsed?.windSpeed || 0) >= 25 || (parsed?.windGust || 0) >= 35) return 'fa-wind';
         return night ? 'fa-moon' : 'fa-sun';
     }
 
