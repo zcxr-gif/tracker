@@ -473,28 +473,32 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         //   • Pro accounts can pin up to PIN_LIMIT_PRO
         // The Pro upsell only appears once a non-Pro user tries to exceed the
         // free allowance, not on the very first pin.
-        // Pro is resolved asynchronously (profiles.is_pro → window.InflightUser),
-        // so window.isInflightPro() can still read false right after load or on a
-        // transient fetch hiccup. Fall back to the persisted entitlement (written
-        // by refreshProStatus) so a genuine Pro user isn't capped at the free
-        // limit. If the live check says Pro, re-persist it so the fallback holds.
+        // The higher pin allowance keys off being SIGNED IN — the same signal
+        // the desktop settings use to unlock their gated rows
+        // (ProfileUI._currentUser). This is reliable, unlike the async
+        // profiles.is_pro flag (window.isInflightPro), which can read false for
+        // a genuine account right after load or on a transient fetch hiccup. We
+        // still honour the Pro flag / persisted entitlement as extra signals so
+        // nobody is ever downgraded.
+        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser);
         let isPro = false;
         try { isPro = (typeof window.isInflightPro === 'function') && window.isInflightPro(); } catch (_) {}
         if (!isPro) {
             try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
         }
-        const limit = isPro ? window.PIN_LIMIT_PRO : window.PIN_LIMIT_FREE;
+        const higherTier = isSignedIn || isPro;
+        const limit = higherTier ? window.PIN_LIMIT_PRO : window.PIN_LIMIT_FREE;
         if (window.pinnedFlights.size >= limit) {
             if (typeof showNotification === 'function') {
-                showNotification(isPro
+                showNotification(higherTier
                     ? `You can pin up to ${limit} flights at once.`
-                    : `You can pin up to ${window.PIN_LIMIT_FREE} flights — go Pro to pin up to ${window.PIN_LIMIT_PRO}.`,
-                    isPro ? 'info' : 'error');
+                    : `You can pin up to ${window.PIN_LIMIT_FREE} flights — sign in to pin up to ${window.PIN_LIMIT_PRO}.`,
+                    higherTier ? 'info' : 'error');
             }
-            // Nudge non-Pro users toward the Pro upgrade (App Store rules: no
+            // Signed-out users over the free cap get nudged to sign in (no
             // in-app upgrade path on iOS native, so skip the modal there).
             const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
-            if (!isPro && !iosNative) {
+            if (!higherTier && !iosNative) {
                 if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
                 else if (typeof window.initInflightPro === 'function') window.initInflightPro();
             }
