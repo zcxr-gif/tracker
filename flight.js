@@ -673,7 +673,15 @@ window.pinFlight = function(flightId) {
     });
 
     container.appendChild(card);
-    
+
+    // Draw the aircraft's flown path even when it was pinned without ever being
+    // opened (e.g. via the Shift+P shortcut on a hovered flight). Opening a
+    // flight fetches its /history and builds the trail; a quick-pin skips that,
+    // so trigger it here. No-ops when the trail already exists.
+    if (typeof window.ensurePinnedFlownPath === 'function') {
+        window.ensurePinnedFlownPath(flightId);
+    }
+
     const pinBtn = document.getElementById('pin-flight-btn');
     if (pinBtn && currentFlightInWindow === flightId) {
         pinBtn.classList.add('active-pin');
@@ -19976,10 +19984,84 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 }
 
+// Draw the flown-path trail for a flight that is PINNED but not currently open
+// in the flight window. Opening a flight fetches /history and builds its trail;
+// pinning via Shift+P (or the pin button on a flight you only hovered) never
+// opens it, so without this the `flown-path-<id>` layer is never created and no
+// path appears on the map. Idempotent: if the layer already exists (e.g. the
+// flight is the one open in the window, which manages its own trail) it no-ops.
+async function ensurePinnedFlownPath(flightId) {
+    try {
+        if (!flightId || typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+        const flownLayerId = `flown-path-${flightId}`;
+        // Already drawn, or the open flight already owns its trail — nothing to do.
+        if (sectorOpsMap.getSource(flownLayerId)) return;
+        if (flightId === currentFlightInWindow) return;
+
+        // Pull the breadcrumb history the same way handleAircraftClick does.
+        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+        const res = await fetch(historyUrl).catch(() => ({ ok: false }));
+        const data = (res && res.ok) ? await res.json() : null;
+        const arr = data?.path || data?.route || [];
+        const sortedRoutePoints = (data && data.ok && Array.isArray(arr))
+            ? arr.slice().sort((a, b) => new Date(a.date) - new Date(b.date))
+            : [];
+
+        // Anchor to the live marker so the drawn line doesn't overshoot the icon.
+        const mk = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
+        const mkMs = mk?.properties?.last_update ? new Date(mk.properties.last_update).getTime() : null;
+        const trailUpToMarker = (mkMs != null)
+            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= mkMs)
+            : sortedRoutePoints;
+
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightId, trailUpToMarker.slice());
+
+        const livePosition = (mk?.geometry?.coordinates)
+            ? { lat: mk.geometry.coordinates[1], lon: mk.geometry.coordinates[0], alt_ft: mk.properties?.altitude ?? 0 }
+            : null;
+
+        // Nothing to render (no history and no live fix) — a later live tick will
+        // re-run this once the marker exists.
+        if (!trailUpToMarker.length && !livePosition) return;
+
+        // The fetch is async; if the user unpinned while it was in flight, don't
+        // leave an orphaned trail on the map.
+        if (typeof window.pinnedFlights !== 'undefined'
+            && !window.pinnedFlights.has(flightId)
+            && flightId !== currentFlightInWindow) return;
+
+        const routeFeature = generateAltitudeColoredRoute(trailUpToMarker, livePosition, null);
+
+        if (typeof FlownPath3D !== 'undefined') {
+            try { FlownPath3D.updatePath(sectorOpsMap, flightId, trailUpToMarker, mapFilters.show3DPath); } catch (_) {}
+        }
+
+        // Re-check after the await — a concurrent open/pin may have created it.
+        if (!sectorOpsMap.getSource(flownLayerId)) {
+            sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeature, lineMetrics: true });
+            sectorOpsMap.addLayer({
+                id: flownLayerId,
+                type: 'line',
+                source: flownLayerId,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-width': 3, 'line-opacity': 1, 'line-color': '#38bdf8' }
+            }, (typeof getUnderAircraftAnchor === 'function') ? getUnderAircraftAnchor() : undefined);
+            if (typeof applyFlownPathGradient === 'function') applyFlownPathGradient(flownLayerId, routeFeature);
+            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
+                if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
+                sectorOpsLiveFlightPathLayers[flightId].flown = flownLayerId;
+            }
+        }
+    } catch (err) {
+        console.warn('ensurePinnedFlownPath failed:', err);
+    }
+}
+
 // Exposed so other modules (e.g. the first-run onboarding's live window demo)
 // can open and tear down a real flight info window through the normal app path.
 if (typeof window !== 'undefined') {
     window.handleAircraftClick = handleAircraftClick;
+    window.ensurePinnedFlownPath = ensurePinnedFlownPath;
     // Read-only view of the live flight cache for non-module scripts (the
     // Partners tab uses it to show each VA's live fleet).
     window.getLiveMapFeatures = () => currentMapFeatures;
