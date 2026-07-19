@@ -10243,6 +10243,30 @@ async function fetchAirportsData() {
         }
     }
 }
+
+// Shared lookups over the bundled airports DB for satellite modules (the
+// weather pill uses these to find METAR stations near the aircraft without
+// re-downloading the 12 MB airports.json).
+window.findNearestAirports = (lat, lon, count = 4) => {
+    if (lat == null || lon == null || !airportsData) return [];
+    const out = [];
+    for (const [icao, apt] of Object.entries(airportsData)) {
+        // Proper 4-letter ICAO codes only — numeric-prefixed US strips and
+        // heliports essentially never publish METARs.
+        if (icao.length !== 4 || !/^[A-Z]{4}$/.test(icao)) continue;
+        if (apt.lat == null || apt.lon == null) continue;
+        const km = getDistanceKm(lat, lon, apt.lat, apt.lon);
+        out.push({ icao, lat: apt.lat, lon: apt.lon, km });
+    }
+    out.sort((a, b) => a.km - b.km);
+    return out.slice(0, count);
+};
+
+window.getAirportCoords = (icao) => {
+    const apt = airportsData?.[String(icao || '').toUpperCase()];
+    return (apt && apt.lat != null) ? { lat: apt.lat, lon: apt.lon } : null;
+};
+
     /// --- Helper Functions ---
 
 /**
@@ -19610,6 +19634,19 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 if (!arrIcao) arrIcao = flatWps[flatWps.length - 1].identifier || flatWps[flatWps.length - 1].name;
             }
         }
+
+        // Feed the top-left weather pill (weatherWidget.js) — it only renders
+        // while this window is displayed, so it just needs the route context
+        // and where the aircraft currently is.
+        window.dispatchEvent(new CustomEvent('flight-window-weather', {
+            detail: {
+                flightId: flightProps.flightId,
+                depIcao,
+                arrIcao,
+                lat: flightProps.position?.lat ?? flightProps.position?.latitude ?? null,
+                lon: flightProps.position?.lon ?? flightProps.position?.longitude ?? null,
+            }
+        }));
 
         const filedPlanData = await FlightDispatchService.getFiledPlan(
             flightProps.username,

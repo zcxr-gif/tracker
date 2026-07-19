@@ -126,6 +126,21 @@ export const ProfileUI = {
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
 
+    // ── Fleet (virtual hangar) ───────────────────────────────────────────────
+    // The fleet lists only aircraft currently on the live map. A deep slice of
+    // the IF logbook (several pages, not just the dashboard's page 1) enriches
+    // each live card with that airframe's career stats and previous leg.
+    _fleet: {
+        loading: false,
+        loaded: false,
+        error: null,
+        flights: [],        // flattened logbook pages used to enrich live cards
+        scannedCount: 0,    // how many flights the stats are derived from
+        totalCount: 0,      // pilot's total logged flights (API count)
+        search: '',
+    },
+    _FLEET_MAX_PAGES: 10,
+
     // ── Pilot Watchlist ──────────────────────────────────────────────────────
     _watchlist: [],
     _watchedPilotStatus: {},
@@ -146,7 +161,7 @@ export const ProfileUI = {
     _dockOrder: null,          // array of tab ids overriding default order, or null
 
     // Default tab order — _dockOrder may override this
-    _DEFAULT_DOCK_ORDER: ['dashboard', 'career-deep-dive', 'airspace-intel', 'flight-plan', 'watchlist', 'settings'],
+    _DEFAULT_DOCK_ORDER: ['dashboard', 'career-deep-dive', 'fleet', 'airspace-intel', 'flight-plan', 'watchlist', 'settings'],
 
     // Accent color presets — applied as CSS variable overrides on the wrapper layer.
     // Each preset supplies the same four vars used throughout the stylesheet.
@@ -183,6 +198,7 @@ export const ProfileUI = {
             // Tabs
             'tab.dashboard': 'Home',
             'tab.dossier': 'Dossier',
+            'tab.fleet': 'Fleet',
             'tab.traffic': 'Traffic',
             'tab.dispatch': 'Dispatch',
             'tab.watchlist': 'Watchlist',
@@ -265,7 +281,7 @@ export const ProfileUI = {
             'trend.empty': 'Trends will appear once we have at least two periods of data.',
         },
         es: {
-            'tab.dashboard': 'Inicio', 'tab.dossier': 'Dossier', 'tab.traffic': 'Tráfico',
+            'tab.dashboard': 'Inicio', 'tab.dossier': 'Dossier', 'tab.fleet': 'Flota', 'tab.traffic': 'Tráfico',
             'tab.dispatch': 'Despacho', 'tab.watchlist': 'Seguimiento', 'tab.settings': 'Ajustes',
             'header.dossier.title': 'Dossier del Piloto',
             'header.dossier.sub': 'Análisis de carrera y estadísticas de vuelo completas.',
@@ -308,7 +324,7 @@ export const ProfileUI = {
             'trend.empty': 'Las tendencias aparecerán con al menos dos períodos de datos.',
         },
         'pt-BR': {
-            'tab.dashboard': 'Início', 'tab.dossier': 'Dossiê', 'tab.traffic': 'Tráfego',
+            'tab.dashboard': 'Início', 'tab.dossier': 'Dossiê', 'tab.fleet': 'Frota', 'tab.traffic': 'Tráfego',
             'tab.dispatch': 'Despacho', 'tab.watchlist': 'Observação', 'tab.settings': 'Configurações',
             'header.dossier.title': 'Dossiê do Piloto',
             'header.dossier.sub': 'Análise de carreira e estatísticas de voo completas.',
@@ -351,7 +367,7 @@ export const ProfileUI = {
             'trend.empty': 'Tendências aparecerão com pelo menos dois períodos de dados.',
         },
         fr: {
-            'tab.dashboard': 'Accueil', 'tab.dossier': 'Dossier', 'tab.traffic': 'Trafic',
+            'tab.dashboard': 'Accueil', 'tab.dossier': 'Dossier', 'tab.fleet': 'Flotte', 'tab.traffic': 'Trafic',
             'tab.dispatch': 'Dispatch', 'tab.watchlist': 'Suivi', 'tab.settings': 'Paramètres',
             'header.dossier.title': 'Dossier Pilote',
             'header.dossier.sub': 'Analyses de carrière et statistiques de vol détaillées.',
@@ -394,7 +410,7 @@ export const ProfileUI = {
             'trend.empty': 'Les tendances apparaîtront avec au moins deux périodes de données.',
         },
         de: {
-            'tab.dashboard': 'Start', 'tab.dossier': 'Dossier', 'tab.traffic': 'Verkehr',
+            'tab.dashboard': 'Start', 'tab.dossier': 'Dossier', 'tab.fleet': 'Flotte', 'tab.traffic': 'Verkehr',
             'tab.dispatch': 'Dispatch', 'tab.watchlist': 'Beobachtung', 'tab.settings': 'Einstellungen',
             'header.dossier.title': 'Pilotendossier',
             'header.dossier.sub': 'Karriereanalysen und Flugstatistiken.',
@@ -437,7 +453,7 @@ export const ProfileUI = {
             'trend.empty': 'Trends erscheinen mit mindestens zwei Datenperioden.',
         },
         ja: {
-            'tab.dashboard': 'ホーム', 'tab.dossier': 'ドシエ', 'tab.traffic': '交通',
+            'tab.dashboard': 'ホーム', 'tab.dossier': 'ドシエ', 'tab.fleet': 'フリート', 'tab.traffic': '交通',
             'tab.dispatch': 'ディスパッチ', 'tab.watchlist': 'ウォッチリスト', 'tab.settings': '設定',
             'header.dossier.title': 'パイロット・ドシエ',
             'header.dossier.sub': 'キャリア分析と詳細な飛行統計。',
@@ -583,6 +599,14 @@ init(supabaseClient) {
                     if (this._isOpen && this._activeTab === 'dashboard') {
                         if (this._liveFlights.length > 0 || previouslyHadFlights) {
                             this._updateLiveFlightDOM();
+                        }
+                    }
+
+                    // Keep hangar cards' live status (in flight / parked,
+                    // telemetry) in sync while the Fleet tab is open.
+                    if (this._isOpen && this._activeTab === 'fleet' && this._fleet.loaded) {
+                        if (this._liveFlights.length > 0 || previouslyHadFlights) {
+                            this._refreshFleetGrid();
                         }
                     }
                 }
@@ -784,6 +808,11 @@ init(supabaseClient) {
                     this._updateAirspaceDOM();
                 }
             }, 8000);
+        }
+
+        // Lazily hydrate the fleet hangar the first time the tab is opened.
+        if (this._activeTab === 'fleet') {
+            this._fetchFleetData();
         }
     },
 
@@ -1461,7 +1490,7 @@ const requests = [
             if (!this._isOpen) return;
             if (e.key === 'Escape') { this.close(); return; }
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-            const tabMap = { '1': 'dashboard', '2': 'career-deep-dive', '3': 'airspace-intel', '4': 'flight-plan', '5': 'watchlist', '6': 'settings' };
+            const tabMap = { '1': 'dashboard', '2': 'career-deep-dive', '3': 'fleet', '4': 'airspace-intel', '5': 'flight-plan', '6': 'watchlist', '7': 'settings' };
             if (tabMap[e.key]) this.switchTab(tabMap[e.key]);
         });
 
@@ -1594,6 +1623,7 @@ const requests = [
         const allItems = {
             'dashboard':        { icon: 'fa-house',           labelKey: 'tab.dashboard' },
             'career-deep-dive': { icon: 'fa-id-card',         labelKey: 'tab.dossier'   },
+            'fleet':            { icon: 'fa-plane-up',        labelKey: 'tab.fleet'     },
             'airspace-intel':   { icon: 'fa-tower-broadcast', labelKey: 'tab.traffic'   },
             'flight-plan':      { icon: 'fa-route',           labelKey: 'tab.dispatch'  },
             'watchlist':        { icon: 'fa-binoculars',      labelKey: 'tab.watchlist' },
@@ -2594,6 +2624,10 @@ _getTabContentHTML() {
             return this._getWatchlistTabHTML();
         }
 
+        if (this._activeTab === 'fleet') {
+            return this._getFleetTabHTML();
+        }
+
         if (this._activeTab === 'dashboard') {
             const user = this._currentUser;
             const name = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
@@ -2778,6 +2812,7 @@ if (this._activeTab === 'flight-plan') {
             const dockPreviewHTML = this._resolveDockOrder().map(id => {
                 const labelKeys = {
                     'dashboard': 'tab.dashboard', 'career-deep-dive': 'tab.dossier',
+                    'fleet': 'tab.fleet',
                     'airspace-intel': 'tab.traffic', 'flight-plan': 'tab.dispatch',
                     'watchlist': 'tab.watchlist', 'settings': 'tab.settings',
                 };
@@ -3443,6 +3478,19 @@ const contentRoot = document.getElementById('pui-content');
             }
         }
 
+        // ─── Fleet (Virtual Hangar) Listeners ─────────────────────────────
+        if (this._activeTab === 'fleet') {
+            const searchInput = document.getElementById('pui-fleet-search');
+            searchInput?.addEventListener('input', () => {
+                this._fleet.search = searchInput.value;
+                this._refreshFleetGrid();
+            });
+
+            document.getElementById('pui-fleet-refresh')?.addEventListener('click', () => {
+                this._fetchFleetData(true);
+            });
+        }
+
         if (this._activeTab === 'onboarding') {
             const themeRadios = document.querySelectorAll('input[name="onboarding-theme"]');
             themeRadios.forEach(radio => {
@@ -3637,6 +3685,7 @@ const contentRoot = document.getElementById('pui-content');
                 if (preview) {
                     const labelKeys = {
                         'dashboard': 'tab.dashboard', 'career-deep-dive': 'tab.dossier',
+                        'fleet': 'tab.fleet',
                         'airspace-intel': 'tab.traffic', 'flight-plan': 'tab.dispatch',
                         'watchlist': 'tab.watchlist', 'settings': 'tab.settings',
                     };
@@ -4042,6 +4091,411 @@ const contentRoot = document.getElementById('pui-content');
                         </div>`;
                 }).join('')}
             </div>`;
+    },
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // FLEET (VIRTUAL HANGAR)
+    // Groups the pilot's logbook by airframe (aircraft + livery), overlays the
+    // live flight feed to mark what is currently in the air, and renders a
+    // searchable hangar: state, current location, last flight, and per-frame
+    // career stats.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    _fleetEsc(str) {
+        return String(str ?? '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+
+    /**
+     * Pull a deep slice of the logbook (up to _FLEET_MAX_PAGES pages) so the
+     * hangar is built from more history than the dashboard's first page.
+     * Resolves the IF userId and metadata maps itself if the dashboard fetch
+     * hasn't run yet (e.g. the user lands directly on the Fleet tab).
+     */
+    async _fetchFleetData(force = false) {
+        if (this._fleet.loading) return;
+        if (this._fleet.loaded && !force) return;
+
+        const ifUsername = this._currentUser?.user_metadata?.if_username;
+        if (!ifUsername) return; // tab renders its "not linked" state
+
+        this._fleet.loading = true;
+        this._fleet.error = null;
+        this._refreshFleetTab();
+
+        try {
+            let userId = this._ifData.userId;
+            if (!userId) {
+                const userRes = await fetch(`${this._backendUrl}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ discourseNames: [ifUsername], userHashes: [ifUsername] })
+                });
+                const userData = await userRes.json();
+                userId = userData?.users?.[0]?.userId;
+                if (userId) this._ifData.userId = userId;
+            }
+            if (!userId) throw new Error('Could not find an Infinite Flight account with that username.');
+
+            if (this._aircraftMap.size === 0 || this._liveryMap.size === 0) {
+                const metaJson = await fetch(`${this._backendUrl}/api/metadata`).then(r => r.json()).catch(() => null);
+                if (metaJson && metaJson.ok) {
+                    this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
+                    this._liveryMap = new Map((metaJson.liveries || []).map(l => [
+                        String(l.id).toLowerCase(),
+                        { liveryName: l.name, aircraftName: l.aircraftName }
+                    ]));
+                }
+            }
+
+            // Page 1 reveals the page size and total; remaining pages fetch in parallel.
+            const first = await fetch(`${this._backendUrl}/api/users/${userId}/flights?page=1`).then(r => r.json());
+            if (!first?.ok) throw new Error('Flight logbook is unavailable right now.');
+
+            const flights = [...(first.flights || [])];
+            const total = first.totalCount || flights.length;
+            const pageSize = flights.length;
+
+            if (pageSize > 0 && total > pageSize) {
+                const lastPage = Math.min(Math.ceil(total / pageSize), this._FLEET_MAX_PAGES);
+                const pagePromises = [];
+                for (let p = 2; p <= lastPage; p++) {
+                    pagePromises.push(
+                        fetch(`${this._backendUrl}/api/users/${userId}/flights?page=${p}`)
+                            .then(r => r.json())
+                            .catch(() => null)
+                    );
+                }
+                const pages = await Promise.all(pagePromises);
+                pages.forEach(pg => {
+                    if (pg?.ok && Array.isArray(pg.flights)) flights.push(...pg.flights);
+                });
+            }
+
+            this._fleet.flights = flights;
+            this._fleet.scannedCount = flights.length;
+            this._fleet.totalCount = total;
+            this._fleet.loaded = true;
+            this._fleet.loading = false;
+        } catch (err) {
+            console.error('Failed to fetch fleet data:', err);
+            this._fleet.error = err.message;
+            this._fleet.loading = false;
+        }
+
+        this._refreshFleetTab();
+    },
+
+    _refreshFleetTab() {
+        if (this._isOpen && this._activeTab === 'fleet') this._renderContentOnly();
+    },
+
+    /**
+     * Build the hangar model: one entry per airframe (aircraft + livery).
+     * Each entry carries career stats for that frame, its last flight, and —
+     * when the pilot is currently online in it — the live flight overlay.
+     */
+    _buildFleetModel() {
+        const entries = new Map();
+
+        for (const f of (this._fleet.flights || [])) {
+            const aId = f.aircraftId || f.aircraftID;
+            if (!aId) continue;
+            const lId = f.liveryId || f.liveryID || '';
+            const key = `${String(aId).toLowerCase()}|${String(lId).toLowerCase()}`;
+
+            let e = entries.get(key);
+            if (!e) {
+                e = {
+                    key,
+                    aircraftName: this._resolveAircraftName(aId, lId),
+                    liveryName: lId ? (this._liveryMap.get(String(lId).toLowerCase())?.liveryName || '') : '',
+                    flightCount: 0,
+                    totalMinutes: 0,
+                    landings: 0,
+                    lastFlight: null,
+                    lastFlightTs: 0,
+                    live: null,
+                    flights: [],
+                    flightIds: new Set(),
+                };
+                entries.set(key, e);
+            }
+
+            e.flightCount++;
+            e.totalMinutes += f.totalTime || 0;
+            e.landings += f.landingCount || 0;
+            e.flights.push(f);
+            if (f.id) e.flightIds.add(String(f.id).toLowerCase());
+
+            const ts = f.created ? new Date(f.created).getTime() : 0;
+            if (!e.lastFlight || ts > e.lastFlightTs) {
+                e.lastFlight = f;
+                e.lastFlightTs = ts;
+            }
+        }
+
+        const groups = Array.from(entries.values());
+
+        // The fleet is ONLY the aircraft currently present on the live map —
+        // one card per live flight, matched to its logbook airframe by flight
+        // id. Flights that have left the map are just past flights: they
+        // enrich a live card with career stats and the previous completed
+        // leg, but they never produce a fleet entry of their own.
+        const logbookHasIds = groups.some(e => e.flightIds.size > 0);
+        const list = [];
+        for (const lf of (this._liveFlights || [])) {
+            const liveId = lf.flightId ? String(lf.flightId).toLowerCase() : null;
+            let match = (liveId && groups.find(e => !e.live && e.flightIds.has(liveId))) || null;
+
+            // Data-shape guard: only if this logbook carries no flight ids at
+            // all does an exact airframe + livery match stand in for the id.
+            if (!match && !logbookHasIds) {
+                const liveAcft = lf.aircraft?.aircraftName || '';
+                const liveLivery = lf.aircraft?.liveryName || '';
+                match = groups.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) || null;
+            }
+
+            if (!match) {
+                // On the map but not in the scanned logbook yet (the leg just
+                // started) — surface it as its own live card.
+                match = {
+                    key: `live|${lf.flightId || lf.callsign || Math.random()}`,
+                    aircraftName: lf.aircraft?.aircraftName || 'Unknown Aircraft',
+                    liveryName: lf.aircraft?.liveryName || '',
+                    flightCount: 0,
+                    totalMinutes: 0,
+                    landings: 0,
+                    lastFlight: null,
+                    lastFlightTs: 0,
+                    live: null,
+                    flights: [],
+                    flightIds: new Set(),
+                };
+            }
+            match.live = lf;
+            list.push(match);
+        }
+
+        for (const e of list) {
+            const gs = e.live.position?.gs_kt || 0;
+            e.status = gs >= 45 ? 'flying' : 'ground';
+            e.location = e.live.arrivalIcao || null;
+
+            // The in-progress leg is already logged, so "last flight" should
+            // show the previous completed leg, not the live one.
+            const liveId = e.live.flightId ? String(e.live.flightId).toLowerCase() : null;
+            if (liveId && e.lastFlight && String(e.lastFlight.id || '').toLowerCase() === liveId) {
+                let best = null, bestTs = 0;
+                for (const f of e.flights) {
+                    if (String(f.id || '').toLowerCase() === liveId) continue;
+                    const ts = f.created ? new Date(f.created).getTime() : 0;
+                    if (!best || ts > bestTs) { best = f; bestTs = ts; }
+                }
+                e.lastFlight = best;
+                e.lastFlightTs = bestTs;
+            }
+        }
+
+        return list;
+    },
+
+    /** Apply the current search to the hangar model (live cards only). */
+    _filterFleetModel(list) {
+        const q = this._fleet.search.trim().toLowerCase();
+        if (!q) return list;
+        return list.filter(e => {
+            const hay = [
+                e.aircraftName, e.liveryName,
+                e.lastFlight?.originAirport, e.lastFlight?.destinationAirport,
+                e.lastFlight?.callsign,
+                e.live?.callsign, e.live?.departureIcao, e.live?.arrivalIcao,
+            ].filter(Boolean).join(' ').toLowerCase();
+            return hay.includes(q);
+        });
+    },
+
+    _getFleetTabHTML() {
+        const ifUsername = this._currentUser?.user_metadata?.if_username || '';
+
+        const header = `
+            <div class="pui-tab-header pui-fade-in">
+                <div>
+                    <h2>${this.t('tab.fleet')}</h2>
+                    <p>Your aircraft currently on the live map — where they're headed and their track record.</p>
+                </div>
+                <div class="pui-tab-header-actions">
+                    <div class="pui-input-wrapper" style="width:230px;">
+                        <i class="fa-solid fa-magnifying-glass pui-input-icon"></i>
+                        <input type="text" id="pui-fleet-search" class="pui-input has-icon"
+                               placeholder="Search aircraft, livery, airport…"
+                               value="${this._fleetEsc(this._fleet.search)}">
+                    </div>
+                    <button class="pui-icon-btn" id="pui-fleet-refresh" title="Refresh fleet">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (!ifUsername) {
+            return `
+                ${header}
+                <div class="pui-alert pui-alert-info pui-fade-in" style="grid-column: 1 / -1; margin-top: 24px; padding: 24px; text-align: center; flex-direction: column; gap: 12px;">
+                    <i class="fa-solid fa-link-slash" style="font-size: 2rem; opacity: 0.5;"></i>
+                    <span style="font-size: 1.1rem; font-weight: 600;">Account Not Linked</span>
+                    <span>Link your Infinite Flight account in Settings to build your virtual hangar.</span>
+                </div>`;
+        }
+
+        // Skeletons while the first fetch runs (or is about to run — switchTab
+        // kicks it off right after this render).
+        if (!this._fleet.loaded && !this._fleet.error) {
+            return `
+                ${header}
+                <div class="pui-hangar-grid pui-fade-in" style="margin-top: var(--pui-gap-md);">
+                    ${Array.from({ length: 6 }).map(() => `<div class="pui-skeleton" style="height:190px;border-radius:var(--pui-radius-lg);"></div>`).join('')}
+                </div>`;
+        }
+
+        if (this._fleet.error && !this._fleet.loaded) {
+            return `
+                ${header}
+                <div class="pui-alert pui-alert-error pui-fade-in" style="margin-top: 16px;">
+                    <i class="fa-solid fa-circle-xmark"></i> ${this._fleetEsc(this._fleet.error)}
+                </div>`;
+        }
+
+        const model = this._buildFleetModel();
+        const airborne = model.filter(e => e.status === 'flying').length;
+        const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
+
+        const scanNote = this._fleet.totalCount > this._fleet.scannedCount
+            ? `career stats from your last ${this._fleet.scannedCount.toLocaleString()} of ${this._fleet.totalCount.toLocaleString()} flights`
+            : `career stats from ${this._fleet.scannedCount.toLocaleString()} logged flights`;
+
+        return `
+            ${header}
+            <div class="pui-hangar-summary pui-fade-in">
+                <div class="pui-hangar-stat"><span class="value ${model.length > 0 ? 'pui-hangar-live-text' : ''}" id="pui-fleet-stat-count">${model.length}</span><span class="label">On the map</span></div>
+                <div class="pui-hangar-stat"><span class="value" id="pui-fleet-stat-air">${airborne}</span><span class="label">Airborne</span></div>
+                <div class="pui-hangar-stat"><span class="value" id="pui-fleet-stat-hours">${totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })}h</span><span class="label">Career hours</span></div>
+                <div class="pui-hangar-summary-note">${scanNote}</div>
+            </div>
+            <div id="pui-fleet-grid" class="pui-hangar-grid pui-fade-in">
+                ${this._getFleetGridHTML(model)}
+            </div>
+        `;
+    },
+
+    _getFleetGridHTML(model = null) {
+        const list = this._filterFleetModel(model || this._buildFleetModel());
+        const dateLocale = this._locale === 'en' ? 'en-US' : this._locale;
+
+        if (list.length === 0) {
+            const q = this._fleet.search.trim();
+            return `
+                <div class="pui-empty-state" style="grid-column: 1 / -1;">
+                    <i class="fa-solid fa-plane-slash"></i>
+                    <h4>${q ? 'No aircraft match your search' : 'No aircraft on the map'}</h4>
+                    <p>${q
+                        ? `None of your live aircraft match “${this._fleetEsc(q)}”.`
+                        : 'Your fleet shows the aircraft from your flights currently on the live map. Past flights are just history — take off in Infinite Flight and your aircraft will appear here.'}</p>
+                </div>`;
+        }
+
+        return list.map(e => {
+            const esc = (s) => this._fleetEsc(s);
+            const live = e.live;
+            const flying = e.status === 'flying';
+            const statusPill = `<span class="pui-hangar-status live"><span class="pui-hangar-dot"></span>${flying ? 'In flight' : 'On the ground'}</span>`;
+
+            const dep = live.departureIcao || '----';
+            const arr = live.arrivalIcao || '----';
+            const alt = Math.round(live.position?.alt_ft || 0).toLocaleString();
+            const gs = Math.round(live.position?.gs_kt || 0);
+            const cs = live.callsign || '';
+            const whereHTML = `
+                <div class="pui-hangar-where live">
+                    <div class="pui-hangar-route">
+                        <span class="pui-hangar-icao pui-drillable" ${dep !== '----' ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>${esc(dep)}</span>
+                        <i class="fa-solid fa-plane pui-hangar-route-plane"></i>
+                        <span class="pui-hangar-icao pui-drillable" ${arr !== '----' ? `data-drill="icao" data-icao="${esc(arr)}"` : ''}>${esc(arr)}</span>
+                        ${cs ? `<span class="pui-hangar-cs pui-mono pui-drillable" data-drill="callsign" data-callsign="${esc(cs)}">${esc(cs)}</span>` : ''}
+                    </div>
+                    <div class="pui-hangar-tele">
+                        <span><span class="label">ALT</span> ${alt} ft</span>
+                        <span><span class="label">GS</span> ${gs} kt</span>
+                    </div>
+                </div>`;
+
+            // Last completed flight (from the logbook) — the live leg isn't logged yet.
+            let lastFlightHTML = '';
+            const lf = e.lastFlight;
+            if (lf) {
+                const dep = lf.originAirport || '????';
+                const arr = lf.destinationAirport || '????';
+                const hrs = ((lf.totalTime || 0) / 60).toFixed(1);
+                const dateStr = lf.created
+                    ? new Date(lf.created).toLocaleDateString(dateLocale, { month: 'short', day: 'numeric', timeZone: this._timezone })
+                    : '';
+                const planAttr = (lf.originAirport && lf.destinationAirport)
+                    ? `data-action="plan-route" data-dep="${esc(dep)}" data-arr="${esc(arr)}"` : '';
+                lastFlightHTML = `
+                    <div class="pui-hangar-last">
+                        <span class="label">Last flight</span>
+                        <span class="pui-hangar-icao pui-drillable" ${lf.originAirport ? `data-drill="icao" data-icao="${esc(dep)}"` : ''}>${esc(dep)}</span>
+                        <span class="pui-hangar-arrow">→</span>
+                        <span class="pui-hangar-icao pui-drillable" ${lf.destinationAirport ? `data-drill="icao" data-icao="${esc(arr)}"` : ''}>${esc(arr)}</span>
+                        <span class="meta">${hrs}h${dateStr ? ` · ${dateStr}` : ''}${lf.callsign ? ` · ${esc(lf.callsign)}` : ''}</span>
+                        ${planAttr ? `<button class="pui-icon-btn pui-hangar-plan-btn" ${planAttr} title="Plan this route again"><i class="fa-solid fa-route"></i></button>` : ''}
+                    </div>`;
+            } else if (live) {
+                lastFlightHTML = `<div class="pui-hangar-last"><span class="label">Last flight</span><span class="meta">First flight in this aircraft — happening right now.</span></div>`;
+            }
+
+            return `
+                <div class="pui-hangar-card ${live ? 'live' : ''}">
+                    <div class="pui-hangar-top">
+                        <div class="pui-hangar-avatar"><i class="fa-solid ${live ? 'fa-plane-up' : 'fa-plane'}"></i></div>
+                        <div class="pui-hangar-identity">
+                            <div class="pui-hangar-name" title="${esc(e.aircraftName)}">${esc(e.aircraftName)}</div>
+                            <div class="pui-hangar-livery" title="${esc(e.liveryName)}">${esc(e.liveryName) || 'Standard livery'}</div>
+                        </div>
+                        ${statusPill}
+                    </div>
+                    ${whereHTML}
+                    ${lastFlightHTML}
+                    <div class="pui-hangar-foot">
+                        <span><strong>${e.flightCount.toLocaleString()}</strong> ${e.flightCount === 1 ? 'flight' : 'flights'}</span>
+                        <span><strong>${(e.totalMinutes / 60).toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong> hrs</span>
+                        <span><strong>${e.landings.toLocaleString()}</strong> ${e.landings === 1 ? 'landing' : 'landings'}</span>
+                    </div>
+                </div>`;
+        }).join('');
+    },
+
+    /** Re-render the hangar grid + summary tiles in place (keeps the search
+     *  input and its focus intact). */
+    _refreshFleetGrid() {
+        const grid = document.getElementById('pui-fleet-grid');
+        if (!grid) return;
+        const model = this._buildFleetModel();
+        grid.innerHTML = this._getFleetGridHTML(model);
+
+        const countEl = document.getElementById('pui-fleet-stat-count');
+        const airEl = document.getElementById('pui-fleet-stat-air');
+        const hoursEl = document.getElementById('pui-fleet-stat-hours');
+        if (countEl) {
+            countEl.textContent = model.length;
+            countEl.classList.toggle('pui-hangar-live-text', model.length > 0);
+        }
+        if (airEl) airEl.textContent = model.filter(e => e.status === 'flying').length;
+        if (hoursEl) {
+            const totalHours = model.reduce((s, e) => s + e.totalMinutes, 0) / 60;
+            hoursEl.textContent = totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 }) + 'h';
+        }
     },
 
     _getPersonalRecordsHTML() {
@@ -7173,6 +7627,198 @@ const contentRoot = document.getElementById('pui-content');
                 border-radius: 3px;
                 transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
             }
+
+            /* ── Fleet tab (virtual hangar) ─────────────────────────────── */
+            .pui-hangar-summary {
+                display: flex;
+                align-items: center;
+                gap: var(--pui-gap-lg);
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-card);
+                padding: 14px var(--pui-pad-card);
+                margin-bottom: var(--pui-gap-md);
+                flex-wrap: wrap;
+            }
+            .pui-hangar-stat {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .pui-hangar-stat .value {
+                font-size: 1.25rem;
+                font-weight: 700;
+                color: var(--pui-text-primary);
+                line-height: 1.1;
+            }
+            .pui-hangar-stat .label {
+                font-size: 0.68rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                color: var(--pui-text-tertiary);
+            }
+            .pui-hangar-live-text { color: var(--pui-pos) !important; }
+            .pui-hangar-summary-note {
+                margin-left: auto;
+                font-size: 0.72rem;
+                color: var(--pui-text-tertiary);
+            }
+            .pui-hangar-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: var(--pui-gap-md);
+                align-items: start;
+            }
+            .pui-hangar-card {
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-card);
+                padding: 16px var(--pui-pad-card);
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                transition: border-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-hangar-card:hover { border-color: var(--pui-border-strong); }
+            .pui-hangar-card.live { border-color: var(--pui-pos); }
+            .pui-hangar-top {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .pui-hangar-avatar {
+                width: 38px; height: 38px;
+                flex: 0 0 auto;
+                border-radius: var(--pui-radius-md, 10px);
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1rem;
+            }
+            .pui-hangar-card.live .pui-hangar-avatar { background: rgba(109, 179, 128, 0.14); color: var(--pui-pos); }
+            .pui-hangar-identity { min-width: 0; flex: 1; }
+            .pui-hangar-name {
+                font-weight: 700;
+                font-size: 0.95rem;
+                color: var(--pui-text-primary);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .pui-hangar-livery {
+                font-size: 0.76rem;
+                color: var(--pui-text-secondary);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .pui-hangar-status {
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 0.66rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                padding: 4px 10px;
+                border-radius: 999px;
+            }
+            .pui-hangar-status.live {
+                background: rgba(109, 179, 128, 0.14);
+                color: var(--pui-pos);
+            }
+            .pui-hangar-dot {
+                width: 6px; height: 6px;
+                border-radius: 50%;
+                background: var(--pui-pos);
+                animation: pui-hangar-pulse 1.6s ease-in-out infinite;
+            }
+            @keyframes pui-hangar-pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50%      { opacity: 0.4; transform: scale(0.75); }
+            }
+            .pui-hangar-where {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.8rem;
+                color: var(--pui-text-secondary);
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border-light);
+                border-radius: var(--pui-radius-md, 10px);
+                padding: 10px 12px;
+            }
+            .pui-hangar-where i { color: var(--pui-text-tertiary); }
+            .pui-hangar-where.live {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+            .pui-hangar-route {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-weight: 700;
+            }
+            .pui-hangar-route-plane { font-size: 0.7rem; color: var(--pui-pos) !important; }
+            .pui-hangar-icao {
+                font-family: var(--pui-font-mono, ui-monospace, monospace);
+                font-weight: 700;
+                color: var(--pui-text-primary);
+            }
+            .pui-hangar-cs {
+                margin-left: auto;
+                font-size: 0.72rem;
+                color: var(--pui-text-secondary);
+                font-weight: 600;
+            }
+            .pui-hangar-tele {
+                display: flex;
+                gap: 16px;
+                font-size: 0.76rem;
+                color: var(--pui-text-secondary);
+            }
+            .pui-hangar-tele .label {
+                font-size: 0.62rem;
+                font-weight: 700;
+                letter-spacing: 0.05em;
+                color: var(--pui-text-tertiary);
+                margin-right: 3px;
+            }
+            .pui-hangar-last {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 0.78rem;
+                color: var(--pui-text-secondary);
+                flex-wrap: wrap;
+            }
+            .pui-hangar-last .label {
+                font-size: 0.62rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                color: var(--pui-text-tertiary);
+                margin-right: 2px;
+            }
+            .pui-hangar-last .meta { color: var(--pui-text-tertiary); font-size: 0.74rem; }
+            .pui-hangar-arrow { color: var(--pui-text-tertiary); }
+            .pui-hangar-plan-btn { margin-left: auto; width: 26px; height: 26px; font-size: 0.7rem; }
+            .pui-hangar-foot {
+                display: flex;
+                gap: 16px;
+                padding-top: 10px;
+                border-top: 1px solid var(--pui-border-light);
+                font-size: 0.74rem;
+                color: var(--pui-text-tertiary);
+            }
+            .pui-hangar-foot strong { color: var(--pui-text-primary); font-weight: 700; }
         `;
 
         const style = document.createElement('style');
