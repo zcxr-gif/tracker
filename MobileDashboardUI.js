@@ -1657,6 +1657,8 @@ init(supabaseClient) {
                     lastFlight: null,
                     lastFlightTs: 0,
                     live: null,
+                    flights: [],
+                    flightIds: new Set(),
                 };
                 entries.set(key, e);
             }
@@ -1664,6 +1666,8 @@ init(supabaseClient) {
             e.flightCount++;
             e.totalMinutes += f.totalTime || 0;
             e.landings += f.landingCount || 0;
+            e.flights.push(f);
+            if (f.id) e.flightIds.add(String(f.id).toLowerCase());
 
             const ts = f.created ? new Date(f.created).getTime() : 0;
             if (!e.lastFlight || ts > e.lastFlightTs) {
@@ -1674,26 +1678,38 @@ init(supabaseClient) {
 
         let list = Array.from(entries.values());
 
-        // Live overlay — the socket hub keeps _liveFlights current for this
-        // pilot. Match by livery first, then by airframe name; if the frame
-        // has never appeared in the scanned logbook, surface it anyway.
+        // Live overlay — an aircraft only counts as being on the map when one
+        // of its logged flight ids matches a live flight's flightId. Flights
+        // that have left the map are just past flights: they never light up a
+        // card, and name similarity alone is not proof it's the same flight.
+        const logbookHasIds = list.some(e => e.flightIds.size > 0);
         for (const lf of (this._liveFlights || [])) {
-            const liveAcft = lf.aircraft?.aircraftName || '';
-            const liveLivery = lf.aircraft?.liveryName || '';
-            let match =
-                list.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) ||
-                list.find(e => !e.live && e.aircraftName === liveAcft);
+            const liveId = lf.flightId ? String(lf.flightId).toLowerCase() : null;
+            let match = (liveId && list.find(e => !e.live && e.flightIds.has(liveId))) || null;
+
+            // Data-shape guard: only if this logbook carries no flight ids at
+            // all does an exact airframe + livery match stand in for the id.
+            if (!match && !logbookHasIds) {
+                const liveAcft = lf.aircraft?.aircraftName || '';
+                const liveLivery = lf.aircraft?.liveryName || '';
+                match = list.find(e => !e.live && e.aircraftName === liveAcft && (e.liveryName || '') === liveLivery) || null;
+            }
+
             if (!match) {
+                // On the map but not in the scanned logbook yet (the leg just
+                // started) — surface it as its own live card.
                 match = {
                     key: `live|${lf.flightId || lf.callsign || Math.random()}`,
-                    aircraftName: liveAcft || 'Unknown Aircraft',
-                    liveryName: liveLivery,
+                    aircraftName: lf.aircraft?.aircraftName || 'Unknown Aircraft',
+                    liveryName: lf.aircraft?.liveryName || '',
                     flightCount: 0,
                     totalMinutes: 0,
                     landings: 0,
                     lastFlight: null,
                     lastFlightTs: 0,
                     live: null,
+                    flights: [],
+                    flightIds: new Set(),
                 };
                 list.push(match);
             }
@@ -1705,6 +1721,20 @@ init(supabaseClient) {
                 const gs = e.live.position?.gs_kt || 0;
                 e.status = gs >= 45 ? 'flying' : 'ground';
                 e.location = e.live.arrivalIcao || null;
+
+                // The in-progress leg is already logged, so "last flight"
+                // should show the previous completed leg, not the live one.
+                const liveId = e.live.flightId ? String(e.live.flightId).toLowerCase() : null;
+                if (liveId && e.lastFlight && String(e.lastFlight.id || '').toLowerCase() === liveId) {
+                    let best = null, bestTs = 0;
+                    for (const f of e.flights) {
+                        if (String(f.id || '').toLowerCase() === liveId) continue;
+                        const ts = f.created ? new Date(f.created).getTime() : 0;
+                        if (!best || ts > bestTs) { best = f; bestTs = ts; }
+                    }
+                    e.lastFlight = best;
+                    e.lastFlightTs = bestTs;
+                }
             } else {
                 e.status = 'parked';
                 e.location = e.lastFlight?.destinationAirport || e.lastFlight?.originAirport || null;
