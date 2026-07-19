@@ -12,7 +12,9 @@
  *    { flightId, depIcao, arrIcao } when a flight window opens — that is the
  *    widget's only data feed (METARs come from window.WeatherService).
  *  • Visibility mirrors the window element's classes via a MutationObserver:
- *    `visible` (desktop) or `mobile-legacy-sheet` (mobile sheet). Every
+ *    `visible` on desktop; on the mobile sheet (`mobile-legacy-sheet`) the
+ *    pill shows only in the `peek` state — the fully-expanded sheet covers
+ *    the screen, so the pill hides until the sheet drops back to peek. Every
  *    open / close / minimize / trip-card path funnels through those classes,
  *    so the pill can never outlive the window.
  */
@@ -92,7 +94,7 @@
                 top: 14px;
                 left: 14px;
                 z-index: 2050; /* above the map chrome, below the info window (2100) */
-                font-family: 'Inter', -apple-system, sans-serif;
+                font-family: var(--font-ui, 'Inter', -apple-system, sans-serif);
                 display: none;
                 transition: left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
@@ -105,27 +107,30 @@
             @media (min-width: 993px) {
                 #wx-widget-root.wx-shifted { left: 494px; }
             }
+            /* Colors, radii and fonts come from the same :root theme variables
+               the flight info window paints with (--iw-bg-*, --border-glass…),
+               so the pill re-tints live whenever the window theme changes. */
             #wx-pill {
                 display: flex;
                 align-items: center;
                 gap: 9px;
                 padding: 9px 13px;
-                background: rgba(15, 23, 42, 0.78);
-                backdrop-filter: blur(24px) saturate(150%);
-                -webkit-backdrop-filter: blur(24px) saturate(150%);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 16px;
+                background: linear-gradient(135deg, var(--iw-bg-start, rgba(45,45,45,0.9)), var(--iw-bg-end, rgba(45,45,45,0.9)));
+                backdrop-filter: blur(40px) saturate(140%);
+                -webkit-backdrop-filter: blur(40px) saturate(140%);
+                border: 1px solid var(--border-glass, rgba(255,255,255,0.1));
+                border-radius: var(--radius-lg, 16px);
                 box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
                 cursor: pointer;
-                color: #fff;
+                color: var(--text-primary, #fafafa);
                 user-select: none;
                 -webkit-tap-highlight-color: transparent;
                 transition: transform 0.18s ease, border-color 0.18s ease;
                 animation: wx-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            #wx-pill:hover { border-color: rgba(255, 255, 255, 0.25); }
+            #wx-pill:hover { border-color: var(--border-highlight, rgba(255,255,255,0.15)); }
             #wx-pill:active { transform: scale(0.96); }
-            #wx-pill .wx-pill-icon { font-size: 17px; color: #cbd5e1; }
+            #wx-pill .wx-pill-icon { font-size: 17px; color: var(--text-secondary, #a1a1aa); }
             #wx-pill .wx-pill-temp { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
             #wx-pill .wx-pill-meta {
                 display: flex;
@@ -133,13 +138,13 @@
                 line-height: 1.15;
             }
             #wx-pill .wx-pill-icao {
-                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-family: var(--font-data, ui-monospace, monospace);
                 font-size: 10px;
                 font-weight: 700;
-                color: #94a3b8;
+                color: var(--text-dim, #94a3b8);
                 letter-spacing: 0.04em;
             }
-            #wx-pill .wx-pill-wind { font-size: 10px; color: #64748b; white-space: nowrap; }
+            #wx-pill .wx-pill-wind { font-size: 10px; color: var(--text-secondary, #a1a1aa); white-space: nowrap; }
             @keyframes wx-fade-in {
                 from { opacity: 0; transform: translateY(-8px); }
                 to   { opacity: 1; transform: translateY(0); }
@@ -148,13 +153,13 @@
                 display: none;
                 margin-top: 10px;
                 width: min(330px, calc(100vw - 28px));
-                background: rgba(15, 23, 42, 0.9);
-                backdrop-filter: blur(32px) saturate(150%);
-                -webkit-backdrop-filter: blur(32px) saturate(150%);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 18px;
+                background: linear-gradient(135deg, var(--iw-bg-start, rgba(45,45,45,0.9)), var(--iw-bg-end, rgba(45,45,45,0.9)));
+                backdrop-filter: blur(40px) saturate(140%);
+                -webkit-backdrop-filter: blur(40px) saturate(140%);
+                border: 1px solid var(--border-glass, rgba(255,255,255,0.1));
+                border-radius: var(--radius-lg, 16px);
                 box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
-                color: #e2e8f0;
+                color: var(--text-primary, #fafafa);
                 overflow: hidden;
                 animation: wx-fade-in 0.32s cubic-bezier(0.16, 1, 0.3, 1);
             }
@@ -164,12 +169,12 @@
                 align-items: center;
                 justify-content: space-between;
                 padding: 12px 15px 10px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+                border-bottom: 1px solid var(--border-glass, rgba(255,255,255,0.1));
             }
-            .wx-pop-head .title { font-size: 12.5px; font-weight: 700; color: #f1f5f9; }
-            .wx-pop-head .age { font-size: 10px; color: #64748b; }
+            .wx-pop-head .title { font-size: 12.5px; font-weight: 700; color: var(--text-primary, #fafafa); }
+            .wx-pop-head .age { font-size: 10px; color: var(--text-secondary, #a1a1aa); }
             .wx-station { padding: 11px 15px; }
-            .wx-station + .wx-station { border-top: 1px solid rgba(255, 255, 255, 0.07); }
+            .wx-station + .wx-station { border-top: 1px solid var(--border-glass, rgba(255,255,255,0.1)); }
             .wx-station-top {
                 display: flex;
                 align-items: baseline;
@@ -180,30 +185,30 @@
                 font-size: 9px;
                 font-weight: 800;
                 letter-spacing: 0.08em;
-                color: #64748b;
+                color: var(--text-secondary, #a1a1aa);
                 text-transform: uppercase;
             }
             .wx-station-top .icao {
-                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-family: var(--font-data, ui-monospace, monospace);
                 font-size: 13.5px;
                 font-weight: 700;
-                color: #fff;
+                color: var(--text-primary, #fafafa);
             }
-            .wx-station-top .temp { margin-left: auto; font-size: 15px; font-weight: 700; color: #fff; }
-            .wx-station-top .temp i { font-size: 12px; margin-right: 5px; color: #cbd5e1; }
+            .wx-station-top .temp { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--text-primary, #fafafa); }
+            .wx-station-top .temp i { font-size: 12px; margin-right: 5px; color: var(--text-secondary, #a1a1aa); }
             .wx-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
             .wx-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
-            .wx-row .k { color: #64748b; }
-            .wx-row .v { color: #cbd5e1; font-weight: 600; text-align: right; white-space: nowrap; }
+            .wx-row .k { color: var(--text-secondary, #a1a1aa); }
+            .wx-row .v { color: var(--text-primary, #fafafa); font-weight: 600; text-align: right; white-space: nowrap; }
             .wx-raw {
                 margin-top: 8px;
-                font-family: 'JetBrains Mono', ui-monospace, monospace;
+                font-family: var(--font-data, ui-monospace, monospace);
                 font-size: 9.5px;
                 line-height: 1.5;
-                color: #64748b;
+                color: var(--text-dim, #94a3b8);
                 word-break: break-word;
             }
-            .wx-unavailable { font-size: 11px; color: #64748b; }
+            .wx-unavailable { font-size: 11px; color: var(--text-secondary, #a1a1aa); }
         `;
         document.head.appendChild(style);
     }
@@ -315,7 +320,16 @@
     // ── Visibility sync (mirrors the flight window's classes) ──────────────
     function syncVisibility() {
         const win = document.getElementById('aircraft-info-window');
-        const shown = !!win && (win.classList.contains('visible') || win.classList.contains('mobile-legacy-sheet'));
+        let shown = false;
+        if (win) {
+            if (win.classList.contains('mobile-legacy-sheet')) {
+                // Mobile sheet: the fully-expanded sheet covers the screen, so
+                // the pill only shows while the sheet is in its peek state.
+                shown = win.classList.contains('peek');
+            } else {
+                shown = win.classList.contains('visible');
+            }
+        }
         state.windowShown = shown;
 
         const show = shown && !!state.ctx && !!(state.ctx.depIcao || state.ctx.arrIcao);
