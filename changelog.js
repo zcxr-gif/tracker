@@ -27,7 +27,7 @@
             id: '2026.07.8',
             date: 'July 2026',
             title: 'Your Fleet & The Weather Up Front',
-            tagline: 'A live hangar of the aircraft you’re flying right now, and an Apple Maps-style weather pill that knows where your flight is, what time it is there, and what the sky is doing.',
+            tagline: 'A live hangar of the aircraft you’re flying right now, and a weather pill that knows where your flight is, what time it is there, and what the sky is doing.',
             entries: [
                 {
                     tag: 'new', icon: 'fa-plane-up',
