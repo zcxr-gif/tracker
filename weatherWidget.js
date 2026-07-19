@@ -280,12 +280,23 @@
         pill.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePopover(); }
         });
+        // Capture phase: while the popover is open, a click anywhere else
+        // dismisses it and goes no further — the map and the flight window
+        // never see the event, so dismissing the weather widget can't close
+        // the flight info window (or select another flight) underneath.
         document.addEventListener('click', (e) => {
-            if (state.popoverOpen && !e.target.closest('#wx-widget-root')) setPopover(false);
-        });
+            if (!state.popoverOpen || e.target.closest('#wx-widget-root')) return;
+            e.stopPropagation();
+            e.preventDefault();
+            setPopover(false);
+        }, true);
+        // Same for Escape: consume it for the popover instead of letting the
+        // app's own Escape handlers close the whole window.
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && state.popoverOpen) setPopover(false);
-        });
+            if (e.key !== 'Escape' || !state.popoverOpen) return;
+            e.stopPropagation();
+            setPopover(false);
+        }, true);
     }
 
     // ── Rendering ──────────────────────────────────────────────────────────
