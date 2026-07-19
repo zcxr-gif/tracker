@@ -22765,18 +22765,21 @@ function setupFlightHoverPopups() {
     let hoveredFlightId = null;
 
     const onAircraftRichHover = (e) => {
-        // Use (any-hover) rather than (hover): the latter reflects only the
-        // PRIMARY pointer, which some OS/browser combos flip to "no hover"
-        // after any touch input (or in tablet mode) until the machine is
-        // rebooted — the classic cause of hover cards silently not appearing
-        // on a mouse/trackpad-equipped laptop. (any-hover: hover) stays true
-        // as long as ANY connected input is capable of hovering.
-        const canHover = !window.matchMedia || window.matchMedia('(any-hover: hover)').matches;
-        // Still suppress the card on genuine touch taps so mobile doesn't get
-        // a popup stuck under the finger.
-        if (!canHover || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
-            return;
-        }
+        // Do NOT gate on the (hover)/(any-hover) media queries. A layer
+        // 'mouseenter' only fires when a pointer is genuinely hovering the
+        // aircraft, so the media query is redundant — and worse, some
+        // OS/browser states misreport it (flipping the pointer to "no hover"
+        // after a touch, in tablet mode, or on certain trackpad drivers) until
+        // the machine is rebooted, which is what made these cards intermittently
+        // stop appearing on a mouse/trackpad laptop. Instead, suppress the card
+        // only for genuine touch input so mobile doesn't get a popup stuck under
+        // the finger.
+        const oe = e.originalEvent;
+        const isTouch = !!oe && (
+            oe.pointerType === 'touch' ||
+            (typeof TouchEvent !== 'undefined' && oe instanceof TouchEvent)
+        );
+        if (isTouch) return;
 
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const feature = e.features[0];
