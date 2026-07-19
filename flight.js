@@ -511,11 +511,75 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     function createMiniWindowsContainer() {
         let container = document.getElementById('mini-windows-container');
         if (!container) {
+            // Dock wrapper holds the "Show pinned only" toggle above the card
+            // stack and owns the bottom-left anchoring + the shift that keeps the
+            // whole group clear of the left-docked flight info window.
+            const dock = document.createElement('div');
+            dock.id = 'mini-windows-dock';
+
+            const toggle = document.createElement('button');
+            toggle.id = 'pinned-only-toggle';
+            toggle.type = 'button';
+            toggle.setAttribute('role', 'switch');
+            toggle.setAttribute('aria-checked', 'false');
+            toggle.hidden = true; // shown once at least one flight is pinned
+            toggle.innerHTML = `
+                <span class="pot-track"><span class="pot-thumb"></span></span>
+                <span class="pot-label">Show pinned only</span>`;
+            toggle.addEventListener('click', () => window.togglePinnedOnly());
+
             container = document.createElement('div');
             container.id = 'mini-windows-container';
-            document.body.appendChild(container);
+
+            dock.appendChild(toggle);
+            dock.appendChild(container);
+            document.body.appendChild(dock);
+
+            // Keep the dock clear of the flight info window: mirror the weather
+            // widget, which shifts right while the window is docked left.
+            _watchFlightWindowForDockShift();
         }
         return container;
+    }
+
+    // Reflect the pinned-only toggle's on/off state + visibility. Hidden until
+    // there's at least one pin; auto-off + hidden when the last pin is removed.
+    function refreshPinnedOnlyToggle() {
+        const toggle = document.getElementById('pinned-only-toggle');
+        if (!toggle) return;
+        const hasPins = !!(window.pinnedFlights && window.pinnedFlights.size > 0);
+        toggle.hidden = !hasPins;
+        const on = hasPins && !!mapFilters.showOnlyPinned;
+        toggle.classList.toggle('is-on', on);
+        toggle.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+
+    window.togglePinnedOnly = function() {
+        mapFilters.showOnlyPinned = !mapFilters.showOnlyPinned;
+        refreshPinnedOnlyToggle();
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+        // Intentionally NOT persisted: pins are in-memory and don't survive a
+        // reload, so the isolation view is transient too (see startup reset).
+    };
+
+    // Shift the pinned dock right while the flight info window is docked left,
+    // so the cards + toggle never sit under it. Same signal the weather widget
+    // uses (the window's `visible` + `dock-left` classes).
+    let _dockShiftObserver = null;
+    function _watchFlightWindowForDockShift() {
+        const apply = () => {
+            const dock = document.getElementById('mini-windows-dock');
+            const win = document.getElementById('aircraft-info-window');
+            if (!dock) return;
+            const shifted = !!win && win.classList.contains('visible') && win.classList.contains('dock-left');
+            dock.classList.toggle('dock-shifted', shifted);
+        };
+        apply();
+        const win = document.getElementById('aircraft-info-window');
+        if (win && !_dockShiftObserver) {
+            _dockShiftObserver = new MutationObserver(apply);
+            _dockShiftObserver.observe(win, { attributes: true, attributeFilter: ['class'] });
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -682,6 +746,9 @@ window.pinFlight = function(flightId) {
         window.ensurePinnedFlownPath(flightId);
     }
 
+    // Surface the "Show pinned only" toggle now that something is pinned.
+    if (typeof refreshPinnedOnlyToggle === 'function') refreshPinnedOnlyToggle();
+
     const pinBtn = document.getElementById('pin-flight-btn');
     if (pinBtn && currentFlightInWindow === flightId) {
         pinBtn.classList.add('active-pin');
@@ -703,6 +770,17 @@ window.pinFlight = function(flightId) {
                 pinBtn.classList.remove('active-pin');
                 pinBtn.style.color = '#94a3b8';
             }
+        }
+
+        // With the last pin gone, drop the "show pinned only" isolation so the
+        // full map returns instead of hiding everything. Otherwise just re-run
+        // the filter so the now-unpinned flight leaves the isolated set.
+        if (window.pinnedFlights.size === 0) mapFilters.showOnlyPinned = false;
+        if (typeof refreshPinnedOnlyToggle === 'function') refreshPinnedOnlyToggle();
+        if (mapFilters.showOnlyPinned && typeof updateAircraftLayerFilter === 'function') {
+            updateAircraftLayerFilter();
+        } else if (window.pinnedFlights.size === 0 && typeof updateAircraftLayerFilter === 'function') {
+            updateAircraftLayerFilter();
         }
     };
 
@@ -814,6 +892,11 @@ let mapFilters = {
         showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
+        // When on, the live map shows ONLY pinned flights (plus whatever flight
+        // is open in the info window). Driven by the toggle above the pinned
+        // cards; auto-clears when the last pin is removed. See
+        // updateAircraftLayerFilter().
+        showOnlyPinned: false,
         // Quick traffic toggles (see updateAircraftLayerFilter). airborneOnly and
         // onGroundOnly are mutually exclusive in the UI; hasPlanOnly keeps only
         // aircraft that filed a departure or arrival.
@@ -5750,15 +5833,85 @@ function injectCustomStyles() {
 .atc-supervisor .grade-badge { background: #fbbf24; }
 
 /* --- MULTI-TRACK / PINNED FLIGHTS (PRO FEATURE) --- */
-        #mini-windows-container {
+        /* Dock: anchors the pinned-only toggle + card stack bottom-left and
+           slides the whole group right so it never sits under the left-docked
+           flight info window (mirrors the weather widget's shift). */
+        #mini-windows-dock {
             position: fixed;
             bottom: 24px;
             left: 24px;
             display: flex;
-            flex-direction: column-reverse;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 12px;
             z-index: 2000;
             pointer-events: none;
+            transition: left 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #mini-windows-dock.dock-shifted {
+            left: 494px;
+        }
+
+        #mini-windows-container {
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 12px;
+            pointer-events: none;
+        }
+
+        /* "Show pinned only" switch — sits above the card stack. */
+        #pinned-only-toggle {
+            pointer-events: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 7px 12px 7px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            background: rgba(20, 20, 25, 0.82);
+            -webkit-backdrop-filter: saturate(180%) blur(18px);
+            backdrop-filter: saturate(180%) blur(18px);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+            color: #e5e7eb;
+            font-family: var(--font-ui);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.2s ease, background 0.2s ease;
+            animation: slideInLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        #pinned-only-toggle[hidden] { display: none; }
+        #pinned-only-toggle:hover { border-color: rgba(255, 255, 255, 0.22); }
+        #pinned-only-toggle .pot-track {
+            position: relative;
+            flex: 0 0 auto;
+            width: 34px;
+            height: 20px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.16);
+            transition: background 0.2s ease;
+        }
+        #pinned-only-toggle .pot-thumb {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #pinned-only-toggle.is-on .pot-track { background: #0a84ff; }
+        #pinned-only-toggle.is-on .pot-thumb { transform: translateX(14px); }
+        #pinned-only-toggle.is-on { color: #fff; border-color: rgba(10, 132, 255, 0.5); }
+
+        @media (max-width: 768px) {
+            /* The left-dock shift is a desktop concern; on mobile the flight
+               window is a full sheet, so keep the dock anchored and never push
+               it off-screen. */
+            #mini-windows-dock.dock-shifted { left: 24px; }
         }
 
 .pinned-flight-card {
@@ -10070,6 +10223,15 @@ function updateAircraftLayerFilter() {
     }
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
+
+    // Show-only-pinned: isolate the tracked set — keep just the pinned flights,
+    // plus whatever flight's info window is open (so opening a non-pinned plane
+    // doesn't make its own icon vanish). No-op if nothing is pinned.
+    if (mapFilters.showOnlyPinned && window.pinnedFlights && window.pinnedFlights.size > 0) {
+        const ids = Array.from(window.pinnedFlights);
+        if (currentFlightInWindow && !ids.includes(currentFlightInWindow)) ids.push(currentFlightInWindow);
+        filter.push(['in', ['get', 'flightId'], ['literal', ids]]);
+    }
 
     // Single-VA focus. Restore the ad on first pass after a reload, then keep
     // only planes tagged for that VA (retagged here so a fresh focus applies at
@@ -24477,6 +24639,9 @@ async function initializeApp() {
         PerformanceMonitor.init();
 
         loadFiltersFromLocalStorage();
+        // Pins are in-memory only, so never start a session isolated to a
+        // pinned set that no longer exists.
+        mapFilters.showOnlyPinned = false;
 
         // Resolve Pro entitlement early so multi-flight tracking limits and
         // other gated features have a real answer to gate on. Fire-and-forget;
