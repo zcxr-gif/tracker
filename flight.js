@@ -339,10 +339,12 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     window.pinnedFlights = new Set();
     // How many flights each tier can pin at once (Multi-Track).
     if (typeof window.PIN_LIMIT_FREE !== 'number') window.PIN_LIMIT_FREE = 2;
-    if (typeof window.PIN_LIMIT_PRO  !== 'number') window.PIN_LIMIT_PRO  = 20;
+    if (typeof window.PIN_LIMIT_PRO  !== 'number') window.PIN_LIMIT_PRO  = 7;
 
-// --- PRO GATE: Clear ALL Pro features when the user signs out ---
-    // Multi-Track, Custom Map Styles, 3D Layers, and Themes are signed-in-only features.
+// --- PRO GATE: Clear Pro features when the user signs out ---
+    // Custom Map Styles, 3D Layers, and Themes are signed-in-only. Multi-Track
+    // is usable by everyone within the free allowance, but a signed-out user
+    // drops back to the free pin limit, so any extra pins are cleared here.
     // This entirely wipes the Pro state and reverts the client to the free tier visually.
     try {
         supabase.auth.onAuthStateChange((event, session) => {
@@ -460,41 +462,32 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     }
     
     window.toggleFlightPin = function(flightId) {
-        // --- PRO GATE: Multi-Track pinned flights require a signed-in account ---
-        // Allow unpinning regardless (so a user who somehow has stale pins can clear them),
-        // but block any new pin attempts from non-signed-in users.
-        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-
+        // Unpinning is always allowed (also clears any stale pins).
         if (window.pinnedFlights.has(flightId)) {
             window.unpinFlight(flightId);
             return;
         }
 
-        if (!isSignedIn) {
-            if (typeof showNotification === 'function') {
-                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
-            }
-            // Surface the signup modal so the user can convert immediately
-            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
-                window.AuthUI.open('signup');
-            }
-            return;
-        }
-
-        // Tiered pin limits: free (signed-in) accounts can pin up to
-        // PIN_LIMIT_FREE flights; Pro accounts get PIN_LIMIT_PRO.
+        // Tiered limits — no sign-in wall for the free allowance:
+        //   • regular users (incl. signed-out) can pin up to PIN_LIMIT_FREE
+        //   • Pro accounts can pin up to PIN_LIMIT_PRO
+        // The Pro upsell only appears once a non-Pro user tries to exceed the
+        // free allowance, not on the very first pin.
         const isPro = (typeof window.isInflightPro === 'function') && window.isInflightPro();
         const limit = isPro ? window.PIN_LIMIT_PRO : window.PIN_LIMIT_FREE;
         if (window.pinnedFlights.size >= limit) {
             if (typeof showNotification === 'function') {
                 showNotification(isPro
                     ? `You can pin up to ${limit} flights at once.`
-                    : `Free accounts can pin up to ${limit} flights — upgrade to Pro to track more.`,
+                    : `You can pin up to ${window.PIN_LIMIT_FREE} flights — go Pro to pin up to ${window.PIN_LIMIT_PRO}.`,
                     isPro ? 'info' : 'error');
             }
-            // Nudge non-Pro users toward the upgrade path.
-            if (!isPro && window.AuthUI && typeof window.AuthUI.open === 'function') {
-                window.AuthUI.open('signup');
+            // Nudge non-Pro users toward the Pro upgrade (App Store rules: no
+            // in-app upgrade path on iOS native, so skip the modal there).
+            const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+            if (!isPro && !iosNative) {
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
+                else if (typeof window.initInflightPro === 'function') window.initInflightPro();
             }
             return;
         }
@@ -617,17 +610,9 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     };
 
 window.pinFlight = function(flightId) {
-    const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-    if (!isSignedIn) {
-        if (typeof showNotification === 'function') {
-            showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
-        }
-        if (window.AuthUI && typeof window.AuthUI.open === 'function') {
-            window.AuthUI.open('signup');
-        }
-        return;
-    }
-
+    // Tier limits are enforced by toggleFlightPin (the user entry point);
+    // pinFlight itself just adds the pin so programmatic callers (e.g. restore)
+    // still work regardless of sign-in state.
     window.pinnedFlights.add(flightId);
     const container = createMiniWindowsContainer();
     const flightProps = currentMapFeatures[flightId]?.properties;
