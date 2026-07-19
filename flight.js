@@ -473,7 +473,16 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
         //   • Pro accounts can pin up to PIN_LIMIT_PRO
         // The Pro upsell only appears once a non-Pro user tries to exceed the
         // free allowance, not on the very first pin.
-        const isPro = (typeof window.isInflightPro === 'function') && window.isInflightPro();
+        // Pro is resolved asynchronously (profiles.is_pro → window.InflightUser),
+        // so window.isInflightPro() can still read false right after load or on a
+        // transient fetch hiccup. Fall back to the persisted entitlement (written
+        // by refreshProStatus) so a genuine Pro user isn't capped at the free
+        // limit. If the live check says Pro, re-persist it so the fallback holds.
+        let isPro = false;
+        try { isPro = (typeof window.isInflightPro === 'function') && window.isInflightPro(); } catch (_) {}
+        if (!isPro) {
+            try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
+        }
         const limit = isPro ? window.PIN_LIMIT_PRO : window.PIN_LIMIT_FREE;
         if (window.pinnedFlights.size >= limit) {
             if (typeof showNotification === 'function') {
