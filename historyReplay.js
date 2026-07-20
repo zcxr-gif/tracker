@@ -187,11 +187,13 @@
     };
   }
 
-  function showError(msg) {
+  function showError(msg, diag) {
     $('hr-loading').classList.add('hidden');
     $('hr-content').classList.add('hidden');
     var e = $('hr-error'); e.classList.remove('hidden');
     if (msg) $('hr-error-msg').textContent = msg;
+    var dEl = $('hr-error-diag');
+    if (dEl) dEl.textContent = diag || '';
   }
 
   // Pull a flight-shaped object out of a variety of envelope shapes.
@@ -226,9 +228,11 @@
     if (!cfg.flight) { showError('No flight was specified. Open this page with ?flight=<id>.'); return; }
     var fid = encodeURIComponent(cfg.flight);
 
+    var diag = { flight: cfg.flight, histStatus: '?', rawKeys: '', points: 0 };
+
     var histP = fetch(HISTORY_BASE + '/' + fid + '/history', { headers: { Accept: 'application/json' } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; });
+      .then(function (r) { diag.histStatus = r.status; return r.ok ? r.json() : null; })
+      .catch(function (err) { diag.histStatus = 'network-error (' + (err && err.message ? err.message : 'blocked') + ')'; return null; });
 
     // Reach out for the flight record itself by the same id, so registration,
     // aircraft, operator and route fill in even when the profile didn't pass
@@ -239,10 +243,20 @@
       .catch(function () { return null; });
 
     Promise.all([histP, detP]).then(function (res) {
-      var pts = normalize(res[0]);
-      if (pts.length < 2) { showError('This flight has no recorded track to replay.'); return; }
-      start(pts, cfg, extractMeta(res[0], res[1]));
-    }).catch(function () { showError('Couldn’t load this flight’s history right now.'); });
+      var raw = res[0];
+      diag.rawKeys = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? Object.keys(raw).join(',') : (Array.isArray(raw) ? 'array[' + raw.length + ']' : String(raw));
+      var pts = normalize(raw);
+      diag.points = pts.length;
+      if (pts.length < 2) {
+        showError('This flight has no recorded track to replay.',
+          'flight=' + diag.flight + ' · /history=' + diag.histStatus + ' · payload={' + diag.rawKeys + '} · points=' + diag.points);
+        return;
+      }
+      start(pts, cfg, extractMeta(raw, res[1]));
+    }).catch(function (err) {
+      showError('Couldn’t load this flight’s history right now.',
+        'flight=' + diag.flight + ' · /history=' + diag.histStatus + ' · ' + (err && err.message ? err.message : ''));
+    });
   }
 
   function start(pts, cfg, meta) {

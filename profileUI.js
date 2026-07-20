@@ -3489,7 +3489,11 @@ const contentRoot = document.getElementById('pui-content');
                     const dp = dec(replayTarget.dataset.dep);      if (dp) params.set('dep', dp);
                     const ar = dec(replayTarget.dataset.arr);      if (ar) params.set('arr', ar);
                     const ty = dec(replayTarget.dataset.type);     if (ty) params.set('type', ty);
-                    window.open('history.html?' + params.toString(), '_blank', 'noopener');
+                    const rurl = 'history.html?' + params.toString();
+                    // New tab when allowed; same-tab fallback for mobile / in-app
+                    // webviews that block window.open('_blank').
+                    const rw = window.open(rurl, '_blank', 'noopener');
+                    if (!rw) window.location.assign(rurl);
                     return;
                 }
             });

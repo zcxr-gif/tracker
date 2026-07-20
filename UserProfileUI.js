@@ -425,7 +425,11 @@ export const UserProfileUI = {
         if (fl.originAirport) p.set('dep', fl.originAirport);
         if (fl.destinationAirport) p.set('arr', fl.destinationAirport);
         if (aircraft) p.set('type', aircraft);
-        window.open('history.html?' + p.toString(), '_blank', 'noopener');
+        const url = 'history.html?' + p.toString();
+        // Prefer a new tab, but fall back to same-tab navigation — mobile
+        // browsers and in-app webviews frequently block window.open('_blank').
+        const w = window.open(url, '_blank', 'noopener');
+        if (!w) window.location.assign(url);
     },
 
     _renderLiveCard() {
