@@ -30,6 +30,13 @@ const RGB_SOURCE = 'terrain-rgb-src';   // raster Terrain-RGB tiles for elevatio
 const COLOR_LAYER = 'terrain-color';
 const HILLSHADE_LAYER = 'terrain-hillshade';
 
+// On the free engine (MapLibre, window.__FREE_MAP__) the mapbox:// DEM URLs
+// can't resolve, so terrain rides on the keyless Terrarium elevation tiles
+// from the AWS Open Data registry instead — MapLibre decodes them natively
+// via encoding:'terrarium'.
+const isFreeEngine = () => typeof window !== 'undefined' && !!window.__FREE_MAP__;
+const TERRARIUM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
 const FT_TO_M = 0.3048;
 
 // Terrain-RGB decode to metres. Mapbox feeds raster-color-mix the channel
@@ -40,6 +47,10 @@ const FT_TO_M = 0.3048;
 //               = R*(255*65536*0.1) + G*(255*256*0.1) + B*(255*0.1) - 10000
 //               = R*1671168 + G*6528 + B*25.5 - 10000
 const RGB_DECODE_MIX = [1671168, 6528, 25.5, -10000];
+// Terrarium encoding is elevation_m = (R255*256 + G255 + B255/256) - 32768,
+// scaled by 255 the same way: R*65280 + G*255 + B*(255/256) - 32768.
+const TERRARIUM_DECODE_MIX = [65280, 255, 255 / 256, -32768];
+const decodeMix = () => (isFreeEngine() ? TERRARIUM_DECODE_MIX : RGB_DECODE_MIX);
 
 // Build an `interpolate` color expression from [value, color] pairs, forcing
 // the input stops to be strictly ascending (Mapbox requires it). This lets the
@@ -99,7 +110,14 @@ function colorRange(opts) {
 
 function ensureSources(map) {
     if (!map.getSource(DEM_SOURCE)) {
-        map.addSource(DEM_SOURCE, {
+        map.addSource(DEM_SOURCE, isFreeEngine() ? {
+            type: 'raster-dem',
+            tiles: [TERRARIUM_TILES],
+            encoding: 'terrarium',
+            tileSize: 256,
+            maxzoom: 15,
+            attribution: 'Terrain: Mapzen/Tilezen via AWS Open Data'
+        } : {
             type: 'raster-dem',
             url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
             tileSize: 512,
@@ -107,7 +125,12 @@ function ensureSources(map) {
         });
     }
     if (!map.getSource(RGB_SOURCE)) {
-        map.addSource(RGB_SOURCE, {
+        map.addSource(RGB_SOURCE, isFreeEngine() ? {
+            type: 'raster',
+            tiles: [TERRARIUM_TILES],
+            tileSize: 256,
+            maxzoom: 15
+        } : {
             type: 'raster',
             url: 'mapbox://mapbox.terrain-rgb',
             tileSize: 256,
@@ -146,7 +169,7 @@ export function applyTerrainMode(map, opts = {}) {
                 type: 'raster',
                 source: RGB_SOURCE,
                 paint: {
-                    'raster-color-mix': RGB_DECODE_MIX,
+                    'raster-color-mix': decodeMix(),
                     'raster-color-range': colorRange(opts),
                     'raster-color': opts.tawsEnabled
                         ? tawsRamp(Number(opts.altitudeFt) || 10000)

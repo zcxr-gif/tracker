@@ -818,10 +818,11 @@ window.pinFlight = function(flightId) {
     // ─── Free-map fallback (manual kill-switch) ──────────────────────────────
     // When config.useFreeMap is on (Netlify USE_FREE_MAP env), the tracker
     // renders with MapLibre GL + free OSM-based tiles — no Mapbox token, no
-    // billed map loads. Globe and 3D terrain are Mapbox-only, so free mode
-    // forces a flat map; every map style (Pro ones included) has a free
-    // OSM-based equivalent below. Same free engine the VA embed already uses
-    // (embed.js).
+    // billed map loads. Globe projection is Mapbox-only, so free mode forces a
+    // flat map; every map style (Pro ones included) has a free OSM-based
+    // equivalent below, and terrain features ride on keyless Terrarium DEM
+    // tiles (see terrainMode.js / updatePro3DLayers). Same free engine the VA
+    // embed already uses (embed.js).
     const MAPLIBRE_VERSION = '4.7.1';
     const ofmStyle = (name) => `https://tiles.openfreemap.org/styles/${name}`;
     // Raster-based free styles below carry no glyphs of their own, but the
@@ -890,6 +891,24 @@ window.pinFlight = function(flightId) {
     function freeStyleFor(key) {
         return (FREE_MAP_STYLES[key] || FREE_MAP_STYLES.dark).style;
     }
+    // Fonts differ per engine's glyph host: the stacks the tracker uses on
+    // Mapbox (Inter, Mapbox Txt, JetBrains Mono, Arial Unicode MS) only exist
+    // on Mapbox's font server — on the free engine those glyph requests 404
+    // and the labels never render. Noto Sans is hosted by OpenFreeMap, CARTO
+    // and fonts.openmaptiles.org alike (it's what the VA embed ships on its
+    // free engine), so every symbol layer routes its text-font through here.
+    // Exposed on window for the map modules (airportLayout, natTracksLayer,
+    // atcReplay) that add their own symbol layers.
+    function mapTextFont(mapboxStack) {
+        if (!isFreeMap()) return mapboxStack;
+        const bold = mapboxStack.some(f => /bold/i.test(f));
+        return [bold ? 'Noto Sans Bold' : 'Noto Sans Regular'];
+    }
+    window.mapTextFont = mapTextFont;
+    // MobileSettingsUI renders its style-preview thumbnails with the style each
+    // card would actually apply — in free mode that's the free equivalent, not
+    // the mapbox:// style (which MapLibre can't load).
+    window.freeMapStyleFor = freeStyleFor;
     // Probe each remote style URL that has a fallback (CARTO nav styles, OFM
     // fiord) once at free-map activation; anything unreachable is swapped for
     // its proven OpenFreeMap base so no picker choice can land on a blank map.
@@ -14041,9 +14060,19 @@ function updatePro3DLayers() {
     // 1. Update Elevation (Terrain) — Pro-only. Even if a stored config has
     //    showTerrain on (e.g. a lapsed subscriber, or a default), non-Pro
     //    users never get the 3D elevation; the toggle is locked for them too.
-    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro() && !isFreeMap()) {
+    //    On the free engine the DEM comes from the keyless Terrarium tiles
+    //    (AWS Open Data) instead of the mapbox:// DEM, which MapLibre can't
+    //    resolve — same source definition terrainMode.js uses.
+    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro()) {
         if (!sectorOpsMap.getSource('mapbox-dem')) {
-            sectorOpsMap.addSource('mapbox-dem', {
+            sectorOpsMap.addSource('mapbox-dem', isFreeMap() ? {
+                'type': 'raster-dem',
+                'tiles': ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                'encoding': 'terrarium',
+                'tileSize': 256,
+                'maxzoom': 15,
+                'attribution': 'Terrain: Mapzen/Tilezen via AWS Open Data'
+            } : {
                 'type': 'raster-dem',
                 'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
                 'tileSize': 512,
@@ -14060,21 +14089,34 @@ function updatePro3DLayers() {
     if (mapFilters.proMapConfig.showBuildings) {
         if (!sectorOpsMap.getLayer(buildingsLayerId)) {
             // Insert buildings below labels but above base map
-            const labelLayerId = sectorOpsMap.getStyle().layers.find(
-                (l) => l.type === 'symbol' && l.layout['text-field']
+            const styleLayers = sectorOpsMap.getStyle().layers;
+            const labelLayerId = styleLayers.find(
+                (l) => l.type === 'symbol' && l.layout && l.layout['text-field']
             )?.id;
 
-            sectorOpsMap.addLayer({
+            // The building source differs per style family: Mapbox styles
+            // expose 'composite', OpenMapTiles-schema styles (OpenFreeMap /
+            // CARTO) name theirs differently — find whichever source the
+            // style itself renders buildings from. Raster styles (free
+            // Satellite/Outdoors) carry no building data at all: skip.
+            const buildingSource = isFreeMap()
+                ? styleLayers.find(l => l['source-layer'] === 'building')?.source
+                : 'composite';
+
+            if (buildingSource) sectorOpsMap.addLayer({
                 'id': buildingsLayerId,
-                'source': 'composite',
+                'source': buildingSource,
                 'source-layer': 'building',
-                'filter': ['==', 'extrude', 'true'],
+                // 'extrude' is a Mapbox Streets attribute; OpenMapTiles
+                // buildings don't carry it, and their heights live in
+                // render_height / render_min_height.
+                ...(isFreeMap() ? {} : { 'filter': ['==', 'extrude', 'true'] }),
                 'type': 'fill-extrusion',
                 'minzoom': 13,
                 'paint': {
                     'fill-extrusion-color': '#27272a', // Dark zinc color
-                    'fill-extrusion-height': ['get', 'height'],
-                    'fill-extrusion-base': ['get', 'min_height'],
+                    'fill-extrusion-height': ['coalesce', ['get', 'height'], ['get', 'render_height'], 8],
+                    'fill-extrusion-base': ['coalesce', ['get', 'min_height'], ['get', 'render_min_height'], 0],
                     'fill-extrusion-opacity': 0.9
                 }
             }, labelLayerId);
@@ -14320,7 +14362,9 @@ function updateBaseMapLayerVisibility() {
             isVisible = config.showBorders;
         }
         // --- 3. Roads & Transport ---
-        else if (id.includes('road') || id.includes('tunnel') || id.includes('bridge') || id.includes('transit')) {
+        // 'highway'/'transportation' are the OpenMapTiles-schema names used by
+        // the free styles (OpenFreeMap / CARTO); Mapbox styles use 'road'.
+        else if (id.includes('road') || id.includes('highway') || id.includes('tunnel') || id.includes('bridge') || id.includes('transit') || sourceLayer === 'transportation') {
             isVisible = config.showRoads;
         }
         // --- 4. POIs ---
@@ -14328,7 +14372,8 @@ function updateBaseMapLayerVisibility() {
             isVisible = config.showPois;
         }
         // --- 5. Water Labels ---
-        else if (id.includes('water') && (id.includes('label') || id.includes('text'))) {
+        // OpenMapTiles styles call these 'water_name'/'watername_*'.
+        else if (id.includes('water') && (id.includes('label') || id.includes('text') || id.includes('name'))) {
             isVisible = config.showWaterLabels;
         }
         // --- 6. Terrain Hillshading ---
@@ -15177,7 +15222,7 @@ function initializeAircraftLayer() {
                 layout: {
                     'visibility': mapFilters.showAircraftLabels ? 'visible' : 'none',
                     'text-field': getAircraftLabelTextField(),
-                    'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
+                    'text-font': mapTextFont(['Inter Regular', 'Arial Unicode MS Regular']),
                     'text-size': getAircraftLabelTextSize(labelScale),
                     'text-offset': getAircraftLabelTextOffset(),
                     'text-anchor': 'top',
@@ -19046,7 +19091,7 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
                 'filter': ['all', ['==', '$type', 'Point'], ['==', ['get', 'isPassed'], false]],
                 layout: {
                     'text-field': ['get', 'name'],
-                    'text-font': ['Mapbox Txt Regular', 'Arial Unicode MS Regular'],
+                    'text-font': mapTextFont(['Mapbox Txt Regular', 'Arial Unicode MS Regular']),
                     'text-size': 9, // Reduced size for cleaner zooming
                     'text-offset': [0.6, -0.6],
                     'text-anchor': 'bottom-left',
@@ -24533,7 +24578,7 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
             source: SOURCE_ID,
             layout: {
                 'text-field': '{icao}',
-                'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'], // Aviation font
+                'text-font': mapTextFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']), // Aviation font
                 'text-size': [
                     'interpolate', ['linear'], ['zoom'],
                     4, 8,
@@ -24746,7 +24791,7 @@ function updateActiveAirportsGlanceLayer() {
                         '\n', {},
                         ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
                     ],
-                    'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+                    'text-font': mapTextFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']),
                     // Fixed size — the tag must not grow with zoom.
                     'text-size': 11.5,
                     'text-offset': [0, -1.0],
