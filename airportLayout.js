@@ -11,6 +11,11 @@
 // which surfaces to the user as the app "restarting".
 const LAYOUT_CACHE_MAX = 5;
 
+// The free-map engine's glyph servers don't host the Mapbox font stacks;
+// flight.js exposes mapTextFont() to swap in Noto Sans there.
+const textFont = (stack) =>
+    (typeof window !== 'undefined' && window.mapTextFont) ? window.mapTextFont(stack) : stack;
+
 export const AirportLayoutManager = {
     activeLayers: new Set(),
     layoutCache: new Map(),
@@ -69,7 +74,11 @@ export const AirportLayoutManager = {
 
         const sourceId = `airport-${icao}-source`;
         const markingSourceId = `runway-markings-${icao}-source`;
-        const planeLayerId = 'sector-ops-live-flights-layer'; 
+        const planeLayerId = 'sector-ops-live-flights-layer';
+        // Anchor beneath the aircraft layer when it exists; on a bare style
+        // (e.g. a free-map style that just reloaded) fall back to top-of-stack
+        // instead of letting addLayer throw on a missing beforeId.
+        const layerAnchor = map.getLayer(planeLayerId) ? planeLayerId : undefined;
         
         this.clearAll(map);
 
@@ -109,7 +118,7 @@ export const AirportLayoutManager = {
             source: sourceId,
             filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'aeroway', 'runway']],
             paint: { 'fill-color': '#1a1a1a', 'fill-opacity': 0.9 }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 2. RUNWAY BASE
         map.addLayer({
@@ -122,7 +131,7 @@ export const AirportLayoutManager = {
                 'line-color': '#0f0f0f',
                 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 2, 12, 6, 14, 25, 16, 80, 18, 180]
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 3. RUNWAY SIDE STRIPES
         map.addLayer({
@@ -135,7 +144,7 @@ export const AirportLayoutManager = {
                 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 2],
                 'line-opacity': 0.7
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 4. RUNWAY MARKINGS (Thresholds & Aiming blocks)
         map.addLayer({
@@ -148,7 +157,7 @@ export const AirportLayoutManager = {
                 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 14, 2, 16, 8, 18, 20],
                 'line-opacity': 0.95
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 5. RUNWAY CENTERLINE
         map.addLayer({
@@ -162,7 +171,7 @@ export const AirportLayoutManager = {
                 'line-dasharray': [5, 5],
                 'line-opacity': 0.9
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // --- REMOVED RUNWAY DESIGNATIONS (LABEL LAYER) ---
 
@@ -176,7 +185,7 @@ export const AirportLayoutManager = {
                 'line-color': '#fde047',
                 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12, 0.4, 14, 1.2, 16, 3, 18, 6]
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 7. GATE / PARKING STAND DOTS — the gate & parking_position nodes the
         // Overpass query already pulls, surfaced at high zoom as cyan pins.
@@ -193,7 +202,7 @@ export const AirportLayoutManager = {
                 'circle-stroke-width': 1,
                 'circle-opacity': 0.9
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 8. GATE / STAND LABELS — the stand identifier (e.g. "A12"), only once
         // zoomed in close so busy aprons don't turn into a wall of text.
@@ -205,7 +214,7 @@ export const AirportLayoutManager = {
             filter: ['all', ['==', '$type', 'Point'], ['match', ['get', 'aeroway'], ['gate', 'parking_position'], true, false], ['has', 'ref']],
             layout: {
                 'text-field': ['get', 'ref'],
-                'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+                'text-font': textFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']),
                 'text-size': ['interpolate', ['linear'], ['zoom'], 15, 8, 18, 14],
                 'text-offset': [0, -0.9],
                 'text-anchor': 'bottom',
@@ -219,7 +228,7 @@ export const AirportLayoutManager = {
                 'text-halo-width': 1.2,
                 'text-opacity': ['interpolate', ['linear'], ['zoom'], 14.8, 0, 15.4, 1]
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         // 9. RUNWAY DESIGNATORS — the 09/27-style numbers, aligned with each
         // runway end. Placed on top of the pavement/markings.
@@ -231,7 +240,7 @@ export const AirportLayoutManager = {
             filter: ['==', 'type', 'runway-label'],
             layout: {
                 'text-field': ['get', 'label'],
-                'text-font': ['JetBrains Mono Bold', 'Arial Unicode MS Bold'],
+                'text-font': textFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']),
                 'text-size': ['interpolate', ['exponential', 1.5], ['zoom'], 13, 9, 15, 20, 17, 34],
                 'text-rotate': ['get', 'rot'],
                 'text-rotation-alignment': 'map',
@@ -246,7 +255,7 @@ export const AirportLayoutManager = {
                 'text-halo-width': 1.4,
                 'text-opacity': ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13.5, 0.95]
             }
-        }, planeLayerId);
+        }, layerAnchor);
 
         this.activeLayers.add({
             sourceId,

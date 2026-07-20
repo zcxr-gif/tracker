@@ -658,7 +658,11 @@ export const AtcReplay = (() => {
                 id: LYR_PLANE_LABELS, type: 'symbol', source: SRC_PLANES,
                 layout: {
                     'text-field': ['get', 'callsign'],
-                    'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
+                    // Free-engine glyph servers don't host the Mapbox stacks;
+                    // flight.js swaps in Noto Sans via window.mapTextFont there.
+                    'text-font': window.mapTextFont
+                        ? window.mapTextFont(['Inter Regular', 'Arial Unicode MS Regular'])
+                        : ['Inter Regular', 'Arial Unicode MS Regular'],
                     'text-size': 10,
                     'text-offset': [0, 1.4],
                     'text-anchor': 'top',

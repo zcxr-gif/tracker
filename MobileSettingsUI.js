@@ -219,8 +219,11 @@ export const MobileSettingsUI = {
     // session. Falls back to the style's gradient (see renderMapStyleCards).
     generateStylePreview(value) {
         const def = MAP_STYLE_DEFS[value];
+        // Free-map mode needs no token — the preview renders the keyless free
+        // style. Mapbox mode still requires the access token.
+        const freeMode = typeof window !== 'undefined' && !!window.__FREE_MAP__ && !!window.freeMapStyleFor;
         const token = (typeof mapboxgl !== 'undefined' && mapboxgl.accessToken) || window.MAPBOX_ACCESS_TOKEN;
-        if (!def || !token || typeof mapboxgl === 'undefined') return Promise.resolve(null);
+        if (!def || typeof mapboxgl === 'undefined' || (!freeMode && !token)) return Promise.resolve(null);
         if (this._stylePreviewCache[value]) return Promise.resolve(this._stylePreviewCache[value]);
 
         const run = () => new Promise(resolve => {
@@ -250,7 +253,13 @@ export const MobileSettingsUI = {
                     container: host,
                     // Centered over the North Atlantic at a low zoom — recognisable
                     // land + water so each style's palette reads clearly.
-                    style: `mapbox://styles/${def.owner}/${def.id}`,
+                    // In free-map mode preview the style the card would actually
+                    // apply (the free OSM-based equivalent) — MapLibre can't
+                    // load mapbox:// styles, and the free look is what the user
+                    // will really get.
+                    style: (typeof window !== 'undefined' && window.__FREE_MAP__ && window.freeMapStyleFor)
+                        ? window.freeMapStyleFor(value)
+                        : `mapbox://styles/${def.owner}/${def.id}`,
                     center: [-30, 40],
                     zoom: 1.6,
                     interactive: false,

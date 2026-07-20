@@ -202,3 +202,46 @@ In the tracker, when the guard trips you'll see in the console:
 ```
 🗺️ Free-map mode active (MapLibre + OpenFreeMap) — Mapbox map loads paused.
 ```
+
+---
+
+## Map styles in free mode
+
+Free mode no longer collapses the style picker to dark/light — every tracker
+style, Pro ones included, has a keyless OSM-based equivalent
+(`FREE_MAP_STYLES` in `flight.js`):
+
+| Tracker style | Free equivalent | Host |
+|---|---|---|
+| Dark | `dark` | OpenFreeMap (vector) |
+| Light | `positron` | OpenFreeMap (vector) |
+| Satellite | World Imagery | Esri (raster) |
+| Outdoors (Pro) | OpenTopoMap | OpenTopoMap (raster) |
+| Nav Night (Pro) | Dark Matter | CARTO (vector) |
+| Nav Day (Pro) | Voyager | CARTO (vector) |
+| Traffic Day (Pro) | `liberty` | OpenFreeMap (vector) |
+| Traffic Night (Pro) | `fiord` | OpenFreeMap (vector) |
+
+Pro gating is unchanged — the free engine only changes what each choice
+renders, not who may choose it. Remote styles that aren't already proven in
+production (the CARTO pair and `fiord`) are probed once when free mode
+activates and silently fall back to a known-good OpenFreeMap base
+(`validateFreeStyles()` in `flight.js`) if unreachable, so a style choice can
+never produce a blank map. Globe projection remains Mapbox-only.
+
+Everything else that touches the map keeps working in free mode:
+
+- **Labels** — free-engine glyph servers don't host the Mapbox fonts, so every
+  symbol layer routes its `text-font` through `mapTextFont()` (flight.js),
+  which swaps in Noto Sans on the free engine.
+- **Terrain** (Terrain Awareness + Pro 3D elevation) — the `mapbox://` DEM is
+  replaced by keyless Terrarium elevation tiles (AWS Open Data) with the
+  matching decode, in `terrainMode.js` and `updatePro3DLayers()`.
+- **3D buildings** — the layer finds the current style's own building source
+  (OpenMapTiles schema) instead of assuming Mapbox's `composite`, and uses
+  `render_height`/`render_min_height`. Raster styles carry no building data,
+  so the toggle no-ops there.
+- **Pro base-map detail toggles** (roads/labels/POIs/…) — the layer matchers
+  also recognise OpenMapTiles naming (`highway_*`, `water_name`, …).
+- **Style preview thumbnails** — rendered from the free style each card would
+  actually apply, no token needed.

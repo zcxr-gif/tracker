@@ -106,7 +106,11 @@ export class NatTracksLayer {
             filter: ['==', ['geometry-type'], 'Point'],
             layout: {
                 'text-field': ['get', 'name'],
-                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                // Free-engine glyph servers don't host the Mapbox stacks;
+                // flight.js swaps in Noto Sans via window.mapTextFont there.
+                'text-font': (typeof window !== 'undefined' && window.mapTextFont)
+                    ? window.mapTextFont(['Open Sans Bold', 'Arial Unicode MS Bold'])
+                    : ['Open Sans Bold', 'Arial Unicode MS Bold'],
                 'text-size': 7.5,
                 'text-justify': 'center',
                 'text-allow-overlap': true,
