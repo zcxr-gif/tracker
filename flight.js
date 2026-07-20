@@ -815,6 +815,52 @@ window.pinFlight = function(flightId) {
     const MAP_STYLE_TRAFFIC_NIGHT = 'mapbox://styles/mapbox/traffic-night-v2';
     const MAP_STYLE_TRAFFIC_DAY = 'mapbox://styles/mapbox/traffic-day-v2';
 
+    // ─── Free-map fallback (manual kill-switch) ──────────────────────────────
+    // When config.useFreeMap is on (Netlify USE_FREE_MAP env), the tracker
+    // renders with MapLibre GL + OpenFreeMap tiles — no Mapbox token, no billed
+    // map loads. Globe, 3D terrain and mapbox:// styles are Mapbox-only, so free
+    // mode forces a flat map with OpenFreeMap base styles. Same free engine the
+    // VA embed already uses (embed.js).
+    const MAPLIBRE_VERSION = '4.7.1';
+    const FREE_MAP_STYLES = {
+        dark:  'https://tiles.openfreemap.org/styles/dark',
+        light: 'https://tiles.openfreemap.org/styles/positron'
+    };
+    function isFreeMap() { return typeof window !== 'undefined' && !!window.__FREE_MAP__; }
+    // Map the tracker's style keys onto the free base styles; Mapbox-only styles
+    // (satellite / nav / traffic / outdoors) fall back to the dark base.
+    function freeStyleFor(key) {
+        return (key === 'light' || key === 'nav-light' || key === 'traffic-day')
+            ? FREE_MAP_STYLES.light : FREE_MAP_STYLES.dark;
+    }
+    function loadFreeMapEngine() {
+        return new Promise((resolve, reject) => {
+            if (window.maplibregl) return resolve();
+            const css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+            document.head.appendChild(css);
+            const js = document.createElement('script');
+            js.src = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+            js.onload = () => resolve();
+            js.onerror = () => reject(new Error('Failed to load MapLibre GL JS.'));
+            document.head.appendChild(js);
+        });
+    }
+    // MapLibre emits .maplibregl-* popup/control classes; mirror the tracker's
+    // Mapbox popup chrome onto them so free mode looks identical.
+    function injectFreeMapCssShim() {
+        if (document.getElementById('free-map-css-shim')) return;
+        const st = document.createElement('style');
+        st.id = 'free-map-css-shim';
+        st.textContent = `
+            .maplibregl-popup { z-index: 3000 !important; pointer-events: none; }
+            .maplibregl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+            .maplibregl-popup-tip { display: none !important; }
+        `;
+        document.head.appendChild(st);
+    }
+
     let currentMapStyle = MAP_STYLE_DARK; // Set the default
 
     // --- Map-related State ---
@@ -1409,6 +1455,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     // Helper function to extract repetitive style mapping logic
     function applyMapStyleMapping() {
         if (mapFilters.mapStyle) {
+            if (isFreeMap()) { currentMapStyle = freeStyleFor(mapFilters.mapStyle); return; }
             const stylesMap = {
                 'light': MAP_STYLE_LIGHT,
                 'satellite': MAP_STYLE_SATELLITE,
@@ -1767,16 +1814,37 @@ function handleSavedFlightListClick(e) {
             if (!response.ok) throw new Error('Could not fetch server configuration.');
             
             const config = await response.json();
-            
-            if (!config.mapboxToken) throw new Error('Mapbox token is missing from server configuration.');
-            if (!config.owmApiKey) throw new Error('OWM API key is missing from server configuration.');
 
-            // Set Mapbox key
-            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
-            mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
-            
-            // Set OWM key
+            // Manual kill-switch: when the server flips useFreeMap on (as the
+            // Mapbox map-load quota is approached), swap to the free MapLibre +
+            // OpenFreeMap engine so we stop billing map loads. MapLibre is
+            // API-compatible, so aliasing window.mapboxgl to it lets the rest of
+            // the tracker keep calling mapboxgl.* unchanged.
+            if (config.useFreeMap) {
+                try {
+                    await loadFreeMapEngine();
+                    if (!window.maplibregl) throw new Error('MapLibre global missing after load.');
+                    window.__FREE_MAP__ = true;
+                    window.mapboxgl = window.maplibregl;
+                    injectFreeMapCssShim();
+                    mapFilters.useFlatMap = true;              // free engine renders flat
+                    currentMapStyle = freeStyleFor(mapFilters.mapStyle || 'dark');
+                    console.log('🗺️ Free-map mode active (MapLibre + OpenFreeMap) — Mapbox map loads paused.');
+                } catch (e) {
+                    console.error('Free-map engine failed to load; staying on Mapbox:', e);
+                    window.__FREE_MAP__ = false;
+                }
+            }
+
+            if (!config.owmApiKey) throw new Error('OWM API key is missing from server configuration.');
             OWM_API_KEY = config.owmApiKey;
+
+            if (!isFreeMap()) {
+                // Mapbox mode: a token is required.
+                if (!config.mapboxToken) throw new Error('Mapbox token is missing from server configuration.');
+                MAPBOX_ACCESS_TOKEN = config.mapboxToken;
+                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+            }
 
         } catch (error) {
             console.error('Failed to initialize API keys:', error.message);
@@ -9966,11 +10034,13 @@ window.addEventListener('serverChange', (e) => {
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
-    // 1. Handle Projection Changes
-    const currentProjection = sectorOpsMap.getProjection().name;
-    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
-    if (currentProjection !== targetProjection) {
-        sectorOpsMap.setProjection(targetProjection);
+    // 1. Handle Projection Changes (globe is Mapbox-only; free mode stays flat)
+    if (!isFreeMap()) {
+        const currentProjection = sectorOpsMap.getProjection().name;
+        const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
+        if (currentProjection !== targetProjection) {
+            sectorOpsMap.setProjection(targetProjection);
+        }
     }
 
     // 2. Handle Map Style Changes (Dark/Light/Satellite/Pro)
@@ -9985,7 +10055,9 @@ function updateMapFilters() {
         'traffic-day': MAP_STYLE_TRAFFIC_DAY
     };
     
-    const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
+    const targetStyle = isFreeMap()
+        ? freeStyleFor(mapFilters.mapStyle || 'dark')
+        : styleUrls[mapFilters.mapStyle || 'dark'];
 
     if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
         FlownPath3D.updatePath(
@@ -13667,7 +13739,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
  
 function initializeLiveMap() {
-    if (!MAPBOX_ACCESS_TOKEN) return;
+    if (!MAPBOX_ACCESS_TOKEN && !isFreeMap()) return;
 
     // Check if the container exists and the map hasn't been initialized yet
     if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
@@ -13677,7 +13749,7 @@ function initializeLiveMap() {
             center: [78.9629, 22.5937],
             zoom: 2,
             minZoom: 0,
-            projection: 'globe',
+            projection: isFreeMap() ? 'mercator' : 'globe',
             
             // --- NEW FIX FOR TILE LOADING & LAG ---
             // 1. Removed fadeDuration: 0 (Let Mapbox use its default 300ms smooth crossfade).
@@ -13836,7 +13908,7 @@ function updatePro3DLayers() {
     // 1. Update Elevation (Terrain) — Pro-only. Even if a stored config has
     //    showTerrain on (e.g. a lapsed subscriber, or a default), non-Pro
     //    users never get the 3D elevation; the toggle is locked for them too.
-    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro()) {
+    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro() && !isFreeMap()) {
         if (!sectorOpsMap.getSource('mapbox-dem')) {
             sectorOpsMap.addSource('mapbox-dem', {
                 'type': 'raster-dem',
@@ -18334,13 +18406,17 @@ window.globalNatTracks = natTracks;
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
-    sectorOpsMap.setFog({
-        'color': 'rgb(186, 210, 235)',
-        'high-color': 'rgb(36, 92, 223)',
-        'horizon-blend': 0.02,
-        'space-color': 'rgb(27, 27, 54)',
-        'star-intensity': 0.3
-    });
+    // Atmospheric fog is a Mapbox globe feature; MapLibre (free mode) has no
+    // setFog, so skip it there.
+    if (!isFreeMap() && typeof sectorOpsMap.setFog === 'function') {
+        sectorOpsMap.setFog({
+            'color': 'rgb(186, 210, 235)',
+            'high-color': 'rgb(36, 92, 223)',
+            'horizon-blend': 0.02,
+            'space-color': 'rgb(27, 27, 54)',
+            'star-intensity': 0.3
+        });
+    }
 
     // Load the sprite sheet once
     try {
@@ -18367,7 +18443,7 @@ async function setupMapLayersAndFog() {
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
-    if (!MAPBOX_ACCESS_TOKEN) {
+    if (!MAPBOX_ACCESS_TOKEN && !isFreeMap()) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
@@ -23520,8 +23596,8 @@ if (flatMapToggle) {
         // Save to local storage so it persists
         saveFiltersToLocalStorage();
 
-        // Update the Mapbox projection
-        if (sectorOpsMap) {
+        // Update the Mapbox projection (globe is Mapbox-only; free mode is flat)
+        if (sectorOpsMap && !isFreeMap()) {
             sectorOpsMap.setProjection(useFlat ? 'mercator' : 'globe');
         }
     });
@@ -23693,6 +23769,7 @@ if (flatMapToggle) {
             else if (mode === 'nav-light') newStyleUrl = MAP_STYLE_NAV_LIGHT;
             else if (mode === 'traffic-night') newStyleUrl = MAP_STYLE_TRAFFIC_NIGHT;
             else if (mode === 'traffic-day') newStyleUrl = MAP_STYLE_TRAFFIC_DAY;
+            if (isFreeMap()) newStyleUrl = freeStyleFor(mode);
 
             if (currentMapStyle !== newStyleUrl) {
                 currentMapStyle = newStyleUrl;

@@ -27,7 +27,12 @@ exports.handler = async (event, context) => {
       },
       body: JSON.stringify({
         mapboxToken: mapboxToken,
-        owmApiKey: owmApiKey 
+        owmApiKey: owmApiKey,
+        // Manual kill-switch for the Mapbox map-load quota. Set the Netlify env
+        // var USE_FREE_MAP=true to make the tracker render with the free
+        // MapLibre + OpenFreeMap engine instead of Mapbox (no billed map loads).
+        // Flip it back to false/unset to return to Mapbox.
+        useFreeMap: String(process.env.USE_FREE_MAP || '').toLowerCase() === 'true'
       }),
     };
 
