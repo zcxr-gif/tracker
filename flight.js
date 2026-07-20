@@ -880,14 +880,29 @@ window.pinFlight = function(flightId) {
     // origin the tracker already hits for /api/aircraft/lookup — which self-caps
     // at the limit. See docs/MAPBOX-LOAD-LIMIT.md for the drop-in endpoint.
     const MAPBOX_MONTHLY_LOAD_LIMIT = 40000;
-    // Ask that backend to count this session's map load and tell us whether the
-    // ceiling is reached. Fail OPEN: any error (endpoint not deployed yet,
-    // network, bad JSON) resolves false so we stay on Mapbox rather than break
-    // the map because the counter is unreachable.
+    // Best-effort synchronous "is this user Pro?" — matches how the rest of the
+    // tracker reads it (window flag first, then the localStorage mirror that
+    // survives before the Supabase lookup resolves). Pro users keep Mapbox even
+    // past the ceiling; the backend still gets the final say (see below).
+    function isProUser() {
+        try { if (typeof window.isInflightPro === 'function' && window.isInflightPro()) return true; } catch (_) {}
+        try { return localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) { return false; }
+    }
+    // Ask the aircraft-images backend to count this session's map load and tell
+    // us whether to render the free map. We hand it the ceiling and whether this
+    // user is Pro; the BACKEND decides:
+    //   • under the ceiling            → Mapbox (counted)
+    //   • at/over the ceiling, non-Pro → free map
+    //   • at/over the ceiling, Pro     → Mapbox (Pro is exempt)... unless the
+    //     backend's own hard override is set, which stops EVERYONE incl. Pro.
+    // Fail OPEN: any error (endpoint not deployed, network, bad JSON) resolves
+    // false so we stay on Mapbox rather than break the map when the counter is
+    // unreachable.
     async function shouldUseFreeMapForQuota() {
         try {
+            const pro = isProUser() ? 1 : 0;
             const r = await fetch(
-                `${API_BASE_URL}/api/maploads/hit?limit=${MAPBOX_MONTHLY_LOAD_LIMIT}`,
+                `${API_BASE_URL}/api/maploads/hit?limit=${MAPBOX_MONTHLY_LOAD_LIMIT}&pro=${pro}`,
                 { method: 'POST', keepalive: true }
             );
             if (!r.ok) return false;
