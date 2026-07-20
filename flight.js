@@ -23250,6 +23250,22 @@ function setupSectorOpsEventListeners() {
 function setupFlightHoverPopups() {
     if (!sectorOpsMap) return;
 
+    // Track the real input device from pointer events. pointerType is reported
+    // reliably here — unlike the (hover) media query, which some OS/driver
+    // states misreport, and unlike a mapbox layer 'mouseenter', whose
+    // originalEvent is frequently a *synthetic* mouse event (the compatibility
+    // mouse event a browser fires after a finger tap) and so does NOT look like
+    // touch. Watching the whole document in the capture phase means the latest
+    // genuine interaction wins on hybrid touch+mouse machines. Attached once.
+    if (!window.__inflightPointerTypeInit) {
+        window.__inflightPointerTypeInit = true;
+        const recordPointer = (ev) => {
+            if (ev && ev.pointerType) window.__inflightLastPointerType = ev.pointerType;
+        };
+        window.addEventListener('pointerdown', recordPointer, { capture: true, passive: true });
+        window.addEventListener('pointermove', recordPointer, { capture: true, passive: true });
+    }
+
     const hoverPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -23261,21 +23277,25 @@ function setupFlightHoverPopups() {
     let hoveredFlightId = null;
 
     const onAircraftRichHover = (e) => {
-        // Do NOT gate on the (hover)/(any-hover) media queries. A layer
-        // 'mouseenter' only fires when a pointer is genuinely hovering the
-        // aircraft, so the media query is redundant — and worse, some
-        // OS/browser states misreport it (flipping the pointer to "no hover"
-        // after a touch, in tablet mode, or on certain trackpad drivers) until
-        // the machine is rebooted, which is what made these cards intermittently
-        // stop appearing on a mouse/trackpad laptop. Instead, suppress the card
-        // only for genuine touch input so mobile doesn't get a popup stuck under
-        // the finger.
+        // Show the hover card only for a genuine mouse/trackpad pointer.
+        // Deliberately NOT gated on the (hover)/(any-hover) media queries: some
+        // OS/browser/driver states misreport them (flipping to "no hover" after
+        // a touch, in tablet mode, or on certain trackpads) until reboot, which
+        // is what made the card intermittently stop appearing on a real laptop.
+        // Instead read the actual input device from two independent signals so a
+        // finger tap never leaves a popup stuck under it on mobile:
+        //   1. window.__inflightLastPointerType — the most recent genuine
+        //      pointer event's type (mouse/pen vs touch). This is what catches
+        //      mobile, where this handler's own originalEvent is a synthetic
+        //      mouse event and therefore looks like a mouse.
+        //   2. the immediate event, as a backstop on browsers without
+        //      PointerEvent (where #1 never populates).
         const oe = e.originalEvent;
-        const isTouch = !!oe && (
+        const immediateTouch = !!oe && (
             oe.pointerType === 'touch' ||
             (typeof TouchEvent !== 'undefined' && oe instanceof TouchEvent)
         );
-        if (isTouch) return;
+        if (immediateTouch || window.__inflightLastPointerType === 'touch') return;
 
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const feature = e.features[0];
