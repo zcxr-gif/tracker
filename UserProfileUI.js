@@ -410,6 +410,24 @@ export const UserProfileUI = {
         this._render();
     },
 
+    // Open the standalone flight-history replay page (history.html) for a
+    // logged flight. The logbook is served by the same ACARS backend that
+    // serves /api/flights/<id>/history, so the flight's id maps straight
+    // through. Opens in a new tab so the profile/app state is preserved.
+    openFlightReplay(id) {
+        const d = this._data;
+        const fl = (d?.logbook || []).find(f => String(f.id) === String(id));
+        if (!fl || !fl.id) return;
+        const { aircraft } = this._resolveAircraft(fl);
+        const p = new URLSearchParams();
+        p.set('flight', String(fl.id));
+        if (fl.callsign) p.set('callsign', fl.callsign);
+        if (fl.originAirport) p.set('dep', fl.originAirport);
+        if (fl.destinationAirport) p.set('arr', fl.destinationAirport);
+        if (aircraft) p.set('type', aircraft);
+        window.open('history.html?' + p.toString(), '_blank', 'noopener');
+    },
+
     _renderLiveCard() {
         const f = this._data?.liveFeature;
         if (!f) return '';
@@ -590,6 +608,8 @@ export const UserProfileUI = {
                             <div class="ups-log-route">
                                 <span class="ups-log-icaos">${this._esc(dep)} <i class="fa-solid fa-arrow-right-long"></i> ${this._esc(arr)}</span>
                                 ${hasVio ? `<span class="ups-log-vio"><i class="fa-solid fa-triangle-exclamation"></i></span>` : ''}
+                                ${fl.id ? `<button type="button" class="ups-log-replay" title="Replay this flight" aria-label="Replay this flight"
+                                    onclick="event.stopPropagation(); UserProfileUI.openFlightReplay('${this._esc(String(fl.id))}')"><i class="fa-solid fa-circle-play"></i></button>` : ''}
                             </div>
                             <span class="ups-log-sub">${this._esc(fl.callsign || '')}${acLine ? ' · ' + this._esc(acLine) : ''}${server ? ' · ' + this._esc(server) : ''}</span>
                             ${chips ? `<div class="ups-log-chips">${chips}</div>` : ''}
@@ -1098,6 +1118,13 @@ export const UserProfileUI = {
             .ups-log-icaos { font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
             .ups-log-icaos > i { font-size: 10px; color: var(--ups-text-4); margin: 0 3px; }
             .ups-log-vio { color: var(--ups-warning); font-size: 11px; }
+            .ups-log-replay {
+                margin-left: auto; flex: 0 0 auto; border: none; background: none; cursor: pointer;
+                color: var(--ups-accent, #0a84ff); font-size: 16px; line-height: 1; padding: 2px 4px;
+                border-radius: 8px; -webkit-tap-highlight-color: transparent; transition: transform .1s ease, color .12s ease;
+            }
+            .ups-log-replay:hover { color: var(--ups-text); }
+            .ups-log-replay:active { transform: scale(0.88); }
             .ups-log-sub {
                 font-size: 11px;
                 color: var(--ups-text-3);

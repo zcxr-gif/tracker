@@ -2699,6 +2699,13 @@ _getTabContentHTML() {
                                 <span>${hrs}h</span>
                             </div>
                             <div class="pui-flight-time">${timeStr}</div>
+                            ${flight.id ? `<button class="pui-icon-btn pui-replay-quick-btn" data-action="replay-flight"
+                                data-flight-id="${encodeURIComponent(String(flight.id))}"
+                                data-callsign="${encodeURIComponent(cs !== 'N/A' ? cs : '')}"
+                                data-dep="${encodeURIComponent(dep !== 'N/A' ? dep : '')}"
+                                data-arr="${encodeURIComponent(arr !== 'N/A' ? arr : '')}"
+                                ${flight.aircraft?.aircraftName ? `data-type="${encodeURIComponent(flight.aircraft.aircraftName)}"` : ''}
+                                title="Replay this flight"><i class="fa-solid fa-circle-play"></i></button>` : ''}
                             ${planAttr ? `<button class="pui-icon-btn pui-plan-quick-btn" ${planAttr} title="Plan this route"><i class="fa-solid fa-route"></i></button>` : ''}
                         </div>`;
                 }).join('');
@@ -3464,6 +3471,25 @@ const contentRoot = document.getElementById('pui-content');
                         // Manually dispatch a blur event to trigger the predictive EET calculator
                         if (depInput) depInput.dispatchEvent(new Event('blur'));
                     }, 150);
+                    return;
+                }
+
+                // 3. Replay flight → open the standalone flight-history page.
+                // Logbook flights come from the same ACARS backend that serves
+                // /api/flights/<id>/history, so the id maps straight through.
+                const replayTarget = e.target.closest('[data-action="replay-flight"]');
+                if (replayTarget && contentRoot.contains(replayTarget)) {
+                    e.stopPropagation();
+                    const dec = (v) => { try { return decodeURIComponent(v || ''); } catch (_) { return ''; } };
+                    const params = new URLSearchParams();
+                    const fid = dec(replayTarget.dataset.flightId);
+                    if (!fid) return;
+                    params.set('flight', fid);
+                    const cs = dec(replayTarget.dataset.callsign); if (cs) params.set('callsign', cs);
+                    const dp = dec(replayTarget.dataset.dep);      if (dp) params.set('dep', dp);
+                    const ar = dec(replayTarget.dataset.arr);      if (ar) params.set('arr', ar);
+                    const ty = dec(replayTarget.dataset.type);     if (ty) params.set('type', ty);
+                    window.open('history.html?' + params.toString(), '_blank', 'noopener');
                     return;
                 }
             });
