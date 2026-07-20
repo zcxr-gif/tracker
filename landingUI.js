@@ -997,7 +997,7 @@ export const LandingUI = {
                     <div class="card-content">
                         <div class="row-header" style="display:flex; justify-content:space-between; align-items:center;">
                             <div class="row-label"><i class="fa-solid ${def.icon}"></i><span>${def.label}</span></div>
-                            <button class="row-remove js-remove-filter" data-id="${id}" style="background:none; border:none; color:#ef4444; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>
+                            <button class="row-remove js-remove-filter" data-id="${id}" style="background:none; border:none; color:var(--lui-neg); cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>
                         </div>
                         <div class="row-control">${this.renderInputControl(id, value)}</div>
                     </div>
@@ -1143,7 +1143,7 @@ export const LandingUI = {
         }
         if (def.type === 'select') return `<div class="input-wrapper select-wrapper"><select class="row-input-select data-input" data-id="${id}">${def.options.map(opt => `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select></div>`;
         if (def.type === 'range') return `<div class="range-pill-container"><div class="range-half"><span class="range-label">MIN</span><input type="number" class="range-input data-input-min" data-id="${id}" placeholder="0" value="${value.min || ''}"></div><div class="range-divider"></div><div class="range-half"><span class="range-label">MAX</span><input type="number" class="range-input data-input-max" data-id="${id}" placeholder="Max" value="${value.max || ''}"></div></div>`;
-        if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
+        if (def.type === 'boolean') return `<div class="bool-indicator" style="font-size:0.8rem; color:var(--lui-pos); font-weight:600;"><i class="fa-solid fa-check"></i> Active Policy Enabled</div>`;
         if (def.type === 'autocomplete') {
             return `
                 <div class="input-wrapper autocomplete-wrapper">
@@ -1175,69 +1175,97 @@ export const LandingUI = {
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
             :root {
-                --lui-bg-main: #0a0a0b;
-                --lui-bg-card: #141416;
-                --lui-bg-input: #1c1c1f;
-                --lui-bg-panel: #0d0d0e;
-                --lui-bg-menu: #18181b;
+                /* iOS "Soft Premium" palette — dark (mirrors MobileDashboardUI
+                   --mdui-* dark tokens so the desktop landing UI reads as the
+                   same design language as the mobile dashboard). */
+                --lui-bg-main: #1c1c1e;
+                --lui-bg-card: #2c2c2e;
+                --lui-bg-input: #3a3a3c;
+                --lui-bg-panel: #161618;
+                --lui-bg-menu: #2c2c2e;
 
-                --lui-text-main: #fff;
-                --lui-text-muted: rgba(255, 255, 255, 0.4);
-                --lui-text-dim: rgba(255, 255, 255, 0.3);
-                --lui-text-inverse: #000;
-                --lui-text-gray-1: #a1a1aa;
-                --lui-text-gray-2: #71717a;
-                --lui-text-gray-3: #3f3f46;
+                --lui-text-main: #ffffff;
+                --lui-text-muted: rgba(235, 235, 245, 0.60);
+                --lui-text-dim: rgba(235, 235, 245, 0.30);
+                --lui-text-inverse: #ffffff;
+                --lui-text-gray-1: rgba(235, 235, 245, 0.60);
+                --lui-text-gray-2: rgba(235, 235, 245, 0.45);
+                --lui-text-gray-3: rgba(235, 235, 245, 0.30);
 
-                --lui-border-light: rgba(255, 255, 255, 0.05);
-                --lui-border-base: rgba(255, 255, 255, 0.08);
-                --lui-border-strong: rgba(255, 255, 255, 0.15);
-                --lui-border-solid: #2d2d30;
-                --lui-border-menu: #3f3f46;
+                --lui-border-light: rgba(255, 255, 255, 0.08);
+                --lui-border-base: rgba(255, 255, 255, 0.14);
+                --lui-border-strong: rgba(255, 255, 255, 0.22);
+                --lui-border-solid: rgba(255, 255, 255, 0.12);
+                --lui-border-menu: rgba(255, 255, 255, 0.14);
 
-                --lui-hover-bg: rgba(255, 255, 255, 0.05);
+                --lui-hover-bg: rgba(255, 255, 255, 0.06);
                 --lui-active-bg: rgba(255, 255, 255, 0.12);
 
-                --lui-accent: #38bdf8;
-                --lui-accent-hover: rgba(56, 189, 248, 0.1);
-                --lui-accent-active: rgba(56, 189, 248, 0.2);
+                --lui-accent: #0a84ff;
+                --lui-accent-hover: rgba(10, 132, 255, 0.22);
+                --lui-accent-active: rgba(10, 132, 255, 0.32);
 
-                --lui-glass-bg: rgba(10, 10, 10, 0.85);
-                --lui-glass-heavy: rgba(0, 0, 0, 0.85);
-                --lui-glass-btn: rgba(15, 15, 15, 0.7);
+                /* iOS system semantic colours (dark) */
+                --lui-pos:  #30d158;
+                --lui-neg:  #ff453a;
+                --lui-warn: #ffd60a;
+                --lui-info: #64d2ff;
+
+                --lui-glass-bg: rgba(28, 28, 32, 0.72);
+                --lui-glass-heavy: rgba(20, 20, 22, 0.85);
+                --lui-glass-btn: rgba(44, 44, 48, 0.72);
+
+                /* Shared iOS material tokens */
+                --lui-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+                --lui-blur: saturate(180%) blur(30px);
+                --lui-shadow-card:  0 1px 2px rgba(0, 0, 0, 0.45);
+                --lui-shadow-float: 0 4px 18px rgba(0, 0, 0, 0.45);
+                --lui-shadow-pop:   0 12px 40px rgba(0, 0, 0, 0.60);
             }
 
             .tactical-ui-root[data-theme="light"] {
-                --lui-bg-main: #f3f4f6;
+                /* iOS "Soft Premium" palette — light (mirrors MobileDashboardUI
+                   --mdui-* light tokens). */
+                --lui-bg-main: #f5f5f7;
                 --lui-bg-card: #ffffff;
                 --lui-bg-input: #ffffff;
-                --lui-bg-panel: #e5e7eb;
+                --lui-bg-panel: #ececef;
                 --lui-bg-menu: #ffffff;
 
-                --lui-text-main: #111827;
-                --lui-text-muted: rgba(0, 0, 0, 0.5);
-                --lui-text-dim: rgba(0, 0, 0, 0.4);
+                --lui-text-main: #000000;
+                --lui-text-muted: rgba(60, 60, 67, 0.60);
+                --lui-text-dim: rgba(60, 60, 67, 0.30);
                 --lui-text-inverse: #ffffff;
-                --lui-text-gray-1: #4b5563;
-                --lui-text-gray-2: #6b7280;
-                --lui-text-gray-3: #9ca3af;
+                --lui-text-gray-1: rgba(60, 60, 67, 0.60);
+                --lui-text-gray-2: rgba(60, 60, 67, 0.45);
+                --lui-text-gray-3: rgba(60, 60, 67, 0.30);
 
-                --lui-border-light: rgba(0, 0, 0, 0.05);
-                --lui-border-base: rgba(0, 0, 0, 0.08);
-                --lui-border-strong: rgba(0, 0, 0, 0.15);
-                --lui-border-solid: #d1d5db;
-                --lui-border-menu: #e5e7eb;
+                --lui-border-light: rgba(0, 0, 0, 0.055);
+                --lui-border-base: rgba(0, 0, 0, 0.10);
+                --lui-border-strong: rgba(0, 0, 0, 0.18);
+                --lui-border-solid: rgba(0, 0, 0, 0.12);
+                --lui-border-menu: rgba(0, 0, 0, 0.10);
 
                 --lui-hover-bg: rgba(0, 0, 0, 0.05);
                 --lui-active-bg: rgba(0, 0, 0, 0.08);
 
-                --lui-accent: #0284c7;
-                --lui-accent-hover: rgba(2, 132, 199, 0.1);
-                --lui-accent-active: rgba(2, 132, 199, 0.2);
+                --lui-accent: #007aff;
+                --lui-accent-hover: rgba(0, 122, 255, 0.12);
+                --lui-accent-active: rgba(0, 122, 255, 0.22);
 
-                --lui-glass-bg: rgba(255, 255, 255, 0.85);
-                --lui-glass-heavy: rgba(243, 244, 246, 0.85);
-                --lui-glass-btn: rgba(255, 255, 255, 0.7);
+                /* iOS system semantic colours (light) */
+                --lui-pos:  #34c759;
+                --lui-neg:  #ff3b30;
+                --lui-warn: #ff9500;
+                --lui-info: #5ac8fa;
+
+                --lui-glass-bg: rgba(245, 245, 247, 0.72);
+                --lui-glass-heavy: rgba(245, 245, 247, 0.85);
+                --lui-glass-btn: rgba(250, 250, 252, 0.85);
+
+                --lui-shadow-card:  0 1px 2px rgba(0, 0, 0, 0.05);
+                --lui-shadow-float: 0 4px 18px rgba(0, 0, 0, 0.18);
+                --lui-shadow-pop:   0 12px 40px rgba(0, 0, 0, 0.30);
             }
 
             .modal-filter-card {
@@ -1246,7 +1274,7 @@ export const LandingUI = {
                 border-radius: 20px;
                 display: flex;
                 overflow: visible !important; 
-                box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+                box-shadow: var(--lui-shadow-card);
                 position: relative;
             }
 
@@ -1305,7 +1333,7 @@ export const LandingUI = {
                 max-height: 200px;
                 overflow-y: auto;
                 display: none;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                box-shadow: var(--lui-shadow-pop);
             }
 
             .autocomplete-item {
@@ -1334,7 +1362,9 @@ export const LandingUI = {
                 opacity: 0;
                 visibility: hidden;
                 transition: opacity 0.5s ease;
-                font-family: 'Inter', sans-serif;
+                font-family: var(--lui-font);
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
             }
             .tactical-ui-root.active {
                 opacity: 1;
@@ -1365,22 +1395,24 @@ export const LandingUI = {
                 background: var(--lui-glass-btn);
                 padding: 10px 24px;
                 border-radius: 100px;
-                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: var(--lui-blur);
+                backdrop-filter: var(--lui-blur);
                 border: 1px solid var(--lui-border-base);
                 cursor: pointer;
                 color: var(--lui-text-main);
                 display: flex;
                 align-items: center;
                 gap: 12px;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+                box-shadow: var(--lui-shadow-float);
                 transition: all 0.3s;
                 white-space: nowrap;
             }
 
             .search-blade {
                 background: var(--lui-glass-bg);
-                backdrop-filter: blur(20px);
-                border: 1px solid var(--lui-border-strong);
+                -webkit-backdrop-filter: var(--lui-blur);
+                backdrop-filter: var(--lui-blur);
+                border: 1px solid var(--lui-border-base);
                 border-radius: 100px;
                 height: 44px;
                 width: 240px;
@@ -1389,7 +1421,7 @@ export const LandingUI = {
                 padding: 0 18px;
                 transition: width 0.25s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
                 position: relative;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+                box-shadow: var(--lui-shadow-float);
                 z-index: 1002;
                 pointer-events: auto;
             }
@@ -1398,7 +1430,7 @@ export const LandingUI = {
                 width: 380px;
                 border-color: var(--lui-accent);
                 background: var(--lui-bg-main);
-                box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 1px var(--lui-accent-hover);
+                box-shadow: var(--lui-shadow-pop), 0 0 0 3px var(--lui-accent-hover);
             }
             
             .search-blade.has-results {
@@ -1447,7 +1479,7 @@ export const LandingUI = {
                 overflow-y: auto;
                 display: none;
                 z-index: 1001;
-                box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px var(--lui-border-light);
+                box-shadow: var(--lui-shadow-pop), 0 0 0 1px var(--lui-border-light);
                 padding: 6px;
             }
 
@@ -1652,8 +1684,8 @@ export const LandingUI = {
                 font-size: 9px;
                 font-weight: 800;
                 letter-spacing: 0.06em;
-                color: #052e14;
-                background: linear-gradient(135deg, #4ade80, #22c55e);
+                color: #ffffff;
+                background: linear-gradient(135deg, #34c759, #30d158);
                 padding: 2px 7px;
                 border-radius: 999px;
             }
@@ -1713,12 +1745,12 @@ export const LandingUI = {
                 margin: 4px 14px 2px 38px;
                 font-size: 12px;
                 font-weight: 700;
-                color: #22c55e;
+                color: var(--lui-pos);
             }
             .res-status-line > i { font-size: 11px; }
             .res-status-line.is-ground { color: var(--lui-text-muted); }
-            .res-status-line.is-climb { color: #38bdf8; }
-            .res-status-line.is-descent { color: #fbbf24; }
+            .res-status-line.is-climb { color: var(--lui-info); }
+            .res-status-line.is-descent { color: var(--lui-warn); }
 
             .res-pilot-link {
                 display: flex;
@@ -1858,7 +1890,8 @@ export const LandingUI = {
                 height: 52px;
                 border-radius: 50%;
                 background: var(--lui-glass-btn);
-                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: var(--lui-blur);
+                backdrop-filter: var(--lui-blur);
                 border: 1px solid var(--lui-border-base);
                 color: var(--lui-text-main);
                 cursor: pointer;
@@ -1866,7 +1899,7 @@ export const LandingUI = {
                 place-items: center;
                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 position: relative;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+                box-shadow: var(--lui-shadow-float);
                 font-size: 1.1rem;
             }
             .orb-btn:hover {
@@ -1892,8 +1925,9 @@ export const LandingUI = {
                 right: 0;
                 width: 260px;
                 background: var(--lui-glass-bg);
-                backdrop-filter: blur(30px);
-                border: 1px solid var(--lui-border-strong);
+                -webkit-backdrop-filter: var(--lui-blur);
+                backdrop-filter: var(--lui-blur);
+                border: 1px solid var(--lui-border-base);
                 border-radius: 18px;
                 padding: 20px;
                 color: var(--lui-text-main);
@@ -1901,7 +1935,7 @@ export const LandingUI = {
                 visibility: hidden;
                 transform: translateY(15px);
                 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+                box-shadow: var(--lui-shadow-pop);
                 pointer-events: none;
                 z-index: 4000;
             }
@@ -1948,7 +1982,7 @@ export const LandingUI = {
                 background: var(--lui-glass-heavy);
                 border-color: var(--lui-border-strong);
             }
-            .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 12px #10b981; }
+            .status-dot { width: 8px; height: 8px; background: var(--lui-pos); border-radius: 50%; box-shadow: 0 0 12px var(--lui-pos); }
             #landing-server-name { font-size: 0.8rem; font-weight: 800; letter-spacing: 1px; }
             .dropdown-arrow { font-size: 0.75rem; opacity: 0.4; transition: transform 0.3s; }
             .top-branding.dropdown.open .dropdown-arrow { transform: rotate(180deg); opacity: 1; }
@@ -1964,7 +1998,7 @@ export const LandingUI = {
                 display: none;
                 flex-direction: column;
                 overflow: hidden;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+                box-shadow: var(--lui-shadow-pop);
                 z-index: 5000;
             }
             .top-branding.dropdown.open .server-menu { display: flex; }
@@ -2005,8 +2039,9 @@ export const LandingUI = {
                 padding: 12px 20px;
                 border-radius: 100px;
                 background: var(--lui-glass-bg);
-                backdrop-filter: blur(20px);
-                border: 1px solid var(--lui-border-strong);
+                -webkit-backdrop-filter: var(--lui-blur);
+                backdrop-filter: var(--lui-blur);
+                border: 1px solid var(--lui-border-base);
                 color: var(--lui-text-muted);
                 cursor: pointer;
                 display: flex;
@@ -2014,7 +2049,7 @@ export const LandingUI = {
                 gap: 14px;
                 white-space: nowrap;
                 transition: all 0.2s;
-                box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+                box-shadow: var(--lui-shadow-float);
             }
             .spread-opt i { font-size: 0.95rem; }
             .spread-label { font-size: 0.8rem; font-weight: 700; }
@@ -2024,8 +2059,9 @@ export const LandingUI = {
             .modal-overlay {
                 position: fixed;
                 inset: 0;
-                background: var(--lui-glass-heavy);
-                backdrop-filter: blur(15px);
+                background: rgba(0, 0, 0, 0.45);
+                -webkit-backdrop-filter: saturate(180%) blur(8px);
+                backdrop-filter: saturate(180%) blur(8px);
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -2036,7 +2072,7 @@ export const LandingUI = {
                 pointer-events: auto;
             }
             .modal-overlay.open { opacity: 1; visibility: visible; }
-            
+
             .filter-modal {
                 background: var(--lui-bg-main);
                 width: 940px;
@@ -2044,11 +2080,11 @@ export const LandingUI = {
                 max-width: 95vw;
                 max-height: 90vh;
                 border: 1px solid var(--lui-border-base);
-                border-radius: 28px;
+                border-radius: 24px;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
-                box-shadow: 0 50px 100px rgba(0,0,0,0.9);
+                box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
                 transform: scale(0.96) translateY(20px);
                 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
@@ -2136,7 +2172,7 @@ export const LandingUI = {
                 border-radius: 20px;
                 display: flex;
                 overflow: hidden;
-                box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+                box-shadow: var(--lui-shadow-card);
             }
             .card-left-strip { width: 6px; background: var(--lui-accent); }
             .card-content { flex: 1; padding: 24px; }
@@ -2177,7 +2213,8 @@ export const LandingUI = {
                 right: 0;
                 padding: 30px 40px;
                 background: var(--lui-glass-bg);
-                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: var(--lui-blur);
+                backdrop-filter: var(--lui-blur);
                 border-top: 1px solid var(--lui-border-base);
                 display: flex;
                 justify-content: flex-end;

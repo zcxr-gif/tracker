@@ -337,9 +337,14 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let natTracksLayerInstance = null;
 
     window.pinnedFlights = new Set();
+    // How many flights each tier can pin at once (Multi-Track).
+    if (typeof window.PIN_LIMIT_FREE !== 'number') window.PIN_LIMIT_FREE = 2;
+    if (typeof window.PIN_LIMIT_PRO  !== 'number') window.PIN_LIMIT_PRO  = 7;
 
-// --- PRO GATE: Clear ALL Pro features when the user signs out ---
-    // Multi-Track, Custom Map Styles, 3D Layers, and Themes are signed-in-only features.
+// --- PRO GATE: Clear Pro features when the user signs out ---
+    // Custom Map Styles, 3D Layers, and Themes are signed-in-only. Multi-Track
+    // is usable by everyone within the free allowance, but a signed-out user
+    // drops back to the free pin limit, so any extra pins are cleared here.
     // This entirely wipes the Pro state and reverts the client to the free tier visually.
     try {
         supabase.auth.onAuthStateChange((event, session) => {
@@ -457,23 +462,45 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     }
     
     window.toggleFlightPin = function(flightId) {
-        // --- PRO GATE: Multi-Track pinned flights require a signed-in account ---
-        // Allow unpinning regardless (so a user who somehow has stale pins can clear them),
-        // but block any new pin attempts from non-signed-in users.
-        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-
+        // Unpinning is always allowed (also clears any stale pins).
         if (window.pinnedFlights.has(flightId)) {
             window.unpinFlight(flightId);
             return;
         }
 
-        if (!isSignedIn) {
+        // Tiered limits — no sign-in wall for the free allowance:
+        //   • regular users (incl. signed-out) can pin up to PIN_LIMIT_FREE
+        //   • Pro accounts can pin up to PIN_LIMIT_PRO
+        // The Pro upsell only appears once a non-Pro user tries to exceed the
+        // free allowance, not on the very first pin.
+        // The higher pin allowance keys off being SIGNED IN — the same signal
+        // the desktop settings use to unlock their gated rows
+        // (ProfileUI._currentUser). This is reliable, unlike the async
+        // profiles.is_pro flag (window.isInflightPro), which can read false for
+        // a genuine account right after load or on a transient fetch hiccup. We
+        // still honour the Pro flag / persisted entitlement as extra signals so
+        // nobody is ever downgraded.
+        const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser);
+        let isPro = false;
+        try { isPro = (typeof window.isInflightPro === 'function') && window.isInflightPro(); } catch (_) {}
+        if (!isPro) {
+            try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
+        }
+        const higherTier = isSignedIn || isPro;
+        const limit = higherTier ? window.PIN_LIMIT_PRO : window.PIN_LIMIT_FREE;
+        if (window.pinnedFlights.size >= limit) {
             if (typeof showNotification === 'function') {
-                showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
+                showNotification(higherTier
+                    ? `You can pin up to ${limit} flights at once.`
+                    : `You can pin up to ${window.PIN_LIMIT_FREE} flights — sign in to pin up to ${window.PIN_LIMIT_PRO}.`,
+                    higherTier ? 'info' : 'error');
             }
-            // Surface the signup modal so the user can convert immediately
-            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
-                window.AuthUI.open('signup');
+            // Signed-out users over the free cap get nudged to sign in (no
+            // in-app upgrade path on iOS native, so skip the modal there).
+            const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+            if (!higherTier && !iosNative) {
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
+                else if (typeof window.initInflightPro === 'function') window.initInflightPro();
             }
             return;
         }
@@ -484,68 +511,200 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     function createMiniWindowsContainer() {
         let container = document.getElementById('mini-windows-container');
         if (!container) {
+            // Dock wrapper holds the "Show pinned only" toggle above the card
+            // stack and owns the bottom-left anchoring + the shift that keeps the
+            // whole group clear of the left-docked flight info window.
+            const dock = document.createElement('div');
+            dock.id = 'mini-windows-dock';
+
+            const toggle = document.createElement('button');
+            toggle.id = 'pinned-only-toggle';
+            toggle.type = 'button';
+            toggle.setAttribute('role', 'switch');
+            toggle.setAttribute('aria-checked', 'false');
+            toggle.hidden = true; // shown once at least one flight is pinned
+            toggle.innerHTML = `
+                <span class="pot-track"><span class="pot-thumb"></span></span>
+                <span class="pot-label">Show pinned only</span>`;
+            toggle.addEventListener('click', () => window.togglePinnedOnly());
+
             container = document.createElement('div');
             container.id = 'mini-windows-container';
-            document.body.appendChild(container);
+
+            dock.appendChild(toggle);
+            dock.appendChild(container);
+            document.body.appendChild(dock);
+
+            // Keep the dock clear of the flight info window: mirror the weather
+            // widget, which shifts right while the window is docked left.
+            _watchFlightWindowForDockShift();
         }
         return container;
     }
 
-window.pinFlight = function(flightId) {
-    const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-    if (!isSignedIn) {
-        if (typeof showNotification === 'function') {
-            showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "Multi-flight pinning isn't available on this account." : "Multi-Track is a Pro feature — sign in to pin flights.", "error");
-        }
-        if (window.AuthUI && typeof window.AuthUI.open === 'function') {
-            window.AuthUI.open('signup');
-        }
-        return;
+    // Reflect the pinned-only toggle's on/off state + visibility. Hidden until
+    // there's at least one pin; auto-off + hidden when the last pin is removed.
+    function refreshPinnedOnlyToggle() {
+        const toggle = document.getElementById('pinned-only-toggle');
+        if (!toggle) return;
+        const hasPins = !!(window.pinnedFlights && window.pinnedFlights.size > 0);
+        toggle.hidden = !hasPins;
+        const on = hasPins && !!mapFilters.showOnlyPinned;
+        toggle.classList.toggle('is-on', on);
+        toggle.setAttribute('aria-checked', on ? 'true' : 'false');
     }
 
+    window.togglePinnedOnly = function() {
+        mapFilters.showOnlyPinned = !mapFilters.showOnlyPinned;
+        refreshPinnedOnlyToggle();
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+        // Intentionally NOT persisted: pins are in-memory and don't survive a
+        // reload, so the isolation view is transient too (see startup reset).
+    };
+
+    // Shift the pinned dock right while the flight info window is docked left,
+    // so the cards + toggle never sit under it. Same signal the weather widget
+    // uses (the window's `visible` + `dock-left` classes).
+    let _dockShiftObserver = null;
+    function _watchFlightWindowForDockShift() {
+        const apply = () => {
+            const dock = document.getElementById('mini-windows-dock');
+            const win = document.getElementById('aircraft-info-window');
+            if (!dock) return;
+            const shifted = !!win && win.classList.contains('visible') && win.classList.contains('dock-left');
+            dock.classList.toggle('dock-shifted', shifted);
+        };
+        apply();
+        const win = document.getElementById('aircraft-info-window');
+        if (win && !_dockShiftObserver) {
+            _dockShiftObserver = new MutationObserver(apply);
+            _dockShiftObserver.observe(win, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Shared "FR24-style" mini flight card
+    // Rendered identically for the map hover popup (photo on top) and the
+    // pinned multi-track cards (photo on the bottom), so both read as one
+    // design. Uses the existing .fr24-* CSS classes.
+    // ──────────────────────────────────────────────────────────────────
+    const MINI_AC_CODES = {
+        'boeing 737-700':'B737','boeing 737-800':'B738','boeing 737-900':'B739',
+        'boeing 737 max 8':'B38M','boeing 737':'B738','boeing 717':'B712',
+        'boeing 747-200':'B742','boeing 747-400':'B744','boeing 747-8':'B748','boeing 747':'B744',
+        'boeing 757':'B752','boeing 767':'B763',
+        'boeing 777-200lr':'B77L','boeing 777-300':'B77W','boeing 777-200':'B772','boeing 777':'B772',
+        'boeing 787-10':'B78X','boeing 787-9':'B789','boeing 787-8':'B788','boeing 787':'B789',
+        'airbus a318':'A318','airbus a319':'A319','airbus a320neo':'A20N','airbus a320':'A320',
+        'airbus a321neo':'A21N','airbus a321':'A321','airbus a330-900':'A339','airbus a330-300':'A333',
+        'airbus a330':'A333','airbus a340-600':'A346','airbus a340':'A346','airbus a350':'A359','airbus a380':'A388',
+        'bombardier crj-1000':'CRJX','bombardier crj-900':'CRJ9','bombardier crj-700':'CRJ7','bombardier crj-200':'CRJ2','crj':'CRJ2',
+        'de havilland dash 8':'DH8D','dash 8':'DH8D','embraer e175':'E175','embraer e190':'E190',
+        'mcdonnell douglas dc-10':'DC10','dc-10':'DC10','mcdonnell douglas md-11':'MD11','md-11':'MD11'
+    };
+    function miniAircraftCode(name) {
+        if (!name) return '';
+        const raw = String(name).trim();
+        // Already a short ICAO-style code (e.g. "B772", "A320").
+        if (/^[A-Z][A-Z0-9]{1,4}$/.test(raw) && !/\s/.test(raw)) return raw.toUpperCase();
+        const low = raw.toLowerCase();
+        let best = '';
+        for (const k in MINI_AC_CODES) { if (low.includes(k) && k.length > best.length) best = k; }
+        if (best) return MINI_AC_CODES[best];
+        // Fallback: drop the manufacturer word and abbreviate what remains.
+        const cleaned = raw.replace(/^(airbus|boeing|embraer|bombardier|mcdonnell douglas|de havilland)\s+/i, '').toUpperCase();
+        return cleaned.replace(/\s+/g, '').slice(0, 5);
+    }
+    function miniPhaseColor(pos) {
+        const vs  = Number(pos.vs_fpm ?? pos.vs ?? 0);
+        const alt = Number(pos.alt_ft ?? 0);
+        const gs  = Number(pos.gs_kt ?? pos.gs ?? 0);
+        if (alt < 300 || gs < 50) return '#64748b';        // on/near ground
+        if (vs >  400) return 'var(--color-brand)';        // climb
+        if (vs < -400) return 'var(--color-warning)';      // descent
+        return 'var(--color-success)';                     // cruise
+    }
+    const _miniEsc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+    window.buildMiniFlightCardHTML = function(props, opts) {
+        opts = opts || {};
+        const layout = opts.layout || 'hover';   // 'hover' → photo top; 'pinned' → photo bottom
+        let ac = {};
+        try { ac = typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : (props.aircraft || {}); } catch (_) {}
+        let pos = props.position;
+        if (typeof pos === 'string') { try { pos = JSON.parse(pos); } catch (_) { pos = {}; } }
+        pos = pos || {};
+
+        const ad = (typeof airportsData !== 'undefined' && airportsData) ? airportsData : {};
+        const callsign = props.callsign || '---';
+        const dep = (props.departureIcao || '').toUpperCase();
+        const arr = (props.arrivalIcao || '').toUpperCase();
+        const depCity = (dep && ad[dep] && (ad[dep].city || ad[dep].name)) || dep || '—';
+        const arrCity = (arr && ad[arr] && (ad[arr].city || ad[arr].name)) || arr || '—';
+        const alt = Math.round(Number(pos.alt_ft ?? props.altitude ?? 0)).toLocaleString();
+        const gs  = Math.round(Number(pos.gs_kt ?? props.speed ?? 0)).toLocaleString();
+        const img = props.communityImageUrl || 'Images/default_ac.png';
+        const credit = props.contributorName || 'IF Community';
+        const code = miniAircraftCode(ac.aircraftName || props.aircraftName);
+
+        // Route progress (great-circle: how far along dep→arr the aircraft is).
+        let pct = 0;
+        if (dep && arr && ad[dep] && ad[arr] && pos.lat != null && typeof getDistanceKm === 'function') {
+            try {
+                const total = getDistanceKm(ad[dep].lat, ad[dep].lon, ad[arr].lat, ad[arr].lon);
+                const remain = getDistanceKm(pos.lat, pos.lon, ad[arr].lat, ad[arr].lon);
+                if (total > 0) pct = Math.max(0, Math.min(100, (1 - remain / total) * 100));
+            } catch (_) {}
+        }
+        const barColor = miniPhaseColor(pos);
+
+        // Airline logo derived from the livery name (same scheme the rest of the app uses).
+        const liv = (ac.liveryName || '').trim();
+        const w = liv.split(/\s+/);
+        const logoName = (w.length > 1 && /[^a-zA-Z0-9]/.test(w[1])) ? w[0] : (w[0] + (w[1] ? ' ' + w[1] : ''));
+        const logo = 'Images/airline_logos/' + logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_') + '.png';
+
+        const imageBox = `<div class="fr24-image-box" style="background-image:url('${_miniEsc(img)}'), url('Images/default_ac.png')">`
+            + `<div class="fr24-image-overlay"></div>`
+            + `<div class="fr24-copyright">© ${_miniEsc(credit)}</div></div>`;
+
+        const infoBox = `<div class="fr24-info-box">`
+            + `<div class="fr24-header-row">`
+            + `<img src="${_miniEsc(logo)}" class="fr24-airline-logo" onerror="this.style.display='none'">`
+            + `<span class="fr24-callsign">${_miniEsc(callsign)}</span>`
+            + ((window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(callsign, { variant: 'hover' }) : '')
+            + (code ? `<span class="fr24-ac-badge">${_miniEsc(code)}</span>` : '')
+            + `</div>`
+            + `<div class="fr24-route">${_miniEsc(depCity)} <span class="fr24-route-to">to</span> ${_miniEsc(arrCity)}</div>`
+            + `<div class="fr24-progress-track"><div class="fr24-progress-fill" style="width:${pct.toFixed(0)}%;background:${barColor}"></div></div>`
+            + `<div class="fr24-stats-row" style="display:flex;justify-content:space-between;">`
+            + `<span>${alt} <span class="fr24-unit">ft</span></span>`
+            + `<span>${gs} <span class="fr24-unit">kts</span></span>`
+            + `</div></div>`;
+
+        return `<div class="fr24-card-container">${layout === 'pinned' ? infoBox + imageBox : imageBox + infoBox}</div>`;
+    };
+
+window.pinFlight = function(flightId) {
+    // Tier limits are enforced by toggleFlightPin (the user entry point);
+    // pinFlight itself just adds the pin so programmatic callers (e.g. restore)
+    // still work regardless of sign-in state.
     window.pinnedFlights.add(flightId);
     const container = createMiniWindowsContainer();
     const flightProps = currentMapFeatures[flightId]?.properties;
     if (!flightProps) return;
     
-    let pos = flightProps.position;
-    if (typeof pos === 'string') pos = JSON.parse(pos);
-    
-    const imageUrl = flightProps.communityImageUrl || 'Images/default_ac.png';
-    
     const card = document.createElement('div');
     card.id = `pinned-flight-${flightId}`;
     card.className = 'pinned-flight-card';
-    card.style.cursor = 'pointer'; 
-    
-    card.innerHTML = `
-        <div class="pinned-image-flush" style="width: fit-content; flex-shrink: 0; position: relative; display: flex;">
-            <img src="${imageUrl}" alt="Aircraft" style="height: 100%; width: auto; max-width: 160px; object-fit: cover;" onerror="this.src='Images/default_ac.png'" />
-            <div class="pinned-image-gradient"></div>
-        </div>
-        <div class="pinned-content">
-            <button class="pinned-close" onclick="window.unpinFlight('${flightId}')" title="Unpin Flight">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
-            <div class="pinned-header">
-                <span class="pinned-callsign">${flightProps.callsign || 'N/A'}</span>
-            </div>
-            <div class="pinned-stats">
-                <div class="p-stat">
-                    <span class="p-label">ALT</span>
-                    <span class="p-val">${Math.round(pos.alt_ft || 0)} <small>FT</small></span>
-                </div>
-                <div class="p-stat">
-                    <span class="p-label">SPD</span>
-                    <span class="p-val">${Math.round(pos.gs_kt || 0)} <small>KTS</small></span>
-                </div>
-                <div class="p-stat">
-                    <span class="p-label">DEST</span>
-                    <span class="p-val dest-val">${flightProps.arrivalIcao || '---'}</span>
-                </div>
-            </div>
-        </div>
-    `;
+    card.style.cursor = 'pointer';
+
+    // Same FR24-style card as the map hover popup, photo anchored to the
+    // bottom, plus an unpin button in the top-right corner.
+    card.innerHTML = window.buildMiniFlightCardHTML(flightProps, { layout: 'pinned' })
+        + `<button class="pinned-close" onclick="event.stopPropagation(); window.unpinFlight('${flightId}')" title="Unpin Flight">`
+        + `<i class="fa-solid fa-xmark"></i></button>`;
 
     card.addEventListener('click', function(e) {
         if (e.target.closest('.pinned-close')) return;
@@ -578,7 +737,18 @@ window.pinFlight = function(flightId) {
     });
 
     container.appendChild(card);
-    
+
+    // Draw the aircraft's flown path even when it was pinned without ever being
+    // opened (e.g. via the Shift+P shortcut on a hovered flight). Opening a
+    // flight fetches its /history and builds the trail; a quick-pin skips that,
+    // so trigger it here. No-ops when the trail already exists.
+    if (typeof window.ensurePinnedFlownPath === 'function') {
+        window.ensurePinnedFlownPath(flightId);
+    }
+
+    // Surface the "Show pinned only" toggle now that something is pinned.
+    if (typeof refreshPinnedOnlyToggle === 'function') refreshPinnedOnlyToggle();
+
     const pinBtn = document.getElementById('pin-flight-btn');
     if (pinBtn && currentFlightInWindow === flightId) {
         pinBtn.classList.add('active-pin');
@@ -601,7 +771,37 @@ window.pinFlight = function(flightId) {
                 pinBtn.style.color = '#94a3b8';
             }
         }
+
+        // With the last pin gone, drop the "show pinned only" isolation so the
+        // full map returns instead of hiding everything. Otherwise just re-run
+        // the filter so the now-unpinned flight leaves the isolated set.
+        if (window.pinnedFlights.size === 0) mapFilters.showOnlyPinned = false;
+        if (typeof refreshPinnedOnlyToggle === 'function') refreshPinnedOnlyToggle();
+        if (mapFilters.showOnlyPinned && typeof updateAircraftLayerFilter === 'function') {
+            updateAircraftLayerFilter();
+        } else if (window.pinnedFlights.size === 0 && typeof updateAircraftLayerFilter === 'function') {
+            updateAircraftLayerFilter();
+        }
     };
+
+    // ── Shift+P: quick-pin the flight under the cursor (or the one open in
+    // the flight window) so power users can sticky several flights fast. ──
+    document.addEventListener('keydown', function(e) {
+        if (e.repeat) return;
+        if ((e.key === 'p' || e.key === 'P') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+            const targetId = window._hoveredFlightId || currentFlightInWindow;
+            if (!targetId) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Hover a flight (or open one), then press Shift+P to pin it.', 'info');
+                }
+                return;
+            }
+            e.preventDefault();
+            window.toggleFlightPin(targetId);
+        }
+    });
 
     // --- [NEW] Map Style Constants & State ---
     const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
@@ -614,6 +814,52 @@ window.pinFlight = function(flightId) {
     const MAP_STYLE_NAV_LIGHT = 'mapbox://styles/mapbox/navigation-day-v1';
     const MAP_STYLE_TRAFFIC_NIGHT = 'mapbox://styles/mapbox/traffic-night-v2';
     const MAP_STYLE_TRAFFIC_DAY = 'mapbox://styles/mapbox/traffic-day-v2';
+
+    // ─── Free-map fallback (manual kill-switch) ──────────────────────────────
+    // When config.useFreeMap is on (Netlify USE_FREE_MAP env), the tracker
+    // renders with MapLibre GL + OpenFreeMap tiles — no Mapbox token, no billed
+    // map loads. Globe, 3D terrain and mapbox:// styles are Mapbox-only, so free
+    // mode forces a flat map with OpenFreeMap base styles. Same free engine the
+    // VA embed already uses (embed.js).
+    const MAPLIBRE_VERSION = '4.7.1';
+    const FREE_MAP_STYLES = {
+        dark:  'https://tiles.openfreemap.org/styles/dark',
+        light: 'https://tiles.openfreemap.org/styles/positron'
+    };
+    function isFreeMap() { return typeof window !== 'undefined' && !!window.__FREE_MAP__; }
+    // Map the tracker's style keys onto the free base styles; Mapbox-only styles
+    // (satellite / nav / traffic / outdoors) fall back to the dark base.
+    function freeStyleFor(key) {
+        return (key === 'light' || key === 'nav-light' || key === 'traffic-day')
+            ? FREE_MAP_STYLES.light : FREE_MAP_STYLES.dark;
+    }
+    function loadFreeMapEngine() {
+        return new Promise((resolve, reject) => {
+            if (window.maplibregl) return resolve();
+            const css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+            document.head.appendChild(css);
+            const js = document.createElement('script');
+            js.src = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+            js.onload = () => resolve();
+            js.onerror = () => reject(new Error('Failed to load MapLibre GL JS.'));
+            document.head.appendChild(js);
+        });
+    }
+    // MapLibre emits .maplibregl-* popup/control classes; mirror the tracker's
+    // Mapbox popup chrome onto them so free mode looks identical.
+    function injectFreeMapCssShim() {
+        if (document.getElementById('free-map-css-shim')) return;
+        const st = document.createElement('style');
+        st.id = 'free-map-css-shim';
+        st.textContent = `
+            .maplibregl-popup { z-index: 3000 !important; pointer-events: none; }
+            .maplibregl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+            .maplibregl-popup-tip { display: none !important; }
+        `;
+        document.head.appendChild(st);
+    }
 
     let currentMapStyle = MAP_STYLE_DARK; // Set the default
 
@@ -692,6 +938,11 @@ let mapFilters = {
         showUnstaffedAirports: false,
         showStaffOnly: false,
         hideAllAircraft: false,
+        // When on, the live map shows ONLY pinned flights (plus whatever flight
+        // is open in the info window). Driven by the toggle above the pinned
+        // cards; auto-clears when the last pin is removed. See
+        // updateAircraftLayerFilter().
+        showOnlyPinned: false,
         // Quick traffic toggles (see updateAircraftLayerFilter). airborneOnly and
         // onGroundOnly are mutually exclusive in the UI; hasPlanOnly keeps only
         // aircraft that filed a departure or arrival.
@@ -1204,6 +1455,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     // Helper function to extract repetitive style mapping logic
     function applyMapStyleMapping() {
         if (mapFilters.mapStyle) {
+            if (isFreeMap()) { currentMapStyle = freeStyleFor(mapFilters.mapStyle); return; }
             const stylesMap = {
                 'light': MAP_STYLE_LIGHT,
                 'satellite': MAP_STYLE_SATELLITE,
@@ -1562,16 +1814,37 @@ function handleSavedFlightListClick(e) {
             if (!response.ok) throw new Error('Could not fetch server configuration.');
             
             const config = await response.json();
-            
-            if (!config.mapboxToken) throw new Error('Mapbox token is missing from server configuration.');
-            if (!config.owmApiKey) throw new Error('OWM API key is missing from server configuration.');
 
-            // Set Mapbox key
-            MAPBOX_ACCESS_TOKEN = config.mapboxToken;
-            mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
-            
-            // Set OWM key
+            // Manual kill-switch: when the server flips useFreeMap on (as the
+            // Mapbox map-load quota is approached), swap to the free MapLibre +
+            // OpenFreeMap engine so we stop billing map loads. MapLibre is
+            // API-compatible, so aliasing window.mapboxgl to it lets the rest of
+            // the tracker keep calling mapboxgl.* unchanged.
+            if (config.useFreeMap) {
+                try {
+                    await loadFreeMapEngine();
+                    if (!window.maplibregl) throw new Error('MapLibre global missing after load.');
+                    window.__FREE_MAP__ = true;
+                    window.mapboxgl = window.maplibregl;
+                    injectFreeMapCssShim();
+                    mapFilters.useFlatMap = true;              // free engine renders flat
+                    currentMapStyle = freeStyleFor(mapFilters.mapStyle || 'dark');
+                    console.log('🗺️ Free-map mode active (MapLibre + OpenFreeMap) — Mapbox map loads paused.');
+                } catch (e) {
+                    console.error('Free-map engine failed to load; staying on Mapbox:', e);
+                    window.__FREE_MAP__ = false;
+                }
+            }
+
+            if (!config.owmApiKey) throw new Error('OWM API key is missing from server configuration.');
             OWM_API_KEY = config.owmApiKey;
+
+            if (!isFreeMap()) {
+                // Mapbox mode: a token is required.
+                if (!config.mapboxToken) throw new Error('Mapbox token is missing from server configuration.');
+                MAPBOX_ACCESS_TOKEN = config.mapboxToken;
+                mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+            }
 
         } catch (error) {
             console.error('Failed to initialize API keys:', error.message);
@@ -5628,42 +5901,115 @@ function injectCustomStyles() {
 .atc-supervisor .grade-badge { background: #fbbf24; }
 
 /* --- MULTI-TRACK / PINNED FLIGHTS (PRO FEATURE) --- */
-        #mini-windows-container {
+        /* Dock: anchors the pinned-only toggle + card stack bottom-left and
+           slides the whole group right so it never sits under the left-docked
+           flight info window (mirrors the weather widget's shift). */
+        #mini-windows-dock {
             position: fixed;
             bottom: 24px;
             left: 24px;
             display: flex;
-            flex-direction: column-reverse;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 12px;
             z-index: 2000;
             pointer-events: none;
+            transition: left 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #mini-windows-dock.dock-shifted {
+            left: 494px;
+        }
+
+        #mini-windows-container {
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 12px;
+            pointer-events: none;
+        }
+
+        /* "Show pinned only" switch — sits above the card stack. */
+        #pinned-only-toggle {
+            pointer-events: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 7px 12px 7px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            background: rgba(20, 20, 25, 0.82);
+            -webkit-backdrop-filter: saturate(180%) blur(18px);
+            backdrop-filter: saturate(180%) blur(18px);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+            color: #e5e7eb;
+            font-family: var(--font-ui);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.2s ease, background 0.2s ease;
+            animation: slideInLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        #pinned-only-toggle[hidden] { display: none; }
+        #pinned-only-toggle:hover { border-color: rgba(255, 255, 255, 0.22); }
+        #pinned-only-toggle .pot-track {
+            position: relative;
+            flex: 0 0 auto;
+            width: 34px;
+            height: 20px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.16);
+            transition: background 0.2s ease;
+        }
+        #pinned-only-toggle .pot-thumb {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #pinned-only-toggle.is-on .pot-track { background: #0a84ff; }
+        #pinned-only-toggle.is-on .pot-thumb { transform: translateX(14px); }
+        #pinned-only-toggle.is-on { color: #fff; border-color: rgba(10, 132, 255, 0.5); }
+
+        @media (max-width: 768px) {
+            /* The left-dock shift is a desktop concern; on mobile the flight
+               window is a full sheet, so keep the dock anchored and never push
+               it off-screen. */
+            #mini-windows-dock.dock-shifted { left: 24px; }
         }
 
 .pinned-flight-card {
-            width: 360px;
-            height: 92px;
-            background: rgba(20, 20, 25, 0.85);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            width: 188px;
+            background: transparent;
+            border: none;
             border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 12px 30px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+            overflow: visible;
+            box-shadow: none;
             pointer-events: auto;
             animation: slideInLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            font-family: 'Inter', sans-serif;
-            display: flex;
-            align-items: stretch;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            font-family: var(--font-ui);
             position: relative;
         }
 
         .pinned-flight-card:hover {
-            background: rgba(30, 30, 35, 0.9);
-            border-color: rgba(255, 255, 255, 0.2);
             transform: translateX(6px);
-            box-shadow: 0 16px 40px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255, 255, 255, 0.1);
         }
+
+        /* The pinned card reuses the shared FR24 card; unlike the hover popup
+           it must receive clicks and stretch to the pinned width. */
+        .pinned-flight-card .fr24-card-container {
+            width: 100%;
+            pointer-events: auto;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+            border-radius: var(--radius-sm);
+        }
+        .pinned-flight-card .fr24-image-box { height: 76px; }
+        .pinned-flight-card .fr24-header-row { padding-right: 20px; }
 
         .pinned-image-flush {
             width: 140px;
@@ -5701,23 +6047,30 @@ function injectCustomStyles() {
 
         .pinned-close {
             position: absolute;
-            top: 8px;
-            right: 12px;
-            background: transparent;
+            top: 5px;
+            right: 5px;
+            z-index: 5;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.55);
             border: none;
-            color: #64748b;
-            font-size: 0.85rem;
+            color: #fff;
+            font-size: 0.7rem;
             cursor: pointer;
-            transition: all 0.2s ease;
-            padding: 4px;
+            transition: all 0.15s ease;
             display: grid;
             place-items: center;
         }
 
         .pinned-close:hover {
-            color: #ef4444;
-            transform: scale(1.15);
+            background: var(--color-danger);
+            transform: scale(1.1);
         }
+
+        /* Shared FR24 card text bits used by both hover + pinned cards. */
+        .fr24-route-to { opacity: 0.5; font-weight: 600; }
+        .fr24-unit { font-size: 8px; opacity: 0.7; }
 
         .pinned-header {
             margin-bottom: 8px;
@@ -9681,11 +10034,13 @@ window.addEventListener('serverChange', (e) => {
 function updateMapFilters() {
     if (!sectorOpsMap) return;
 
-    // 1. Handle Projection Changes
-    const currentProjection = sectorOpsMap.getProjection().name;
-    const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
-    if (currentProjection !== targetProjection) {
-        sectorOpsMap.setProjection(targetProjection);
+    // 1. Handle Projection Changes (globe is Mapbox-only; free mode stays flat)
+    if (!isFreeMap()) {
+        const currentProjection = sectorOpsMap.getProjection().name;
+        const targetProjection = mapFilters.useFlatMap ? 'mercator' : 'globe';
+        if (currentProjection !== targetProjection) {
+            sectorOpsMap.setProjection(targetProjection);
+        }
     }
 
     // 2. Handle Map Style Changes (Dark/Light/Satellite/Pro)
@@ -9700,7 +10055,9 @@ function updateMapFilters() {
         'traffic-day': MAP_STYLE_TRAFFIC_DAY
     };
     
-    const targetStyle = styleUrls[mapFilters.mapStyle || 'dark'];
+    const targetStyle = isFreeMap()
+        ? freeStyleFor(mapFilters.mapStyle || 'dark')
+        : styleUrls[mapFilters.mapStyle || 'dark'];
 
     if (currentFlightInWindow && liveTrailCache.has(currentFlightInWindow)) {
         FlownPath3D.updatePath(
@@ -9938,6 +10295,15 @@ function updateAircraftLayerFilter() {
     }
     if (mapFilters.showStaffOnly) filter.push(['==', 'isStaff', true]);
     if (mapFilters.showVaOnly) filter.push(['==', 'isVAMember', true]);
+
+    // Show-only-pinned: isolate the tracked set — keep just the pinned flights,
+    // plus whatever flight's info window is open (so opening a non-pinned plane
+    // doesn't make its own icon vanish). No-op if nothing is pinned.
+    if (mapFilters.showOnlyPinned && window.pinnedFlights && window.pinnedFlights.size > 0) {
+        const ids = Array.from(window.pinnedFlights);
+        if (currentFlightInWindow && !ids.includes(currentFlightInWindow)) ids.push(currentFlightInWindow);
+        filter.push(['in', ['get', 'flightId'], ['literal', ids]]);
+    }
 
     // Single-VA focus. Restore the ad on first pass after a reload, then keep
     // only planes tagged for that VA (retagged here so a fresh focus applies at
@@ -13373,7 +13739,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
  
 function initializeLiveMap() {
-    if (!MAPBOX_ACCESS_TOKEN) return;
+    if (!MAPBOX_ACCESS_TOKEN && !isFreeMap()) return;
 
     // Check if the container exists and the map hasn't been initialized yet
     if (document.getElementById('live-flights-map-container') && !liveFlightsMap) {
@@ -13383,7 +13749,7 @@ function initializeLiveMap() {
             center: [78.9629, 22.5937],
             zoom: 2,
             minZoom: 0,
-            projection: 'globe',
+            projection: isFreeMap() ? 'mercator' : 'globe',
             
             // --- NEW FIX FOR TILE LOADING & LAG ---
             // 1. Removed fadeDuration: 0 (Let Mapbox use its default 300ms smooth crossfade).
@@ -13542,7 +13908,7 @@ function updatePro3DLayers() {
     // 1. Update Elevation (Terrain) — Pro-only. Even if a stored config has
     //    showTerrain on (e.g. a lapsed subscriber, or a default), non-Pro
     //    users never get the 3D elevation; the toggle is locked for them too.
-    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro()) {
+    if (mapFilters.proMapConfig.showTerrain && window.isInflightPro && window.isInflightPro() && !isFreeMap()) {
         if (!sectorOpsMap.getSource('mapbox-dem')) {
             sectorOpsMap.addSource('mapbox-dem', {
                 'type': 'raster-dem',
@@ -18040,13 +18406,17 @@ window.globalNatTracks = natTracks;
 async function setupMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
-    sectorOpsMap.setFog({
-        'color': 'rgb(186, 210, 235)',
-        'high-color': 'rgb(36, 92, 223)',
-        'horizon-blend': 0.02,
-        'space-color': 'rgb(27, 27, 54)',
-        'star-intensity': 0.3
-    });
+    // Atmospheric fog is a Mapbox globe feature; MapLibre (free mode) has no
+    // setFog, so skip it there.
+    if (!isFreeMap() && typeof sectorOpsMap.setFog === 'function') {
+        sectorOpsMap.setFog({
+            'color': 'rgb(186, 210, 235)',
+            'high-color': 'rgb(36, 92, 223)',
+            'horizon-blend': 0.02,
+            'space-color': 'rgb(27, 27, 54)',
+            'star-intensity': 0.3
+        });
+    }
 
     // Load the sprite sheet once
     try {
@@ -18073,7 +18443,7 @@ async function setupMapLayersAndFog() {
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
-    if (!MAPBOX_ACCESS_TOKEN) {
+    if (!MAPBOX_ACCESS_TOKEN && !isFreeMap()) {
         document.getElementById('sector-ops-map-fullscreen').innerHTML = '<p class="map-error-msg">Map service not available.</p>';
         return;
     }
@@ -19852,10 +20222,84 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 }
 
+// Draw the flown-path trail for a flight that is PINNED but not currently open
+// in the flight window. Opening a flight fetches /history and builds its trail;
+// pinning via Shift+P (or the pin button on a flight you only hovered) never
+// opens it, so without this the `flown-path-<id>` layer is never created and no
+// path appears on the map. Idempotent: if the layer already exists (e.g. the
+// flight is the one open in the window, which manages its own trail) it no-ops.
+async function ensurePinnedFlownPath(flightId) {
+    try {
+        if (!flightId || typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+        const flownLayerId = `flown-path-${flightId}`;
+        // Already drawn, or the open flight already owns its trail — nothing to do.
+        if (sectorOpsMap.getSource(flownLayerId)) return;
+        if (flightId === currentFlightInWindow) return;
+
+        // Pull the breadcrumb history the same way handleAircraftClick does.
+        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+        const res = await fetch(historyUrl).catch(() => ({ ok: false }));
+        const data = (res && res.ok) ? await res.json() : null;
+        const arr = data?.path || data?.route || [];
+        const sortedRoutePoints = (data && data.ok && Array.isArray(arr))
+            ? arr.slice().sort((a, b) => new Date(a.date) - new Date(b.date))
+            : [];
+
+        // Anchor to the live marker so the drawn line doesn't overshoot the icon.
+        const mk = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
+        const mkMs = mk?.properties?.last_update ? new Date(mk.properties.last_update).getTime() : null;
+        const trailUpToMarker = (mkMs != null)
+            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= mkMs)
+            : sortedRoutePoints;
+
+        if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightId, trailUpToMarker.slice());
+
+        const livePosition = (mk?.geometry?.coordinates)
+            ? { lat: mk.geometry.coordinates[1], lon: mk.geometry.coordinates[0], alt_ft: mk.properties?.altitude ?? 0 }
+            : null;
+
+        // Nothing to render (no history and no live fix) — a later live tick will
+        // re-run this once the marker exists.
+        if (!trailUpToMarker.length && !livePosition) return;
+
+        // The fetch is async; if the user unpinned while it was in flight, don't
+        // leave an orphaned trail on the map.
+        if (typeof window.pinnedFlights !== 'undefined'
+            && !window.pinnedFlights.has(flightId)
+            && flightId !== currentFlightInWindow) return;
+
+        const routeFeature = generateAltitudeColoredRoute(trailUpToMarker, livePosition, null);
+
+        if (typeof FlownPath3D !== 'undefined') {
+            try { FlownPath3D.updatePath(sectorOpsMap, flightId, trailUpToMarker, mapFilters.show3DPath); } catch (_) {}
+        }
+
+        // Re-check after the await — a concurrent open/pin may have created it.
+        if (!sectorOpsMap.getSource(flownLayerId)) {
+            sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeature, lineMetrics: true });
+            sectorOpsMap.addLayer({
+                id: flownLayerId,
+                type: 'line',
+                source: flownLayerId,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-width': 3, 'line-opacity': 1, 'line-color': '#38bdf8' }
+            }, (typeof getUnderAircraftAnchor === 'function') ? getUnderAircraftAnchor() : undefined);
+            if (typeof applyFlownPathGradient === 'function') applyFlownPathGradient(flownLayerId, routeFeature);
+            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
+                if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
+                sectorOpsLiveFlightPathLayers[flightId].flown = flownLayerId;
+            }
+        }
+    } catch (err) {
+        console.warn('ensurePinnedFlownPath failed:', err);
+    }
+}
+
 // Exposed so other modules (e.g. the first-run onboarding's live window demo)
 // can open and tear down a real flight info window through the normal app path.
 if (typeof window !== 'undefined') {
     window.handleAircraftClick = handleAircraftClick;
+    window.ensurePinnedFlownPath = ensurePinnedFlownPath;
     // Read-only view of the live flight cache for non-module scripts (the
     // Partners tab uses it to show each VA's live fleet).
     window.getLiveMapFeatures = () => currentMapFeatures;
@@ -22639,99 +23083,33 @@ function setupFlightHoverPopups() {
     let hoveredFlightId = null;
 
     const onAircraftRichHover = (e) => {
-        const isHoverDevice = window.matchMedia('(hover: hover)').matches;
-        if (!isHoverDevice || (e.originalEvent && e.originalEvent.pointerType === 'touch')) {
-            return;
-        }
+        // Do NOT gate on the (hover)/(any-hover) media queries. A layer
+        // 'mouseenter' only fires when a pointer is genuinely hovering the
+        // aircraft, so the media query is redundant — and worse, some
+        // OS/browser states misreport it (flipping the pointer to "no hover"
+        // after a touch, in tablet mode, or on certain trackpad drivers) until
+        // the machine is rebooted, which is what made these cards intermittently
+        // stop appearing on a mouse/trackpad laptop. Instead, suppress the card
+        // only for genuine touch input so mobile doesn't get a popup stuck under
+        // the finger.
+        const oe = e.originalEvent;
+        const isTouch = !!oe && (
+            oe.pointerType === 'touch' ||
+            (typeof TouchEvent !== 'undefined' && oe instanceof TouchEvent)
+        );
+        if (isTouch) return;
 
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const feature = e.features[0];
         const props = feature.properties;
 
-        // Data Parsing
-        const acData = props.aircraft ? JSON.parse(props.aircraft) : {};
-        const callsign = props.callsign || '---';
-        const username = props.username || 'Unknown';
-        const depIcao = props.departureIcao || '---';
-        const arrIcao = props.arrivalIcao || '---';
-        
-        const imgUrl = props.communityImageUrl || '/CommunityPlanes/default.png';
-        const credit = props.contributorName || 'IF Community';
-        const alt = Math.round(props.altitude || 0).toLocaleString();
-        const gs = Math.round(props.speed || 0);
+        // Remember which flight is under the cursor so the Shift+P shortcut
+        // knows what to pin.
+        hoveredFlightId = props.flightId || null;
+        window._hoveredFlightId = hoveredFlightId;
 
-        // --- Calculate Route Progress ---
-        let progressPercent = 0;
-        if (depIcao !== '---' && arrIcao !== '---') {
-            const depData = typeof airportsData !== 'undefined' ? airportsData[depIcao] : null;
-            const arrData = typeof airportsData !== 'undefined' ? airportsData[arrIcao] : null;
-            
-            if (depData && arrData && props.position) {
-                try {
-                    const pos = JSON.parse(props.position);
-                    const totalDist = getDistanceKm(depData.lat, depData.lon, arrData.lat, arrData.lon);
-                    const remainingDist = getDistanceKm(pos.lat, pos.lon, arrData.lat, arrData.lon);
-                    
-                    if (totalDist > 0) {
-                        progressPercent = Math.max(0, Math.min(100, (1 - (remainingDist / totalDist)) * 100));
-                    }
-                } catch(err) {
-                    console.warn("Failed to calculate hover progress");
-                }
-            }
-        }
-        
-        // Clamp visually so the icon doesn't overflow the container edges completely
-        const displayPercent = Math.max(2, Math.min(98, progressPercent));
-
-        // Logo Generation
-        const livName = acData.liveryName || '';
-        const words = livName.trim().split(/\s+/);
-        let logoName = words.length > 1 && /[^a-zA-Z0-9]/.test(words[1]) ? words[0] : (words[0] + (words[1] ? ' ' + words[1] : ''));
-        const sanitizedLogoName = logoName.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_');
-        const logoPath = `Images/airline_logos/${sanitizedLogoName}.png`;
-
-        const html = `
-            <div class="fr24-card-container">
-                <div class="fr24-image-box" style="background-image: url('${imgUrl}')">
-                    <div class="fr24-image-overlay"></div>
-                    <div class="fr24-copyright">© ${credit}</div>
-                </div>
-                
-                <div class="fr24-info-box">
-                    <div class="fr24-header-row" style="margin-bottom: 2px;">
-                        <img src="${logoPath}" class="fr24-airline-logo" onerror="this.style.display='none'">
-                        <div class="fr24-ident-group">
-                            <span class="fr24-callsign">${callsign}</span>
-                            ${(window.InflightVaAds && window.InflightVaAds.callsignBadgeHTML) ? window.InflightVaAds.callsignBadgeHTML(callsign, { variant: 'hover' }) : ''}
-                        </div>
-                        <span style="margin-left: auto; font-size: 8.5px; color: #38bdf8; font-weight: 800; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65px;" title="${username}">
-                            ${username}
-                        </span>
-                    </div>
-                    
-                    <div class="fr24-route-premium" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 6px 0;">
-                        <span style="font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 10.5px; color: #f8fafc; letter-spacing: 0.5px;">${depIcao}</span>
-                        
-                        <div style="flex-grow: 1; height: 2px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; position: relative; display: flex; align-items: center;">
-                            <div style="position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, #38bdf8 100%); width: ${displayPercent}%; border-radius: 2px; box-shadow: 0 0 6px rgba(56, 189, 248, 0.5);"></div>
-                            
-                            <svg style="position: absolute; left: ${displayPercent}%; transform: translateX(-50%); filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); z-index: 2;" width="12" height="12" viewBox="0 0 24 24" fill="#ffffff" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M2 2L22 12L2 22L6 12L2 2Z" fill="#ffffff"/>
-                            </svg>
-                        </div>
-                        
-                        <span style="font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 10.5px; color: #94a3b8; letter-spacing: 0.5px;">${arrIcao}</span>
-                    </div>
-                    
-                    <div class="fr24-stats-row" style="display: flex; justify-content: space-between;">
-                        <span><i class="fa-solid fa-arrow-up-right-dots" style="font-size: 8px; margin-right: 3px;"></i>${alt} <span style="font-size:8px;">FT</span></span>
-                        <span><i class="fa-solid fa-gauge-high" style="font-size: 8px; margin-right: 3px;"></i>${gs} <span style="font-size:8px;">KTS</span></span>
-                    </div>
-                </div>
-            </div>
-        `;
-
+        // Same shared FR24 card as the pinned multi-track cards (photo on top).
+        const html = window.buildMiniFlightCardHTML(props, { layout: 'hover' });
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
     };
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onAircraftRichHover);
@@ -22740,6 +23118,8 @@ function setupFlightHoverPopups() {
     const onAircraftRichLeave = () => {
         sectorOpsMap.getCanvas().style.cursor = '';
         hoverPopup.remove();
+        hoveredFlightId = null;
+        window._hoveredFlightId = null;
     };
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', onAircraftRichLeave);
     sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-natural-layer', onAircraftRichLeave);
@@ -23216,8 +23596,8 @@ if (flatMapToggle) {
         // Save to local storage so it persists
         saveFiltersToLocalStorage();
 
-        // Update the Mapbox projection
-        if (sectorOpsMap) {
+        // Update the Mapbox projection (globe is Mapbox-only; free mode is flat)
+        if (sectorOpsMap && !isFreeMap()) {
             sectorOpsMap.setProjection(useFlat ? 'mercator' : 'globe');
         }
     });
@@ -23389,6 +23769,7 @@ if (flatMapToggle) {
             else if (mode === 'nav-light') newStyleUrl = MAP_STYLE_NAV_LIGHT;
             else if (mode === 'traffic-night') newStyleUrl = MAP_STYLE_TRAFFIC_NIGHT;
             else if (mode === 'traffic-day') newStyleUrl = MAP_STYLE_TRAFFIC_DAY;
+            if (isFreeMap()) newStyleUrl = freeStyleFor(mode);
 
             if (currentMapStyle !== newStyleUrl) {
                 currentMapStyle = newStyleUrl;
@@ -24335,6 +24716,9 @@ async function initializeApp() {
         PerformanceMonitor.init();
 
         loadFiltersFromLocalStorage();
+        // Pins are in-memory only, so never start a session isolated to a
+        // pinned set that no longer exists.
+        mapFilters.showOnlyPinned = false;
 
         // Resolve Pro entitlement early so multi-flight tracking limits and
         // other gated features have a real answer to gate on. Fire-and-forget;
