@@ -8576,8 +8576,13 @@ async function openFlightReplayById(flightId, meta = {}, opts = {}) {
         return false;
     }
 
-    const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
-    const preloaded = (typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || [];
+    // Browse-Replays passes the trail's own points via opts.points (already
+    // fetched from the stored trail file), so use them directly and skip the
+    // /history fetch. Otherwise behave exactly as before: seed from the live
+    // trail cache and let FlightReplay pull /history for the id.
+    const providedPoints = (Array.isArray(opts.points) && opts.points.length) ? opts.points : null;
+    const historyUrl = providedPoints ? null : `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightId}/history`;
+    const preloaded = providedPoints || ((typeof liveTrailCache !== 'undefined' && liveTrailCache.get(flightId)) || []);
 
     // If the flight happens to be live on the map, enrich the meta from it.
     const feature = currentMapFeatures[flightId];
