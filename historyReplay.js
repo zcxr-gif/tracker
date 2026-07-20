@@ -79,9 +79,15 @@
   }
 
   // Normalise the raw /history payload into clean, time-sorted samples.
+  // The ACARS backend returns { ok:true, path:[...] } (or route:[...]); accept
+  // those first, then the other shapes seen across the app, then a bare array.
   function normalize(raw) {
-    var arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.history) ? raw.history
-      : (raw && Array.isArray(raw.points) ? raw.points : (raw && Array.isArray(raw.data) ? raw.data : [])));
+    var arr = Array.isArray(raw) ? raw
+      : (raw && Array.isArray(raw.path)) ? raw.path
+      : (raw && Array.isArray(raw.route)) ? raw.route
+      : (raw && Array.isArray(raw.history)) ? raw.history
+      : (raw && Array.isArray(raw.points)) ? raw.points
+      : (raw && Array.isArray(raw.data)) ? raw.data : [];
     var out = [];
     for (var i = 0; i < arr.length; i++) {
       var p = arr[i]; if (!p || typeof p !== 'object') continue;
@@ -188,20 +194,55 @@
     if (msg) $('hr-error-msg').textContent = msg;
   }
 
+  // Pull a flight-shaped object out of a variety of envelope shapes.
+  function pickFlight(o) {
+    if (!o || typeof o !== 'object') return {};
+    if (o.flight && typeof o.flight === 'object') return o.flight;
+    if (o.data && typeof o.data === 'object' && !Array.isArray(o.data)) return o.data;
+    return o;
+  }
+
+  // Merge whatever flight metadata rode along on the /history payload with the
+  // flight record fetched by id, normalising the many possible field names.
+  function extractMeta(raw, det) {
+    var f = {}, a = pickFlight(raw), b = pickFlight(det), k;
+    for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) f[k] = a[k];
+    for (k in b) if (Object.prototype.hasOwnProperty.call(b, k)) f[k] = b[k];   // details win
+    var acName = f.aircraftName || f.aircraftType ||
+      (f.aircraft && typeof f.aircraft === 'object' ? f.aircraft.aircraftName : (typeof f.aircraft === 'string' ? f.aircraft : ''));
+    return {
+      callsign: f.callsign || f.flightNumber || '',
+      registration: f.registration || f.reg || f.tailNumber || f.aircraftRegistration || '',
+      aircraftName: acName || '',
+      operator: f.operator || f.airline || f.airlineName || '',
+      departureIcao: f.departureIcao || f.originAirport || f.origin || f.dep || '',
+      arrivalIcao: f.arrivalIcao || f.destinationAirport || f.destination || f.arr || '',
+      date: f.created || f.date || f.startTime || ''
+    };
+  }
+
   function boot() {
     var cfg = qp();
     if (!cfg.flight) { showError('No flight was specified. Open this page with ?flight=<id>.'); return; }
+    var fid = encodeURIComponent(cfg.flight);
 
-    fetch(HISTORY_BASE + '/' + encodeURIComponent(cfg.flight) + '/history', { headers: { Accept: 'application/json' } })
-      .then(function (r) { if (!r.ok) throw new Error('history ' + r.status); return r.json(); })
-      .then(function (raw) {
-        var pts = normalize(raw);
-        if (pts.length < 2) { showError('This flight has no recorded track to replay.'); return; }
-        // meta can also ride along on the payload
-        var meta = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
-        start(pts, cfg, meta);
-      })
-      .catch(function () { showError('Couldn’t load this flight’s history right now.'); });
+    var histP = fetch(HISTORY_BASE + '/' + fid + '/history', { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+
+    // Reach out for the flight record itself by the same id, so registration,
+    // aircraft, operator and route fill in even when the profile didn't pass
+    // them (registration also unlocks the aircraft photo). Best-effort: the
+    // page still works from the track + whatever URL params were supplied.
+    var detP = fetch(HISTORY_BASE + '/' + fid, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+
+    Promise.all([histP, detP]).then(function (res) {
+      var pts = normalize(res[0]);
+      if (pts.length < 2) { showError('This flight has no recorded track to replay.'); return; }
+      start(pts, cfg, extractMeta(res[0], res[1]));
+    }).catch(function () { showError('Couldn’t load this flight’s history right now.'); });
   }
 
   function start(pts, cfg, meta) {
