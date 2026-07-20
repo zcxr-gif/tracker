@@ -1399,7 +1399,10 @@ if (type === 'flights') {
 const requests = [
                 fetch(`${this._backendUrl}/api/users/${ifUserId}/stats`).then(res => res.json()),
                 fetch(`${this._backendUrl}/api/users/${ifUserId}/flights?page=1`).then(res => res.json()),
-                fetch(`${this._backendUrl}/api/metadata`).then(res => res.json()).catch(() => null)
+                fetch(`${this._backendUrl}/api/metadata`).then(res => res.json()).catch(() => null),
+                // Stored replays for this user (GET /api/trails/:userId) — decides
+                // which logbook flights can be played back and supplies their urls.
+                fetch(`${this._backendUrl}/api/trails/${encodeURIComponent(ifUserId)}`).then(res => res.ok ? res.json() : null).catch(() => null)
             ];
 
             if (activeFlightId) {
@@ -1414,7 +1417,13 @@ const requests = [
             const statsData = results[0];
             const flightsData = results[1];
             const metaJson = results[2];
-            const historyData = activeFlightId ? results[3] : null;
+            const trailsData = results[3];
+            const historyData = activeFlightId ? results[4] : null;
+
+            // flightId → stored trail url, for gating and playing the ▶ replay.
+            this._ifData.trails = new Map();
+            const _trailArr = Array.isArray(trailsData) ? trailsData : (trailsData && Array.isArray(trailsData.trails) ? trailsData.trails : []);
+            _trailArr.forEach(t => { if (t && t.flightId && t.url) this._ifData.trails.set(String(t.flightId), t.url); });
 
             if (metaJson && metaJson.ok) {
                 this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
@@ -2699,7 +2708,7 @@ _getTabContentHTML() {
                                 <span>${hrs}h</span>
                             </div>
                             <div class="pui-flight-time">${timeStr}</div>
-                            ${flight.id ? `<button class="pui-icon-btn pui-replay-quick-btn" data-action="replay-flight"
+                            ${(flight.id && this._ifData.trails && this._ifData.trails.has(String(flight.id))) ? `<button class="pui-icon-btn pui-replay-quick-btn" data-action="replay-flight"
                                 data-flight-id="${encodeURIComponent(String(flight.id))}"
                                 data-callsign="${encodeURIComponent(cs !== 'N/A' ? cs : '')}"
                                 data-dep="${encodeURIComponent(dep !== 'N/A' ? dep : '')}"
@@ -3474,26 +3483,35 @@ const contentRoot = document.getElementById('pui-content');
                     return;
                 }
 
-                // 3. Replay flight → open the standalone flight-history page.
-                // Logbook flights come from the same ACARS backend that serves
-                // /api/flights/<id>/history, so the id maps straight through.
+                // 3. Replay flight → play the stored trail through the app's
+                // existing replay engine. The trail url comes from
+                // GET /api/trails/:userId; we fetch its points and hand them to
+                // the same window.openFlightReplayById the live map and Browse
+                // Replays use (the points go straight into FlightReplay's
+                // normaliser — no new format).
                 const replayTarget = e.target.closest('[data-action="replay-flight"]');
                 if (replayTarget && contentRoot.contains(replayTarget)) {
                     e.stopPropagation();
                     const dec = (v) => { try { return decodeURIComponent(v || ''); } catch (_) { return ''; } };
-                    const params = new URLSearchParams();
                     const fid = dec(replayTarget.dataset.flightId);
                     if (!fid) return;
-                    params.set('flight', fid);
-                    const cs = dec(replayTarget.dataset.callsign); if (cs) params.set('callsign', cs);
-                    const dp = dec(replayTarget.dataset.dep);      if (dp) params.set('dep', dp);
-                    const ar = dec(replayTarget.dataset.arr);      if (ar) params.set('arr', ar);
-                    const ty = dec(replayTarget.dataset.type);     if (ty) params.set('type', ty);
-                    const rurl = 'history.html?' + params.toString();
-                    // New tab when allowed; same-tab fallback for mobile / in-app
-                    // webviews that block window.open('_blank').
-                    const rw = window.open(rurl, '_blank', 'noopener');
-                    if (!rw) window.location.assign(rurl);
+                    const url = this._ifData.trails && this._ifData.trails.get(String(fid));
+                    if (!url) { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>No stored replay for this flight.', 'error'); return; }
+                    if (typeof window.openFlightReplayById !== 'function') { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Replay player is not ready.', 'error'); return; }
+                    const meta = {
+                        callsign: dec(replayTarget.dataset.callsign),
+                        depIcao: dec(replayTarget.dataset.dep),
+                        arrIcao: dec(replayTarget.dataset.arr),
+                        aircraftName: dec(replayTarget.dataset.type)
+                    };
+                    this.close();   // reveal the map for the replay
+                    fetch(url, { headers: { Accept: 'application/json' } })
+                        .then(r => { if (!r.ok) throw new Error('trail ' + r.status); return r.json(); })
+                        .then(points => {
+                            if (!Array.isArray(points) || points.length < 2) throw new Error('empty');
+                            window.openFlightReplayById(fid, meta, { points });
+                        })
+                        .catch(() => { try { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Couldn’t load this replay.', 'error'); } catch (_) {} });
                     return;
                 }
             });

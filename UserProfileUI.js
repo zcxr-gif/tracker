@@ -165,10 +165,13 @@ export const UserProfileUI = {
             }
 
             // 3. Stats + logbook + metadata in parallel.
-            const [statsJson, flightsJson] = await Promise.all([
+            const [statsJson, flightsJson, , trailsJson] = await Promise.all([
                 fetch(`${this._backendUrl}/api/users/${d.userId}/stats`).then(r => r.json()).catch(() => null),
                 fetch(`${this._backendUrl}/api/users/${d.userId}/flights?page=1`).then(r => r.json()).catch(() => null),
                 this._fetchMetadata(),
+                // Stored replays for this user — the source of truth for which
+                // flights can actually be played back (GET /api/trails/:userId).
+                fetch(`${this._backendUrl}/api/trails/${encodeURIComponent(d.userId)}`).then(r => r.ok ? r.json() : null).catch(() => null),
             ]);
             if (stale()) return;
 
@@ -178,6 +181,11 @@ export const UserProfileUI = {
                 d.logbookTotal = flightsJson.totalCount || d.logbook.length;
                 d.logbookTotalPages = flightsJson.totalPages || 1;
             }
+
+            // flightId → stored trail url, for gating and playing the ▶ replay.
+            d.trails = new Map();
+            const _trailArr = Array.isArray(trailsJson) ? trailsJson : (trailsJson && Array.isArray(trailsJson.trails) ? trailsJson.trails : []);
+            _trailArr.forEach(t => { if (t && t.flightId && t.url) d.trails.set(String(t.flightId), t.url); });
             d.loading = false;
             d.error = d.stats ? null : (d.error || 'no-stats');
         } catch (err) {
@@ -410,26 +418,41 @@ export const UserProfileUI = {
         this._render();
     },
 
-    // Open the standalone flight-history replay page (history.html) for a
-    // logged flight. The logbook is served by the same ACARS backend that
-    // serves /api/flights/<id>/history, so the flight's id maps straight
-    // through. Opens in a new tab so the profile/app state is preserved.
+    // Play a logged flight's stored replay through the app's existing replay
+    // engine. The trail url comes from GET /api/trails/:userId (fetched with
+    // the logbook); we fetch its points and hand them to the same
+    // window.openFlightReplayById the live map and Browse Replays use — so the
+    // trail array goes straight into FlightReplay's normaliser, no new format.
     openFlightReplay(id) {
         const d = this._data;
         const fl = (d?.logbook || []).find(f => String(f.id) === String(id));
         if (!fl || !fl.id) return;
+        const url = d.trails && d.trails.get(String(fl.id));
+        if (!url) { this._replayNote('No stored replay for this flight.', 'error'); return; }
+        if (typeof window.openFlightReplayById !== 'function') { this._replayNote('Replay player is not ready.', 'error'); return; }
         const { aircraft } = this._resolveAircraft(fl);
-        const p = new URLSearchParams();
-        p.set('flight', String(fl.id));
-        if (fl.callsign) p.set('callsign', fl.callsign);
-        if (fl.originAirport) p.set('dep', fl.originAirport);
-        if (fl.destinationAirport) p.set('arr', fl.destinationAirport);
-        if (aircraft) p.set('type', aircraft);
-        const url = 'history.html?' + p.toString();
-        // Prefer a new tab, but fall back to same-tab navigation — mobile
-        // browsers and in-app webviews frequently block window.open('_blank').
-        const w = window.open(url, '_blank', 'noopener');
-        if (!w) window.location.assign(url);
+        const meta = {
+            callsign: fl.callsign || '',
+            depIcao: fl.originAirport || '',
+            arrIcao: fl.destinationAirport || '',
+            aircraftName: aircraft || ''
+        };
+        // Close the profile sheet so the replay is visible on the map.
+        this.close();
+        fetch(url, { headers: { Accept: 'application/json' } })
+            .then(r => { if (!r.ok) throw new Error('trail ' + r.status); return r.json(); })
+            .then(points => {
+                if (!Array.isArray(points) || points.length < 2) throw new Error('empty');
+                window.openFlightReplayById(String(fl.id), meta, { points });
+            })
+            .catch(() => this._replayNote('Couldn’t load this replay.', 'error'));
+    },
+
+    _replayNote(msg, type) {
+        if (window.Toastify) {
+            window.Toastify({ text: msg, duration: 3600, gravity: 'bottom', position: 'center', close: true,
+                style: { background: type === 'error' ? 'linear-gradient(135deg,#b91c1c,#7f1d1d)' : 'linear-gradient(135deg,#0e7490,#155e75)', borderRadius: '10px' } }).showToast();
+        } else { (type === 'error' ? console.error : console.log)('[Replay] ' + msg); }
     },
 
     _renderLiveCard() {
@@ -612,7 +635,7 @@ export const UserProfileUI = {
                             <div class="ups-log-route">
                                 <span class="ups-log-icaos">${this._esc(dep)} <i class="fa-solid fa-arrow-right-long"></i> ${this._esc(arr)}</span>
                                 ${hasVio ? `<span class="ups-log-vio"><i class="fa-solid fa-triangle-exclamation"></i></span>` : ''}
-                                ${fl.id ? `<button type="button" class="ups-log-replay" title="Replay this flight" aria-label="Replay this flight"
+                                ${(fl.id && d.trails && d.trails.has(String(fl.id))) ? `<button type="button" class="ups-log-replay" title="Replay this flight" aria-label="Replay this flight"
                                     onclick="event.stopPropagation(); UserProfileUI.openFlightReplay('${this._esc(String(fl.id))}')"><i class="fa-solid fa-circle-play"></i></button>` : ''}
                             </div>
                             <span class="ups-log-sub">${this._esc(fl.callsign || '')}${acLine ? ' · ' + this._esc(acLine) : ''}${server ? ' · ' + this._esc(server) : ''}</span>
