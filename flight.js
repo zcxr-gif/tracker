@@ -860,6 +860,43 @@ window.pinFlight = function(flightId) {
         `;
         document.head.appendChild(st);
     }
+    // Flip the whole tracker into free-map mode: load MapLibre, alias it onto
+    // window.mapboxgl (it's API-compatible, so the rest of the tracker keeps
+    // calling mapboxgl.* unchanged), and force a flat OpenFreeMap base style.
+    async function activateFreeMap() {
+        await loadFreeMapEngine();
+        if (!window.maplibregl) throw new Error('MapLibre global missing after load.');
+        window.__FREE_MAP__ = true;
+        window.mapboxgl = window.maplibregl;
+        injectFreeMapCssShim();
+        mapFilters.useFlatMap = true;                      // free engine renders flat
+        currentMapStyle = freeStyleFor(mapFilters.mapStyle || 'dark');
+    }
+
+    // Automatic Mapbox map-load quota guard. Mapbox's free tier is 50k web
+    // map-loads/month; we switch to the free map once the running monthly count
+    // reaches this ceiling (set below 50k for headroom) so we never bill past
+    // the free tier. The count lives on the aircraft-images backend — the same
+    // origin the tracker already hits for /api/aircraft/lookup — which self-caps
+    // at the limit. See docs/MAPBOX-LOAD-LIMIT.md for the drop-in endpoint.
+    const MAPBOX_MONTHLY_LOAD_LIMIT = 40000;
+    // Ask that backend to count this session's map load and tell us whether the
+    // ceiling is reached. Fail OPEN: any error (endpoint not deployed yet,
+    // network, bad JSON) resolves false so we stay on Mapbox rather than break
+    // the map because the counter is unreachable.
+    async function shouldUseFreeMapForQuota() {
+        try {
+            const r = await fetch(
+                `${API_BASE_URL}/api/maploads/hit?limit=${MAPBOX_MONTHLY_LOAD_LIMIT}`,
+                { method: 'POST', keepalive: true }
+            );
+            if (!r.ok) return false;
+            const q = await r.json();
+            return !!(q && q.useFreeMap);
+        } catch (_) {
+            return false;
+        }
+    }
 
     let currentMapStyle = MAP_STYLE_DARK; // Set the default
 
@@ -1815,20 +1852,21 @@ function handleSavedFlightListClick(e) {
             
             const config = await response.json();
 
-            // Manual kill-switch: when the server flips useFreeMap on (as the
-            // Mapbox map-load quota is approached), swap to the free MapLibre +
-            // OpenFreeMap engine so we stop billing map loads. MapLibre is
-            // API-compatible, so aliasing window.mapboxgl to it lets the rest of
-            // the tracker keep calling mapboxgl.* unchanged.
-            if (config.useFreeMap) {
+            // Decide whether to render the free map instead of Mapbox. Two paths:
+            //  1. Manual kill-switch — Netlify USE_FREE_MAP env (config.useFreeMap)
+            //     forces free mode straight away, no questions asked.
+            //  2. Automatic quota guard — otherwise ask the aircraft-images backend
+            //     to count this map load; once the running monthly total reaches
+            //     MAPBOX_MONTHLY_LOAD_LIMIT it tells us to switch, so we stop
+            //     billing Mapbox loads for the rest of the month on our own.
+            // Either way we drop onto the free MapLibre + OpenFreeMap engine — the
+            // same map the VA embed uses.
+            let useFree = !!config.useFreeMap;
+            if (!useFree) useFree = await shouldUseFreeMapForQuota();
+
+            if (useFree) {
                 try {
-                    await loadFreeMapEngine();
-                    if (!window.maplibregl) throw new Error('MapLibre global missing after load.');
-                    window.__FREE_MAP__ = true;
-                    window.mapboxgl = window.maplibregl;
-                    injectFreeMapCssShim();
-                    mapFilters.useFlatMap = true;              // free engine renders flat
-                    currentMapStyle = freeStyleFor(mapFilters.mapStyle || 'dark');
+                    await activateFreeMap();
                     console.log('🗺️ Free-map mode active (MapLibre + OpenFreeMap) — Mapbox map loads paused.');
                 } catch (e) {
                     console.error('Free-map engine failed to load; staying on Mapbox:', e);
