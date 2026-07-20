@@ -202,3 +202,30 @@ In the tracker, when the guard trips you'll see in the console:
 ```
 🗺️ Free-map mode active (MapLibre + OpenFreeMap) — Mapbox map loads paused.
 ```
+
+---
+
+## Map styles in free mode
+
+Free mode no longer collapses the style picker to dark/light — every tracker
+style, Pro ones included, has a keyless OSM-based equivalent
+(`FREE_MAP_STYLES` in `flight.js`):
+
+| Tracker style | Free equivalent | Host |
+|---|---|---|
+| Dark | `dark` | OpenFreeMap (vector) |
+| Light | `positron` | OpenFreeMap (vector) |
+| Satellite | World Imagery | Esri (raster) |
+| Outdoors (Pro) | OpenTopoMap | OpenTopoMap (raster) |
+| Nav Night (Pro) | Dark Matter | CARTO (vector) |
+| Nav Day (Pro) | Voyager | CARTO (vector) |
+| Traffic Day (Pro) | `liberty` | OpenFreeMap (vector) |
+| Traffic Night (Pro) | `fiord` | OpenFreeMap (vector) |
+
+Pro gating is unchanged — the free engine only changes what each choice
+renders, not who may choose it. Remote styles that aren't already proven in
+production (the CARTO pair and `fiord`) are probed once when free mode
+activates and silently fall back to a known-good OpenFreeMap base
+(`validateFreeStyles()` in `flight.js`) if unreachable, so a style choice can
+never produce a blank map. Globe projection and 3D terrain remain Mapbox-only
+either way.

@@ -817,21 +817,100 @@ window.pinFlight = function(flightId) {
 
     // ─── Free-map fallback (manual kill-switch) ──────────────────────────────
     // When config.useFreeMap is on (Netlify USE_FREE_MAP env), the tracker
-    // renders with MapLibre GL + OpenFreeMap tiles — no Mapbox token, no billed
-    // map loads. Globe, 3D terrain and mapbox:// styles are Mapbox-only, so free
-    // mode forces a flat map with OpenFreeMap base styles. Same free engine the
-    // VA embed already uses (embed.js).
+    // renders with MapLibre GL + free OSM-based tiles — no Mapbox token, no
+    // billed map loads. Globe and 3D terrain are Mapbox-only, so free mode
+    // forces a flat map; every map style (Pro ones included) has a free
+    // OSM-based equivalent below. Same free engine the VA embed already uses
+    // (embed.js).
     const MAPLIBRE_VERSION = '4.7.1';
+    const ofmStyle = (name) => `https://tiles.openfreemap.org/styles/${name}`;
+    // Raster-based free styles below carry no glyphs of their own, but the
+    // tracker adds symbol layers (aircraft labels, NAT tracks…) to every
+    // style — MapLibre throws on a text layer if the style has no glyphs
+    // endpoint, so point them at OpenFreeMap's.
+    const OFM_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
+
+    // OSM has no aerial imagery and no topo vector style, so Satellite and
+    // Outdoors ride on free raster services instead. Kept as singleton style
+    // objects: MapLibre accepts them directly, and the style-change checks
+    // (`currentMapStyle !== target`) keep working by reference equality.
+    const FREE_STYLE_SATELLITE = {
+        version: 8,
+        name: 'Satellite (Esri World Imagery)',
+        glyphs: OFM_GLYPHS,
+        sources: {
+            'esri-imagery': {
+                type: 'raster',
+                // Esri tile scheme is {z}/{y}/{x} (row before column).
+                tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+                tileSize: 256,
+                maxzoom: 19,
+                attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+            }
+        },
+        layers: [{ id: 'esri-imagery', type: 'raster', source: 'esri-imagery' }]
+    };
+    const FREE_STYLE_OUTDOORS = {
+        version: 8,
+        name: 'Outdoors (OpenTopoMap)',
+        glyphs: OFM_GLYPHS,
+        sources: {
+            opentopo: {
+                type: 'raster',
+                tiles: [
+                    'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+                    'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+                    'https://c.tile.opentopomap.org/{z}/{x}/{y}.png'
+                ],
+                tileSize: 256,
+                maxzoom: 17,
+                attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
+            }
+        },
+        layers: [{ id: 'opentopo', type: 'raster', source: 'opentopo' }]
+    };
+
+    // Every tracker style key — Pro styles included — maps to its own
+    // OSM-based free style, so when free mode is forced on everyone Pro users
+    // keep a full style picker instead of collapsing to dark/light.
+    // `fallback` names a known-good OpenFreeMap base (the embed has shipped on
+    // dark/positron/liberty/bright) used if the preferred style URL turns out
+    // unreachable — see validateFreeStyles().
     const FREE_MAP_STYLES = {
-        dark:  'https://tiles.openfreemap.org/styles/dark',
-        light: 'https://tiles.openfreemap.org/styles/positron'
+        'dark':          { style: ofmStyle('dark') },
+        'light':         { style: ofmStyle('positron') },
+        'satellite':     { style: FREE_STYLE_SATELLITE },
+        'outdoors':      { style: FREE_STYLE_OUTDOORS },
+        'nav-dark':      { style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', fallback: ofmStyle('dark') },
+        'nav-light':     { style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',     fallback: ofmStyle('positron') },
+        'traffic-day':   { style: ofmStyle('liberty') },
+        'traffic-night': { style: ofmStyle('fiord'), fallback: ofmStyle('dark') }
     };
     function isFreeMap() { return typeof window !== 'undefined' && !!window.__FREE_MAP__; }
-    // Map the tracker's style keys onto the free base styles; Mapbox-only styles
-    // (satellite / nav / traffic / outdoors) fall back to the dark base.
     function freeStyleFor(key) {
-        return (key === 'light' || key === 'nav-light' || key === 'traffic-day')
-            ? FREE_MAP_STYLES.light : FREE_MAP_STYLES.dark;
+        return (FREE_MAP_STYLES[key] || FREE_MAP_STYLES.dark).style;
+    }
+    // Probe each remote style URL that has a fallback (CARTO nav styles, OFM
+    // fiord) once at free-map activation; anything unreachable is swapped for
+    // its proven OpenFreeMap base so no picker choice can land on a blank map.
+    // The probe also primes the HTTP cache for the style MapLibre fetches next.
+    let freeStylesValidated = false;
+    async function validateFreeStyles(timeoutMs = 4000) {
+        if (freeStylesValidated) return;
+        freeStylesValidated = true;
+        await Promise.all(Object.values(FREE_MAP_STYLES)
+            .filter(def => def.fallback && typeof def.style === 'string')
+            .map(async def => {
+                try {
+                    const ctl = new AbortController();
+                    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+                    const r = await fetch(def.style, { signal: ctl.signal });
+                    clearTimeout(timer);
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                } catch (_) {
+                    def.style = def.fallback;
+                }
+            }));
     }
     function loadFreeMapEngine() {
         return new Promise((resolve, reject) => {
@@ -870,6 +949,7 @@ window.pinFlight = function(flightId) {
         window.mapboxgl = window.maplibregl;
         injectFreeMapCssShim();
         mapFilters.useFlatMap = true;                      // free engine renders flat
+        await validateFreeStyles();
         currentMapStyle = freeStyleFor(mapFilters.mapStyle || 'dark');
     }
 
