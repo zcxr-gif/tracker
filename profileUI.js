@@ -1399,7 +1399,10 @@ if (type === 'flights') {
 const requests = [
                 fetch(`${this._backendUrl}/api/users/${ifUserId}/stats`).then(res => res.json()),
                 fetch(`${this._backendUrl}/api/users/${ifUserId}/flights?page=1`).then(res => res.json()),
-                fetch(`${this._backendUrl}/api/metadata`).then(res => res.json()).catch(() => null)
+                fetch(`${this._backendUrl}/api/metadata`).then(res => res.json()).catch(() => null),
+                // Stored replays for this user (GET /api/trails/:userId) — decides
+                // which logbook flights can be played back and supplies their urls.
+                fetch(`${this._backendUrl}/api/trails/${encodeURIComponent(ifUserId)}`).then(res => res.ok ? res.json() : null).catch(() => null)
             ];
 
             if (activeFlightId) {
@@ -1414,7 +1417,23 @@ const requests = [
             const statsData = results[0];
             const flightsData = results[1];
             const metaJson = results[2];
-            const historyData = activeFlightId ? results[3] : null;
+            const trailsData = results[3];
+            const historyData = activeFlightId ? results[4] : null;
+
+            // The user's stored replays (GET /api/trails/:userId), shown as their
+            // own list — independent of the IF logbook. Newest first. Tolerant of
+            // envelope shape and of the id/url field names the backend might use.
+            const _traw = trailsData;
+            const _trailArr = Array.isArray(_traw) ? _traw
+                : (_traw && Array.isArray(_traw.trails) ? _traw.trails
+                : (_traw && Array.isArray(_traw.data) ? _traw.data : []));
+            this._ifData.replays = _trailArr.map(t => {
+                if (!t || typeof t !== 'object') return null;
+                const flightId = t.flightId || t.flight_id || t.flightID || t.id;
+                const url = t.url || t.trailUrl || t.href || t.location || t.signedUrl;
+                if (!flightId || !url) return null;
+                return { flightId: String(flightId), url: String(url), date: t.date || t.savedAt || t.updatedAt || t.created || '', size: t.size || t.bytes || 0 };
+            }).filter(Boolean).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
 
             if (metaJson && metaJson.ok) {
                 this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
@@ -2706,6 +2725,23 @@ _getTabContentHTML() {
                 recentFlightsHTML = `<div class="pui-empty-inline">${this.t('empty.recent')}</div>`;
             }
 
+            // Stored replays for this user, listed straight from /api/trails/:userId.
+            let replaysHTML = '';
+            const _replays = (ifUsername && Array.isArray(this._ifData.replays)) ? this._ifData.replays : [];
+            if (_replays.length) {
+                replaysHTML = _replays.slice(0, 12).map((t, i) => {
+                    const dt = new Date(t.date);
+                    const valid = !isNaN(dt.getTime());
+                    const sub = (valid ? this._relTime(dt) : 'Unknown date') + (t.size ? ' · ' + this._fmtBytes(t.size) : '');
+                    return `<button type="button" class="pui-replay-row" data-action="play-replay" data-idx="${i}">
+                        <span class="pui-replay-play"><i class="fa-solid fa-play"></i></span>
+                        <span class="pui-replay-main">
+                            <span class="pui-replay-fid">${this._fleetEsc(String(t.flightId))}</span>
+                            <span class="pui-replay-sub">${this._fleetEsc(sub)}</span>
+                        </span></button>`;
+                }).join('');
+            }
+
             let nextDispatch = '';
             if (this._flightPlansData?.length > 0) {
                 const next   = this._flightPlansData[0];
@@ -2773,6 +2809,15 @@ _getTabContentHTML() {
                     <section class="pui-card pui-home-dispatch">
                         <div class="pui-card-eyebrow">Next Departure</div>
                         ${nextDispatch}
+                    </section>
+                </div>
+
+                <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
+                    <section class="pui-card pui-home-replays" style="grid-column:1 / -1;">
+                        <div class="pui-card-eyebrow">Replays</div>
+                        ${replaysHTML
+                            ? `<div class="pui-replay-list">${replaysHTML}</div>`
+                            : `<div class="pui-empty-inline">${ifUsername ? 'No replays available for this pilot yet.' : 'Link your Infinite Flight account to see replays.'}</div>`}
                     </section>
                 </div>
             `;
@@ -3464,6 +3509,24 @@ const contentRoot = document.getElementById('pui-content');
                         // Manually dispatch a blur event to trigger the predictive EET calculator
                         if (depInput) depInput.dispatchEvent(new Event('blur'));
                     }, 150);
+                    return;
+                }
+
+                // 3. Play a stored replay → open the dedicated replay page
+                // (history.html), handing it the trail file url directly.
+                const replayTarget = e.target.closest('[data-action="play-replay"]');
+                if (replayTarget && contentRoot.contains(replayTarget)) {
+                    e.stopPropagation();
+                    const t = (this._ifData.replays || [])[parseInt(replayTarget.dataset.idx, 10)];
+                    if (!t || !t.url) return;
+                    const params = new URLSearchParams();
+                    params.set('flight', String(t.flightId));
+                    params.set('trail', t.url);
+                    params.set('callsign', String(t.flightId));
+                    const rurl = 'history.html?' + params.toString();
+                    this.close();
+                    const rw = window.open(rurl, '_blank', 'noopener');   // same-tab fallback for mobile
+                    if (!rw) window.location.assign(rurl);
                     return;
                 }
             });
@@ -4564,6 +4627,21 @@ const contentRoot = document.getElementById('pui-content');
             </div>`;
     },
 
+    _relTime(d) {
+        const s = Math.round((Date.now() - d.getTime()) / 1000);
+        if (s < 45) return 'just now';
+        const m = Math.round(s / 60); if (m < 60) return `${m} min${m > 1 ? 's' : ''} ago`;
+        const h = Math.round(m / 60); if (h < 24) return `${h} hour${h > 1 ? 's' : ''} ago`;
+        const dd = Math.round(h / 24); if (dd < 30) return `${dd} day${dd > 1 ? 's' : ''} ago`;
+        const mo = Math.round(dd / 30); if (mo < 12) return `${mo} month${mo > 1 ? 's' : ''} ago`;
+        const y = Math.round(mo / 12); return `${y} year${y > 1 ? 's' : ''} ago`;
+    },
+    _fmtBytes(b) {
+        if (!b || b < 1024) return `${b || 0} B`;
+        if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+        return `${(b / 1024 / 1024).toFixed(1)} MB`;
+    },
+
     _showToast(htmlContent, type = 'info', duration = 4000) {
         const container = document.getElementById('pui-toast-container');
         if (!container) return;
@@ -5636,6 +5714,29 @@ const contentRoot = document.getElementById('pui-content');
                 display: flex;
                 flex-direction: column;
             }
+            /* Replays list (stored trails) */
+            .pui-replay-list { display: flex; flex-direction: column; }
+            .pui-replay-row {
+                display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+                background: none; border: none; border-bottom: 1px solid var(--pui-border-light);
+                color: var(--pui-text-primary, #fff); font: inherit; cursor: pointer;
+                padding: var(--pui-pad-row) 0; transition: background-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-replay-row:last-child { border-bottom: none; }
+            .pui-replay-row:hover {
+                background: var(--pui-hover); margin: 0 calc(var(--pui-pad-card) * -1);
+                padding-left: var(--pui-pad-card); padding-right: var(--pui-pad-card);
+            }
+            .pui-replay-play {
+                width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center;
+                background: rgba(56,189,248,0.16); color: var(--pui-accent, #38bdf8); font-size: 12px;
+            }
+            .pui-replay-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .pui-replay-fid {
+                font-size: 0.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--pui-text-primary, #fff);
+            }
+            .pui-replay-sub { font-size: 0.72rem; color: var(--pui-text-tertiary, rgba(255,255,255,0.5)); }
             .pui-flight-row {
                 display: flex;
                 align-items: center;

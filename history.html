@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flight History Replay — inflight.info</title>
+<meta name="description" content="Replay a past flight: scrub the flown track on the map with a synced altitude &amp; speed graph.">
+<meta name="robots" content="noindex">
+
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    /* iOS "Soft Premium" greys — mirror the mobile UI's --mdui-* light tokens. */
+    --hr-bg: #f5f5f7;
+    --hr-card: #ffffff;
+    --hr-card-2: #ececef;
+    --hr-text: #000000;
+    --hr-text-2: rgba(60, 60, 67, 0.60);
+    --hr-text-3: rgba(60, 60, 67, 0.30);
+    --hr-border: rgba(0, 0, 0, 0.10);
+    --hr-border-2: rgba(0, 0, 0, 0.055);
+    --hr-accent: #007aff;
+    --hr-alt: #7c3aed;   /* altitude (purple, like the reference) */
+    --hr-gs: #10b981;    /* speed (green, like the reference) */
+    --hr-shadow: 0 1px 2px rgba(0,0,0,0.05), 0 4px 18px rgba(0,0,0,0.10);
+    --hr-radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      /* mirror the mobile UI's --mdui-* dark greys */
+      --hr-bg: #1c1c1e;
+      --hr-card: #2c2c2e;
+      --hr-card-2: #3a3a3c;
+      --hr-text: #ffffff;
+      --hr-text-2: rgba(235, 235, 245, 0.60);
+      --hr-text-3: rgba(235, 235, 245, 0.30);
+      --hr-border: rgba(255, 255, 255, 0.14);
+      --hr-border-2: rgba(255, 255, 255, 0.08);
+      --hr-accent: #0a84ff;
+      --hr-alt: #a78bfa;
+      --hr-gs: #34d399;
+      --hr-shadow: 0 1px 2px rgba(0,0,0,0.45), 0 4px 18px rgba(0,0,0,0.45);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--hr-bg); color: var(--hr-text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+
+  .hr-shell { max-width: 720px; margin: 0 auto; padding: 18px 16px 60px; }
+
+  /* ---- Header ---- */
+  .hr-head { display: flex; align-items: center; gap: 14px; margin: 10px 2px 16px; }
+  .hr-head-logo { width: 46px; height: 46px; border-radius: 12px; object-fit: contain; background: var(--hr-card);
+    border: 1px solid var(--hr-border); flex: 0 0 auto; display: grid; place-items: center; color: var(--hr-accent); overflow: hidden; }
+  .hr-head-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .hr-title { font-size: clamp(1.4rem, 5vw, 2rem); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+  .hr-title small { display:block; font-size: 0.72rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--hr-text-3); margin-bottom: 3px; }
+  .hr-badge { display: inline-block; margin-left: 10px; font-size: 0.62em; font-weight: 800; letter-spacing: .06em;
+    padding: 4px 9px; border-radius: 999px; background: var(--hr-card); border: 1px solid var(--hr-border); color: var(--hr-text-2); vertical-align: middle; }
+
+  .hr-card { background: var(--hr-card); border: 1px solid var(--hr-border); border-radius: var(--hr-radius);
+    box-shadow: var(--hr-shadow); overflow: hidden; margin-bottom: 14px; }
+
+  /* ---- Map card + scrubber ---- */
+  .hr-map-wrap { position: relative; }
+  #hr-map { width: 100%; height: 340px; background: var(--hr-card-2); }
+  .hr-map-tip { position: absolute; top: 10px; left: 10px; z-index: 5; background: color-mix(in srgb, var(--hr-card) 92%, transparent);
+    border: 1px solid var(--hr-border); border-radius: 12px; padding: 8px 11px; font-size: 0.78rem; box-shadow: var(--hr-shadow);
+    backdrop-filter: blur(8px); pointer-events: none; opacity: 0; transform: translateY(-4px); transition: opacity .18s, transform .18s; }
+  .hr-map-tip.show { opacity: 1; transform: none; }
+  .hr-map-tip .row { display: flex; align-items: center; gap: 7px; line-height: 1.5; }
+  .hr-map-tip .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .hr-map-tip .k { color: var(--hr-text-2); font-weight: 600; }
+  .hr-map-tip .v { font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  .hr-scrub { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6;
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px;
+    background: color-mix(in srgb, var(--hr-card) 90%, transparent); border: 1px solid var(--hr-border);
+    box-shadow: var(--hr-shadow); backdrop-filter: blur(10px); }
+  .hr-play { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--hr-accent); color: #fff; font-size: 0.9rem; display: grid; place-items: center; transition: transform .1s; }
+  .hr-play:active { transform: scale(0.92); }
+  .hr-time { font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; font-weight: 700; color: var(--hr-text-2);
+    white-space: nowrap; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+  .hr-range { position: relative; flex: 1 1 auto; height: 22px; display: flex; align-items: center; min-width: 40px; }
+  .hr-range input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 4px;
+    background: linear-gradient(to right, var(--hr-accent) 0%, var(--hr-accent) var(--fill,0%), var(--hr-border) var(--fill,0%)); outline: none; cursor: pointer; }
+  .hr-range input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--hr-accent); box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer; }
+  .hr-range input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    border: 2px solid var(--hr-accent); box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer; }
+  .hr-ctrls { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .hr-ctrl { position: relative; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--hr-border);
+    background: var(--hr-card-2); color: var(--hr-text-2); cursor: pointer; display: grid; place-items: center; font-size: 0.82rem; transition: .12s; }
+  .hr-ctrl:hover { color: var(--hr-accent); border-color: var(--hr-accent); }
+  .hr-ctrl.active { color: var(--hr-accent); border-color: var(--hr-accent); background: color-mix(in srgb, var(--hr-accent) 12%, transparent); }
+  .hr-speed-tag { position: absolute; top: -6px; right: -6px; background: var(--hr-accent); color: #fff; font-size: 8px;
+    font-weight: 800; padding: 1px 4px; border-radius: 999px; line-height: 1.3; }
+  .hr-speed-menu { position: absolute; bottom: 40px; right: 0; z-index: 10; background: var(--hr-card); border: 1px solid var(--hr-border);
+    border-radius: 12px; box-shadow: var(--hr-shadow); padding: 5px; display: none; flex-direction: column; gap: 2px; min-width: 74px; }
+  .hr-speed-menu.open { display: flex; }
+  .hr-speed-menu button { border: none; background: none; text-align: left; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--hr-text-2); }
+  .hr-speed-menu button:hover { background: var(--hr-border-2); color: var(--hr-text); }
+  .hr-speed-menu button.active { background: var(--hr-accent); color: #fff; }
+
+  /* Attribution nudge so our scrubber doesn't cover it awkwardly */
+  .maplibregl-ctrl-bottom-right { bottom: 52px; }
+
+  /* ---- Stats header ---- */
+  .hr-stats { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 6px; align-items: center; padding: 14px 16px; }
+  .hr-stats .hr-flight { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .hr-stats .hr-flight-logo { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; flex: 0 0 auto; overflow: hidden; }
+  .hr-stats .hr-flight-logo img { max-width: 100%; max-height: 100%; }
+  .hr-fnum { font-weight: 800; font-size: 1rem; line-height: 1.1; }
+  .hr-fdate { font-size: 0.72rem; color: var(--hr-text-2); }
+  .hr-stat { text-align: right; }
+  .hr-stat .val { font-weight: 800; font-size: clamp(0.95rem, 3.4vw, 1.35rem); font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .hr-stat .lbl { font-size: 0.64rem; color: var(--hr-text-2); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .hr-stat .lbl .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ---- Graph ---- */
+  .hr-graph-card { padding: 10px 10px 6px; }
+  #hr-graph { position: relative; width: 100%; }
+  #hr-graph svg { display: block; width: 100%; height: auto; cursor: crosshair; }
+  .hr-graph-empty { height: 200px; display: grid; place-items: center; color: var(--hr-text-3); font-size: 0.86rem; font-style: italic; }
+
+  /* ---- Photo + details ---- */
+  .hr-photo { width: 100%; aspect-ratio: 16 / 7; background: var(--hr-card-2); position: relative; overflow: hidden; display: none; }
+  .hr-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hr-photo .credit { position: absolute; right: 8px; bottom: 6px; font-size: 0.62rem; color: rgba(255,255,255,0.9);
+    background: rgba(0,0,0,0.4); padding: 2px 7px; border-radius: 6px; }
+
+  .hr-detail { display: flex; align-items: center; gap: 14px; padding: 15px 18px; border-top: 1px solid var(--hr-border-2); }
+  .hr-detail:first-child { border-top: none; }
+  .hr-detail .ico { width: 22px; text-align: center; color: var(--hr-text-3); font-size: 0.95rem; flex: 0 0 auto; }
+  .hr-detail .body { min-width: 0; }
+  .hr-detail .primary { font-weight: 700; font-size: 0.98rem; color: var(--hr-text); }
+  .hr-detail .secondary { font-size: 0.74rem; color: var(--hr-text-2); }
+
+  .hr-note { text-align: center; color: var(--hr-text-3); font-size: 0.78rem; margin: 18px 4px 0; line-height: 1.6; }
+  .hr-loading { display: grid; place-items: center; height: 60vh; gap: 12px; color: var(--hr-text-2); }
+  .hr-loading .spin { font-size: 1.6rem; color: var(--hr-accent); animation: hr-spin 1s linear infinite; }
+  @keyframes hr-spin { to { transform: rotate(360deg); } }
+  .hr-error { text-align: center; padding: 40px 20px; color: var(--hr-text-2); }
+  .hr-error i { font-size: 2rem; color: var(--hr-text-3); display: block; margin-bottom: 12px; }
+  .hidden { display: none !important; }
+
+  /* ---- Live status narration ---- */
+  .hr-status {
+    display: flex; align-items: center; gap: 11px; margin: 0 0 14px;
+    background: var(--hr-card); border: 1px solid var(--hr-border); border-radius: 14px;
+    padding: 12px 15px; box-shadow: var(--hr-shadow);
+  }
+  .hr-status-ico {
+    width: 34px; height: 34px; flex: 0 0 auto; border-radius: 10px; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--hr-accent) 14%, transparent); color: var(--hr-accent); font-size: 0.95rem;
+  }
+  .hr-status-text { font-size: 0.92rem; font-weight: 600; line-height: 1.3; min-width: 0; }
+  .hr-status-text b { font-weight: 800; }
+
+  /* ---- Leg selector ---- */
+  .hr-legs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; -webkit-overflow-scrolling: touch; }
+  .hr-leg {
+    flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+    background: var(--hr-card); border: 1px solid var(--hr-border); border-radius: 12px;
+    padding: 8px 12px; cursor: pointer; font: inherit; color: var(--hr-text); text-align: left;
+    box-shadow: var(--hr-shadow); transition: border-color .12s, background .12s;
+  }
+  .hr-leg:hover { border-color: var(--hr-accent); }
+  .hr-leg.active { border-color: var(--hr-accent); background: color-mix(in srgb, var(--hr-accent) 12%, var(--hr-card)); }
+  .hr-leg-title { font-size: 0.82rem; font-weight: 800; white-space: nowrap; }
+  .hr-leg-sub { font-size: 0.66rem; color: var(--hr-text-2); white-space: nowrap; }
+  .hr-leg-badge { font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    padding: 1px 5px; border-radius: 999px; margin-left: 4px; }
+  .hr-leg-badge.parked { background: rgba(48,209,88,0.16); color: #1f9d4d; }
+  .hr-leg-badge.airborne { background: rgba(10,132,255,0.16); color: var(--hr-accent); }
+
+  /* ---- Back bar ---- */
+  .hr-topbar { display: flex; align-items: center; padding: 4px 2px 12px; }
+  .hr-back {
+    display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    font-size: 0.84rem; font-weight: 700; color: var(--hr-text);
+    background: var(--hr-card); border: 1px solid var(--hr-border); border-radius: 999px;
+    padding: 8px 15px; box-shadow: var(--hr-shadow); transition: border-color .12s, transform .1s;
+  }
+  .hr-back:hover { border-color: var(--hr-accent); color: var(--hr-accent); }
+  .hr-back:active { transform: scale(0.97); }
+
+  /* ---- Footer ---- */
+  .hr-footer {
+    margin-top: 22px; padding: 20px 18px 30px; border-top: 1px solid var(--hr-border);
+    display: flex; flex-direction: column; gap: 14px; align-items: center; text-align: center;
+  }
+  .hr-footer-brand { display: flex; align-items: center; gap: 11px; }
+  .hr-footer-mark {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; flex: 0 0 auto;
+    background: linear-gradient(135deg, var(--hr-accent), color-mix(in srgb, var(--hr-accent) 55%, #7c3aed));
+    color: #fff; font-size: 1rem;
+  }
+  .hr-footer-name { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; text-align: left; }
+  .hr-footer-tag { font-size: 0.78rem; color: var(--hr-text-2); text-align: left; }
+  .hr-footer-links { display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: center; }
+  .hr-footer-links a {
+    display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+    font-size: 0.82rem; font-weight: 600; color: var(--hr-text-2);
+  }
+  .hr-footer-links a:hover { color: var(--hr-accent); }
+  .hr-footer-copy { font-size: 0.68rem; color: var(--hr-text-3); }
+
+  /* Partner VAs strip (round logo coins, matching the app splash) */
+  .hr-partners { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+  .hr-partners-label { font-size: 0.64rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--hr-text-3); }
+  .hr-partners-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 14px; max-width: 100%; }
+  .hr-partners-row img, .hr-partners-row .vp-name {
+    width: 42px; height: 42px; max-width: 42px; max-height: 42px; border-radius: 50%; flex: 0 0 auto;
+    box-sizing: border-box; cursor: pointer; transition: transform .12s;
+  }
+  .hr-partners-row img { object-fit: contain; padding: 5px; background: #fff; border: 1px solid var(--hr-border); box-shadow: var(--hr-shadow); }
+  .hr-partners-row img:hover, .hr-partners-row .vp-name:hover { transform: translateY(-2px); }
+  .hr-partners-row .vp-name {
+    display: grid; place-items: center; font: 800 14px/1 'Inter', system-ui, sans-serif;
+    color: var(--hr-text); background: var(--hr-card-2); border: 1px solid var(--hr-border);
+  }
+
+  @media (max-width: 520px) {
+    .hr-stats { grid-template-columns: 1fr 1fr 1fr; }
+    .hr-stats .hr-flight { grid-column: 1 / -1; margin-bottom: 4px; }
+  }
+</style>
+</head>
+<body>
+  <div class="hr-shell">
+    <!-- Back to the live tracker -->
+    <div class="hr-topbar">
+      <a class="hr-back" href="/"><i class="fa-solid fa-arrow-left"></i> Back to tracker</a>
+    </div>
+
+    <!-- Loading state -->
+    <div id="hr-loading" class="hr-loading">
+      <i class="fa-solid fa-circle-notch spin"></i>
+      <div>Loading flight history…</div>
+    </div>
+
+    <!-- Error state -->
+    <div id="hr-error" class="hr-error hidden">
+      <i class="fa-solid fa-plane-slash"></i>
+      <div id="hr-error-msg">This flight has no recorded history.</div>
+      <div id="hr-error-diag" style="margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--hr-text-3);word-break:break-all;"></div>
+    </div>
+
+    <!-- Main content (revealed once data loads) -->
+    <div id="hr-content" class="hidden">
+      <div class="hr-head">
+        <div id="hr-head-logo" class="hr-head-logo"><i class="fa-solid fa-plane-up"></i></div>
+        <div>
+          <div class="hr-title">
+            <small id="hr-eyebrow">Flight history</small>
+            <span id="hr-title-main">Flight</span>
+            <span id="hr-title-badge" class="hr-badge hidden"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map + scrubber -->
+      <div class="hr-card">
+        <div class="hr-map-wrap">
+          <div id="hr-map"></div>
+          <div id="hr-tip" class="hr-map-tip">
+            <div class="row"><span class="dot" style="background:var(--hr-gs)"></span><span class="k">Speed:</span> <span class="v" id="hr-tip-gs">—</span></div>
+            <div class="row"><span class="dot" style="background:var(--hr-alt)"></span><span class="k">Altitude:</span> <span class="v" id="hr-tip-alt">—</span></div>
+          </div>
+          <div class="hr-scrub">
+            <button id="hr-play" class="hr-play" aria-label="Play"><i class="fa-solid fa-play"></i></button>
+            <span class="hr-time"><span id="hr-elapsed">00:00</span> / <span id="hr-total">00:00</span></span>
+            <div class="hr-range"><input id="hr-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="Replay progress"></div>
+            <div class="hr-ctrls">
+              <button id="hr-speed-btn" class="hr-ctrl" title="Playback speed"><i class="fa-solid fa-gauge-high"></i><span id="hr-speed-tag" class="hr-speed-tag">1×</span>
+                <div id="hr-speed-menu" class="hr-speed-menu"></div>
+              </button>
+              <button id="hr-follow-btn" class="hr-ctrl active" title="Follow aircraft"><i class="fa-solid fa-location-crosshairs"></i></button>
+              <button id="hr-path-btn" class="hr-ctrl active" title="Toggle flown path"><i class="fa-solid fa-route"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live narration of what's happening at the current replay moment -->
+      <div id="hr-status" class="hr-status hidden">
+        <span class="hr-status-ico"><i class="fa-solid fa-plane"></i></span>
+        <span class="hr-status-text">—</span>
+      </div>
+
+      <!-- Leg selector (shown only when the trail contains a landing+park) -->
+      <div id="hr-legs" class="hr-legs hidden"></div>
+
+      <!-- Stats + graph -->
+      <div class="hr-card">
+        <div class="hr-stats">
+          <div class="hr-flight">
+            <div id="hr-flight-logo" class="hr-flight-logo"></div>
+            <div>
+              <div class="hr-fnum" id="hr-stat-callsign">—</div>
+              <div class="hr-fdate" id="hr-stat-date">—</div>
+            </div>
+          </div>
+          <div class="hr-stat">
+            <div class="val" id="hr-stat-time">—</div>
+            <div class="lbl">Time (UTC)</div>
+          </div>
+          <div class="hr-stat">
+            <div class="val" id="hr-stat-alt">—</div>
+            <div class="lbl"><span class="dot" style="background:var(--hr-alt)"></span>Altitude</div>
+          </div>
+          <div class="hr-stat">
+            <div class="val" id="hr-stat-gs">—</div>
+            <div class="lbl"><span class="dot" style="background:var(--hr-gs)"></span>Speed</div>
+          </div>
+        </div>
+        <div class="hr-graph-card">
+          <div id="hr-graph"></div>
+        </div>
+      </div>
+
+      <!-- Photo + aircraft details -->
+      <div class="hr-card">
+        <div id="hr-photo" class="hr-photo"></div>
+        <div id="hr-details"></div>
+      </div>
+
+      <div class="hr-note">
+        Replay reconstructed from recorded position reports
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="hr-footer">
+      <div class="hr-footer-brand">
+        <span class="hr-footer-mark"><i class="fa-solid fa-location-dot"></i></span>
+        <div>
+          <div class="hr-footer-name">inflight.info</div>
+          <div class="hr-footer-tag">The official live flight tracker for Virtual Airlines</div>
+        </div>
+      </div>
+
+      <!-- Our official partner VAs — pulled from the same directory the app uses -->
+      <div class="hr-partners" id="hr-partners" hidden>
+        <span class="hr-partners-label">Our Partner VAs</span>
+        <div class="hr-partners-row" id="hr-partners-row"></div>
+      </div>
+
+      <div class="hr-footer-links">
+        <a href="/"><i class="fa-solid fa-arrow-left"></i> Open the tracker</a>
+        <a href="/embed.html"><i class="fa-solid fa-handshake-angle"></i> VA embeds</a>
+      </div>
+      <div class="hr-footer-copy">© <span id="hr-year"></span> inflight.info · Indicative replay, not for operational use</div>
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="flight-graph.js"></script>
+  <script src="flight-legs.js"></script>
+  <script src="vaAds.js"></script>
+  <script type="module" src="aircraftPhoto.js"></script>
+  <!-- The map's own aircraft silhouettes, so the replay plane matches the map. -->
+  <script type="module">
+    import { aircraftPaths } from './assets.js';
+    window.__aircraftPaths = aircraftPaths;
+  </script>
+  <script>
+    var _y = document.getElementById('hr-year'); if (_y) _y.textContent = new Date().getFullYear();
+
+    // Populate the footer's "Our Partner VAs" strip from the same official
+    // directory the app already pulls (window.InflightVaAds), matching the
+    // splash screen. Clicking a partner opens its detail slide-over.
+    (function () {
+      var strip = document.getElementById('hr-partners');
+      var row = document.getElementById('hr-partners-row');
+      if (!strip || !row) return;
+      var MAX = 20, tries = 0;
+      function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+      function render(list) {
+        var seen = {}, items = [];
+        for (var i = 0; i < list.length && items.length < MAX; i++) {
+          var ad = list[i]; if (!ad || !ad.name) continue;
+          var key = String(ad.name).toLowerCase(); if (seen[key]) continue; seen[key] = 1;
+          var id = esc(ad.id || '');
+          if (ad.logo) items.push('<img data-va="' + id + '" src="' + esc(ad.logo) + '" alt="' + esc(ad.name) + '" title="' + esc(ad.name) + '" onerror="this.remove()">');
+          else {
+            var ini = String(ad.name).trim().split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+            items.push('<span class="vp-name" data-va="' + id + '" title="' + esc(ad.name) + '">' + esc(ini) + '</span>');
+          }
+        }
+        if (!items.length) return false;
+        row.innerHTML = items.join('');
+        row.querySelectorAll('[data-va]').forEach(function (el) {
+          el.addEventListener('click', function () {
+            var vid = el.getAttribute('data-va');
+            if (window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') window.InflightVaAds.openPartners(vid || undefined);
+            else window.location.href = '/';
+          });
+        });
+        strip.hidden = false;
+        return true;
+      }
+      try { if (window.InflightVaAds && window.InflightVaAds.loadDirectory) window.InflightVaAds.loadDirectory(); } catch (e) {}
+      var iv = setInterval(function () {
+        tries++;
+        try {
+          var api = window.InflightVaAds;
+          if (api && typeof api.allPartners === 'function') {
+            var list = api.allPartners();
+            if (list && list.length && render(list)) { clearInterval(iv); return; }
+          }
+        } catch (e) {}
+        if (tries > 40) clearInterval(iv);
+      }, 200);
+    })();
+  </script>
+  <script src="historyReplay.js"></script>
+</body>
+</html>

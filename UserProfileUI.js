@@ -164,11 +164,18 @@ export const UserProfileUI = {
                 return;
             }
 
-            // 3. Stats + logbook + metadata in parallel.
-            const [statsJson, flightsJson] = await Promise.all([
+            // Stored replays for this user (GET /api/trails/:userId). Wrapped so
+            // we can capture the HTTP status for the on-screen diagnostic.
+            const trailsP = fetch(`${this._backendUrl}/api/trails/${encodeURIComponent(d.userId)}`)
+                .then(async r => ({ status: r.status, json: r.ok ? await r.json().catch(() => null) : null }))
+                .catch(() => ({ status: 'net-err', json: null }));
+
+            // 3. Stats + logbook + metadata (+ trails) in parallel.
+            const [statsJson, flightsJson, , trailsRes] = await Promise.all([
                 fetch(`${this._backendUrl}/api/users/${d.userId}/stats`).then(r => r.json()).catch(() => null),
                 fetch(`${this._backendUrl}/api/users/${d.userId}/flights?page=1`).then(r => r.json()).catch(() => null),
                 this._fetchMetadata(),
+                trailsP,
             ]);
             if (stale()) return;
 
@@ -178,6 +185,23 @@ export const UserProfileUI = {
                 d.logbookTotal = flightsJson.totalCount || d.logbook.length;
                 d.logbookTotalPages = flightsJson.totalPages || 1;
             }
+
+            // Parse the trails payload tolerantly (bare array / {trails|data:[]}),
+            // and each item's id/url across the field names the backend might use.
+            const _traw = trailsRes && trailsRes.json;
+            const _trailArr = Array.isArray(_traw) ? _traw
+                : (_traw && Array.isArray(_traw.trails) ? _traw.trails
+                : (_traw && Array.isArray(_traw.data) ? _traw.data : []));
+            const _mapped = _trailArr.map(t => {
+                if (!t || typeof t !== 'object') return null;
+                const flightId = t.flightId || t.flight_id || t.flightID || t.id;
+                const url = t.url || t.trailUrl || t.href || t.location || t.signedUrl;
+                if (!flightId || !url) return null;
+                return { flightId: String(flightId), url: String(url), date: t.date || t.savedAt || t.updatedAt || t.created || '', size: t.size || t.bytes || 0 };
+            }).filter(Boolean);
+            _mapped.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+            d.replays = _mapped;
+            d.replaysDiag = `trails=${trailsRes ? trailsRes.status : '?'} · ${_mapped.length}/${_trailArr.length} usable · uid=${d.userId}`;
             d.loading = false;
             d.error = d.stats ? null : (d.error || 'no-stats');
         } catch (err) {
@@ -372,6 +396,7 @@ export const UserProfileUI = {
         body.innerHTML = [
             this._renderLiveCard(),
             this._renderStatsSection(),
+            this._renderReplaysSection(),
             this._renderLogbookSection(),
             `<a class="ups-community-link" href="https://community.infiniteflight.com/u/${encodeURIComponent(d.username)}/summary" target="_blank" rel="noopener">
                 <i class="fa-solid fa-globe"></i>
@@ -408,6 +433,118 @@ export const UserProfileUI = {
         if (d.expandedFlights.has(key)) d.expandedFlights.delete(key);
         else d.expandedFlights.add(key);
         this._render();
+    },
+
+    // The user's stored replays, listed straight from GET /api/trails/:userId
+    // (independent of the IF logbook). Each row plays that trail.
+    _renderReplaysSection() {
+        const d = this._data;
+        const replays = d?.replays || [];
+
+        // If the pilot is airborne right now, offer their live flight as a
+        // replay too — it plays from /history (the recorded live trail), the
+        // proven path, so an in-progress flight is always playable.
+        const live = d?.liveFeature;
+        const liveFid = live?.properties?.flightId;
+        const lp = live?.properties || {};
+        const liveRow = liveFid ? `
+            <button type="button" class="ups-replay-row ups-replay-live" onclick="UserProfileUI.playLiveReplay()">
+                <span class="ups-replay-play"><i class="fa-solid fa-play"></i></span>
+                <span class="ups-replay-main">
+                    <span class="ups-replay-fid">${this._esc(lp.callsign || 'Current flight')} <span class="ups-replay-livebadge">LIVE</span></span>
+                    <span class="ups-replay-sub">In progress · ${this._esc((lp.departureIcao || '—').toUpperCase())} → ${this._esc((lp.arrivalIcao || '—').toUpperCase())}</span>
+                </span>
+            </button>` : '';
+
+        if (!replays.length && !liveRow) {
+            return `
+                <div class="ups-section">
+                    <div class="ups-section-title">Replays</div>
+                    <div class="ups-empty is-inline"><p>No replays available for this pilot yet.</p>
+                        ${d?.replaysDiag ? `<span style="display:block;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.55;word-break:break-all;">${this._esc(d.replaysDiag)}</span>` : ''}
+                    </div>
+                </div>`;
+        }
+        const rows = replays.map((t, i) => {
+            const dt = new Date(t.date);
+            const valid = !isNaN(dt.getTime());
+            const sub = (valid ? `${this._relTime(dt)} · ${this._formatDate(t.date)}` : 'Unknown date')
+                + (t.size ? ` · ${this._formatBytes(t.size)}` : '');
+            return `
+                <button type="button" class="ups-replay-row" onclick="UserProfileUI.playReplay(${i})">
+                    <span class="ups-replay-play"><i class="fa-solid fa-play"></i></span>
+                    <span class="ups-replay-main">
+                        <span class="ups-replay-fid">${this._esc(String(t.flightId))}</span>
+                        <span class="ups-replay-sub">${this._esc(sub)}</span>
+                    </span>
+                    <span class="ups-replay-spin"><i class="fa-solid fa-circle-notch fa-spin"></i></span>
+                </button>`;
+        }).join('');
+        return `
+            <div class="ups-section">
+                <div class="ups-section-title">Replays
+                    <span class="ups-section-count">${(replays.length + (liveRow ? 1 : 0)).toLocaleString()}</span>
+                </div>
+                <div class="ups-replay-list">${liveRow}${rows}</div>
+            </div>`;
+    },
+
+    // Open a stored replay in the dedicated replay page (history.html), handing
+    // it the trail file's url directly so it plays that saved track.
+    playReplay(i) {
+        const t = (this._data?.replays || [])[i];
+        if (!t || !t.url) return;
+        const p = new URLSearchParams();
+        p.set('flight', String(t.flightId));
+        p.set('trail', t.url);
+        p.set('callsign', String(t.flightId));
+        this._openReplayPage('history.html?' + p.toString());
+    },
+
+    // Open the pilot's in-progress flight in the dedicated replay page. No trail
+    // url, so the page pulls /history (the recorded live trail) for that id.
+    playLiveReplay() {
+        const live = this._data?.liveFeature;
+        const fid = live?.properties?.flightId;
+        if (!fid) return;
+        const lp = live.properties || {};
+        const p = new URLSearchParams();
+        p.set('flight', String(fid));
+        if (lp.callsign) p.set('callsign', lp.callsign);
+        if (lp.departureIcao) p.set('dep', lp.departureIcao);
+        if (lp.arrivalIcao) p.set('arr', lp.arrivalIcao);
+        if (lp.aircraftName) p.set('type', lp.aircraftName);
+        this._openReplayPage('history.html?' + p.toString());
+    },
+
+    _openReplayPage(url) {
+        this.close();
+        // New tab when allowed; same-tab fallback for mobile / in-app webviews
+        // that block window.open('_blank').
+        const w = window.open(url, '_blank', 'noopener');
+        if (!w) window.location.assign(url);
+    },
+
+    _relTime(d) {
+        const s = Math.round((Date.now() - d.getTime()) / 1000);
+        if (s < 45) return 'just now';
+        const m = Math.round(s / 60); if (m < 60) return `${m} min${m > 1 ? 's' : ''} ago`;
+        const h = Math.round(m / 60); if (h < 24) return `${h} hour${h > 1 ? 's' : ''} ago`;
+        const dd = Math.round(h / 24); if (dd < 30) return `${dd} day${dd > 1 ? 's' : ''} ago`;
+        const mo = Math.round(dd / 30); if (mo < 12) return `${mo} month${mo > 1 ? 's' : ''} ago`;
+        const y = Math.round(mo / 12); return `${y} year${y > 1 ? 's' : ''} ago`;
+    },
+    _formatBytes(b) {
+        if (!b || b < 1024) return `${b || 0} B`;
+        if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+        return `${(b / 1024 / 1024).toFixed(1)} MB`;
+    },
+
+    _replayNote(msg, type) {
+        if (window.Toastify) {
+            window.Toastify({ text: msg, duration: 3600, gravity: 'bottom', position: 'center', close: true,
+                style: { background: type === 'error' ? 'linear-gradient(135deg,#b91c1c,#7f1d1d)' : 'linear-gradient(135deg,#0e7490,#155e75)', borderRadius: '10px' } }).showToast();
+        } else { (type === 'error' ? console.error : console.log)('[Replay] ' + msg); }
     },
 
     _renderLiveCard() {
@@ -1098,6 +1235,36 @@ export const UserProfileUI = {
             .ups-log-icaos { font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
             .ups-log-icaos > i { font-size: 10px; color: var(--ups-text-4); margin: 0 3px; }
             .ups-log-vio { color: var(--ups-warning); font-size: 11px; }
+            /* ── Replays list (stored trails) ── */
+            .ups-replay-list {
+                border: 0.5px solid var(--ups-stroke-soft); border-radius: 16px;
+                overflow: hidden; background: var(--ups-fill);
+            }
+            .ups-replay-row {
+                display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+                cursor: pointer; background: none; border: none; color: var(--ups-text); font: inherit;
+                padding: 11px 13px; border-top: 0.5px solid var(--ups-stroke-soft);
+                -webkit-tap-highlight-color: transparent; transition: background .12s ease;
+            }
+            .ups-replay-row:first-child { border-top: none; }
+            .ups-replay-row:hover { background: var(--ups-fill); }
+            .ups-replay-row:active { background: var(--ups-fill-strong); }
+            .ups-replay-play {
+                width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center;
+                background: rgba(10,132,255,0.16); color: var(--ups-accent, #0a84ff); font-size: 11px;
+            }
+            .ups-replay-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .ups-replay-fid { font-size: 13.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ups-replay-sub { font-size: 11px; color: var(--ups-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ups-replay-live .ups-replay-play { background: rgba(48,209,88,0.18); color: var(--ups-success, #30d158); }
+            .ups-replay-livebadge {
+                font-size: 8.5px; font-weight: 800; letter-spacing: .06em; padding: 1.5px 5px; border-radius: 999px;
+                background: rgba(48,209,88,0.16); color: var(--ups-success, #30d158); vertical-align: middle; margin-left: 5px;
+            }
+            .ups-replay-spin { display: none; color: var(--ups-accent, #0a84ff); flex: 0 0 auto; }
+            .ups-replay-row.is-loading .ups-replay-spin { display: block; }
+            .ups-replay-row.is-loading .ups-replay-play { opacity: 0.3; }
             .ups-log-sub {
                 font-size: 11px;
                 color: var(--ups-text-3);

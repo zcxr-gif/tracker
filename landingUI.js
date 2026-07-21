@@ -1305,9 +1305,15 @@ export const LandingUI = {
             .va-rule-row:hover { border-color: var(--lui-accent); }
             .va-rule-row.active { border-color: var(--lui-accent); background: var(--lui-accent-hover); }
             .va-rule-logo {
-                width: 28px; height: 28px; border-radius: 8px; object-fit: cover; flex: 0 0 auto;
+                width: 28px; height: 28px; max-width: 28px; max-height: 28px; border-radius: 8px;
+                object-fit: cover; flex: 0 0 auto; overflow: hidden;
                 background: var(--lui-hover-bg); display: grid; place-items: center;
             }
+            /* Force the logo <img> back to a plain replaced element: applying the
+               grid centering above to an <img> is undefined across browsers and
+               was letting some logos ignore the 28px box and render at their
+               intrinsic (huge) size. The fallback <span> keeps the grid centering. */
+            img.va-rule-logo { display: block; }
             .va-rule-logo-fb { font-size: 0.62rem; font-weight: 800; color: var(--lui-accent); }
             .va-rule-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
             .va-rule-name { font-size: 0.86rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

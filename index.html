@@ -2169,11 +2169,15 @@
             box-sizing: border-box;
         }
         .inflight-splash-partners-row img {
+            display: block;
+            max-width: 48px;
+            max-height: 48px;
             object-fit: contain;
             padding: 6px;
             background: #fff;
             border: 1px solid rgba(255, 255, 255, 0.22);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+            overflow: hidden;
         }
         .inflight-splash-partners-row .vp-name {
             display: flex;
@@ -2381,6 +2385,9 @@
             <button id="toolbar-partners-btn" class="toolbar-btn" title="VA Partners">
                 <i class="fa-solid fa-handshake-angle"></i>
             </button>
+            <button id="toolbar-replays-btn" class="toolbar-btn" title="Browse flight replays">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+            </button>
             <button id="toolbar-gallery-btn" class="toolbar-btn" title="Community aircraft gallery">
                 <i class="fa-solid fa-images"></i>
             </button>
@@ -2402,6 +2409,7 @@
     <script src="windLayer.js"></script>
     <script src="haptics.js"></script>
     <script src="vaAds.js"></script>
+    <script src="replayBrowser.js"></script>
     <script src="changelog.js"></script>
     <script src="sector-ops-mobile-ui.js" defer></script>
     <script src="flight-graph.js"></script>

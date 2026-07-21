@@ -552,10 +552,15 @@
         style.textContent = `
             .va-ad-banner-slot { margin: 16px; }
             .va-ad-logo {
-                width: 44px; height: 44px; border-radius: 10px; object-fit: cover;
+                width: 44px; height: 44px; max-width: 44px; max-height: 44px;
+                border-radius: 10px; object-fit: cover; overflow: hidden;
                 background: rgba(0,0,0,0.35); flex: 0 0 auto;
                 display: flex; align-items: center; justify-content: center; color: #7dd3fc;
             }
+            /* The flex centering above is for the icon fallback (<div>); on the
+               logo <img> it can let an intrinsically large image escape the box,
+               so pin the <img> to a plain, clipped replaced element. */
+            img.va-ad-logo { display: block; }
             .va-ad-eyebrow {
                 font-size: 0.6rem; font-weight: 800; letter-spacing: .08em;
                 text-transform: uppercase; color: #7dd3fc; display: flex; gap: 8px; align-items: center;
@@ -587,7 +592,12 @@
                 transition: border-color .15s ease, transform .15s ease;
             }
             .va-ad-full:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-1px); }
-            .va-ad-full-img { display: block; width: 100%; height: auto; transition: opacity .25s ease; }
+            /* Full, uncropped banner. Capped in height so a partner who uploads a
+               square/tall logo into the banner slot can't blow the image up to
+               fill the whole flight/airport window — object-fit: contain keeps it
+               uncropped, just letterboxed, within the cap. Normal wide banners
+               stay well under the cap and are unaffected. */
+            .va-ad-full-img { display: block; width: 100%; height: auto; max-height: 220px; object-fit: contain; transition: opacity .25s ease; }
             .va-ad-full .va-ad-dots { padding-top: 8px; }
             .va-ad-feature-banner { display: block; width: 100%; height: 84px; object-fit: cover; background-color: rgba(56,189,248,0.08); }
             .va-ad-feature-body { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; }
@@ -599,7 +609,7 @@
 
             .va-cs-badge { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
             .va-cs-hover { margin-left: 6px; }
-            .va-cs-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; background: rgba(0,0,0,0.3); flex: 0 0 auto; }
+            .va-cs-logo { width: 16px; height: 16px; max-width: 18px; max-height: 18px; border-radius: 4px; object-fit: cover; overflow: hidden; background: rgba(0,0,0,0.3); flex: 0 0 auto; }
             .va-cs-info {
                 margin-top: 8px; padding: 5px 9px; border-radius: 8px; cursor: pointer; max-width: 100%;
                 background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(4px);
@@ -767,7 +777,7 @@
 
             /* ---- Fleet-style partner detail ---- */
             .va-detail-head { display: flex; align-items: center; gap: 14px; margin-top: 14px; min-width: 0; }
-            .va-detail-head .va-ad-logo { width: 52px; height: 52px; border-radius: 12px; }
+            .va-detail-head .va-ad-logo { width: 52px; height: 52px; max-width: 52px; max-height: 52px; border-radius: 12px; }
             .va-detail-titles { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
             .va-detail-titles h3 { margin: 0; color: #fff; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; }
             .va-detail-subrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

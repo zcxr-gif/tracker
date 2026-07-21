@@ -2371,8 +2371,10 @@ export const MobileSettingsUI = {
                     border: 1px solid rgba(255,255,255,0.08); color: #e4e4e7; font: inherit; transition: 0.15s;
                 }
                 .m-va-filter-row.active { border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.12); }
-                .m-va-filter-logo { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; flex: 0 0 auto;
+                .m-va-filter-logo { width: 30px; height: 30px; max-width: 30px; max-height: 30px; border-radius: 8px;
+                    object-fit: cover; overflow: hidden; flex: 0 0 auto;
                     background: rgba(255,255,255,0.08); display: grid; place-items: center; }
+                img.m-va-filter-logo { display: block; }
                 .m-va-filter-logo-fb { font-size: 0.66rem; font-weight: 800; color: #7dd3fc; }
                 .m-va-filter-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
                 .m-va-filter-name { font-size: 0.9rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
