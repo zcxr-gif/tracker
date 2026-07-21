@@ -21,6 +21,7 @@
   // Same read-only feed the rest of the app uses for flown trails.
   var ACARS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
   var HISTORY_BASE = ACARS_BACKEND + '/api/flights';
+  var INDGO_BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';   // community aircraft images
 
   var FREE_STYLES = {
     dark: 'https://tiles.openfreemap.org/styles/dark',
@@ -173,11 +174,11 @@
   var MAX_REPLAY_MS = 15 * 60 * 1000;
 
   var S = {
-    pts: [], t0: 0, tEnd: 0, realMs: 0, baseReplayMs: 0,
+    pts: [], fullPts: [], t0: 0, tEnd: 0, realMs: 0, baseReplayMs: 0,
     progress: 0, speed: 1, playing: false, scrubbing: false,
-    map: null, marker: null, follow: true, pathVisible: true,
+    map: null, marker: null, follow: true, pathVisible: true, userInteracting: false,
     raf: 0, lastWall: 0, W: 680, H: 200, tMin: 0, tMax: 0,
-    gl: null
+    gl: null, acType: '', legs: [], activeLeg: null
   };
 
   function qp() {
@@ -301,15 +302,20 @@
     $('hr-stat-callsign').textContent = callsign || '—';
     $('hr-stat-date').textContent = cfg.date || fmtDate(S.t0);
 
+    S.fullPts = pts.slice();
+    S.acType = cfg.type || meta.aircraftName || '';
+
     buildSpeedMenu();
     buildGraph();
     buildDetails(cfg, meta);
     loadPhoto(cfg, meta);
+    loadCommunityImage(S.acType);
+    detectLegs();
     wireControls();
     wireGraphScrub();
 
     initMap(cfg.style, function () {
-      renderFrame(true);
+      renderFrame(false);   // show the whole route first; follow kicks in on play
     });
 
     // keep graph crisp on resize
@@ -345,33 +351,62 @@
     S.map = map;
     map.addControl(new gl.NavigationControl({ showCompass: false }), 'top-right');
 
+    // A genuine zoom/drag/rotate by the user drops follow so the map doesn't
+    // fight them. Our own recentring uses setCenter (center only), which fires
+    // neither zoomstart nor dragstart, so it never trips this.
+    ['dragstart', 'zoomstart', 'rotatestart'].forEach(function (ev) {
+      map.on(ev, function (e) { if (e && e.originalEvent) setFollow(false); });
+    });
+
     map.on('load', function () {
-      map.addSource('hr-remaining', { type: 'geojson', data: lineFeature(S.pts) });
+      // Only the flown path — it grows behind the aircraft as the replay plays
+      // (no pre-drawn route ahead).
       map.addSource('hr-traveled', { type: 'geojson', data: lineFeature([S.pts[0]]) });
-      map.addLayer({
-        id: 'hr-remaining', type: 'line', source: 'hr-remaining',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': 'rgba(148,163,184,0.85)', 'line-width': 3 }
-      });
       map.addLayer({
         id: 'hr-traveled', type: 'line', source: 'hr-traveled',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#7c3aed', 'line-width': 4 }
       });
 
-      // aircraft marker (outer positioned by maplibre; inner rotated)
+      // Aircraft marker — the map's own silhouette for this type, so it matches
+      // the live map. Outer element is positioned by maplibre; inner span rotates.
       var el = document.createElement('div');
-      el.style.cssText = 'width:34px;height:34px;';
-      el.innerHTML = '<span id="hr-plane" style="display:block;width:34px;height:34px;transform-origin:50% 50%;' +
-        'filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));">' +
-        '<svg viewBox="0 0 24 24" width="34" height="34" fill="#0b1220" stroke="#fff" stroke-width="0.6">' +
-        '<path d="M12 2l1.2 6.6 7.3 4.1v1.8l-7.3-2.1-.4 4.6 2.3 1.6v1.5L12 20l-3.1 .7v-1.5l2.3-1.6-.4-4.6-7.3 2.1v-1.8l7.3-4.1L12 2z"/>' +
-        '</svg></span>';
+      el.style.cssText = 'width:32px;height:32px;';
+      el.innerHTML = '<span id="hr-plane" style="display:block;width:32px;height:32px;transform-origin:50% 50%;' +
+        'filter:drop-shadow(0 1px 2px rgba(0,0,0,.55));">' + planeSvg(S.acType) + '</span>';
       S.marker = new gl.Marker({ element: el, anchor: 'center' }).setLngLat([S.pts[0].lon, S.pts[0].lat]).addTo(map);
 
       onReady && onReady();
     });
     map.on('error', function () { onReady && onReady(); });
+  }
+
+  // The map draws each aircraft from assets.js's per-type SVG path (64×64,
+  // nose-up). Reuse it so the replay plane looks identical; fall back to a
+  // generic glyph when the type is unknown or assets didn't load.
+  function resolveAircraftPath(type) {
+    var paths = window.__aircraftPaths;
+    if (!paths) return null;
+    if (type && paths[type]) return paths[type];
+    var keys = Object.keys(paths);
+    var t = String(type || '').toLowerCase();
+    if (t) {
+      for (var i = 0; i < keys.length; i++) { var k = keys[i].toLowerCase(); if (t.indexOf(k) >= 0 || k.indexOf(t) >= 0) return paths[keys[i]]; }
+      var fam = t.replace(/[^a-z0-9]/g, '').slice(0, 6);
+      for (var j = 0; j < keys.length; j++) { if (fam && keys[j].toLowerCase().replace(/[^a-z0-9]/g, '').indexOf(fam) >= 0) return paths[keys[j]]; }
+    }
+    return paths['Airbus A320'] || paths[keys[0]] || null;
+  }
+  function planeSvg(type) {
+    var d = resolveAircraftPath(type);
+    if (d) return '<svg viewBox="0 0 64 64" width="32" height="32"><path d="' + d + '" fill="#ffffff" stroke="#0b1220" stroke-width="1" stroke-linejoin="round"/></svg>';
+    return '<svg viewBox="0 0 24 24" width="30" height="30" fill="#0b1220" stroke="#fff" stroke-width="0.6"><path d="M12 2l1.2 6.6 7.3 4.1v1.8l-7.3-2.1-.4 4.6 2.3 1.6v1.5L12 20l-3.1 .7v-1.5l2.3-1.6-.4-4.6-7.3 2.1v-1.8l7.3-4.1L12 2z"/></svg>';
+  }
+
+  function setFollow(on) {
+    S.follow = !!on;
+    var btn = $('hr-follow-btn');
+    if (btn) btn.classList.toggle('active', S.follow);
   }
 
   function lineFeature(pts) {
@@ -456,18 +491,19 @@
       var brg = bearing(prev, next);
       var plane = $('hr-plane'); if (plane) plane.style.transform = 'rotate(' + brg + 'deg)';
     }
-    // path split
+    // Flown path grows behind the plane (only the travelled portion is drawn).
     if (S.map && S.map.getSource) {
-      var travSrc = S.map.getSource('hr-traveled'), remSrc = S.map.getSource('hr-remaining');
-      if (travSrc && remSrc) {
+      var travSrc = S.map.getSource('hr-traveled');
+      if (travSrc) {
         var head = S.pts.slice(0, cur.i + 1);
         head.push({ lon: cur.lon, lat: cur.lat });
-        var tail = [{ lon: cur.lon, lat: cur.lat }].concat(S.pts.slice(cur.i + 1));
         travSrc.setData(lineFeature(head));
-        remSrc.setData(lineFeature(tail));
       }
-      if ((recenter || (S.follow && S.playing)) && S.map.easeTo) {
-        S.map.easeTo({ center: [cur.lon, cur.lat], duration: recenter ? 0 : 260 });
+      // Recentre with setCenter (center only) so it never fights the user's
+      // zoom. Forced when the follow button is pressed; otherwise only while
+      // playing and following, and never mid user-interaction.
+      if ((recenter || (S.follow && S.playing && !S.userInteracting)) && S.map.setCenter) {
+        S.map.setCenter([cur.lon, cur.lat]);
       }
     }
     // readouts
@@ -547,9 +583,8 @@
 
     var followBtn = $('hr-follow-btn');
     followBtn.addEventListener('click', function () {
-      S.follow = !S.follow;
-      followBtn.classList.toggle('active', S.follow);
-      if (S.follow) renderFrame(true);
+      setFollow(!S.follow);
+      if (S.follow) renderFrame(true);   // snap back to the aircraft
     });
 
     var pathBtn = $('hr-path-btn');
@@ -558,7 +593,7 @@
       pathBtn.classList.toggle('active', S.pathVisible);
       if (S.map && S.map.setLayoutProperty) {
         var v = S.pathVisible ? 'visible' : 'none';
-        try { S.map.setLayoutProperty('hr-remaining', 'visibility', v); S.map.setLayoutProperty('hr-traveled', 'visibility', v); } catch (e) {}
+        try { S.map.setLayoutProperty('hr-traveled', 'visibility', v); } catch (e) {}
       }
     });
 
@@ -632,6 +667,92 @@
       };
       img.src = url;
     }).catch(function () {});
+  }
+
+  // Community aircraft image (our own submitted photos), looked up by type.
+  // Best-effort: if it resolves it becomes the hero image; otherwise the
+  // registration-based photo above (or nothing) stands.
+  function loadCommunityImage(type) {
+    if (!type) return;
+    var slot = $('hr-photo');
+    var lookup = INDGO_BACKEND + '/api/aircraft/lookup?type=' + encodeURIComponent(type);
+    fetch(lookup, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) return;
+        var d = j.data || j;
+        var url = d.imageUrl || d.image || d.url || d.communityImageUrl || (d.images && d.images[0] && (d.images[0].url || d.images[0]));
+        if (!url || typeof url !== 'string') return;
+        var img = new Image(); img.referrerPolicy = 'no-referrer';
+        img.onload = function () {
+          slot.innerHTML = ''; slot.appendChild(img);
+          var who = d.contributorName || d.credit || d.photographer;
+          if (who) { var c = document.createElement('div'); c.className = 'credit'; c.textContent = '© ' + who; slot.appendChild(c); }
+          slot.style.display = 'block';
+        };
+        img.src = url;
+      }).catch(function () {});
+  }
+
+  // ---- legs (landed / parked → separate flights in one trail) --------------
+  function detectLegs() {
+    S.legs = []; S.activeLeg = null;
+    var host = $('hr-legs');
+    if (!window.FlightLegs || typeof window.FlightLegs.detect !== 'function') { if (host) host.classList.add('hidden'); return; }
+    var legs;
+    try {
+      legs = window.FlightLegs.detect(S.fullPts.map(function (p) {
+        return { lat: p.lat, lon: p.lon, time: p.t, alt: p.alt, gs: p.gs };
+      }), {});
+    } catch (e) { legs = []; }
+    if (!legs || legs.length < 2) { if (host) { host.classList.add('hidden'); host.innerHTML = ''; } return; }
+    S.legs = legs;
+    renderLegs();
+  }
+
+  function renderLegs() {
+    var host = $('hr-legs'); if (!host) return;
+    host.classList.remove('hidden');
+    var chips = [];
+    chips.push('<button type="button" class="hr-leg' + (S.activeLeg == null ? ' active' : '') + '" data-leg="all">' +
+      '<span class="hr-leg-title">Full journey</span><span class="hr-leg-sub">' + S.legs.length + ' legs · parked between</span></button>');
+    S.legs.forEach(function (lg, i) {
+      var badge = lg.inProgress ? '<span class="hr-leg-badge airborne">In air</span>' : '<span class="hr-leg-badge parked">Landed</span>';
+      chips.push('<button type="button" class="hr-leg' + (S.activeLeg === i ? ' active' : '') + '" data-leg="' + i + '">' +
+        '<span class="hr-leg-title">Leg ' + (i + 1) + badge + '</span>' +
+        '<span class="hr-leg-sub">' + fmtUtcTime(lg.depTime) + ' → ' + fmtUtcTime(lg.arrTime) + ' · ' + lg.durationMin + 'm' +
+        (lg.distanceNm ? ' · ' + lg.distanceNm + ' nm' : '') + '</span></button>');
+    });
+    host.innerHTML = chips.join('');
+    host.querySelectorAll('[data-leg]').forEach(function (el) {
+      el.addEventListener('click', function () { selectLeg(el.getAttribute('data-leg')); });
+    });
+  }
+
+  function selectLeg(which) {
+    if (which === 'all') { S.activeLeg = null; S.pts = S.fullPts.slice(); }
+    else {
+      var i = parseInt(which, 10); var lg = S.legs[i]; if (!lg) return;
+      S.activeLeg = i;
+      S.pts = S.fullPts.filter(function (p) { return p.t >= lg.depTime && p.t <= lg.arrTime; });
+      if (S.pts.length < 2) { S.pts = S.fullPts.slice(); S.activeLeg = null; }
+    }
+    // Rebuild the timeline for the selected span.
+    S.t0 = S.pts[0].t; S.tEnd = S.pts[S.pts.length - 1].t; S.realMs = Math.max(1, S.tEnd - S.t0);
+    S.tMin = S.t0; S.tMax = S.tEnd;
+    S.baseReplayMs = Math.min(MAX_REPLAY_MS, Math.max(MIN_REPLAY_MS, S.realMs / COMPRESS));
+    S.progress = 0; pause();
+    $('hr-total').textContent = fmtClock(S.baseReplayMs);
+    $('hr-stat-date').textContent = fmtDate(S.t0);
+    buildGraph();
+    if (S.map && S.map.getSource) {
+      var lons = S.pts.map(function (p) { return p.lon; }), lats = S.pts.map(function (p) { return p.lat; });
+      try { S.map.fitBounds([[Math.min.apply(null, lons), Math.min.apply(null, lats)], [Math.max.apply(null, lons), Math.max.apply(null, lats)]], { padding: 44, duration: 400 }); } catch (e) {}
+      var t = S.map.getSource('hr-traveled'); if (t) t.setData(lineFeature([S.pts[0]]));
+    }
+    setFollow(true);
+    renderLegs();
+    renderFrame(false);
   }
 
   function esc(s) {

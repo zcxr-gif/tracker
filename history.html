@@ -152,6 +152,23 @@
   .hr-error i { font-size: 2rem; color: var(--hr-text-3); display: block; margin-bottom: 12px; }
   .hidden { display: none !important; }
 
+  /* ---- Leg selector ---- */
+  .hr-legs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; -webkit-overflow-scrolling: touch; }
+  .hr-leg {
+    flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+    background: var(--hr-card); border: 1px solid var(--hr-border); border-radius: 12px;
+    padding: 8px 12px; cursor: pointer; font: inherit; color: var(--hr-text); text-align: left;
+    box-shadow: var(--hr-shadow); transition: border-color .12s, background .12s;
+  }
+  .hr-leg:hover { border-color: var(--hr-accent); }
+  .hr-leg.active { border-color: var(--hr-accent); background: color-mix(in srgb, var(--hr-accent) 12%, var(--hr-card)); }
+  .hr-leg-title { font-size: 0.82rem; font-weight: 800; white-space: nowrap; }
+  .hr-leg-sub { font-size: 0.66rem; color: var(--hr-text-2); white-space: nowrap; }
+  .hr-leg-badge { font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    padding: 1px 5px; border-radius: 999px; margin-left: 4px; }
+  .hr-leg-badge.parked { background: rgba(48,209,88,0.16); color: #1f9d4d; }
+  .hr-leg-badge.airborne { background: rgba(10,132,255,0.16); color: var(--hr-accent); }
+
   @media (max-width: 520px) {
     .hr-stats { grid-template-columns: 1fr 1fr 1fr; }
     .hr-stats .hr-flight { grid-column: 1 / -1; margin-bottom: 4px; }
@@ -209,6 +226,9 @@
         </div>
       </div>
 
+      <!-- Leg selector (shown only when the trail contains a landing+park) -->
+      <div id="hr-legs" class="hr-legs hidden"></div>
+
       <!-- Stats + graph -->
       <div class="hr-card">
         <div class="hr-stats">
@@ -251,7 +271,13 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="flight-graph.js"></script>
+  <script src="flight-legs.js"></script>
   <script type="module" src="aircraftPhoto.js"></script>
+  <!-- The map's own aircraft silhouettes, so the replay plane matches the map. -->
+  <script type="module">
+    import { aircraftPaths } from './assets.js';
+    window.__aircraftPaths = aircraftPaths;
+  </script>
   <script src="historyReplay.js"></script>
 </body>
 </html>
