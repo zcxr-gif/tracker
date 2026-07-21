@@ -1421,11 +1421,19 @@ const requests = [
             const historyData = activeFlightId ? results[4] : null;
 
             // The user's stored replays (GET /api/trails/:userId), shown as their
-            // own list — independent of the IF logbook. Newest first.
-            const _trailArr = Array.isArray(trailsData) ? trailsData : (trailsData && Array.isArray(trailsData.trails) ? trailsData.trails : []);
-            this._ifData.replays = _trailArr
-                .filter(t => t && t.flightId && t.url)
-                .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+            // own list — independent of the IF logbook. Newest first. Tolerant of
+            // envelope shape and of the id/url field names the backend might use.
+            const _traw = trailsData;
+            const _trailArr = Array.isArray(_traw) ? _traw
+                : (_traw && Array.isArray(_traw.trails) ? _traw.trails
+                : (_traw && Array.isArray(_traw.data) ? _traw.data : []));
+            this._ifData.replays = _trailArr.map(t => {
+                if (!t || typeof t !== 'object') return null;
+                const flightId = t.flightId || t.flight_id || t.flightID || t.id;
+                const url = t.url || t.trailUrl || t.href || t.location || t.signedUrl;
+                if (!flightId || !url) return null;
+                return { flightId: String(flightId), url: String(url), date: t.date || t.savedAt || t.updatedAt || t.created || '', size: t.size || t.bytes || 0 };
+            }).filter(Boolean).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
 
             if (metaJson && metaJson.ok) {
                 this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
