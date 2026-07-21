@@ -214,6 +214,21 @@
   .hr-footer-links a:hover { color: var(--hr-accent); }
   .hr-footer-copy { font-size: 0.68rem; color: var(--hr-text-3); }
 
+  /* Partner VAs strip (round logo coins, matching the app splash) */
+  .hr-partners { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+  .hr-partners-label { font-size: 0.64rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--hr-text-3); }
+  .hr-partners-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 14px; max-width: 100%; }
+  .hr-partners-row img, .hr-partners-row .vp-name {
+    width: 42px; height: 42px; max-width: 42px; max-height: 42px; border-radius: 50%; flex: 0 0 auto;
+    box-sizing: border-box; cursor: pointer; transition: transform .12s;
+  }
+  .hr-partners-row img { object-fit: contain; padding: 5px; background: #fff; border: 1px solid var(--hr-border); box-shadow: var(--hr-shadow); }
+  .hr-partners-row img:hover, .hr-partners-row .vp-name:hover { transform: translateY(-2px); }
+  .hr-partners-row .vp-name {
+    display: grid; place-items: center; font: 800 14px/1 'Inter', system-ui, sans-serif;
+    color: var(--hr-text); background: var(--hr-card-2); border: 1px solid var(--hr-border);
+  }
+
   @media (max-width: 520px) {
     .hr-stats { grid-template-columns: 1fr 1fr 1fr; }
     .hr-stats .hr-flight { grid-column: 1 / -1; margin-bottom: 4px; }
@@ -333,6 +348,13 @@
           <div class="hr-footer-tag">The official live flight tracker for Virtual Airlines</div>
         </div>
       </div>
+
+      <!-- Our official partner VAs — pulled from the same directory the app uses -->
+      <div class="hr-partners" id="hr-partners" hidden>
+        <span class="hr-partners-label">Our Partner VAs</span>
+        <div class="hr-partners-row" id="hr-partners-row"></div>
+      </div>
+
       <div class="hr-footer-links">
         <a href="/"><i class="fa-solid fa-arrow-left"></i> Open the tracker</a>
         <a href="/embed.html"><i class="fa-solid fa-handshake-angle"></i> VA embeds</a>
@@ -344,6 +366,7 @@
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="flight-graph.js"></script>
   <script src="flight-legs.js"></script>
+  <script src="vaAds.js"></script>
   <script type="module" src="aircraftPhoto.js"></script>
   <!-- The map's own aircraft silhouettes, so the replay plane matches the map. -->
   <script type="module">
@@ -352,6 +375,53 @@
   </script>
   <script>
     var _y = document.getElementById('hr-year'); if (_y) _y.textContent = new Date().getFullYear();
+
+    // Populate the footer's "Our Partner VAs" strip from the same official
+    // directory the app already pulls (window.InflightVaAds), matching the
+    // splash screen. Clicking a partner opens its detail slide-over.
+    (function () {
+      var strip = document.getElementById('hr-partners');
+      var row = document.getElementById('hr-partners-row');
+      if (!strip || !row) return;
+      var MAX = 20, tries = 0;
+      function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+      function render(list) {
+        var seen = {}, items = [];
+        for (var i = 0; i < list.length && items.length < MAX; i++) {
+          var ad = list[i]; if (!ad || !ad.name) continue;
+          var key = String(ad.name).toLowerCase(); if (seen[key]) continue; seen[key] = 1;
+          var id = esc(ad.id || '');
+          if (ad.logo) items.push('<img data-va="' + id + '" src="' + esc(ad.logo) + '" alt="' + esc(ad.name) + '" title="' + esc(ad.name) + '" onerror="this.remove()">');
+          else {
+            var ini = String(ad.name).trim().split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+            items.push('<span class="vp-name" data-va="' + id + '" title="' + esc(ad.name) + '">' + esc(ini) + '</span>');
+          }
+        }
+        if (!items.length) return false;
+        row.innerHTML = items.join('');
+        row.querySelectorAll('[data-va]').forEach(function (el) {
+          el.addEventListener('click', function () {
+            var vid = el.getAttribute('data-va');
+            if (window.InflightVaAds && typeof window.InflightVaAds.openPartners === 'function') window.InflightVaAds.openPartners(vid || undefined);
+            else window.location.href = '/';
+          });
+        });
+        strip.hidden = false;
+        return true;
+      }
+      try { if (window.InflightVaAds && window.InflightVaAds.loadDirectory) window.InflightVaAds.loadDirectory(); } catch (e) {}
+      var iv = setInterval(function () {
+        tries++;
+        try {
+          var api = window.InflightVaAds;
+          if (api && typeof api.allPartners === 'function') {
+            var list = api.allPartners();
+            if (list && list.length && render(list)) { clearInterval(iv); return; }
+          }
+        } catch (e) {}
+        if (tries > 40) clearInterval(iv);
+      }, 200);
+    })();
   </script>
   <script src="historyReplay.js"></script>
 </body>
