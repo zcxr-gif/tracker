@@ -1420,10 +1420,12 @@ const requests = [
             const trailsData = results[3];
             const historyData = activeFlightId ? results[4] : null;
 
-            // flightId → stored trail url, for gating and playing the ▶ replay.
-            this._ifData.trails = new Map();
+            // The user's stored replays (GET /api/trails/:userId), shown as their
+            // own list — independent of the IF logbook. Newest first.
             const _trailArr = Array.isArray(trailsData) ? trailsData : (trailsData && Array.isArray(trailsData.trails) ? trailsData.trails : []);
-            _trailArr.forEach(t => { if (t && t.flightId && t.url) this._ifData.trails.set(String(t.flightId), t.url); });
+            this._ifData.replays = _trailArr
+                .filter(t => t && t.flightId && t.url)
+                .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
 
             if (metaJson && metaJson.ok) {
                 this._aircraftMap = new Map((metaJson.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name]));
@@ -2708,18 +2710,28 @@ _getTabContentHTML() {
                                 <span>${hrs}h</span>
                             </div>
                             <div class="pui-flight-time">${timeStr}</div>
-                            ${(flight.id && this._ifData.trails && this._ifData.trails.has(String(flight.id))) ? `<button class="pui-icon-btn pui-replay-quick-btn" data-action="replay-flight"
-                                data-flight-id="${encodeURIComponent(String(flight.id))}"
-                                data-callsign="${encodeURIComponent(cs !== 'N/A' ? cs : '')}"
-                                data-dep="${encodeURIComponent(dep !== 'N/A' ? dep : '')}"
-                                data-arr="${encodeURIComponent(arr !== 'N/A' ? arr : '')}"
-                                ${flight.aircraft?.aircraftName ? `data-type="${encodeURIComponent(flight.aircraft.aircraftName)}"` : ''}
-                                title="Replay this flight"><i class="fa-solid fa-circle-play"></i></button>` : ''}
                             ${planAttr ? `<button class="pui-icon-btn pui-plan-quick-btn" ${planAttr} title="Plan this route"><i class="fa-solid fa-route"></i></button>` : ''}
                         </div>`;
                 }).join('');
             } else {
                 recentFlightsHTML = `<div class="pui-empty-inline">${this.t('empty.recent')}</div>`;
+            }
+
+            // Stored replays for this user, listed straight from /api/trails/:userId.
+            let replaysHTML = '';
+            const _replays = (ifUsername && Array.isArray(this._ifData.replays)) ? this._ifData.replays : [];
+            if (_replays.length) {
+                replaysHTML = _replays.slice(0, 12).map((t, i) => {
+                    const dt = new Date(t.date);
+                    const valid = !isNaN(dt.getTime());
+                    const sub = (valid ? this._relTime(dt) : 'Unknown date') + (t.size ? ' · ' + this._fmtBytes(t.size) : '');
+                    return `<button type="button" class="pui-replay-row" data-action="play-replay" data-idx="${i}">
+                        <span class="pui-replay-play"><i class="fa-solid fa-play"></i></span>
+                        <span class="pui-replay-main">
+                            <span class="pui-replay-fid">${this._fleetEsc(String(t.flightId))}</span>
+                            <span class="pui-replay-sub">${this._fleetEsc(sub)}</span>
+                        </span></button>`;
+                }).join('');
             }
 
             let nextDispatch = '';
@@ -2791,6 +2803,14 @@ _getTabContentHTML() {
                         ${nextDispatch}
                     </section>
                 </div>
+
+                ${replaysHTML ? `
+                <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
+                    <section class="pui-card pui-home-replays" style="grid-column:1 / -1;">
+                        <div class="pui-card-eyebrow">Replays</div>
+                        <div class="pui-replay-list">${replaysHTML}</div>
+                    </section>
+                </div>` : ''}
             `;
         }
 
@@ -3483,33 +3503,23 @@ const contentRoot = document.getElementById('pui-content');
                     return;
                 }
 
-                // 3. Replay flight → play the stored trail through the app's
-                // existing replay engine. The trail url comes from
-                // GET /api/trails/:userId; we fetch its points and hand them to
-                // the same window.openFlightReplayById the live map and Browse
-                // Replays use (the points go straight into FlightReplay's
-                // normaliser — no new format).
-                const replayTarget = e.target.closest('[data-action="replay-flight"]');
+                // 3. Play a stored replay → hand its points to the app's existing
+                // engine (the same window.openFlightReplayById the live map and
+                // Browse Replays use; points go straight into FlightReplay's
+                // normaliser — no new format). Trails come from /api/trails/:userId.
+                const replayTarget = e.target.closest('[data-action="play-replay"]');
                 if (replayTarget && contentRoot.contains(replayTarget)) {
                     e.stopPropagation();
-                    const dec = (v) => { try { return decodeURIComponent(v || ''); } catch (_) { return ''; } };
-                    const fid = dec(replayTarget.dataset.flightId);
-                    if (!fid) return;
-                    const url = this._ifData.trails && this._ifData.trails.get(String(fid));
-                    if (!url) { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>No stored replay for this flight.', 'error'); return; }
+                    const t = (this._ifData.replays || [])[parseInt(replayTarget.dataset.idx, 10)];
+                    if (!t || !t.url) return;
                     if (typeof window.openFlightReplayById !== 'function') { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Replay player is not ready.', 'error'); return; }
-                    const meta = {
-                        callsign: dec(replayTarget.dataset.callsign),
-                        depIcao: dec(replayTarget.dataset.dep),
-                        arrIcao: dec(replayTarget.dataset.arr),
-                        aircraftName: dec(replayTarget.dataset.type)
-                    };
+                    const fid = String(t.flightId);
                     this.close();   // reveal the map for the replay
-                    fetch(url, { headers: { Accept: 'application/json' } })
+                    fetch(t.url, { headers: { Accept: 'application/json' } })
                         .then(r => { if (!r.ok) throw new Error('trail ' + r.status); return r.json(); })
                         .then(points => {
                             if (!Array.isArray(points) || points.length < 2) throw new Error('empty');
-                            window.openFlightReplayById(fid, meta, { points });
+                            window.openFlightReplayById(fid, { callsign: fid }, { points });
                         })
                         .catch(() => { try { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Couldn’t load this replay.', 'error'); } catch (_) {} });
                     return;
@@ -4612,6 +4622,21 @@ const contentRoot = document.getElementById('pui-content');
             </div>`;
     },
 
+    _relTime(d) {
+        const s = Math.round((Date.now() - d.getTime()) / 1000);
+        if (s < 45) return 'just now';
+        const m = Math.round(s / 60); if (m < 60) return `${m} min${m > 1 ? 's' : ''} ago`;
+        const h = Math.round(m / 60); if (h < 24) return `${h} hour${h > 1 ? 's' : ''} ago`;
+        const dd = Math.round(h / 24); if (dd < 30) return `${dd} day${dd > 1 ? 's' : ''} ago`;
+        const mo = Math.round(dd / 30); if (mo < 12) return `${mo} month${mo > 1 ? 's' : ''} ago`;
+        const y = Math.round(mo / 12); return `${y} year${y > 1 ? 's' : ''} ago`;
+    },
+    _fmtBytes(b) {
+        if (!b || b < 1024) return `${b || 0} B`;
+        if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+        return `${(b / 1024 / 1024).toFixed(1)} MB`;
+    },
+
     _showToast(htmlContent, type = 'info', duration = 4000) {
         const container = document.getElementById('pui-toast-container');
         if (!container) return;
@@ -5684,6 +5709,29 @@ const contentRoot = document.getElementById('pui-content');
                 display: flex;
                 flex-direction: column;
             }
+            /* Replays list (stored trails) */
+            .pui-replay-list { display: flex; flex-direction: column; }
+            .pui-replay-row {
+                display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+                background: none; border: none; border-bottom: 1px solid var(--pui-border-light);
+                color: var(--pui-text-primary, #fff); font: inherit; cursor: pointer;
+                padding: var(--pui-pad-row) 0; transition: background-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-replay-row:last-child { border-bottom: none; }
+            .pui-replay-row:hover {
+                background: var(--pui-hover); margin: 0 calc(var(--pui-pad-card) * -1);
+                padding-left: var(--pui-pad-card); padding-right: var(--pui-pad-card);
+            }
+            .pui-replay-play {
+                width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center;
+                background: rgba(56,189,248,0.16); color: var(--pui-accent, #38bdf8); font-size: 12px;
+            }
+            .pui-replay-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .pui-replay-fid {
+                font-size: 0.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--pui-text-primary, #fff);
+            }
+            .pui-replay-sub { font-size: 0.72rem; color: var(--pui-text-tertiary, rgba(255,255,255,0.5)); }
             .pui-flight-row {
                 display: flex;
                 align-items: center;

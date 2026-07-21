@@ -182,10 +182,12 @@ export const UserProfileUI = {
                 d.logbookTotalPages = flightsJson.totalPages || 1;
             }
 
-            // flightId → stored trail url, for gating and playing the ▶ replay.
-            d.trails = new Map();
+            // The user's stored replays (GET /api/trails/:userId), shown as their
+            // own list — independent of the IF logbook. Newest first, valid items only.
             const _trailArr = Array.isArray(trailsJson) ? trailsJson : (trailsJson && Array.isArray(trailsJson.trails) ? trailsJson.trails : []);
-            _trailArr.forEach(t => { if (t && t.flightId && t.url) d.trails.set(String(t.flightId), t.url); });
+            d.replays = _trailArr
+                .filter(t => t && t.flightId && t.url)
+                .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
             d.loading = false;
             d.error = d.stats ? null : (d.error || 'no-stats');
         } catch (err) {
@@ -380,6 +382,7 @@ export const UserProfileUI = {
         body.innerHTML = [
             this._renderLiveCard(),
             this._renderStatsSection(),
+            this._renderReplaysSection(),
             this._renderLogbookSection(),
             `<a class="ups-community-link" href="https://community.infiniteflight.com/u/${encodeURIComponent(d.username)}/summary" target="_blank" rel="noopener">
                 <i class="fa-solid fa-globe"></i>
@@ -418,34 +421,67 @@ export const UserProfileUI = {
         this._render();
     },
 
-    // Play a logged flight's stored replay through the app's existing replay
-    // engine. The trail url comes from GET /api/trails/:userId (fetched with
-    // the logbook); we fetch its points and hand them to the same
-    // window.openFlightReplayById the live map and Browse Replays use — so the
-    // trail array goes straight into FlightReplay's normaliser, no new format.
-    openFlightReplay(id) {
+    // The user's stored replays, listed straight from GET /api/trails/:userId
+    // (independent of the IF logbook). Each row plays that trail.
+    _renderReplaysSection() {
         const d = this._data;
-        const fl = (d?.logbook || []).find(f => String(f.id) === String(id));
-        if (!fl || !fl.id) return;
-        const url = d.trails && d.trails.get(String(fl.id));
-        if (!url) { this._replayNote('No stored replay for this flight.', 'error'); return; }
+        const replays = d?.replays || [];
+        if (!replays.length) return '';
+        const rows = replays.map((t, i) => {
+            const dt = new Date(t.date);
+            const valid = !isNaN(dt.getTime());
+            const sub = (valid ? `${this._relTime(dt)} · ${this._formatDate(t.date)}` : 'Unknown date')
+                + (t.size ? ` · ${this._formatBytes(t.size)}` : '');
+            return `
+                <button type="button" class="ups-replay-row" onclick="UserProfileUI.playReplay(${i})">
+                    <span class="ups-replay-play"><i class="fa-solid fa-play"></i></span>
+                    <span class="ups-replay-main">
+                        <span class="ups-replay-fid">${this._esc(String(t.flightId))}</span>
+                        <span class="ups-replay-sub">${this._esc(sub)}</span>
+                    </span>
+                    <span class="ups-replay-spin"><i class="fa-solid fa-circle-notch fa-spin"></i></span>
+                </button>`;
+        }).join('');
+        return `
+            <div class="ups-section">
+                <div class="ups-section-title">Replays
+                    <span class="ups-section-count">${replays.length.toLocaleString()}</span>
+                </div>
+                <div class="ups-replay-list">${rows}</div>
+            </div>`;
+    },
+
+    // Play a stored replay through the app's existing engine: fetch the trail
+    // file by its url and hand the points to window.openFlightReplayById (the
+    // same call the live map and Browse Replays use — no new point format).
+    playReplay(i) {
+        const t = (this._data?.replays || [])[i];
+        if (!t || !t.url) return;
         if (typeof window.openFlightReplayById !== 'function') { this._replayNote('Replay player is not ready.', 'error'); return; }
-        const { aircraft } = this._resolveAircraft(fl);
-        const meta = {
-            callsign: fl.callsign || '',
-            depIcao: fl.originAirport || '',
-            arrIcao: fl.destinationAirport || '',
-            aircraftName: aircraft || ''
-        };
-        // Close the profile sheet so the replay is visible on the map.
-        this.close();
-        fetch(url, { headers: { Accept: 'application/json' } })
+        const fid = String(t.flightId);
+        this.close();   // reveal the map for the replay
+        fetch(t.url, { headers: { Accept: 'application/json' } })
             .then(r => { if (!r.ok) throw new Error('trail ' + r.status); return r.json(); })
             .then(points => {
                 if (!Array.isArray(points) || points.length < 2) throw new Error('empty');
-                window.openFlightReplayById(String(fl.id), meta, { points });
+                window.openFlightReplayById(fid, { callsign: fid }, { points });
             })
             .catch(() => this._replayNote('Couldn’t load this replay.', 'error'));
+    },
+
+    _relTime(d) {
+        const s = Math.round((Date.now() - d.getTime()) / 1000);
+        if (s < 45) return 'just now';
+        const m = Math.round(s / 60); if (m < 60) return `${m} min${m > 1 ? 's' : ''} ago`;
+        const h = Math.round(m / 60); if (h < 24) return `${h} hour${h > 1 ? 's' : ''} ago`;
+        const dd = Math.round(h / 24); if (dd < 30) return `${dd} day${dd > 1 ? 's' : ''} ago`;
+        const mo = Math.round(dd / 30); if (mo < 12) return `${mo} month${mo > 1 ? 's' : ''} ago`;
+        const y = Math.round(mo / 12); return `${y} year${y > 1 ? 's' : ''} ago`;
+    },
+    _formatBytes(b) {
+        if (!b || b < 1024) return `${b || 0} B`;
+        if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+        return `${(b / 1024 / 1024).toFixed(1)} MB`;
     },
 
     _replayNote(msg, type) {
@@ -635,8 +671,6 @@ export const UserProfileUI = {
                             <div class="ups-log-route">
                                 <span class="ups-log-icaos">${this._esc(dep)} <i class="fa-solid fa-arrow-right-long"></i> ${this._esc(arr)}</span>
                                 ${hasVio ? `<span class="ups-log-vio"><i class="fa-solid fa-triangle-exclamation"></i></span>` : ''}
-                                ${(fl.id && d.trails && d.trails.has(String(fl.id))) ? `<button type="button" class="ups-log-replay" title="Replay this flight" aria-label="Replay this flight"
-                                    onclick="event.stopPropagation(); UserProfileUI.openFlightReplay('${this._esc(String(fl.id))}')"><i class="fa-solid fa-circle-play"></i></button>` : ''}
                             </div>
                             <span class="ups-log-sub">${this._esc(fl.callsign || '')}${acLine ? ' · ' + this._esc(acLine) : ''}${server ? ' · ' + this._esc(server) : ''}</span>
                             ${chips ? `<div class="ups-log-chips">${chips}</div>` : ''}
@@ -1145,13 +1179,31 @@ export const UserProfileUI = {
             .ups-log-icaos { font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
             .ups-log-icaos > i { font-size: 10px; color: var(--ups-text-4); margin: 0 3px; }
             .ups-log-vio { color: var(--ups-warning); font-size: 11px; }
-            .ups-log-replay {
-                margin-left: auto; flex: 0 0 auto; border: none; background: none; cursor: pointer;
-                color: var(--ups-accent, #0a84ff); font-size: 16px; line-height: 1; padding: 2px 4px;
-                border-radius: 8px; -webkit-tap-highlight-color: transparent; transition: transform .1s ease, color .12s ease;
+            /* ── Replays list (stored trails) ── */
+            .ups-replay-list {
+                border: 0.5px solid var(--ups-stroke-soft); border-radius: 16px;
+                overflow: hidden; background: var(--ups-fill);
             }
-            .ups-log-replay:hover { color: var(--ups-text); }
-            .ups-log-replay:active { transform: scale(0.88); }
+            .ups-replay-row {
+                display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+                cursor: pointer; background: none; border: none; color: var(--ups-text); font: inherit;
+                padding: 11px 13px; border-top: 0.5px solid var(--ups-stroke-soft);
+                -webkit-tap-highlight-color: transparent; transition: background .12s ease;
+            }
+            .ups-replay-row:first-child { border-top: none; }
+            .ups-replay-row:hover { background: var(--ups-fill); }
+            .ups-replay-row:active { background: var(--ups-fill-strong); }
+            .ups-replay-play {
+                width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center;
+                background: rgba(10,132,255,0.16); color: var(--ups-accent, #0a84ff); font-size: 11px;
+            }
+            .ups-replay-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .ups-replay-fid { font-size: 13.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ups-replay-sub { font-size: 11px; color: var(--ups-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ups-replay-spin { display: none; color: var(--ups-accent, #0a84ff); flex: 0 0 auto; }
+            .ups-replay-row.is-loading .ups-replay-spin { display: block; }
+            .ups-replay-row.is-loading .ups-replay-play { opacity: 0.3; }
             .ups-log-sub {
                 font-size: 11px;
                 color: var(--ups-text-3);
