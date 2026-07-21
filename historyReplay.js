@@ -178,7 +178,8 @@
     progress: 0, speed: 1, playing: false, scrubbing: false,
     map: null, marker: null, follow: true, pathVisible: true, userInteracting: false,
     raf: 0, lastWall: 0, W: 680, H: 200, tMin: 0, tMax: 0,
-    gl: null, acType: '', legs: [], activeLeg: null
+    gl: null, acType: '', legs: [], activeLeg: null,
+    depIcao: '', arrIcao: '', groundAlt: 0, takeoffT: null, landingT: null, depGate: null, arrGate: null
   };
 
   function qp() {
@@ -304,6 +305,10 @@
 
     S.fullPts = pts.slice();
     S.acType = cfg.type || meta.aircraftName || '';
+    S.depIcao = (cfg.dep || meta.departureIcao || '').toUpperCase();
+    S.arrIcao = (cfg.arr || meta.arrivalIcao || '').toUpperCase();
+    computeContext();
+    loadGates();
 
     buildSpeedMenu();
     buildGraph();
@@ -482,13 +487,12 @@
     if (!S.pts.length) return;
     var tNow = S.t0 + S.progress * S.realMs;
     var cur = sampleAt(S.pts, tNow);
+    var next = S.pts[Math.min(cur.i + 1, S.pts.length - 1)];
+    var brg = bearing(S.pts[cur.i], next);
 
     // marker + rotation
     if (S.marker) {
       S.marker.setLngLat([cur.lon, cur.lat]);
-      var next = S.pts[Math.min(cur.i + 1, S.pts.length - 1)];
-      var prev = S.pts[cur.i];
-      var brg = bearing(prev, next);
       var plane = $('hr-plane'); if (plane) plane.style.transform = 'rotate(' + brg + 'deg)';
     }
     // Flown path grows behind the plane (only the travelled portion is drawn).
@@ -520,6 +524,8 @@
     if (sl) sl.style.setProperty('--fill', (S.progress * 100).toFixed(1) + '%');
     // graph playhead
     updatePlayhead(tNow, cur);
+    // live narration
+    updateStatus(cur, tNow, brg);
   }
 
   function tick(now) {
@@ -742,6 +748,7 @@
     S.tMin = S.t0; S.tMax = S.tEnd;
     S.baseReplayMs = Math.min(MAX_REPLAY_MS, Math.max(MIN_REPLAY_MS, S.realMs / COMPRESS));
     S.progress = 0; pause();
+    computeContext();
     $('hr-total').textContent = fmtClock(S.baseReplayMs);
     $('hr-stat-date').textContent = fmtDate(S.t0);
     buildGraph();
@@ -753,6 +760,136 @@
     setFollow(true);
     renderLegs();
     renderFrame(false);
+  }
+
+  // ---- live narration ------------------------------------------------------
+  // Ground reference + the moments the aircraft left / returned to the ground,
+  // recomputed whenever the active point set changes (leg switch included).
+  function computeContext() {
+    var pts = S.pts, minAlt = Infinity, i;
+    for (i = 0; i < pts.length; i++) if (pts[i].alt != null && pts[i].alt < minAlt) minAlt = pts[i].alt;
+    S.groundAlt = (minAlt === Infinity) ? 0 : minAlt;
+    S.takeoffT = null; S.landingT = null;
+    for (i = 0; i < pts.length; i++) {
+      var p = pts[i];
+      var agl = (p.alt != null) ? p.alt - S.groundAlt : null;
+      var airborne = (agl != null && agl > 150) || (p.gs != null && p.gs > 80 && (agl == null || agl > 40));
+      if (airborne) { if (S.takeoffT == null) S.takeoffT = p.t; S.landingT = p.t; }
+    }
+  }
+
+  function hav(la1, lo1, la2, lo2) {
+    var R = 6371, toR = Math.PI / 180;
+    var dLa = (la2 - la1) * toR, dLo = (lo2 - lo1) * toR;
+    var a = Math.sin(dLa / 2) * Math.sin(dLa / 2) + Math.cos(la1 * toR) * Math.cos(la2 * toR) * Math.sin(dLo / 2) * Math.sin(dLo / 2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+  function runwayFromHeading(brg) {
+    if (brg == null || isNaN(brg)) return null;
+    var n = Math.round(brg / 10); if (n <= 0) n += 36; if (n > 36) n -= 36;
+    return (n < 10 ? '0' : '') + n;
+  }
+  function pad3(n) { n = String(Math.max(0, Math.round(n))); while (n.length < 3) n = '0' + n; return n; }
+
+  // Gate nearest to the on-ground endpoints, via the same /api/gates/<icao>
+  // feed the app uses. Best-effort and fail-soft.
+  function loadGates() {
+    S.depGate = null; S.arrGate = null;
+    var first = S.fullPts[0], last = S.fullPts[S.fullPts.length - 1];
+    if (S.depIcao && first) fetchNearestGate(S.depIcao, first.lat, first.lon, function (g) { S.depGate = g; });
+    if (S.arrIcao && last) fetchNearestGate(S.arrIcao, last.lat, last.lon, function (g) { S.arrGate = g; });
+  }
+  function fetchNearestGate(icao, lat, lon, cb) {
+    fetch(INDGO_BACKEND + '/api/gates/' + encodeURIComponent(icao), { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) return;
+        var gates = Array.isArray(j) ? j : (j.gates || j.data || []);
+        var best = null, bd = Infinity;
+        for (var i = 0; i < gates.length; i++) {
+          var g = gates[i]; var glat = num(g.lat), glon = num(g.lon);
+          if (glat == null) glat = num(g.latitude); if (glon == null) glon = num(g.longitude);
+          if (glat == null || glon == null) continue;
+          var d = hav(lat, lon, glat, glon);
+          if (d < bd) { bd = d; best = g; }
+        }
+        if (best && bd < 0.25) cb(best.name || best.gate || best.ref || best.id || null);
+      }).catch(function () {});
+  }
+
+  // Average climb rate over a ~3-min window so a momentarily flat sample during
+  // a descent isn't read as level cruise.
+  function vsAt(cur, tNow) {
+    var lo = tNow - 90000, hi = tNow + 90000, a = null, b = null, i;
+    for (i = 0; i < S.pts.length; i++) {
+      var p = S.pts[i]; if (p.alt == null) continue;
+      if (p.t >= lo && a == null) a = p;
+      if (p.t <= hi) b = p;
+    }
+    if (!a || !b || a === b) { a = S.pts[cur.i]; b = S.pts[Math.min(cur.i + 1, S.pts.length - 1)]; }
+    if (!a || !b || a.alt == null || b.alt == null) return 0;
+    var dtMin = (b.t - a.t) / 60000;
+    return dtMin > 0 ? (b.alt - a.alt) / dtMin : 0;
+  }
+
+  // Human narration of the current moment.
+  function narrate(cur, tNow, brg) {
+    var dep = S.depIcao, arr = S.arrIcao;
+    var agl = (cur.alt != null) ? cur.alt - S.groundAlt : null;
+    var gs = cur.gs;
+    var onGround = (agl != null) ? agl < 150 : (gs != null && gs < 40);
+    var rwy = runwayFromHeading(brg);
+    var beforeTakeoff = S.takeoffT != null && tNow < S.takeoffT;
+    var afterLanding = S.landingT != null && tNow > S.landingT;
+
+    function fl() { return 'FL' + pad3((cur.alt || 0) / 100); }
+
+    if (onGround) {
+      if (gs == null || gs <= 3) {
+        if (beforeTakeoff || (S.takeoffT == null && S.progress < 0.5)) {
+          var mins = S.takeoffT != null ? Math.max(0, Math.round((S.takeoffT - tNow) / 60000)) : null;
+          var at = S.depGate ? ('gate <b>' + esc(S.depGate) + '</b>') : (dep ? esc(dep) : 'the gate');
+          return { icon: 'fa-users', text: 'Boarding at ' + at + (arr ? ' · destination <b>' + esc(arr) + '</b>' : '') + (mins != null && mins > 0 ? ' · departing in <b>' + mins + ' min</b>' : '') };
+        }
+        if (afterLanding) {
+          var at2 = S.arrGate ? ('gate <b>' + esc(S.arrGate) + '</b>') : (arr ? esc(arr) : 'the gate');
+          return { icon: 'fa-square-parking', text: 'Parked at ' + at2 };
+        }
+        return { icon: 'fa-hand', text: rwy ? ('Holding short of runway <b>' + rwy + '</b>') : 'Holding on the taxiway' };
+      }
+      if (gs > 45) {
+        if (beforeTakeoff) return { icon: 'fa-plane-departure', text: 'Taking off from runway <b>' + (rwy || '—') + '</b>' + (dep ? ' at <b>' + esc(dep) + '</b>' : '') };
+        if (afterLanding) return { icon: 'fa-plane-arrival', text: 'Landing on runway <b>' + (rwy || '—') + '</b>' + (arr ? ' at <b>' + esc(arr) + '</b>' : '') };
+        return { icon: 'fa-gauge-high', text: 'High-speed taxi' };
+      }
+      if (beforeTakeoff) return { icon: 'fa-road', text: 'Taxiing to the runway' + (dep ? ' at <b>' + esc(dep) + '</b>' : '') + (gs != null ? ' · <b>' + Math.round(gs) + ' kt</b>' : '') };
+      return { icon: 'fa-road', text: 'Taxiing to the gate' + (arr ? ' at <b>' + esc(arr) + '</b>' : '') + (gs != null ? ' · <b>' + Math.round(gs) + ' kt</b>' : '') };
+    }
+
+    var vs = vsAt(cur, tNow);
+    var lowAgl = agl != null && agl < 5000;
+    var descendingSoon = afterLandingNear(tNow);   // in the last stretch before touchdown
+    // Low and on the way down / nearly there → approach.
+    if (lowAgl && (vs < -200 || descendingSoon)) {
+      return { icon: 'fa-plane-arrival', text: 'On approach to <b>' + (arr ? esc(arr) : 'destination') + '</b>' + (rwy ? ' runway <b>' + rwy + '</b>' : '') };
+    }
+    if (vs > 400) return { icon: 'fa-plane-up', text: 'Climbing through <b>' + fl() + '</b>' + (dep ? ' out of <b>' + esc(dep) + '</b>' : '') };
+    if (vs < -400 || (agl != null && agl < 10000 && descendingSoon)) {
+      return { icon: 'fa-plane-down', text: 'Descending through <b>' + fl() + '</b>' + (arr ? ' toward <b>' + esc(arr) + '</b>' : '') };
+    }
+    return { icon: 'fa-plane', text: 'Cruising at <b>' + fl() + '</b>' + (cur.gs != null ? ' · <b>' + Math.round(cur.gs) + ' kt</b>' : '') };
+  }
+  // Descending near the end of the flight → treat as arrival approach.
+  function afterLandingNear(tNow) {
+    return S.landingT != null && (S.landingT - tNow) < 12 * 60000;
+  }
+
+  function updateStatus(cur, tNow, brg) {
+    var host = $('hr-status'); if (!host) return;
+    var s = narrate(cur, tNow, brg);
+    host.classList.remove('hidden');
+    var ico = host.querySelector('.hr-status-ico i'); if (ico) ico.className = 'fa-solid ' + s.icon;
+    var txt = host.querySelector('.hr-status-text'); if (txt) txt.innerHTML = s.text;
   }
 
   function esc(s) {
