@@ -24,6 +24,53 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.9',
+            date: 'July 2026',
+            title: 'Rewind Any Flight',
+            tagline: 'Play back any saved flight on its own page — a map that draws the path behind the aircraft, a synced altitude & speed graph, and a running commentary of exactly what’s happening, moment to moment.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-clock-rotate-left',
+                    text: 'Browse Replays — a new panel (the clock button in the map toolbar) lists every saved flight across all pilots, grouped by pilot and searchable. Open any one and it plays straight back on the map.'
+                },
+                {
+                    tag: 'new', icon: 'fa-circle-play',
+                    text: 'Replays in every profile — search any pilot and their stored replays now sit in their profile, each one a tap to play. Someone flying right now is replayable in progress, too.'
+                },
+                {
+                    tag: 'new', icon: 'fa-map-location-dot',
+                    text: 'A dedicated replay page — a clean map with the flown path drawing itself behind the aircraft (the same silhouette as the live map), a scrubber with play/pause, speed, follow and path controls, and an altitude & speed graph you can drag to scrub. Zoom stays where you put it.'
+                },
+                {
+                    tag: 'new', icon: 'fa-comment-dots',
+                    text: 'Live commentary — as the replay plays it narrates the flight: boarding at the gate with a departure countdown, taxiing out, taking off from a runway, climbing, cruising, descending, on approach, and parked at the gate on arrival.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row">
+                                <span class="glyph"><i class="fa-solid fa-plane-departure"></i></span>
+                                <span class="who"><b>Taking off from runway 24</b><span>VHHH → OMDB</span></span>
+                            </div>
+                            <div class="row cl-vis-mono" style="font-weight:700; color:#fff;">
+                                12:58 <span class="cl-vis-dim" style="margin-left:auto; font-weight:600;">2,875 ft · 185 kt</span>
+                            </div>
+                            <div class="row cl-vis-dim" style="font-size:10px;">Boarding at gate <b style="color:#d4d4d8;">B12</b> · departing in <b style="color:#d4d4d8;">5 min</b></div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-route',
+                    text: 'Multi-leg journeys — a flight that landed and parked before flying on is split into separate legs you can switch between, each with its own times and distance.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-image',
+                    text: 'VA partner logos no longer render oversized — the Virtual Airline logos in the desktop Filters (and other spots) are back to their proper size.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-hand-pointer',
+                    text: 'The aircraft hover card no longer pops up — and stick — when you tap an aircraft on mobile; it’s a mouse-only card again.'
+                }
+            ]
+        },
+        {
             id: '2026.07.8',
             date: 'July 2026',
             title: 'Your Fleet & The Weather Up Front',
