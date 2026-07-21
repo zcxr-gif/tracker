@@ -426,7 +426,13 @@ export const UserProfileUI = {
     _renderReplaysSection() {
         const d = this._data;
         const replays = d?.replays || [];
-        if (!replays.length) return '';
+        if (!replays.length) {
+            return `
+                <div class="ups-section">
+                    <div class="ups-section-title">Replays</div>
+                    <div class="ups-empty is-inline"><p>No replays available for this pilot yet.</p></div>
+                </div>`;
+        }
         const rows = replays.map((t, i) => {
             const dt = new Date(t.date);
             const valid = !isNaN(dt.getTime());

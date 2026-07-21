@@ -2804,13 +2804,14 @@ _getTabContentHTML() {
                     </section>
                 </div>
 
-                ${replaysHTML ? `
                 <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
                     <section class="pui-card pui-home-replays" style="grid-column:1 / -1;">
                         <div class="pui-card-eyebrow">Replays</div>
-                        <div class="pui-replay-list">${replaysHTML}</div>
+                        ${replaysHTML
+                            ? `<div class="pui-replay-list">${replaysHTML}</div>`
+                            : `<div class="pui-empty-inline">${ifUsername ? 'No replays available for this pilot yet.' : 'Link your Infinite Flight account to see replays.'}</div>`}
                     </section>
-                </div>` : ''}
+                </div>
             `;
         }
 
