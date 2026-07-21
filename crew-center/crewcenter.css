@@ -1,0 +1,90 @@
+/* Base shell. Everything colourful is driven by CSS variables the engine sets
+   from the VA's site_config.theme, so two crew centers look unrelated. */
+:root {
+  --cc-primary: #2563eb;
+  --cc-accent:  #f59e0b;
+  --cc-bg:      #0d1117;
+  --cc-surface: #161b22;
+  --cc-text:    #e6edf3;
+  --cc-muted:   #8b949e;
+  --cc-font:    system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --cc-radius:  14px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--cc-font);
+  background: var(--cc-bg);
+  color: var(--cc-text);
+  line-height: 1.5;
+}
+a { color: var(--cc-accent); }
+.cc-boot, .cc-error { padding: 4rem 1.5rem; text-align: center; color: var(--cc-muted); }
+.cc-error { color: #f87171; }
+
+.cc-header {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--cc-surface);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  position: sticky; top: 0; z-index: 10;
+}
+.cc-header img.cc-logo { height: 40px; width: auto; border-radius: 8px; }
+.cc-header .cc-va-name { font-weight: 700; font-size: 1.15rem; }
+.cc-nav { margin-left: auto; display: flex; gap: .25rem; flex-wrap: wrap; }
+.cc-nav a {
+  padding: .4rem .75rem; border-radius: 999px; text-decoration: none;
+  color: var(--cc-text); font-size: .9rem;
+}
+.cc-nav a:hover { background: rgba(255,255,255,.06); }
+
+.cc-hero {
+  padding: 4rem 1.5rem; text-align: center;
+  background: linear-gradient(180deg, var(--cc-primary), transparent 120%),
+              var(--cc-surface);
+  background-size: cover; background-position: center;
+}
+.cc-hero h1 { margin: 0 0 .5rem; font-size: clamp(1.8rem, 5vw, 3rem); }
+.cc-hero p { margin: 0; color: var(--cc-text); opacity: .9; }
+
+section.cc-block { max-width: 1080px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+section.cc-block > h2 { margin: 0 0 1.25rem; font-size: 1.4rem; }
+
+.cc-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.cc-card {
+  background: var(--cc-surface); border: 1px solid rgba(255,255,255,.08);
+  border-radius: var(--cc-radius); padding: 1rem;
+}
+.cc-card .cc-sub { color: var(--cc-muted); font-size: .85rem; }
+
+table.cc-table { width: 100%; border-collapse: collapse; }
+table.cc-table th, table.cc-table td {
+  text-align: left; padding: .6rem .75rem;
+  border-bottom: 1px solid rgba(255,255,255,.06); font-size: .9rem;
+}
+table.cc-table th { color: var(--cc-muted); font-weight: 600; }
+.cc-table-wrap { overflow-x: auto; }
+
+.cc-badge {
+  display: inline-block; padding: .15rem .5rem; border-radius: 999px;
+  font-size: .75rem; background: var(--cc-primary); color: #fff;
+}
+
+.cc-auth { max-width: 380px; }
+.cc-auth input {
+  width: 100%; padding: .6rem .75rem; margin: .35rem 0;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.15);
+  background: var(--cc-bg); color: var(--cc-text);
+}
+.cc-btn {
+  display: inline-block; cursor: pointer; border: 0;
+  padding: .6rem 1rem; border-radius: 10px; font-weight: 600;
+  background: var(--cc-primary); color: #fff;
+}
+.cc-btn.secondary { background: transparent; border: 1px solid rgba(255,255,255,.2); color: var(--cc-text); }
+.cc-msg { font-size: .85rem; margin-top: .5rem; min-height: 1.2em; }
+.cc-msg.err { color: #f87171; }
+.cc-msg.ok  { color: #34d399; }
+.cc-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+
+.cc-footer { padding: 2rem 1.5rem; text-align: center; color: var(--cc-muted); font-size: .8rem; }

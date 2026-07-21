@@ -1,0 +1,28 @@
+{
+  "_comment": "Shape of the public.site_config row. `theme` and `blocks` are the jsonb columns. This file documents the schema; the live values live in each VA's own Supabase.",
+  "va_name": "Oceanic Virtual",
+  "va_slug": "oceanic",
+  "logo_url": "https://<project>.supabase.co/storage/v1/object/public/brand/logo.png",
+  "signup_mode": "open",
+  "theme": {
+    "primary": "#0b7285",
+    "accent": "#f59f00",
+    "bg": "#0d1117",
+    "surface": "#161b22",
+    "text": "#e6edf3",
+    "muted": "#8b949e",
+    "font": "'Inter', system-ui, sans-serif",
+    "radius": "14px",
+    "hero_image": "https://<project>.supabase.co/storage/v1/object/public/brand/hero.jpg",
+    "custom_css": "/* owner-supplied CSS escape hatch — no <script>, no JS */"
+  },
+  "blocks": [
+    { "type": "hero",   "enabled": true, "props": { "tagline": "Fly the Pacific." } },
+    { "type": "auth",   "enabled": true, "props": { "label": "Pilot Login" } },
+    { "type": "roster", "enabled": true, "props": { "title": "Our Pilots" } },
+    { "type": "ranks",  "enabled": true, "props": { "title": "Ranks" } },
+    { "type": "hubs",   "enabled": true, "props": { "title": "Hubs" } },
+    { "type": "routes", "enabled": true, "props": { "title": "Route Network" } },
+    { "type": "events", "enabled": true, "props": { "title": "Upcoming Events" } }
+  ]
+}

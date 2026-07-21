@@ -1,0 +1,9 @@
+{
+  "_comment": "Public map of VA slug -> Supabase connection. Served as a static CDN file (never a Netlify Function). The anon key is public by design; all security is RLS in the VA's own database. For v1 this list is curated/approved by us to prevent slug impersonation.",
+  "vas": {
+    "demo": {
+      "url": "https://YOUR-PROJECT.supabase.co",
+      "anonKey": "YOUR-ANON-PUBLIC-KEY"
+    }
+  }
+}
