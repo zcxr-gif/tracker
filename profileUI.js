@@ -3512,25 +3512,21 @@ const contentRoot = document.getElementById('pui-content');
                     return;
                 }
 
-                // 3. Play a stored replay → hand its points to the app's existing
-                // engine (the same window.openFlightReplayById the live map and
-                // Browse Replays use; points go straight into FlightReplay's
-                // normaliser — no new format). Trails come from /api/trails/:userId.
+                // 3. Play a stored replay → open the dedicated replay page
+                // (history.html), handing it the trail file url directly.
                 const replayTarget = e.target.closest('[data-action="play-replay"]');
                 if (replayTarget && contentRoot.contains(replayTarget)) {
                     e.stopPropagation();
                     const t = (this._ifData.replays || [])[parseInt(replayTarget.dataset.idx, 10)];
                     if (!t || !t.url) return;
-                    if (typeof window.openFlightReplayById !== 'function') { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Replay player is not ready.', 'error'); return; }
-                    const fid = String(t.flightId);
-                    this.close();   // reveal the map for the replay
-                    fetch(t.url, { headers: { Accept: 'application/json' } })
-                        .then(r => { if (!r.ok) throw new Error('trail ' + r.status); return r.json(); })
-                        .then(points => {
-                            if (!Array.isArray(points) || points.length < 2) throw new Error('empty');
-                            window.openFlightReplayById(fid, { callsign: fid }, { points });
-                        })
-                        .catch(() => { try { this._showToast('<i class="fa-solid fa-circle-xmark" style="margin-right:8px;"></i>Couldn’t load this replay.', 'error'); } catch (_) {} });
+                    const params = new URLSearchParams();
+                    params.set('flight', String(t.flightId));
+                    params.set('trail', t.url);
+                    params.set('callsign', String(t.flightId));
+                    const rurl = 'history.html?' + params.toString();
+                    this.close();
+                    const rw = window.open(rurl, '_blank', 'noopener');   // same-tab fallback for mobile
+                    if (!rw) window.location.assign(rurl);
                     return;
                 }
             });

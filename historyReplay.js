@@ -57,21 +57,29 @@
   function pAlt(p) {
     var v = num(p.altitude); if (v != null) return v;
     v = num(p.alt_ft); if (v != null) return v;
-    if (p.position) { v = num(p.position.alt_ft); if (v != null) return v; v = num(p.position.altitude); if (v != null) return v; }
+    v = num(p.alt); if (v != null) return v;
+    if (p.position) { v = num(p.position.alt_ft); if (v != null) return v; v = num(p.position.altitude); if (v != null) return v; v = num(p.position.alt); if (v != null) return v; }
     return null;
   }
   function pGs(p) {
     var v = num(p.groundSpeed); if (v != null) return v;
     v = num(p.gs_kt); if (v != null) return v;
+    v = num(p.gs); if (v != null) return v;
     v = num(p.speed); if (v != null) return v;
-    if (p.position) { v = num(p.position.gs_kt); if (v != null) return v; v = num(p.position.groundSpeed); if (v != null) return v; }
+    if (p.position) { v = num(p.position.gs_kt); if (v != null) return v; v = num(p.position.groundSpeed); if (v != null) return v; v = num(p.position.gs); if (v != null) return v; }
     return null;
   }
   function pTime(p) {
+    // Stored trail files key time on a numeric "t"; the /history feed uses
+    // date / lastReportMs / timestamp.
+    if (num(p.t) != null) return p.t;
     if (p.date) { var t = Date.parse(p.date); if (!isNaN(t)) return t; }
     if (num(p.lastReportMs) != null) return p.lastReportMs;
+    if (num(p.timeMs) != null) return p.timeMs;
+    if (num(p.time) != null) return p.time;
     if (num(p.timestamp) != null) return p.timestamp;
     if (p.position) {
+      if (num(p.position.t) != null) return p.position.t;
       if (num(p.position.lastReportMs) != null) return p.position.lastReportMs;
       if (p.position.lastReport) { var t2 = Date.parse(p.position.lastReport); if (!isNaN(t2)) return t2; }
     }
@@ -176,6 +184,7 @@
     var p = new URLSearchParams(location.search);
     return {
       flight: (p.get('flight') || p.get('flightId') || p.get('id') || '').trim(),
+      trail: (p.get('trail') || '').trim(),   // direct stored-trail file url (points array)
       callsign: (p.get('callsign') || '').trim(),
       reg: (p.get('reg') || p.get('registration') || '').trim(),
       type: (p.get('type') || p.get('aircraft') || '').trim(),
@@ -230,9 +239,19 @@
 
     var diag = { flight: cfg.flight, histStatus: '?', rawKeys: '', points: 0 };
 
-    var histP = fetch(HISTORY_BASE + '/' + fid + '/history', { headers: { Accept: 'application/json' } })
-      .then(function (r) { diag.histStatus = r.status; return r.ok ? r.json() : null; })
-      .catch(function (err) { diag.histStatus = 'network-error (' + (err && err.message ? err.message : 'blocked') + ')'; return null; });
+    // Prefer a stored trail file when one was handed to us (?trail=<url>) — that
+    // is the saved replay's point array. Otherwise fall back to the flight's
+    // /history feed (used for live / in-progress flights).
+    var histP;
+    if (cfg.trail) {
+      histP = fetch(cfg.trail, { headers: { Accept: 'application/json' } })
+        .then(function (r) { diag.histStatus = 'trail ' + r.status; return r.ok ? r.json() : null; })
+        .catch(function (err) { diag.histStatus = 'trail network-error (' + (err && err.message ? err.message : 'blocked') + ')'; return null; });
+    } else {
+      histP = fetch(HISTORY_BASE + '/' + fid + '/history', { headers: { Accept: 'application/json' } })
+        .then(function (r) { diag.histStatus = r.status; return r.ok ? r.json() : null; })
+        .catch(function (err) { diag.histStatus = 'network-error (' + (err && err.message ? err.message : 'blocked') + ')'; return null; });
+    }
 
     // Reach out for the flight record itself by the same id, so registration,
     // aircraft, operator and route fill in even when the profile didn't pass

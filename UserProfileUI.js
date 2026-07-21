@@ -489,40 +489,40 @@ export const UserProfileUI = {
             </div>`;
     },
 
-    // Replay the pilot's in-progress flight. No points are passed, so
-    // openFlightReplayById pulls /history (the live trail) itself.
+    // Open a stored replay in the dedicated replay page (history.html), handing
+    // it the trail file's url directly so it plays that saved track.
+    playReplay(i) {
+        const t = (this._data?.replays || [])[i];
+        if (!t || !t.url) return;
+        const p = new URLSearchParams();
+        p.set('flight', String(t.flightId));
+        p.set('trail', t.url);
+        p.set('callsign', String(t.flightId));
+        this._openReplayPage('history.html?' + p.toString());
+    },
+
+    // Open the pilot's in-progress flight in the dedicated replay page. No trail
+    // url, so the page pulls /history (the recorded live trail) for that id.
     playLiveReplay() {
         const live = this._data?.liveFeature;
         const fid = live?.properties?.flightId;
         if (!fid) return;
-        if (typeof window.openFlightReplayById !== 'function') { this._replayNote('Replay player is not ready.', 'error'); return; }
-        const p = live.properties || {};
-        const meta = {
-            callsign: p.callsign || '',
-            depIcao: p.departureIcao || '',
-            arrIcao: p.arrivalIcao || '',
-            aircraftName: p.aircraftName || ''
-        };
-        this.close();
-        window.openFlightReplayById(String(fid), meta);
+        const lp = live.properties || {};
+        const p = new URLSearchParams();
+        p.set('flight', String(fid));
+        if (lp.callsign) p.set('callsign', lp.callsign);
+        if (lp.departureIcao) p.set('dep', lp.departureIcao);
+        if (lp.arrivalIcao) p.set('arr', lp.arrivalIcao);
+        if (lp.aircraftName) p.set('type', lp.aircraftName);
+        this._openReplayPage('history.html?' + p.toString());
     },
 
-    // Play a stored replay through the app's existing engine: fetch the trail
-    // file by its url and hand the points to window.openFlightReplayById (the
-    // same call the live map and Browse Replays use — no new point format).
-    playReplay(i) {
-        const t = (this._data?.replays || [])[i];
-        if (!t || !t.url) return;
-        if (typeof window.openFlightReplayById !== 'function') { this._replayNote('Replay player is not ready.', 'error'); return; }
-        const fid = String(t.flightId);
-        this.close();   // reveal the map for the replay
-        fetch(t.url, { headers: { Accept: 'application/json' } })
-            .then(r => { if (!r.ok) throw new Error('trail ' + r.status); return r.json(); })
-            .then(points => {
-                if (!Array.isArray(points) || points.length < 2) throw new Error('empty');
-                window.openFlightReplayById(fid, { callsign: fid }, { points });
-            })
-            .catch(() => this._replayNote('Couldn’t load this replay.', 'error'));
+    _openReplayPage(url) {
+        this.close();
+        // New tab when allowed; same-tab fallback for mobile / in-app webviews
+        // that block window.open('_blank').
+        const w = window.open(url, '_blank', 'noopener');
+        if (!w) window.location.assign(url);
     },
 
     _relTime(d) {
