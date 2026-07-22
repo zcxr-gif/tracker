@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crew Center — Inflight</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>tailwind.config = { darkMode: 'class' };</script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        :root { color-scheme: light dark; --accent: #18181b; }
+        * { -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        [data-lucide] { width: 1.15em; height: 1.15em; }
+        svg.lucide { stroke-width: 1.75; }
+
+        .surface { background: #fff; border: 1px solid rgba(0,0,0,.06); }
+        .dark .surface { background: #131316; border-color: rgba(255,255,255,.07); }
+        /* Editorial tile: quiet by default, a gentle lift on hover (Uniqlo-calm). */
+        .tile { transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s, border-color .25s; }
+        .tile:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -22px rgba(0,0,0,.28); border-color: rgba(0,0,0,.12); }
+        .dark .tile:hover { border-color: rgba(255,255,255,.16); box-shadow: 0 18px 48px -24px rgba(0,0,0,.7); }
+        .accent-text { color: var(--accent); }
+        .accent-bg { background: var(--accent); }
+        .fade-in { animation: fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
+        @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        ::placeholder { color: #a1a1aa; }
+        input { font-family: inherit; }
+    </style>
+</head>
+<body class="bg-zinc-50 dark:bg-[#0b0b0d] text-zinc-900 dark:text-zinc-100 antialiased min-h-screen transition-colors duration-300">
+
+    <!--
+      Crew Center — dashboard LOOK-MOCK (the "inside").
+      Static + placeholder only: no auth, no real data. Its job is to lock the
+      Uniqlo-clean layout — airy spacing, a crisp top bar, the VA banner as an
+      editorial hero, and a tidy tile grid of tools. Branding (logo/banner/accent)
+      is resolved the same way as the login: ?name/logo/banner/accent overrides
+      for preview, or the VA record by slug once wired.
+    -->
+
+    <!-- ============ TOP BAR ============ -->
+    <header class="sticky top-0 z-40 backdrop-blur-xl bg-white/80 dark:bg-[#0b0b0d]/80 border-b border-zinc-200/70 dark:border-zinc-800/70">
+        <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
+            <!-- VA identity -->
+            <div class="flex items-center gap-2.5 min-w-0">
+                <img id="navLogo" alt="" class="hidden h-8 w-auto max-w-[130px] object-contain">
+                <div id="navMonogram" class="accent-bg w-8 h-8 rounded-lg grid place-items-center text-white text-sm font-black shrink-0">VA</div>
+                <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
+            </div>
+
+            <!-- Search (Uniqlo-prominent, quiet styling) -->
+            <div class="hidden sm:flex flex-1 max-w-sm mx-auto">
+                <div class="relative w-full">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 w-4 h-4"></i>
+                    <input type="text" placeholder="Search crew, flights, events…"
+                        class="w-full pl-9 pr-3 py-2 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-700 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none text-sm transition">
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex items-center gap-1.5 ml-auto">
+                <button class="w-9 h-9 grid place-items-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-300 transition relative" title="Notifications">
+                    <i data-lucide="bell" class="w-[18px] h-[18px]"></i>
+                    <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full accent-bg"></span>
+                </button>
+                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-300 transition" title="Toggle theme">
+                    <span id="themeIcon"></span>
+                </button>
+                <div class="flex items-center gap-2 pl-1.5 sm:pl-2.5 sm:pr-1 ml-1">
+                    <div class="text-right hidden sm:block leading-tight">
+                        <div class="text-sm font-medium">Alex Rivera</div>
+                        <div id="roleLabel" class="text-[11px] text-zinc-400">Owner</div>
+                    </div>
+                    <div class="w-9 h-9 rounded-full accent-bg text-white grid place-items-center text-sm font-bold">AR</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-5 pb-16">
+
+        <!-- ============ HERO ============ -->
+        <section class="mt-5 fade-in">
+            <div id="hero" class="relative overflow-hidden rounded-3xl bg-zinc-900 h-52 sm:h-64 flex items-end">
+                <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
+                <!-- Scrim so overlaid copy stays legible over any banner -->
+                <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent"></div>
+                <div class="relative p-6 sm:p-8 w-full">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/90 bg-white/15 backdrop-blur px-2.5 py-1 rounded-full">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Recruiting
+                        </span>
+                        <span id="heroCode" class="hidden text-[11px] font-semibold uppercase tracking-wider text-white/70"></span>
+                    </div>
+                    <h1 id="heroName" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">Crew Center</h1>
+                    <p id="heroTagline" class="text-white/80 text-sm mt-1 max-w-md">Your crew, your operation — all in one place.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ STATS ============ -->
+        <section class="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div class="surface rounded-2xl p-5">
+                <div class="flex items-center gap-2 text-zinc-400 text-xs font-semibold uppercase tracking-wide"><i data-lucide="users" class="w-4 h-4"></i> Active pilots</div>
+                <div class="mt-2 text-3xl font-extrabold tracking-tight">128</div>
+                <div class="text-xs text-emerald-500 font-medium mt-1">+6 this week</div>
+            </div>
+            <div class="surface rounded-2xl p-5">
+                <div class="flex items-center gap-2 text-zinc-400 text-xs font-semibold uppercase tracking-wide"><i data-lucide="plane-takeoff" class="w-4 h-4"></i> Flights (30d)</div>
+                <div class="mt-2 text-3xl font-extrabold tracking-tight">1,402</div>
+                <div class="text-xs text-zinc-400 font-medium mt-1">312 this week</div>
+            </div>
+            <div class="surface rounded-2xl p-5">
+                <div class="flex items-center gap-2 text-zinc-400 text-xs font-semibold uppercase tracking-wide"><i data-lucide="clock" class="w-4 h-4"></i> Hours flown</div>
+                <div class="mt-2 text-3xl font-extrabold tracking-tight">3,984</div>
+                <div class="text-xs text-zinc-400 font-medium mt-1">Season to date</div>
+            </div>
+            <div class="surface rounded-2xl p-5">
+                <div class="flex items-center gap-2 text-zinc-400 text-xs font-semibold uppercase tracking-wide"><i data-lucide="calendar" class="w-4 h-4"></i> Upcoming events</div>
+                <div class="mt-2 text-3xl font-extrabold tracking-tight">3</div>
+                <div class="text-xs accent-text font-medium mt-1">Next in 2 days</div>
+            </div>
+        </section>
+
+        <!-- ============ MANAGE (tile grid) ============ -->
+        <section class="mt-9">
+            <div class="flex items-end justify-between mb-4">
+                <h2 class="text-lg font-bold tracking-tight">Manage</h2>
+                <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">Customize</a>
+            </div>
+            <div id="tileGrid" class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4"></div>
+        </section>
+
+        <!-- ============ RECENT ACTIVITY ============ -->
+        <section class="mt-9 grid lg:grid-cols-3 gap-4">
+            <div class="surface rounded-3xl p-6 lg:col-span-2">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-bold tracking-tight">Recent activity</h2>
+                    <a class="text-sm text-zinc-400 font-medium hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer">View all</a>
+                </div>
+                <ul id="activity" class="space-y-1"></ul>
+            </div>
+            <div class="surface rounded-3xl p-6">
+                <h2 class="text-lg font-bold tracking-tight mb-4">Next event</h2>
+                <div class="rounded-2xl overflow-hidden">
+                    <div class="h-24 accent-bg opacity-90 flex items-end p-4">
+                        <span class="text-white font-bold text-sm">Transcon Group Flight</span>
+                    </div>
+                    <div class="pt-4">
+                        <div class="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400"><i data-lucide="map-pin" class="w-4 h-4"></i> CYYZ → KLAX</div>
+                        <div class="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400 mt-1.5"><i data-lucide="calendar-clock" class="w-4 h-4"></i> Sat, 24 Jul · 22:00Z</div>
+                        <div class="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400 mt-1.5"><i data-lucide="users" class="w-4 h-4"></i> 34 signed up</div>
+                        <button class="mt-4 w-full accent-bg text-white text-sm font-semibold py-2.5 rounded-xl hover:opacity-90 active:scale-[.98] transition">Manage event</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="mt-12 flex items-center justify-center gap-2 opacity-80">
+            <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
+            <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
+            <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
+        </footer>
+    </main>
+
+    <script>
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+        // ---- Theme ----
+        function applyThemeIcon() {
+            const dark = document.documentElement.classList.contains('dark');
+            const el = document.getElementById('themeIcon');
+            if (el) el.innerHTML = `<i data-lucide="${dark ? 'sun' : 'moon'}" class="w-[18px] h-[18px]"></i>`;
+            if (window.lucide) lucide.createIcons();
+        }
+        function toggleTheme() {
+            const dark = document.documentElement.classList.toggle('dark');
+            try { localStorage.setItem('crew-theme', dark ? 'dark' : 'light'); } catch {}
+            applyThemeIcon();
+        }
+        (function initTheme() {
+            let pref = null; try { pref = localStorage.getItem('crew-theme'); } catch {}
+            const dark = pref ? pref === 'dark'
+                : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark', dark);
+        })();
+
+        // ---- Helpers ----
+        function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
+        function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
+        function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
+        function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1])return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
+
+        // ---- Tools (the tile grid) ----
+        const TOOLS = [
+            { icon:'users',          label:'Roster',       desc:'Pilots, ranks & promotions' },
+            { icon:'calendar-clock', label:'Schedules',    desc:'Rosters & bookings' },
+            { icon:'calendar-days',  label:'Events',       desc:'Group flights & tours' },
+            { icon:'plane',          label:'Flights',      desc:'PIREPs & flight logs' },
+            { icon:'megaphone',      label:'Announcements', desc:'Notices to your crew' },
+            { icon:'code-xml',       label:'Embeds',       desc:'Widgets for your site' },
+            { icon:'handshake',      label:'Partnership',  desc:'Your Inflight partnership' },
+            { icon:'settings',       label:'Settings',     desc:'Branding & connections' },
+        ];
+        function renderTiles(){
+            document.getElementById('tileGrid').innerHTML = TOOLS.map(t => `
+                <a class="tile surface rounded-3xl p-5 sm:p-6 flex flex-col gap-3 cursor-pointer group">
+                    <span class="w-11 h-11 rounded-2xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-zinc-700 dark:text-zinc-200 group-hover:accent-text transition-colors">
+                        <i data-lucide="${t.icon}" class="w-5 h-5"></i>
+                    </span>
+                    <div>
+                        <div class="font-semibold tracking-tight flex items-center gap-1.5">${escapeHtml(t.label)}
+                            <i data-lucide="arrow-up-right" class="w-4 h-4 text-zinc-300 dark:text-zinc-600 group-hover:accent-text transition-colors"></i></div>
+                        <div class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">${escapeHtml(t.desc)}</div>
+                    </div>
+                </a>`).join('');
+        }
+        const ACTIVITY = [
+            { icon:'user-plus', text:'<b>Jordan Lee</b> joined as First Officer', when:'2h ago' },
+            { icon:'plane-landing', text:'<b>ACA412</b> landed at EGLL · 8h 12m', when:'5h ago' },
+            { icon:'badge-check', text:'<b>Sam Park</b> promoted to Captain', when:'Yesterday' },
+            { icon:'calendar-plus', text:'New event <b>Transcon Group Flight</b> created', when:'Yesterday' },
+            { icon:'megaphone', text:'Announcement <b>July schedule</b> posted', when:'2d ago' },
+        ];
+        function renderActivity(){
+            document.getElementById('activity').innerHTML = ACTIVITY.map(a => `
+                <li class="flex items-center gap-3 py-2.5 border-b border-zinc-100 dark:border-zinc-800/70 last:border-0">
+                    <span class="w-9 h-9 rounded-full bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-zinc-500 dark:text-zinc-300 shrink-0">
+                        <i data-lucide="${a.icon}" class="w-[18px] h-[18px]"></i></span>
+                    <span class="text-sm text-zinc-700 dark:text-zinc-200 flex-1">${a.text}</span>
+                    <span class="text-xs text-zinc-400 shrink-0">${a.when}</span>
+                </li>`).join('');
+        }
+
+        // ---- Branding ----
+        async function resolveBranding(){
+            const q=new URLSearchParams(location.search);
+            const ov={name:q.get('name')||'',accent:q.get('accent')||'',banner:q.get('banner')||'',logo:q.get('logo')||''};
+            if(ov.name||ov.accent||ov.banner||ov.logo) return {...ov,code:(q.get('va')||'').toUpperCase()};
+            const slug=getSlug();
+            if(!slug) return null;
+            try{
+                const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),8000);
+                const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'},signal:ctrl.signal});
+                clearTimeout(t);
+                if(!res.ok) return null;
+                return await res.json();
+            }catch{return null;}
+        }
+        function applyBranding(b){
+            if(!b) return;
+            if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            const name=b.name||b.code||'';
+            if(name){
+                document.getElementById('navName').textContent=name;
+                document.getElementById('heroName').textContent=name;
+                document.title=`${name} · Crew Center — Inflight`;
+                const mono=initials(name,b.code);
+                document.getElementById('navMonogram').textContent=mono;
+            }
+            if(b.tagline) document.getElementById('heroTagline').textContent=b.tagline;
+            if(b.code){const c=document.getElementById('heroCode');c.textContent=b.code;c.classList.remove('hidden');}
+            // Nav logo
+            if(b.logo && isSafeImageUrl(b.logo)){
+                const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
+                el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
+            }
+            // Hero banner
+            if(b.banner && isSafeImageUrl(b.banner)){
+                const el=document.getElementById('heroImg');el.src=b.banner;el.classList.remove('hidden');
+            }
+        }
+
+        // ---- Boot ----
+        (async function(){
+            renderTiles(); renderActivity();
+            const b = await resolveBranding();
+            applyBranding(b);
+            applyThemeIcon();
+            if(window.lucide) lucide.createIcons();
+        })();
+    </script>
+</body>
+</html>
