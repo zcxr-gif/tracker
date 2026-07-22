@@ -28,12 +28,12 @@
     ]
   },
   "pilots": [
-    { "callsign": "OCA001", "display_name": "M. Tanaka",   "status": "active", "total_minutes": 74100, "ranks": { "name": "Training Captain" },      "hubs": { "icao": "NZAA" } },
-    { "callsign": "OCA014", "display_name": "R. Okafor",   "status": "active", "total_minutes": 41400, "ranks": { "name": "Senior Captain" },        "hubs": { "icao": "YSSY" } },
-    { "callsign": "OCA027", "display_name": "L. Fernández", "status": "active", "total_minutes": 22800, "ranks": { "name": "Captain" },               "hubs": { "icao": "KLAX" } },
-    { "callsign": "OCA033", "display_name": "S. Nguyen",   "status": "active", "total_minutes": 11700, "ranks": { "name": "Senior First Officer" }, "hubs": { "icao": "PHNL" } },
-    { "callsign": "OCA048", "display_name": "A. Kelly",    "status": "active", "total_minutes": 4200,  "ranks": { "name": "First Officer" },         "hubs": { "icao": "NZAA" } },
-    { "callsign": "OCA052", "display_name": "P. Rossi",    "status": "active", "total_minutes": 900,   "ranks": { "name": "Second Officer" },        "hubs": { "icao": "RJTT" } }
+    { "callsign": "OCA001", "display_name": "M. Tanaka",   "status": "active", "total_minutes": 74100, "ranks": { "name": "Training Captain",     "color": "#ef4444" }, "hubs": { "icao": "NZAA" } },
+    { "callsign": "OCA014", "display_name": "R. Okafor",   "status": "active", "total_minutes": 41400, "ranks": { "name": "Senior Captain",       "color": "#f97316" }, "hubs": { "icao": "YSSY" } },
+    { "callsign": "OCA027", "display_name": "L. Fernández", "status": "active", "total_minutes": 22800, "ranks": { "name": "Captain",              "color": "#f59f00" }, "hubs": { "icao": "KLAX" } },
+    { "callsign": "OCA033", "display_name": "S. Nguyen",   "status": "active", "total_minutes": 11700, "ranks": { "name": "Senior First Officer", "color": "#eab308" }, "hubs": { "icao": "PHNL" } },
+    { "callsign": "OCA048", "display_name": "A. Kelly",    "status": "active", "total_minutes": 4200,  "ranks": { "name": "First Officer",        "color": "#22c55e" }, "hubs": { "icao": "NZAA" } },
+    { "callsign": "OCA052", "display_name": "P. Rossi",    "status": "active", "total_minutes": 900,   "ranks": { "name": "Second Officer",       "color": "#38bdf8" }, "hubs": { "icao": "RJTT" } }
   ],
   "ranks": [
     { "name": "Cadet",                "min_hours": 0,    "color": "#94a3b8" },
