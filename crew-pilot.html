@@ -57,7 +57,7 @@
                 <div class="relative w-full">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
                     <input type="text" placeholder="Search flights, events, pilots…"
-                        class="w-full pl-9 pr-3 py-2 rounded-md surface muted focus:text-[var(--ink)] focus:outline-none focus:border-[var(--ink)] text-sm transition">
+                        class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
 
@@ -84,7 +84,11 @@
     <section class="relative w-full h-[320px] sm:h-[400px] overflow-hidden bg-[var(--surface)] fade-in">
         <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
         <div id="heroFallback" class="absolute inset-0 accent-bg opacity-[0.08]"></div>
-        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.62), rgba(0,0,0,.12) 45%, transparent 70%);"></div>
+        <!-- The VA's live map (free MapLibre embed) sits behind the hero text. -->
+        <div id="heroMapWrap" class="hidden absolute inset-0 pointer-events-none">
+            <iframe id="heroMap" title="Live traffic" class="w-full h-full border-0" loading="lazy" scrolling="no"></iframe>
+        </div>
+        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.2) 45%, rgba(0,0,0,.15) 100%);"></div>
         <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col justify-end pb-9">
             <div class="flex items-center gap-2 mb-3">
                 <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.14em] text-white/95 bg-white/15 backdrop-blur px-2.5 py-1 rounded">
@@ -199,6 +203,7 @@
 
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        let CREW_CODE = '';  // VA callsign — drives the live map behind the hero
 
         function applyThemeIcon(){
             const dark=document.documentElement.classList.contains('dark');
@@ -206,10 +211,25 @@
             if(el) el.innerHTML=`<i data-lucide="${dark?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
             if(window.lucide) lucide.createIcons();
         }
+        function isDark(){ return document.documentElement.classList.contains('dark'); }
+
+        // Live map behind the hero (free MapLibre embed, no Mapbox token/billing),
+        // re-pointed on theme change so it follows the light/dark toggle.
+        function applyEmbeds(){
+            if(!CREW_CODE) return;
+            const t = isDark() ? 'dark' : 'light';
+            document.getElementById('heroMap').src =
+                `/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`;
+            document.getElementById('heroMapWrap').classList.remove('hidden');
+            document.getElementById('heroFallback').classList.add('hidden');
+            document.getElementById('heroImg').classList.add('hidden');
+        }
+
         function toggleTheme(){
             const dark=document.documentElement.classList.toggle('dark');
             try{ localStorage.setItem('crew-theme', dark?'dark':'light'); }catch{}
             applyThemeIcon();
+            applyEmbeds();
         }
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{}
             const dark=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -315,7 +335,7 @@
                 document.title=`${name} · Crew Center — Inflight`;
                 document.getElementById('navMonogram').textContent=initials(name,b.code);
             }
-            if(b.code){const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden');}
+            if(b.code){ CREW_CODE=b.code; const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
                 const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
                 el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
@@ -343,6 +363,7 @@
         (async function(){
             renderActions(); renderFlights(); renderEvents(); renderNotices(); readSession();
             applyBranding(await resolveBranding());
+            applyEmbeds();   // live map behind the hero (if a callsign resolved)
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
