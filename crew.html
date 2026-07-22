@@ -95,8 +95,8 @@
                 <!-- Login form (shown once a VA resolves) -->
                 <form id="loginForm" class="hidden space-y-4">
                     <div>
-                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Email</label>
-                        <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@yourva.com"
+                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Username or email</label>
+                        <input id="loginUser" type="text" autocomplete="username" required placeholder="username or you@yourva.com"
                             class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
                     </div>
                     <div>
@@ -138,6 +138,9 @@
         // Inflight VA-Ads backend — the same origin the tracker already uses for
         // VA ads, community photos, etc. (see vaAds.js).
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+        // The crew center this login targets (path /crew/<slug> or ?va=). Set at boot.
+        let CREW_SLUG = '';
 
         // ---- Theme (mirrors the staff hub: class-based dark mode) ----
         function applyThemeIcon() {
@@ -283,17 +286,64 @@
             }
         }
 
-        // ---- Login (NOT wired yet) ----
-        function handleLogin(e) {
-            e.preventDefault();
+        // ---- Login ----
+        // Authenticates against our accounts via POST /api/crew/<slug>/login, then
+        // routes to the view the backend chose: owner/staff/Inflight → the
+        // management dashboard, pilots → the pilot home. The Bearer token is kept
+        // in localStorage (no cross-site cookies) so the dashboards can reuse it.
+        function setNote(msg, kind) {
             const note = document.getElementById('loginNote');
-            note.textContent = 'Sign-in isn’t connected yet — authentication is the next step.';
-            note.className = 'text-sm font-medium text-amber-600 dark:text-amber-400';
+            note.textContent = msg;
+            note.className = 'text-sm font-medium ' +
+                (kind === 'error' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400');
             note.classList.remove('hidden');
+        }
+        async function handleLogin(e) {
+            e.preventDefault();
+            document.getElementById('loginNote').classList.add('hidden');
+
+            if (!CREW_SLUG) {
+                setNote('Open your crew center link (e.g. /crew/your-va) to sign in.', 'warn');
+                return;
+            }
+            const username = document.getElementById('loginUser').value.trim();
+            const password = document.getElementById('loginPassword').value;
+
+            const btn = document.getElementById('loginBtn');
+            const label = btn.querySelector('span');
+            const prev = label.textContent;
+            btn.disabled = true; label.textContent = 'Signing in…';
+
+            try {
+                const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setNote(data.error || 'Sign-in failed. Please try again.', 'error');
+                    btn.disabled = false; label.textContent = prev;
+                    return;
+                }
+                // Persist a lightweight session for the dashboards on this origin.
+                try {
+                    localStorage.setItem('crew:session:' + CREW_SLUG, JSON.stringify({
+                        token: data.token, name: data.name, role: data.role,
+                        view: data.view, oversight: !!data.oversight, at: Date.now(),
+                    }));
+                } catch {}
+                const target = data.view === 'pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+                location.href = `/${target}?va=${encodeURIComponent(CREW_SLUG)}`;
+            } catch {
+                setNote('Could not reach the server. Please try again.', 'error');
+                btn.disabled = false; label.textContent = prev;
+            }
         }
 
         // ---- Boot ----
         (async function boot() {
+            CREW_SLUG = getSlug();
             document.getElementById('loginForm').addEventListener('submit', handleLogin);
             let result;
             try {

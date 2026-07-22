@@ -71,10 +71,10 @@
                 </button>
                 <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
                     <div class="text-right hidden sm:block leading-tight">
-                        <div class="text-sm font-medium">Jordan Lee</div>
-                        <div class="text-[11px] muted flex items-center gap-1 justify-end"><i data-lucide="badge-check" class="w-3 h-3"></i> First Officer</div>
+                        <div id="meName" class="text-sm font-medium">Jordan Lee</div>
+                        <div class="text-[11px] muted flex items-center gap-1 justify-end"><i data-lucide="badge-check" class="w-3 h-3"></i> <span id="meRole">First Officer</span></div>
                     </div>
-                    <div class="w-9 h-9 rounded-full accent-bg text-white grid place-items-center text-sm font-semibold">JL</div>
+                    <button id="meAvatar" onclick="logout()" title="Sign out" class="w-9 h-9 rounded-full accent-bg text-white grid place-items-center text-sm font-semibold hover:opacity-90 transition">JL</button>
                 </div>
             </div>
         </div>
@@ -327,8 +327,21 @@
             }
         }
 
+        // ---- Signed-in identity (from the login's stored session) ----
+        function readSession(){
+            let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
+            if(!s||!s.name) return;
+            document.getElementById('meName').textContent=s.name;
+            document.getElementById('meRole').textContent='Pilot';
+            document.getElementById('meAvatar').textContent=initials(s.name,'');
+        }
+        function logout(){
+            try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{}
+            const s=getSlug(); location.href = s ? `/crew/${encodeURIComponent(s)}` : '/crew';
+        }
+
         (async function(){
-            renderActions(); renderFlights(); renderEvents(); renderNotices();
+            renderActions(); renderFlights(); renderEvents(); renderNotices(); readSession();
             applyBranding(await resolveBranding());
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
