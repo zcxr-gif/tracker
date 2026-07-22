@@ -36,46 +36,49 @@
 </head>
 <body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased min-h-screen transition-colors duration-300">
 
-    <!-- ============ LOGIN ============ -->
     <!--
-      Crew Center login SHELL.
+      Crew Center login — the branded, per-VA entry point served at
+      inflight.info/crew/<slug>.
 
-      This is deliberately a frame only — no authentication is wired yet. The
-      next brick connects this form to the VA's OWN Supabase project (bring-your-
-      own; the VA sets it up and owns the data, inflight retains an owner login).
-
-      Per-VA branding is resolved by applyBranding() below. It falls back to an
-      example registry (Air Canada Virtual) and can be overridden per-preview via
-      URL query params, so any VA's look can be checked without a backend:
-          crew.html?va=ACVA
-          crew.html?name=Air%20Canada%20Virtual&accent=%23D22630&banner=<url>
-      Later, applyBranding() will fetch the same fields from the VA's config so
-      only the VA's own banner shows on their login — with a small "Powered by
+      Branding is REAL: resolveBranding() reads the VA slug from the path (or
+      ?va= for previews) and fetches the VA's own record from the Inflight VA-Ads
+      backend (GET /api/va-ads/by-slug/:slug — name, logo, banner, accent). So
+      only the VA's own artwork shows on their login, with a small "Powered by
       Inflight" mark underneath.
-    -->
-    <div class="min-h-screen crew-bg relative overflow-hidden flex items-center justify-center px-5 py-10">
 
+      Preview override: pass ?name=&accent=&banner=&logo= to render a look
+      client-side without the backend (handy for design/QA before deploy), e.g.
+        /crew?name=Air%20Canada%20Virtual&accent=%23D22630&banner=/Images/examples/air-canada-virtual.svg
+
+      Authentication is NOT wired yet — the form is an inert shell. Sign-in against
+      the VA's own Supabase project (bring-your-own; the VA owns the data, Inflight
+      retains an owner login) is the next brick.
+    -->
+
+    <!-- ============ BOOT ============ -->
+    <div id="bootLoader" class="min-h-screen flex flex-col items-center justify-center gap-4 text-zinc-400">
+        <div class="loader"></div>
+        <p class="text-sm font-medium">Loading crew center…</p>
+    </div>
+
+    <!-- ============ LOGIN ============ -->
+    <div id="loginView" class="hidden min-h-screen crew-bg relative overflow-hidden flex items-center justify-center px-5 py-10">
         <div class="relative z-10 w-full max-w-sm fade-in">
 
-            <!-- ---- Per-VA branding (banner / monogram) ---- -->
+            <!-- ---- Per-VA branding (logo / banner, or accent monogram) ---- -->
             <div class="text-center mb-8">
-                <!-- Banner image slot: shown only when the VA has supplied a banner. -->
-                <img id="vaBanner" alt="" class="hidden mx-auto mb-5 max-h-20 w-auto object-contain">
-
-                <!-- Fallback monogram: a branded square built from the VA's accent
-                     colour + initials, used when no banner is on file. -->
+                <img id="brandImg" alt="" class="hidden mx-auto mb-5 max-h-20 w-auto object-contain">
                 <div id="vaMonogram"
                     class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg text-white text-2xl font-black tracking-tight"
                     style="background:#18181b;">
                     <span id="vaMonogramText">VA</span>
                 </div>
-
                 <h1 class="text-2xl font-bold tracking-tight">Crew Center</h1>
                 <p id="vaTagline" class="text-zinc-500 dark:text-zinc-400 text-sm mt-1.5">Sign in to your crew center</p>
             </div>
 
-            <!-- ---- Login card ---- -->
-            <form id="loginForm" class="surface rounded-3xl p-6 space-y-4">
+            <!-- ---- Login card (shown once a VA resolves) ---- -->
+            <form id="loginForm" class="hidden surface rounded-3xl p-6 space-y-4">
                 <div>
                     <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Email</label>
                     <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@yourva.com"
@@ -95,6 +98,11 @@
                 </button>
             </form>
 
+            <!-- ---- State message (unknown/again-later/no-VA) ---- -->
+            <div id="stateMsg" class="hidden surface rounded-3xl p-6 text-center">
+                <p id="stateText" class="text-sm text-zinc-500 dark:text-zinc-400"></p>
+            </div>
+
             <!-- ---- "Powered by Inflight" mark (real logo, theme-aware) ---- -->
             <div class="mt-8 flex items-center justify-center gap-2 opacity-80">
                 <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
@@ -102,7 +110,7 @@
                 <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
             </div>
 
-            <!-- Theme toggle, tucked away bottom-right of the card column. -->
+            <!-- Theme toggle -->
             <div class="mt-4 flex justify-center">
                 <button onclick="toggleTheme()" title="Toggle theme"
                     class="w-8 h-8 grid place-items-center rounded-full hover:bg-zinc-200/70 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 transition">
@@ -113,6 +121,10 @@
     </div>
 
     <script>
+        // Inflight VA-Ads backend — the same origin the tracker already uses for
+        // VA ads, community photos, etc. (see vaAds.js).
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
         // ---- Theme (mirrors the staff hub: class-based dark mode) ----
         function applyThemeIcon() {
             const dark = document.documentElement.classList.contains('dark');
@@ -133,10 +145,7 @@
             document.documentElement.classList.toggle('dark', dark);
         })();
 
-        // ---- Per-VA branding ----
-        // Reads branding from the URL for now (preview-friendly, no backend).
-        // A later brick swaps the query-param source for the VA's stored config,
-        // resolved from ?va=<code>. Only the VA's own banner/monogram is shown.
+        // ---- Small helpers ----
         function escapeHtml(s) {
             return String(s).replace(/[&<>"']/g, c => (
                 { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -149,80 +158,137 @@
                 return url.protocol === 'https:' || url.protocol === 'data:';
             } catch { return false; }
         }
+        function isHex(c) { return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c || ''); }
         function initials(name, code) {
             const src = (name || code || 'VA').trim();
             const words = src.split(/\s+/).filter(Boolean);
             if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
             return src.slice(0, 2).toUpperCase();
         }
-        // Example VA registry — seed branding so a crew center can be previewed
-        // by code alone (e.g. /crew?va=ACVA) without spelling out every field.
-        // Stands in for the real per-VA config the next brick will resolve;
-        // "Air Canada Virtual" is our worked example. URL params still override.
-        const EXAMPLE_VAS = {
-            ACVA: {
-                name: 'Air Canada Virtual',
-                accent: '#D22630',
-                banner: '/Images/examples/air-canada-virtual.svg',
-            },
-        };
 
-        function applyBranding() {
+        // The VA handle: from the path (/crew/<slug>, kept by the Netlify rewrite)
+        // or ?va=<slug> for previews.
+        function getSlug() {
+            const m = window.location.pathname.match(/\/crew\/([^\/?#]+)/i);
+            if (m && m[1]) return decodeURIComponent(m[1]).trim().toLowerCase();
+            const q = new URLSearchParams(window.location.search).get('va');
+            return q ? q.trim().toLowerCase() : '';
+        }
+
+        // ---- Resolve branding ----
+        // Priority: explicit ?name/accent/banner/logo overrides (client-side
+        // preview, no backend) → real VA record fetched by slug → nothing.
+        async function resolveBranding() {
             const q = new URLSearchParams(window.location.search);
-            // During the shell phase, default to the Air Canada Virtual example so
-            // there's always something branded to look at. Real resolution (and a
-            // neutral default for unknown VAs) arrives with the Supabase wiring.
-            const code = (q.get('va') || 'ACVA').toUpperCase();
-            const ex = EXAMPLE_VAS[code] || {};
+            const ov = {
+                name: q.get('name') || '',
+                accent: q.get('accent') || '',
+                banner: q.get('banner') || '',
+                logo: q.get('logo') || '',
+            };
+            if (ov.name || ov.accent || ov.banner || ov.logo) {
+                return { ok: true, b: { ...ov, code: (q.get('va') || '').toUpperCase() } };
+            }
 
-            const name = q.get('name') || ex.name || code;
-            const accent = q.get('accent') || ex.accent || '';   // e.g. %23D22630 (#D22630)
-            const banner = q.get('banner') || ex.banner || '';
+            const slug = getSlug();
+            if (!slug) return { ok: false, reason: 'noslug' };
 
-            // Accent colour drives the monogram + primary button.
-            if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent)) {
+            try {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), 8000);
+                const res = await fetch(
+                    `${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,
+                    { headers: { Accept: 'application/json' }, signal: ctrl.signal }
+                );
+                clearTimeout(timer);
+                if (res.status === 404) return { ok: false, reason: 'notfound', slug };
+                if (!res.ok) return { ok: false, reason: 'error', slug };
+                const b = await res.json();
+                return { ok: true, b };
+            } catch {
+                return { ok: false, reason: 'error', slug };
+            }
+        }
+
+        // ---- Paint branding + reveal the login card ----
+        function applyBranding(b) {
+            const accent = isHex(b.accent) ? b.accent : '';
+            if (accent) {
                 document.getElementById('vaMonogram').style.background = accent;
                 document.getElementById('loginBtn').style.background = accent;
             }
 
-            // Monogram initials from the VA name/code.
-            document.getElementById('vaMonogramText').textContent = initials(name, code);
+            const name = b.name || b.code || '';
+            document.getElementById('vaMonogramText').textContent = initials(name, b.code);
 
-            // Banner image replaces the monogram when supplied + safe.
-            if (banner && isSafeImageUrl(banner)) {
-                const img = document.getElementById('vaBanner');
-                img.src = banner;
-                img.alt = name ? `${name} banner` : 'VA banner';
-                img.classList.remove('hidden');
+            // Prefer the VA's square logo for the mark; fall back to their banner.
+            const img = b.logo || b.banner || '';
+            if (img && isSafeImageUrl(img)) {
+                const el = document.getElementById('brandImg');
+                el.src = img;
+                el.alt = name || 'VA';
+                el.classList.remove('hidden');
                 document.getElementById('vaMonogram').classList.add('hidden');
             }
 
-            // Tagline + document title reflect the VA.
             if (name) {
                 document.getElementById('vaTagline').innerHTML =
                     'Sign in to <span class="font-semibold text-zinc-700 dark:text-zinc-200">' +
                     escapeHtml(name) + '</span>';
                 document.title = `${name} · Crew Center — Inflight`;
             }
+
+            document.getElementById('loginForm').classList.remove('hidden');
+        }
+
+        // ---- Non-resolving states (no slug / unknown / backend down) ----
+        function showState(reason, slug) {
+            document.getElementById('vaMonogramText').textContent = '?';
+            const tagline = document.getElementById('vaTagline');
+            const box = document.getElementById('stateMsg');
+            const text = document.getElementById('stateText');
+            box.classList.remove('hidden');
+
+            if (reason === 'notfound') {
+                tagline.textContent = 'Crew center not found';
+                text.textContent = slug
+                    ? `We couldn’t find a crew center at “${slug}”. Check the link your VA gave you.`
+                    : 'We couldn’t find that crew center.';
+            } else if (reason === 'noslug') {
+                tagline.textContent = 'Welcome';
+                text.textContent = 'Open your VA’s crew center link to sign in.';
+            } else { // 'error'
+                tagline.textContent = 'Just a moment';
+                text.textContent = 'We couldn’t load this crew center right now. Please try again shortly.';
+            }
         }
 
         // ---- Login (NOT wired yet) ----
-        // Deliberately inert: this shell has no Supabase connection. The next
-        // brick replaces this handler with a real sign-in against the VA's own
-        // Supabase project.
         function handleLogin(e) {
             e.preventDefault();
             const note = document.getElementById('loginNote');
-            note.textContent = 'Sign-in isn’t connected yet — this is the login shell. Authentication is the next step.';
+            note.textContent = 'Sign-in isn’t connected yet — authentication is the next step.';
             note.className = 'text-sm font-medium text-amber-600 dark:text-amber-400';
             note.classList.remove('hidden');
         }
 
         // ---- Boot ----
-        document.getElementById('loginForm').addEventListener('submit', handleLogin);
-        applyBranding();
-        applyThemeIcon();
-        if (window.lucide) lucide.createIcons();
+        (async function boot() {
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+            let result;
+            try {
+                result = await resolveBranding();
+            } catch {
+                result = { ok: false, reason: 'error' };
+            }
+            if (result.ok) applyBranding(result.b);
+            else showState(result.reason, result.slug);
+
+            document.getElementById('bootLoader').classList.add('hidden');
+            document.getElementById('loginView').classList.remove('hidden');
+            applyThemeIcon();
+            if (window.lucide) lucide.createIcons();
+        })();
     </script>
 </body>
 </html>
