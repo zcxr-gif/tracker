@@ -23,20 +23,31 @@ a { color: var(--cc-accent); }
 .cc-error { color: #f87171; }
 
 .cc-header {
-  display: flex; align-items: center; gap: 1rem;
-  padding: 1rem 1.5rem;
+  display: flex; align-items: center; gap: .75rem 1rem; flex-wrap: wrap;
+  padding: .9rem 1.25rem;
   background: var(--cc-surface);
   border-bottom: 1px solid rgba(255,255,255,.08);
   position: sticky; top: 0; z-index: 10;
 }
-.cc-header img.cc-logo { height: 40px; width: auto; border-radius: 8px; }
+.cc-header img.cc-logo { height: 36px; width: auto; border-radius: 8px; }
 .cc-header .cc-va-name { font-weight: 700; font-size: 1.15rem; }
-.cc-nav { margin-left: auto; display: flex; gap: .25rem; flex-wrap: wrap; }
+.cc-nav { margin-left: auto; display: flex; gap: .25rem; }
 .cc-nav a {
   padding: .4rem .75rem; border-radius: 999px; text-decoration: none;
-  color: var(--cc-text); font-size: .9rem;
+  color: var(--cc-text); font-size: .9rem; white-space: nowrap;
 }
 .cc-nav a:hover { background: rgba(255,255,255,.06); }
+
+/* On narrow screens the nav becomes a full-width, single-row scroll strip
+   under the VA name instead of wrapping into a cramped grid. */
+@media (max-width: 640px) {
+  .cc-nav {
+    margin-left: 0; width: 100%; order: 3;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; padding-bottom: 2px;
+  }
+  .cc-nav::-webkit-scrollbar { display: none; }
+}
 
 .cc-hero {
   padding: 4rem 1.5rem; text-align: center;

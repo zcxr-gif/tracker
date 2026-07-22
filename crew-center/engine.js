@@ -308,7 +308,7 @@ async function boot() {
 
   // Header + nav
   const nav = enabled.filter((b) => b.type !== 'hero')
-    .map((b) => `<a href="#cc-${esc(b.type)}">${esc((b.props && b.props.title) || b.type)}</a>`).join('');
+    .map((b) => `<a href="#cc-${esc(b.type)}">${esc((b.props && (b.props.title || b.props.label)) || b.type)}</a>`).join('');
   const header = `<header class="cc-header">
     ${safeUrl(cfg.logo_url) ? `<img class="cc-logo" src="${esc(cfg.logo_url)}" alt="">` : ''}
     <span class="cc-va-name">${esc(cfg.va_name || 'Crew Center')}</span>
