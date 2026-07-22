@@ -46,9 +46,13 @@
       only the VA's own artwork shows on their login, with a small "Powered by
       Inflight" mark underneath.
 
-      Preview override: pass ?name=&accent=&banner=&logo= to render a look
+      Layout: the VA's banner (bannerUrl) sits full-bleed BEHIND the login modal
+      under a scrim; the VA's logo (logoUrl) is the mark on the card. With neither
+      on file, an accent-coloured monogram stands in.
+
+      Preview override: pass ?name=&accent=&logo=&banner= to render a look
       client-side without the backend (handy for design/QA before deploy), e.g.
-        /crew?name=Air%20Canada%20Virtual&accent=%23D22630&banner=/Images/examples/air-canada-virtual.svg
+        /crew?name=Air%20Canada%20Virtual&accent=%23D22630&logo=/Images/examples/air-canada-virtual.svg&banner=/Images/examples/air-canada-virtual-banner.svg
 
       Authentication is NOT wired yet — the form is an inert shell. Sign-in against
       the VA's own Supabase project (bring-your-own; the VA owns the data, Inflight
@@ -62,58 +66,68 @@
     </div>
 
     <!-- ============ LOGIN ============ -->
-    <div id="loginView" class="hidden min-h-screen crew-bg relative overflow-hidden flex items-center justify-center px-5 py-10">
+    <div id="loginView" class="hidden min-h-screen relative overflow-hidden flex items-center justify-center px-5 py-10">
+        <!-- Backgrounds. Default: a subtle dot texture. When the VA has a banner,
+             it sits full-bleed BEHIND the login modal, under a scrim for legibility. -->
+        <div class="absolute inset-0 z-0 crew-bg"></div>
+        <div id="bannerBg" class="hidden absolute inset-0 z-0">
+            <img id="bannerImg" alt="" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-zinc-950/45 backdrop-blur-[3px]"></div>
+        </div>
+
         <div class="relative z-10 w-full max-w-sm fade-in">
 
-            <!-- ---- Per-VA branding (logo / banner, or accent monogram) ---- -->
-            <div class="text-center mb-8">
-                <img id="brandImg" alt="" class="hidden mx-auto mb-5 max-h-20 w-auto object-contain">
-                <div id="vaMonogram"
-                    class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg text-white text-2xl font-black tracking-tight"
-                    style="background:#18181b;">
-                    <span id="vaMonogramText">VA</span>
+            <!-- ---- The login modal: everything readable lives on this surface ---- -->
+            <div class="surface rounded-3xl p-6 sm:p-7 shadow-xl shadow-zinc-900/10 dark:shadow-black/40">
+
+                <!-- Per-VA mark: the VA's logo, or an accent monogram fallback -->
+                <div class="text-center mb-6">
+                    <img id="brandImg" alt="" class="hidden mx-auto mb-4 max-h-16 w-auto object-contain">
+                    <div id="vaMonogram"
+                        class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg text-white text-2xl font-black tracking-tight"
+                        style="background:#18181b;">
+                        <span id="vaMonogramText">VA</span>
+                    </div>
+                    <h1 class="text-xl font-bold tracking-tight">Crew Center</h1>
+                    <p id="vaTagline" class="text-zinc-500 dark:text-zinc-400 text-sm mt-1">Sign in to your crew center</p>
                 </div>
-                <h1 class="text-2xl font-bold tracking-tight">Crew Center</h1>
-                <p id="vaTagline" class="text-zinc-500 dark:text-zinc-400 text-sm mt-1.5">Sign in to your crew center</p>
+
+                <!-- Login form (shown once a VA resolves) -->
+                <form id="loginForm" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Email</label>
+                        <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@yourva.com"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Password</label>
+                        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                    </div>
+                    <p id="loginNote" class="hidden text-sm font-medium"></p>
+                    <button type="submit" id="loginBtn"
+                        class="w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]"
+                        style="background:#18181b;">
+                        <span>Sign in</span>
+                        <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+                </form>
+
+                <!-- State message (unknown / again-later / no-VA) -->
+                <p id="stateMsg" class="hidden text-center text-sm text-zinc-500 dark:text-zinc-400"></p>
+
+                <!-- "Powered by Inflight" — card footer, always on the surface -->
+                <div class="mt-6 pt-5 border-t border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-center gap-2 opacity-80">
+                    <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
+                    <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
+                    <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
+                </div>
             </div>
 
-            <!-- ---- Login card (shown once a VA resolves) ---- -->
-            <form id="loginForm" class="hidden surface rounded-3xl p-6 space-y-4">
-                <div>
-                    <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Email</label>
-                    <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@yourva.com"
-                        class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Password</label>
-                    <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••"
-                        class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
-                </div>
-                <p id="loginNote" class="hidden text-sm font-medium"></p>
-                <button type="submit" id="loginBtn"
-                    class="w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]"
-                    style="background:#18181b;">
-                    <span>Sign in</span>
-                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                </button>
-            </form>
-
-            <!-- ---- State message (unknown/again-later/no-VA) ---- -->
-            <div id="stateMsg" class="hidden surface rounded-3xl p-6 text-center">
-                <p id="stateText" class="text-sm text-zinc-500 dark:text-zinc-400"></p>
-            </div>
-
-            <!-- ---- "Powered by Inflight" mark (real logo, theme-aware) ---- -->
-            <div class="mt-8 flex items-center justify-center gap-2 opacity-80">
-                <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
-                <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
-                <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
-            </div>
-
-            <!-- Theme toggle -->
-            <div class="mt-4 flex justify-center">
+            <!-- Theme toggle: below the modal, frosted so it reads on the banner -->
+            <div class="mt-5 flex justify-center">
                 <button onclick="toggleTheme()" title="Toggle theme"
-                    class="w-8 h-8 grid place-items-center rounded-full hover:bg-zinc-200/70 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 transition">
+                    class="w-9 h-9 grid place-items-center rounded-full bg-white/70 dark:bg-zinc-800/70 backdrop-blur border border-zinc-200/70 dark:border-zinc-700/70 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 transition shadow-sm">
                     <span id="themeIcon"></span>
                 </button>
             </div>
@@ -221,11 +235,18 @@
             const name = b.name || b.code || '';
             document.getElementById('vaMonogramText').textContent = initials(name, b.code);
 
-            // Prefer the VA's square logo for the mark; fall back to their banner.
-            const img = b.logo || b.banner || '';
-            if (img && isSafeImageUrl(img)) {
+            // The VA's banner sits full-bleed BEHIND the modal.
+            const banner = b.banner || '';
+            if (banner && isSafeImageUrl(banner)) {
+                document.getElementById('bannerImg').src = banner;
+                document.getElementById('bannerBg').classList.remove('hidden');
+            }
+
+            // The card's mark is the VA's logo; otherwise the accent monogram stays.
+            const logo = b.logo || '';
+            if (logo && isSafeImageUrl(logo)) {
                 const el = document.getElementById('brandImg');
-                el.src = img;
+                el.src = logo;
                 el.alt = name || 'VA';
                 el.classList.remove('hidden');
                 document.getElementById('vaMonogram').classList.add('hidden');
@@ -245,21 +266,20 @@
         function showState(reason, slug) {
             document.getElementById('vaMonogramText').textContent = '?';
             const tagline = document.getElementById('vaTagline');
-            const box = document.getElementById('stateMsg');
-            const text = document.getElementById('stateText');
-            box.classList.remove('hidden');
+            const msg = document.getElementById('stateMsg');
+            msg.classList.remove('hidden');
 
             if (reason === 'notfound') {
                 tagline.textContent = 'Crew center not found';
-                text.textContent = slug
+                msg.textContent = slug
                     ? `We couldn’t find a crew center at “${slug}”. Check the link your VA gave you.`
                     : 'We couldn’t find that crew center.';
             } else if (reason === 'noslug') {
                 tagline.textContent = 'Welcome';
-                text.textContent = 'Open your VA’s crew center link to sign in.';
+                msg.textContent = 'Open your VA’s crew center link to sign in.';
             } else { // 'error'
                 tagline.textContent = 'Just a moment';
-                text.textContent = 'We couldn’t load this crew center right now. Please try again shortly.';
+                msg.textContent = 'We couldn’t load this crew center right now. Please try again shortly.';
             }
         }
 
