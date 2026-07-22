@@ -36,6 +36,37 @@
         @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
         ::placeholder{ color:var(--faint); }
         input{ font-family:inherit; }
+
+        /* --- Polish: consistent focus ring, tabular figures, motion safety --- */
+        a:focus-visible, button:focus-visible, input:focus-visible {
+            outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+        }
+        .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
+        @media (prefers-reduced-motion: reduce){
+            *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+        }
+
+        /* =====================================================================
+           LAYOUT PRESETS — one crew center, several staff-allowed arrangements.
+           Driven by <html data-layout="…">. Editorial is the default (no rules).
+           Same markup + data; presets only reshape hero, density and grid.
+           ===================================================================== */
+        /* Compact — denser, shorter hero, tighter rhythm. */
+        :root[data-layout="compact"] #hero{ height:300px; }
+        @media (min-width:640px){ :root[data-layout="compact"] #hero{ height:340px; } }
+        :root[data-layout="compact"] main > section{ margin-top:1.5rem; }
+        :root[data-layout="compact"] #heroName{ font-size:1.875rem; line-height:1.1; }
+        :root[data-layout="compact"] .tile{ padding:1rem; }
+        :root[data-layout="compact"] .pad{ padding:1rem 1.25rem; }
+
+        /* Focus — minimal: hero + live + numbers only (rest hidden via JS). */
+        :root[data-layout="focus"] #hero{ height:440px; }
+        @media (min-width:640px){ :root[data-layout="focus"] #hero{ height:520px; } }
+
+        /* Classic — banner hero (no live map, set in JS), softer rounded cards. */
+        :root[data-layout="classic"] .surface{ border-radius:1rem; }
+        :root[data-layout="classic"] #hero{ border-bottom-left-radius:1.25rem; border-bottom-right-radius:1.25rem; }
+        :root[data-layout="classic"] .tile{ border-radius:1rem; }
     </style>
 </head>
 <body class="min-h-screen antialiased">
@@ -84,7 +115,7 @@
     </header>
 
     <!-- ============ HERO (full-bleed, editorial) ============ -->
-    <section class="relative w-full h-[380px] sm:h-[460px] overflow-hidden bg-[var(--surface)] fade-in">
+    <section id="hero" class="relative w-full h-[380px] sm:h-[460px] overflow-hidden bg-[var(--surface)] fade-in">
         <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
         <div id="heroFallback" class="absolute inset-0 accent-bg opacity-[0.08]"></div>
         <!-- The VA's live map (free MapLibre embed) sits behind the hero text. -->
@@ -113,26 +144,26 @@
     <main class="max-w-6xl mx-auto px-5 pb-16">
 
         <!-- ============ OVERVIEW (spec-row, hairline dividers) ============ -->
-        <section class="mt-8">
+        <section id="overview" class="mt-8">
             <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Active pilots</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">128</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">128</div>
                     <div class="text-xs muted mt-1">+6 this week</div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">1,402</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">1,402</div>
                     <div class="text-xs muted mt-1">312 this week</div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours flown</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">3,984</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">3,984</div>
                     <div class="text-xs muted mt-1">Season to date</div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Upcoming events</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">3</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">3</div>
                     <div class="text-xs accent-text font-medium mt-1">Next in 2 days</div>
                 </div>
             </div>
@@ -150,7 +181,7 @@
         </section>
 
         <!-- ============ MANAGE (essential category grid) ============ -->
-        <section class="mt-10">
+        <section id="manage" class="mt-10">
             <div class="flex items-end justify-between mb-4">
                 <h2 class="text-lg font-bold tracking-tight">Manage</h2>
                 <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">Customize</a>
@@ -159,7 +190,7 @@
         </section>
 
         <!-- ============ ACTIVITY + NEXT EVENT ============ -->
-        <section class="mt-10 grid lg:grid-cols-3 gap-4">
+        <section id="feed" class="mt-10 grid lg:grid-cols-3 gap-4">
             <div class="surface rounded-lg p-6 lg:col-span-2">
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-lg font-bold tracking-tight">Recent activity</h2>
@@ -180,7 +211,7 @@
         </section>
 
         <!-- ============ TRUST LINE ============ -->
-        <section class="mt-10">
+        <section id="trust" class="mt-10">
             <div class="flex items-start gap-3 rounded-lg border hair-soft p-4">
                 <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
                 <p class="text-sm muted">
@@ -200,7 +231,27 @@
 
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-        let CREW_CODE = '';  // VA callsign — drives the live embeds
+        let CREW_CODE = '';   // VA callsign — drives the live embeds
+        let CREW_LAYOUT = 'editorial';
+
+        // Staff-allowed layout presets. Chosen per VA (stored server-side later);
+        // ?layout=<preset> overrides for preview.
+        const LAYOUTS = ['editorial','compact','focus','classic'];
+        function resolveLayout(b){
+            const q=(new URLSearchParams(location.search).get('layout')||'').toLowerCase();
+            const l=(q || (b&&b.layout) || 'editorial').toLowerCase();
+            return LAYOUTS.includes(l) ? l : 'editorial';
+        }
+        function applyLayout(layout){
+            CREW_LAYOUT = layout;
+            document.documentElement.setAttribute('data-layout', layout);
+            // Focus preset trims to the essentials: hero + numbers + live flights.
+            const trim = layout==='focus';
+            ['manage','feed','trust'].forEach(id=>{
+                const el=document.getElementById(id);
+                if(el) el.classList.toggle('hidden', trim);
+            });
+        }
 
         function applyThemeIcon(){
             const dark=document.documentElement.classList.contains('dark');
@@ -217,13 +268,20 @@
             if(!CREW_CODE) return;
             const t = isDark() ? 'dark' : 'light';
             const base = `/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off`;
-            const map = document.getElementById('heroMap');
-            map.src = `${base}&mode=map&theme=${t}&freeStyle=${t}`;
-            document.getElementById('heroMapWrap').classList.remove('hidden');
-            document.getElementById('heroFallback').classList.add('hidden');
-            document.getElementById('heroImg').classList.add('hidden');
-            const live = document.getElementById('liveEmbed');
-            live.src = `${base}&mode=roster&theme=${t}`;
+            const wrap = document.getElementById('heroMapWrap');
+            // Classic keeps the VA banner behind the hero; every other layout uses
+            // the live map.
+            if(CREW_LAYOUT === 'classic'){
+                wrap.classList.add('hidden');
+                document.getElementById('heroMap').removeAttribute('src');
+            } else {
+                document.getElementById('heroMap').src = `${base}&mode=map&theme=${t}&freeStyle=${t}`;
+                wrap.classList.remove('hidden');
+                document.getElementById('heroFallback').classList.add('hidden');
+                document.getElementById('heroImg').classList.add('hidden');
+            }
+            // Live roster card — shown in every layout.
+            document.getElementById('liveEmbed').src = `${base}&mode=roster&theme=${t}`;
             document.getElementById('liveWrap').classList.remove('hidden');
         }
 
@@ -331,8 +389,10 @@
 
         (async function(){
             renderTiles(); renderActivity(); readSession();
-            applyBranding(await resolveBranding());
-            applyEmbeds();   // live map behind the hero + live roster card (if a callsign resolved)
+            const b = await resolveBranding();
+            applyBranding(b);
+            applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
+            applyEmbeds();                   // hero map / banner + live roster, per layout
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
