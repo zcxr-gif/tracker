@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crew Center — Inflight</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>tailwind.config = { darkMode: 'class' };</script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        /* Same warm, essential palette as the owner dashboard. */
+        :root{
+            --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4;
+            --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#1C1A16;
+            color-scheme: light dark;
+        }
+        .dark{
+            --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A;
+            --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D;
+        }
+        *{ -webkit-tap-highlight-color: transparent; }
+        body{ font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; background:var(--bg); color:var(--ink); }
+        [data-lucide]{ width:1.15em; height:1.15em; }
+        svg.lucide{ stroke-width:1.6; }
+        .surface{ background:var(--surface); border:1px solid var(--line); }
+        .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
+        .muted{ color:var(--muted); } .faint{ color:var(--faint); }
+        .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
+        .tile{ transition:border-color .2s, transform .2s; }
+        .tile:hover{ border-color:var(--ink); transform:translateY(-2px); }
+        .fade-in{ animation:fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
+        @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+        ::placeholder{ color:var(--faint); }
+        input{ font-family:inherit; }
+    </style>
+</head>
+<body class="min-h-screen antialiased">
+
+    <!--
+      Crew Center — PILOT home LOOK-MOCK (the generic member view).
+      Static + placeholder. What a regular crew member sees after sign-in: their
+      own flying, not the admin tools. Same warm-essential shell + branding source
+      as the owner dashboard (crew-dashboard.html); role decides which view loads.
+    -->
+
+    <!-- ============ TOP BAR ============ -->
+    <header class="sticky top-0 z-40 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
+        <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <img id="navLogo" alt="" class="hidden h-7 w-auto max-w-[130px] object-contain">
+                <div id="navMonogram" class="accent-bg w-8 h-8 rounded-md grid place-items-center text-white text-sm font-bold shrink-0">VA</div>
+                <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
+            </div>
+
+            <div class="hidden sm:flex flex-1 max-w-sm mx-auto">
+                <div class="relative w-full">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
+                    <input type="text" placeholder="Search flights, events, pilots…"
+                        class="w-full pl-9 pr-3 py-2 rounded-md surface muted focus:text-[var(--ink)] focus:outline-none focus:border-[var(--ink)] text-sm transition">
+                </div>
+            </div>
+
+            <div class="flex items-center gap-1 ml-auto">
+                <button class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications">
+                    <i data-lucide="bell" class="w-[18px] h-[18px]"></i>
+                    <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full accent-bg"></span>
+                </button>
+                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme">
+                    <span id="themeIcon"></span>
+                </button>
+                <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
+                    <div class="text-right hidden sm:block leading-tight">
+                        <div id="meName" class="text-sm font-medium">Jordan Lee</div>
+                        <div class="text-[11px] muted flex items-center gap-1 justify-end"><i data-lucide="badge-check" class="w-3 h-3"></i> <span id="meRole">First Officer</span></div>
+                    </div>
+                    <button id="meAvatar" onclick="logout()" title="Sign out" class="w-9 h-9 rounded-full accent-bg text-white grid place-items-center text-sm font-semibold hover:opacity-90 transition">JL</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ============ HERO (welcome) ============ -->
+    <section class="relative w-full h-[320px] sm:h-[400px] overflow-hidden bg-[var(--surface)] fade-in">
+        <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
+        <div id="heroFallback" class="absolute inset-0 accent-bg opacity-[0.08]"></div>
+        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.62), rgba(0,0,0,.12) 45%, transparent 70%);"></div>
+        <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col justify-end pb-9">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.14em] text-white/95 bg-white/15 backdrop-blur px-2.5 py-1 rounded">
+                    <i data-lucide="id-card" class="w-3.5 h-3.5"></i> <span id="heroCallsign">ACA1174</span>
+                </span>
+                <span id="heroVA" class="hidden text-[11px] font-semibold uppercase tracking-[.14em] text-white/70"></span>
+            </div>
+            <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-[1.05]">Welcome back, Jordan</h1>
+            <p class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg">You’re 36 hours from Captain. Log a flight to keep it moving.</p>
+            <div class="flex flex-wrap items-center gap-2.5 mt-6">
+                <button class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
+                    <i data-lucide="clipboard-pen" class="w-4 h-4"></i> File a PIREP
+                </button>
+                <button class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">Book a flight</button>
+            </div>
+        </div>
+    </section>
+
+    <main class="max-w-6xl mx-auto px-5 pb-16">
+
+        <!-- ============ MY NUMBERS ============ -->
+        <section class="mt-8">
+            <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
+                <div class="p-5 sm:p-6">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">My hours</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">214<span class="text-lg faint font-bold">h</span></div>
+                    <div class="text-xs muted mt-1">+12h this month</div>
+                </div>
+                <div class="p-5 sm:p-6">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">My flights</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">96</div>
+                    <div class="text-xs muted mt-1">4 this month</div>
+                </div>
+                <div class="p-5 sm:p-6">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Rank</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">F/O</div>
+                    <div class="text-xs muted mt-1">Since Mar 2026</div>
+                </div>
+                <div class="p-5 sm:p-6">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">On-time rate</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">98%</div>
+                    <div class="text-xs muted mt-1">Last 30 flights</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ QUICK ACTIONS ============ -->
+        <section class="mt-6">
+            <div id="quickGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
+        </section>
+
+        <!-- ============ FLIGHTS + RANK PROGRESS ============ -->
+        <section class="mt-10 grid lg:grid-cols-3 gap-4">
+            <!-- Recent flights -->
+            <div class="surface rounded-lg p-6 lg:col-span-2">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold tracking-tight">My recent flights</h2>
+                    <a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">Logbook</a>
+                </div>
+                <ul id="flights"></ul>
+            </div>
+            <!-- Rank progress -->
+            <div class="surface rounded-lg p-6">
+                <h2 class="text-lg font-bold tracking-tight mb-1">Next rank</h2>
+                <p class="text-sm muted">First Officer → <span class="font-semibold text-[var(--ink)]">Captain</span></p>
+                <div class="mt-4 flex items-end justify-between text-sm">
+                    <span class="font-bold text-xl">214h</span>
+                    <span class="muted">of 250h</span>
+                </div>
+                <div class="mt-2 h-2 rounded-full bg-[var(--line)] overflow-hidden">
+                    <div class="h-full accent-bg rounded-full" style="width:85%"></div>
+                </div>
+                <p class="text-xs muted mt-3">36 hours to go — about 8 more flights at your average.</p>
+                <button class="mt-5 w-full surface hair rounded-md text-sm font-semibold py-2.5 hover:border-[var(--ink)] transition">View requirements</button>
+            </div>
+        </section>
+
+        <!-- ============ UPCOMING EVENTS ============ -->
+        <section class="mt-10">
+            <div class="flex items-end justify-between mb-4">
+                <h2 class="text-lg font-bold tracking-tight">Upcoming events</h2>
+                <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">All events</a>
+            </div>
+            <div id="events" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"></div>
+        </section>
+
+        <!-- ============ ANNOUNCEMENTS ============ -->
+        <section class="mt-10">
+            <div class="surface rounded-lg p-6">
+                <h2 class="text-lg font-bold tracking-tight mb-3">Announcements</h2>
+                <ul id="notices"></ul>
+            </div>
+        </section>
+
+        <!-- ============ TRUST LINE ============ -->
+        <section class="mt-10">
+            <div class="flex items-start gap-3 rounded-lg border hair-soft p-4">
+                <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
+                <p class="text-sm muted">
+                    <span class="font-medium text-[var(--ink)]">Your logbook is yours.</span>
+                    Your hours and flights stay in <span id="trustName">your VA’s</span> own space — Inflight just helps you fly.
+                </p>
+            </div>
+        </section>
+
+        <footer class="mt-10 flex items-center justify-center gap-2 opacity-80">
+            <span class="text-[11px] font-medium tracking-wide faint">Powered by</span>
+            <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
+            <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
+        </footer>
+    </main>
+
+    <script>
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+        function applyThemeIcon(){
+            const dark=document.documentElement.classList.contains('dark');
+            const el=document.getElementById('themeIcon');
+            if(el) el.innerHTML=`<i data-lucide="${dark?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
+            if(window.lucide) lucide.createIcons();
+        }
+        function toggleTheme(){
+            const dark=document.documentElement.classList.toggle('dark');
+            try{ localStorage.setItem('crew-theme', dark?'dark':'light'); }catch{}
+            applyThemeIcon();
+        }
+        (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{}
+            const dark=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark',dark);
+        })();
+
+        function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
+        function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
+        function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
+        function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1])return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
+
+        // ---- Pilot quick actions ----
+        const ACTIONS=[
+            {icon:'clipboard-pen',label:'File a PIREP',desc:'Log a flight'},
+            {icon:'route',label:'Book a flight',desc:'Pick a route'},
+            {icon:'calendar-days',label:'Events',desc:'Join group flights'},
+            {icon:'notebook-tabs',label:'My logbook',desc:'Your flight history'},
+        ];
+        function renderActions(){
+            document.getElementById('quickGrid').innerHTML=ACTIONS.map(t=>`
+                <a class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
+                    <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
+                    <div>
+                        <div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div>
+                        <div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div>
+                    </div>
+                </a>`).join('');
+        }
+        // ---- Recent flights ----
+        const FLIGHTS=[
+            {cs:'ACA1174', route:'CYYZ → CYVR', ac:'A333', dur:'4h 51m', status:'Approved'},
+            {cs:'ACA085',  route:'CYYZ → EGLL', ac:'B789', dur:'7h 02m', status:'Approved'},
+            {cs:'ACA1102', route:'CYUL → KLGA', ac:'A220', dur:'1h 18m', status:'Pending'},
+            {cs:'ACA872',  route:'CYVR → RJTT', ac:'B789', dur:'10h 24m', status:'Approved'},
+        ];
+        function renderFlights(){
+            document.getElementById('flights').innerHTML=FLIGHTS.map((f,i)=>`
+                <li class="flex items-center gap-3 py-3 ${i?'border-t hair-soft':''}">
+                    <span class="muted shrink-0"><i data-lucide="plane" class="w-[18px] h-[18px]"></i></span>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium truncate">${escapeHtml(f.route)}</div>
+                        <div class="text-xs faint">${escapeHtml(f.cs)} · ${escapeHtml(f.ac)}</div>
+                    </div>
+                    <span class="text-sm muted tabular-nums">${escapeHtml(f.dur)}</span>
+                    <span class="text-[11px] font-semibold px-2 py-0.5 rounded ${f.status==='Approved'?'':'border hair'}"
+                          style="${f.status==='Approved'?'color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)':'color:var(--muted)'}">${escapeHtml(f.status)}</span>
+                </li>`).join('');
+        }
+        // ---- Events ----
+        const EVENTS=[
+            {name:'Transcon Group Flight', route:'CYYZ → KLAX', when:'Sat · 22:00Z', going:34},
+            {name:'Maple Milk Run', route:'CYUL → CYYZ', when:'Sun · 18:00Z', going:21},
+            {name:'Pacific Overnighter', route:'CYVR → PHNL', when:'Wed · 06:00Z', going:12},
+        ];
+        function renderEvents(){
+            document.getElementById('events').innerHTML=EVENTS.map(e=>`
+                <div class="surface rounded-lg overflow-hidden flex flex-col">
+                    <div class="h-20 accent-bg opacity-90 flex items-end p-3"><span class="text-white text-sm font-semibold">${escapeHtml(e.name)}</span></div>
+                    <div class="p-4 flex-1 flex flex-col">
+                        <div class="flex items-center gap-2 text-sm muted"><i data-lucide="map-pin" class="w-4 h-4"></i> ${escapeHtml(e.route)}</div>
+                        <div class="flex items-center gap-2 text-sm muted mt-1.5"><i data-lucide="calendar-clock" class="w-4 h-4"></i> ${escapeHtml(e.when)}</div>
+                        <div class="flex items-center justify-between mt-4">
+                            <span class="text-xs faint">${e.going} going</span>
+                            <button class="accent-bg text-white text-xs font-semibold px-3.5 py-1.5 rounded-md hover:opacity-90 transition">Sign up</button>
+                        </div>
+                    </div>
+                </div>`).join('');
+        }
+        // ---- Announcements ----
+        const NOTICES=[
+            {text:'<b>July schedule</b> is live — new CYYZ overnight rotations.', when:'2d ago'},
+            {text:'Reminder: log PIREPs within <b>48 hours</b> of landing.', when:'5d ago'},
+        ];
+        function renderNotices(){
+            document.getElementById('notices').innerHTML=NOTICES.map((n,i)=>`
+                <li class="flex items-start gap-3 py-3 ${i?'border-t hair-soft':''}">
+                    <span class="muted shrink-0 mt-0.5"><i data-lucide="megaphone" class="w-[18px] h-[18px]"></i></span>
+                    <span class="text-sm flex-1">${n.text}</span>
+                    <span class="text-xs faint shrink-0">${n.when}</span>
+                </li>`).join('');
+        }
+
+        // ---- Branding (same source as the owner dashboard) ----
+        async function resolveBranding(){
+            const q=new URLSearchParams(location.search);
+            const ov={name:q.get('name')||'',accent:q.get('accent')||'',banner:q.get('banner')||'',logo:q.get('logo')||''};
+            if(ov.name||ov.accent||ov.banner||ov.logo) return {...ov,code:(q.get('va')||'').toUpperCase()};
+            const slug=getSlug(); if(!slug) return null;
+            try{
+                const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),8000);
+                const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'},signal:ctrl.signal});
+                clearTimeout(t); if(!res.ok) return null; return await res.json();
+            }catch{return null;}
+        }
+        function applyBranding(b){
+            if(!b) return;
+            if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            const name=b.name||b.code||'';
+            if(name){
+                document.getElementById('navName').textContent=name;
+                document.getElementById('trustName').textContent=`${name}’s`;
+                document.title=`${name} · Crew Center — Inflight`;
+                document.getElementById('navMonogram').textContent=initials(name,b.code);
+            }
+            if(b.code){const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden');}
+            if(b.logo && isSafeImageUrl(b.logo)){
+                const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
+                el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
+            }
+            if(b.banner && isSafeImageUrl(b.banner)){
+                document.getElementById('heroImg').src=b.banner;
+                document.getElementById('heroImg').classList.remove('hidden');
+                document.getElementById('heroFallback').classList.add('hidden');
+            }
+        }
+
+        // ---- Signed-in identity (from the login's stored session) ----
+        function readSession(){
+            let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
+            if(!s||!s.name) return;
+            document.getElementById('meName').textContent=s.name;
+            document.getElementById('meRole').textContent='Pilot';
+            document.getElementById('meAvatar').textContent=initials(s.name,'');
+        }
+        function logout(){
+            try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{}
+            const s=getSlug(); location.href = s ? `/crew/${encodeURIComponent(s)}` : '/crew';
+        }
+
+        (async function(){
+            renderActions(); renderFlights(); renderEvents(); renderNotices(); readSession();
+            applyBranding(await resolveBranding());
+            applyThemeIcon();
+            if(window.lucide) lucide.createIcons();
+        })();
+    </script>
+</body>
+</html>
