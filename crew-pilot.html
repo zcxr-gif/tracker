@@ -254,19 +254,10 @@
         // Live map behind the hero (free MapLibre embed, no Mapbox token/billing),
         // re-pointed on theme change so it follows the light/dark toggle.
         function applyEmbeds(){
-            if(!CREW_CODE) return;
+            // No map behind the header anymore — the pilot hero keeps a clean
+            // banner. (Full pilot rebuild with an in-content live map follows.)
             const wrap = document.getElementById('heroMapWrap');
-            if(CREW_LAYOUT === 'classic'){   // classic keeps the VA banner behind the hero
-                wrap.classList.add('hidden');
-                document.getElementById('heroMap').removeAttribute('src');
-                return;
-            }
-            const t = isDark() ? 'dark' : 'light';
-            document.getElementById('heroMap').src =
-                `/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`;
-            wrap.classList.remove('hidden');
-            document.getElementById('heroFallback').classList.add('hidden');
-            document.getElementById('heroImg').classList.add('hidden');
+            if(wrap) wrap.classList.add('hidden');
         }
 
         function toggleTheme(){

@@ -9,8 +9,6 @@
     <script>tailwind.config = { darkMode: 'class' };</script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-        /* Warm, essential palette — paper whites + warm grays, one accent.
-           Everything reads off CSS variables so light/dark both stay warm. */
         :root{
             --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4;
             --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#1C1A16;
@@ -25,68 +23,102 @@
         [data-lucide]{ width:1.15em; height:1.15em; }
         svg.lucide{ stroke-width:1.6; }
         .surface{ background:var(--surface); border:1px solid var(--line); }
-        .hair{ border-color:var(--line); }
-        .hair-soft{ border-color:var(--line-soft); }
+        .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
         .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
-        /* Essential tile: flat, hairline, the quietest possible hover. */
-        .tile{ transition:border-color .2s, background .2s, transform .2s; }
+        .tile{ transition:border-color .2s, transform .2s; }
         .tile:hover{ border-color:var(--ink); transform:translateY(-2px); }
         .fade-in{ animation:fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
         @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
         ::placeholder{ color:var(--faint); }
         input{ font-family:inherit; }
-
-        /* --- Polish: consistent focus ring, tabular figures, motion safety --- */
-        a:focus-visible, button:focus-visible, input:focus-visible {
-            outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
-        }
         .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
-        @media (prefers-reduced-motion: reduce){
-            *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
-        }
+        a:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+        @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
 
         /* =====================================================================
-           LAYOUT PRESETS — one crew center, several staff-allowed arrangements.
-           Driven by <html data-layout="…">. Editorial is the default (no rules).
-           Same markup + data; presets only reshape hero, density and grid.
+           LAYOUT ENGINE — named grid regions, one arrangement per preset.
+           Same blocks (identity/stats/live/tools/activity/event/trust); each
+           layout gives them a genuinely different grid-template-areas. Mobile
+           always collapses to a single stacked column.
            ===================================================================== */
-        /* Compact — denser, shorter hero, tighter rhythm. */
-        :root[data-layout="compact"] #hero{ height:300px; }
-        @media (min-width:640px){ :root[data-layout="compact"] #hero{ height:340px; } }
-        :root[data-layout="compact"] main > section{ margin-top:1.5rem; }
-        :root[data-layout="compact"] #heroName{ font-size:1.875rem; line-height:1.1; }
-        :root[data-layout="compact"] .tile{ padding:1rem; }
-        :root[data-layout="compact"] .pad{ padding:1rem 1.25rem; }
+        .crew-grid{ display:grid; gap:1rem; grid-template-columns:1fr;
+            grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+        .r-identity{ grid-area:identity; } .r-stats{ grid-area:stats; } .r-live{ grid-area:live; }
+        .r-tools{ grid-area:tools; } .r-activity{ grid-area:activity; } .r-event{ grid-area:event; } .r-trust{ grid-area:trust; }
+        .r-live{ min-height:320px; } .r-live iframe{ width:100%; height:100%; min-height:320px; border:0; display:block; }
 
-        /* Focus — minimal: hero + live + numbers only (rest hidden via JS). */
-        :root[data-layout="focus"] #hero{ height:440px; }
-        @media (min-width:640px){ :root[data-layout="focus"] #hero{ height:520px; } }
+        @media (min-width:1024px){
+            /* Editorial — a calm, single-column editorial flow. */
+            :root[data-layout="editorial"] .crew-grid{
+                grid-template-columns:minmax(0,1fr);
+                grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+            :root[data-layout="editorial"] #toolGrid{ grid-template-columns:repeat(4,minmax(0,1fr)); }
 
-        /* Classic — banner hero (no live map, set in JS), softer rounded cards. */
-        :root[data-layout="classic"] .surface{ border-radius:1rem; }
-        :root[data-layout="classic"] #hero{ border-bottom-left-radius:1.25rem; border-bottom-right-radius:1.25rem; }
-        :root[data-layout="classic"] .tile{ border-radius:1rem; }
+            /* Console — left tool rail + a bento of widgets. An ops console. */
+            :root[data-layout="console"] .crew-grid{
+                grid-template-columns:250px minmax(0,1fr) minmax(0,1fr);
+                grid-template-areas:
+                    "identity identity identity"
+                    "tools    stats    stats"
+                    "tools    live     live"
+                    "tools    activity event"
+                    "trust    trust    trust"; }
+            :root[data-layout="console"] #toolGrid{ grid-template-columns:1fr; }   /* vertical rail */
+            :root[data-layout="console"] .r-tools{ align-self:start; position:sticky; top:5rem; }
+
+            /* Split — map-led two columns: a tall live map beside a control stack. */
+            :root[data-layout="split"] .crew-grid{
+                grid-template-columns:1.5fr 1fr;
+                grid-template-areas:
+                    "identity identity"
+                    "live     stats"
+                    "live     tools"
+                    "activity event"
+                    "trust    trust"; }
+            :root[data-layout="split"] #toolGrid{ grid-template-columns:1fr; }
+            :root[data-layout="split"] .r-live{ min-height:520px; }
+
+            /* Classic — main column + right sidebar, map as a full-width band. */
+            :root[data-layout="classic"] .crew-grid{
+                grid-template-columns:minmax(0,1fr) 320px;
+                grid-template-areas:
+                    "identity identity"
+                    "tools    stats"
+                    "activity stats"
+                    "activity event"
+                    "live     live"
+                    "trust    trust"; }
+            :root[data-layout="classic"] #toolGrid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+            :root[data-layout="classic"] .surface{ border-radius:1rem; }
+        }
+
+        /* Settings slide-over */
+        #settings{ transition:opacity .25s; }
+        #settings .panel{ transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+        #settings.hidden{ display:none; }
+        .lyt-opt{ transition:border-color .2s, background .2s; }
+        .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
+        .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
     </style>
 </head>
 <body class="min-h-screen antialiased">
 
     <!--
-      Crew Center — dashboard LOOK-MOCK (the "inside"), warm-essential rebuild.
-      Static + placeholder only: no auth, no real data. Warm paper palette, hairline
-      rules, rectilinear, a single sparing accent. Branding resolves the same way as
-      the login (?name/logo/banner/accent overrides, or the VA record by slug).
+      Crew Center — owner/staff dashboard. Warm-essential look; a real layout
+      engine (grid regions, one arrangement per staff-allowed preset) and a
+      working Settings panel that switches layout live + persists. Branding +
+      layout resolve from ?params (preview) or the VA record by slug.
     -->
 
     <!-- ============ TOP BAR ============ -->
-    <header class="sticky top-0 z-40 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
+    <header class="sticky top-0 z-30 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
         <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
             <div class="flex items-center gap-2.5 min-w-0">
                 <img id="navLogo" alt="" class="hidden h-7 w-auto max-w-[130px] object-contain">
                 <div id="navMonogram" class="accent-bg w-8 h-8 rounded-md grid place-items-center text-white text-sm font-bold shrink-0">VA</div>
                 <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
             </div>
-
             <div class="hidden sm:flex flex-1 max-w-sm mx-auto">
                 <div class="relative w-full">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
@@ -94,15 +126,9 @@
                         class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
-
             <div class="flex items-center gap-1 ml-auto">
-                <button class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications">
-                    <i data-lucide="bell" class="w-[18px] h-[18px]"></i>
-                    <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full accent-bg"></span>
-                </button>
-                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme">
-                    <span id="themeIcon"></span>
-                </button>
+                <button onclick="openSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Settings"><i data-lucide="settings" class="w-[18px] h-[18px]"></i></button>
+                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme"><span id="themeIcon"></span></button>
                 <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
                     <div class="text-right hidden sm:block leading-tight">
                         <div id="meName" class="text-sm font-medium">Alex Rivera</div>
@@ -114,91 +140,67 @@
         </div>
     </header>
 
-    <!-- ============ HERO (full-bleed, editorial) ============ -->
-    <section id="hero" class="relative w-full h-[380px] sm:h-[460px] overflow-hidden bg-[var(--surface)] fade-in">
-        <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
-        <div id="heroFallback" class="absolute inset-0 accent-bg opacity-[0.08]"></div>
-        <!-- The VA's live map (free MapLibre embed) sits behind the hero text. -->
-        <div id="heroMapWrap" class="hidden absolute inset-0 pointer-events-none">
-            <iframe id="heroMap" title="Live traffic" class="w-full h-full border-0" loading="lazy" scrolling="no"></iframe>
-        </div>
-        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.2) 45%, rgba(0,0,0,.15) 100%);"></div>
-        <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col justify-end pb-9">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.14em] text-white/95 bg-white/15 backdrop-blur px-2.5 py-1 rounded">
-                    <span class="w-1.5 h-1.5 rounded-full accent-bg" style="--accent:#fff;"></span> Recruiting
-                </span>
-                <span id="heroCode" class="hidden text-[11px] font-semibold uppercase tracking-[.14em] text-white/70"></span>
-            </div>
-            <h1 id="heroName" class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-[1.05]">Crew Center</h1>
-            <p id="heroTagline" class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg">Your crew, your operation — kept simple, kept yours.</p>
-            <div class="flex flex-wrap items-center gap-2.5 mt-6">
-                <button class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
-                    <i data-lucide="users" class="w-4 h-4"></i> Open roster
-                </button>
-                <button class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">View schedule</button>
-            </div>
-        </div>
-    </section>
+    <main class="max-w-6xl mx-auto px-5 py-6">
+        <div id="grid" class="crew-grid fade-in">
 
-    <main class="max-w-6xl mx-auto px-5 pb-16">
+            <!-- IDENTITY -->
+            <section class="r-identity relative overflow-hidden surface rounded-xl">
+                <img id="identityBg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
+                <div id="identityTint" class="absolute inset-0 accent-bg opacity-[0.10]"></div>
+                <div class="absolute inset-0" style="background:linear-gradient(105deg, color-mix(in srgb, var(--surface) 92%, transparent), transparent 65%);"></div>
+                <div class="relative p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-5">
+                    <img id="idLogo" alt="" class="hidden h-14 w-auto max-w-[180px] object-contain">
+                    <div id="idMonogram" class="accent-bg w-14 h-14 rounded-xl grid place-items-center text-white text-xl font-black shrink-0">VA</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.12em] muted"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Recruiting</span>
+                            <span id="idCode" class="hidden text-[11px] font-semibold uppercase tracking-[.12em] faint"></span>
+                        </div>
+                        <h1 id="idName" class="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight">Crew Center</h1>
+                        <p id="idTagline" class="muted text-sm mt-1 max-w-lg">Your crew, your operation — kept simple, kept yours.</p>
+                    </div>
+                    <div class="flex sm:flex-col gap-2 shrink-0">
+                        <button class="accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2 justify-center"><i data-lucide="users" class="w-4 h-4"></i> Roster</button>
+                        <button class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
+                    </div>
+                </div>
+            </section>
 
-        <!-- ============ OVERVIEW (spec-row, hairline dividers) ============ -->
-        <section id="overview" class="mt-8">
-            <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Active pilots</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">128</div>
-                    <div class="text-xs muted mt-1">+6 this week</div>
-                </div>
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">1,402</div>
-                    <div class="text-xs muted mt-1">312 this week</div>
-                </div>
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours flown</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">3,984</div>
-                    <div class="text-xs muted mt-1">Season to date</div>
-                </div>
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Upcoming events</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">3</div>
-                    <div class="text-xs accent-text font-medium mt-1">Next in 2 days</div>
-                </div>
-            </div>
-        </section>
+            <!-- STATS -->
+            <section class="r-stats surface rounded-xl grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 hair overflow-hidden">
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Active pilots</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">128</div><div class="text-xs muted mt-1">+6 this week</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">1,402</div><div class="text-xs muted mt-1">312 this week</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours flown</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">3,984</div><div class="text-xs muted mt-1">Season</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Upcoming</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">3</div><div class="text-xs accent-text font-medium mt-1">Next in 2 days</div></div>
+            </section>
 
-        <!-- ============ LIVE FLIGHTS (VA's own embed) ============ -->
-        <section id="liveWrap" class="hidden mt-10">
-            <div class="flex items-end justify-between mb-4">
-                <h2 class="text-lg font-bold tracking-tight">Live flights</h2>
-                <span class="inline-flex items-center gap-1.5 text-xs faint"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live from Infinite Flight</span>
-            </div>
-            <div class="surface rounded-lg overflow-hidden">
-                <iframe id="liveEmbed" title="Live flights" class="w-full border-0 block" style="height:440px" loading="lazy"></iframe>
-            </div>
-        </section>
-
-        <!-- ============ MANAGE (essential category grid) ============ -->
-        <section id="manage" class="mt-10">
-            <div class="flex items-end justify-between mb-4">
-                <h2 class="text-lg font-bold tracking-tight">Manage</h2>
-                <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">Customize</a>
-            </div>
-            <div id="tileGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
-        </section>
-
-        <!-- ============ ACTIVITY + NEXT EVENT ============ -->
-        <section id="feed" class="mt-10 grid lg:grid-cols-3 gap-4">
-            <div class="surface rounded-lg p-6 lg:col-span-2">
-                <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-lg font-bold tracking-tight">Recent activity</h2>
-                    <a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">View all</a>
+            <!-- LIVE MAP (moved here from behind the hero) -->
+            <section class="r-live surface rounded-xl overflow-hidden flex flex-col">
+                <div class="flex items-center justify-between px-4 py-2.5 border-b hair-soft">
+                    <span class="text-sm font-semibold tracking-tight">Live flights</span>
+                    <span class="inline-flex items-center gap-1.5 text-xs faint"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live · Infinite Flight</span>
                 </div>
+                <div id="liveHost" class="flex-1 grid place-items-center text-sm faint p-6">Connect a callsign to see live traffic.</div>
+                <iframe id="liveMap" title="Live flights" class="hidden" loading="lazy" scrolling="no"></iframe>
+            </section>
+
+            <!-- TOOLS -->
+            <section class="r-tools">
+                <div class="flex items-end justify-between mb-3">
+                    <h2 class="text-lg font-bold tracking-tight">Manage</h2>
+                    <button onclick="openSettings()" class="text-sm accent-text font-semibold hover:opacity-80">Customize</button>
+                </div>
+                <div id="toolGrid" class="grid grid-cols-2 gap-3"></div>
+            </section>
+
+            <!-- ACTIVITY -->
+            <section class="r-activity surface rounded-xl p-6">
+                <div class="flex items-center justify-between mb-3"><h2 class="text-lg font-bold tracking-tight">Recent activity</h2><a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">View all</a></div>
                 <ul id="activity"></ul>
-            </div>
-            <div class="surface rounded-lg p-6">
+            </section>
+
+            <!-- EVENT -->
+            <section class="r-event surface rounded-xl p-6">
                 <h2 class="text-lg font-bold tracking-tight mb-3">Next event</h2>
                 <div class="text-base font-semibold">Transcon Group Flight</div>
                 <div class="mt-3 space-y-2">
@@ -207,101 +209,86 @@
                     <div class="flex items-center gap-2 text-sm muted"><i data-lucide="users" class="w-4 h-4"></i> 34 signed up</div>
                 </div>
                 <button class="mt-5 w-full accent-bg text-white text-sm font-semibold py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition">Manage event</button>
-            </div>
-        </section>
+            </section>
 
-        <!-- ============ TRUST LINE ============ -->
-        <section id="trust" class="mt-10">
-            <div class="flex items-start gap-3 rounded-lg border hair-soft p-4">
-                <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
-                <p class="text-sm muted">
-                    <span class="font-medium text-[var(--ink)]">Private to your crew.</span>
-                    Your roster, flights and events live in <span id="trustName">your own</span> space — Inflight helps run it, it stays yours.
-                </p>
-            </div>
-        </section>
+            <!-- TRUST -->
+            <section class="r-trust">
+                <div class="flex items-start gap-3 rounded-xl border hair-soft p-4">
+                    <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
+                    <p class="text-sm muted"><span class="font-medium text-[var(--ink)]">Private to your crew.</span> Your roster, flights and events live in <span id="trustName">your own</span> space — Inflight helps run it, it stays yours.</p>
+                </div>
+            </section>
+        </div>
 
-        <!-- Footer -->
-        <footer class="mt-10 flex items-center justify-center gap-2 opacity-80">
+        <footer class="mt-8 flex items-center justify-center gap-2 opacity-80">
             <span class="text-[11px] font-medium tracking-wide faint">Powered by</span>
             <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
             <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
         </footer>
     </main>
 
+    <!-- ============ SETTINGS SLIDE-OVER ============ -->
+    <div id="settings" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closeSettings()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-sm surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Settings</span></div>
+                <button onclick="closeSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="p-5 space-y-6">
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
+                    <div id="layoutOpts" class="space-y-2.5"></div>
+                    <p id="layoutLocked" class="hidden text-xs muted mt-3"></p>
+                </div>
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Appearance</h3>
+                    <button onclick="toggleTheme()" class="w-full flex items-center justify-between surface hair rounded-lg px-4 py-3 hover:border-[var(--ink)] transition">
+                        <span class="text-sm font-medium">Theme</span>
+                        <span id="themeLabel" class="text-sm muted">System</span>
+                    </button>
+                </div>
+                <p id="settingsNote" class="hidden text-sm"></p>
+            </div>
+        </div>
+    </div>
+
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-        let CREW_CODE = '';   // VA callsign — drives the live embeds
-        let CREW_LAYOUT = 'editorial';
+        let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
 
-        // Staff-allowed layout presets. Chosen per VA (stored server-side later);
-        // ?layout=<preset> overrides for preview.
-        const LAYOUTS = ['editorial','compact','focus','classic'];
-        function resolveLayout(b){
-            const q=(new URLSearchParams(location.search).get('layout')||'').toLowerCase();
-            const l=(q || (b&&b.layout) || 'editorial').toLowerCase();
-            return LAYOUTS.includes(l) ? l : 'editorial';
-        }
-        function applyLayout(layout){
-            CREW_LAYOUT = layout;
-            document.documentElement.setAttribute('data-layout', layout);
-            // Focus preset trims to the essentials: hero + numbers + live flights.
-            const trim = layout==='focus';
-            ['manage','feed','trust'].forEach(id=>{
-                const el=document.getElementById(id);
-                if(el) el.classList.toggle('hidden', trim);
-            });
-        }
+        const LAYOUT_META = {
+            editorial: { name:'Editorial', desc:'Calm single-column flow' },
+            console:   { name:'Console',   desc:'Tool rail + widget bento' },
+            split:     { name:'Split',     desc:'Map-led two columns' },
+            classic:   { name:'Classic',   desc:'Main column + sidebar' },
+        };
 
+        // ---- Theme ----
+        function isDark(){ return document.documentElement.classList.contains('dark'); }
         function applyThemeIcon(){
-            const dark=document.documentElement.classList.contains('dark');
             const el=document.getElementById('themeIcon');
-            if(el) el.innerHTML=`<i data-lucide="${dark?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
+            if(el) el.innerHTML=`<i data-lucide="${isDark()?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
+            const lbl=document.getElementById('themeLabel'); if(lbl) lbl.textContent=isDark()?'Dark':'Light';
             if(window.lucide) lucide.createIcons();
         }
-        function isDark(){ return document.documentElement.classList.contains('dark'); }
-
-        // Live embeds (free MapLibre map behind the hero + a live roster card),
-        // driven by the VA callsign. Re-pointed on theme change so they follow the
-        // light/dark toggle. No Mapbox token needed, so no billing.
-        function applyEmbeds(){
-            if(!CREW_CODE) return;
-            const t = isDark() ? 'dark' : 'light';
-            const base = `/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off`;
-            const wrap = document.getElementById('heroMapWrap');
-            // Classic keeps the VA banner behind the hero; every other layout uses
-            // the live map.
-            if(CREW_LAYOUT === 'classic'){
-                wrap.classList.add('hidden');
-                document.getElementById('heroMap').removeAttribute('src');
-            } else {
-                document.getElementById('heroMap').src = `${base}&mode=map&theme=${t}&freeStyle=${t}`;
-                wrap.classList.remove('hidden');
-                document.getElementById('heroFallback').classList.add('hidden');
-                document.getElementById('heroImg').classList.add('hidden');
-            }
-            // Live roster card — shown in every layout.
-            document.getElementById('liveEmbed').src = `${base}&mode=roster&theme=${t}`;
-            document.getElementById('liveWrap').classList.remove('hidden');
-        }
-
         function toggleTheme(){
-            const dark=document.documentElement.classList.toggle('dark');
-            try{ localStorage.setItem('crew-theme', dark?'dark':'light'); }catch{}
-            applyThemeIcon();
-            applyEmbeds(); // keep the live embeds in step with light/dark
+            const d=document.documentElement.classList.toggle('dark');
+            try{ localStorage.setItem('crew-theme', d?'dark':'light'); }catch{}
+            applyThemeIcon(); applyEmbeds();
         }
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{}
-            const dark=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle('dark',dark);
-        })();
+            const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark',d); })();
 
-        function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        // ---- Helpers ----
+        function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
         function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
         function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
         function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
         function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1])return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
 
+        // ---- Tiles ----
         const TOOLS=[
             {icon:'users',label:'Roster',desc:'Pilots & ranks'},
             {icon:'calendar-clock',label:'Schedules',desc:'Rosters & bookings'},
@@ -310,70 +297,149 @@
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership'},
-            {icon:'settings',label:'Settings',desc:'Branding & data'},
+            {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         function renderTiles(){
-            document.getElementById('tileGrid').innerHTML=TOOLS.map(t=>`
-                <a class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
+            document.getElementById('toolGrid').innerHTML=TOOLS.map((t,i)=>`
+                <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
-                    <div>
-                        <div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div>
-                        <div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div>
-                    </div>
+                    <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
                 </a>`).join('');
+            document.querySelectorAll('#toolGrid [data-i]').forEach(el=>{
+                const t=TOOLS[+el.getAttribute('data-i')];
+                if(t.action==='settings') el.addEventListener('click', openSettings);
+            });
         }
         const ACTIVITY=[
             {icon:'user-plus',text:'<b>Jordan Lee</b> joined as First Officer',when:'2h ago'},
             {icon:'plane-landing',text:'<b>ACA412</b> landed at EGLL · 8h 12m',when:'5h ago'},
             {icon:'badge-check',text:'<b>Sam Park</b> promoted to Captain',when:'Yesterday'},
             {icon:'calendar-plus',text:'New event <b>Transcon Group Flight</b>',when:'Yesterday'},
-            {icon:'megaphone',text:'Announcement <b>July schedule</b> posted',when:'2d ago'},
         ];
         function renderActivity(){
             document.getElementById('activity').innerHTML=ACTIVITY.map((a,i)=>`
                 <li class="flex items-center gap-3 py-3 ${i?'border-t hair-soft':''}">
                     <span class="muted shrink-0"><i data-lucide="${a.icon}" class="w-[18px] h-[18px]"></i></span>
-                    <span class="text-sm flex-1">${a.text}</span>
-                    <span class="text-xs faint shrink-0">${a.when}</span>
+                    <span class="text-sm flex-1">${a.text}</span><span class="text-xs faint shrink-0">${a.when}</span>
                 </li>`).join('');
         }
 
+        // ---- Live map (in content; theme-synced; no Mapbox token/billing) ----
+        function applyEmbeds(){
+            if(!CREW_CODE) return;
+            const t=isDark()?'dark':'light';
+            document.getElementById('liveMap').src=`/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`;
+            document.getElementById('liveMap').classList.remove('hidden');
+            document.getElementById('liveHost').classList.add('hidden');
+        }
+
+        // ---- Layout ----
+        function resolveLayout(b){
+            const q=(new URLSearchParams(location.search).get('layout')||'').toLowerCase();
+            let stored=''; try{ stored=localStorage.getItem('crew:layout:'+getSlug())||''; }catch{}
+            const cand=(q || stored || (b&&b.layout) || 'editorial').toLowerCase();
+            return ALLOWED.includes(cand) ? cand : (ALLOWED[0]||'editorial');
+        }
+        function applyLayout(layout){
+            CREW_LAYOUT=layout;
+            document.documentElement.setAttribute('data-layout', layout);
+            renderLayoutOpts();
+        }
+        function renderLayoutOpts(){
+            const host=document.getElementById('layoutOpts');
+            host.innerHTML=ALLOWED.map(k=>{
+                const m=LAYOUT_META[k]||{name:k,desc:''};
+                const on=k===CREW_LAYOUT;
+                return `<button role="radio" aria-checked="${on}" data-layout="${k}"
+                    class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span class="min-w-0"><span class="block text-sm font-semibold">${escapeHtml(m.name)}</span>
+                    <span class="block text-xs muted">${escapeHtml(m.desc)}</span></span></button>`;
+            }).join('');
+            host.querySelectorAll('[data-layout]').forEach(b=>b.addEventListener('click',()=>chooseLayout(b.getAttribute('data-layout'))));
+            const locked=document.getElementById('layoutLocked');
+            if(ALLOWED.length<=1){ locked.textContent='Your Inflight staff have set this layout.'; locked.classList.remove('hidden'); }
+            else locked.classList.add('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+        async function chooseLayout(k){
+            if(!ALLOWED.includes(k)) return;
+            applyLayout(k);                                   // live, instant
+            try{ localStorage.setItem('crew:layout:'+getSlug(), k); }catch{}
+            saveSettings({ layout:k });                       // persist for the whole crew (best-effort)
+        }
+
+        // ---- Settings panel ----
+        function openSettings(){
+            const s=document.getElementById('settings');
+            s.classList.remove('hidden');
+            requestAnimationFrame(()=>s.querySelector('.panel').classList.remove('translate-x-full'));
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeSettings(){
+            const s=document.getElementById('settings');
+            s.querySelector('.panel').classList.add('translate-x-full');
+            setTimeout(()=>s.classList.add('hidden'),300);
+        }
+        function sessionToken(){ try{ return (JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null')||{}).token||''; }catch{ return ''; } }
+        async function saveSettings(patch){
+            const note=document.getElementById('settingsNote');
+            const token=sessionToken(); const slug=getSlug();
+            if(!slug || !token){ // preview / not signed in — the live change already applied and cached locally
+                note.textContent='Applied on this device. Sign in to save it for your whole crew.';
+                note.className='text-sm muted'; note.classList.remove('hidden'); return;
+            }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify(patch) });
+                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device (couldn’t sync to the server).'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        // ---- Branding ----
         async function resolveBranding(){
             const q=new URLSearchParams(location.search);
             const ov={name:q.get('name')||'',accent:q.get('accent')||'',banner:q.get('banner')||'',logo:q.get('logo')||''};
             if(ov.name||ov.accent||ov.banner||ov.logo) return {...ov,code:(q.get('va')||'').toUpperCase()};
             const slug=getSlug(); if(!slug) return null;
             try{
-                const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),8000);
+                const ctrl=new AbortController();const tm=setTimeout(()=>ctrl.abort(),8000);
                 const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'},signal:ctrl.signal});
-                clearTimeout(t); if(!res.ok) return null; return await res.json();
+                clearTimeout(tm); if(!res.ok) return null; return await res.json();
             }catch{return null;}
         }
         function applyBranding(b){
             if(!b) return;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
+                ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
+                if(!ALLOWED.length) ALLOWED=['editorial'];
+            }
             const name=b.name||b.code||'';
+            const mono=initials(name,b.code);
             if(name){
                 document.getElementById('navName').textContent=name;
-                document.getElementById('heroName').textContent=name;
+                document.getElementById('idName').textContent=name;
                 document.getElementById('trustName').textContent=`${name}’s`;
                 document.title=`${name} · Crew Center — Inflight`;
-                document.getElementById('navMonogram').textContent=initials(name,b.code);
+                document.getElementById('navMonogram').textContent=mono;
+                document.getElementById('idMonogram').textContent=mono;
             }
-            if(b.tagline) document.getElementById('heroTagline').textContent=b.tagline;
-            if(b.code){ CREW_CODE=b.code; const c=document.getElementById('heroCode');c.textContent=b.code;c.classList.remove('hidden'); }
+            if(b.tagline) document.getElementById('idTagline').textContent=b.tagline;
+            if(b.code){ CREW_CODE=b.code; const c=document.getElementById('idCode'); c.textContent=b.code; c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
-                const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
-                el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
+                document.getElementById('navLogo').src=b.logo; document.getElementById('navLogo').classList.remove('hidden'); document.getElementById('navMonogram').classList.add('hidden');
+                document.getElementById('idLogo').src=b.logo; document.getElementById('idLogo').classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }
             if(b.banner && isSafeImageUrl(b.banner)){
-                document.getElementById('heroImg').src=b.banner;
-                document.getElementById('heroImg').classList.remove('hidden');
-                document.getElementById('heroFallback').classList.add('hidden');
+                document.getElementById('identityBg').src=b.banner; document.getElementById('identityBg').classList.remove('hidden'); document.getElementById('identityTint').classList.add('hidden');
             }
         }
 
-        // ---- Signed-in identity (from the login's stored session) ----
+        // ---- Session ----
         const ROLE_LABEL={owner:'Owner',staff:'Staff',pilot:'Pilot',inflight:'Inflight'};
         function readSession(){
             let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
@@ -382,17 +448,16 @@
             document.getElementById('meRole').textContent=s.oversight?'Inflight · Oversight':(ROLE_LABEL[s.role]||'Member');
             document.getElementById('meAvatar').textContent=initials(s.name,'');
         }
-        function logout(){
-            try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{}
-            const s=getSlug(); location.href = s ? `/crew/${encodeURIComponent(s)}` : '/crew';
-        }
+        function logout(){ try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{} const s=getSlug(); location.href=s?`/crew/${encodeURIComponent(s)}`:'/crew'; }
 
+        // ---- Boot ----
+        document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSettings(); });
         (async function(){
             renderTiles(); renderActivity(); readSession();
             const b = await resolveBranding();
             applyBranding(b);
-            applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
-            applyEmbeds();                   // hero map / banner + live roster, per layout
+            applyLayout(resolveLayout(b));
+            applyEmbeds();
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
