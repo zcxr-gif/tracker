@@ -44,9 +44,11 @@
       next brick connects this form to the VA's OWN Supabase project (bring-your-
       own; the VA sets it up and owns the data, inflight retains an owner login).
 
-      Per-VA branding is resolved by applyBranding() below. For now it reads from
-      URL query params so we can preview any VA's look without a backend:
-          crew.html?va=OCEAN&name=Ocean%20Virtual&accent=%230b6bcb&banner=<url>
+      Per-VA branding is resolved by applyBranding() below. It falls back to an
+      example registry (Air Canada Virtual) and can be overridden per-preview via
+      URL query params, so any VA's look can be checked without a backend:
+          crew.html?va=ACVA
+          crew.html?name=Air%20Canada%20Virtual&accent=%23D22630&banner=<url>
       Later, applyBranding() will fetch the same fields from the VA's config so
       only the VA's own banner shows on their login — with a small "Powered by
       Inflight" mark underneath.
@@ -93,10 +95,11 @@
                 </button>
             </form>
 
-            <!-- ---- "Powered by Inflight" mark ---- -->
-            <div class="mt-8 flex items-center justify-center gap-1.5 text-zinc-400 dark:text-zinc-600">
-                <i data-lucide="plane" class="w-3.5 h-3.5"></i>
-                <span class="text-[11px] font-medium tracking-wide">Powered by <span class="font-semibold text-zinc-500 dark:text-zinc-400">Inflight</span></span>
+            <!-- ---- "Powered by Inflight" mark (real logo, theme-aware) ---- -->
+            <div class="mt-8 flex items-center justify-center gap-2 opacity-80">
+                <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
+                <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
+                <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
             </div>
 
             <!-- Theme toggle, tucked away bottom-right of the card column. -->
@@ -142,6 +145,7 @@
         function isSafeImageUrl(u) {
             try {
                 const url = new URL(u, window.location.href);
+                if (url.origin === window.location.origin) return true; // our own assets
                 return url.protocol === 'https:' || url.protocol === 'data:';
             } catch { return false; }
         }
@@ -151,12 +155,29 @@
             if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
             return src.slice(0, 2).toUpperCase();
         }
+        // Example VA registry — seed branding so a crew center can be previewed
+        // by code alone (e.g. /crew?va=ACVA) without spelling out every field.
+        // Stands in for the real per-VA config the next brick will resolve;
+        // "Air Canada Virtual" is our worked example. URL params still override.
+        const EXAMPLE_VAS = {
+            ACVA: {
+                name: 'Air Canada Virtual',
+                accent: '#D22630',
+                banner: '/Images/examples/air-canada-virtual.svg',
+            },
+        };
+
         function applyBranding() {
             const q = new URLSearchParams(window.location.search);
-            const code = q.get('va') || '';
-            const name = q.get('name') || (code ? code.toUpperCase() : '');
-            const accent = q.get('accent') || '';   // e.g. %230b6bcb (#0b6bcb)
-            const banner = q.get('banner') || '';
+            // During the shell phase, default to the Air Canada Virtual example so
+            // there's always something branded to look at. Real resolution (and a
+            // neutral default for unknown VAs) arrives with the Supabase wiring.
+            const code = (q.get('va') || 'ACVA').toUpperCase();
+            const ex = EXAMPLE_VAS[code] || {};
+
+            const name = q.get('name') || ex.name || code;
+            const accent = q.get('accent') || ex.accent || '';   // e.g. %23D22630 (#D22630)
+            const banner = q.get('banner') || ex.banner || '';
 
             // Accent colour drives the monogram + primary button.
             if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent)) {
