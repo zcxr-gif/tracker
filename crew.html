@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crew Center — Inflight</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' };
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        :root { color-scheme: light dark; }
+        * { -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        [data-lucide] { width: 1.15em; height: 1.15em; }
+        svg.lucide { stroke-width: 1.75; }
+
+        /* Soft premium surfaces — matches the staff hub. */
+        .surface { background: #fff; border: 1px solid rgba(0,0,0,.06); box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 1px 1px rgba(0,0,0,.02); }
+        .dark .surface { background: #18181b; border-color: rgba(255,255,255,.07); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+
+        .loader { border: 2.5px solid rgba(120,120,128,.25); border-top-color: currentColor; border-radius: 50%; width: 30px; height: 30px; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .fade-in { animation: fade .4s cubic-bezier(.2,.8,.2,1) forwards; }
+        @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Subtle grid texture behind the login, same idiom as the staff hub. */
+        .crew-bg { background-image: radial-gradient(rgba(0,0,0,.025) 1px, transparent 1px); background-size: 22px 22px; }
+        .dark .crew-bg { background-image: radial-gradient(rgba(255,255,255,.03) 1px, transparent 1px); }
+
+        input { font-family: inherit; }
+        ::placeholder { color: #a1a1aa; }
+    </style>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased min-h-screen transition-colors duration-300">
+
+    <!-- ============ LOGIN ============ -->
+    <!--
+      Crew Center login SHELL.
+
+      This is deliberately a frame only — no authentication is wired yet. The
+      next brick connects this form to the VA's OWN Supabase project (bring-your-
+      own; the VA sets it up and owns the data, inflight retains an owner login).
+
+      Per-VA branding is resolved by applyBranding() below. For now it reads from
+      URL query params so we can preview any VA's look without a backend:
+          crew.html?va=OCEAN&name=Ocean%20Virtual&accent=%230b6bcb&banner=<url>
+      Later, applyBranding() will fetch the same fields from the VA's config so
+      only the VA's own banner shows on their login — with a small "Powered by
+      Inflight" mark underneath.
+    -->
+    <div class="min-h-screen crew-bg relative overflow-hidden flex items-center justify-center px-5 py-10">
+
+        <div class="relative z-10 w-full max-w-sm fade-in">
+
+            <!-- ---- Per-VA branding (banner / monogram) ---- -->
+            <div class="text-center mb-8">
+                <!-- Banner image slot: shown only when the VA has supplied a banner. -->
+                <img id="vaBanner" alt="" class="hidden mx-auto mb-5 max-h-20 w-auto object-contain">
+
+                <!-- Fallback monogram: a branded square built from the VA's accent
+                     colour + initials, used when no banner is on file. -->
+                <div id="vaMonogram"
+                    class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg text-white text-2xl font-black tracking-tight"
+                    style="background:#18181b;">
+                    <span id="vaMonogramText">VA</span>
+                </div>
+
+                <h1 class="text-2xl font-bold tracking-tight">Crew Center</h1>
+                <p id="vaTagline" class="text-zinc-500 dark:text-zinc-400 text-sm mt-1.5">Sign in to your crew center</p>
+            </div>
+
+            <!-- ---- Login card ---- -->
+            <form id="loginForm" class="surface rounded-3xl p-6 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Email</label>
+                    <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@yourva.com"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Password</label>
+                    <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                </div>
+                <p id="loginNote" class="hidden text-sm font-medium"></p>
+                <button type="submit" id="loginBtn"
+                    class="w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]"
+                    style="background:#18181b;">
+                    <span>Sign in</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </form>
+
+            <!-- ---- "Powered by Inflight" mark ---- -->
+            <div class="mt-8 flex items-center justify-center gap-1.5 text-zinc-400 dark:text-zinc-600">
+                <i data-lucide="plane" class="w-3.5 h-3.5"></i>
+                <span class="text-[11px] font-medium tracking-wide">Powered by <span class="font-semibold text-zinc-500 dark:text-zinc-400">Inflight</span></span>
+            </div>
+
+            <!-- Theme toggle, tucked away bottom-right of the card column. -->
+            <div class="mt-4 flex justify-center">
+                <button onclick="toggleTheme()" title="Toggle theme"
+                    class="w-8 h-8 grid place-items-center rounded-full hover:bg-zinc-200/70 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 transition">
+                    <span id="themeIcon"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---- Theme (mirrors the staff hub: class-based dark mode) ----
+        function applyThemeIcon() {
+            const dark = document.documentElement.classList.contains('dark');
+            const el = document.getElementById('themeIcon');
+            if (el) el.innerHTML = `<i data-lucide="${dark ? 'sun' : 'moon'}" class="w-[18px] h-[18px]"></i>`;
+            if (window.lucide) lucide.createIcons();
+        }
+        function toggleTheme() {
+            const dark = document.documentElement.classList.toggle('dark');
+            try { localStorage.setItem('crew-theme', dark ? 'dark' : 'light'); } catch {}
+            applyThemeIcon();
+        }
+        (function initTheme() {
+            let pref = null;
+            try { pref = localStorage.getItem('crew-theme'); } catch {}
+            const dark = pref ? pref === 'dark'
+                : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark', dark);
+        })();
+
+        // ---- Per-VA branding ----
+        // Reads branding from the URL for now (preview-friendly, no backend).
+        // A later brick swaps the query-param source for the VA's stored config,
+        // resolved from ?va=<code>. Only the VA's own banner/monogram is shown.
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+        function isSafeImageUrl(u) {
+            try {
+                const url = new URL(u, window.location.href);
+                return url.protocol === 'https:' || url.protocol === 'data:';
+            } catch { return false; }
+        }
+        function initials(name, code) {
+            const src = (name || code || 'VA').trim();
+            const words = src.split(/\s+/).filter(Boolean);
+            if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+            return src.slice(0, 2).toUpperCase();
+        }
+        function applyBranding() {
+            const q = new URLSearchParams(window.location.search);
+            const code = q.get('va') || '';
+            const name = q.get('name') || (code ? code.toUpperCase() : '');
+            const accent = q.get('accent') || '';   // e.g. %230b6bcb (#0b6bcb)
+            const banner = q.get('banner') || '';
+
+            // Accent colour drives the monogram + primary button.
+            if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent)) {
+                document.getElementById('vaMonogram').style.background = accent;
+                document.getElementById('loginBtn').style.background = accent;
+            }
+
+            // Monogram initials from the VA name/code.
+            document.getElementById('vaMonogramText').textContent = initials(name, code);
+
+            // Banner image replaces the monogram when supplied + safe.
+            if (banner && isSafeImageUrl(banner)) {
+                const img = document.getElementById('vaBanner');
+                img.src = banner;
+                img.alt = name ? `${name} banner` : 'VA banner';
+                img.classList.remove('hidden');
+                document.getElementById('vaMonogram').classList.add('hidden');
+            }
+
+            // Tagline + document title reflect the VA.
+            if (name) {
+                document.getElementById('vaTagline').innerHTML =
+                    'Sign in to <span class="font-semibold text-zinc-700 dark:text-zinc-200">' +
+                    escapeHtml(name) + '</span>';
+                document.title = `${name} · Crew Center — Inflight`;
+            }
+        }
+
+        // ---- Login (NOT wired yet) ----
+        // Deliberately inert: this shell has no Supabase connection. The next
+        // brick replaces this handler with a real sign-in against the VA's own
+        // Supabase project.
+        function handleLogin(e) {
+            e.preventDefault();
+            const note = document.getElementById('loginNote');
+            note.textContent = 'Sign-in isn’t connected yet — this is the login shell. Authentication is the next step.';
+            note.className = 'text-sm font-medium text-amber-600 dark:text-amber-400';
+            note.classList.remove('hidden');
+        }
+
+        // ---- Boot ----
+        document.getElementById('loginForm').addEventListener('submit', handleLogin);
+        applyBranding();
+        applyThemeIcon();
+        if (window.lucide) lucide.createIcons();
+    </script>
+</body>
+</html>

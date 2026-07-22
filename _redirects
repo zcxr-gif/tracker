@@ -6,3 +6,7 @@
 
 # Pretty flight-history replay URLs → the standalone history page.
 /flights/:id/history  /history.html?flight=:id  200
+
+# Crew Center — per-VA login/portal (see crew.html). Pretty URL keeps the
+# query string, so /crew?va=OCEAN resolves the VA's branding.
+/crew  /crew.html  200
