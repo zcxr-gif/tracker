@@ -28,10 +28,20 @@ Browser ──(loads the shell once, then cached)──▶  our CDN (Netlify)
 | Path | What it is |
 | --- | --- |
 | `install/schema.sql` | The one-time SQL a VA runs in their Supabase (tables + **RLS** + versioning). |
+| `install/seed-demo.sql` | Optional demo data (Oceanic Virtual) for a throwaway test project. |
+| `demo-data.json` | Static data behind the no-backend preview. |
 | `crewcenter.html` + `engine.js` | The public crew-center engine. Boots from `?va=<slug>`. |
 | `onboarding.html` + `onboarding.js` | Setup wizard for a VA owner. |
 | `config.example.json` | Shape of the `site_config` row (theme + blocks). |
 | `directory.json` | Public map of `slug → { url, anonKey }`. Served as static JSON. |
+
+## Try it (no Supabase needed)
+
+Open `crewcenter.html?demo=1` to see a fully rendered test crew center
+("Oceanic Virtual") driven by `demo-data.json` — theme, roster, ranks, hubs,
+routes, and events, with accounts disabled. To make it *real*, spin up a
+throwaway Supabase, run `install/schema.sql` then `install/seed-demo.sql`, and
+open `crewcenter.html?url=<project-url>&key=<anon-key>`.
 
 ## Security note
 

@@ -44,6 +44,39 @@ async function resolveConnection() {
   return entry;
 }
 
+// --- demo mode -------------------------------------------------------------
+// A no-backend preview (crewcenter.html?demo=1). Serves static demo-data.json
+// through a tiny mock that mimics the slice of the supabase-js query builder
+// the renderers use, so the same code path renders without any Supabase.
+function makeDemoClient(d) {
+  const build = (table) => {
+    let wantSingle = false;
+    const b = {
+      select() { return b; }, eq() { return b; }, order() { return b; }, limit() { return b; },
+      single() { wantSingle = true; return b; }, maybeSingle() { wantSingle = true; return b; },
+      then(resolve) {
+        const v = d[table];
+        const data = wantSingle
+          ? (Array.isArray(v) ? (v[0] ?? null) : (v ?? null))
+          : (Array.isArray(v) ? v : (v == null ? [] : [v]));
+        resolve({ data, error: null });
+      },
+    };
+    return b;
+  };
+  const disabled = { error: { message: 'Demo preview — accounts are disabled here.' } };
+  return {
+    from: (t) => build(t),
+    auth: {
+      getSession: async () => ({ data: { session: null } }),
+      signInWithPassword: async () => disabled,
+      signUp: async () => ({ data: {}, ...disabled }),
+      signOut: async () => ({}),
+    },
+    rpc: async () => disabled,
+  };
+}
+
 // --- theme -----------------------------------------------------------------
 function applyTheme(theme = {}) {
   const r = document.documentElement.style;
@@ -229,11 +262,19 @@ function wireAuth(ctx) {
 
 // --- boot ------------------------------------------------------------------
 async function boot() {
-  let conn;
-  try { conn = await resolveConnection(); }
-  catch (e) { return fail(e.message); }
+  const q = new URLSearchParams(location.search);
+  const demo = q.get('demo') === '1' || q.get('va') === 'demo';
 
-  const sb = createClient(conn.url, conn.anonKey);
+  let sb;
+  if (demo) {
+    try { sb = makeDemoClient(await (await fetch('demo-data.json', { cache: 'no-cache' })).json()); }
+    catch (e) { return fail('Could not load demo data.'); }
+  } else {
+    let conn;
+    try { conn = await resolveConnection(); }
+    catch (e) { return fail(e.message); }
+    sb = createClient(conn.url, conn.anonKey);
+  }
 
   // Version check — a friendly nudge if the VA's schema is behind the engine.
   let versionWarning = '';
@@ -281,8 +322,13 @@ async function boot() {
     catch (e) { parts.push(section(b.type, errorNote(e))); }
   }
 
+  const demoBanner = demo
+    ? `<div style="background:var(--cc-accent);color:#000;text-align:center;padding:.5rem;font-size:.85rem;font-weight:600">
+         Demo preview — static data, accounts disabled. This is what a seeded crew center looks like.</div>`
+    : '';
+
   root.dataset.state = 'ready';
-  root.innerHTML = versionWarning + header + parts.join('') +
+  root.innerHTML = demoBanner + versionWarning + header + parts.join('') +
     `<footer class="cc-footer">Powered by Crew Center</footer>`;
 
   wireAuth(ctx);
