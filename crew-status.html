@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application status — Crew Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>tailwind.config = { darkMode: 'class' };</script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        :root{ --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4; --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#4f46e5; color-scheme: light dark; }
+        .dark{ --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A; --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D; }
+        *{ -webkit-tap-highlight-color: transparent; }
+        body{ font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; background:var(--bg); color:var(--ink); }
+        [data-lucide]{ width:1.15em; height:1.15em; } svg.lucide{ stroke-width:1.6; }
+        .surface{ background:var(--surface); border:1px solid var(--line); }
+        .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
+        .muted{ color:var(--muted); } .faint{ color:var(--faint); }
+        .accent-bg{ background:var(--accent); } .accent-text{ color:var(--accent); }
+        a:focus-visible, button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+        @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+    </style>
+</head>
+<body class="min-h-screen antialiased">
+
+    <!--
+      Crew Center — applicant STATUS page. An applicant lands here from the link
+      they were handed at submit time: inflight.info/crew/<slug>/status?id=<token>.
+      No account or email: the opaque token is the credential. Shows the current
+      accept / decline / pending state plus any message the VA staff left.
+    -->
+
+    <div class="min-h-screen flex items-center justify-center p-4 sm:p-6">
+        <div class="w-full max-w-md">
+            <div class="text-center mb-5">
+                <img id="logo" alt="" class="hidden mx-auto mb-3 max-h-14 w-auto object-contain">
+                <div id="mono" class="accent-bg w-14 h-14 rounded-2xl grid place-items-center text-white text-xl font-black mx-auto mb-3">VA</div>
+                <h1 class="text-lg font-bold tracking-tight">Application status</h1>
+                <p id="sub" class="text-sm muted mt-0.5"><span id="vaName">the crew</span></p>
+            </div>
+
+            <div class="surface rounded-2xl overflow-hidden shadow-sm">
+                <div id="body" class="p-6 sm:p-7">
+                    <div class="flex justify-center py-8"><i data-lucide="loader" class="w-6 h-6 muted animate-spin"></i></div>
+                </div>
+            </div>
+
+            <div class="mt-5 flex items-center justify-center gap-2 opacity-80">
+                <span class="text-[11px] font-medium tracking-wide faint">Powered by</span>
+                <img src="/Images/inflight.png" alt="Inflight" class="h-[16px] w-auto dark:hidden">
+                <img src="/Images/inflight-light.png" alt="Inflight" class="h-[16px] w-auto hidden dark:block">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        let VA = { name:'', code:'' };
+
+        (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{} const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.classList.toggle('dark',d); })();
+
+        function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
+        function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
+        function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
+        function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1]&&m[1].toLowerCase()!=='status')return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
+        function getToken(){ return (new URLSearchParams(location.search).get('id')||'').trim(); }
+        function fmtDate(d){ try{ return new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }catch{ return ''; } }
+
+        function applyBranding(b){
+            if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            VA={ name:b.name||b.code||'', code:b.code||'' };
+            document.getElementById('mono').textContent=initials(VA.name, VA.code);
+            if(VA.name){ document.getElementById('vaName').textContent=VA.name; }
+            if(b.logo && isSafeImageUrl(b.logo)){ const el=document.getElementById('logo'); el.src=b.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
+        }
+
+        function render(d){
+            const body=document.getElementById('body');
+            const slug=getSlug();
+            const msg = d.message ? `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                    <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="message-square" class="w-3.5 h-3.5"></i> Message from ${escapeHtml(VA.name||'the VA')}</div>
+                    <p class="text-sm whitespace-pre-wrap">${escapeHtml(d.message)}</p>
+                </div>` : '';
+            const meta = `<div class="text-xs faint mt-4">${d.submittedAt?('Applied '+fmtDate(d.submittedAt)):''}${d.reviewedAt?(' · Reviewed '+fmtDate(d.reviewedAt)):''}</div>`;
+
+            if(d.status==='accepted'){
+                body.innerHTML = `<div class="text-center">
+                    <div class="w-14 h-14 rounded-full bg-emerald-500 text-white grid place-items-center mx-auto mb-4"><i data-lucide="party-popper" class="w-7 h-7"></i></div>
+                    <h2 class="text-xl font-bold tracking-tight">You’re in!</h2>
+                    <p class="text-sm muted mt-2">Welcome to <b>${escapeHtml(VA.name||'the crew')}</b>${d.callsign?', flying as':''}</p>
+                    ${d.callsign?`<div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign)}</div>`:''}
+                    ${msg}
+                    <a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
+                    ${meta}
+                </div>`;
+            } else if(d.status==='declined'){
+                body.innerHTML = `<div class="text-center">
+                    <div class="w-14 h-14 rounded-full bg-[color-mix(in_srgb,var(--muted)_22%,transparent)] text-[var(--muted)] grid place-items-center mx-auto mb-4"><i data-lucide="x" class="w-7 h-7"></i></div>
+                    <h2 class="text-xl font-bold tracking-tight">Not this time</h2>
+                    <p class="text-sm muted mt-2">${escapeHtml(VA.name||'The VA')} wasn’t able to accept your application.</p>
+                    ${msg}
+                    ${meta}
+                </div>`;
+            } else {
+                body.innerHTML = `<div class="text-center">
+                    <div class="w-14 h-14 rounded-full accent-bg text-white grid place-items-center mx-auto mb-4"><i data-lucide="clock" class="w-7 h-7"></i></div>
+                    <h2 class="text-xl font-bold tracking-tight">Under review</h2>
+                    <p class="text-sm muted mt-2">${d.ifcName?('Hang tight, '+escapeHtml(d.ifcName)+'. '):''}The ${escapeHtml(VA.name||'VA')} staff are reviewing your application. Check back here — this page updates when they decide.</p>
+                    ${msg}
+                    <button onclick="load()" class="inline-flex items-center gap-1.5 text-sm font-semibold accent-text mt-5 hover:underline"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh</button>
+                    ${meta}
+                </div>`;
+            }
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function renderError(m){
+            document.getElementById('body').innerHTML = `<div class="text-center">
+                <div class="w-14 h-14 rounded-full bg-[color-mix(in_srgb,var(--muted)_22%,transparent)] text-[var(--muted)] grid place-items-center mx-auto mb-4"><i data-lucide="search-x" class="w-7 h-7"></i></div>
+                <h2 class="text-lg font-bold tracking-tight">We couldn’t find that application</h2>
+                <p class="text-sm muted mt-2">${escapeHtml(m||'Double-check the link you were given.')}</p>
+            </div>`;
+            if(window.lucide) lucide.createIcons();
+        }
+
+        async function load(){
+            const slug=getSlug(), token=getToken();
+            if(!slug || !token){ renderError('This status link is incomplete.'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/application-status/${encodeURIComponent(token)}`,{ headers:{Accept:'application/json'} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ renderError(d.error); return; }
+                render(d);
+            }catch{ renderError('Couldn’t reach the server. Please try again in a moment.'); }
+        }
+
+        (async function(){
+            const slug=getSlug();
+            if(slug){
+                try{ const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'}}); if(res.ok) applyBranding(await res.json()); }catch{}
+            }
+            if(window.lucide) lucide.createIcons();
+            load();
+        })();
+    </script>
+</body>
+</html>

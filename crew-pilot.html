@@ -33,6 +33,26 @@
         @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
         ::placeholder{ color:var(--faint); }
         input{ font-family:inherit; }
+
+        /* --- Polish: focus ring, tabular figures, motion safety --- */
+        a:focus-visible, button:focus-visible, input:focus-visible {
+            outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+        }
+        .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
+        @media (prefers-reduced-motion: reduce){
+            *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+        }
+
+        /* ===== LAYOUT PRESETS (see owner dashboard for the full note) ===== */
+        :root[data-layout="compact"] #hero{ height:280px; }
+        @media (min-width:640px){ :root[data-layout="compact"] #hero{ height:320px; } }
+        :root[data-layout="compact"] main > section{ margin-top:1.5rem; }
+        :root[data-layout="compact"] .tile{ padding:1rem; }
+        :root[data-layout="focus"] #hero{ height:400px; }
+        @media (min-width:640px){ :root[data-layout="focus"] #hero{ height:480px; } }
+        :root[data-layout="classic"] .surface{ border-radius:1rem; }
+        :root[data-layout="classic"] #hero{ border-bottom-left-radius:1.25rem; border-bottom-right-radius:1.25rem; }
+        :root[data-layout="classic"] .tile{ border-radius:1rem; }
     </style>
 </head>
 <body class="min-h-screen antialiased">
@@ -57,7 +77,7 @@
                 <div class="relative w-full">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
                     <input type="text" placeholder="Search flights, events, pilots…"
-                        class="w-full pl-9 pr-3 py-2 rounded-md surface muted focus:text-[var(--ink)] focus:outline-none focus:border-[var(--ink)] text-sm transition">
+                        class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
 
@@ -81,10 +101,14 @@
     </header>
 
     <!-- ============ HERO (welcome) ============ -->
-    <section class="relative w-full h-[320px] sm:h-[400px] overflow-hidden bg-[var(--surface)] fade-in">
+    <section id="hero" class="relative w-full h-[320px] sm:h-[400px] overflow-hidden bg-[var(--surface)] fade-in">
         <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
         <div id="heroFallback" class="absolute inset-0 accent-bg opacity-[0.08]"></div>
-        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.62), rgba(0,0,0,.12) 45%, transparent 70%);"></div>
+        <!-- The VA's live map (free MapLibre embed) sits behind the hero text. -->
+        <div id="heroMapWrap" class="hidden absolute inset-0 pointer-events-none">
+            <iframe id="heroMap" title="Live traffic" class="w-full h-full border-0" loading="lazy" scrolling="no"></iframe>
+        </div>
+        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.2) 45%, rgba(0,0,0,.15) 100%);"></div>
         <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col justify-end pb-9">
             <div class="flex items-center gap-2 mb-3">
                 <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.14em] text-white/95 bg-white/15 backdrop-blur px-2.5 py-1 rounded">
@@ -110,22 +134,22 @@
             <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">My hours</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">214<span class="text-lg faint font-bold">h</span></div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">214<span class="text-lg faint font-bold">h</span></div>
                     <div class="text-xs muted mt-1">+12h this month</div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">My flights</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">96</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">96</div>
                     <div class="text-xs muted mt-1">4 this month</div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Rank</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">F/O</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">F/O</div>
                     <div class="text-xs muted mt-1">Since Mar 2026</div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">On-time rate</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">98%</div>
+                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">98%</div>
                     <div class="text-xs muted mt-1">Last 30 flights</div>
                 </div>
             </div>
@@ -163,7 +187,7 @@
         </section>
 
         <!-- ============ UPCOMING EVENTS ============ -->
-        <section class="mt-10">
+        <section id="eventsSec" class="mt-10">
             <div class="flex items-end justify-between mb-4">
                 <h2 class="text-lg font-bold tracking-tight">Upcoming events</h2>
                 <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">All events</a>
@@ -172,7 +196,7 @@
         </section>
 
         <!-- ============ ANNOUNCEMENTS ============ -->
-        <section class="mt-10">
+        <section id="noticesSec" class="mt-10">
             <div class="surface rounded-lg p-6">
                 <h2 class="text-lg font-bold tracking-tight mb-3">Announcements</h2>
                 <ul id="notices"></ul>
@@ -180,7 +204,7 @@
         </section>
 
         <!-- ============ TRUST LINE ============ -->
-        <section class="mt-10">
+        <section id="trust" class="mt-10">
             <div class="flex items-start gap-3 rounded-lg border hair-soft p-4">
                 <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
                 <p class="text-sm muted">
@@ -199,6 +223,25 @@
 
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        let CREW_CODE = '';   // VA callsign — drives the live map behind the hero
+        let CREW_LAYOUT = 'editorial';
+
+        // Staff-allowed layout presets; ?layout=<preset> overrides for preview.
+        const LAYOUTS = ['editorial','compact','focus','classic'];
+        function resolveLayout(b){
+            const q=(new URLSearchParams(location.search).get('layout')||'').toLowerCase();
+            const l=(q || (b&&b.layout) || 'editorial').toLowerCase();
+            return LAYOUTS.includes(l) ? l : 'editorial';
+        }
+        function applyLayout(layout){
+            CREW_LAYOUT = layout;
+            document.documentElement.setAttribute('data-layout', layout);
+            const trim = layout==='focus';  // Focus keeps hero + numbers + flying essentials.
+            ['eventsSec','noticesSec','trust'].forEach(id=>{
+                const el=document.getElementById(id);
+                if(el) el.classList.toggle('hidden', trim);
+            });
+        }
 
         function applyThemeIcon(){
             const dark=document.documentElement.classList.contains('dark');
@@ -206,10 +249,22 @@
             if(el) el.innerHTML=`<i data-lucide="${dark?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
             if(window.lucide) lucide.createIcons();
         }
+        function isDark(){ return document.documentElement.classList.contains('dark'); }
+
+        // Live map behind the hero (free MapLibre embed, no Mapbox token/billing),
+        // re-pointed on theme change so it follows the light/dark toggle.
+        function applyEmbeds(){
+            // No map behind the header anymore — the pilot hero keeps a clean
+            // banner. (Full pilot rebuild with an in-content live map follows.)
+            const wrap = document.getElementById('heroMapWrap');
+            if(wrap) wrap.classList.add('hidden');
+        }
+
         function toggleTheme(){
             const dark=document.documentElement.classList.toggle('dark');
             try{ localStorage.setItem('crew-theme', dark?'dark':'light'); }catch{}
             applyThemeIcon();
+            applyEmbeds();
         }
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{}
             const dark=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -315,7 +370,7 @@
                 document.title=`${name} · Crew Center — Inflight`;
                 document.getElementById('navMonogram').textContent=initials(name,b.code);
             }
-            if(b.code){const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden');}
+            if(b.code){ CREW_CODE=b.code; const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
                 const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
                 el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
@@ -342,7 +397,10 @@
 
         (async function(){
             renderActions(); renderFlights(); renderEvents(); renderNotices(); readSession();
-            applyBranding(await resolveBranding());
+            const b = await resolveBranding();
+            applyBranding(b);
+            applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
+            applyEmbeds();                   // hero map / banner per layout
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();

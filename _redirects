@@ -11,5 +11,9 @@
 # the per-VA /crew/<slug> form rewrite to the single document; the rewrite keeps
 # the path + query, so crew.html reads the slug from window.location and resolves
 # that VA's branding from the backend.
+# The applicant join flow (also embeddable via ?embed=1). More specific than
+# the catch-all below, so it must come first.
+/crew/:slug/join  /crew-join.html  200
+/crew/:slug/status  /crew-status.html  200
 /crew      /crew.html  200
 /crew/*    /crew.html  200

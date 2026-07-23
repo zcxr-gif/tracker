@@ -9,8 +9,6 @@
     <script>tailwind.config = { darkMode: 'class' };</script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-        /* Warm, essential palette — paper whites + warm grays, one accent.
-           Everything reads off CSS variables so light/dark both stay warm. */
         :root{
             --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4;
             --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#1C1A16;
@@ -25,53 +23,126 @@
         [data-lucide]{ width:1.15em; height:1.15em; }
         svg.lucide{ stroke-width:1.6; }
         .surface{ background:var(--surface); border:1px solid var(--line); }
-        .hair{ border-color:var(--line); }
-        .hair-soft{ border-color:var(--line-soft); }
+        .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
         .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
-        /* Essential tile: flat, hairline, the quietest possible hover. */
-        .tile{ transition:border-color .2s, background .2s, transform .2s; }
+        .tile{ transition:border-color .2s, transform .2s; }
         .tile:hover{ border-color:var(--ink); transform:translateY(-2px); }
         .fade-in{ animation:fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
         @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
         ::placeholder{ color:var(--faint); }
         input{ font-family:inherit; }
+        .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
+        a:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+        @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+
+        /* =====================================================================
+           LAYOUT ENGINE — named grid regions, one arrangement per preset.
+           Same blocks (identity/stats/live/tools/activity/event/trust); each
+           layout gives them a genuinely different grid-template-areas. Mobile
+           always collapses to a single stacked column.
+           ===================================================================== */
+        .crew-grid{ display:grid; gap:1rem; grid-template-columns:1fr;
+            grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+        /* Mobile-first: each layout keeps a distinct ORDER so they're recognisably
+           different on phones too (desktop overrides below rearrange columns). */
+        :root[data-layout="console"] .crew-grid{ grid-template-areas:"identity" "tools" "stats" "live" "activity" "event" "trust"; }
+        :root[data-layout="split"]   .crew-grid{ grid-template-areas:"identity" "live" "stats" "tools" "activity" "event" "trust"; }
+        :root[data-layout="classic"] .crew-grid{ grid-template-areas:"identity" "stats" "activity" "event" "tools" "live" "trust"; }
+        @media (max-width:1023px){
+            /* Console reads as a rail even on mobile: tools become a swipe row. */
+            :root[data-layout="console"] #toolGrid{ display:flex; gap:.75rem; overflow-x:auto; padding-bottom:.25rem; scroll-snap-type:x mandatory; }
+            :root[data-layout="console"] #toolGrid > *{ flex:0 0 46%; scroll-snap-align:start; }
+            /* Split leads with a big live map on mobile. */
+            :root[data-layout="split"] .r-live{ min-height:360px; }
+        }
+        .r-identity{ grid-area:identity; } .r-stats{ grid-area:stats; } .r-live{ grid-area:live; }
+        .r-tools{ grid-area:tools; } .r-activity{ grid-area:activity; } .r-event{ grid-area:event; } .r-trust{ grid-area:trust; }
+        .r-live{ min-height:320px; } .r-live iframe{ width:100%; height:100%; min-height:320px; border:0; display:block; }
+
+        @media (min-width:1024px){
+            /* Editorial — a calm, single-column editorial flow. */
+            :root[data-layout="editorial"] .crew-grid{
+                grid-template-columns:minmax(0,1fr);
+                grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+            :root[data-layout="editorial"] #toolGrid{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+
+            /* Console — left tool rail + a bento of widgets. An ops console. */
+            :root[data-layout="console"] .crew-grid{
+                grid-template-columns:250px minmax(0,1fr) minmax(0,1fr);
+                grid-template-areas:
+                    "identity identity identity"
+                    "tools    stats    stats"
+                    "tools    live     live"
+                    "tools    activity event"
+                    "trust    trust    trust"; }
+            :root[data-layout="console"] #toolGrid{ grid-template-columns:1fr; }   /* vertical rail */
+            :root[data-layout="console"] .r-tools{ align-self:start; position:sticky; top:5rem; }
+
+            /* Split — map-led two columns: a tall live map beside a control stack. */
+            :root[data-layout="split"] .crew-grid{
+                grid-template-columns:1.5fr 1fr;
+                grid-template-areas:
+                    "identity identity"
+                    "live     stats"
+                    "live     tools"
+                    "activity event"
+                    "trust    trust"; }
+            :root[data-layout="split"] #toolGrid{ grid-template-columns:1fr; }
+            :root[data-layout="split"] .r-live{ min-height:520px; }
+
+            /* Classic — main column + right sidebar, map as a full-width band. */
+            :root[data-layout="classic"] .crew-grid{
+                grid-template-columns:minmax(0,1fr) 320px;
+                grid-template-areas:
+                    "identity identity"
+                    "tools    stats"
+                    "activity stats"
+                    "activity event"
+                    "live     live"
+                    "trust    trust"; }
+            :root[data-layout="classic"] #toolGrid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+            :root[data-layout="classic"] .surface{ border-radius:1rem; }
+        }
+
+        /* Settings slide-over */
+        #settings{ transition:opacity .25s; }
+        #settings .panel{ transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+        #settings.hidden{ display:none; }
+        .lyt-opt{ transition:border-color .2s, background .2s; }
+        .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
+        .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
+        .settings-tab{ color:var(--muted); }
+        .settings-tab.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
     </style>
 </head>
 <body class="min-h-screen antialiased">
 
     <!--
-      Crew Center — dashboard LOOK-MOCK (the "inside"), warm-essential rebuild.
-      Static + placeholder only: no auth, no real data. Warm paper palette, hairline
-      rules, rectilinear, a single sparing accent. Branding resolves the same way as
-      the login (?name/logo/banner/accent overrides, or the VA record by slug).
+      Crew Center — owner/staff dashboard. Warm-essential look; a real layout
+      engine (grid regions, one arrangement per staff-allowed preset) and a
+      working Settings panel that switches layout live + persists. Branding +
+      layout resolve from ?params (preview) or the VA record by slug.
     -->
 
     <!-- ============ TOP BAR ============ -->
-    <header class="sticky top-0 z-40 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
+    <header class="sticky top-0 z-30 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
         <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
             <div class="flex items-center gap-2.5 min-w-0">
                 <img id="navLogo" alt="" class="hidden h-7 w-auto max-w-[130px] object-contain">
                 <div id="navMonogram" class="accent-bg w-8 h-8 rounded-md grid place-items-center text-white text-sm font-bold shrink-0">VA</div>
                 <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
             </div>
-
             <div class="hidden sm:flex flex-1 max-w-sm mx-auto">
                 <div class="relative w-full">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
                     <input type="text" placeholder="Search crew, flights, events…"
-                        class="w-full pl-9 pr-3 py-2 rounded-md surface muted focus:text-[var(--ink)] focus:outline-none focus:border-[var(--ink)] text-sm transition">
+                        class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
-
             <div class="flex items-center gap-1 ml-auto">
-                <button class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications">
-                    <i data-lucide="bell" class="w-[18px] h-[18px]"></i>
-                    <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full accent-bg"></span>
-                </button>
-                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme">
-                    <span id="themeIcon"></span>
-                </button>
+                <button onclick="openSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Settings"><i data-lucide="settings" class="w-[18px] h-[18px]"></i></button>
+                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme"><span id="themeIcon"></span></button>
                 <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
                     <div class="text-right hidden sm:block leading-tight">
                         <div id="meName" class="text-sm font-medium">Alex Rivera</div>
@@ -83,76 +154,77 @@
         </div>
     </header>
 
-    <!-- ============ HERO (full-bleed, editorial) ============ -->
-    <section class="relative w-full h-[380px] sm:h-[460px] overflow-hidden bg-[var(--surface)] fade-in">
-        <img id="heroImg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
-        <div id="heroFallback" class="absolute inset-0 accent-bg opacity-[0.08]"></div>
-        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.62), rgba(0,0,0,.12) 45%, transparent 70%);"></div>
-        <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col justify-end pb-9">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.14em] text-white/95 bg-white/15 backdrop-blur px-2.5 py-1 rounded">
-                    <span class="w-1.5 h-1.5 rounded-full accent-bg" style="--accent:#fff;"></span> Recruiting
-                </span>
-                <span id="heroCode" class="hidden text-[11px] font-semibold uppercase tracking-[.14em] text-white/70"></span>
+    <main class="max-w-6xl mx-auto px-5 py-6">
+        <!-- Owner onboarding nudge — shown until the VA connects Supabase. -->
+        <div id="onboard" class="hidden mb-4 flex items-center gap-3 rounded-xl border hair p-4" style="background:color-mix(in srgb, var(--accent) 7%, var(--surface));">
+            <span class="w-9 h-9 rounded-lg accent-bg text-white grid place-items-center shrink-0"><i data-lucide="database" class="w-5 h-5"></i></span>
+            <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold">Finish setting up your crew center</div>
+                <div class="text-xs muted">Connect your VA’s own Supabase so your crew, flights and events have a home.</div>
             </div>
-            <h1 id="heroName" class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-[1.05]">Crew Center</h1>
-            <p id="heroTagline" class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg">Your crew, your operation — kept simple, kept yours.</p>
-            <div class="flex flex-wrap items-center gap-2.5 mt-6">
-                <button class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
-                    <i data-lucide="users" class="w-4 h-4"></i> Open roster
-                </button>
-                <button class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">View schedule</button>
-            </div>
+            <button onclick="openSettings()" class="accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition shrink-0">Connect data</button>
         </div>
-    </section>
 
-    <main class="max-w-6xl mx-auto px-5 pb-16">
+        <div id="grid" class="crew-grid fade-in">
 
-        <!-- ============ OVERVIEW (spec-row, hairline dividers) ============ -->
-        <section class="mt-8">
-            <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Active pilots</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">128</div>
-                    <div class="text-xs muted mt-1">+6 this week</div>
+            <!-- IDENTITY -->
+            <section class="r-identity relative overflow-hidden surface rounded-xl">
+                <img id="identityBg" alt="" class="hidden absolute inset-0 w-full h-full object-cover">
+                <div id="identityTint" class="absolute inset-0 accent-bg opacity-[0.10]"></div>
+                <div class="absolute inset-0" style="background:linear-gradient(105deg, color-mix(in srgb, var(--surface) 92%, transparent), transparent 65%);"></div>
+                <div class="relative p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-5">
+                    <img id="idLogo" alt="" class="hidden h-14 w-auto max-w-[180px] object-contain">
+                    <div id="idMonogram" class="accent-bg w-14 h-14 rounded-xl grid place-items-center text-white text-xl font-black shrink-0">VA</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.12em] muted"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Recruiting</span>
+                            <span id="idCode" class="hidden text-[11px] font-semibold uppercase tracking-[.12em] faint"></span>
+                        </div>
+                        <h1 id="idName" class="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight">Crew Center</h1>
+                        <p id="idTagline" class="muted text-sm mt-1 max-w-lg">Your crew, your operation — kept simple, kept yours.</p>
+                    </div>
+                    <div class="flex sm:flex-col gap-2 shrink-0">
+                        <button onclick="openRoster()" class="accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2 justify-center"><i data-lucide="users" class="w-4 h-4"></i> Roster</button>
+                        <button class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
+                    </div>
                 </div>
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">1,402</div>
-                    <div class="text-xs muted mt-1">312 this week</div>
-                </div>
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours flown</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">3,984</div>
-                    <div class="text-xs muted mt-1">Season to date</div>
-                </div>
-                <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Upcoming events</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight">3</div>
-                    <div class="text-xs accent-text font-medium mt-1">Next in 2 days</div>
-                </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- ============ MANAGE (essential category grid) ============ -->
-        <section class="mt-10">
-            <div class="flex items-end justify-between mb-4">
-                <h2 class="text-lg font-bold tracking-tight">Manage</h2>
-                <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">Customize</a>
-            </div>
-            <div id="tileGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
-        </section>
+            <!-- STATS -->
+            <section class="r-stats surface rounded-xl grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 hair overflow-hidden">
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Active pilots</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">128</div><div class="text-xs muted mt-1">+6 this week</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">1,402</div><div class="text-xs muted mt-1">312 this week</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours flown</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">3,984</div><div class="text-xs muted mt-1">Season</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Upcoming</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">3</div><div class="text-xs accent-text font-medium mt-1">Next in 2 days</div></div>
+            </section>
 
-        <!-- ============ ACTIVITY + NEXT EVENT ============ -->
-        <section class="mt-10 grid lg:grid-cols-3 gap-4">
-            <div class="surface rounded-lg p-6 lg:col-span-2">
-                <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-lg font-bold tracking-tight">Recent activity</h2>
-                    <a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">View all</a>
+            <!-- LIVE MAP (moved here from behind the hero) -->
+            <section class="r-live surface rounded-xl overflow-hidden flex flex-col">
+                <div class="flex items-center justify-between px-4 py-2.5 border-b hair-soft">
+                    <span class="text-sm font-semibold tracking-tight">Live flights</span>
+                    <span class="inline-flex items-center gap-1.5 text-xs faint"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live · Infinite Flight</span>
                 </div>
+                <div id="liveHost" class="flex-1 grid place-items-center text-sm faint p-6">Connect a callsign to see live traffic.</div>
+                <iframe id="liveMap" title="Live flights" class="hidden" loading="lazy" scrolling="no"></iframe>
+            </section>
+
+            <!-- TOOLS -->
+            <section class="r-tools">
+                <div class="flex items-end justify-between mb-3">
+                    <h2 class="text-lg font-bold tracking-tight">Manage</h2>
+                    <button onclick="openSettings()" class="text-sm accent-text font-semibold hover:opacity-80">Customize</button>
+                </div>
+                <div id="toolGrid" class="grid grid-cols-2 gap-3"></div>
+            </section>
+
+            <!-- ACTIVITY -->
+            <section class="r-activity surface rounded-xl p-6">
+                <div class="flex items-center justify-between mb-3"><h2 class="text-lg font-bold tracking-tight">Recent activity</h2><a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">View all</a></div>
                 <ul id="activity"></ul>
-            </div>
-            <div class="surface rounded-lg p-6">
+            </section>
+
+            <!-- EVENT -->
+            <section class="r-event surface rounded-xl p-6">
                 <h2 class="text-lg font-bold tracking-tight mb-3">Next event</h2>
                 <div class="text-base font-semibold">Transcon Group Flight</div>
                 <div class="mt-3 space-y-2">
@@ -161,141 +233,1546 @@
                     <div class="flex items-center gap-2 text-sm muted"><i data-lucide="users" class="w-4 h-4"></i> 34 signed up</div>
                 </div>
                 <button class="mt-5 w-full accent-bg text-white text-sm font-semibold py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition">Manage event</button>
-            </div>
-        </section>
+            </section>
 
-        <!-- ============ TRUST LINE ============ -->
-        <section class="mt-10">
-            <div class="flex items-start gap-3 rounded-lg border hair-soft p-4">
-                <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
-                <p class="text-sm muted">
-                    <span class="font-medium text-[var(--ink)]">Private to your crew.</span>
-                    Your roster, flights and events live in <span id="trustName">your own</span> space — Inflight helps run it, it stays yours.
-                </p>
-            </div>
-        </section>
+            <!-- TRUST -->
+            <section class="r-trust">
+                <div class="flex items-start gap-3 rounded-xl border hair-soft p-4">
+                    <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
+                    <p class="text-sm muted"><span class="font-medium text-[var(--ink)]">Private to your crew.</span> Your roster, flights and events live in <span id="trustName">your own</span> space — Inflight helps run it, it stays yours.</p>
+                </div>
+            </section>
+        </div>
 
-        <!-- Footer -->
-        <footer class="mt-10 flex items-center justify-center gap-2 opacity-80">
+        <footer class="mt-8 flex items-center justify-center gap-2 opacity-80">
             <span class="text-[11px] font-medium tracking-wide faint">Powered by</span>
             <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
             <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
         </footer>
     </main>
 
+    <!-- ============ SETTINGS SLIDE-OVER ============ -->
+    <div id="settings" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closeSettings()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-md surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Settings</span></div>
+                <button onclick="closeSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <!-- Category tabs -->
+            <div class="px-5 pt-4 sticky top-16 z-10" style="background:var(--surface);">
+                <div class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
+                    <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
+                    <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
+                    <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
+                    <button id="teamTab" data-cat="team" onclick="setCat('team')" class="settings-tab hidden flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Team</button>
+                    <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
+                </div>
+            </div>
+            <div class="p-5">
+              <div data-panel="appearance" class="space-y-6">
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
+                    <div id="layoutOpts" class="space-y-2.5"></div>
+                    <p id="layoutLocked" class="hidden text-xs muted mt-3"></p>
+                </div>
+
+                <!-- Login page look -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Login page look</h3>
+                    <div id="lookOpts" class="space-y-2.5"></div>
+                    <a id="lookPreview" target="_blank" rel="noopener" class="hidden items-center gap-1.5 text-xs accent-text font-semibold mt-3 inline-flex">Preview login <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
+                    <p id="lookNote" class="hidden text-sm mt-2"></p>
+                </div>
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Appearance</h3>
+                    <button onclick="toggleTheme()" class="w-full flex items-center justify-between surface hair rounded-lg px-4 py-3 hover:border-[var(--ink)] transition">
+                        <span class="text-sm font-medium">Theme</span>
+                        <span id="themeLabel" class="text-sm muted">System</span>
+                    </button>
+                </div>
+
+                <!-- Colors — accent for the whole VA page -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Colors</h3>
+                    <p class="text-xs muted mb-2.5">Your accent — used across the login and crew center.</p>
+                    <div class="flex items-center gap-3">
+                        <input id="accentPick" type="color" value="#1c1a16" class="w-10 h-10 rounded-lg border hair bg-transparent cursor-pointer p-0 shrink-0" oninput="applyAccent(this.value)">
+                        <div id="accentSwatches" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+                    <button onclick="saveColors()" class="mt-3 w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save color</button>
+                    <p id="colorNote" class="hidden text-sm mt-2"></p>
+                </div>
+
+              </div><!-- /appearance -->
+
+              <div data-panel="crew" class="space-y-6 hidden">
+                <!-- Crew structure — ranks + roles (owner / staff) -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Crew structure</h3>
+                    <p class="text-xs muted mb-1">Pick an icon or upload your own badge art (a transparent PNG looks best). Need to cut out a background? <a href="https://www.remove.bg/upload" target="_blank" rel="noopener" class="accent-text font-medium underline">remove.bg</a></p>
+                    <p class="text-xs muted mb-3 inline-flex items-start gap-1.5"><i data-lucide="hard-drive-upload" class="w-3.5 h-3.5 mt-0.5 shrink-0"></i> <span>Inflight hosts your badge art for you — it won’t use your own storage.</span></p>
+
+                    <div class="mb-5">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Ranks</span>
+                            <button onclick="addRank()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <div id="rankPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <div id="rankRows" class="space-y-2"></div>
+                        <div class="flex items-center gap-2 mt-2.5">
+                            <button onclick="saveStructure('ranks')" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save ranks</button>
+                            <button id="rankStarter" onclick="starterRanks()" class="text-xs muted hover:text-[var(--ink)] font-medium">Use a starter ladder</button>
+                        </div>
+                        <p id="rankNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Roles</span>
+                            <button onclick="addRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <div id="rolePreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <div id="roleRows" class="space-y-2"></div>
+                        <button onclick="saveStructure('roles')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save roles</button>
+                        <p id="roleNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
+                    <div class="mt-5">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Fleet</span>
+                            <button onclick="addFleet()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Aircraft your VA operates. Upload a livery image or leave it as a plane.</p>
+                        <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <div id="fleetRows" class="space-y-2"></div>
+                        <button onclick="saveStructure('fleet')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
+                        <p id="fleetNote" class="hidden text-sm mt-2"></p>
+                    </div>
+                </div>
+
+              </div><!-- /crew -->
+
+              <div data-panel="recruit" class="space-y-6 hidden">
+                <!-- Joining: how pilots apply -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Joining</h3>
+                    <div id="joinModeOpts" class="space-y-2.5"></div>
+                    <div class="grid grid-cols-2 gap-2.5 mt-3">
+                        <label class="text-xs muted">Min IF grade
+                            <select id="minGrade" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                <option value="0">No requirement</option>
+                                <option value="1">Grade 1+</option><option value="2">Grade 2+</option><option value="3">Grade 3+</option><option value="4">Grade 4+</option><option value="5">Grade 5</option>
+                            </select>
+                        </label>
+                        <label class="text-xs muted">Callsign prefix
+                            <input id="callsignPrefix" placeholder="ACA" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                        </label>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Application questions</span>
+                            <button onclick="addQuestion()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
+                        <div id="qRows" class="space-y-2"></div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Join requirements</span>
+                            <button onclick="addRequirement()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Auto-checked against each applicant’s <b>real Infinite Flight stats</b> when they join — or a custom agreement they must accept. Grade is set above.</p>
+                        <div id="reqRows" class="space-y-2"></div>
+                    </div>
+                    <button onclick="saveRecruitment()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
+                    <p id="recruitNote" class="hidden text-sm mt-2"></p>
+                </div>
+
+                <!-- Your join page: share / embed -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Your join page</h3>
+                    <p class="text-xs muted mb-2.5">Embed the join form on your own site (auto-resizes), or share the link.</p>
+                    <div class="flex gap-2">
+                        <button onclick="copyJoinEmbed()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="code-xml" class="w-4 h-4"></i> Copy embed code</button>
+                        <a id="joinLink" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open join page</a>
+                    </div>
+                    <p id="embedNote" class="hidden text-sm mt-2"></p>
+                </div>
+
+                <!-- Notifications: how you + applicants hear about decisions -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Notifications</h3>
+                    <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
+                        <span id="hookStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                    <p class="text-xs muted mb-2.5">Paste a Discord webhook and we’ll post new applications and every accept / decline decision (with your message) straight to your server.</p>
+                    <input id="hookUrl" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                        class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="saveWebhook()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                        <button onclick="testWebhook()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                        <button onclick="clearWebhook()" title="Remove webhook" class="surface hair rounded-lg px-3 text-sm font-semibold muted hover:text-red-500 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    </div>
+                    <p class="text-[11px] faint mt-2">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
+                    <p id="hookNote" class="hidden text-sm mt-2"></p>
+
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2">Email applicants
+                            <span id="emailStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                        <p id="emailIntro" class="text-xs muted mb-2.5">Bring your own email provider so decision emails come from your domain and your account. If you don’t set one up, no emails are sent — applicants just use their status page.</p>
+                        <label class="text-xs muted">Provider
+                            <select id="emProvider" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                <option value="">Off — no emails</option>
+                                <option value="resend">Resend</option>
+                                <option value="sendgrid">SendGrid</option>
+                                <option value="postmark">Postmark</option>
+                                <option value="mailgun">Mailgun</option>
+                            </select>
+                        </label>
+                        <div id="emFields" class="space-y-2.5 mt-2.5 hidden">
+                            <input id="emFrom" type="text" placeholder='From — e.g. Air Canada Virtual &lt;crew@yourdomain.com&gt;' autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <input id="emReply" type="email" placeholder="Reply-to (optional)" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <input id="emKey" type="password" placeholder="API key / server token" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <div id="emMailgun" class="grid grid-cols-2 gap-2.5 hidden">
+                                <input id="emDomain" type="text" placeholder="Mailgun domain (mg.yourdomain.com)" autocomplete="off" spellcheck="false"
+                                    class="surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <select id="emRegion" class="surface hair rounded-lg px-2.5 py-2 text-sm text-[var(--ink)]"><option value="us">US region</option><option value="eu">EU region</option></select>
+                            </div>
+                            <input id="emTestTo" type="email" placeholder="Send a test to… (your email)" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        </div>
+                        <div class="flex gap-2 mt-2.5">
+                            <button onclick="saveEmail()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                            <button onclick="testEmail()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                        </div>
+                        <p id="emailNote" class="hidden text-sm mt-2"></p>
+                    </div>
+                </div>
+              </div><!-- /recruit -->
+
+              <div data-panel="team" class="space-y-6 hidden">
+                <!-- Staff roles: owner names them and picks what they can do -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
+                        <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
+                    </div>
+                    <p class="text-xs muted mb-3">Name a role and tick exactly what it can do. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
+                    <div id="staffRoleRows" class="space-y-3"></div>
+                </div>
+
+                <!-- Assign staff accounts to a role -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint">Assign staff</h3>
+                        <button onclick="addAssignment()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                    </div>
+                    <p class="text-xs muted mb-3">Match a staff member’s <b>login username</b> to a role. Anyone not listed here keeps full access.</p>
+                    <div id="assignRows" class="space-y-2"></div>
+                </div>
+
+                <button onclick="saveTeam()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save team</button>
+                <p id="teamNote" class="hidden text-sm mt-2"></p>
+              </div><!-- /team -->
+
+              <div data-panel="data" class="space-y-6 hidden">
+                <!-- Connect Supabase (owner / Inflight only) -->
+                <div id="dataSection">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2 flex items-center gap-2">Your data · Supabase
+                        <span id="supaStatus" class="normal-case tracking-normal"></span></h3>
+                    <p class="text-xs muted mb-3">Connect your VA’s own Supabase project. Your crew data lives there and stays yours; Inflight keeps an owner-level key to help run it.</p>
+                    <div class="space-y-2.5">
+                        <input id="supaUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <input id="supaAnon" type="text" placeholder="anon public key (eyJ…)" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <input id="supaService" type="password" placeholder="service_role key — optional, secret" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <div class="flex gap-2">
+                            <button onclick="testSupabase()" class="flex-1 surface hair rounded-lg py-2.5 text-sm font-semibold hover:border-[var(--ink)] transition">Test</button>
+                            <button onclick="saveSupabase()" class="flex-1 accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                        </div>
+                        <p id="supaNote" class="hidden text-sm"></p>
+                    </div>
+
+                    <!-- One-click database setup -->
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1">Set up your tables</div>
+                        <p class="text-xs muted mb-2.5">One time: copy the script, open your SQL editor, paste and Run. Safe to run again anytime.</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="copySetupSql()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-4 h-4"></i> Copy setup SQL</button>
+                            <a id="supaSqlEditor" href="https://supabase.com/dashboard" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open SQL editor</a>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button onclick="checkSetup()" class="text-xs muted hover:text-[var(--ink)] font-medium inline-flex items-center gap-1"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Check setup</button>
+                            <span id="setupCheck" class="text-xs"></span>
+                        </div>
+                        <details class="mt-2"><summary class="text-xs muted cursor-pointer">View SQL</summary><pre id="sqlView" class="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap surface hair rounded-lg p-3 max-h-52 overflow-auto"></pre></details>
+                    </div>
+                </div>
+              </div><!-- /data -->
+
+                <p id="settingsNote" class="hidden text-sm mt-4"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ ROSTER SLIDE-OVER ============ -->
+    <div id="roster" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 z-10 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center justify-between px-5 h-16">
+                    <div id="rosterViewTabs" class="inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
+                        <button data-view="roster" onclick="switchRosterView('roster')" class="px-3 py-1.5 rounded-md transition">Roster<span id="rosterCount" class="text-xs muted"></span></button>
+                        <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="addPilotBtn" onclick="openPilotForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
+                        <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div id="addPilotForm" class="hidden p-5 border-b hair">
+                <div id="pilotFormTitle" class="text-sm font-semibold mb-2.5">Add pilot</div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <input id="np_name" placeholder="Name" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="np_callsign" placeholder="Callsign (ACA1174)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="np_hours" type="number" min="0" placeholder="Hours" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <select id="np_role" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                    <select id="np_status" class="surface hair rounded-lg px-2.5 py-2 text-sm col-span-2">
+                        <option value="active">Active</option><option value="loa">On leave (LOA)</option><option value="inactive">Inactive</option>
+                    </select>
+                </div>
+                <div id="np_aircraft" class="flex flex-wrap gap-1.5 mt-2.5"></div>
+                <div class="flex gap-2 mt-3">
+                    <button id="pilotSubmitBtn" onclick="submitPilot()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add pilot</button>
+                    <button onclick="closePilotForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
+                </div>
+                <p id="pilotNote" class="hidden text-sm mt-2"></p>
+            </div>
+            <div id="rosterList" class="p-5 space-y-2.5"></div>
+            <div id="appsList" class="hidden p-5 space-y-3"></div>
+        </div>
+    </div>
+
+    <!-- ============ ROUTES SLIDE-OVER ============ -->
+    <div id="routes" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closeRoutes()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="route" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Route network</span><span id="routeCount" class="text-xs muted"></span></div>
+                <div class="flex items-center gap-2">
+                    <button id="addRouteBtn" onclick="openRouteForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
+                    <button onclick="closeRoutes()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div id="addRouteForm" class="hidden p-5 border-b hair">
+                <div id="routeFormTitle" class="text-sm font-semibold mb-2.5">Add route</div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <input id="nr_flight" placeholder="Flight no. (ACA123)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)] col-span-2">
+                    <input id="nr_from" placeholder="From ICAO (CYYZ)" maxlength="4" class="surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                    <input id="nr_to" placeholder="To ICAO (EGLL)" maxlength="4" class="surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                    <select id="nr_aircraft" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                    <input id="nr_dist" type="number" min="0" placeholder="Distance (nm, optional)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="nr_notes" placeholder="Notes (optional)" class="surface hair rounded-lg px-3 py-2 text-sm col-span-2 focus:outline-none focus:border-[var(--ink)]">
+                    <label class="flex items-center gap-2 text-sm muted col-span-2 cursor-pointer"><input id="nr_active" type="checkbox" checked class="accent-[var(--accent)]"> Active (visible to pilots)</label>
+                </div>
+                <div class="flex gap-2 mt-3">
+                    <button id="routeSubmitBtn" onclick="submitRoute()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add route</button>
+                    <button onclick="closeRouteForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
+                </div>
+                <p id="routeNote" class="hidden text-sm mt-2"></p>
+            </div>
+            <div id="routeList" class="p-5 space-y-2.5"></div>
+        </div>
+    </div>
+
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
+        let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
+        let SUPA={connected:false,url:'',anonKey:''}, IS_OWNER=false;
+        // Staff permissions: the caller's effective caps, the catalog, and (owner
+        // only) the editable role + assignment config.
+        let CAPS=new Set(), CAP_CATALOG=[], STAFF_ROLES=[], STAFF_ASSIGN=[], ME_LOADED=false;
+        // In preview (no session) show everything; owners have everything; else
+        // check the resolved capability set.
+        function can(cap){ return !sessionToken() || IS_OWNER || CAPS.has(cap); }
 
+        const LAYOUT_META = {
+            editorial: { name:'Editorial', desc:'Calm single-column flow' },
+            console:   { name:'Console',   desc:'Tool rail + widget bento' },
+            split:     { name:'Split',     desc:'Map-led two columns' },
+            classic:   { name:'Classic',   desc:'Main column + sidebar' },
+        };
+
+        // ---- Theme ----
+        function isDark(){ return document.documentElement.classList.contains('dark'); }
         function applyThemeIcon(){
-            const dark=document.documentElement.classList.contains('dark');
             const el=document.getElementById('themeIcon');
-            if(el) el.innerHTML=`<i data-lucide="${dark?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
+            if(el) el.innerHTML=`<i data-lucide="${isDark()?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`;
+            const lbl=document.getElementById('themeLabel'); if(lbl) lbl.textContent=isDark()?'Dark':'Light';
             if(window.lucide) lucide.createIcons();
         }
         function toggleTheme(){
-            const dark=document.documentElement.classList.toggle('dark');
-            try{ localStorage.setItem('crew-theme', dark?'dark':'light'); }catch{}
-            applyThemeIcon();
+            const d=document.documentElement.classList.toggle('dark');
+            try{ localStorage.setItem('crew-theme', d?'dark':'light'); }catch{}
+            applyThemeIcon(); applyEmbeds();
         }
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{}
-            const dark=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle('dark',dark);
-        })();
+            const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark',d); })();
 
-        function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        // ---- Helpers ----
+        function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
         function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
         function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
         function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
         function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1])return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
 
+        // ---- Tiles ----
         const TOOLS=[
-            {icon:'users',label:'Roster',desc:'Pilots & ranks'},
+            {icon:'users',label:'Roster',desc:'Pilots & ranks',action:'roster'},
+            {icon:'route',label:'Routes',desc:'Network & fleet',action:'routes'},
             {icon:'calendar-clock',label:'Schedules',desc:'Rosters & bookings'},
             {icon:'calendar-days',label:'Events',desc:'Group flights'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership'},
-            {icon:'settings',label:'Settings',desc:'Branding & data'},
+            {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         function renderTiles(){
-            document.getElementById('tileGrid').innerHTML=TOOLS.map(t=>`
-                <a class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
+            document.getElementById('toolGrid').innerHTML=TOOLS.map((t,i)=>`
+                <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
-                    <div>
-                        <div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div>
-                        <div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div>
-                    </div>
+                    <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
                 </a>`).join('');
+            document.querySelectorAll('#toolGrid [data-i]').forEach(el=>{
+                const t=TOOLS[+el.getAttribute('data-i')];
+                if(t.action==='settings') el.addEventListener('click', openSettings);
+                if(t.action==='roster') el.addEventListener('click', openRoster);
+                if(t.action==='routes') el.addEventListener('click', openRoutes);
+            });
         }
         const ACTIVITY=[
             {icon:'user-plus',text:'<b>Jordan Lee</b> joined as First Officer',when:'2h ago'},
             {icon:'plane-landing',text:'<b>ACA412</b> landed at EGLL · 8h 12m',when:'5h ago'},
             {icon:'badge-check',text:'<b>Sam Park</b> promoted to Captain',when:'Yesterday'},
             {icon:'calendar-plus',text:'New event <b>Transcon Group Flight</b>',when:'Yesterday'},
-            {icon:'megaphone',text:'Announcement <b>July schedule</b> posted',when:'2d ago'},
         ];
         function renderActivity(){
             document.getElementById('activity').innerHTML=ACTIVITY.map((a,i)=>`
                 <li class="flex items-center gap-3 py-3 ${i?'border-t hair-soft':''}">
                     <span class="muted shrink-0"><i data-lucide="${a.icon}" class="w-[18px] h-[18px]"></i></span>
-                    <span class="text-sm flex-1">${a.text}</span>
-                    <span class="text-xs faint shrink-0">${a.when}</span>
+                    <span class="text-sm flex-1">${a.text}</span><span class="text-xs faint shrink-0">${a.when}</span>
                 </li>`).join('');
         }
 
+        // ---- Live map (in content; theme-synced; no Mapbox token/billing) ----
+        function applyEmbeds(){
+            if(!CREW_CODE) return;
+            const t=isDark()?'dark':'light';
+            document.getElementById('liveMap').src=`/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`;
+            document.getElementById('liveMap').classList.remove('hidden');
+            document.getElementById('liveHost').classList.add('hidden');
+        }
+
+        // ---- Layout ----
+        function resolveLayout(b){
+            const q=(new URLSearchParams(location.search).get('layout')||'').toLowerCase();
+            let stored=''; try{ stored=localStorage.getItem('crew:layout:'+getSlug())||''; }catch{}
+            const cand=(q || stored || (b&&b.layout) || 'editorial').toLowerCase();
+            return ALLOWED.includes(cand) ? cand : (ALLOWED[0]||'editorial');
+        }
+        function applyLayout(layout){
+            CREW_LAYOUT=layout;
+            document.documentElement.setAttribute('data-layout', layout);
+            renderLayoutOpts();
+        }
+        function renderLayoutOpts(){
+            const host=document.getElementById('layoutOpts');
+            host.innerHTML=ALLOWED.map(k=>{
+                const m=LAYOUT_META[k]||{name:k,desc:''};
+                const on=k===CREW_LAYOUT;
+                return `<button role="radio" aria-checked="${on}" data-layout="${k}"
+                    class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span class="min-w-0"><span class="block text-sm font-semibold">${escapeHtml(m.name)}</span>
+                    <span class="block text-xs muted">${escapeHtml(m.desc)}</span></span></button>`;
+            }).join('');
+            host.querySelectorAll('[data-layout]').forEach(b=>b.addEventListener('click',()=>chooseLayout(b.getAttribute('data-layout'))));
+            const locked=document.getElementById('layoutLocked');
+            if(ALLOWED.length<=1){ locked.textContent='Your Inflight staff have set this layout.'; locked.classList.remove('hidden'); }
+            else locked.classList.add('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+        async function chooseLayout(k){
+            if(!ALLOWED.includes(k)) return;
+            applyLayout(k);                                   // live, instant
+            try{ localStorage.setItem('crew:layout:'+getSlug(), k); }catch{}
+            saveSettings({ layout:k });                       // persist for the whole crew (best-effort)
+        }
+
+        // ---- Settings panel ----
+        function setCat(cat){
+            let tab=document.querySelector(`.settings-tab[data-cat="${cat}"]`);
+            // Don't land on a hidden/absent tab — fall back to the first visible one.
+            if(!tab || tab.classList.contains('hidden')){
+                const first=document.querySelector('.settings-tab:not(.hidden)');
+                if(first) cat=first.getAttribute('data-cat');
+            }
+            document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
+            document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
+        }
+        function openSettings(){
+            const s=document.getElementById('settings');
+            s.classList.remove('hidden');
+            if(!document.querySelector('.settings-tab.active')) setCat('appearance');
+            requestAnimationFrame(()=>s.querySelector('.panel').classList.remove('translate-x-full'));
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeSettings(){
+            const s=document.getElementById('settings');
+            s.querySelector('.panel').classList.add('translate-x-full');
+            setTimeout(()=>s.classList.add('hidden'),300);
+        }
+        function sessionToken(){ try{ return (JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null')||{}).token||''; }catch{ return ''; } }
+        async function saveSettings(patch){
+            const note=document.getElementById('settingsNote');
+            const token=sessionToken(); const slug=getSlug();
+            if(!slug || !token){ // preview / not signed in — the live change already applied and cached locally
+                note.textContent='Applied on this device. Sign in to save it for your whole crew.';
+                note.className='text-sm muted'; note.classList.remove('hidden'); return;
+            }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify(patch) });
+                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device (couldn’t sync to the server).'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        // ---- Login page look (owner picks; the login reads it from by-slug) ----
+        let LOGIN_LOOK='center';
+        const LOGIN_LOOKS=['center','split'];
+        const LOOK_META={ center:{name:'Centered',desc:'Branded modal over the banner'}, split:{name:'Split screen',desc:'Editorial brand panel + sign-in'} };
+        function renderLookOpts(){
+            const host=document.getElementById('lookOpts');
+            host.innerHTML=LOGIN_LOOKS.map(k=>{
+                const m=LOOK_META[k]; const on=k===LOGIN_LOOK;
+                return `<button role="radio" aria-checked="${on}" data-look="${k}" class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span class="min-w-0"><span class="block text-sm font-semibold">${escapeHtml(m.name)}</span><span class="block text-xs muted">${escapeHtml(m.desc)}</span></span></button>`;
+            }).join('');
+            host.querySelectorAll('[data-look]').forEach(b=>b.addEventListener('click',()=>chooseLook(b.getAttribute('data-look'))));
+            updateLookPreview();
+            if(window.lucide) lucide.createIcons();
+        }
+        function updateLookPreview(){
+            const p=new URLSearchParams(location.search); p.set('look', LOGIN_LOOK);
+            // Carry the currently-chosen accent so the preview matches (and the
+            // login gets the VA accent even before it's saved).
+            const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            if(isHex(cur)) p.set('accent', cur);
+            const a=document.getElementById('lookPreview'); a.href='/crew?'+p.toString(); a.classList.remove('hidden');
+        }
+        async function chooseLook(k){
+            if(!LOGIN_LOOKS.includes(k)) return;
+            LOGIN_LOOK=k; renderLookOpts();
+            const note=document.getElementById('lookNote');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Preview it below. Sign in to save this for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({loginLook:k}) });
+                if(res.ok){ note.textContent='Saved — your login now uses this look.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        // ---- Crew structure: ranks + roles (each with a badge) ----
+        let RANKS=[], ROLES=[];
+        const BADGE_ICONS=['star','award','medal','crown','shield','plane','gem','trophy','sparkles','chevrons-up','wings','badge-check'];
+        function badgeHtml(b){
+            const c=isHex(b.color)?b.color:'var(--accent)';
+            const hrs=(b.minHours!=null && b.minHours!=='')?` · ${b.minHours}h`:'';
+            const mark=(b.image && isSafeImageUrl(b.image))
+                ? `<img src="${escapeHtml(b.image)}" class="w-4 h-4 rounded object-contain">`
+                : `<i data-lucide="${BADGE_ICONS.includes(b.icon)?b.icon:'star'}" class="w-3.5 h-3.5"></i>`;
+            return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full" style="color:${c};background:color-mix(in srgb, ${c} 13%, transparent);">
+                ${mark}${escapeHtml(b.name||'Untitled')}${hrs}</span>`;
+        }
+        // Badge control per row: uploaded image (with a clear button) or an icon
+        // picker + upload button.
+        function badgeControl(r){
+            if(r.image && isSafeImageUrl(r.image)){
+                return `<span class="relative w-8 h-8 shrink-0">
+                    <img src="${escapeHtml(r.image)}" class="w-8 h-8 rounded-md object-contain border hair">
+                    <button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button>
+                </span>`;
+            }
+            return `<select data-f="icon" class="surface hair rounded-md text-xs py-2 px-1 shrink-0">${iconOptions(r.icon||'star')}</select>
+                <label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload badge image"><i data-lucide="upload" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
+        }
+        function iconOptions(sel){ return BADGE_ICONS.map(i=>`<option value="${i}" ${i===sel?'selected':''}>${i}</option>`).join(''); }
+        function arrForKind(k){ return k==='ranks'?RANKS : k==='roles'?ROLES : FLEET; }
+        function noteIdFor(k){ return k==='ranks'?'rankNote' : k==='roles'?'roleNote' : 'fleetNote'; }
+        function fleetChip(f){
+            const mark=(f.image && isSafeImageUrl(f.image))?`<img src="${escapeHtml(f.image)}" class="w-4 h-4 rounded object-contain">`:`<i data-lucide="plane" class="w-3.5 h-3.5"></i>`;
+            return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full surface hair">${mark}${escapeHtml(f.type||f.name||'Aircraft')}</span>`;
+        }
+        function fleetRowHtml(f,i){
+            const img=(f.image && isSafeImageUrl(f.image))
+                ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
+                : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
+            return `<div class="flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
+                <input data-f="type" value="${escapeHtml(f.type||'')}" placeholder="A320" class="w-20 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="name" value="${escapeHtml(f.name||'')}" placeholder="Livery / name (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+        }
+        function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); }
+        function renderBadgePreview(){
+            document.getElementById('rankPreview').innerHTML = RANKS.length?RANKS.map(badgeHtml).join(''):'<span class="text-xs faint">No ranks yet.</span>';
+            document.getElementById('rolePreview').innerHTML = ROLES.length?ROLES.map(r=>badgeHtml(r)).join(''):'<span class="text-xs faint">No roles yet.</span>';
+            const fp=document.getElementById('fleetPreview'); if(fp) fp.innerHTML = FLEET.length?FLEET.map(fleetChip).join(''):'<span class="text-xs faint">No aircraft yet.</span>';
+            if(window.lucide) lucide.createIcons();
+        }
+        function rankRowHtml(r,i){
+            return `<div class="flex items-center gap-2" data-kind="ranks" data-idx="${i}">
+                <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
+                ${badgeControl(r)}
+                <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Rank name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="minHours" type="number" min="0" value="${r.minHours!=null?r.minHours:0}" placeholder="hrs" class="w-14 surface hair rounded-md px-2 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function roleRowHtml(r,i){
+            return `<div class="flex items-center gap-2" data-kind="roles" data-idx="${i}">
+                <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
+                ${badgeControl(r)}
+                <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Role name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-f="staff" type="checkbox" ${r.staff?'checked':''}> Staff</label>
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderStructure(){
+            document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
+            document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
+            const fr=document.getElementById('fleetRows'); if(fr) fr.innerHTML = FLEET.map(fleetRowHtml).join('');
+            document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
+            renderBadgePreview();
+            if(window.lucide) lucide.createIcons();
+        }
+        // Live-edit via delegation (no re-render, so inputs keep focus).
+        function wireStructure(){
+            ['rankRows','roleRows','fleetRows'].forEach(id=>{
+                const host=document.getElementById(id); if(!host) return;
+                host.addEventListener('input', e=>{
+                    const row=e.target.closest('[data-idx]'); if(!row) return;
+                    const arr=arrForKind(row.getAttribute('data-kind'));
+                    const idx=+row.getAttribute('data-idx'); const f=e.target.getAttribute('data-f'); if(!f||f==='imagefile') return;
+                    arr[idx][f] = f==='staff'? e.target.checked : (f==='minHours'? (Number(e.target.value)||0) : e.target.value);
+                    renderBadgePreview();
+                });
+                host.addEventListener('click', e=>{
+                    const del=e.target.closest('[data-del]'); const clr=e.target.closest('[data-clearimg]');
+                    const row=(del||clr)&&(del||clr).closest('[data-idx]'); if(!row) return;
+                    const arr=arrForKind(row.getAttribute('data-kind')); const idx=+row.getAttribute('data-idx');
+                    if(del){ arr.splice(idx,1); renderStructure(); }
+                    else if(clr){ arr[idx].image=''; renderStructure(); }
+                });
+                host.addEventListener('change', async e=>{
+                    if(e.target.getAttribute('data-f')!=='imagefile') return;
+                    const row=e.target.closest('[data-idx]'); const idx=+row.getAttribute('data-idx'); const kind=row.getAttribute('data-kind');
+                    const arr=arrForKind(kind); const file=e.target.files&&e.target.files[0]; if(!file) return;
+                    const note=document.getElementById(noteIdFor(kind));
+                    const token=sessionToken(), slug=getSlug();
+                    if(!slug||!token){ note.textContent='Sign in as owner/staff to upload art.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+                    note.textContent='Uploading…'; note.className='text-sm muted'; note.classList.remove('hidden');
+                    try{
+                        const fd=new FormData(); fd.append('image', file);
+                        const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
+                        const d=await res.json().catch(()=>({}));
+                        if(!res.ok){ note.textContent=d.error||'Upload failed.'; note.className='text-sm text-red-500'; return; }
+                        arr[idx].image=d.url; renderStructure();
+                        note.textContent='Image uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    }catch{ note.textContent='Upload failed. Try again.'; note.className='text-sm text-red-500'; }
+                });
+            });
+        }
+        function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star'}); renderStructure(); }
+        function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false}); renderStructure(); }
+        function starterRanks(){
+            RANKS=[{name:'Cadet',minHours:0,color:'#64748b',icon:'star'},{name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},{name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},{name:'Captain',minHours:300,color:'#d97706',icon:'medal'},{name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'}];
+            renderStructure();
+        }
+        async function saveStructure(kind){
+            const note=document.getElementById(noteIdFor(kind));
+            const clean = arrForKind(kind).filter(x=>String(kind==='fleet'?(x.type||x.name):x.name||'').trim());
+            const token=sessionToken(), slug=getSlug();
+            if(!slug || !token){ note.textContent='Applied on this device. Sign in to save for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({[kind]:clean}) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
+                else { if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else if(kind==='roles')ROLES=d[kind]; else FLEET=d[kind]; renderStructure(); } note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+            }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        // ---- Recruitment (staff form builder) ----
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[] };
+        // Extensible join requirements. Numeric types are auto-checked against
+        // the applicant's real IF stats; 'agree' is a custom checkbox. (Grade has
+        // its own control above, so it's intentionally not offered here.)
+        const REQ_DEFS={
+            hours:{name:'Min flight hours',ph:'e.g. 25',kind:'num'},
+            landings:{name:'Min landings',ph:'e.g. 50',kind:'num'},
+            xp:{name:'Min XP',ph:'e.g. 20000',kind:'num'},
+            flights:{name:'Min online flights',ph:'e.g. 10',kind:'num'},
+            violations:{name:'Max violations',ph:'e.g. 5',kind:'num'},
+            agree:{name:'Must agree to…',ph:'e.g. I have read the VA rules',kind:'text'},
+        };
+        function reqRowHtml(r,i){
+            const def=REQ_DEFS[r.type]||REQ_DEFS.agree;
+            const valInput = r.type==='agree'
+                ? `<input data-rf="label" value="${escapeHtml(r.label||'')}" placeholder="${escapeHtml(def.ph)}" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">`
+                : `<input data-rf="value" type="number" min="0" value="${r.value!=null&&r.value!==''?escapeHtml(String(r.value)):''}" placeholder="${escapeHtml(def.ph)}" class="w-28 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">`;
+            return `<div class="flex items-center gap-2" data-r="${i}">
+                <select data-rf="type" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0">${Object.entries(REQ_DEFS).map(([k,v])=>`<option value="${k}" ${r.type===k?'selected':''}>${v.name}</option>`).join('')}</select>
+                ${valInput}
+                <button data-rdel class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderRequirements(){ const el=document.getElementById('reqRows'); if(!el) return; el.innerHTML=JOIN.reqs.map(reqRowHtml).join(''); if(window.lucide) lucide.createIcons(); }
+        function addRequirement(){ JOIN.reqs.push({type:'hours',value:''}); renderRequirements(); }
+        function wireRequirements(){
+            const host=document.getElementById('reqRows'); if(!host) return;
+            host.addEventListener('input', e=>{ const row=e.target.closest('[data-r]'); if(!row) return; const i=+row.getAttribute('data-r'); const f=e.target.getAttribute('data-rf'); if(f==='value'||f==='label') JOIN.reqs[i][f]=e.target.value; });
+            host.addEventListener('change', e=>{ const row=e.target.closest('[data-r]'); if(!row) return; const i=+row.getAttribute('data-r'); const f=e.target.getAttribute('data-rf'); if(f==='type'){ JOIN.reqs[i]={type:e.target.value, value:'', label:''}; renderRequirements(); } });
+            host.addEventListener('click', e=>{ const d=e.target.closest('[data-rdel]'); if(!d) return; JOIN.reqs.splice(+d.closest('[data-r]').getAttribute('data-r'),1); renderRequirements(); });
+        }
+        function cleanReqs(){
+            return JOIN.reqs.map(r=> r.type==='agree'
+                ? { type:'agree', label:String(r.label||'').trim(), required:true }
+                : { type:r.type, value:Math.max(0, Math.round(Number(r.value)||0)) })
+              .filter(r=> r.type==='agree' ? r.label : r.value>0);
+        }
+        function renderJoinMode(){
+            const opts=[{k:'free',name:'Free pass',desc:'Anyone can join instantly'},{k:'application',name:'Application review',desc:'Staff accept or decline'}];
+            document.getElementById('joinModeOpts').innerHTML=opts.map(o=>{
+                const on=JOIN.mode===o.k;
+                return `<button role="radio" aria-checked="${on}" data-join="${o.k}" class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span><span class="block text-sm font-semibold">${o.name}</span><span class="block text-xs muted">${o.desc}</span></span></button>`;
+            }).join('');
+            document.querySelectorAll('#joinModeOpts [data-join]').forEach(b=>b.addEventListener('click',()=>{ JOIN.mode=b.getAttribute('data-join'); renderJoinMode(); }));
+        }
+        function qRowHtml(q,i){
+            return `<div class="flex items-center gap-2" data-q="${i}">
+                <input data-qf="label" value="${escapeHtml(q.label||'')}" placeholder="Question" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <select data-qf="type" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0"><option value="text" ${q.type==='text'?'selected':''}>Short</option><option value="textarea" ${q.type==='textarea'?'selected':''}>Long</option></select>
+                <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-qf="required" type="checkbox" ${q.required?'checked':''}> Req</label>
+                <button data-qdel class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderQuestions(){ document.getElementById('qRows').innerHTML=JOIN.form.map(qRowHtml).join(''); if(window.lucide) lucide.createIcons(); }
+        function addQuestion(){ JOIN.form.push({label:'',type:'text',required:false}); renderQuestions(); }
+        function renderRecruitment(){
+            renderJoinMode();
+            document.getElementById('minGrade').value=String(JOIN.minGrade||0);
+            document.getElementById('callsignPrefix').value=JOIN.callsignPrefix||'';
+            renderQuestions();
+            renderRequirements();
+            const slug=getSlug();
+            const link=document.getElementById('joinLink');
+            if(link) link.href = slug ? `https://inflight.info/crew/${encodeURIComponent(slug)}/join` : '#';
+        }
+        function joinEmbedCode(){
+            const slug=getSlug()||'your-va';
+            const src=`https://inflight.info/crew/${slug}/join?embed=1`;
+            return `<iframe id="ifcrew-join" src="${src}" title="Join our crew" style="width:100%;max-width:480px;border:0;height:620px"></iframe>\n<script>window.addEventListener('message',function(e){if(e.data&&e.data.ifcrewHeight){var f=document.getElementById('ifcrew-join');if(f)f.style.height=e.data.ifcrewHeight+'px';}});<\/script>`;
+        }
+        async function copyJoinEmbed(){
+            const note=document.getElementById('embedNote');
+            try{ await navigator.clipboard.writeText(joinEmbedCode()); note.textContent='Embed code copied — paste it into your site’s HTML.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+            catch{ note.textContent='Couldn’t copy automatically.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+        // ---- Discord webhook (recruitment notifications) ----
+        function setHookNote(msg, kind){ const n=document.getElementById('hookNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
+        function renderHookStatus(d){
+            const s=document.getElementById('hookStatus'); if(!s) return;
+            if(d && d.configured){ s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> connected</span>'; }
+            else { s.innerHTML='<span class="faint">not set</span>'; }
+            if(window.lucide) lucide.createIcons();
+        }
+        async function loadWebhook(){
+            const token=sessionToken(), slug=getSlug(); if(!slug||!token) return;
+            try{ const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(res.ok){ const d=await res.json(); renderHookStatus(d); const inp=document.getElementById('hookUrl'); if(inp&&d.configured&&d.hint) inp.placeholder=d.hint; } }catch{}
+        }
+        async function postWebhook(body, okMsg){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ setHookNote('Sign in as owner or staff to manage notifications.','muted'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ setHookNote(d.error||'Could not save.','err'); return; }
+                renderHookStatus(d); setHookNote(okMsg,'ok');
+            }catch{ setHookNote('Server unreachable. Try again.','err'); }
+        }
+        function saveWebhook(){ const v=document.getElementById('hookUrl').value.trim(); if(!v){ setHookNote('Paste a webhook URL first.','muted'); return; } postWebhook({webhookUrl:v}, 'Webhook saved — new activity will post to Discord.'); }
+        function testWebhook(){ const v=document.getElementById('hookUrl').value.trim(); postWebhook(v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check your Discord channel.'); }
+        function clearWebhook(){ document.getElementById('hookUrl').value=''; postWebhook({webhookUrl:''}, 'Webhook removed.'); }
+
+        // ---- Email provider (bring-your-own; no platform default) ----
+        function setEmailNote(msg, kind){ const n=document.getElementById('emailNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
+        function emToggleFields(){
+            const prov=document.getElementById('emProvider').value;
+            document.getElementById('emFields').classList.toggle('hidden', !prov);
+            document.getElementById('emMailgun').classList.toggle('hidden', prov!=='mailgun');
+        }
+        function renderEmailStatus(d){
+            const s=document.getElementById('emailStatus'); if(!s) return;
+            if(d && d.configured) s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> your provider</span>';
+            else s.innerHTML='<span class="faint">off — not sending</span>';
+            if(window.lucide) lucide.createIcons();
+        }
+        function fillEmail(d){
+            if(!d) return;
+            document.getElementById('emProvider').value=d.provider||'';
+            document.getElementById('emFrom').value=d.from||'';
+            document.getElementById('emReply').value=d.replyTo||'';
+            document.getElementById('emDomain').value=d.domain||'';
+            document.getElementById('emRegion').value=d.region||'us';
+            if(d.keyHint) document.getElementById('emKey').placeholder=d.keyHint+' (leave blank to keep)';
+            emToggleFields(); renderEmailStatus(d);
+        }
+        async function loadEmailCfg(){
+            const token=sessionToken(), slug=getSlug(); if(!slug||!token) return;
+            try{ const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/email`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(res.ok) fillEmail(await res.json()); }catch{}
+        }
+        function emailPayload(extra){
+            const prov=document.getElementById('emProvider').value;
+            const p={ provider:prov, from:document.getElementById('emFrom').value.trim(), replyTo:document.getElementById('emReply').value.trim(),
+                domain:document.getElementById('emDomain').value.trim(), region:document.getElementById('emRegion').value };
+            const key=document.getElementById('emKey').value.trim(); if(key) p.apiKey=key;
+            return Object.assign(p, extra||{});
+        }
+        async function postEmail(body, okMsg){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ setEmailNote('Sign in as owner or staff to manage email.','muted'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/email`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ setEmailNote(d.error||'Could not save.','err'); return; }
+                fillEmail(d); document.getElementById('emKey').value=''; setEmailNote(okMsg,'ok');
+            }catch{ setEmailNote('Server unreachable. Try again.','err'); }
+        }
+        function saveEmail(){ postEmail(emailPayload(), document.getElementById('emProvider').value?'Email provider saved.':'Reverted to the Inflight default.'); }
+        function testEmail(){ const to=document.getElementById('emTestTo').value.trim(); postEmail(emailPayload({test:true, testTo:to}), 'Test sent — check that inbox.'); }
+
+        function wireRecruitment(){
+            const host=document.getElementById('qRows');
+            host.addEventListener('input', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(!f) return; JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
+            host.addEventListener('change', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(f==='type'||f==='required') JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
+            host.addEventListener('click', e=>{ const d=e.target.closest('[data-qdel]'); if(!d) return; JOIN.form.splice(+d.closest('[data-q]').getAttribute('data-q'),1); renderQuestions(); });
+        }
+        async function saveRecruitment(){
+            const note=document.getElementById('recruitNote');
+            JOIN.minGrade=Number(document.getElementById('minGrade').value)||0;
+            JOIN.callsignPrefix=document.getElementById('callsignPrefix').value.trim();
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(payload) });
+                if(res.ok){ note.textContent='Recruitment saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        // ---- Roster (rank computed from hours) ----
+        function rankForHours(h){
+            const sorted=[...RANKS].sort((a,b)=>(a.minHours||0)-(b.minHours||0));
+            let r=null; for(const x of sorted){ if((Number(h)||0) >= (x.minHours||0)) r=x; }
+            return r;
+        }
+        function roleByName(name){ return ROLES.find(r=>r.name===name); }
+        function memberCardHtml(m){
+            const rank=rankForHours(m.hours); const role=roleByName(m.role);
+            const rankBadge=rank?badgeHtml({name:rank.name,color:rank.color,icon:rank.icon,image:rank.image}):'';
+            const roleBadge=(role&&role.name)?badgeHtml({name:role.name,color:role.color,icon:role.icon,image:role.image}):'';
+            const ac=(m.aircraft||[]).map(a=>`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(a)}</span>`).join(' ');
+            const st=m.status&&m.status!=='active'?`<span class="text-[10px] uppercase tracking-wide faint">${escapeHtml(m.status)}</span>`:'';
+            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3" data-id="${m.id||''}">
+                <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(m.name||m.callsign||'?',''))}</div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(m.name||'Unnamed')}</span>${m.callsign?`<span class="text-xs faint">${escapeHtml(m.callsign)}</span>`:''}${st}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${rankBadge}${roleBadge}<span class="text-xs muted">${Math.round(Number(m.hours)||0)}h</span></div>
+                    ${ac?`<div class="flex items-center gap-1 flex-wrap mt-1.5">${ac}</div>`:''}
+                </div>
+                ${ROSTER_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
+                    <button data-edit title="Edit pilot" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+                    <button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="user-minus" class="w-4 h-4"></i></button>
+                </div>`:''}
+            </div>`;
+        }
+        let ROSTER_CANMANAGE=false;
+        function renderRoster(){
+            ROSTER_CANMANAGE = can('roster.manage');
+            document.getElementById('addPilotBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
+            const list=document.getElementById('rosterList');
+            document.getElementById('rosterCount').textContent = ROSTER.length?`· ${ROSTER.length}`:'';
+            list.innerHTML = ROSTER.length ? ROSTER.map(memberCardHtml).join('') : '<p class="text-sm faint text-center py-10">No pilots yet.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        async function fetchRoster(){
+            const slug=getSlug();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster`,{ headers:{Accept:'application/json'} });
+                if(res.ok){ const d=await res.json(); ROSTER=Array.isArray(d.roster)?d.roster:[]; return; }
+            }catch{}
+            // Preview / not-live fallback so the design is visible.
+            ROSTER=[
+                {id:'m1',name:'Jordan Lee',callsign:'ACA1174',hours:214,role:(ROLES[0]&&ROLES[0].name)||'',aircraft:['A320','B789'],status:'active'},
+                {id:'m2',name:'Sam Park',callsign:'ACA085',hours:412,role:'',aircraft:['B789'],status:'active'},
+                {id:'m3',name:'Robin Diaz',callsign:'ACA1102',hours:36,role:'',aircraft:['A220'],status:'loa'},
+            ];
+        }
+        function openRoster(){
+            const r=document.getElementById('roster'); r.classList.remove('hidden');
+            // Only surface the Applications tab to those who can review them.
+            const appsTab=document.querySelector('#rosterViewTabs [data-view=\"apps\"]');
+            if(appsTab) appsTab.classList.toggle('hidden', !can('applications.review'));
+            ROSTER_VIEW='roster';
+            document.getElementById('rosterList').classList.remove('hidden');
+            document.getElementById('appsList').classList.add('hidden');
+            renderRoster(); updateRosterTabs();
+            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
+            fetchRoster().then(renderRoster);
+            // Load pending applications in the background so the tab badge is live.
+            fetchApps().then(()=>{ refreshAppsBadge(); if(ROSTER_VIEW==='apps') renderApps(); });
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeRoster(){ const r=document.getElementById('roster'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
+        // Aircraft chips, preselecting whatever the pilot already flies.
+        function buildAircraftChips(selected){
+            NP_AIRCRAFT = new Set(selected || []);
+            const host=document.getElementById('np_aircraft');
+            host.innerHTML = FLEET.length ? FLEET.map(a=>{ const v=a.type||a.name; const on=NP_AIRCRAFT.has(v);
+                return `<button type="button" data-ac="${escapeHtml(v)}" class="text-xs rounded-full px-2.5 py-1 ${on?'accent-bg text-white':'surface hair'}">${escapeHtml(v)}</button>`; }).join('')
+                : '<span class="text-xs faint">Add aircraft in Settings → Crew → Fleet.</span>';
+            host.querySelectorAll('[data-ac]').forEach(b=>b.addEventListener('click',()=>{
+                const v=b.getAttribute('data-ac');
+                if(NP_AIRCRAFT.has(v)){ NP_AIRCRAFT.delete(v); b.classList.remove('accent-bg','text-white'); b.classList.add('surface','hair'); }
+                else { NP_AIRCRAFT.add(v); b.classList.add('accent-bg','text-white'); b.classList.remove('surface','hair'); }
+            }));
+        }
+        // Open the add/edit form. Pass a member to edit; omit to add.
+        let EDITING=null;
+        function openPilotForm(member){
+            EDITING = member ? String(member.id) : null;
+            document.getElementById('np_role').innerHTML='<option value="">No role</option>'+ROLES.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
+            document.getElementById('np_name').value = member ? (member.name||'') : '';
+            document.getElementById('np_callsign').value = member ? (member.callsign||'') : '';
+            document.getElementById('np_hours').value = member ? Math.round(Number(member.hours)||0) : '';
+            document.getElementById('np_role').value = member ? (member.role||'') : '';
+            document.getElementById('np_status').value = member ? (member.status||'active') : 'active';
+            buildAircraftChips(member ? (member.aircraft||[]) : []);
+            document.getElementById('pilotFormTitle').textContent = member ? 'Edit pilot' : 'Add pilot';
+            document.getElementById('pilotSubmitBtn').textContent = member ? 'Save changes' : 'Add pilot';
+            const note=document.getElementById('pilotNote'); if(note) note.classList.add('hidden');
+            document.getElementById('addPilotForm').classList.remove('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+        function closePilotForm(){ EDITING=null; document.getElementById('addPilotForm').classList.add('hidden'); }
+        async function submitPilot(){
+            const note=document.getElementById('pilotNote');
+            const body={ name:document.getElementById('np_name').value.trim(), callsign:document.getElementById('np_callsign').value.trim(), hours:Number(document.getElementById('np_hours').value)||0, role:document.getElementById('np_role').value, aircraft:[...NP_AIRCRAFT], status:document.getElementById('np_status').value };
+            if(!body.name){ note.textContent='Enter a name.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as owner/staff to manage the roster.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const editing=EDITING;
+            const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster${editing?('/'+encodeURIComponent(editing)):''}`;
+            try{
+                const res=await fetch(url,{ method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                if(editing){ ROSTER=ROSTER.map(m=>String(m.id)===String(editing)?d.member:m); }
+                else { ROSTER.unshift(d.member); }
+                closePilotForm(); renderRoster();
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+        }
+        async function removePilot(id, el){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
+                if(res.ok){ ROSTER=ROSTER.filter(m=>String(m.id)!==String(id)); if(String(EDITING)===String(id)) closePilotForm(); renderRoster(); }
+            }catch{}
+        }
+        document.addEventListener('click', e=>{
+            const ed=e.target.closest('#rosterList [data-edit]');
+            if(ed){ const card=ed.closest('[data-id]'); const id=card&&card.getAttribute('data-id'); const m=ROSTER.find(x=>String(x.id)===String(id)); if(m) openPilotForm(m); return; }
+            const rm=e.target.closest('#rosterList [data-remove]'); if(!rm) return;
+            const card=rm.closest('[data-id]'); if(card) removePilot(card.getAttribute('data-id'), card);
+        });
+
+        // ---- Route network ----
+        let ROUTES=[], ROUTE_EDITING=null, ROUTES_CANMANAGE=false;
+        function routeCardHtml(r){
+            const dist=r.distanceNm?`<span class="text-xs muted">${Math.round(r.distanceNm)} nm</span>`:'';
+            const ac=r.aircraft?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(r.aircraft)}</span>`:'';
+            const draft=!r.active?`<span class="text-[10px] uppercase tracking-wide faint">draft</span>`:'';
+            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3 ${r.active?'':'opacity-60'}" data-rid="${r.id||''}">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-semibold tracking-tight">${escapeHtml(r.origin||'—')}</span>
+                        <i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i>
+                        <span class="font-semibold tracking-tight">${escapeHtml(r.destination||'—')}</span>
+                        ${r.flightNumber?`<span class="text-xs faint">${escapeHtml(r.flightNumber)}</span>`:''}${draft}
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${ac}${dist}${r.notes?`<span class="text-xs muted truncate">${escapeHtml(r.notes)}</span>`:''}</div>
+                </div>
+                ${ROUTES_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
+                    <button data-redit title="Edit route" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+                    <button data-rdel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>`:''}
+            </div>`;
+        }
+        function renderRoutes(){
+            ROUTES_CANMANAGE = can('routes.manage');
+            document.getElementById('addRouteBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
+            // Pilots see only active routes; managers see drafts too.
+            const list = ROUTES_CANMANAGE ? ROUTES : ROUTES.filter(r=>r.active);
+            document.getElementById('routeCount').textContent = list.length?`· ${list.length}`:'';
+            document.getElementById('routeList').innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes yet.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        async function fetchRoutes(){
+            const slug=getSlug();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes`,{ headers:{Accept:'application/json'} });
+                if(res.ok){ const d=await res.json(); ROUTES=Array.isArray(d.routes)?d.routes:[]; return; }
+            }catch{}
+            ROUTES=[
+                {id:'r1',flightNumber:'ACA123',origin:'CYYZ',destination:'EGLL',aircraft:'B789',distanceNm:3050,notes:'Daily flagship',active:true},
+                {id:'r2',flightNumber:'ACA88',origin:'CYVR',destination:'RJTT',aircraft:'B77W',distanceNm:4180,notes:'',active:true},
+            ];
+        }
+        function openRoutes(){
+            const r=document.getElementById('routes'); r.classList.remove('hidden');
+            renderRoutes();
+            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
+            fetchRoutes().then(renderRoutes);
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeRoutes(){ const r=document.getElementById('routes'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
+        function openRouteForm(route){
+            ROUTE_EDITING = route ? String(route.id) : null;
+            document.getElementById('nr_aircraft').innerHTML='<option value="">Any aircraft</option>'+FLEET.map(a=>{ const v=a.type||a.name; return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`; }).join('');
+            document.getElementById('nr_flight').value = route ? (route.flightNumber||'') : '';
+            document.getElementById('nr_from').value = route ? (route.origin||'') : '';
+            document.getElementById('nr_to').value = route ? (route.destination||'') : '';
+            const acSel=document.getElementById('nr_aircraft');
+            if(route && route.aircraft && ![...acSel.options].some(o=>o.value===route.aircraft)){ const o=document.createElement('option'); o.value=route.aircraft; o.textContent=route.aircraft; acSel.appendChild(o); }
+            acSel.value = route ? (route.aircraft||'') : '';
+            document.getElementById('nr_dist').value = route && route.distanceNm ? route.distanceNm : '';
+            document.getElementById('nr_notes').value = route ? (route.notes||'') : '';
+            document.getElementById('nr_active').checked = route ? !!route.active : true;
+            document.getElementById('routeFormTitle').textContent = route ? 'Edit route' : 'Add route';
+            document.getElementById('routeSubmitBtn').textContent = route ? 'Save changes' : 'Add route';
+            const note=document.getElementById('routeNote'); if(note) note.classList.add('hidden');
+            document.getElementById('addRouteForm').classList.remove('hidden');
+        }
+        function closeRouteForm(){ ROUTE_EDITING=null; document.getElementById('addRouteForm').classList.add('hidden'); }
+        async function submitRoute(){
+            const note=document.getElementById('routeNote');
+            const body={ flightNumber:document.getElementById('nr_flight').value.trim(), origin:document.getElementById('nr_from').value.trim().toUpperCase(), destination:document.getElementById('nr_to').value.trim().toUpperCase(), aircraft:document.getElementById('nr_aircraft').value, distanceNm:Number(document.getElementById('nr_dist').value)||0, notes:document.getElementById('nr_notes').value.trim(), active:document.getElementById('nr_active').checked };
+            if(!body.origin||!body.destination){ note.textContent='Enter a from and to airport.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in with route permissions to manage routes.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const editing=ROUTE_EDITING;
+            const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes${editing?('/'+encodeURIComponent(editing)):''}`;
+            try{
+                const res=await fetch(url,{ method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                if(editing){ ROUTES=ROUTES.map(x=>String(x.id)===String(editing)?d.route:x); } else { ROUTES.unshift(d.route); }
+                closeRouteForm(); renderRoutes();
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+        }
+        async function removeRoute(id){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
+                if(res.ok){ ROUTES=ROUTES.filter(x=>String(x.id)!==String(id)); if(String(ROUTE_EDITING)===String(id)) closeRouteForm(); renderRoutes(); }
+            }catch{}
+        }
+        document.addEventListener('click', e=>{
+            const ed=e.target.closest('#routeList [data-redit]');
+            if(ed){ const c=ed.closest('[data-rid]'); const id=c&&c.getAttribute('data-rid'); const r=ROUTES.find(x=>String(x.id)===String(id)); if(r) openRouteForm(r); return; }
+            const rm=e.target.closest('#routeList [data-rdel]'); if(!rm) return;
+            const c=rm.closest('[data-rid]'); if(c) removeRoute(c.getAttribute('data-rid'));
+        });
+
+        // ---- Applications (staff review: accept / decline + message) ----
+        let ROSTER_VIEW='roster', APPS=[];
+        function updateRosterTabs(){
+            document.querySelectorAll('#rosterViewTabs [data-view]').forEach(b=>{
+                const on=b.getAttribute('data-view')===ROSTER_VIEW;
+                b.classList.toggle('accent-bg',on); b.classList.toggle('text-white',on);
+                b.style.opacity = on?'1':'.7';
+            });
+        }
+        function switchRosterView(v){
+            ROSTER_VIEW=v; updateRosterTabs();
+            const showApps=v==='apps';
+            document.getElementById('rosterList').classList.toggle('hidden', showApps);
+            document.getElementById('appsList').classList.toggle('hidden', !showApps);
+            // Add-pilot only makes sense on the roster tab.
+            document.getElementById('addPilotBtn').classList.toggle('hidden', showApps || !ROSTER_CANMANAGE);
+            if(showApps){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
+        }
+        function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
+        function refreshAppsBadge(){
+            const n=appBadgeCount(), b=document.getElementById('appsBadge');
+            if(!b) return; b.textContent=n; b.classList.toggle('hidden', n===0);
+        }
+        async function fetchApps(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token){ APPS=[]; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications?status=pending`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(res.ok){ const d=await res.json(); APPS=Array.isArray(d.applications)?d.applications:[]; }
+            }catch{}
+        }
+        function appCardHtml(a){
+            const id=a._id||a.id;
+            const verified=a.ifVerified
+                ? `<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i>verified</span>`
+                : `<span class="inline-flex items-center gap-1 faint text-[11px] font-semibold" title="Our IF lookup couldn’t confirm this account">unverified</span>`;
+            const grade=a.grade?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">Grade ${escapeHtml(String(a.grade))}</span>`:'';
+            const answers=(a.answers||[]).filter(x=>x&&x.a).map(x=>`<div class="mt-2"><div class="text-[11px] uppercase tracking-wide faint">${escapeHtml(x.q)}</div><div class="text-sm">${escapeHtml(x.a)}</div></div>`).join('');
+            return `<div class="surface rounded-xl p-4" data-app="${escapeHtml(String(id))}">
+                <div class="flex items-start gap-3">
+                    <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(a.ifcName||'?',''))}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(a.ifcName||'Unnamed')}</span>${verified}</div>
+                        <div class="flex items-center gap-1.5 flex-wrap mt-1">${a.callsign?`<span class="text-xs faint">${escapeHtml(a.callsign)}</span>`:((a.callsignPrefix||a.callsignNumber)?`<span class="text-xs faint">${escapeHtml((a.callsignPrefix||'')+(a.callsignNumber||''))}</span>`:'')}${grade}</div>
+                        ${a.email?`<div class="text-xs muted mt-1 inline-flex items-center gap-1"><i data-lucide="mail" class="w-3.5 h-3.5"></i>${escapeHtml(a.email)}</div>`:''}
+                    </div>
+                </div>
+                ${answers?`<div class="mt-2 pl-1">${answers}</div>`:''}
+                <textarea data-msg rows="2" placeholder="${a.email?'Message emailed to the applicant + shown on their status page…':'Message shown on their status page…'}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
+                <div class="flex gap-2 mt-2">
+                    <button data-accept class="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i> Accept</button>
+                    <button data-decline class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:text-red-500 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="x" class="w-4 h-4"></i> Decline</button>
+                </div>
+                <p data-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        function renderApps(){
+            refreshAppsBadge();
+            const list=document.getElementById('appsList');
+            if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to review applications.</p>'; return; }
+            const pending=APPS.filter(a=>a.status==='pending');
+            list.innerHTML = pending.length ? pending.map(appCardHtml).join('')
+                : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        async function reviewApp(id, action, card){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            const note=card.querySelector('[data-note]');
+            const message=(card.querySelector('[data-msg]')||{}).value||'';
+            card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications/${encodeURIComponent(id)}`,{
+                    method:'PATCH', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ action, message }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ if(note){ note.textContent=d.error||'Could not update.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); } card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
+                APPS=APPS.filter(a=>String(a._id||a.id)!==String(id));
+                card.style.transition='opacity .25s'; card.style.opacity='0';
+                setTimeout(()=>{ renderApps(); }, 250);
+                // Accepting adds a pilot — refresh the roster so it shows up.
+                if(action==='accept'){ fetchRoster().then(()=>{ if(ROSTER_VIEW==='roster') renderRoster(); }); }
+            }catch{ if(note){ note.textContent='Server unreachable.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); } card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+        }
+        document.addEventListener('click', e=>{
+            const card=e.target.closest('#appsList [data-app]'); if(!card) return;
+            if(e.target.closest('[data-accept]')) reviewApp(card.getAttribute('data-app'),'accept',card);
+            else if(e.target.closest('[data-decline]')) reviewApp(card.getAttribute('data-app'),'decline',card);
+        });
+
+        // ---- Colors (accent) ----
+        const SWATCHES=['#D22630','#4f46e5','#0ea5e9','#16a34a','#f59e0b','#db2777','#0f766e','#1c1a16'];
+        function renderSwatches(){
+            document.getElementById('accentSwatches').innerHTML = SWATCHES.map(c=>`<button type="button" data-c="${c}" title="${c}" class="w-6 h-6 rounded-md border hair" style="background:${c}"></button>`).join('');
+            document.querySelectorAll('#accentSwatches [data-c]').forEach(b=>b.addEventListener('click',()=>{
+                const c=b.getAttribute('data-c'); document.getElementById('accentPick').value=c; applyAccent(c);
+            }));
+        }
+        function applyAccent(hex){ if(isHex(hex)){ document.documentElement.style.setProperty('--accent', hex); if(document.getElementById('lookPreview')) updateLookPreview(); } }
+        function syncAccentPicker(){
+            const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            if(isHex(cur)) document.getElementById('accentPick').value=cur;
+        }
+        async function saveColors(){
+            const hex=document.getElementById('accentPick').value;
+            applyAccent(hex);
+            const note=document.getElementById('colorNote');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug || !token){ note.textContent='Applied on this device. Sign in to save it for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({accent:hex}) });
+                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        // ---- Supabase one-click setup ----
+        const SETUP_SQL = `-- Inflight Crew Center — database setup for your VA's Supabase.
+-- Paste this into Supabase → SQL editor → Run. Safe to run more than once.
+
+-- PILOTS: one row per crew member, linked to Supabase auth.
+create table if not exists public.pilots (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null default '',
+  callsign text,
+  rank text default '',
+  role text default '',
+  hours numeric not null default 0,
+  status text not null default 'active',
+  joined_at timestamptz not null default now()
+);
+
+-- PIREPS: filed flights / logbook.
+create table if not exists public.pireps (
+  id uuid primary key default gen_random_uuid(),
+  pilot_id uuid not null references public.pilots(id) on delete cascade,
+  callsign text, departure text, arrival text, aircraft text,
+  minutes integer not null default 0,
+  status text not null default 'pending',
+  filed_at timestamptz not null default now()
+);
+
+-- EVENTS: group flights / tours.
+create table if not exists public.events (
+  id uuid primary key default gen_random_uuid(),
+  title text not null, departure text, arrival text,
+  starts_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- Auto-create a pilot row the moment someone signs up (seamless join).
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.pilots (id, display_name)
+  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)))
+  on conflict (id) do nothing;
+  return new;
+end; $$;
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Row-level security: signed-in crew can read; you edit your own row/PIREPs.
+alter table public.pilots enable row level security;
+alter table public.pireps enable row level security;
+alter table public.events enable row level security;
+
+drop policy if exists "crew read pilots" on public.pilots;
+create policy "crew read pilots" on public.pilots for select using (auth.role() = 'authenticated');
+drop policy if exists "update own pilot" on public.pilots;
+create policy "update own pilot" on public.pilots for update using (auth.uid() = id);
+
+drop policy if exists "crew read pireps" on public.pireps;
+create policy "crew read pireps" on public.pireps for select using (auth.role() = 'authenticated');
+drop policy if exists "file own pireps" on public.pireps;
+create policy "file own pireps" on public.pireps for insert with check (auth.uid() = pilot_id);
+
+drop policy if exists "crew read events" on public.events;
+create policy "crew read events" on public.events for select using (auth.role() = 'authenticated');
+`;
+        function projectRef(url){ try{ const m=new URL(url).host.match(/^([a-z0-9]+)\.supabase\.co$/i); return m?m[1]:''; }catch{ return ''; } }
+        function updateSqlEditorLink(){
+            const ref=projectRef(SUPA.url);
+            document.getElementById('supaSqlEditor').href = ref ? `https://supabase.com/dashboard/project/${ref}/sql/new` : 'https://supabase.com/dashboard';
+        }
+        async function copySetupSql(){
+            try{ await navigator.clipboard.writeText(SETUP_SQL); supaMsg('SQL copied — paste it into your Supabase SQL editor and Run.','ok'); }
+            catch{ supaMsg('Couldn’t copy automatically — use “View SQL” to copy it manually.','warn'); }
+        }
+        async function checkSetup(){
+            const out=document.getElementById('setupCheck');
+            const url=(document.getElementById('supaUrl').value||SUPA.url||'').trim().replace(/\/+$/,'');
+            const key=(document.getElementById('supaAnon').value||SUPA.anonKey||'').trim();
+            if(!url||!key){ out.textContent='Connect Supabase first.'; out.className='text-xs text-amber-600 dark:text-amber-400'; return; }
+            out.textContent='Checking…'; out.className='text-xs muted';
+            try{
+                const res=await fetch(`${url}/rest/v1/pilots?select=id&limit=1`,{ headers:{ apikey:key, Authorization:'Bearer '+key } });
+                if(res.ok){ out.textContent='✓ Tables found — you’re set up.'; out.className='text-xs text-emerald-600 dark:text-emerald-400'; }
+                else if(res.status===404 || res.status===400){ out.textContent='Not set up yet — run the SQL above.'; out.className='text-xs text-amber-600 dark:text-amber-400'; }
+                else { out.textContent='Couldn’t verify ('+res.status+').'; out.className='text-xs muted'; }
+            }catch{ out.textContent='Couldn’t reach your project.'; out.className='text-xs text-red-500'; }
+        }
+
+        // ---- Onboarding / Supabase (owner) ----
+        function supaMsg(msg,kind){
+            const n=document.getElementById('supaNote');
+            n.textContent=msg;
+            n.className='text-sm '+({ok:'text-emerald-600 dark:text-emerald-400',error:'text-red-500',warn:'text-amber-600 dark:text-amber-400'}[kind]||'muted');
+            n.classList.remove('hidden');
+        }
+        function updateSupaStatus(){
+            document.getElementById('supaStatus').innerHTML = SUPA.connected
+                ? '<span class="text-emerald-600 dark:text-emerald-400 font-semibold">● Connected</span>'
+                : '<span class="faint font-semibold">● Not connected</span>';
+        }
+        // ---- Capabilities / staff permissions ----
+        async function loadMe(){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;   // preview: can() already returns true for everything
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(!res.ok) return;
+                const d=await res.json();
+                IS_OWNER = !!(d.role==='owner' || d.oversight);
+                CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
+                CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
+                STAFF_ROLES = Array.isArray(d.staffRoles)?d.staffRoles:[];
+                STAFF_ASSIGN = Array.isArray(d.staffAssignments)?d.staffAssignments:[];
+                ME_LOADED=true;
+            }catch{}
+        }
+        function applyCapState(){
+            // Gate settings tabs by what the caller can do (owner/preview see all).
+            const vis={ appearance:can('settings.branding'), crew:can('settings.branding'),
+                recruit:can('settings.recruitment')||can('settings.notifications'),
+                team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()) };
+            document.querySelectorAll('.settings-tab').forEach(t=>{
+                const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
+            });
+            // If the active tab got hidden, jump to the first visible one.
+            const active=document.querySelector('.settings-tab.active');
+            if(active && active.classList.contains('hidden')){
+                const first=document.querySelector('.settings-tab:not(.hidden)');
+                if(first) setCat(first.getAttribute('data-cat'));
+            }
+            if(ME_LOADED){ renderStaffRoles(); renderAssignments(); }
+        }
+
+        // Owner-only editors for staff roles + assignments.
+        function staffRoleRowHtml(r,i){
+            const groups={};
+            CAP_CATALOG.forEach(c=>{ (groups[c.group]=groups[c.group]||[]).push(c); });
+            const perms=new Set(r.permissions||[]);
+            const groupHtml=Object.entries(groups).map(([g,caps])=>`
+                <div class="mt-2">
+                    <div class="text-[11px] uppercase tracking-wide faint mb-1">${escapeHtml(g)}</div>
+                    ${caps.map(c=>`<label class="flex items-start gap-2 text-sm py-0.5 cursor-pointer">
+                        <input type="checkbox" data-perm="${escapeHtml(c.id)}" ${perms.has(c.id)?'checked':''} class="mt-0.5 accent-[var(--accent)]">
+                        <span>${escapeHtml(c.label)}</span></label>`).join('')}
+                </div>`).join('');
+            return `<div class="surface hair rounded-xl p-3.5" data-role="${i}">
+                <div class="flex items-center gap-2">
+                    <input type="color" data-rf="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair shrink-0 bg-transparent cursor-pointer" title="Role colour">
+                    <input data-rf="name" value="${escapeHtml(r.name||'')}" placeholder="Role name (e.g. Recruiter)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <button data-roledel title="Delete role" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                ${groupHtml}
+            </div>`;
+        }
+        function renderStaffRoles(){
+            const el=document.getElementById('staffRoleRows'); if(!el) return;
+            el.innerHTML = STAFF_ROLES.length ? STAFF_ROLES.map(staffRoleRowHtml).join('') : '<p class="text-sm faint">No custom roles yet. Add one to limit what a staff member can do.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        // Give new roles a stable, slug-safe id up front so assignments keep
+        // pointing at the right role even before the first save.
+        function addStaffRole(){ STAFF_ROLES.push({id:'role-'+Math.random().toString(36).slice(2,9),name:'',color:'#4f46e5',permissions:[]}); renderStaffRoles(); }
+        function roleOptionsHtml(sel){ return '<option value="">— role —</option>'+STAFF_ROLES.filter(r=>r.name&&r.id).map(r=>`<option value="${escapeHtml(r.id)}" ${sel===r.id?'selected':''}>${escapeHtml(r.name)}</option>`).join(''); }
+        function assignRowHtml(a,i){
+            return `<div class="flex items-center gap-2" data-asn="${i}">
+                <input data-af="username" value="${escapeHtml(a.username||'')}" placeholder="staff login username" autocapitalize="off" spellcheck="false" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <select data-af="roleId" class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${roleOptionsHtml(a.roleId)}</select>
+                <button data-asndel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderAssignments(){
+            const el=document.getElementById('assignRows'); if(!el) return;
+            el.innerHTML = STAFF_ASSIGN.length ? STAFF_ASSIGN.map(assignRowHtml).join('') : '<p class="text-sm faint">No assignments yet.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); }
+        function wireTeam(){
+            const rolesHost=document.getElementById('staffRoleRows');
+            if(rolesHost){
+                rolesHost.addEventListener('input', e=>{ const row=e.target.closest('[data-role]'); if(!row) return; const i=+row.getAttribute('data-role'); const f=e.target.getAttribute('data-rf'); if(f){ STAFF_ROLES[i][f]=e.target.value; } });
+                rolesHost.addEventListener('change', e=>{ const row=e.target.closest('[data-role]'); if(!row) return; const i=+row.getAttribute('data-role');
+                    const perm=e.target.getAttribute('data-perm');
+                    if(perm){ const set=new Set(STAFF_ROLES[i].permissions||[]); e.target.checked?set.add(perm):set.delete(perm); STAFF_ROLES[i].permissions=[...set]; } });
+                rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAssignments(); });
+            }
+            const asnHost=document.getElementById('assignRows');
+            if(asnHost){
+                asnHost.addEventListener('input', e=>{ const row=e.target.closest('[data-asn]'); if(!row) return; const i=+row.getAttribute('data-asn'); const f=e.target.getAttribute('data-af'); if(f) STAFF_ASSIGN[i][f]=e.target.value; });
+                asnHost.addEventListener('change', e=>{ const row=e.target.closest('[data-asn]'); if(!row) return; const i=+row.getAttribute('data-asn'); const f=e.target.getAttribute('data-af'); if(f) STAFF_ASSIGN[i][f]=e.target.value; });
+                asnHost.addEventListener('click', e=>{ const d=e.target.closest('[data-asndel]'); if(!d) return; STAFF_ASSIGN.splice(+d.closest('[data-asn]').getAttribute('data-asn'),1); renderAssignments(); });
+            }
+        }
+        async function saveTeam(){
+            const note=document.getElementById('teamNote');
+            const roles=STAFF_ROLES.map(r=>({ id:r.id, name:String(r.name||'').trim(), color:r.color||'', permissions:r.permissions||[] })).filter(r=>r.name);
+            const asn=STAFF_ASSIGN.map(a=>({ username:String(a.username||'').trim().toLowerCase(), roleId:a.roleId||'' })).filter(a=>a.username&&a.roleId);
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as owner to manage the team.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({ staffRoles:roles, staffAssignments:asn }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                STAFF_ROLES=Array.isArray(d.staffRoles)?d.staffRoles:roles; STAFF_ASSIGN=Array.isArray(d.staffAssignments)?d.staffAssignments:asn;
+                renderStaffRoles(); renderAssignments();
+                note.textContent='Team saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+        }
+
+        function applyOwnerState(){
+            const show = IS_OWNER || !sessionToken();   // owners in production; anyone in preview
+            document.getElementById('dataTab').classList.toggle('hidden', !show);   // gate the Data tab
+            if(SUPA.url) document.getElementById('supaUrl').value=SUPA.url;
+            if(SUPA.anonKey) document.getElementById('supaAnon').value=SUPA.anonKey;
+            updateSupaStatus();
+            document.getElementById('sqlView').textContent=SETUP_SQL;
+            updateSqlEditorLink();
+            document.getElementById('onboard').classList.toggle('hidden', !(show && !SUPA.connected));
+        }
+        async function testSupabase(){
+            const url=document.getElementById('supaUrl').value.trim().replace(/\/+$/,'');
+            const key=document.getElementById('supaAnon').value.trim();
+            if(!url||!key){ supaMsg('Enter your project URL and anon key first.','warn'); return; }
+            supaMsg('Testing…','muted');
+            try{
+                const res=await fetch(url+'/auth/v1/health',{ headers:{ apikey:key } });
+                if(res.ok) supaMsg('Reachable — your Supabase project responded.','ok');
+                else supaMsg('Reached the URL but it returned '+res.status+'. Double-check the anon key.','warn');
+            }catch{ supaMsg('Couldn’t reach that URL. Check the project URL.','error'); }
+        }
+        async function saveSupabase(){
+            const url=document.getElementById('supaUrl').value.trim();
+            const anonKey=document.getElementById('supaAnon').value.trim();
+            const serviceKey=document.getElementById('supaService').value.trim();
+            const token=sessionToken(), slug=getSlug();
+            if(!slug || !token){ supaMsg('Sign in as the VA owner to save this connection.','warn'); return; }
+            supaMsg('Saving…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/supabase`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ url, anonKey, serviceKey }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ supaMsg(d.error||'Could not save.','error'); return; }
+                SUPA={connected:!!d.connected,url:d.url||'',anonKey:d.anonKey||''};
+                document.getElementById('supaService').value='';   // never keep the secret in the field
+                updateSupaStatus();
+                updateSqlEditorLink();
+                document.getElementById('onboard').classList.toggle('hidden', SUPA.connected);
+                supaMsg(SUPA.connected?'Connected — your crew center is linked to your Supabase.':'Saved.','ok');
+            }catch{ supaMsg('Server unreachable. Please try again.','error'); }
+        }
+
+        // ---- Branding ----
         async function resolveBranding(){
             const q=new URLSearchParams(location.search);
             const ov={name:q.get('name')||'',accent:q.get('accent')||'',banner:q.get('banner')||'',logo:q.get('logo')||''};
             if(ov.name||ov.accent||ov.banner||ov.logo) return {...ov,code:(q.get('va')||'').toUpperCase()};
             const slug=getSlug(); if(!slug) return null;
             try{
-                const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),8000);
+                const ctrl=new AbortController();const tm=setTimeout(()=>ctrl.abort(),8000);
                 const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'},signal:ctrl.signal});
-                clearTimeout(t); if(!res.ok) return null; return await res.json();
+                clearTimeout(tm); if(!res.ok) return null; return await res.json();
             }catch{return null;}
         }
         function applyBranding(b){
             if(!b) return;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
+                ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
+                if(!ALLOWED.length) ALLOWED=['editorial'];
+            }
+            if(b.supabase) SUPA=b.supabase;
+            if(b.loginLook && LOGIN_LOOKS.includes(b.loginLook)) LOGIN_LOOK=b.loginLook;
+            if(Array.isArray(b.ranks)) RANKS=b.ranks;
+            if(Array.isArray(b.roles)) ROLES=b.roles;
+            if(Array.isArray(b.fleet)) FLEET=b.fleet;
+            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
+            const mono=initials(name,b.code);
             if(name){
                 document.getElementById('navName').textContent=name;
-                document.getElementById('heroName').textContent=name;
+                document.getElementById('idName').textContent=name;
                 document.getElementById('trustName').textContent=`${name}’s`;
                 document.title=`${name} · Crew Center — Inflight`;
-                document.getElementById('navMonogram').textContent=initials(name,b.code);
+                document.getElementById('navMonogram').textContent=mono;
+                document.getElementById('idMonogram').textContent=mono;
             }
-            if(b.tagline) document.getElementById('heroTagline').textContent=b.tagline;
-            if(b.code){const c=document.getElementById('heroCode');c.textContent=b.code;c.classList.remove('hidden');}
+            if(b.tagline) document.getElementById('idTagline').textContent=b.tagline;
+            if(b.code){ CREW_CODE=b.code; const c=document.getElementById('idCode'); c.textContent=b.code; c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
-                const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
-                el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
+                document.getElementById('navLogo').src=b.logo; document.getElementById('navLogo').classList.remove('hidden'); document.getElementById('navMonogram').classList.add('hidden');
+                document.getElementById('idLogo').src=b.logo; document.getElementById('idLogo').classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }
             if(b.banner && isSafeImageUrl(b.banner)){
-                document.getElementById('heroImg').src=b.banner;
-                document.getElementById('heroImg').classList.remove('hidden');
-                document.getElementById('heroFallback').classList.add('hidden');
+                document.getElementById('identityBg').src=b.banner; document.getElementById('identityBg').classList.remove('hidden'); document.getElementById('identityTint').classList.add('hidden');
             }
         }
 
-        // ---- Signed-in identity (from the login's stored session) ----
+        // ---- Session ----
         const ROLE_LABEL={owner:'Owner',staff:'Staff',pilot:'Pilot',inflight:'Inflight'};
         function readSession(){
             let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
+            IS_OWNER = !!(s && (s.role==='owner' || s.oversight));
             if(!s||!s.name) return;
             document.getElementById('meName').textContent=s.name;
             document.getElementById('meRole').textContent=s.oversight?'Inflight · Oversight':(ROLE_LABEL[s.role]||'Member');
             document.getElementById('meAvatar').textContent=initials(s.name,'');
         }
-        function logout(){
-            try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{}
-            const s=getSlug(); location.href = s ? `/crew/${encodeURIComponent(s)}` : '/crew';
-        }
+        function logout(){ try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{} const s=getSlug(); location.href=s?`/crew/${encodeURIComponent(s)}`:'/crew'; }
 
+        // ---- Boot ----
+        document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeSettings(); closeRoster(); closeRoutes(); } });
         (async function(){
             renderTiles(); renderActivity(); readSession();
-            applyBranding(await resolveBranding());
+            const b = await resolveBranding();
+            applyBranding(b);
+            applyLayout(resolveLayout(b));
+            applyEmbeds();
+            await loadMe();                 // fresh capabilities + (owner) staff-role config
+            applyOwnerState();
+            renderSwatches(); syncAccentPicker();
+            renderLookOpts();
+            wireStructure(); renderStructure();
+            renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
+            wireTeam(); applyCapState();     // render team editors + gate tabs by caps
+            const emP=document.getElementById('emProvider'); if(emP) emP.addEventListener('change', emToggleFields);
+            setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
