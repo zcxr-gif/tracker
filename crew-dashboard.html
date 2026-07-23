@@ -44,6 +44,18 @@
            ===================================================================== */
         .crew-grid{ display:grid; gap:1rem; grid-template-columns:1fr;
             grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+        /* Mobile-first: each layout keeps a distinct ORDER so they're recognisably
+           different on phones too (desktop overrides below rearrange columns). */
+        :root[data-layout="console"] .crew-grid{ grid-template-areas:"identity" "tools" "stats" "live" "activity" "event" "trust"; }
+        :root[data-layout="split"]   .crew-grid{ grid-template-areas:"identity" "live" "stats" "tools" "activity" "event" "trust"; }
+        :root[data-layout="classic"] .crew-grid{ grid-template-areas:"identity" "stats" "activity" "event" "tools" "live" "trust"; }
+        @media (max-width:1023px){
+            /* Console reads as a rail even on mobile: tools become a swipe row. */
+            :root[data-layout="console"] #toolGrid{ display:flex; gap:.75rem; overflow-x:auto; padding-bottom:.25rem; scroll-snap-type:x mandatory; }
+            :root[data-layout="console"] #toolGrid > *{ flex:0 0 46%; scroll-snap-align:start; }
+            /* Split leads with a big live map on mobile. */
+            :root[data-layout="split"] .r-live{ min-height:360px; }
+        }
         .r-identity{ grid-area:identity; } .r-stats{ grid-area:stats; } .r-live{ grid-area:live; }
         .r-tools{ grid-area:tools; } .r-activity{ grid-area:activity; } .r-event{ grid-area:event; } .r-trust{ grid-area:trust; }
         .r-live{ min-height:320px; } .r-live iframe{ width:100%; height:100%; min-height:320px; border:0; display:block; }
@@ -259,6 +271,18 @@
                     </button>
                 </div>
 
+                <!-- Colors — accent for the whole VA page -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Colors</h3>
+                    <p class="text-xs muted mb-2.5">Your accent — used across the login and crew center.</p>
+                    <div class="flex items-center gap-3">
+                        <input id="accentPick" type="color" value="#1c1a16" class="w-10 h-10 rounded-lg border hair bg-transparent cursor-pointer p-0 shrink-0" oninput="applyAccent(this.value)">
+                        <div id="accentSwatches" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+                    <button onclick="saveColors()" class="mt-3 w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save color</button>
+                    <p id="colorNote" class="hidden text-sm mt-2"></p>
+                </div>
+
                 <!-- Connect Supabase (owner / Inflight only) -->
                 <div id="dataSection" class="hidden">
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2 flex items-center gap-2">Your data · Supabase
@@ -431,6 +455,34 @@
             note.classList.remove('hidden');
         }
 
+        // ---- Colors (accent) ----
+        const SWATCHES=['#D22630','#4f46e5','#0ea5e9','#16a34a','#f59e0b','#db2777','#0f766e','#1c1a16'];
+        function renderSwatches(){
+            document.getElementById('accentSwatches').innerHTML = SWATCHES.map(c=>`<button type="button" data-c="${c}" title="${c}" class="w-6 h-6 rounded-md border hair" style="background:${c}"></button>`).join('');
+            document.querySelectorAll('#accentSwatches [data-c]').forEach(b=>b.addEventListener('click',()=>{
+                const c=b.getAttribute('data-c'); document.getElementById('accentPick').value=c; applyAccent(c);
+            }));
+        }
+        function applyAccent(hex){ if(isHex(hex)) document.documentElement.style.setProperty('--accent', hex); }
+        function syncAccentPicker(){
+            const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            if(isHex(cur)) document.getElementById('accentPick').value=cur;
+        }
+        async function saveColors(){
+            const hex=document.getElementById('accentPick').value;
+            applyAccent(hex);
+            const note=document.getElementById('colorNote');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug || !token){ note.textContent='Applied on this device. Sign in to save it for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({accent:hex}) });
+                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
         // ---- Onboarding / Supabase (owner) ----
         function supaMsg(msg,kind){
             const n=document.getElementById('supaNote');
@@ -545,6 +597,7 @@
             applyLayout(resolveLayout(b));
             applyEmbeds();
             applyOwnerState();
+            renderSwatches(); syncAccentPicker();
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
