@@ -112,6 +112,8 @@
         .lyt-opt{ transition:border-color .2s, background .2s; }
         .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
+        .settings-tab{ color:var(--muted); }
+        .settings-tab.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
     </style>
 </head>
 <body class="min-h-screen antialiased">
@@ -257,7 +259,16 @@
                 <div class="flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Settings</span></div>
                 <button onclick="closeSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
-            <div class="p-5 space-y-6">
+            <!-- Category tabs -->
+            <div class="px-5 pt-4 sticky top-16 z-10" style="background:var(--surface);">
+                <div class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
+                    <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-sm font-semibold transition">Appearance</button>
+                    <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-sm font-semibold transition">Crew</button>
+                    <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-sm font-semibold transition">Data</button>
+                </div>
+            </div>
+            <div class="p-5">
+              <div data-panel="appearance" class="space-y-6">
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
                     <div id="layoutOpts" class="space-y-2.5"></div>
@@ -291,6 +302,9 @@
                     <p id="colorNote" class="hidden text-sm mt-2"></p>
                 </div>
 
+              </div><!-- /appearance -->
+
+              <div data-panel="crew" class="space-y-6 hidden">
                 <!-- Crew structure — ranks + roles (owner / staff) -->
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Crew structure</h3>
@@ -323,8 +337,11 @@
                     </div>
                 </div>
 
+              </div><!-- /crew -->
+
+              <div data-panel="data" class="space-y-6 hidden">
                 <!-- Connect Supabase (owner / Inflight only) -->
-                <div id="dataSection" class="hidden">
+                <div id="dataSection">
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2 flex items-center gap-2">Your data · Supabase
                         <span id="supaStatus" class="normal-case tracking-normal"></span></h3>
                     <p class="text-xs muted mb-3">Connect your VA’s own Supabase project. Your crew data lives there and stays yours; Inflight keeps an owner-level key to help run it.</p>
@@ -357,8 +374,9 @@
                         <details class="mt-2"><summary class="text-xs muted cursor-pointer">View SQL</summary><pre id="sqlView" class="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap surface hair rounded-lg p-3 max-h-52 overflow-auto"></pre></details>
                     </div>
                 </div>
+              </div><!-- /data -->
 
-                <p id="settingsNote" class="hidden text-sm"></p>
+                <p id="settingsNote" class="hidden text-sm mt-4"></p>
             </div>
         </div>
     </div>
@@ -481,9 +499,16 @@
         }
 
         // ---- Settings panel ----
+        function setCat(cat){
+            const tab=document.querySelector(`.settings-tab[data-cat="${cat}"]`);
+            if(tab && tab.classList.contains('hidden')) cat='appearance'; // don't land on a hidden tab
+            document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
+            document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
+        }
         function openSettings(){
             const s=document.getElementById('settings');
             s.classList.remove('hidden');
+            if(!document.querySelector('.settings-tab.active')) setCat('appearance');
             requestAnimationFrame(()=>s.querySelector('.panel').classList.remove('translate-x-full'));
             if(window.lucide) lucide.createIcons();
         }
@@ -792,7 +817,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
         }
         function applyOwnerState(){
             const show = IS_OWNER || !sessionToken();   // owners in production; anyone in preview
-            document.getElementById('dataSection').classList.toggle('hidden', !show);
+            document.getElementById('dataTab').classList.toggle('hidden', !show);   // gate the Data tab
             if(SUPA.url) document.getElementById('supaUrl').value=SUPA.url;
             if(SUPA.anonKey) document.getElementById('supaAnon').value=SUPA.anonKey;
             updateSupaStatus();
@@ -901,6 +926,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure();
+            setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
