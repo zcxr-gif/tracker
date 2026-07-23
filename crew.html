@@ -6,360 +6,263 @@
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>
-        tailwind.config = { darkMode: 'class' };
-    </script>
+    <script>tailwind.config = { darkMode: 'class' };</script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-        :root { color-scheme: light dark; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&display=swap');
+        :root { color-scheme: light dark; --accent:#4f46e5; }
         * { -webkit-tap-highlight-color: transparent; }
-        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
-        [data-lucide] { width: 1.15em; height: 1.15em; }
-        svg.lucide { stroke-width: 1.75; }
+        body { font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; }
+        .serif{ font-family:'Fraunces',Georgia,'Times New Roman',serif; }
+        [data-lucide]{ width:1.15em; height:1.15em; }
+        svg.lucide{ stroke-width:1.75; }
+        .accent-bg{ background:var(--accent); } .accent-text{ color:var(--accent); }
 
-        /* Soft premium surfaces — matches the staff hub. */
-        .surface { background: #fff; border: 1px solid rgba(0,0,0,.06); box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 1px 1px rgba(0,0,0,.02); }
-        .dark .surface { background: #18181b; border-color: rgba(255,255,255,.07); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
-
-        .loader { border: 2.5px solid rgba(120,120,128,.25); border-top-color: currentColor; border-radius: 50%; width: 30px; height: 30px; animation: spin .7s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .fade-in { animation: fade .4s cubic-bezier(.2,.8,.2,1) forwards; }
-        @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* Subtle grid texture behind the login, same idiom as the staff hub. */
-        .crew-bg { background-image: radial-gradient(rgba(0,0,0,.025) 1px, transparent 1px); background-size: 22px 22px; }
-        .dark .crew-bg { background-image: radial-gradient(rgba(255,255,255,.03) 1px, transparent 1px); }
-
-        input { font-family: inherit; }
-        ::placeholder { color: #a1a1aa; }
-        a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+        .surface{ background:#fff; border:1px solid rgba(0,0,0,.06); box-shadow:0 1px 2px rgba(0,0,0,.03); }
+        .dark .surface{ background:#18181b; border-color:rgba(255,255,255,.07); }
+        .loader{ border:2.5px solid rgba(120,120,128,.25); border-top-color:currentColor; border-radius:50%; width:30px; height:30px; animation:spin .7s linear infinite; }
+        @keyframes spin{ to{ transform:rotate(360deg);} }
+        .fade-in{ animation:fade .4s cubic-bezier(.2,.8,.2,1) forwards; }
+        @keyframes fade{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+        .crew-bg{ background-image:radial-gradient(rgba(0,0,0,.025) 1px, transparent 1px); background-size:22px 22px; }
+        .dark .crew-bg{ background-image:radial-gradient(rgba(255,255,255,.03) 1px, transparent 1px); }
+        input{ font-family:inherit; } ::placeholder{ color:#a1a1aa; }
+        a:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid currentColor; outline-offset:2px; }
         @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+
+        /* Look switch: only the selected look shows, once boot is ready. */
+        .look{ display:none; }
+        body.ready[data-look="center"] .look-center{ display:flex; }
+        body.ready[data-look="split"]  .look-split{ display:grid; }
     </style>
 </head>
-<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased min-h-screen transition-colors duration-300">
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased min-h-screen transition-colors duration-300" data-look="center">
 
     <!--
-      Crew Center login — the branded, per-VA entry point served at
-      inflight.info/crew/<slug>.
-
-      Branding is REAL: resolveBranding() reads the VA slug from the path (or
-      ?va= for previews) and fetches the VA's own record from the Inflight VA-Ads
-      backend (GET /api/va-ads/by-slug/:slug — name, logo, banner, accent). So
-      only the VA's own artwork shows on their login, with a small "Powered by
-      Inflight" mark underneath.
-
-      Layout: the VA's banner (bannerUrl) sits full-bleed BEHIND the login modal
-      under a scrim; the VA's logo (logoUrl) is the mark on the card. With neither
-      on file, an accent-coloured monogram stands in.
-
-      Preview override: pass ?name=&accent=&logo=&banner= to render a look
-      client-side without the backend (handy for design/QA before deploy), e.g.
-        /crew?name=Air%20Canada%20Virtual&accent=%23D22630&logo=/Images/examples/air-canada-virtual.svg&banner=/Images/examples/air-canada-virtual-banner.svg
-
-      Authentication is NOT wired yet — the form is an inert shell. Sign-in against
-      the VA's own Supabase project (bring-your-own; the VA owns the data, Inflight
-      retains an owner login) is the next brick.
+      Crew Center login. Two selectable LOOKS (add more over time):
+        · center — a branded modal over the VA banner (default)
+        · split  — an editorial split screen (dark brand panel + sign-in)
+      Choose with ?look=split (preview) or the VA's stored login look later.
+      Branding resolves the same way (?name/logo/banner/accent or by slug);
+      both looks share one auth handler (POST /api/crew/<slug>/login).
     -->
 
-    <!-- ============ BOOT ============ -->
+    <!-- BOOT -->
     <div id="bootLoader" class="min-h-screen flex flex-col items-center justify-center gap-4 text-zinc-400">
-        <div class="loader"></div>
-        <p class="text-sm font-medium">Loading crew center…</p>
+        <div class="loader"></div><p class="text-sm font-medium">Loading crew center…</p>
     </div>
 
-    <!-- ============ LOGIN ============ -->
-    <div id="loginView" class="hidden min-h-screen relative overflow-hidden flex items-center justify-center px-5 py-10">
-        <!-- Backgrounds. Default: a subtle dot texture. When the VA has a banner,
-             it sits full-bleed BEHIND the login modal, under a scrim for legibility. -->
+    <!-- ============================ CENTER LOOK ============================ -->
+    <div class="look look-center min-h-screen crew-bg relative overflow-hidden items-center justify-center px-5 py-10">
         <div class="absolute inset-0 z-0 crew-bg"></div>
-        <div id="bannerBg" class="hidden absolute inset-0 z-0">
-            <img id="bannerImg" alt="" class="w-full h-full object-cover">
+        <div class="brand-banner-wrap hidden absolute inset-0 z-0">
+            <img class="brand-banner w-full h-full object-cover" alt="">
             <div class="absolute inset-0 bg-zinc-950/45 backdrop-blur-[3px]"></div>
         </div>
-
-        <div class="relative z-10 w-full max-w-sm fade-in">
-
-            <!-- ---- The login modal: everything readable lives on this surface ---- -->
-            <div class="surface rounded-3xl p-6 sm:p-7 shadow-xl shadow-zinc-900/10 dark:shadow-black/40">
-
-                <!-- Per-VA mark: the VA's logo, or an accent monogram fallback -->
+        <div class="relative z-10 w-full max-w-sm mx-auto fade-in" style="margin-top:min(12vh,120px);">
+            <div class="surface rounded-3xl p-6 sm:p-7 shadow-xl">
                 <div class="text-center mb-6">
-                    <img id="brandImg" alt="" class="hidden mx-auto mb-4 max-h-16 w-auto object-contain">
-                    <div id="vaMonogram"
-                        class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg text-white text-2xl font-black tracking-tight"
-                        style="background:#18181b;">
-                        <span id="vaMonogramText">VA</span>
+                    <img class="brand-logo hidden mx-auto mb-4 max-h-16 w-auto object-contain" alt="">
+                    <div class="brand-mono-box accent-bg w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg text-white text-2xl font-black tracking-tight">
+                        <span class="brand-mono">VA</span>
                     </div>
                     <h1 class="text-xl font-bold tracking-tight">Crew Center</h1>
-                    <p id="vaTagline" class="text-zinc-500 dark:text-zinc-400 text-sm mt-1">Sign in to your crew center</p>
+                    <p class="brand-tagline text-zinc-500 dark:text-zinc-400 text-sm mt-1">Sign in to your crew center</p>
                 </div>
-
-                <!-- Login form (shown once a VA resolves) -->
-                <form id="loginForm" class="hidden space-y-4">
+                <form class="authForm space-y-4">
                     <div>
                         <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Username or email</label>
-                        <input id="loginUser" type="text" autocomplete="username" required placeholder="username or you@yourva.com"
+                        <input name="username" type="text" autocomplete="username" required placeholder="username or you@yourva.com"
                             class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Password</label>
-                        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••"
+                        <input name="password" type="password" autocomplete="current-password" required placeholder="••••••••"
                             class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
                     </div>
-                    <p id="loginNote" class="hidden text-sm font-medium"></p>
-                    <button type="submit" id="loginBtn"
-                        class="w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]"
-                        style="background:#18181b;">
-                        <span>Sign in</span>
-                        <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    <p class="authNote hidden text-sm font-medium"></p>
+                    <button type="submit" class="authBtn accent-bg w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]">
+                        <span class="authBtnLabel">Sign in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
                     </button>
                 </form>
-
-                <!-- State message (unknown / again-later / no-VA) -->
-                <p id="stateMsg" class="hidden text-center text-sm text-zinc-500 dark:text-zinc-400"></p>
-
-                <!-- "Powered by Inflight" — card footer, always on the surface -->
                 <div class="mt-6 pt-5 border-t border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-center gap-2 opacity-80">
                     <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
                     <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
                     <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
                 </div>
             </div>
-
-            <!-- Theme toggle: below the modal, frosted so it reads on the banner -->
+            <p class="authState hidden text-center text-sm text-zinc-500 dark:text-zinc-400 mt-5"></p>
             <div class="mt-5 flex justify-center">
-                <button onclick="toggleTheme()" title="Toggle theme"
-                    class="w-9 h-9 grid place-items-center rounded-full bg-white/70 dark:bg-zinc-800/70 backdrop-blur border border-zinc-200/70 dark:border-zinc-700/70 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 transition shadow-sm">
-                    <span id="themeIcon"></span>
-                </button>
+                <button onclick="toggleTheme()" title="Toggle theme" class="w-9 h-9 grid place-items-center rounded-full bg-white/70 dark:bg-zinc-800/70 backdrop-blur border border-zinc-200/70 dark:border-zinc-700/70 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 transition shadow-sm"><span class="themeIcon"></span></button>
             </div>
         </div>
     </div>
 
-    <script>
-        // Inflight VA-Ads backend — the same origin the tracker already uses for
-        // VA ads, community photos, etc. (see vaAds.js).
-        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+    <!-- ============================ SPLIT LOOK ============================ -->
+    <div class="look look-split min-h-screen grid-cols-1 md:grid-cols-2">
+        <!-- Brand panel (always dark, editorial) -->
+        <div class="relative overflow-hidden text-white flex flex-col justify-between p-8 sm:p-10" style="background:#0b0b0f; min-height:38vh;">
+            <div class="brand-banner-wrap hidden absolute inset-0 opacity-25">
+                <img class="brand-banner w-full h-full object-cover" alt=""><div class="absolute inset-0" style="background:#0b0b0f; opacity:.55;"></div>
+            </div>
+            <div class="pointer-events-none absolute -bottom-24 -left-24 w-72 h-72 rounded-full blur-3xl opacity-30 accent-bg"></div>
+            <div class="relative flex items-center gap-3">
+                <img class="brand-logo hidden h-9 w-auto max-w-[150px] object-contain" alt="">
+                <div class="brand-mono-box accent-bg w-10 h-10 rounded-xl grid place-items-center text-white font-black"><span class="brand-mono">VA</span></div>
+                <span class="brand-name font-semibold tracking-tight text-white/90">Crew Center</span>
+            </div>
+            <div class="relative">
+                <h2 class="serif text-4xl sm:text-5xl leading-[1.05] tracking-tight">The Crew<br><span class="italic accent-text-light">Center</span></h2>
+                <div class="mt-6 space-y-2.5 max-w-xs">
+                    <div class="flex items-center gap-3 rounded-full bg-white/[.06] border border-white/10 px-4 py-2.5"><i data-lucide="clipboard-pen" class="w-4 h-4 text-white/70"></i><span class="text-sm text-white/85">File PIREPs &amp; track your logbook</span></div>
+                    <div class="flex items-center gap-3 rounded-full bg-white/[.06] border border-white/10 px-4 py-2.5"><i data-lucide="users" class="w-4 h-4 text-white/70"></i><span class="text-sm text-white/85">Browse the full pilot roster</span></div>
+                    <div class="flex items-center gap-3 rounded-full bg-white/[.06] border border-white/10 px-4 py-2.5"><i data-lucide="clipboard-list" class="w-4 h-4 text-white/70"></i><span class="text-sm text-white/85">Dispatch board &amp; live notices</span></div>
+                    <div class="flex items-center gap-3 rounded-full bg-white/[.06] border border-white/10 px-4 py-2.5"><i data-lucide="radio" class="w-4 h-4 text-white/70"></i><span class="text-sm text-white/85">Live flight tracking via Inflight</span></div>
+                </div>
+            </div>
+        </div>
+        <!-- Sign-in panel -->
+        <div class="relative bg-stone-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 flex flex-col justify-center px-8 sm:px-12 py-12">
+            <button onclick="toggleTheme()" title="Toggle theme" class="absolute top-5 right-5 w-9 h-9 grid place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-zinc-500 dark:text-zinc-300 transition"><span class="themeIcon"></span></button>
+            <div class="w-full max-w-sm mx-auto fade-in">
+                <div class="flex items-center gap-2.5 mb-5">
+                    <span class="h-px w-6 accent-bg"></span>
+                    <span class="text-[11px] font-semibold uppercase tracking-[.18em] accent-text">Crew Portal</span>
+                </div>
+                <h1 class="serif text-4xl sm:text-5xl leading-[1.05] tracking-tight">Welcome<br>back</h1>
+                <p class="brand-tagline text-zinc-500 dark:text-zinc-400 mt-4 text-[15px] leading-relaxed">Sign in to access your dispatch dashboard, logbook, and the pilot roster.</p>
 
-        // The crew center this login targets (path /crew/<slug> or ?va=). Set at boot.
+                <form class="authForm mt-8 space-y-4">
+                    <input name="username" type="text" autocomplete="username" required placeholder="Username or email"
+                        class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
+                    <input name="password" type="password" autocomplete="current-password" required placeholder="Password"
+                        class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
+                    <p class="authNote hidden text-sm font-medium"></p>
+                    <button type="submit" class="authBtn accent-bg w-full text-white py-3.5 rounded-full font-semibold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.99] shadow-lg" style="box-shadow:0 10px 30px -10px color-mix(in srgb, var(--accent) 60%, transparent);">
+                        <span class="authBtnLabel">Sign in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+                    <p class="authState hidden text-sm text-zinc-500 dark:text-zinc-400"></p>
+                </form>
+
+                <div class="mt-10 text-[11px] uppercase tracking-[.14em] text-zinc-400 dark:text-zinc-500 space-y-3">
+                    <p class="brand-members">Members only — crew access required</p>
+                    <div class="flex items-center justify-between">
+                        <a href="https://inflight.info" class="inline-flex items-center gap-1.5 hover:text-zinc-700 dark:hover:text-zinc-200 transition"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Main site</a>
+                        <span class="inline-flex items-center gap-1.5">Powered by
+                            <img src="/Images/inflight.png" alt="Inflight" class="h-3.5 w-auto dark:hidden inline"><img src="/Images/inflight-light.png" alt="Inflight" class="h-3.5 w-auto hidden dark:inline"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>.accent-text-light{ color:color-mix(in srgb, var(--accent) 55%, white); }</style>
+
+    <script>
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const LOOKS = ['center','split'];
         let CREW_SLUG = '';
 
-        // ---- Theme (mirrors the staff hub: class-based dark mode) ----
-        function applyThemeIcon() {
-            const dark = document.documentElement.classList.contains('dark');
-            const el = document.getElementById('themeIcon');
-            if (el) el.innerHTML = `<i data-lucide="${dark ? 'sun' : 'moon'}" class="w-[18px] h-[18px]"></i>`;
-            if (window.lucide) lucide.createIcons();
+        // ---- Theme ----
+        function isDark(){ return document.documentElement.classList.contains('dark'); }
+        function applyThemeIcon(){
+            document.querySelectorAll('.themeIcon').forEach(el=>el.innerHTML=`<i data-lucide="${isDark()?'sun':'moon'}" class="w-[18px] h-[18px]"></i>`);
+            if(window.lucide) lucide.createIcons();
         }
-        function toggleTheme() {
-            const dark = document.documentElement.classList.toggle('dark');
-            try { localStorage.setItem('crew-theme', dark ? 'dark' : 'light'); } catch {}
-            applyThemeIcon();
-        }
-        (function initTheme() {
-            let pref = null;
-            try { pref = localStorage.getItem('crew-theme'); } catch {}
-            const dark = pref ? pref === 'dark'
-                : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle('dark', dark);
-        })();
+        function toggleTheme(){ const d=document.documentElement.classList.toggle('dark'); try{localStorage.setItem('crew-theme',d?'dark':'light');}catch{} applyThemeIcon(); }
+        (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{} const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.classList.toggle('dark',d); })();
 
-        // ---- Small helpers ----
-        function escapeHtml(s) {
-            return String(s).replace(/[&<>"']/g, c => (
-                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-            ));
-        }
-        function isSafeImageUrl(u) {
-            try {
-                const url = new URL(u, window.location.href);
-                if (url.origin === window.location.origin) return true; // our own assets
-                return url.protocol === 'https:' || url.protocol === 'data:';
-            } catch { return false; }
-        }
-        function isHex(c) { return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c || ''); }
-        function initials(name, code) {
-            const src = (name || code || 'VA').trim();
-            const words = src.split(/\s+/).filter(Boolean);
-            if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-            return src.slice(0, 2).toUpperCase();
+        // ---- Helpers ----
+        function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
+        function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
+        function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
+        function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1])return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
+        function setAll(sel, fn){ document.querySelectorAll(sel).forEach(fn); }
+
+        function resolveLook(b){
+            const q=(new URLSearchParams(location.search).get('look')||'').toLowerCase();
+            const l=(q || (b&&b.loginLook) || 'center').toLowerCase();
+            return LOOKS.includes(l) ? l : 'center';
         }
 
-        // The VA handle: from the path (/crew/<slug>, kept by the Netlify rewrite)
-        // or ?va=<slug> for previews.
-        function getSlug() {
-            const m = window.location.pathname.match(/\/crew\/([^\/?#]+)/i);
-            if (m && m[1]) return decodeURIComponent(m[1]).trim().toLowerCase();
-            const q = new URLSearchParams(window.location.search).get('va');
-            return q ? q.trim().toLowerCase() : '';
+        // ---- Branding (updates every look via .brand-* classes) ----
+        async function resolveBranding(){
+            const q=new URLSearchParams(location.search);
+            const ov={name:q.get('name')||'',accent:q.get('accent')||'',banner:q.get('banner')||'',logo:q.get('logo')||''};
+            if(ov.name||ov.accent||ov.banner||ov.logo) return {ok:true,b:{...ov,code:(q.get('va')||'').toUpperCase()}};
+            const slug=getSlug(); if(!slug) return {ok:false,reason:'noslug'};
+            try{
+                const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),8000);
+                const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'},signal:ctrl.signal});
+                clearTimeout(t);
+                if(res.status===404) return {ok:false,reason:'notfound',slug};
+                if(!res.ok) return {ok:false,reason:'error',slug};
+                return {ok:true,b:await res.json()};
+            }catch{ return {ok:false,reason:'error',slug}; }
         }
-
-        // ---- Resolve branding ----
-        // Priority: explicit ?name/accent/banner/logo overrides (client-side
-        // preview, no backend) → real VA record fetched by slug → nothing.
-        async function resolveBranding() {
-            const q = new URLSearchParams(window.location.search);
-            const ov = {
-                name: q.get('name') || '',
-                accent: q.get('accent') || '',
-                banner: q.get('banner') || '',
-                logo: q.get('logo') || '',
-            };
-            if (ov.name || ov.accent || ov.banner || ov.logo) {
-                return { ok: true, b: { ...ov, code: (q.get('va') || '').toUpperCase() } };
-            }
-
-            const slug = getSlug();
-            if (!slug) return { ok: false, reason: 'noslug' };
-
-            try {
-                const ctrl = new AbortController();
-                const timer = setTimeout(() => ctrl.abort(), 8000);
-                const res = await fetch(
-                    `${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,
-                    { headers: { Accept: 'application/json' }, signal: ctrl.signal }
-                );
-                clearTimeout(timer);
-                if (res.status === 404) return { ok: false, reason: 'notfound', slug };
-                if (!res.ok) return { ok: false, reason: 'error', slug };
-                const b = await res.json();
-                return { ok: true, b };
-            } catch {
-                return { ok: false, reason: 'error', slug };
-            }
-        }
-
-        // ---- Paint branding + reveal the login card ----
-        function applyBranding(b) {
-            const accent = isHex(b.accent) ? b.accent : '';
-            if (accent) {
-                document.getElementById('vaMonogram').style.background = accent;
-                document.getElementById('loginBtn').style.background = accent;
-            }
-
-            const name = b.name || b.code || '';
-            document.getElementById('vaMonogramText').textContent = initials(name, b.code);
-
-            // The VA's banner sits full-bleed BEHIND the modal.
-            const banner = b.banner || '';
-            if (banner && isSafeImageUrl(banner)) {
-                document.getElementById('bannerImg').src = banner;
-                document.getElementById('bannerBg').classList.remove('hidden');
-            }
-
-            // The card's mark is the VA's logo; otherwise the accent monogram stays.
-            const logo = b.logo || '';
-            if (logo && isSafeImageUrl(logo)) {
-                const el = document.getElementById('brandImg');
-                el.src = logo;
-                el.alt = name || 'VA';
-                el.classList.remove('hidden');
-                document.getElementById('vaMonogram').classList.add('hidden');
-            }
-
-            if (name) {
-                document.getElementById('vaTagline').innerHTML =
-                    'Sign in to <span class="font-semibold text-zinc-700 dark:text-zinc-200">' +
-                    escapeHtml(name) + '</span>';
+        function applyBranding(b){
+            if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            const name=b.name||b.code||'';
+            const mono=initials(name,b.code);
+            setAll('.brand-mono', el=>el.textContent=mono);
+            if(name){
+                setAll('.brand-name', el=>el.textContent=name);
+                setAll('.brand-tagline', el=>{ el.textContent = 'Sign in to ' + name + ' — dispatch, logbook and the pilot roster.'; });
+                setAll('.brand-members', el=>el.textContent=`Members only — ${name} crew`);
                 document.title = `${name} · Crew Center — Inflight`;
             }
-
-            document.getElementById('loginForm').classList.remove('hidden');
-        }
-
-        // ---- Non-resolving states (no slug / unknown / backend down) ----
-        function showState(reason, slug) {
-            document.getElementById('vaMonogramText').textContent = '?';
-            const tagline = document.getElementById('vaTagline');
-            const msg = document.getElementById('stateMsg');
-            msg.classList.remove('hidden');
-
-            if (reason === 'notfound') {
-                tagline.textContent = 'Crew center not found';
-                msg.textContent = slug
-                    ? `We couldn’t find a crew center at “${slug}”. Check the link your VA gave you.`
-                    : 'We couldn’t find that crew center.';
-            } else if (reason === 'noslug') {
-                tagline.textContent = 'Welcome';
-                msg.textContent = 'Open your VA’s crew center link to sign in.';
-            } else { // 'error'
-                tagline.textContent = 'Just a moment';
-                msg.textContent = 'We couldn’t load this crew center right now. Please try again shortly.';
+            if(b.logo && isSafeImageUrl(b.logo)){
+                setAll('.brand-logo', el=>{ el.src=b.logo; el.alt=name||'VA'; el.classList.remove('hidden'); });
+                setAll('.brand-mono-box', el=>el.classList.add('hidden'));
+            }
+            if(b.banner && isSafeImageUrl(b.banner)){
+                setAll('.brand-banner', el=>el.src=b.banner);
+                setAll('.brand-banner-wrap', el=>el.classList.remove('hidden'));
             }
         }
-
-        // ---- Login ----
-        // Authenticates against our accounts via POST /api/crew/<slug>/login, then
-        // routes to the view the backend chose: owner/staff/Inflight → the
-        // management dashboard, pilots → the pilot home. The Bearer token is kept
-        // in localStorage (no cross-site cookies) so the dashboards can reuse it.
-        function setNote(msg, kind) {
-            const note = document.getElementById('loginNote');
-            note.textContent = msg;
-            note.className = 'text-sm font-medium ' +
-                (kind === 'error' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400');
-            note.classList.remove('hidden');
+        function showState(reason, slug){
+            const msg = reason==='notfound'
+                ? (slug?`We couldn’t find a crew center at “${slug}”.`:'We couldn’t find that crew center.')
+                : reason==='noslug' ? 'Open your VA’s crew center link to sign in.'
+                : 'We couldn’t load this crew center right now. Please try again shortly.';
+            setAll('.authForm', f=>f.classList.add('hidden'));
+            setAll('.authState', el=>{ el.textContent=msg; el.classList.remove('hidden'); });
         }
-        async function handleLogin(e) {
+
+        // ---- Auth (shared across looks) ----
+        function sessionKey(){ return 'crew:session:'+CREW_SLUG; }
+        async function handleLogin(e){
             e.preventDefault();
-            document.getElementById('loginNote').classList.add('hidden');
-
-            if (!CREW_SLUG) {
-                setNote('Open your crew center link (e.g. /crew/your-va) to sign in.', 'warn');
-                return;
-            }
-            const username = document.getElementById('loginUser').value.trim();
-            const password = document.getElementById('loginPassword').value;
-
-            const btn = document.getElementById('loginBtn');
-            const label = btn.querySelector('span');
-            const prev = label.textContent;
-            btn.disabled = true; label.textContent = 'Signing in…';
-
-            try {
-                const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                    body: JSON.stringify({ username, password }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                    setNote(data.error || 'Sign-in failed. Please try again.', 'error');
-                    btn.disabled = false; label.textContent = prev;
-                    return;
-                }
-                // Persist a lightweight session for the dashboards on this origin.
-                try {
-                    localStorage.setItem('crew:session:' + CREW_SLUG, JSON.stringify({
-                        token: data.token, name: data.name, role: data.role,
-                        view: data.view, oversight: !!data.oversight, at: Date.now(),
-                    }));
-                } catch {}
-                const target = data.view === 'pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
-                location.href = `/${target}?va=${encodeURIComponent(CREW_SLUG)}`;
-            } catch {
-                setNote('Could not reach the server. Please try again.', 'error');
-                btn.disabled = false; label.textContent = prev;
-            }
+            const form=e.currentTarget;
+            const note=form.querySelector('.authNote');
+            note.classList.add('hidden');
+            if(!CREW_SLUG){ note.textContent='Open your crew center link (e.g. /crew/your-va) to sign in.'; note.className='authNote text-sm font-medium text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            const username=form.elements.username.value.trim();
+            const password=form.elements.password.value;
+            const btn=form.querySelector('.authBtn'); const label=form.querySelector('.authBtnLabel'); const prev=label.textContent;
+            btn.disabled=true; label.textContent='Signing in…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/login`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify({username,password}) });
+                const data=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=data.error||'Sign-in failed. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; return; }
+                try{ localStorage.setItem(sessionKey(), JSON.stringify({token:data.token,name:data.name,role:data.role,view:data.view,oversight:!!data.oversight,at:Date.now()})); }catch{}
+                location.href = (data.view==='pilot'?'crew-pilot.html':'crew-dashboard.html') + `?va=${encodeURIComponent(CREW_SLUG)}`;
+            }catch{ note.textContent='Could not reach the server. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; }
         }
 
         // ---- Boot ----
-        (async function boot() {
+        (async function(){
             CREW_SLUG = getSlug();
-            document.getElementById('loginForm').addEventListener('submit', handleLogin);
-            let result;
-            try {
-                result = await resolveBranding();
-            } catch {
-                result = { ok: false, reason: 'error' };
-            }
-            if (result.ok) applyBranding(result.b);
-            else showState(result.reason, result.slug);
-
+            setAll('.authForm', f=>f.addEventListener('submit', handleLogin));
+            const r = await resolveBranding();
+            if(r.ok) applyBranding(r.b);
+            document.body.setAttribute('data-look', resolveLook(r.ok?r.b:null));
+            if(!r.ok) showState(r.reason, r.slug);
             document.getElementById('bootLoader').classList.add('hidden');
-            document.getElementById('loginView').classList.remove('hidden');
+            document.body.classList.add('ready');
             applyThemeIcon();
-            if (window.lucide) lucide.createIcons();
+            if(window.lucide) lucide.createIcons();
         })();
     </script>
 </body>
