@@ -527,6 +527,10 @@
         }
         function updateLookPreview(){
             const p=new URLSearchParams(location.search); p.set('look', LOGIN_LOOK);
+            // Carry the currently-chosen accent so the preview matches (and the
+            // login gets the VA accent even before it's saved).
+            const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            if(isHex(cur)) p.set('accent', cur);
             const a=document.getElementById('lookPreview'); a.href='/crew?'+p.toString(); a.classList.remove('hidden');
         }
         async function chooseLook(k){
@@ -665,7 +669,7 @@
                 const c=b.getAttribute('data-c'); document.getElementById('accentPick').value=c; applyAccent(c);
             }));
         }
-        function applyAccent(hex){ if(isHex(hex)) document.documentElement.style.setProperty('--accent', hex); }
+        function applyAccent(hex){ if(isHex(hex)){ document.documentElement.style.setProperty('--accent', hex); if(document.getElementById('lookPreview')) updateLookPreview(); } }
         function syncAccentPicker(){
             const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
             if(isHex(cur)) document.getElementById('accentPick').value=cur;
