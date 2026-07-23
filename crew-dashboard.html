@@ -340,6 +340,21 @@
                         </div>
                         <p id="supaNote" class="hidden text-sm"></p>
                     </div>
+
+                    <!-- One-click database setup -->
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1">Set up your tables</div>
+                        <p class="text-xs muted mb-2.5">One time: copy the script, open your SQL editor, paste and Run. Safe to run again anytime.</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="copySetupSql()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-4 h-4"></i> Copy setup SQL</button>
+                            <a id="supaSqlEditor" href="https://supabase.com/dashboard" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open SQL editor</a>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button onclick="checkSetup()" class="text-xs muted hover:text-[var(--ink)] font-medium inline-flex items-center gap-1"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Check setup</button>
+                            <span id="setupCheck" class="text-xs"></span>
+                        </div>
+                        <details class="mt-2"><summary class="text-xs muted cursor-pointer">View SQL</summary><pre id="sqlView" class="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap surface hair rounded-lg p-3 max-h-52 overflow-auto"></pre></details>
+                    </div>
                 </div>
 
                 <p id="settingsNote" class="hidden text-sm"></p>
@@ -670,6 +685,94 @@
             note.classList.remove('hidden');
         }
 
+        // ---- Supabase one-click setup ----
+        const SETUP_SQL = `-- Inflight Crew Center — database setup for your VA's Supabase.
+-- Paste this into Supabase → SQL editor → Run. Safe to run more than once.
+
+-- PILOTS: one row per crew member, linked to Supabase auth.
+create table if not exists public.pilots (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null default '',
+  callsign text,
+  rank text default '',
+  role text default '',
+  hours numeric not null default 0,
+  status text not null default 'active',
+  joined_at timestamptz not null default now()
+);
+
+-- PIREPS: filed flights / logbook.
+create table if not exists public.pireps (
+  id uuid primary key default gen_random_uuid(),
+  pilot_id uuid not null references public.pilots(id) on delete cascade,
+  callsign text, departure text, arrival text, aircraft text,
+  minutes integer not null default 0,
+  status text not null default 'pending',
+  filed_at timestamptz not null default now()
+);
+
+-- EVENTS: group flights / tours.
+create table if not exists public.events (
+  id uuid primary key default gen_random_uuid(),
+  title text not null, departure text, arrival text,
+  starts_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- Auto-create a pilot row the moment someone signs up (seamless join).
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.pilots (id, display_name)
+  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)))
+  on conflict (id) do nothing;
+  return new;
+end; $$;
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Row-level security: signed-in crew can read; you edit your own row/PIREPs.
+alter table public.pilots enable row level security;
+alter table public.pireps enable row level security;
+alter table public.events enable row level security;
+
+drop policy if exists "crew read pilots" on public.pilots;
+create policy "crew read pilots" on public.pilots for select using (auth.role() = 'authenticated');
+drop policy if exists "update own pilot" on public.pilots;
+create policy "update own pilot" on public.pilots for update using (auth.uid() = id);
+
+drop policy if exists "crew read pireps" on public.pireps;
+create policy "crew read pireps" on public.pireps for select using (auth.role() = 'authenticated');
+drop policy if exists "file own pireps" on public.pireps;
+create policy "file own pireps" on public.pireps for insert with check (auth.uid() = pilot_id);
+
+drop policy if exists "crew read events" on public.events;
+create policy "crew read events" on public.events for select using (auth.role() = 'authenticated');
+`;
+        function projectRef(url){ try{ const m=new URL(url).host.match(/^([a-z0-9]+)\.supabase\.co$/i); return m?m[1]:''; }catch{ return ''; } }
+        function updateSqlEditorLink(){
+            const ref=projectRef(SUPA.url);
+            document.getElementById('supaSqlEditor').href = ref ? `https://supabase.com/dashboard/project/${ref}/sql/new` : 'https://supabase.com/dashboard';
+        }
+        async function copySetupSql(){
+            try{ await navigator.clipboard.writeText(SETUP_SQL); supaMsg('SQL copied — paste it into your Supabase SQL editor and Run.','ok'); }
+            catch{ supaMsg('Couldn’t copy automatically — use “View SQL” to copy it manually.','warn'); }
+        }
+        async function checkSetup(){
+            const out=document.getElementById('setupCheck');
+            const url=(document.getElementById('supaUrl').value||SUPA.url||'').trim().replace(/\/+$/,'');
+            const key=(document.getElementById('supaAnon').value||SUPA.anonKey||'').trim();
+            if(!url||!key){ out.textContent='Connect Supabase first.'; out.className='text-xs text-amber-600 dark:text-amber-400'; return; }
+            out.textContent='Checking…'; out.className='text-xs muted';
+            try{
+                const res=await fetch(`${url}/rest/v1/pilots?select=id&limit=1`,{ headers:{ apikey:key, Authorization:'Bearer '+key } });
+                if(res.ok){ out.textContent='✓ Tables found — you’re set up.'; out.className='text-xs text-emerald-600 dark:text-emerald-400'; }
+                else if(res.status===404 || res.status===400){ out.textContent='Not set up yet — run the SQL above.'; out.className='text-xs text-amber-600 dark:text-amber-400'; }
+                else { out.textContent='Couldn’t verify ('+res.status+').'; out.className='text-xs muted'; }
+            }catch{ out.textContent='Couldn’t reach your project.'; out.className='text-xs text-red-500'; }
+        }
+
         // ---- Onboarding / Supabase (owner) ----
         function supaMsg(msg,kind){
             const n=document.getElementById('supaNote');
@@ -688,6 +791,8 @@
             if(SUPA.url) document.getElementById('supaUrl').value=SUPA.url;
             if(SUPA.anonKey) document.getElementById('supaAnon').value=SUPA.anonKey;
             updateSupaStatus();
+            document.getElementById('sqlView').textContent=SETUP_SQL;
+            updateSqlEditorLink();
             document.getElementById('onboard').classList.toggle('hidden', !(show && !SUPA.connected));
         }
         async function testSupabase(){
@@ -717,6 +822,7 @@
                 SUPA={connected:!!d.connected,url:d.url||'',anonKey:d.anonKey||''};
                 document.getElementById('supaService').value='';   // never keep the secret in the field
                 updateSupaStatus();
+                updateSqlEditorLink();
                 document.getElementById('onboard').classList.toggle('hidden', SUPA.connected);
                 supaMsg(SUPA.connected?'Connected — your crew center is linked to your Supabase.':'Saved.','ok');
             }catch{ supaMsg('Server unreachable. Please try again.','error'); }
