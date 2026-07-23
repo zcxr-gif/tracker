@@ -14,5 +14,6 @@
 # The applicant join flow (also embeddable via ?embed=1). More specific than
 # the catch-all below, so it must come first.
 /crew/:slug/join  /crew-join.html  200
+/crew/:slug/status  /crew-status.html  200
 /crew      /crew.html  200
 /crew/*    /crew.html  200

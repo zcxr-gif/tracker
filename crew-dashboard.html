@@ -434,11 +434,16 @@
     <div id="roster" class="hidden fixed inset-0 z-50">
         <div class="absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
-            <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
-                <div class="flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Crew roster</span><span id="rosterCount" class="text-xs muted"></span></div>
-                <div class="flex items-center gap-2">
-                    <button id="addPilotBtn" onclick="toggleAddPilot()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
-                    <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+            <div class="sticky top-0 z-10 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center justify-between px-5 h-16">
+                    <div id="rosterViewTabs" class="inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
+                        <button data-view="roster" onclick="switchRosterView('roster')" class="px-3 py-1.5 rounded-md transition">Roster<span id="rosterCount" class="text-xs muted"></span></button>
+                        <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="addPilotBtn" onclick="toggleAddPilot()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
+                        <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    </div>
                 </div>
             </div>
             <div id="addPilotForm" class="hidden p-5 border-b hair">
@@ -456,6 +461,7 @@
                 <p id="pilotNote" class="hidden text-sm mt-2"></p>
             </div>
             <div id="rosterList" class="p-5 space-y-2.5"></div>
+            <div id="appsList" class="hidden p-5 space-y-3"></div>
         </div>
     </div>
 
@@ -894,9 +900,14 @@
         }
         function openRoster(){
             const r=document.getElementById('roster'); r.classList.remove('hidden');
-            renderRoster();
+            ROSTER_VIEW='roster';
+            document.getElementById('rosterList').classList.remove('hidden');
+            document.getElementById('appsList').classList.add('hidden');
+            renderRoster(); updateRosterTabs();
             requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
             fetchRoster().then(renderRoster);
+            // Load pending applications in the background so the tab badge is live.
+            fetchApps().then(()=>{ refreshAppsBadge(); if(ROSTER_VIEW==='apps') renderApps(); });
             if(window.lucide) lucide.createIcons();
         }
         function closeRoster(){ const r=document.getElementById('roster'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
@@ -938,6 +949,95 @@
         document.addEventListener('click', e=>{
             const rm=e.target.closest('#rosterList [data-remove]'); if(!rm) return;
             const card=rm.closest('[data-id]'); if(card) removePilot(card.getAttribute('data-id'), card);
+        });
+
+        // ---- Applications (staff review: accept / decline + message) ----
+        let ROSTER_VIEW='roster', APPS=[];
+        function updateRosterTabs(){
+            document.querySelectorAll('#rosterViewTabs [data-view]').forEach(b=>{
+                const on=b.getAttribute('data-view')===ROSTER_VIEW;
+                b.classList.toggle('accent-bg',on); b.classList.toggle('text-white',on);
+                b.style.opacity = on?'1':'.7';
+            });
+        }
+        function switchRosterView(v){
+            ROSTER_VIEW=v; updateRosterTabs();
+            const showApps=v==='apps';
+            document.getElementById('rosterList').classList.toggle('hidden', showApps);
+            document.getElementById('appsList').classList.toggle('hidden', !showApps);
+            // Add-pilot only makes sense on the roster tab.
+            document.getElementById('addPilotBtn').classList.toggle('hidden', showApps || !ROSTER_CANMANAGE);
+            if(showApps){ document.getElementById('addPilotForm').classList.add('hidden'); renderApps(); fetchApps().then(renderApps); }
+        }
+        function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
+        function refreshAppsBadge(){
+            const n=appBadgeCount(), b=document.getElementById('appsBadge');
+            if(!b) return; b.textContent=n; b.classList.toggle('hidden', n===0);
+        }
+        async function fetchApps(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token){ APPS=[]; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications?status=pending`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(res.ok){ const d=await res.json(); APPS=Array.isArray(d.applications)?d.applications:[]; }
+            }catch{}
+        }
+        function appCardHtml(a){
+            const id=a._id||a.id;
+            const verified=a.ifVerified
+                ? `<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i>verified</span>`
+                : `<span class="inline-flex items-center gap-1 faint text-[11px] font-semibold" title="Our IF lookup couldn’t confirm this account">unverified</span>`;
+            const grade=a.grade?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">Grade ${escapeHtml(String(a.grade))}</span>`:'';
+            const answers=(a.answers||[]).filter(x=>x&&x.a).map(x=>`<div class="mt-2"><div class="text-[11px] uppercase tracking-wide faint">${escapeHtml(x.q)}</div><div class="text-sm">${escapeHtml(x.a)}</div></div>`).join('');
+            return `<div class="surface rounded-xl p-4" data-app="${escapeHtml(String(id))}">
+                <div class="flex items-start gap-3">
+                    <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(a.ifcName||'?',''))}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(a.ifcName||'Unnamed')}</span>${verified}</div>
+                        <div class="flex items-center gap-1.5 flex-wrap mt-1">${a.callsign?`<span class="text-xs faint">${escapeHtml(a.callsign)}</span>`:((a.callsignPrefix||a.callsignNumber)?`<span class="text-xs faint">${escapeHtml((a.callsignPrefix||'')+(a.callsignNumber||''))}</span>`:'')}${grade}</div>
+                    </div>
+                </div>
+                ${answers?`<div class="mt-2 pl-1">${answers}</div>`:''}
+                <textarea data-msg rows="2" placeholder="Optional message to the applicant (they’ll see it on their status page)…" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
+                <div class="flex gap-2 mt-2">
+                    <button data-accept class="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i> Accept</button>
+                    <button data-decline class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:text-red-500 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="x" class="w-4 h-4"></i> Decline</button>
+                </div>
+                <p data-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        function renderApps(){
+            refreshAppsBadge();
+            const list=document.getElementById('appsList');
+            if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to review applications.</p>'; return; }
+            const pending=APPS.filter(a=>a.status==='pending');
+            list.innerHTML = pending.length ? pending.map(appCardHtml).join('')
+                : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        async function reviewApp(id, action, card){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            const note=card.querySelector('[data-note]');
+            const message=(card.querySelector('[data-msg]')||{}).value||'';
+            card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications/${encodeURIComponent(id)}`,{
+                    method:'PATCH', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ action, message }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ if(note){ note.textContent=d.error||'Could not update.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); } card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
+                APPS=APPS.filter(a=>String(a._id||a.id)!==String(id));
+                card.style.transition='opacity .25s'; card.style.opacity='0';
+                setTimeout(()=>{ renderApps(); }, 250);
+                // Accepting adds a pilot — refresh the roster so it shows up.
+                if(action==='accept'){ fetchRoster().then(()=>{ if(ROSTER_VIEW==='roster') renderRoster(); }); }
+            }catch{ if(note){ note.textContent='Server unreachable.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); } card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+        }
+        document.addEventListener('click', e=>{
+            const card=e.target.closest('#appsList [data-app]'); if(!card) return;
+            if(e.target.closest('[data-accept]')) reviewApp(card.getAttribute('data-app'),'accept',card);
+            else if(e.target.closest('[data-decline]')) reviewApp(card.getAttribute('data-app'),'decline',card);
         });
 
         // ---- Colors (accent) ----

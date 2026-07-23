@@ -76,7 +76,11 @@
         let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[] };
         let VA = { name:'', code:'' };
         let STEPS = [], cur = 0;
-        const DATA = { ifcName:'', prefix:'', number:'', grade:0, answers:[] };
+        const DATA = { ifcName:'', prefix:'', number:'', grade:0, answers:[], verified:false, vGrade:null };
+        // Tracks the last IF verification so we can badge the field, skip the
+        // self-report grade step when we already know the true grade, and block
+        // a name our lookup says doesn't exist.
+        let verifyState = { name:'', status:'idle' }; // idle|checking|found|notfound|down
 
         // ---- Theme (follow the host / OS) ----
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{} const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.classList.toggle('dark',d); })();
@@ -92,7 +96,9 @@
         // ---- Steps ----
         function buildSteps(){
             STEPS = ['intro','ifc','callsign'];
-            if(CFG.minGrade>0) STEPS.push('grade');
+            // Only ask the pilot for their grade if the VA gates on it AND our
+            // own lookup hasn't already confirmed a grade for them.
+            if(CFG.minGrade>0 && !(DATA.verified && DATA.vGrade!=null)) STEPS.push('grade');
             if(CFG.form && CFG.form.length) STEPS.push('questions');
             STEPS.push('review');
         }
@@ -102,6 +108,44 @@
             document.getElementById('nextBtn').innerHTML = nextLabel + ' <i data-lucide="arrow-right" class="w-4 h-4"></i>';
         }
         function fullCallsign(){ return (DATA.prefix + DATA.number).replace(/\s+/g,''); }
+
+        // ---- Infinite Flight verification (uses our own IF tooling) ----
+        function renderIfcStatus(){
+            const el=document.getElementById('ifcStatus'); if(!el) return;
+            const S=verifyState.status;
+            if(S==='checking'){ el.innerHTML=`<span class="muted inline-flex items-center gap-1.5"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Checking Infinite Flight…</span>`; }
+            else if(S==='found'){ const g=DATA.vGrade!=null?` · Grade ${DATA.vGrade}`:''; el.innerHTML=`<span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium"><i data-lucide="badge-check" class="w-4 h-4"></i> Verified as ${escapeHtml(DATA.ifcName)}${escapeHtml(g)}</span>`; }
+            else if(S==='notfound'){ el.innerHTML=`<span class="inline-flex items-center gap-1.5 text-red-500 font-medium"><i data-lucide="alert-circle" class="w-4 h-4"></i> No Infinite Flight account with that name. Check the spelling.</span>`; }
+            else if(S==='down'){ el.innerHTML=`<span class="muted inline-flex items-center gap-1.5"><i data-lucide="info" class="w-4 h-4"></i> Couldn’t verify right now — you can still continue.</span>`; }
+            else { el.innerHTML=''; }
+            if(window.lucide) lucide.createIcons();
+            postHeight();
+        }
+        async function verifyIfc(){
+            const inp=document.getElementById('f_ifc'); if(!inp) return;
+            const name=inp.value.trim();
+            if(!name){ shake('f_ifc'); return; }
+            const slug=getSlug();
+            if(!slug){ // preview mode with no backend — accept as-is
+                verifyState={ name, status:'down' }; DATA.ifcName=name; renderIfcStatus(); return;
+            }
+            verifyState={ name, status:'checking' }; renderIfcStatus();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/verify-if`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify({ ifcName:name }) });
+                const d=await res.json().catch(()=>({}));
+                if(inp.value.trim()!==name) return; // user kept typing; ignore stale result
+                if(!res.ok || d.available===false){ verifyState={ name, status:'down' }; DATA.verified=false; DATA.vGrade=null; }
+                else if(d.found){
+                    DATA.ifcName = d.username || name; DATA.verified=true;
+                    DATA.vGrade = (typeof d.grade==='number') ? d.grade : null;
+                    if(DATA.vGrade!=null) DATA.grade=DATA.vGrade;
+                    inp.value = DATA.ifcName;
+                    verifyState={ name:DATA.ifcName, status:'found' };
+                    buildSteps(); // may drop the self-report grade step now we know it
+                } else { verifyState={ name, status:'notfound' }; DATA.verified=false; DATA.vGrade=null; }
+            }catch{ if(inp.value.trim()===name){ verifyState={ name, status:'down' }; } }
+            renderIfcStatus();
+        }
 
         function renderStep(){
             const s = STEPS[cur];
@@ -123,11 +167,21 @@
             else if(s==='ifc'){
                 body.innerHTML = `<div class="step">
                     <h2 class="text-lg font-bold tracking-tight">Your Infinite Flight name</h2>
-                    <p class="text-sm muted mt-1 mb-4">Your Infinite Flight Community (IFC) username — how we know you.</p>
-                    <input id="f_ifc" class="field" placeholder="e.g. Jordan_Lee" value="${escapeHtml(DATA.ifcName)}" autocomplete="off">
+                    <p class="text-sm muted mt-1 mb-4">Your Infinite Flight Community (IFC) username — we’ll verify it against Infinite Flight.</p>
+                    <div class="flex items-center gap-2">
+                        <input id="f_ifc" class="field flex-1" placeholder="e.g. Jordan_Lee" value="${escapeHtml(DATA.ifcName)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+                        <button id="ifcCheck" type="button" onclick="verifyIfc()" class="shrink-0 text-sm font-semibold px-3.5 py-2.5 rounded-lg border hair hover:bg-[var(--line-soft)] transition">Verify</button>
+                    </div>
+                    <div id="ifcStatus" class="mt-2.5 text-sm min-h-[1.25rem]"></div>
                 </div>`;
                 setNav(true, "Continue");
-                setTimeout(()=>document.getElementById('f_ifc').focus(),50);
+                const inp=document.getElementById('f_ifc');
+                // Re-verify whenever the name changes; verify on blur for convenience.
+                inp.addEventListener('input',()=>{ if(inp.value.trim()!==verifyState.name){ verifyState={ name:'', status:'idle' }; DATA.verified=false; DATA.vGrade=null; renderIfcStatus(); } });
+                inp.addEventListener('blur',()=>{ if(inp.value.trim() && inp.value.trim()!==verifyState.name) verifyIfc(); });
+                inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); verifyIfc(); } });
+                renderIfcStatus();
+                setTimeout(()=>inp.focus(),50);
             }
             else if(s==='callsign'){
                 body.innerHTML = `<div class="step">
@@ -172,13 +226,16 @@
                 setNav(true, "Continue");
             }
             else if(s==='review'){
-                const rows = [['IFC name', DATA.ifcName], ['Callsign', fullCallsign()||'—']];
-                if(CFG.minGrade>0) rows.push(['Grade', 'Grade '+(DATA.grade||'—')]);
+                const nameCell = DATA.verified
+                    ? `${escapeHtml(DATA.ifcName)} <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold ml-1"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i>verified</span>`
+                    : escapeHtml(DATA.ifcName);
+                const rows = [['IFC name', nameCell, true], ['Callsign', fullCallsign()||'—']];
+                if(CFG.minGrade>0 || DATA.grade) rows.push(['Grade', 'Grade '+(DATA.grade||'—')]);
                 body.innerHTML = `<div class="step">
                     <h2 class="text-lg font-bold tracking-tight">Review &amp; ${CFG.mode==='free'?'join':'apply'}</h2>
                     <p class="text-sm muted mt-1 mb-4">${CFG.mode==='free'?'You’ll get instant access.':'Staff will review your application.'}</p>
                     <div class="surface hair rounded-lg divide-y hair-soft">
-                        ${rows.map(r=>`<div class="flex items-center justify-between px-4 py-2.5 text-sm"><span class="muted">${escapeHtml(r[0])}</span><span class="font-semibold">${escapeHtml(r[1])}</span></div>`).join('')}
+                        ${rows.map(r=>`<div class="flex items-center justify-between px-4 py-2.5 text-sm"><span class="muted">${escapeHtml(r[0])}</span><span class="font-semibold text-right">${r[2]?r[1]:escapeHtml(r[1])}</span></div>`).join('')}
                     </div>
                     <p id="submitNote" class="hidden text-sm mt-3"></p>
                 </div>`;
@@ -191,7 +248,8 @@
 
         function readStep(){
             const s = STEPS[cur];
-            if(s==='ifc'){ DATA.ifcName = document.getElementById('f_ifc').value.trim(); if(!DATA.ifcName){ shake('f_ifc'); return false; } }
+            if(s==='ifc'){ DATA.ifcName = document.getElementById('f_ifc').value.trim(); if(!DATA.ifcName){ shake('f_ifc'); return false; }
+                if(verifyState.name===DATA.ifcName && verifyState.status==='notfound'){ shake('f_ifc'); return false; } }
             if(s==='callsign'){ DATA.prefix = document.getElementById('f_prefix').value.trim().toUpperCase(); DATA.number = document.getElementById('f_number').value.replace(/[^0-9]/g,''); if(!DATA.number){ shake('f_number'); return false; } }
             if(s==='grade'){ if(!DATA.grade){ return false; } if(DATA.grade<CFG.minGrade){ toast('Grade '+CFG.minGrade+'+ required.'); return false; } }
             if(s==='questions'){ DATA.answers = CFG.form.map((q,i)=>({ q:q.label, a:(document.querySelector(`[data-q="${i}"]`)||{}).value?document.querySelector(`[data-q="${i}"]`).value.trim():'' })); for(let i=0;i<CFG.form.length;i++){ if(CFG.form[i].required && !DATA.answers[i].a){ shake(`[data-q="${i}"]`); return false; } } }
@@ -200,7 +258,18 @@
         function shake(sel){ const el=sel.startsWith('[')?document.querySelector(sel):document.getElementById(sel); if(el){ el.style.borderColor='#ef4444'; el.focus(); } }
         function toast(msg){ const n=document.getElementById('submitNote')||document.getElementById('stepBody'); }
 
-        function next(){ if(!readStep()) return; if(cur>=STEPS.length-1){ submit(); return; } cur++; renderStep(); }
+        async function next(){
+            if(!readStep()) return;
+            // On the IFC step, make sure we've verified the current name before
+            // moving on. If it hasn't been checked yet, check it now and pause so
+            // the pilot sees the result (a not-found name won't advance).
+            if(STEPS[cur]==='ifc' && verifyState.name!==DATA.ifcName){
+                await verifyIfc();
+                if(verifyState.status==='notfound') return;
+            }
+            if(cur>=STEPS.length-1){ submit(); return; }
+            cur++; renderStep();
+        }
         function back(){ if(cur>0){ cur--; renderStep(); } }
 
         async function submit(){
@@ -219,17 +288,31 @@
             document.getElementById('nav').classList.add('hidden');
             document.getElementById('bar').style.width='100%';
             const accepted = d.status==='accepted';
+            const slug=getSlug();
+            // Pending applicants get a private status link (no account/email
+            // needed) so they can check back for the staff's accept/decline.
+            const statusUrl = d.statusToken ? `/crew/${encodeURIComponent(slug)}/status?id=${encodeURIComponent(d.statusToken)}` : '';
             document.getElementById('stepBody').innerHTML = `<div class="step text-center py-4">
                 <div class="w-14 h-14 rounded-full ${accepted?'bg-emerald-500':'accent-bg'} text-white grid place-items-center mx-auto mb-4"><i data-lucide="${accepted?'party-popper':'clock'}" class="w-7 h-7"></i></div>
                 <h2 class="text-xl font-bold tracking-tight">${accepted?'Welcome aboard!':'Application received'}</h2>
                 ${accepted
                     ? `<p class="text-sm muted mt-2">You’re now part of <b>${escapeHtml(VA.name||'the crew')}</b>. Your callsign:</p><div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign||fullCallsign())}</div>
-                       <a href="/crew/${escapeHtml(getSlug())}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`
-                    : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application and get back to you.</p>`}
+                       <a href="/crew/${escapeHtml(slug)}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`
+                    : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application and message you here.</p>
+                       ${statusUrl?`<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                          <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="bookmark" class="w-3.5 h-3.5"></i> Save your status link</div>
+                          <p class="text-sm muted mb-3">Bookmark this to see the VA’s decision and any message they leave you.</p>
+                          <div class="flex items-center gap-2">
+                            <input id="statusLink" readonly value="${escapeHtml(location.origin+statusUrl)}" class="field flex-1 text-xs" onclick="this.select()">
+                            <button onclick="copyStatus()" id="copyBtn" class="shrink-0 accent-bg text-white text-sm font-semibold px-3.5 py-2.5 rounded-lg hover:opacity-90 transition">Copy</button>
+                          </div>
+                          <a href="${escapeHtml(statusUrl)}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-text text-sm font-semibold mt-3 hover:underline">Check status now <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
+                       </div>`:''}`}
             </div>`;
             if(window.lucide) lucide.createIcons();
             postHeight();
         }
+        function copyStatus(){ const i=document.getElementById('statusLink'); if(!i) return; i.select(); try{ navigator.clipboard.writeText(i.value); }catch{ document.execCommand('copy'); } const b=document.getElementById('copyBtn'); if(b){ const t=b.textContent; b.textContent='Copied'; setTimeout(()=>b.textContent=t,1400); } }
 
         // ---- Branding + config ----
         function applyBranding(b){
