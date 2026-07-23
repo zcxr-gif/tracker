@@ -592,6 +592,33 @@
         </div>
     </div>
 
+    <!-- PIREPs / flight log -->
+    <div id="pireps" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closePireps()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="plane" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Flights</span><span id="pirepCount" class="text-xs muted"></span></div>
+                <div class="flex items-center gap-2">
+                    <button id="syncPirepsBtn" onclick="syncPireps()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync</button>
+                    <button onclick="closePireps()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div id="pirepManageBar" class="hidden px-5 pt-4">
+                <p class="text-xs muted mb-2.5">Flights are pulled automatically from each linked pilot’s Infinite Flight history and matched to your fleet &amp; routes. <span id="pirepSyncNote"></span></p>
+                <label class="flex items-center gap-2 text-sm cursor-pointer surface hair rounded-lg px-3 py-2.5">
+                    <input id="pirepAuto" type="checkbox" class="accent-[var(--accent)]" onchange="savePirepAuto(this.checked)">
+                    <span>Auto-approve fleet flights <span class="muted">— credit hours the moment a matching flight is captured</span></span>
+                </label>
+                <div class="flex gap-1.5 mt-3" id="pirepTabs">
+                    <button data-ptab="pending" class="text-xs font-semibold px-3 py-1.5 rounded-full accent-bg text-white">Pending</button>
+                    <button data-ptab="approved" class="text-xs font-semibold px-3 py-1.5 rounded-full surface hair">Approved</button>
+                    <button data-ptab="rejected" class="text-xs font-semibold px-3 py-1.5 rounded-full surface hair">Rejected</button>
+                </div>
+            </div>
+            <div id="pirepList" class="p-5 space-y-2.5"></div>
+        </div>
+    </div>
+
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
@@ -670,7 +697,7 @@
             {icon:'route',label:'Routes',desc:'Network & fleet',action:'routes'},
             {icon:'calendar-clock',label:'Schedules',desc:'Rosters & bookings'},
             {icon:'calendar-days',label:'Events',desc:'Group flights'},
-            {icon:'plane',label:'Flights',desc:'PIREPs & logs'},
+            {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership'},
@@ -687,6 +714,7 @@
                 if(t.action==='settings') el.addEventListener('click', openSettings);
                 if(t.action==='roster') el.addEventListener('click', openRoster);
                 if(t.action==='routes') el.addEventListener('click', openRoutes);
+                if(t.action==='pireps') el.addEventListener('click', openPireps);
             });
         }
         const ACTIVITY=[
@@ -1421,6 +1449,121 @@
             const c=rm.closest('[data-rid]'); if(c) removeRoute(c.getAttribute('data-rid'));
         });
 
+        // ---- Flights (PIREPs) — auto-captured from IF history ----
+        let PIREPS=[], PIREPS_CANREVIEW=false, PIREP_TAB='pending', PIREP_AUTO=false;
+        function fmtDur(min){ min=Math.max(0,Math.round(Number(min)||0)); const h=Math.floor(min/60), m=min%60; return h?`${h}h ${m}m`:`${m}m`; }
+        function pirepStatusBadge(s){
+            const map={ pending:['Pending','text-amber-600 dark:text-amber-400'], approved:['Approved','text-emerald-600 dark:text-emerald-400'], rejected:['Rejected','faint'] };
+            const [t,c]=map[s]||map.pending; return `<span class="text-[10px] uppercase tracking-wide font-semibold ${c}">${t}</span>`;
+        }
+        function pirepCardHtml(p){
+            const when=(p.flownAt||p.createdAt)?new Date(p.flownAt||p.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'}):'';
+            const ac=[p.aircraftName,p.liveryName].filter(Boolean).join(' · ');
+            const fleet=p.inFleet?'<span class="text-[10px] uppercase tracking-wide faint" title="Matches your fleet">fleet</span>':'';
+            const auto=p.source==='auto'?'<span class="text-[10px] uppercase tracking-wide faint" title="Auto-captured">auto</span>':'';
+            const meta=[fmtDur(p.durationMin), (p.landings?`${p.landings} ldg`:''), (p.distanceNm?`${Math.round(p.distanceNm)} nm`:''), (p.violations?`${p.violations} vio`:'')].filter(Boolean).join(' · ');
+            let controls='';
+            if(PIREPS_CANREVIEW){
+                const btns=[];
+                if(p.status!=='approved') btns.push(`<button data-papprove title="Approve" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-emerald-500"><i data-lucide="check" class="w-4 h-4"></i></button>`);
+                if(p.status!=='rejected') btns.push(`<button data-preject title="Reject" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-amber-500"><i data-lucide="x" class="w-4 h-4"></i></button>`);
+                btns.push(`<button data-pdel title="Delete" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`);
+                controls=`<div class="flex items-center gap-0.5 shrink-0">${btns.join('')}</div>`;
+            }
+            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3" data-pid="${p.id||''}">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-semibold tracking-tight">${escapeHtml(p.origin||'—')}</span>
+                        <i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i>
+                        <span class="font-semibold tracking-tight">${escapeHtml(p.destination||'—')}</span>
+                        ${p.flightNumber?`<span class="text-xs faint">${escapeHtml(p.flightNumber)}</span>`:''}
+                        ${pirepStatusBadge(p.status)}${fleet}${auto}
+                    </div>
+                    <div class="text-xs muted mt-1 truncate">${escapeHtml(p.pilotName||p.callsign||'Pilot')}${ac?' · '+escapeHtml(ac):''}</div>
+                    <div class="text-[11px] faint mt-0.5">${escapeHtml([meta,when].filter(Boolean).join(' · '))}</div>
+                </div>
+                ${controls}
+            </div>`;
+        }
+        function renderPireps(){
+            PIREPS_CANREVIEW = can('flights.review');
+            document.getElementById('pirepManageBar').classList.toggle('hidden', !PIREPS_CANREVIEW);
+            document.getElementById('syncPirepsBtn').classList.toggle('hidden', !PIREPS_CANREVIEW);
+            document.getElementById('pirepCount').textContent = PIREPS.length?`· ${PIREPS.length}`:'';
+            document.getElementById('pirepAuto').checked = !!PIREP_AUTO;
+            document.querySelectorAll('#pirepTabs [data-ptab]').forEach(b=>{
+                const on=b.getAttribute('data-ptab')===PIREP_TAB;
+                b.className=`text-xs font-semibold px-3 py-1.5 rounded-full ${on?'accent-bg text-white':'surface hair'}`;
+            });
+            const empty = PIREPS_CANREVIEW ? `No ${PIREP_TAB} flights.` : 'No flights logged yet.';
+            document.getElementById('pirepList').innerHTML = PIREPS.length ? PIREPS.map(pirepCardHtml).join('') : `<p class="text-sm faint text-center py-10">${empty}</p>`;
+            if(window.lucide) lucide.createIcons();
+        }
+        async function fetchPireps(){
+            const slug=getSlug(); const token=sessionToken();
+            const qs = new URLSearchParams(); if(PIREP_TAB) qs.set('status', PIREP_TAB);
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps?${qs.toString()}`,{ headers: token?{Authorization:'Bearer '+token}:{} });
+                if(res.ok){ const d=await res.json(); PIREPS=Array.isArray(d.pireps)?d.pireps:[]; PIREPS_CANREVIEW=!!d.canReview; return; }
+            }catch{}
+            PIREPS=[];
+        }
+        function openPireps(){
+            const r=document.getElementById('pireps'); r.classList.remove('hidden');
+            renderPireps();
+            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
+            fetchPireps().then(renderPireps);
+            if(window.lucide) lucide.createIcons();
+        }
+        function closePireps(){ const r=document.getElementById('pireps'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
+        function setPirepTab(tab){ if(tab===PIREP_TAB) return; PIREP_TAB=tab; renderPireps(); fetchPireps().then(renderPireps); }
+        async function syncPireps(){
+            const slug=getSlug(), token=sessionToken(); const note=document.getElementById('pirepSyncNote');
+            if(!slug||!token){ if(note){ note.textContent='Sign in with flight permissions to sync.'; } return; }
+            const btn=document.getElementById('syncPirepsBtn'); if(btn) btn.disabled=true;
+            if(note) note.textContent='Syncing…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/sync`,{ method:'POST', headers:{Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ if(note) note.textContent=d.error||'Sync failed.'; }
+                else if(note){ note.textContent = d.created ? `Captured ${d.created} new flight${d.created===1?'':'s'}${d.approved?` (${d.approved} auto-approved)`:''} from ${d.pilots} pilot${d.pilots===1?'':'s'}.` : `No new flights from ${d.pilots} linked pilot${d.pilots===1?'':'s'}.`; }
+                await fetchPireps(); renderPireps();
+            }catch{ if(note) note.textContent='Server unreachable.'; }
+            finally{ if(btn) btn.disabled=false; }
+        }
+        async function reviewPirep(id, action){
+            const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/${encodeURIComponent(id)}`,{ method:'PATCH', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify({action}) });
+                if(res.ok){ await fetchPireps(); renderPireps(); }
+            }catch{}
+        }
+        async function deletePirep(id){
+            const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
+                if(res.ok){ PIREPS=PIREPS.filter(x=>String(x.id)!==String(id)); renderPireps(); }
+            }catch{}
+        }
+        async function savePirepAuto(checked){
+            const slug=getSlug(), token=sessionToken(); const note=document.getElementById('pirepSyncNote');
+            if(!slug||!token){ document.getElementById('pirepAuto').checked=PIREP_AUTO; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify({ pirepAutoApprove: !!checked }) });
+                const d=await res.json().catch(()=>({}));
+                if(res.ok){ PIREP_AUTO=!!d.pirepAutoApprove; if(note) note.textContent = PIREP_AUTO?'Auto-approve on — matching fleet flights credit hours automatically.':'Auto-approve off — flights wait for review.'; }
+                else { document.getElementById('pirepAuto').checked=PIREP_AUTO; if(note) note.textContent=d.error||'Could not save.'; }
+            }catch{ document.getElementById('pirepAuto').checked=PIREP_AUTO; }
+        }
+        document.addEventListener('click', e=>{
+            const tab=e.target.closest('#pirepTabs [data-ptab]'); if(tab){ setPirepTab(tab.getAttribute('data-ptab')); return; }
+            const card=e.target.closest('#pirepList [data-pid]'); if(!card) return;
+            const id=card.getAttribute('data-pid');
+            if(e.target.closest('[data-papprove]')) reviewPirep(id,'approve');
+            else if(e.target.closest('[data-preject]')) reviewPirep(id,'reject');
+            else if(e.target.closest('[data-pdel]')) deletePirep(id);
+        });
+
         // ---- Applications (staff review: accept / decline + message) ----
         let ROSTER_VIEW='roster', APPS=[];
         function updateRosterTabs(){
@@ -1814,6 +1957,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=b.fleet;
+            PIREP_AUTO = !!b.pirepAutoApprove;
             if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
