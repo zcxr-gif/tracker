@@ -252,7 +252,7 @@
     <!-- ============ SETTINGS SLIDE-OVER ============ -->
     <div id="settings" class="hidden fixed inset-0 z-50">
         <div class="absolute inset-0 bg-black/40" onclick="closeSettings()"></div>
-        <div class="panel absolute right-0 top-0 h-full w-full max-w-sm surface border-l hair overflow-y-auto translate-x-full">
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-md surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Settings</span></div>
                 <button onclick="closeSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -281,6 +281,36 @@
                     </div>
                     <button onclick="saveColors()" class="mt-3 w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save color</button>
                     <p id="colorNote" class="hidden text-sm mt-2"></p>
+                </div>
+
+                <!-- Crew structure — ranks + roles (owner / staff) -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Crew structure</h3>
+
+                    <div class="mb-5">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Ranks</span>
+                            <button onclick="addRank()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <div id="rankPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <div id="rankRows" class="space-y-2"></div>
+                        <div class="flex items-center gap-2 mt-2.5">
+                            <button onclick="saveStructure('ranks')" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save ranks</button>
+                            <button id="rankStarter" onclick="starterRanks()" class="text-xs muted hover:text-[var(--ink)] font-medium">Use a starter ladder</button>
+                        </div>
+                        <p id="rankNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Roles</span>
+                            <button onclick="addRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <div id="rolePreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <div id="roleRows" class="space-y-2"></div>
+                        <button onclick="saveStructure('roles')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save roles</button>
+                        <p id="roleNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
 
                 <!-- Connect Supabase (owner / Inflight only) -->
@@ -455,6 +485,87 @@
             note.classList.remove('hidden');
         }
 
+        // ---- Crew structure: ranks + roles (each with a badge) ----
+        let RANKS=[], ROLES=[];
+        const BADGE_ICONS=['star','award','medal','crown','shield','plane','gem','trophy','sparkles','chevrons-up','wings','badge-check'];
+        function badgeHtml(b){
+            const c=isHex(b.color)?b.color:'var(--accent)';
+            const icon=BADGE_ICONS.includes(b.icon)?b.icon:'star';
+            const hrs=(b.minHours!=null && b.minHours!=='')?` · ${b.minHours}h`:'';
+            return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full" style="color:${c};background:color-mix(in srgb, ${c} 13%, transparent);">
+                <i data-lucide="${icon}" class="w-3.5 h-3.5"></i>${escapeHtml(b.name||'Untitled')}${hrs}</span>`;
+        }
+        function iconOptions(sel){ return BADGE_ICONS.map(i=>`<option value="${i}" ${i===sel?'selected':''}>${i}</option>`).join(''); }
+        function renderBadgePreview(){
+            document.getElementById('rankPreview').innerHTML = RANKS.length?RANKS.map(badgeHtml).join(''):'<span class="text-xs faint">No ranks yet.</span>';
+            document.getElementById('rolePreview').innerHTML = ROLES.length?ROLES.map(r=>badgeHtml(r)).join(''):'<span class="text-xs faint">No roles yet.</span>';
+            if(window.lucide) lucide.createIcons();
+        }
+        function rankRowHtml(r,i){
+            return `<div class="flex items-center gap-2" data-kind="ranks" data-idx="${i}">
+                <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
+                <select data-f="icon" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0">${iconOptions(r.icon||'star')}</select>
+                <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Rank name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="minHours" type="number" min="0" value="${r.minHours!=null?r.minHours:0}" placeholder="hrs" class="w-16 surface hair rounded-md px-2 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function roleRowHtml(r,i){
+            return `<div class="flex items-center gap-2" data-kind="roles" data-idx="${i}">
+                <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
+                <select data-f="icon" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0">${iconOptions(r.icon||'shield')}</select>
+                <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Role name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-f="staff" type="checkbox" ${r.staff?'checked':''}> Staff</label>
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderStructure(){
+            document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
+            document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
+            document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
+            renderBadgePreview();
+            if(window.lucide) lucide.createIcons();
+        }
+        // Live-edit via delegation (no re-render, so inputs keep focus).
+        function wireStructure(){
+            ['rankRows','roleRows'].forEach(id=>{
+                const host=document.getElementById(id);
+                host.addEventListener('input', e=>{
+                    const row=e.target.closest('[data-idx]'); if(!row) return;
+                    const arr = row.getAttribute('data-kind')==='ranks'?RANKS:ROLES;
+                    const idx=+row.getAttribute('data-idx'); const f=e.target.getAttribute('data-f'); if(!f) return;
+                    arr[idx][f] = f==='staff'? e.target.checked : (f==='minHours'? (Number(e.target.value)||0) : e.target.value);
+                    renderBadgePreview();
+                });
+                host.addEventListener('click', e=>{
+                    const del=e.target.closest('[data-del]'); if(!del) return;
+                    const row=del.closest('[data-idx]'); const idx=+row.getAttribute('data-idx');
+                    (row.getAttribute('data-kind')==='ranks'?RANKS:ROLES).splice(idx,1);
+                    renderStructure();
+                });
+            });
+        }
+        function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star'}); renderStructure(); }
+        function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false}); renderStructure(); }
+        function starterRanks(){
+            RANKS=[{name:'Cadet',minHours:0,color:'#64748b',icon:'star'},{name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},{name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},{name:'Captain',minHours:300,color:'#d97706',icon:'medal'},{name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'}];
+            renderStructure();
+        }
+        async function saveStructure(kind){
+            const note=document.getElementById(kind==='ranks'?'rankNote':'roleNote');
+            const clean = (kind==='ranks'?RANKS:ROLES).filter(x=>String(x.name||'').trim());
+            const token=sessionToken(), slug=getSlug();
+            if(!slug || !token){ note.textContent='Applied on this device. Sign in to save for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({[kind]:clean}) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
+                else { if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else ROLES=d[kind]; renderStructure(); } note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+            }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
         // ---- Colors (accent) ----
         const SWATCHES=['#D22630','#4f46e5','#0ea5e9','#16a34a','#f59e0b','#db2777','#0f766e','#1c1a16'];
         function renderSwatches(){
@@ -555,6 +666,8 @@
                 if(!ALLOWED.length) ALLOWED=['editorial'];
             }
             if(b.supabase) SUPA=b.supabase;
+            if(Array.isArray(b.ranks)) RANKS=b.ranks;
+            if(Array.isArray(b.roles)) ROLES=b.roles;
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             if(name){
@@ -598,6 +711,7 @@
             applyEmbeds();
             applyOwnerState();
             renderSwatches(); syncAccentPicker();
+            wireStructure(); renderStructure();
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
