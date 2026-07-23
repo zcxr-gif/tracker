@@ -184,7 +184,7 @@
                         <p id="idTagline" class="muted text-sm mt-1 max-w-lg">Your crew, your operation — kept simple, kept yours.</p>
                     </div>
                     <div class="flex sm:flex-col gap-2 shrink-0">
-                        <button class="accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2 justify-center"><i data-lucide="users" class="w-4 h-4"></i> Roster</button>
+                        <button onclick="openRoster()" class="accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2 justify-center"><i data-lucide="users" class="w-4 h-4"></i> Roster</button>
                         <button class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
                     </div>
                 </div>
@@ -335,6 +335,18 @@
                         <button onclick="saveStructure('roles')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save roles</button>
                         <p id="roleNote" class="hidden text-sm mt-2"></p>
                     </div>
+
+                    <div class="mt-5">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Fleet</span>
+                            <button onclick="addFleet()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Aircraft your VA operates. Upload a livery image or leave it as a plane.</p>
+                        <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <div id="fleetRows" class="space-y-2"></div>
+                        <button onclick="saveStructure('fleet')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
+                        <p id="fleetNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
 
               </div><!-- /crew -->
@@ -381,9 +393,39 @@
         </div>
     </div>
 
+    <!-- ============ ROSTER SLIDE-OVER ============ -->
+    <div id="roster" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Crew roster</span><span id="rosterCount" class="text-xs muted"></span></div>
+                <div class="flex items-center gap-2">
+                    <button id="addPilotBtn" onclick="toggleAddPilot()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
+                    <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div id="addPilotForm" class="hidden p-5 border-b hair">
+                <div class="grid grid-cols-2 gap-2.5">
+                    <input id="np_name" placeholder="Name" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="np_callsign" placeholder="Callsign (ACA1174)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="np_hours" type="number" min="0" placeholder="Hours" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <select id="np_role" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                </div>
+                <div id="np_aircraft" class="flex flex-wrap gap-1.5 mt-2.5"></div>
+                <div class="flex gap-2 mt-3">
+                    <button onclick="submitPilot()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add pilot</button>
+                    <button onclick="toggleAddPilot()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
+                </div>
+                <p id="pilotNote" class="hidden text-sm mt-2"></p>
+            </div>
+            <div id="rosterList" class="p-5 space-y-2.5"></div>
+        </div>
+    </div>
+
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
+        let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
         let SUPA={connected:false,url:'',anonKey:''}, IS_OWNER=false;
 
         const LAYOUT_META = {
@@ -419,7 +461,7 @@
 
         // ---- Tiles ----
         const TOOLS=[
-            {icon:'users',label:'Roster',desc:'Pilots & ranks'},
+            {icon:'users',label:'Roster',desc:'Pilots & ranks',action:'roster'},
             {icon:'calendar-clock',label:'Schedules',desc:'Rosters & bookings'},
             {icon:'calendar-days',label:'Events',desc:'Group flights'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs'},
@@ -437,6 +479,7 @@
             document.querySelectorAll('#toolGrid [data-i]').forEach(el=>{
                 const t=TOOLS[+el.getAttribute('data-i')];
                 if(t.action==='settings') el.addEventListener('click', openSettings);
+                if(t.action==='roster') el.addEventListener('click', openRoster);
             });
         }
         const ACTIVITY=[
@@ -598,9 +641,26 @@
                 <label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload badge image"><i data-lucide="upload" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
         }
         function iconOptions(sel){ return BADGE_ICONS.map(i=>`<option value="${i}" ${i===sel?'selected':''}>${i}</option>`).join(''); }
+        function arrForKind(k){ return k==='ranks'?RANKS : k==='roles'?ROLES : FLEET; }
+        function noteIdFor(k){ return k==='ranks'?'rankNote' : k==='roles'?'roleNote' : 'fleetNote'; }
+        function fleetChip(f){
+            const mark=(f.image && isSafeImageUrl(f.image))?`<img src="${escapeHtml(f.image)}" class="w-4 h-4 rounded object-contain">`:`<i data-lucide="plane" class="w-3.5 h-3.5"></i>`;
+            return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full surface hair">${mark}${escapeHtml(f.type||f.name||'Aircraft')}</span>`;
+        }
+        function fleetRowHtml(f,i){
+            const img=(f.image && isSafeImageUrl(f.image))
+                ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
+                : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
+            return `<div class="flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
+                <input data-f="type" value="${escapeHtml(f.type||'')}" placeholder="A320" class="w-20 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="name" value="${escapeHtml(f.name||'')}" placeholder="Livery / name (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+        }
+        function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); }
         function renderBadgePreview(){
             document.getElementById('rankPreview').innerHTML = RANKS.length?RANKS.map(badgeHtml).join(''):'<span class="text-xs faint">No ranks yet.</span>';
             document.getElementById('rolePreview').innerHTML = ROLES.length?ROLES.map(r=>badgeHtml(r)).join(''):'<span class="text-xs faint">No roles yet.</span>';
+            const fp=document.getElementById('fleetPreview'); if(fp) fp.innerHTML = FLEET.length?FLEET.map(fleetChip).join(''):'<span class="text-xs faint">No aircraft yet.</span>';
             if(window.lucide) lucide.createIcons();
         }
         function rankRowHtml(r,i){
@@ -624,44 +684,44 @@
         function renderStructure(){
             document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
             document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
+            const fr=document.getElementById('fleetRows'); if(fr) fr.innerHTML = FLEET.map(fleetRowHtml).join('');
             document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
             renderBadgePreview();
             if(window.lucide) lucide.createIcons();
         }
         // Live-edit via delegation (no re-render, so inputs keep focus).
         function wireStructure(){
-            ['rankRows','roleRows'].forEach(id=>{
-                const host=document.getElementById(id);
+            ['rankRows','roleRows','fleetRows'].forEach(id=>{
+                const host=document.getElementById(id); if(!host) return;
                 host.addEventListener('input', e=>{
                     const row=e.target.closest('[data-idx]'); if(!row) return;
-                    const arr = row.getAttribute('data-kind')==='ranks'?RANKS:ROLES;
-                    const idx=+row.getAttribute('data-idx'); const f=e.target.getAttribute('data-f'); if(!f) return;
+                    const arr=arrForKind(row.getAttribute('data-kind'));
+                    const idx=+row.getAttribute('data-idx'); const f=e.target.getAttribute('data-f'); if(!f||f==='imagefile') return;
                     arr[idx][f] = f==='staff'? e.target.checked : (f==='minHours'? (Number(e.target.value)||0) : e.target.value);
                     renderBadgePreview();
                 });
                 host.addEventListener('click', e=>{
-                    const del=e.target.closest('[data-del]');
-                    const clr=e.target.closest('[data-clearimg]');
+                    const del=e.target.closest('[data-del]'); const clr=e.target.closest('[data-clearimg]');
                     const row=(del||clr)&&(del||clr).closest('[data-idx]'); if(!row) return;
-                    const arr=row.getAttribute('data-kind')==='ranks'?RANKS:ROLES; const idx=+row.getAttribute('data-idx');
+                    const arr=arrForKind(row.getAttribute('data-kind')); const idx=+row.getAttribute('data-idx');
                     if(del){ arr.splice(idx,1); renderStructure(); }
                     else if(clr){ arr[idx].image=''; renderStructure(); }
                 });
                 host.addEventListener('change', async e=>{
                     if(e.target.getAttribute('data-f')!=='imagefile') return;
                     const row=e.target.closest('[data-idx]'); const idx=+row.getAttribute('data-idx'); const kind=row.getAttribute('data-kind');
-                    const arr=kind==='ranks'?RANKS:ROLES; const file=e.target.files&&e.target.files[0]; if(!file) return;
-                    const note=document.getElementById(kind==='ranks'?'rankNote':'roleNote');
+                    const arr=arrForKind(kind); const file=e.target.files&&e.target.files[0]; if(!file) return;
+                    const note=document.getElementById(noteIdFor(kind));
                     const token=sessionToken(), slug=getSlug();
-                    if(!slug||!token){ note.textContent='Sign in as owner/staff to upload badge art.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
-                    note.textContent='Uploading badge…'; note.className='text-sm muted'; note.classList.remove('hidden');
+                    if(!slug||!token){ note.textContent='Sign in as owner/staff to upload art.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+                    note.textContent='Uploading…'; note.className='text-sm muted'; note.classList.remove('hidden');
                     try{
                         const fd=new FormData(); fd.append('image', file);
                         const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
                         const d=await res.json().catch(()=>({}));
                         if(!res.ok){ note.textContent=d.error||'Upload failed.'; note.className='text-sm text-red-500'; return; }
                         arr[idx].image=d.url; renderStructure();
-                        note.textContent='Badge uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                        note.textContent='Image uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     }catch{ note.textContent='Upload failed. Try again.'; note.className='text-sm text-red-500'; }
                 });
             });
@@ -673,8 +733,8 @@
             renderStructure();
         }
         async function saveStructure(kind){
-            const note=document.getElementById(kind==='ranks'?'rankNote':'roleNote');
-            const clean = (kind==='ranks'?RANKS:ROLES).filter(x=>String(x.name||'').trim());
+            const note=document.getElementById(noteIdFor(kind));
+            const clean = arrForKind(kind).filter(x=>String(kind==='fleet'?(x.type||x.name):x.name||'').trim());
             const token=sessionToken(), slug=getSlug();
             if(!slug || !token){ note.textContent='Applied on this device. Sign in to save for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             try{
@@ -682,10 +742,103 @@
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({[kind]:clean}) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
-                else { if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else ROLES=d[kind]; renderStructure(); } note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else if(kind==='roles')ROLES=d[kind]; else FLEET=d[kind]; renderStructure(); } note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
             }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
             note.classList.remove('hidden');
         }
+
+        // ---- Roster (rank computed from hours) ----
+        function rankForHours(h){
+            const sorted=[...RANKS].sort((a,b)=>(a.minHours||0)-(b.minHours||0));
+            let r=null; for(const x of sorted){ if((Number(h)||0) >= (x.minHours||0)) r=x; }
+            return r;
+        }
+        function roleByName(name){ return ROLES.find(r=>r.name===name); }
+        function memberCardHtml(m){
+            const rank=rankForHours(m.hours); const role=roleByName(m.role);
+            const rankBadge=rank?badgeHtml({name:rank.name,color:rank.color,icon:rank.icon,image:rank.image}):'';
+            const roleBadge=(role&&role.name)?badgeHtml({name:role.name,color:role.color,icon:role.icon,image:role.image}):'';
+            const ac=(m.aircraft||[]).map(a=>`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(a)}</span>`).join(' ');
+            const st=m.status&&m.status!=='active'?`<span class="text-[10px] uppercase tracking-wide faint">${escapeHtml(m.status)}</span>`:'';
+            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3" data-id="${m.id||''}">
+                <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(m.name||m.callsign||'?',''))}</div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(m.name||'Unnamed')}</span>${m.callsign?`<span class="text-xs faint">${escapeHtml(m.callsign)}</span>`:''}${st}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${rankBadge}${roleBadge}<span class="text-xs muted">${Math.round(Number(m.hours)||0)}h</span></div>
+                    ${ac?`<div class="flex items-center gap-1 flex-wrap mt-1.5">${ac}</div>`:''}
+                </div>
+                ${ROSTER_CANMANAGE?`<button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="user-minus" class="w-4 h-4"></i></button>`:''}
+            </div>`;
+        }
+        let ROSTER_CANMANAGE=false;
+        function renderRoster(){
+            ROSTER_CANMANAGE = IS_OWNER;
+            document.getElementById('addPilotBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
+            const list=document.getElementById('rosterList');
+            document.getElementById('rosterCount').textContent = ROSTER.length?`· ${ROSTER.length}`:'';
+            list.innerHTML = ROSTER.length ? ROSTER.map(memberCardHtml).join('') : '<p class="text-sm faint text-center py-10">No pilots yet.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        async function fetchRoster(){
+            const slug=getSlug();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster`,{ headers:{Accept:'application/json'} });
+                if(res.ok){ const d=await res.json(); ROSTER=Array.isArray(d.roster)?d.roster:[]; return; }
+            }catch{}
+            // Preview / not-live fallback so the design is visible.
+            ROSTER=[
+                {id:'m1',name:'Jordan Lee',callsign:'ACA1174',hours:214,role:(ROLES[0]&&ROLES[0].name)||'',aircraft:['A320','B789'],status:'active'},
+                {id:'m2',name:'Sam Park',callsign:'ACA085',hours:412,role:'',aircraft:['B789'],status:'active'},
+                {id:'m3',name:'Robin Diaz',callsign:'ACA1102',hours:36,role:'',aircraft:['A220'],status:'loa'},
+            ];
+        }
+        function openRoster(){
+            const r=document.getElementById('roster'); r.classList.remove('hidden');
+            renderRoster();
+            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
+            fetchRoster().then(renderRoster);
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeRoster(){ const r=document.getElementById('roster'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
+        function toggleAddPilot(){
+            const f=document.getElementById('addPilotForm'); const show=f.classList.contains('hidden');
+            if(show){
+                document.getElementById('np_role').innerHTML='<option value="">No role</option>'+ROLES.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
+                NP_AIRCRAFT=new Set();
+                document.getElementById('np_aircraft').innerHTML = FLEET.length?FLEET.map(a=>`<button type="button" data-ac="${escapeHtml(a.type||a.name)}" class="text-xs surface hair rounded-full px-2.5 py-1">${escapeHtml(a.type||a.name)}</button>`).join(''):'<span class="text-xs faint">Add aircraft in Settings → Crew → Fleet.</span>';
+                document.querySelectorAll('#np_aircraft [data-ac]').forEach(b=>b.addEventListener('click',()=>{
+                    const v=b.getAttribute('data-ac'); if(NP_AIRCRAFT.has(v)){NP_AIRCRAFT.delete(v);b.classList.remove('accent-bg','text-white');}else{NP_AIRCRAFT.add(v);b.classList.add('accent-bg','text-white');}
+                }));
+            }
+            f.classList.toggle('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+        async function submitPilot(){
+            const note=document.getElementById('pilotNote');
+            const body={ name:document.getElementById('np_name').value.trim(), callsign:document.getElementById('np_callsign').value.trim(), hours:Number(document.getElementById('np_hours').value)||0, role:document.getElementById('np_role').value, aircraft:[...NP_AIRCRAFT], status:'active' };
+            if(!body.name){ note.textContent='Enter a name.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as owner/staff to add pilots.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not add.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                ROSTER.unshift(d.member); ['np_name','np_callsign','np_hours'].forEach(i=>document.getElementById(i).value=''); NP_AIRCRAFT=new Set();
+                toggleAddPilot(); renderRoster();
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+        }
+        async function removePilot(id, el){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
+                if(res.ok){ ROSTER=ROSTER.filter(m=>String(m.id)!==String(id)); renderRoster(); }
+            }catch{}
+        }
+        document.addEventListener('click', e=>{
+            const rm=e.target.closest('#rosterList [data-remove]'); if(!rm) return;
+            const card=rm.closest('[data-id]'); if(card) removePilot(card.getAttribute('data-id'), card);
+        });
 
         // ---- Colors (accent) ----
         const SWATCHES=['#D22630','#4f46e5','#0ea5e9','#16a34a','#f59e0b','#db2777','#0f766e','#1c1a16'];
@@ -881,6 +1034,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             if(b.loginLook && LOGIN_LOOKS.includes(b.loginLook)) LOGIN_LOOK=b.loginLook;
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
+            if(Array.isArray(b.fleet)) FLEET=b.fleet;
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             if(name){
@@ -915,7 +1069,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
         function logout(){ try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{} const s=getSlug(); location.href=s?`/crew/${encodeURIComponent(s)}`:'/crew'; }
 
         // ---- Boot ----
-        document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSettings(); });
+        document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeSettings(); closeRoster(); } });
         (async function(){
             renderTiles(); renderActivity(); readSession();
             const b = await resolveBranding();
