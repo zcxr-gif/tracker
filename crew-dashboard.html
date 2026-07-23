@@ -349,6 +349,33 @@
                     </div>
                 </div>
 
+                <!-- Recruitment -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Recruitment</h3>
+                    <div id="joinModeOpts" class="space-y-2.5"></div>
+                    <div class="grid grid-cols-2 gap-2.5 mt-3">
+                        <label class="text-xs muted">Min IF grade
+                            <select id="minGrade" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                <option value="0">No requirement</option>
+                                <option value="1">Grade 1+</option><option value="2">Grade 2+</option><option value="3">Grade 3+</option><option value="4">Grade 4+</option><option value="5">Grade 5</option>
+                            </select>
+                        </label>
+                        <label class="text-xs muted">Callsign prefix
+                            <input id="callsignPrefix" placeholder="ACA" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                        </label>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Application questions</span>
+                            <button onclick="addQuestion()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
+                        <div id="qRows" class="space-y-2"></div>
+                    </div>
+                    <button onclick="saveRecruitment()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
+                    <p id="recruitNote" class="hidden text-sm mt-2"></p>
+                </div>
+
               </div><!-- /crew -->
 
               <div data-panel="data" class="space-y-6 hidden">
@@ -747,6 +774,55 @@
             note.classList.remove('hidden');
         }
 
+        // ---- Recruitment (staff form builder) ----
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', form:[] };
+        function renderJoinMode(){
+            const opts=[{k:'free',name:'Free pass',desc:'Anyone can join instantly'},{k:'application',name:'Application review',desc:'Staff accept or decline'}];
+            document.getElementById('joinModeOpts').innerHTML=opts.map(o=>{
+                const on=JOIN.mode===o.k;
+                return `<button role="radio" aria-checked="${on}" data-join="${o.k}" class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span><span class="block text-sm font-semibold">${o.name}</span><span class="block text-xs muted">${o.desc}</span></span></button>`;
+            }).join('');
+            document.querySelectorAll('#joinModeOpts [data-join]').forEach(b=>b.addEventListener('click',()=>{ JOIN.mode=b.getAttribute('data-join'); renderJoinMode(); }));
+        }
+        function qRowHtml(q,i){
+            return `<div class="flex items-center gap-2" data-q="${i}">
+                <input data-qf="label" value="${escapeHtml(q.label||'')}" placeholder="Question" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <select data-qf="type" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0"><option value="text" ${q.type==='text'?'selected':''}>Short</option><option value="textarea" ${q.type==='textarea'?'selected':''}>Long</option></select>
+                <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-qf="required" type="checkbox" ${q.required?'checked':''}> Req</label>
+                <button data-qdel class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderQuestions(){ document.getElementById('qRows').innerHTML=JOIN.form.map(qRowHtml).join(''); if(window.lucide) lucide.createIcons(); }
+        function addQuestion(){ JOIN.form.push({label:'',type:'text',required:false}); renderQuestions(); }
+        function renderRecruitment(){
+            renderJoinMode();
+            document.getElementById('minGrade').value=String(JOIN.minGrade||0);
+            document.getElementById('callsignPrefix').value=JOIN.callsignPrefix||'';
+            renderQuestions();
+        }
+        function wireRecruitment(){
+            const host=document.getElementById('qRows');
+            host.addEventListener('input', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(!f) return; JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
+            host.addEventListener('change', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(f==='type'||f==='required') JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
+            host.addEventListener('click', e=>{ const d=e.target.closest('[data-qdel]'); if(!d) return; JOIN.form.splice(+d.closest('[data-q]').getAttribute('data-q'),1); renderQuestions(); });
+        }
+        async function saveRecruitment(){
+            const note=document.getElementById('recruitNote');
+            JOIN.minGrade=Number(document.getElementById('minGrade').value)||0;
+            JOIN.callsignPrefix=document.getElementById('callsignPrefix').value.trim();
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()) };
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(payload) });
+                if(res.ok){ note.textContent='Recruitment saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
         // ---- Roster (rank computed from hours) ----
         function rankForHours(h){
             const sorted=[...RANKS].sort((a,b)=>(a.minHours||0)-(b.minHours||0));
@@ -1035,6 +1111,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=b.fleet;
+            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', form:Array.isArray(b.join.form)?b.join.form:[] };
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             if(name){
@@ -1080,6 +1157,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure();
+            renderRecruitment(); wireRecruitment();
             setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
