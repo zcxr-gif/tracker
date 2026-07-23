@@ -73,10 +73,10 @@
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         const EMBED = new URLSearchParams(location.search).get('embed')==='1';
-        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[] };
+        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[] };
         let VA = { name:'', code:'' };
         let STEPS = [], cur = 0;
-        const DATA = { ifcName:'', prefix:'', number:'', grade:0, answers:[], verified:false, vGrade:null };
+        const DATA = { ifcName:'', prefix:'', number:'', grade:0, answers:[], verified:false, vGrade:null, stats:null, agreed:[] };
         // Tracks the last IF verification so we can badge the field, skip the
         // self-report grade step when we already know the true grade, and block
         // a name our lookup says doesn't exist.
@@ -99,6 +99,7 @@
             // Only ask the pilot for their grade if the VA gates on it AND our
             // own lookup hasn't already confirmed a grade for them.
             if(CFG.minGrade>0 && !(DATA.verified && DATA.vGrade!=null)) STEPS.push('grade');
+            if(CFG.reqs && CFG.reqs.length) STEPS.push('requirements');
             if(CFG.form && CFG.form.length) STEPS.push('questions');
             STEPS.push('review');
         }
@@ -138,13 +139,40 @@
                 else if(d.found){
                     DATA.ifcName = d.username || name; DATA.verified=true;
                     DATA.vGrade = (typeof d.grade==='number') ? d.grade : null;
+                    DATA.stats = d.stats || null;
                     if(DATA.vGrade!=null) DATA.grade=DATA.vGrade;
                     inp.value = DATA.ifcName;
                     verifyState={ name:DATA.ifcName, status:'found' };
                     buildSteps(); // may drop the self-report grade step now we know it
-                } else { verifyState={ name, status:'notfound' }; DATA.verified=false; DATA.vGrade=null; }
+                } else { verifyState={ name, status:'notfound' }; DATA.verified=false; DATA.vGrade=null; DATA.stats=null; }
             }catch{ if(inp.value.trim()===name){ verifyState={ name, status:'down' }; } }
             renderIfcStatus();
+        }
+
+        // ---- Join requirements (auto-checked against verified IF stats) ----
+        const REQ_INFO={
+            grade:{label:'Grade',stat:'grade',cmp:'min'},
+            hours:{label:'Flight hours',stat:'hours',cmp:'min'},
+            landings:{label:'Landings',stat:'landings',cmp:'min'},
+            xp:{label:'XP',stat:'xp',cmp:'min'},
+            flights:{label:'Online flights',stat:'flights',cmp:'min'},
+            violations:{label:'Violations',stat:'violations',cmp:'max'},
+        };
+        function reqRowHtml(r){
+            const info=REQ_INFO[r.type]; if(!info) return '';
+            const need=r.value, word=info.cmp==='max'?'max':'min';
+            if(!DATA.stats){
+                return `<li class="flex items-center justify-between gap-3 text-sm py-2.5"><span>${escapeHtml(info.label)}</span><span class="text-xs faint">${word} ${escapeHtml(String(need))}</span></li>`;
+            }
+            const have=Number(DATA.stats[info.stat])||0;
+            const pass=info.cmp==='max'?have<=need:have>=need;
+            return `<li class="flex items-center justify-between gap-3 text-sm py-2.5">
+                <span>${escapeHtml(info.label)} <span class="faint">· ${word} ${escapeHtml(String(need))}</span></span>
+                <span class="inline-flex items-center gap-1.5 ${pass?'text-emerald-600 dark:text-emerald-400':'text-red-500'} font-semibold"><i data-lucide="${pass?'check':'x'}" class="w-4 h-4"></i>${escapeHtml(String(have))}</span></li>`;
+        }
+        function reqAutoPass(){
+            if(!DATA.stats) return true; // can't check client-side; server enforces on submit
+            return CFG.reqs.filter(r=>REQ_INFO[r.type]).every(r=>{ const info=REQ_INFO[r.type]; const have=Number(DATA.stats[info.stat])||0; return info.cmp==='max'?have<=r.value:have>=r.value; });
         }
 
         function renderStep(){
@@ -211,6 +239,29 @@
                 setNav(true, "Continue");
                 document.querySelectorAll('#gradeGrid [data-g]').forEach(b=>b.addEventListener('click',()=>{ DATA.grade=+b.getAttribute('data-g'); renderStep(); }));
             }
+            else if(s==='requirements'){
+                const auto=CFG.reqs.filter(r=>REQ_INFO[r.type]);
+                const agree=CFG.reqs.filter(r=>r.type==='agree');
+                const haveStats=!!DATA.stats;
+                const autoHtml = auto.length ? `<ul class="surface hair rounded-lg divide-y hair-soft px-4">${auto.map(reqRowHtml).join('')}</ul>${!haveStats?`<p class="text-xs faint mt-2">We’ll confirm these against your Infinite Flight stats when you submit.</p>`:''}` : '';
+                const agreeHtml = agree.length ? `<div class="mt-4 space-y-1">${agree.map(r=>`
+                    <label class="flex items-start gap-2.5 text-sm py-1.5 cursor-pointer">
+                        <input type="checkbox" data-agree="${escapeHtml(r.label)}" ${DATA.agreed.includes(r.label)?'checked':''} class="mt-0.5 accent-[var(--accent)]">
+                        <span>${escapeHtml(r.label)}${r.required?' <span class="accent-text">*</span>':''}</span>
+                    </label>`).join('')}</div>` : '';
+                body.innerHTML = `<div class="step">
+                    <h2 class="text-lg font-bold tracking-tight">Requirements</h2>
+                    <p class="text-sm muted mt-1 mb-4">What the ${escapeHtml(VA.name||'VA')} team asks of new pilots.</p>
+                    ${autoHtml}${agreeHtml}
+                    <p id="reqNote" class="hidden text-sm mt-3 text-red-500"></p>
+                </div>`;
+                setNav(true, "Continue");
+                body.querySelectorAll('[data-agree]').forEach(c=>c.addEventListener('change',()=>{
+                    const lbl=c.getAttribute('data-agree');
+                    if(c.checked){ if(!DATA.agreed.includes(lbl)) DATA.agreed.push(lbl); }
+                    else DATA.agreed=DATA.agreed.filter(x=>x!==lbl);
+                }));
+            }
             else if(s==='questions'){
                 body.innerHTML = `<div class="step">
                     <h2 class="text-lg font-bold tracking-tight">A few questions</h2>
@@ -252,6 +303,12 @@
                 if(verifyState.name===DATA.ifcName && verifyState.status==='notfound'){ shake('f_ifc'); return false; } }
             if(s==='callsign'){ DATA.prefix = document.getElementById('f_prefix').value.trim().toUpperCase(); DATA.number = document.getElementById('f_number').value.replace(/[^0-9]/g,''); if(!DATA.number){ shake('f_number'); return false; } }
             if(s==='grade'){ if(!DATA.grade){ return false; } if(DATA.grade<CFG.minGrade){ toast('Grade '+CFG.minGrade+'+ required.'); return false; } }
+            if(s==='requirements'){
+                const missing=CFG.reqs.filter(r=>r.type==='agree'&&r.required&&!DATA.agreed.includes(r.label));
+                const n=document.getElementById('reqNote');
+                if(missing.length){ if(n){ n.textContent='Please accept the required item'+(missing.length>1?'s':'')+' to continue.'; n.classList.remove('hidden'); } return false; }
+                if(!reqAutoPass()){ if(n){ n.textContent='Your Infinite Flight stats don’t meet these requirements yet.'; n.classList.remove('hidden'); } return false; }
+            }
             if(s==='questions'){ DATA.answers = CFG.form.map((q,i)=>({ q:q.label, a:(document.querySelector(`[data-q="${i}"]`)||{}).value?document.querySelector(`[data-q="${i}"]`).value.trim():'' })); for(let i=0;i<CFG.form.length;i++){ if(CFG.form[i].required && !DATA.answers[i].a){ shake(`[data-q="${i}"]`); return false; } } }
             return true;
         }
@@ -276,7 +333,7 @@
             const btn=document.getElementById('nextBtn'); btn.disabled=true;
             const note=document.getElementById('submitNote');
             const slug=getSlug();
-            const body={ ifcName:DATA.ifcName, callsignPrefix:DATA.prefix, callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers };
+            const body={ ifcName:DATA.ifcName, callsignPrefix:DATA.prefix, callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers, agreed:DATA.agreed };
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/apply`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
@@ -322,7 +379,7 @@
             document.getElementById('mono').textContent=mono;
             if(VA.name){ document.getElementById('vaName').textContent=VA.name; document.title=`Join ${VA.name} — Crew Center`; }
             if(b.logo && isSafeImageUrl(b.logo)){ const el=document.getElementById('logo'); el.src=b.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
-            if(b.join){ CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'', form:Array.isArray(b.join.form)?b.join.form:[] }; }
+            if(b.join){ CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] }; }
             DATA.prefix = CFG.callsignPrefix || VA.code || '';
             document.getElementById('joinSub').textContent = CFG.mode==='free' ? 'Instant access' : 'Applications reviewed by staff';
         }

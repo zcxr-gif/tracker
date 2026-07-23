@@ -372,6 +372,14 @@
                         <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
                         <div id="qRows" class="space-y-2"></div>
                     </div>
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Join requirements</span>
+                            <button onclick="addRequirement()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Auto-checked against each applicant’s <b>real Infinite Flight stats</b> when they join — or a custom agreement they must accept. Grade is set above.</p>
+                        <div id="reqRows" class="space-y-2"></div>
+                    </div>
                     <button onclick="saveRecruitment()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
                     <p id="recruitNote" class="hidden text-sm mt-2"></p>
 
@@ -791,7 +799,43 @@
         }
 
         // ---- Recruitment (staff form builder) ----
-        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', form:[] };
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[] };
+        // Extensible join requirements. Numeric types are auto-checked against
+        // the applicant's real IF stats; 'agree' is a custom checkbox. (Grade has
+        // its own control above, so it's intentionally not offered here.)
+        const REQ_DEFS={
+            hours:{name:'Min flight hours',ph:'e.g. 25',kind:'num'},
+            landings:{name:'Min landings',ph:'e.g. 50',kind:'num'},
+            xp:{name:'Min XP',ph:'e.g. 20000',kind:'num'},
+            flights:{name:'Min online flights',ph:'e.g. 10',kind:'num'},
+            violations:{name:'Max violations',ph:'e.g. 5',kind:'num'},
+            agree:{name:'Must agree to…',ph:'e.g. I have read the VA rules',kind:'text'},
+        };
+        function reqRowHtml(r,i){
+            const def=REQ_DEFS[r.type]||REQ_DEFS.agree;
+            const valInput = r.type==='agree'
+                ? `<input data-rf="label" value="${escapeHtml(r.label||'')}" placeholder="${escapeHtml(def.ph)}" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">`
+                : `<input data-rf="value" type="number" min="0" value="${r.value!=null&&r.value!==''?escapeHtml(String(r.value)):''}" placeholder="${escapeHtml(def.ph)}" class="w-28 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">`;
+            return `<div class="flex items-center gap-2" data-r="${i}">
+                <select data-rf="type" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0">${Object.entries(REQ_DEFS).map(([k,v])=>`<option value="${k}" ${r.type===k?'selected':''}>${v.name}</option>`).join('')}</select>
+                ${valInput}
+                <button data-rdel class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderRequirements(){ const el=document.getElementById('reqRows'); if(!el) return; el.innerHTML=JOIN.reqs.map(reqRowHtml).join(''); if(window.lucide) lucide.createIcons(); }
+        function addRequirement(){ JOIN.reqs.push({type:'hours',value:''}); renderRequirements(); }
+        function wireRequirements(){
+            const host=document.getElementById('reqRows'); if(!host) return;
+            host.addEventListener('input', e=>{ const row=e.target.closest('[data-r]'); if(!row) return; const i=+row.getAttribute('data-r'); const f=e.target.getAttribute('data-rf'); if(f==='value'||f==='label') JOIN.reqs[i][f]=e.target.value; });
+            host.addEventListener('change', e=>{ const row=e.target.closest('[data-r]'); if(!row) return; const i=+row.getAttribute('data-r'); const f=e.target.getAttribute('data-rf'); if(f==='type'){ JOIN.reqs[i]={type:e.target.value, value:'', label:''}; renderRequirements(); } });
+            host.addEventListener('click', e=>{ const d=e.target.closest('[data-rdel]'); if(!d) return; JOIN.reqs.splice(+d.closest('[data-r]').getAttribute('data-r'),1); renderRequirements(); });
+        }
+        function cleanReqs(){
+            return JOIN.reqs.map(r=> r.type==='agree'
+                ? { type:'agree', label:String(r.label||'').trim(), required:true }
+                : { type:r.type, value:Math.max(0, Math.round(Number(r.value)||0)) })
+              .filter(r=> r.type==='agree' ? r.label : r.value>0);
+        }
         function renderJoinMode(){
             const opts=[{k:'free',name:'Free pass',desc:'Anyone can join instantly'},{k:'application',name:'Application review',desc:'Staff accept or decline'}];
             document.getElementById('joinModeOpts').innerHTML=opts.map(o=>{
@@ -817,6 +861,7 @@
             document.getElementById('minGrade').value=String(JOIN.minGrade||0);
             document.getElementById('callsignPrefix').value=JOIN.callsignPrefix||'';
             renderQuestions();
+            renderRequirements();
             const slug=getSlug();
             const link=document.getElementById('joinLink');
             if(link) link.href = slug ? `https://inflight.info/crew/${encodeURIComponent(slug)}/join` : '#';
@@ -842,7 +887,7 @@
             const note=document.getElementById('recruitNote');
             JOIN.minGrade=Number(document.getElementById('minGrade').value)||0;
             JOIN.callsignPrefix=document.getElementById('callsignPrefix').value.trim();
-            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()) };
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             try{
@@ -1235,7 +1280,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=b.fleet;
-            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', form:Array.isArray(b.join.form)?b.join.form:[] };
+            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             if(name){
@@ -1281,7 +1326,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure();
-            renderRecruitment(); wireRecruitment();
+            renderRecruitment(); wireRecruitment(); wireRequirements();
             setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
