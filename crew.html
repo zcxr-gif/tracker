@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -12,12 +12,6 @@
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
-        /* iOS Safari auto-zooms (and then side-scrolls the page) when a focused
-           field is under 16px. Force 16px on phones; larger screens keep their scale. */
-        @media (max-width:640px){
-            input:not([type=checkbox]):not([type=radio]):not([type=color]),
-            select,textarea{ font-size:16px !important; }
-        }
         :root { color-scheme: light dark; --accent:#4f46e5; }
         * { -webkit-tap-highlight-color: transparent; }
         body { font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; }
