@@ -343,7 +343,7 @@
                             <span class="text-sm font-semibold">Fleet</span>
                             <button onclick="addFleet()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
-                        <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft &amp; livery from Infinite Flight so flights track correctly. Upload a livery image or leave it as a plane.</p>
+                        <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft &amp; livery from Infinite Flight so flights track correctly — we’ll try to find a matching photo automatically (<i data-lucide="image" class="inline w-3 h-3 align-[-1px]"></i>). Upload your own or leave it as a plane.</p>
                         <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <datalist id="acTypeList"></datalist>
                         <div id="fleetRows" class="space-y-2"></div>
@@ -868,7 +868,33 @@
                 <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="Livery (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <datalist id="livList-${i}">${livList}</datalist>
                 <span data-fleetwarn class="shrink-0 text-amber-500">${fleetWarnHtml(f)}</span>
+                <button data-autopic title="Find a photo for this aircraft &amp; livery" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="image" class="w-4 h-4"></i></button>
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+        }
+        // Auto-resolve a real plane photo for a fleet entry from the community
+        // aircraft library, keyed by the (now canonical) aircraft + livery names.
+        // Best-effort: fills the row's image so the VA rarely has to upload one.
+        // Won't clobber an existing image unless forced (the explicit button).
+        async function resolveFleetPicture(idx, opts){
+            opts = opts || {};
+            const f = FLEET[idx]; if(!f) return;
+            const type=String(f.type||'').trim(), liv=String(f.name||'').trim();
+            if(!type) return;
+            if(f.image && !opts.force) return;
+            const note = opts.notify ? document.getElementById('fleetNote') : null;
+            if(note){ note.textContent='Finding a photo…'; note.className='text-sm muted'; note.classList.remove('hidden'); }
+            try{
+                const qs=new URLSearchParams({ type }); if(liv) qs.set('liveryName', liv);
+                const r=await fetch(`${BACKEND}/api/aircraft/lookup?${qs.toString()}`);
+                const d=await r.json().catch(()=>null);
+                const url = (d && !d.isPlaceholder) ? (d.imageUrl || (Array.isArray(d.imageUrls) && d.imageUrls[0]) || '') : '';
+                if(url && /^https:\/\//i.test(url)){
+                    f.image=url; renderStructure();
+                    if(note){ note.textContent='Photo added — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                } else if(note){
+                    note.textContent='No photo found for that aircraft & livery yet — upload one if you like.'; note.className='text-sm muted';
+                }
+            }catch{ if(note){ note.textContent='Couldn’t reach the photo library.'; note.className='text-sm text-red-500'; } }
         }
         // Warn about a fleet entry that won't match the live API, so the VA can fix
         // it before it silently breaks tracking. Judged only once the catalogue is
@@ -940,14 +966,22 @@
                     renderBadgePreview();
                 });
                 host.addEventListener('click', e=>{
-                    const del=e.target.closest('[data-del]'); const clr=e.target.closest('[data-clearimg]');
-                    const row=(del||clr)&&(del||clr).closest('[data-idx]'); if(!row) return;
+                    const del=e.target.closest('[data-del]'); const clr=e.target.closest('[data-clearimg]'); const pic=e.target.closest('[data-autopic]');
+                    const row=(del||clr||pic)&&(del||clr||pic).closest('[data-idx]'); if(!row) return;
                     const arr=arrForKind(row.getAttribute('data-kind')); const idx=+row.getAttribute('data-idx');
                     if(del){ arr.splice(idx,1); renderStructure(); }
                     else if(clr){ arr[idx].image=''; renderStructure(); }
+                    else if(pic){ resolveFleetPicture(idx, { force:true, notify:true }); }
                 });
                 host.addEventListener('change', async e=>{
-                    if(e.target.getAttribute('data-f')!=='imagefile') return;
+                    // When a fleet aircraft/livery is chosen, quietly try to fill a
+                    // matching photo (only if the VA hasn't set one already).
+                    const cf=e.target.getAttribute('data-f');
+                    if((cf==='type'||cf==='name') && e.target.closest('[data-kind="fleet"]')){
+                        const row=e.target.closest('[data-idx]'); resolveFleetPicture(+row.getAttribute('data-idx'));
+                        return;
+                    }
+                    if(cf!=='imagefile') return;
                     const row=e.target.closest('[data-idx]'); const idx=+row.getAttribute('data-idx'); const kind=row.getAttribute('data-kind');
                     const arr=arrForKind(kind); const file=e.target.files&&e.target.files[0]; if(!file) return;
                     const note=document.getElementById(noteIdFor(kind));
