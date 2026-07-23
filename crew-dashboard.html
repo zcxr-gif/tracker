@@ -505,22 +505,26 @@
                         <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button id="addPilotBtn" onclick="toggleAddPilot()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
+                        <button id="addPilotBtn" onclick="openPilotForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
                         <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
                     </div>
                 </div>
             </div>
             <div id="addPilotForm" class="hidden p-5 border-b hair">
+                <div id="pilotFormTitle" class="text-sm font-semibold mb-2.5">Add pilot</div>
                 <div class="grid grid-cols-2 gap-2.5">
                     <input id="np_name" placeholder="Name" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <input id="np_callsign" placeholder="Callsign (ACA1174)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <input id="np_hours" type="number" min="0" placeholder="Hours" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <select id="np_role" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                    <select id="np_status" class="surface hair rounded-lg px-2.5 py-2 text-sm col-span-2">
+                        <option value="active">Active</option><option value="loa">On leave (LOA)</option><option value="inactive">Inactive</option>
+                    </select>
                 </div>
                 <div id="np_aircraft" class="flex flex-wrap gap-1.5 mt-2.5"></div>
                 <div class="flex gap-2 mt-3">
-                    <button onclick="submitPilot()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add pilot</button>
-                    <button onclick="toggleAddPilot()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
+                    <button id="pilotSubmitBtn" onclick="submitPilot()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add pilot</button>
+                    <button onclick="closePilotForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
                 </div>
                 <p id="pilotNote" class="hidden text-sm mt-2"></p>
             </div>
@@ -1049,7 +1053,10 @@
                     <div class="flex items-center gap-1.5 flex-wrap mt-1">${rankBadge}${roleBadge}<span class="text-xs muted">${Math.round(Number(m.hours)||0)}h</span></div>
                     ${ac?`<div class="flex items-center gap-1 flex-wrap mt-1.5">${ac}</div>`:''}
                 </div>
-                ${ROSTER_CANMANAGE?`<button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="user-minus" class="w-4 h-4"></i></button>`:''}
+                ${ROSTER_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
+                    <button data-edit title="Edit pilot" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+                    <button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="user-minus" class="w-4 h-4"></i></button>
+                </div>`:''}
             </div>`;
         }
         let ROSTER_CANMANAGE=false;
@@ -1087,31 +1094,52 @@
             if(window.lucide) lucide.createIcons();
         }
         function closeRoster(){ const r=document.getElementById('roster'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
-        function toggleAddPilot(){
-            const f=document.getElementById('addPilotForm'); const show=f.classList.contains('hidden');
-            if(show){
-                document.getElementById('np_role').innerHTML='<option value="">No role</option>'+ROLES.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
-                NP_AIRCRAFT=new Set();
-                document.getElementById('np_aircraft').innerHTML = FLEET.length?FLEET.map(a=>`<button type="button" data-ac="${escapeHtml(a.type||a.name)}" class="text-xs surface hair rounded-full px-2.5 py-1">${escapeHtml(a.type||a.name)}</button>`).join(''):'<span class="text-xs faint">Add aircraft in Settings → Crew → Fleet.</span>';
-                document.querySelectorAll('#np_aircraft [data-ac]').forEach(b=>b.addEventListener('click',()=>{
-                    const v=b.getAttribute('data-ac'); if(NP_AIRCRAFT.has(v)){NP_AIRCRAFT.delete(v);b.classList.remove('accent-bg','text-white');}else{NP_AIRCRAFT.add(v);b.classList.add('accent-bg','text-white');}
-                }));
-            }
-            f.classList.toggle('hidden');
+        // Aircraft chips, preselecting whatever the pilot already flies.
+        function buildAircraftChips(selected){
+            NP_AIRCRAFT = new Set(selected || []);
+            const host=document.getElementById('np_aircraft');
+            host.innerHTML = FLEET.length ? FLEET.map(a=>{ const v=a.type||a.name; const on=NP_AIRCRAFT.has(v);
+                return `<button type="button" data-ac="${escapeHtml(v)}" class="text-xs rounded-full px-2.5 py-1 ${on?'accent-bg text-white':'surface hair'}">${escapeHtml(v)}</button>`; }).join('')
+                : '<span class="text-xs faint">Add aircraft in Settings → Crew → Fleet.</span>';
+            host.querySelectorAll('[data-ac]').forEach(b=>b.addEventListener('click',()=>{
+                const v=b.getAttribute('data-ac');
+                if(NP_AIRCRAFT.has(v)){ NP_AIRCRAFT.delete(v); b.classList.remove('accent-bg','text-white'); b.classList.add('surface','hair'); }
+                else { NP_AIRCRAFT.add(v); b.classList.add('accent-bg','text-white'); b.classList.remove('surface','hair'); }
+            }));
+        }
+        // Open the add/edit form. Pass a member to edit; omit to add.
+        let EDITING=null;
+        function openPilotForm(member){
+            EDITING = member ? String(member.id) : null;
+            document.getElementById('np_role').innerHTML='<option value="">No role</option>'+ROLES.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
+            document.getElementById('np_name').value = member ? (member.name||'') : '';
+            document.getElementById('np_callsign').value = member ? (member.callsign||'') : '';
+            document.getElementById('np_hours').value = member ? Math.round(Number(member.hours)||0) : '';
+            document.getElementById('np_role').value = member ? (member.role||'') : '';
+            document.getElementById('np_status').value = member ? (member.status||'active') : 'active';
+            buildAircraftChips(member ? (member.aircraft||[]) : []);
+            document.getElementById('pilotFormTitle').textContent = member ? 'Edit pilot' : 'Add pilot';
+            document.getElementById('pilotSubmitBtn').textContent = member ? 'Save changes' : 'Add pilot';
+            const note=document.getElementById('pilotNote'); if(note) note.classList.add('hidden');
+            document.getElementById('addPilotForm').classList.remove('hidden');
             if(window.lucide) lucide.createIcons();
         }
+        function closePilotForm(){ EDITING=null; document.getElementById('addPilotForm').classList.add('hidden'); }
         async function submitPilot(){
             const note=document.getElementById('pilotNote');
-            const body={ name:document.getElementById('np_name').value.trim(), callsign:document.getElementById('np_callsign').value.trim(), hours:Number(document.getElementById('np_hours').value)||0, role:document.getElementById('np_role').value, aircraft:[...NP_AIRCRAFT], status:'active' };
+            const body={ name:document.getElementById('np_name').value.trim(), callsign:document.getElementById('np_callsign').value.trim(), hours:Number(document.getElementById('np_hours').value)||0, role:document.getElementById('np_role').value, aircraft:[...NP_AIRCRAFT], status:document.getElementById('np_status').value };
             if(!body.name){ note.textContent='Enter a name.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
             const token=sessionToken(), slug=getSlug();
-            if(!slug||!token){ note.textContent='Sign in as owner/staff to add pilots.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            if(!slug||!token){ note.textContent='Sign in as owner/staff to manage the roster.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const editing=EDITING;
+            const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster${editing?('/'+encodeURIComponent(editing)):''}`;
             try{
-                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
+                const res=await fetch(url,{ method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ note.textContent=d.error||'Could not add.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
-                ROSTER.unshift(d.member); ['np_name','np_callsign','np_hours'].forEach(i=>document.getElementById(i).value=''); NP_AIRCRAFT=new Set();
-                toggleAddPilot(); renderRoster();
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                if(editing){ ROSTER=ROSTER.map(m=>String(m.id)===String(editing)?d.member:m); }
+                else { ROSTER.unshift(d.member); }
+                closePilotForm(); renderRoster();
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
         }
         async function removePilot(id, el){
@@ -1119,10 +1147,12 @@
             if(!slug||!token) return;
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
-                if(res.ok){ ROSTER=ROSTER.filter(m=>String(m.id)!==String(id)); renderRoster(); }
+                if(res.ok){ ROSTER=ROSTER.filter(m=>String(m.id)!==String(id)); if(String(EDITING)===String(id)) closePilotForm(); renderRoster(); }
             }catch{}
         }
         document.addEventListener('click', e=>{
+            const ed=e.target.closest('#rosterList [data-edit]');
+            if(ed){ const card=ed.closest('[data-id]'); const id=card&&card.getAttribute('data-id'); const m=ROSTER.find(x=>String(x.id)===String(id)); if(m) openPilotForm(m); return; }
             const rm=e.target.closest('#rosterList [data-remove]'); if(!rm) return;
             const card=rm.closest('[data-id]'); if(card) removePilot(card.getAttribute('data-id'), card);
         });
@@ -1143,7 +1173,7 @@
             document.getElementById('appsList').classList.toggle('hidden', !showApps);
             // Add-pilot only makes sense on the roster tab.
             document.getElementById('addPilotBtn').classList.toggle('hidden', showApps || !ROSTER_CANMANAGE);
-            if(showApps){ document.getElementById('addPilotForm').classList.add('hidden'); renderApps(); fetchApps().then(renderApps); }
+            if(showApps){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
         function refreshAppsBadge(){
