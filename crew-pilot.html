@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>tailwind.config = { darkMode: 'class' };</script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        /* Never let a field or a stray wide child scroll the whole page sideways. */
+        html,body{ max-width:100%; overflow-x:hidden; }
+        input,select,textarea{ max-width:100%; }
         /* Same warm, essential palette as the owner dashboard. */
         :root{
             --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4;
