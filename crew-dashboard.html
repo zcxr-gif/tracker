@@ -602,9 +602,31 @@
             <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="plane" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Flights</span><span id="pirepCount" class="text-xs muted"></span></div>
                 <div class="flex items-center gap-2">
+                    <button id="filePirepBtn" onclick="openPirepForm()" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> File</button>
                     <button id="syncPirepsBtn" onclick="syncPireps()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync</button>
                     <button onclick="closePireps()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
+            </div>
+            <div id="addPirepForm" class="hidden p-5 border-b hair">
+                <div class="text-sm font-semibold mb-2.5">File a flight</div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <select id="pf_pilot" class="surface hair rounded-lg px-2.5 py-2 text-sm col-span-2"></select>
+                    <input id="pf_from" placeholder="From ICAO (CYYZ)" maxlength="4" class="surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                    <input id="pf_to" placeholder="To ICAO (EGLL)" maxlength="4" class="surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                    <select id="pf_aircraft" class="surface hair rounded-lg px-2.5 py-2 text-sm col-span-2"></select>
+                    <input id="pf_flight" placeholder="Flight no. (optional)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="pf_land" type="number" min="0" placeholder="Landings" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <div class="flex items-center gap-2 col-span-2">
+                        <input id="pf_h" type="number" min="0" placeholder="Hours" class="w-1/2 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <input id="pf_m" type="number" min="0" max="59" placeholder="Minutes" class="w-1/2 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    </div>
+                </div>
+                <div id="pf_routecheck" class="text-xs mt-2.5 flex items-center gap-1.5"></div>
+                <div class="flex gap-2 mt-3">
+                    <button id="pirepSubmitBtn" onclick="submitPirep()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">File flight</button>
+                    <button onclick="closePirepForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
+                </div>
+                <p id="pirepFormNote" class="hidden text-sm mt-2"></p>
             </div>
             <div id="pirepManageBar" class="hidden px-5 pt-4">
                 <p class="text-xs muted mb-2.5">Flights are pulled automatically from each linked pilot’s Infinite Flight history and matched to your fleet &amp; routes. <span id="pirepSyncNote"></span></p>
@@ -1492,6 +1514,8 @@
             PIREPS_CANREVIEW = can('flights.review');
             document.getElementById('pirepManageBar').classList.toggle('hidden', !PIREPS_CANREVIEW);
             document.getElementById('syncPirepsBtn').classList.toggle('hidden', !PIREPS_CANREVIEW);
+            // Any signed-in crew member can file a flight by hand.
+            document.getElementById('filePirepBtn').classList.toggle('hidden', !sessionToken());
             document.getElementById('pirepCount').textContent = PIREPS.length?`· ${PIREPS.length}`:'';
             document.getElementById('pirepAuto').checked = !!PIREP_AUTO;
             document.querySelectorAll('#pirepTabs [data-ptab]').forEach(b=>{
@@ -1516,6 +1540,10 @@
             renderPireps();
             requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
             fetchPireps().then(renderPireps);
+            // Warm the roster + route network so the File form's pilot picker and
+            // on-network check are ready.
+            if(!ROSTER||!ROSTER.length) fetchRoster().then(()=>{});
+            if(!ROUTES||!ROUTES.length) fetchRoutes().then(()=>{});
             if(window.lucide) lucide.createIcons();
         }
         function closePireps(){ const r=document.getElementById('pireps'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
@@ -1565,6 +1593,77 @@
             if(e.target.closest('[data-papprove]')) reviewPirep(id,'approve');
             else if(e.target.closest('[data-preject]')) reviewPirep(id,'reject');
             else if(e.target.closest('[data-pdel]')) deletePirep(id);
+        });
+        // Find the active route (if any) that matches what's typed in the file form,
+        // so we can tell the pilot up front whether the leg is really on the network.
+        function findMatchingRoute(from, to, aircraft){
+            const o=(from||'').trim().toUpperCase(), d=(to||'').trim().toUpperCase();
+            if(!o||!d) return null;
+            const norm=s=>String(s||'').trim().toLowerCase();
+            const acHit=(ra)=>{ const x=norm(ra), y=norm(aircraft); return x&&y&&(x===y||x.includes(y)||y.includes(x)); };
+            const cands=(ROUTES||[]).filter(r=>r.active!==false && (r.origin||'').toUpperCase()===o && (r.destination||'').toUpperCase()===d);
+            if(!cands.length) return null;
+            return cands.find(r=>r.aircraft&&acHit(r.aircraft)) || cands[0];
+        }
+        // Live verdict shown under the form as the pilot fills it in.
+        function pirepRouteCheck(){
+            const box=document.getElementById('pf_routecheck'); if(!box) return;
+            const from=document.getElementById('pf_from').value, to=document.getElementById('pf_to').value;
+            const ac=document.getElementById('pf_aircraft').value, fl=document.getElementById('pf_flight').value.trim();
+            if(!from.trim()||!to.trim()){ box.innerHTML=''; return; }
+            const r=findMatchingRoute(from,to,ac);
+            if(!r){
+                box.innerHTML=`<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-500"></i><span class="text-amber-600 dark:text-amber-400">Not a route in your network — it’ll be filed off-network for review.</span>`;
+            } else {
+                const norm=s=>String(s||'').trim().toLowerCase();
+                const mism = r.flightNumber && fl && norm(r.flightNumber)!==norm(fl);
+                box.innerHTML = mism
+                    ? `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-500"></i><span class="text-amber-600 dark:text-amber-400">Matches route <b>${escapeHtml(r.flightNumber||r.origin+'–'+r.destination)}</b>, but that route’s flight number differs.</span>`
+                    : `<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-500"></i><span class="text-emerald-600 dark:text-emerald-400">On network — matches route${r.flightNumber?` <b>${escapeHtml(r.flightNumber)}</b>`:''}.</span>`;
+            }
+            if(window.lucide) lucide.createIcons();
+        }
+        function openPirepForm(){
+            const pilotSel=document.getElementById('pf_pilot');
+            pilotSel.innerHTML='<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${m.id}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('');
+            const acSel=document.getElementById('pf_aircraft');
+            acSel.innerHTML='<option value="">Aircraft (optional)</option>'+FLEET.map(a=>{ const v=a.type||a.name; return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`; }).join('');
+            ['pf_from','pf_to','pf_flight','pf_land','pf_h','pf_m'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+            document.getElementById('pf_routecheck').innerHTML='';
+            const note=document.getElementById('pirepFormNote'); if(note) note.classList.add('hidden');
+            document.getElementById('addPirepForm').classList.remove('hidden');
+            // Routes power the on-network check; make sure they're loaded.
+            if(!ROUTES||!ROUTES.length) fetchRoutes().then(()=>{});
+        }
+        function closePirepForm(){ document.getElementById('addPirepForm').classList.add('hidden'); }
+        async function submitPirep(){
+            const note=document.getElementById('pirepFormNote');
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token){ note.textContent='Sign in to file a flight.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const body={
+                memberId: document.getElementById('pf_pilot').value || undefined,
+                origin: document.getElementById('pf_from').value.trim().toUpperCase(),
+                destination: document.getElementById('pf_to').value.trim().toUpperCase(),
+                aircraftName: document.getElementById('pf_aircraft').value,
+                flightNumber: document.getElementById('pf_flight').value.trim(),
+                landings: Number(document.getElementById('pf_land').value)||0,
+                hours: Number(document.getElementById('pf_h').value)||0,
+                minutes: Number(document.getElementById('pf_m').value)||0,
+            };
+            if(!body.origin||!body.destination){ note.textContent='Enter a departure and arrival airport.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps`,{ method:'POST', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not file the flight.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                const verdict = d.routeMatched ? (d.flightNumberMismatch ? 'Filed — route matched, but the flight number differs from the network.' : 'Filed — route confirmed on your network.') : 'Filed off-network — no matching route. Pending review.';
+                note.textContent=verdict; note.className=`text-sm ${d.routeMatched && !d.flightNumberMismatch ?'text-emerald-600 dark:text-emerald-400':'text-amber-600 dark:text-amber-400'}`; note.classList.remove('hidden');
+                closePirepForm();
+                PIREP_TAB='pending'; await fetchPireps(); renderPireps();
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+        }
+        // Live route check as the leg is typed.
+        ['pf_from','pf_to','pf_aircraft','pf_flight'].forEach(id=>{
+            document.addEventListener('input', e=>{ if(e.target.id===id) pirepRouteCheck(); });
         });
 
         // ---- Applications (staff review: accept / decline + message) ----
