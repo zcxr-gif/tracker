@@ -285,7 +285,8 @@
 
                 <!-- Crew structure — ranks + roles (owner / staff) -->
                 <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Crew structure</h3>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Crew structure</h3>
+                    <p class="text-xs muted mb-3">Pick an icon or upload your own badge art (a transparent PNG looks best). Need to cut out a background? <a href="https://www.remove.bg/upload" target="_blank" rel="noopener" class="accent-text font-medium underline">remove.bg</a></p>
 
                     <div class="mb-5">
                         <div class="flex items-center justify-between mb-2">
@@ -490,10 +491,24 @@
         const BADGE_ICONS=['star','award','medal','crown','shield','plane','gem','trophy','sparkles','chevrons-up','wings','badge-check'];
         function badgeHtml(b){
             const c=isHex(b.color)?b.color:'var(--accent)';
-            const icon=BADGE_ICONS.includes(b.icon)?b.icon:'star';
             const hrs=(b.minHours!=null && b.minHours!=='')?` · ${b.minHours}h`:'';
+            const mark=(b.image && isSafeImageUrl(b.image))
+                ? `<img src="${escapeHtml(b.image)}" class="w-4 h-4 rounded object-contain">`
+                : `<i data-lucide="${BADGE_ICONS.includes(b.icon)?b.icon:'star'}" class="w-3.5 h-3.5"></i>`;
             return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full" style="color:${c};background:color-mix(in srgb, ${c} 13%, transparent);">
-                <i data-lucide="${icon}" class="w-3.5 h-3.5"></i>${escapeHtml(b.name||'Untitled')}${hrs}</span>`;
+                ${mark}${escapeHtml(b.name||'Untitled')}${hrs}</span>`;
+        }
+        // Badge control per row: uploaded image (with a clear button) or an icon
+        // picker + upload button.
+        function badgeControl(r){
+            if(r.image && isSafeImageUrl(r.image)){
+                return `<span class="relative w-8 h-8 shrink-0">
+                    <img src="${escapeHtml(r.image)}" class="w-8 h-8 rounded-md object-contain border hair">
+                    <button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button>
+                </span>`;
+            }
+            return `<select data-f="icon" class="surface hair rounded-md text-xs py-2 px-1 shrink-0">${iconOptions(r.icon||'star')}</select>
+                <label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload badge image"><i data-lucide="upload" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
         }
         function iconOptions(sel){ return BADGE_ICONS.map(i=>`<option value="${i}" ${i===sel?'selected':''}>${i}</option>`).join(''); }
         function renderBadgePreview(){
@@ -504,16 +519,16 @@
         function rankRowHtml(r,i){
             return `<div class="flex items-center gap-2" data-kind="ranks" data-idx="${i}">
                 <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
-                <select data-f="icon" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0">${iconOptions(r.icon||'star')}</select>
+                ${badgeControl(r)}
                 <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Rank name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <input data-f="minHours" type="number" min="0" value="${r.minHours!=null?r.minHours:0}" placeholder="hrs" class="w-16 surface hair rounded-md px-2 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="minHours" type="number" min="0" value="${r.minHours!=null?r.minHours:0}" placeholder="hrs" class="w-14 surface hair rounded-md px-2 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>`;
         }
         function roleRowHtml(r,i){
             return `<div class="flex items-center gap-2" data-kind="roles" data-idx="${i}">
                 <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
-                <select data-f="icon" class="surface hair rounded-md text-xs py-2 px-1.5 shrink-0">${iconOptions(r.icon||'shield')}</select>
+                ${badgeControl(r)}
                 <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Role name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-f="staff" type="checkbox" ${r.staff?'checked':''}> Staff</label>
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
@@ -538,10 +553,29 @@
                     renderBadgePreview();
                 });
                 host.addEventListener('click', e=>{
-                    const del=e.target.closest('[data-del]'); if(!del) return;
-                    const row=del.closest('[data-idx]'); const idx=+row.getAttribute('data-idx');
-                    (row.getAttribute('data-kind')==='ranks'?RANKS:ROLES).splice(idx,1);
-                    renderStructure();
+                    const del=e.target.closest('[data-del]');
+                    const clr=e.target.closest('[data-clearimg]');
+                    const row=(del||clr)&&(del||clr).closest('[data-idx]'); if(!row) return;
+                    const arr=row.getAttribute('data-kind')==='ranks'?RANKS:ROLES; const idx=+row.getAttribute('data-idx');
+                    if(del){ arr.splice(idx,1); renderStructure(); }
+                    else if(clr){ arr[idx].image=''; renderStructure(); }
+                });
+                host.addEventListener('change', async e=>{
+                    if(e.target.getAttribute('data-f')!=='imagefile') return;
+                    const row=e.target.closest('[data-idx]'); const idx=+row.getAttribute('data-idx'); const kind=row.getAttribute('data-kind');
+                    const arr=kind==='ranks'?RANKS:ROLES; const file=e.target.files&&e.target.files[0]; if(!file) return;
+                    const note=document.getElementById(kind==='ranks'?'rankNote':'roleNote');
+                    const token=sessionToken(), slug=getSlug();
+                    if(!slug||!token){ note.textContent='Sign in as owner/staff to upload badge art.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+                    note.textContent='Uploading badge…'; note.className='text-sm muted'; note.classList.remove('hidden');
+                    try{
+                        const fd=new FormData(); fd.append('image', file);
+                        const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
+                        const d=await res.json().catch(()=>({}));
+                        if(!res.ok){ note.textContent=d.error||'Upload failed.'; note.className='text-sm text-red-500'; return; }
+                        arr[idx].image=d.url; renderStructure();
+                        note.textContent='Badge uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    }catch{ note.textContent='Upload failed. Try again.'; note.className='text-sm text-red-500'; }
                 });
             });
         }
