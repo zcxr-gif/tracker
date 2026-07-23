@@ -1082,10 +1082,11 @@
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(a.ifcName||'Unnamed')}</span>${verified}</div>
                         <div class="flex items-center gap-1.5 flex-wrap mt-1">${a.callsign?`<span class="text-xs faint">${escapeHtml(a.callsign)}</span>`:((a.callsignPrefix||a.callsignNumber)?`<span class="text-xs faint">${escapeHtml((a.callsignPrefix||'')+(a.callsignNumber||''))}</span>`:'')}${grade}</div>
+                        ${a.email?`<div class="text-xs muted mt-1 inline-flex items-center gap-1"><i data-lucide="mail" class="w-3.5 h-3.5"></i>${escapeHtml(a.email)}</div>`:''}
                     </div>
                 </div>
                 ${answers?`<div class="mt-2 pl-1">${answers}</div>`:''}
-                <textarea data-msg rows="2" placeholder="Optional message to the applicant (they’ll see it on their status page)…" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
+                <textarea data-msg rows="2" placeholder="${a.email?'Message emailed to the applicant + shown on their status page…':'Message shown on their status page…'}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
                 <div class="flex gap-2 mt-2">
                     <button data-accept class="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i> Accept</button>
                     <button data-decline class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:text-red-500 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="x" class="w-4 h-4"></i> Decline</button>

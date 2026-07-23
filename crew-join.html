@@ -76,7 +76,7 @@
         let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[] };
         let VA = { name:'', code:'' };
         let STEPS = [], cur = 0;
-        const DATA = { ifcName:'', prefix:'', number:'', grade:0, answers:[], verified:false, vGrade:null, stats:null, agreed:[] };
+        const DATA = { ifcName:'', prefix:'', number:'', email:'', grade:0, answers:[], verified:false, vGrade:null, stats:null, agreed:[] };
         // Tracks the last IF verification so we can badge the field, skip the
         // self-report grade step when we already know the true grade, and block
         // a name our lookup says doesn't exist.
@@ -201,6 +201,9 @@
                         <button id="ifcCheck" type="button" onclick="verifyIfc()" class="shrink-0 text-sm font-semibold px-3.5 py-2.5 rounded-lg border hair hover:bg-[var(--line-soft)] transition">Verify</button>
                     </div>
                     <div id="ifcStatus" class="mt-2.5 text-sm min-h-[1.25rem]"></div>
+                    <label class="block text-sm font-medium mt-4 mb-1.5">Email <span class="faint font-normal">— so we can tell you the decision</span></label>
+                    <input id="f_email" type="email" class="field" placeholder="you@example.com" value="${escapeHtml(DATA.email)}" autocomplete="email" autocapitalize="off" spellcheck="false">
+                    <p class="text-xs faint mt-1.5">We’ll email you when the ${escapeHtml(VA.name||'VA')} accepts or declines your application. Optional, but recommended.</p>
                 </div>`;
                 setNav(true, "Continue");
                 const inp=document.getElementById('f_ifc');
@@ -281,6 +284,7 @@
                     ? `${escapeHtml(DATA.ifcName)} <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold ml-1"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i>verified</span>`
                     : escapeHtml(DATA.ifcName);
                 const rows = [['IFC name', nameCell, true], ['Callsign', fullCallsign()||'—']];
+                if(DATA.email) rows.push(['Email', DATA.email]);
                 if(CFG.minGrade>0 || DATA.grade) rows.push(['Grade', 'Grade '+(DATA.grade||'—')]);
                 body.innerHTML = `<div class="step">
                     <h2 class="text-lg font-bold tracking-tight">Review &amp; ${CFG.mode==='free'?'join':'apply'}</h2>
@@ -300,7 +304,9 @@
         function readStep(){
             const s = STEPS[cur];
             if(s==='ifc'){ DATA.ifcName = document.getElementById('f_ifc').value.trim(); if(!DATA.ifcName){ shake('f_ifc'); return false; }
-                if(verifyState.name===DATA.ifcName && verifyState.status==='notfound'){ shake('f_ifc'); return false; } }
+                if(verifyState.name===DATA.ifcName && verifyState.status==='notfound'){ shake('f_ifc'); return false; }
+                const em=document.getElementById('f_email'); DATA.email = em ? em.value.trim() : '';
+                if(DATA.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(DATA.email)){ shake('f_email'); return false; } }
             if(s==='callsign'){ DATA.prefix = document.getElementById('f_prefix').value.trim().toUpperCase(); DATA.number = document.getElementById('f_number').value.replace(/[^0-9]/g,''); if(!DATA.number){ shake('f_number'); return false; } }
             if(s==='grade'){ if(!DATA.grade){ return false; } if(DATA.grade<CFG.minGrade){ toast('Grade '+CFG.minGrade+'+ required.'); return false; } }
             if(s==='requirements'){
@@ -333,7 +339,7 @@
             const btn=document.getElementById('nextBtn'); btn.disabled=true;
             const note=document.getElementById('submitNote');
             const slug=getSlug();
-            const body={ ifcName:DATA.ifcName, callsignPrefix:DATA.prefix, callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers, agreed:DATA.agreed };
+            const body={ ifcName:DATA.ifcName, email:DATA.email, callsignPrefix:DATA.prefix, callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers, agreed:DATA.agreed };
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/apply`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
@@ -355,7 +361,7 @@
                 ${accepted
                     ? `<p class="text-sm muted mt-2">You’re now part of <b>${escapeHtml(VA.name||'the crew')}</b>. Your callsign:</p><div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign||fullCallsign())}</div>
                        <a href="/crew/${escapeHtml(slug)}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`
-                    : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application and message you here.</p>
+                    : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application${DATA.email?` and email you at <b>${escapeHtml(DATA.email)}</b> with their decision`:''}.</p>
                        ${statusUrl?`<div class="surface hair rounded-xl p-4 mt-5 text-left">
                           <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="bookmark" class="w-3.5 h-3.5"></i> Save your status link</div>
                           <p class="text-sm muted mb-3">Bookmark this to see the VA’s decision and any message they leave you.</p>
