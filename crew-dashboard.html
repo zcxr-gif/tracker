@@ -374,6 +374,16 @@
                     </div>
                     <button onclick="saveRecruitment()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
                     <p id="recruitNote" class="hidden text-sm mt-2"></p>
+
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1">Put it on your website</div>
+                        <p class="text-xs muted mb-2.5">Embed the join form on your own site (auto-resizes), or share the link.</p>
+                        <div class="flex gap-2">
+                            <button onclick="copyJoinEmbed()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="code-xml" class="w-4 h-4"></i> Copy embed code</button>
+                            <a id="joinLink" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open join page</a>
+                        </div>
+                        <p id="embedNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
 
               </div><!-- /crew -->
@@ -801,6 +811,20 @@
             document.getElementById('minGrade').value=String(JOIN.minGrade||0);
             document.getElementById('callsignPrefix').value=JOIN.callsignPrefix||'';
             renderQuestions();
+            const slug=getSlug();
+            const link=document.getElementById('joinLink');
+            if(link) link.href = slug ? `https://inflight.info/crew/${encodeURIComponent(slug)}/join` : '#';
+        }
+        function joinEmbedCode(){
+            const slug=getSlug()||'your-va';
+            const src=`https://inflight.info/crew/${slug}/join?embed=1`;
+            return `<iframe id="ifcrew-join" src="${src}" title="Join our crew" style="width:100%;max-width:480px;border:0;height:620px"></iframe>\n<script>window.addEventListener('message',function(e){if(e.data&&e.data.ifcrewHeight){var f=document.getElementById('ifcrew-join');if(f)f.style.height=e.data.ifcrewHeight+'px';}});<\/script>`;
+        }
+        async function copyJoinEmbed(){
+            const note=document.getElementById('embedNote');
+            try{ await navigator.clipboard.writeText(joinEmbedCode()); note.textContent='Embed code copied — paste it into your site’s HTML.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+            catch{ note.textContent='Couldn’t copy automatically.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
         }
         function wireRecruitment(){
             const host=document.getElementById('qRows');

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join — Crew Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>tailwind.config = { darkMode: 'class' };</script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        :root{ --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4; --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#4f46e5; color-scheme: light dark; }
+        .dark{ --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A; --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D; }
+        *{ -webkit-tap-highlight-color: transparent; }
+        body{ font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; background:var(--bg); color:var(--ink); }
+        body.embed{ background:transparent; }
+        [data-lucide]{ width:1.15em; height:1.15em; } svg.lucide{ stroke-width:1.6; }
+        .surface{ background:var(--surface); border:1px solid var(--line); }
+        .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
+        .muted{ color:var(--muted); } .faint{ color:var(--faint); }
+        .accent-bg{ background:var(--accent); } .accent-text{ color:var(--accent); }
+        input, select, textarea{ font-family:inherit; } ::placeholder{ color:var(--faint); }
+        .step{ animation:slide .35s cubic-bezier(.2,.8,.2,1); }
+        @keyframes slide{ from{opacity:0; transform:translateX(10px);} to{opacity:1; transform:translateX(0);} }
+        .field{ width:100%; background:var(--surface); border:1px solid var(--line); border-radius:.75rem; padding:.7rem .9rem; font-size:.95rem; }
+        .field:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+        a:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+        @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+    </style>
+</head>
+<body class="min-h-screen antialiased">
+
+    <!--
+      Crew Center — applicant JOIN flow. Standalone AND embeddable:
+        · full page:  inflight.info/crew/<slug>/join
+        · iframe:     …/join?embed=1  (posts its height so the host can resize)
+      Branding + the staff-built form come from by-slug; submits to /apply.
+    -->
+
+    <div id="wrap" class="min-h-screen flex items-center justify-center p-4 sm:p-6">
+        <div class="w-full max-w-md">
+            <!-- Header -->
+            <div class="text-center mb-5">
+                <img id="logo" alt="" class="hidden mx-auto mb-3 max-h-14 w-auto object-contain">
+                <div id="mono" class="accent-bg w-14 h-14 rounded-2xl grid place-items-center text-white text-xl font-black mx-auto mb-3">VA</div>
+                <h1 class="text-lg font-bold tracking-tight">Join <span id="vaName">the crew</span></h1>
+                <p id="joinSub" class="text-sm muted mt-0.5"></p>
+            </div>
+
+            <div class="surface rounded-2xl overflow-hidden shadow-sm">
+                <!-- Progress -->
+                <div class="h-1 bg-[var(--line)]"><div id="bar" class="h-full accent-bg transition-all duration-300" style="width:0%"></div></div>
+
+                <div class="p-5 sm:p-6">
+                    <div id="stepBody"><div class="flex justify-center py-10"><i data-lucide="loader" class="w-6 h-6 muted animate-spin"></i></div></div>
+                </div>
+
+                <!-- Footer nav -->
+                <div id="nav" class="hidden flex items-center justify-between px-5 sm:px-6 py-4 border-t hair-soft">
+                    <button id="backBtn" onclick="back()" class="text-sm font-semibold muted hover:text-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="arrow-left" class="w-4 h-4"></i> Back</button>
+                    <button id="nextBtn" onclick="next()" class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-1.5">Continue <i data-lucide="arrow-right" class="w-4 h-4"></i></button>
+                </div>
+            </div>
+
+            <div class="mt-5 flex items-center justify-center gap-2 opacity-80">
+                <span class="text-[11px] font-medium tracking-wide faint">Powered by</span>
+                <img src="/Images/inflight.png" alt="Inflight" class="h-[16px] w-auto dark:hidden">
+                <img src="/Images/inflight-light.png" alt="Inflight" class="h-[16px] w-auto hidden dark:block">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const EMBED = new URLSearchParams(location.search).get('embed')==='1';
+        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[] };
+        let VA = { name:'', code:'' };
+        let STEPS = [], cur = 0;
+        const DATA = { ifcName:'', prefix:'', number:'', grade:0, answers:[] };
+
+        // ---- Theme (follow the host / OS) ----
+        (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{} const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.classList.toggle('dark',d); })();
+        if(EMBED){ document.body.classList.add('embed'); document.getElementById('wrap').classList.remove('min-h-screen'); }
+
+        function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
+        function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
+        function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
+        function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1]&&m[1].toLowerCase()!=='join')return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
+        function postHeight(){ if(EMBED){ try{ parent.postMessage({ ifcrewHeight: document.documentElement.scrollHeight }, '*'); }catch{} } }
+
+        // ---- Steps ----
+        function buildSteps(){
+            STEPS = ['intro','ifc','callsign'];
+            if(CFG.minGrade>0) STEPS.push('grade');
+            if(CFG.form && CFG.form.length) STEPS.push('questions');
+            STEPS.push('review');
+        }
+        function setNav(showBack, nextLabel){
+            document.getElementById('nav').classList.remove('hidden');
+            document.getElementById('backBtn').style.visibility = showBack ? 'visible':'hidden';
+            document.getElementById('nextBtn').innerHTML = nextLabel + ' <i data-lucide="arrow-right" class="w-4 h-4"></i>';
+        }
+        function fullCallsign(){ return (DATA.prefix + DATA.number).replace(/\s+/g,''); }
+
+        function renderStep(){
+            const s = STEPS[cur];
+            const body = document.getElementById('stepBody');
+            document.getElementById('bar').style.width = Math.round((cur)/(STEPS.length-1)*100)+'%';
+
+            if(s==='intro'){
+                const reqs = [];
+                reqs.push(CFG.mode==='free' ? 'Instant access — no waiting' : 'Reviewed by the VA staff');
+                if(CFG.minGrade>0) reqs.push(`Infinite Flight Grade ${CFG.minGrade}+`);
+                body.innerHTML = `<div class="step text-center">
+                    <div class="w-12 h-12 rounded-xl bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] accent-text grid place-items-center mx-auto mb-4"><i data-lucide="plane" class="w-6 h-6"></i></div>
+                    <h2 class="text-xl font-bold tracking-tight">Ready to fly with us?</h2>
+                    <p class="text-sm muted mt-1.5">Takes under a minute.</p>
+                    <ul class="text-left mt-5 space-y-2">${reqs.map(r=>`<li class="flex items-center gap-2.5 text-sm"><i data-lucide="check" class="w-4 h-4 accent-text"></i> ${escapeHtml(r)}</li>`).join('')}</ul>
+                </div>`;
+                setNav(false, "Get started");
+            }
+            else if(s==='ifc'){
+                body.innerHTML = `<div class="step">
+                    <h2 class="text-lg font-bold tracking-tight">Your Infinite Flight name</h2>
+                    <p class="text-sm muted mt-1 mb-4">Your Infinite Flight Community (IFC) username — how we know you.</p>
+                    <input id="f_ifc" class="field" placeholder="e.g. Jordan_Lee" value="${escapeHtml(DATA.ifcName)}" autocomplete="off">
+                </div>`;
+                setNav(true, "Continue");
+                setTimeout(()=>document.getElementById('f_ifc').focus(),50);
+            }
+            else if(s==='callsign'){
+                body.innerHTML = `<div class="step">
+                    <h2 class="text-lg font-bold tracking-tight">Pick your callsign</h2>
+                    <p class="text-sm muted mt-1 mb-4">Your radio callsign for VA flights.</p>
+                    <div class="flex items-center gap-2">
+                        <input id="f_prefix" class="field w-24 text-center font-semibold" placeholder="ACA" value="${escapeHtml(DATA.prefix||CFG.callsignPrefix||VA.code||'')}" maxlength="6">
+                        <input id="f_number" class="field flex-1 text-center font-semibold tracking-wider" placeholder="1174" inputmode="numeric" value="${escapeHtml(DATA.number)}" maxlength="5">
+                    </div>
+                    <div class="mt-4 text-center">
+                        <div class="text-xs uppercase tracking-wider faint mb-1">Your callsign</div>
+                        <div id="csPreview" class="text-2xl font-extrabold tracking-wide accent-text">—</div>
+                    </div>
+                </div>`;
+                setNav(true, "Continue");
+                const upd=()=>{ const p=document.getElementById('f_prefix').value.trim().toUpperCase(); const n=document.getElementById('f_number').value.replace(/[^0-9]/g,''); document.getElementById('f_number').value=n; document.getElementById('csPreview').textContent=(p||n)?`${p} ${n}`.trim():'—'; };
+                document.getElementById('f_prefix').addEventListener('input',upd); document.getElementById('f_number').addEventListener('input',upd); upd();
+            }
+            else if(s==='grade'){
+                body.innerHTML = `<div class="step">
+                    <h2 class="text-lg font-bold tracking-tight">Your Infinite Flight grade</h2>
+                    <p class="text-sm muted mt-1 mb-4">This VA requires <b>Grade ${CFG.minGrade}+</b>.</p>
+                    <div class="grid grid-cols-5 gap-2" id="gradeGrid">
+                        ${[1,2,3,4,5].map(g=>`<button data-g="${g}" class="py-3 rounded-lg border hair text-sm font-bold ${DATA.grade===g?'accent-bg text-white':''}">${g}</button>`).join('')}
+                    </div>
+                </div>`;
+                setNav(true, "Continue");
+                document.querySelectorAll('#gradeGrid [data-g]').forEach(b=>b.addEventListener('click',()=>{ DATA.grade=+b.getAttribute('data-g'); renderStep(); }));
+            }
+            else if(s==='questions'){
+                body.innerHTML = `<div class="step">
+                    <h2 class="text-lg font-bold tracking-tight">A few questions</h2>
+                    <p class="text-sm muted mt-1 mb-4">From the ${escapeHtml(VA.name||'VA')} team.</p>
+                    <div class="space-y-4">${CFG.form.map((q,i)=>`
+                        <div>
+                            <label class="block text-sm font-medium mb-1.5">${escapeHtml(q.label)}${q.required?' <span class="accent-text">*</span>':''}</label>
+                            ${q.type==='textarea'
+                                ? `<textarea data-q="${i}" rows="3" class="field">${escapeHtml((DATA.answers[i]&&DATA.answers[i].a)||'')}</textarea>`
+                                : `<input data-q="${i}" class="field" value="${escapeHtml((DATA.answers[i]&&DATA.answers[i].a)||'')}">`}
+                        </div>`).join('')}</div>
+                </div>`;
+                setNav(true, "Continue");
+            }
+            else if(s==='review'){
+                const rows = [['IFC name', DATA.ifcName], ['Callsign', fullCallsign()||'—']];
+                if(CFG.minGrade>0) rows.push(['Grade', 'Grade '+(DATA.grade||'—')]);
+                body.innerHTML = `<div class="step">
+                    <h2 class="text-lg font-bold tracking-tight">Review &amp; ${CFG.mode==='free'?'join':'apply'}</h2>
+                    <p class="text-sm muted mt-1 mb-4">${CFG.mode==='free'?'You’ll get instant access.':'Staff will review your application.'}</p>
+                    <div class="surface hair rounded-lg divide-y hair-soft">
+                        ${rows.map(r=>`<div class="flex items-center justify-between px-4 py-2.5 text-sm"><span class="muted">${escapeHtml(r[0])}</span><span class="font-semibold">${escapeHtml(r[1])}</span></div>`).join('')}
+                    </div>
+                    <p id="submitNote" class="hidden text-sm mt-3"></p>
+                </div>`;
+                setNav(true, CFG.mode==='free' ? 'Join now' : 'Submit application');
+            }
+            document.getElementById('nextBtn').disabled=false;
+            if(window.lucide) lucide.createIcons();
+            postHeight();
+        }
+
+        function readStep(){
+            const s = STEPS[cur];
+            if(s==='ifc'){ DATA.ifcName = document.getElementById('f_ifc').value.trim(); if(!DATA.ifcName){ shake('f_ifc'); return false; } }
+            if(s==='callsign'){ DATA.prefix = document.getElementById('f_prefix').value.trim().toUpperCase(); DATA.number = document.getElementById('f_number').value.replace(/[^0-9]/g,''); if(!DATA.number){ shake('f_number'); return false; } }
+            if(s==='grade'){ if(!DATA.grade){ return false; } if(DATA.grade<CFG.minGrade){ toast('Grade '+CFG.minGrade+'+ required.'); return false; } }
+            if(s==='questions'){ DATA.answers = CFG.form.map((q,i)=>({ q:q.label, a:(document.querySelector(`[data-q="${i}"]`)||{}).value?document.querySelector(`[data-q="${i}"]`).value.trim():'' })); for(let i=0;i<CFG.form.length;i++){ if(CFG.form[i].required && !DATA.answers[i].a){ shake(`[data-q="${i}"]`); return false; } } }
+            return true;
+        }
+        function shake(sel){ const el=sel.startsWith('[')?document.querySelector(sel):document.getElementById(sel); if(el){ el.style.borderColor='#ef4444'; el.focus(); } }
+        function toast(msg){ const n=document.getElementById('submitNote')||document.getElementById('stepBody'); }
+
+        function next(){ if(!readStep()) return; if(cur>=STEPS.length-1){ submit(); return; } cur++; renderStep(); }
+        function back(){ if(cur>0){ cur--; renderStep(); } }
+
+        async function submit(){
+            const btn=document.getElementById('nextBtn'); btn.disabled=true;
+            const note=document.getElementById('submitNote');
+            const slug=getSlug();
+            const body={ ifcName:DATA.ifcName, callsignPrefix:DATA.prefix, callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers };
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/apply`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ if(note){ note.textContent=d.error||'Something went wrong. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); } btn.disabled=false; return; }
+                success(d);
+            }catch{ if(note){ note.textContent='Couldn’t reach the server. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); } btn.disabled=false; }
+        }
+        function success(d){
+            document.getElementById('nav').classList.add('hidden');
+            document.getElementById('bar').style.width='100%';
+            const accepted = d.status==='accepted';
+            document.getElementById('stepBody').innerHTML = `<div class="step text-center py-4">
+                <div class="w-14 h-14 rounded-full ${accepted?'bg-emerald-500':'accent-bg'} text-white grid place-items-center mx-auto mb-4"><i data-lucide="${accepted?'party-popper':'clock'}" class="w-7 h-7"></i></div>
+                <h2 class="text-xl font-bold tracking-tight">${accepted?'Welcome aboard!':'Application received'}</h2>
+                ${accepted
+                    ? `<p class="text-sm muted mt-2">You’re now part of <b>${escapeHtml(VA.name||'the crew')}</b>. Your callsign:</p><div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign||fullCallsign())}</div>
+                       <a href="/crew/${escapeHtml(getSlug())}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`
+                    : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application and get back to you.</p>`}
+            </div>`;
+            if(window.lucide) lucide.createIcons();
+            postHeight();
+        }
+
+        // ---- Branding + config ----
+        function applyBranding(b){
+            if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            VA={ name:b.name||b.code||'', code:b.code||'' };
+            const mono=initials(VA.name, VA.code);
+            document.getElementById('mono').textContent=mono;
+            if(VA.name){ document.getElementById('vaName').textContent=VA.name; document.title=`Join ${VA.name} — Crew Center`; }
+            if(b.logo && isSafeImageUrl(b.logo)){ const el=document.getElementById('logo'); el.src=b.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
+            if(b.join){ CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'', form:Array.isArray(b.join.form)?b.join.form:[] }; }
+            DATA.prefix = CFG.callsignPrefix || VA.code || '';
+            document.getElementById('joinSub').textContent = CFG.mode==='free' ? 'Instant access' : 'Applications reviewed by staff';
+        }
+        (async function(){
+            const slug=getSlug();
+            if(slug){
+                try{
+                    const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'}});
+                    if(res.ok) applyBranding(await res.json());
+                }catch{}
+            }
+            // Preview fallback via query overrides (?name/accent + &free / &grade / &q=)
+            const q=new URLSearchParams(location.search);
+            if(!slug && (q.get('name')||q.get('accent'))){
+                applyBranding({ name:q.get('name')||'', code:(q.get('va')||'').toUpperCase(), accent:q.get('accent')||'', join:{ mode:q.get('mode')||'application', minGrade:+(q.get('minGrade')||0), callsignPrefix:q.get('prefix')||'', form:(q.get('q')||'').split('|').filter(Boolean).map(l=>({label:l,type:'text',required:false})) } });
+            }
+            buildSteps(); cur=0; renderStep();
+            addEventListener('resize', postHeight);
+        })();
+    </script>
+</body>
+</html>
