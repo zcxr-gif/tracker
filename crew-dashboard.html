@@ -411,10 +411,10 @@
                     <div class="mt-4 pt-4 border-t hair-soft">
                         <div class="text-sm font-semibold mb-1 flex items-center gap-2">Email applicants
                             <span id="emailStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
-                        <p id="emailIntro" class="text-xs muted mb-2.5">Bring your own email provider so decision emails come from your domain and your account. Leave the provider on “Inflight (default)” to use ours.</p>
+                        <p id="emailIntro" class="text-xs muted mb-2.5">Bring your own email provider so decision emails come from your domain and your account. If you don’t set one up, no emails are sent — applicants just use their status page.</p>
                         <label class="text-xs muted">Provider
                             <select id="emProvider" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
-                                <option value="">Inflight (default)</option>
+                                <option value="">Off — no emails</option>
                                 <option value="resend">Resend</option>
                                 <option value="sendgrid">SendGrid</option>
                                 <option value="postmark">Postmark</option>
@@ -954,8 +954,7 @@
         function testWebhook(){ const v=document.getElementById('hookUrl').value.trim(); postWebhook(v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check your Discord channel.'); }
         function clearWebhook(){ document.getElementById('hookUrl').value=''; postWebhook({webhookUrl:''}, 'Webhook removed.'); }
 
-        // ---- Email provider (bring-your-own) ----
-        let EMAIL_PLATFORM=false;
+        // ---- Email provider (bring-your-own; no platform default) ----
         function setEmailNote(msg, kind){ const n=document.getElementById('emailNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
         function emToggleFields(){
             const prov=document.getElementById('emProvider').value;
@@ -963,15 +962,10 @@
             document.getElementById('emMailgun').classList.toggle('hidden', prov!=='mailgun');
         }
         function renderEmailStatus(d){
-            EMAIL_PLATFORM = !!(d && d.platformFallback);
-            const s=document.getElementById('emailStatus'); if(s){
-                if(d && d.configured) s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> your provider</span>';
-                else if(EMAIL_PLATFORM) s.innerHTML='<span class="faint">using Inflight default</span>';
-                else s.innerHTML='<span class="faint">not sending yet</span>';
-                if(window.lucide) lucide.createIcons();
-            }
-            const intro=document.getElementById('emailIntro');
-            if(intro && !EMAIL_PLATFORM && !(d&&d.configured)) intro.innerHTML='Bring your own email provider so decision emails come from your domain. <b>No provider is set yet, so applicant emails are currently off</b> until you add one.';
+            const s=document.getElementById('emailStatus'); if(!s) return;
+            if(d && d.configured) s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> your provider</span>';
+            else s.innerHTML='<span class="faint">off — not sending</span>';
+            if(window.lucide) lucide.createIcons();
         }
         function fillEmail(d){
             if(!d) return;

@@ -73,7 +73,7 @@
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         const EMBED = new URLSearchParams(location.search).get('embed')==='1';
-        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[] };
+        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[], emailEnabled:false };
         let VA = { name:'', code:'' };
         let STEPS = [], cur = 0;
         const DATA = { ifcName:'', prefix:'', number:'', email:'', grade:0, answers:[], verified:false, vGrade:null, stats:null, agreed:[] };
@@ -201,9 +201,9 @@
                         <button id="ifcCheck" type="button" onclick="verifyIfc()" class="shrink-0 text-sm font-semibold px-3.5 py-2.5 rounded-lg border hair hover:bg-[var(--line-soft)] transition">Verify</button>
                     </div>
                     <div id="ifcStatus" class="mt-2.5 text-sm min-h-[1.25rem]"></div>
-                    <label class="block text-sm font-medium mt-4 mb-1.5">Email <span class="faint font-normal">— so we can tell you the decision</span></label>
+                    ${CFG.emailEnabled ? `<label class="block text-sm font-medium mt-4 mb-1.5">Email <span class="faint font-normal">— so we can tell you the decision</span></label>
                     <input id="f_email" type="email" class="field" placeholder="you@example.com" value="${escapeHtml(DATA.email)}" autocomplete="email" autocapitalize="off" spellcheck="false">
-                    <p class="text-xs faint mt-1.5">We’ll email you when the ${escapeHtml(VA.name||'VA')} accepts or declines your application. Optional, but recommended.</p>
+                    <p class="text-xs faint mt-1.5">We’ll email you when the ${escapeHtml(VA.name||'VA')} accepts or declines your application. Optional, but recommended.</p>` : ''}
                 </div>`;
                 setNav(true, "Continue");
                 const inp=document.getElementById('f_ifc');
@@ -385,7 +385,7 @@
             document.getElementById('mono').textContent=mono;
             if(VA.name){ document.getElementById('vaName').textContent=VA.name; document.title=`Join ${VA.name} — Crew Center`; }
             if(b.logo && isSafeImageUrl(b.logo)){ const el=document.getElementById('logo'); el.src=b.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
-            if(b.join){ CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] }; }
+            if(b.join){ CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[], emailEnabled:!!b.join.emailEnabled }; }
             DATA.prefix = CFG.callsignPrefix || VA.code || '';
             document.getElementById('joinSub').textContent = CFG.mode==='free' ? 'Instant access' : 'Applications reviewed by staff';
         }
