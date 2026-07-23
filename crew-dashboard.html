@@ -262,9 +262,10 @@
             <!-- Category tabs -->
             <div class="px-5 pt-4 sticky top-16 z-10" style="background:var(--surface);">
                 <div class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
-                    <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-sm font-semibold transition">Appearance</button>
-                    <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-sm font-semibold transition">Crew</button>
-                    <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-sm font-semibold transition">Data</button>
+                    <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
+                    <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
+                    <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
+                    <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
                 </div>
             </div>
             <div class="p-5">
@@ -349,9 +350,12 @@
                     </div>
                 </div>
 
-                <!-- Recruitment -->
+              </div><!-- /crew -->
+
+              <div data-panel="recruit" class="space-y-6 hidden">
+                <!-- Joining: how pilots apply -->
                 <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Recruitment</h3>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Joining</h3>
                     <div id="joinModeOpts" class="space-y-2.5"></div>
                     <div class="grid grid-cols-2 gap-2.5 mt-3">
                         <label class="text-xs muted">Min IF grade
@@ -382,31 +386,34 @@
                     </div>
                     <button onclick="saveRecruitment()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
                     <p id="recruitNote" class="hidden text-sm mt-2"></p>
+                </div>
 
-                    <div class="mt-4 pt-4 border-t hair-soft">
-                        <div class="text-sm font-semibold mb-1">Put it on your website</div>
-                        <p class="text-xs muted mb-2.5">Embed the join form on your own site (auto-resizes), or share the link.</p>
-                        <div class="flex gap-2">
-                            <button onclick="copyJoinEmbed()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="code-xml" class="w-4 h-4"></i> Copy embed code</button>
-                            <a id="joinLink" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open join page</a>
-                        </div>
-                        <p id="embedNote" class="hidden text-sm mt-2"></p>
+                <!-- Your join page: share / embed -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Your join page</h3>
+                    <p class="text-xs muted mb-2.5">Embed the join form on your own site (auto-resizes), or share the link.</p>
+                    <div class="flex gap-2">
+                        <button onclick="copyJoinEmbed()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="code-xml" class="w-4 h-4"></i> Copy embed code</button>
+                        <a id="joinLink" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open join page</a>
                     </div>
+                    <p id="embedNote" class="hidden text-sm mt-2"></p>
+                </div>
 
-                    <div class="mt-4 pt-4 border-t hair-soft">
-                        <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
-                            <span id="hookStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
-                        <p class="text-xs muted mb-2.5">Paste a Discord webhook and we’ll post new applications and every accept / decline decision (with your message) straight to your server.</p>
-                        <input id="hookUrl" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
-                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <div class="flex gap-2 mt-2">
-                            <button onclick="saveWebhook()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save</button>
-                            <button onclick="testWebhook()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Send test</button>
-                            <button onclick="clearWebhook()" title="Remove webhook" class="surface hair rounded-lg px-3 text-sm font-semibold muted hover:text-red-500 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                        </div>
-                        <p class="text-[11px] faint mt-2">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
-                        <p id="hookNote" class="hidden text-sm mt-2"></p>
+                <!-- Notifications: how you + applicants hear about decisions -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Notifications</h3>
+                    <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
+                        <span id="hookStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                    <p class="text-xs muted mb-2.5">Paste a Discord webhook and we’ll post new applications and every accept / decline decision (with your message) straight to your server.</p>
+                    <input id="hookUrl" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                        class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="saveWebhook()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                        <button onclick="testWebhook()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                        <button onclick="clearWebhook()" title="Remove webhook" class="surface hair rounded-lg px-3 text-sm font-semibold muted hover:text-red-500 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </div>
+                    <p class="text-[11px] faint mt-2">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
+                    <p id="hookNote" class="hidden text-sm mt-2"></p>
 
                     <div class="mt-4 pt-4 border-t hair-soft">
                         <div class="text-sm font-semibold mb-1 flex items-center gap-2">Email applicants
@@ -443,8 +450,7 @@
                         <p id="emailNote" class="hidden text-sm mt-2"></p>
                     </div>
                 </div>
-
-              </div><!-- /crew -->
+              </div><!-- /recruit -->
 
               <div data-panel="data" class="space-y-6 hidden">
                 <!-- Connect Supabase (owner / Inflight only) -->
