@@ -263,6 +263,14 @@
                     <div id="layoutOpts" class="space-y-2.5"></div>
                     <p id="layoutLocked" class="hidden text-xs muted mt-3"></p>
                 </div>
+
+                <!-- Login page look -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Login page look</h3>
+                    <div id="lookOpts" class="space-y-2.5"></div>
+                    <a id="lookPreview" target="_blank" rel="noopener" class="hidden items-center gap-1.5 text-xs accent-text font-semibold mt-3 inline-flex">Preview login <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
+                    <p id="lookNote" class="hidden text-sm mt-2"></p>
+                </div>
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Appearance</h3>
                     <button onclick="toggleTheme()" class="w-full flex items-center justify-between surface hair rounded-lg px-4 py-3 hover:border-[var(--ink)] transition">
@@ -486,6 +494,40 @@
             note.classList.remove('hidden');
         }
 
+        // ---- Login page look (owner picks; the login reads it from by-slug) ----
+        let LOGIN_LOOK='center';
+        const LOGIN_LOOKS=['center','split'];
+        const LOOK_META={ center:{name:'Centered',desc:'Branded modal over the banner'}, split:{name:'Split screen',desc:'Editorial brand panel + sign-in'} };
+        function renderLookOpts(){
+            const host=document.getElementById('lookOpts');
+            host.innerHTML=LOGIN_LOOKS.map(k=>{
+                const m=LOOK_META[k]; const on=k===LOGIN_LOOK;
+                return `<button role="radio" aria-checked="${on}" data-look="${k}" class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span class="min-w-0"><span class="block text-sm font-semibold">${escapeHtml(m.name)}</span><span class="block text-xs muted">${escapeHtml(m.desc)}</span></span></button>`;
+            }).join('');
+            host.querySelectorAll('[data-look]').forEach(b=>b.addEventListener('click',()=>chooseLook(b.getAttribute('data-look'))));
+            updateLookPreview();
+            if(window.lucide) lucide.createIcons();
+        }
+        function updateLookPreview(){
+            const p=new URLSearchParams(location.search); p.set('look', LOGIN_LOOK);
+            const a=document.getElementById('lookPreview'); a.href='/crew?'+p.toString(); a.classList.remove('hidden');
+        }
+        async function chooseLook(k){
+            if(!LOGIN_LOOKS.includes(k)) return;
+            LOGIN_LOOK=k; renderLookOpts();
+            const note=document.getElementById('lookNote');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Preview it below. Sign in to save this for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({loginLook:k}) });
+                if(res.ok){ note.textContent='Saved — your login now uses this look.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
         // ---- Crew structure: ranks + roles (each with a badge) ----
         let RANKS=[], ROLES=[];
         const BADGE_ICONS=['star','award','medal','crown','shield','plane','gem','trophy','sparkles','chevrons-up','wings','badge-check'];
@@ -700,6 +742,7 @@
                 if(!ALLOWED.length) ALLOWED=['editorial'];
             }
             if(b.supabase) SUPA=b.supabase;
+            if(b.loginLook && LOGIN_LOOKS.includes(b.loginLook)) LOGIN_LOOK=b.loginLook;
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             const name=b.name||b.code||'';
@@ -745,6 +788,7 @@
             applyEmbeds();
             applyOwnerState();
             renderSwatches(); syncAccentPicker();
+            renderLookOpts();
             wireStructure(); renderStructure();
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
