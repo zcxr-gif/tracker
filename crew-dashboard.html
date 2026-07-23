@@ -343,8 +343,9 @@
                             <span class="text-sm font-semibold">Fleet</span>
                             <button onclick="addFleet()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
-                        <p class="text-xs muted mb-2">Aircraft your VA operates. Upload a livery image or leave it as a plane.</p>
+                        <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft &amp; livery from Infinite Flight so flights track correctly. Upload a livery image or leave it as a plane.</p>
                         <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
+                        <datalist id="acTypeList"></datalist>
                         <div id="fleetRows" class="space-y-2"></div>
                         <button onclick="saveStructure('fleet')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
                         <p id="fleetNote" class="hidden text-sm mt-2"></p>
@@ -595,6 +596,35 @@
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
+        // Canonical Infinite Flight aircraft + liveries (from the ACARS API, via
+        // the crew backend). The fleet editor offers these so a VA's fleet uses the
+        // exact names the tracker matches live flights against. Empty until loaded;
+        // the editor falls back to free text so it never blocks on this.
+        let AC_LIST=[], LIV_MAP={}, FLEET_META_STATE='idle'; // idle | loading | ready | error
+        async function loadFleetMeta(force){
+            if(FLEET_META_STATE==='loading') return;
+            if(FLEET_META_STATE==='ready' && !force) return;
+            FLEET_META_STATE='loading';
+            try{
+                const r=await fetch(`${BACKEND}/api/crew/aircraft-metadata`);
+                const d=await r.json().catch(()=>({}));
+                if(d && d.ok){
+                    AC_LIST=Array.isArray(d.aircraft)?d.aircraft:[];
+                    LIV_MAP=(d.liveries && typeof d.liveries==='object')?d.liveries:{};
+                    FLEET_META_STATE='ready';
+                    syncFleetMetaDom();
+                } else { FLEET_META_STATE='error'; }
+            }catch{ FLEET_META_STATE='error'; }
+        }
+        // Populate the shared aircraft datalist and refresh any open fleet rows so
+        // their livery suggestions reflect the loaded catalogue.
+        function syncFleetMetaDom(){
+            const dl=document.getElementById('acTypeList');
+            if(dl) dl.innerHTML=AC_LIST.map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            if(document.getElementById('fleetRows')) renderStructure();
+        }
+        // Liveries offered for a given aircraft type (empty array if unknown).
+        function liveriesFor(type){ const k=String(type||'').trim(); return (k && LIV_MAP[k]) ? LIV_MAP[k] : []; }
         let SUPA={connected:false,url:'',anonKey:''}, IS_OWNER=false;
         // Staff permissions: the caller's effective caps, the catalog, and (owner
         // only) the editable role + assignment config.
@@ -832,10 +862,35 @@
             const img=(f.image && isSafeImageUrl(f.image))
                 ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
                 : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
+            const livList = liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
             return `<div class="flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
-                <input data-f="type" value="${escapeHtml(f.type||'')}" placeholder="A320" class="w-20 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <input data-f="name" value="${escapeHtml(f.name||'')}" placeholder="Livery / name (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="type" list="acTypeList" value="${escapeHtml(f.type||'')}" placeholder="Aircraft (e.g. Airbus A320)" class="w-40 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="Livery (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <datalist id="livList-${i}">${livList}</datalist>
+                <span data-fleetwarn class="shrink-0 text-amber-500">${fleetWarnHtml(f)}</span>
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+        }
+        // Warn about a fleet entry that won't match the live API, so the VA can fix
+        // it before it silently breaks tracking. Judged only once the catalogue is
+        // loaded (unknown liveries for a valid type aren't flagged — IF adds them).
+        function fleetWarnHtml(f){
+            if(FLEET_META_STATE!=='ready' || !AC_LIST.length) return '';
+            const livOptions = liveriesFor(f.type);
+            const typeBad = f.type && !AC_LIST.includes(f.type);
+            const livBad  = f.name && livOptions.length>0 && !livOptions.includes(f.name);
+            if(!typeBad && !livBad) return '';
+            const msg = typeBad ? "Aircraft isn't an exact Infinite Flight match — flights may not track."
+                                : "Livery isn't an exact Infinite Flight match — flights may not track.";
+            return `<i data-lucide="alert-triangle" class="w-4 h-4" title="${msg}"></i>`;
+        }
+        // Refresh a fleet row's livery suggestions + warning in place (no re-render,
+        // so the field the VA is typing in keeps focus).
+        function refreshFleetRow(row){
+            const idx=+row.getAttribute('data-idx'); const f=FLEET[idx]; if(!f) return;
+            const dl=document.getElementById('livList-'+idx);
+            if(dl) dl.innerHTML=liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            const w=row.querySelector('[data-fleetwarn]');
+            if(w){ w.innerHTML=fleetWarnHtml(f); if(window.lucide) lucide.createIcons(); }
         }
         function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); }
         function renderBadgePreview(){
@@ -879,6 +934,9 @@
                     const arr=arrForKind(row.getAttribute('data-kind'));
                     const idx=+row.getAttribute('data-idx'); const f=e.target.getAttribute('data-f'); if(!f||f==='imagefile') return;
                     arr[idx][f] = f==='staff'? e.target.checked : (f==='minHours'? (Number(e.target.value)||0) : e.target.value);
+                    // Fleet rows: keep the livery suggestions + match warning in sync
+                    // with the aircraft the VA just picked, without a focus-losing re-render.
+                    if(row.getAttribute('data-kind')==='fleet') refreshFleetRow(row);
                     renderBadgePreview();
                 });
                 host.addEventListener('click', e=>{
@@ -1768,7 +1826,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             applyOwnerState();
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
-            wireStructure(); renderStructure();
+            wireStructure(); renderStructure(); loadFleetMeta();
             renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
             wireTeam(); applyCapState();     // render team editors + gate tabs by caps
             const emP=document.getElementById('emProvider'); if(emP) emP.addEventListener('change', emToggleFields);
