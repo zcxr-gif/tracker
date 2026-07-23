@@ -265,6 +265,7 @@
                     <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
                     <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
                     <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
+                    <button id="teamTab" data-cat="team" onclick="setCat('team')" class="settings-tab hidden flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Team</button>
                     <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
                 </div>
             </div>
@@ -452,6 +453,31 @@
                 </div>
               </div><!-- /recruit -->
 
+              <div data-panel="team" class="space-y-6 hidden">
+                <!-- Staff roles: owner names them and picks what they can do -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
+                        <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
+                    </div>
+                    <p class="text-xs muted mb-3">Name a role and tick exactly what it can do. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
+                    <div id="staffRoleRows" class="space-y-3"></div>
+                </div>
+
+                <!-- Assign staff accounts to a role -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint">Assign staff</h3>
+                        <button onclick="addAssignment()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                    </div>
+                    <p class="text-xs muted mb-3">Match a staff member’s <b>login username</b> to a role. Anyone not listed here keeps full access.</p>
+                    <div id="assignRows" class="space-y-2"></div>
+                </div>
+
+                <button onclick="saveTeam()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save team</button>
+                <p id="teamNote" class="hidden text-sm mt-2"></p>
+              </div><!-- /team -->
+
               <div data-panel="data" class="space-y-6 hidden">
                 <!-- Connect Supabase (owner / Inflight only) -->
                 <div id="dataSection">
@@ -538,6 +564,12 @@
         let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
         let SUPA={connected:false,url:'',anonKey:''}, IS_OWNER=false;
+        // Staff permissions: the caller's effective caps, the catalog, and (owner
+        // only) the editable role + assignment config.
+        let CAPS=new Set(), CAP_CATALOG=[], STAFF_ROLES=[], STAFF_ASSIGN=[], ME_LOADED=false;
+        // In preview (no session) show everything; owners have everything; else
+        // check the resolved capability set.
+        function can(cap){ return !sessionToken() || IS_OWNER || CAPS.has(cap); }
 
         const LAYOUT_META = {
             editorial: { name:'Editorial', desc:'Calm single-column flow' },
@@ -654,8 +686,12 @@
 
         // ---- Settings panel ----
         function setCat(cat){
-            const tab=document.querySelector(`.settings-tab[data-cat="${cat}"]`);
-            if(tab && tab.classList.contains('hidden')) cat='appearance'; // don't land on a hidden tab
+            let tab=document.querySelector(`.settings-tab[data-cat="${cat}"]`);
+            // Don't land on a hidden/absent tab — fall back to the first visible one.
+            if(!tab || tab.classList.contains('hidden')){
+                const first=document.querySelector('.settings-tab:not(.hidden)');
+                if(first) cat=first.getAttribute('data-cat');
+            }
             document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
             document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
         }
@@ -1061,7 +1097,7 @@
         }
         let ROSTER_CANMANAGE=false;
         function renderRoster(){
-            ROSTER_CANMANAGE = IS_OWNER;
+            ROSTER_CANMANAGE = can('roster.manage');
             document.getElementById('addPilotBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
             const list=document.getElementById('rosterList');
             document.getElementById('rosterCount').textContent = ROSTER.length?`· ${ROSTER.length}`:'';
@@ -1083,6 +1119,9 @@
         }
         function openRoster(){
             const r=document.getElementById('roster'); r.classList.remove('hidden');
+            // Only surface the Applications tab to those who can review them.
+            const appsTab=document.querySelector('#rosterViewTabs [data-view=\"apps\"]');
+            if(appsTab) appsTab.classList.toggle('hidden', !can('applications.review'));
             ROSTER_VIEW='roster';
             document.getElementById('rosterList').classList.remove('hidden');
             document.getElementById('appsList').classList.add('hidden');
@@ -1375,6 +1414,114 @@ create policy "crew read events" on public.events for select using (auth.role() 
                 ? '<span class="text-emerald-600 dark:text-emerald-400 font-semibold">● Connected</span>'
                 : '<span class="faint font-semibold">● Not connected</span>';
         }
+        // ---- Capabilities / staff permissions ----
+        async function loadMe(){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;   // preview: can() already returns true for everything
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(!res.ok) return;
+                const d=await res.json();
+                IS_OWNER = !!(d.role==='owner' || d.oversight);
+                CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
+                CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
+                STAFF_ROLES = Array.isArray(d.staffRoles)?d.staffRoles:[];
+                STAFF_ASSIGN = Array.isArray(d.staffAssignments)?d.staffAssignments:[];
+                ME_LOADED=true;
+            }catch{}
+        }
+        function applyCapState(){
+            // Gate settings tabs by what the caller can do (owner/preview see all).
+            const vis={ appearance:can('settings.branding'), crew:can('settings.branding'),
+                recruit:can('settings.recruitment')||can('settings.notifications'),
+                team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()) };
+            document.querySelectorAll('.settings-tab').forEach(t=>{
+                const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
+            });
+            // If the active tab got hidden, jump to the first visible one.
+            const active=document.querySelector('.settings-tab.active');
+            if(active && active.classList.contains('hidden')){
+                const first=document.querySelector('.settings-tab:not(.hidden)');
+                if(first) setCat(first.getAttribute('data-cat'));
+            }
+            if(ME_LOADED){ renderStaffRoles(); renderAssignments(); }
+        }
+
+        // Owner-only editors for staff roles + assignments.
+        function staffRoleRowHtml(r,i){
+            const groups={};
+            CAP_CATALOG.forEach(c=>{ (groups[c.group]=groups[c.group]||[]).push(c); });
+            const perms=new Set(r.permissions||[]);
+            const groupHtml=Object.entries(groups).map(([g,caps])=>`
+                <div class="mt-2">
+                    <div class="text-[11px] uppercase tracking-wide faint mb-1">${escapeHtml(g)}</div>
+                    ${caps.map(c=>`<label class="flex items-start gap-2 text-sm py-0.5 cursor-pointer">
+                        <input type="checkbox" data-perm="${escapeHtml(c.id)}" ${perms.has(c.id)?'checked':''} class="mt-0.5 accent-[var(--accent)]">
+                        <span>${escapeHtml(c.label)}</span></label>`).join('')}
+                </div>`).join('');
+            return `<div class="surface hair rounded-xl p-3.5" data-role="${i}">
+                <div class="flex items-center gap-2">
+                    <input type="color" data-rf="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair shrink-0 bg-transparent cursor-pointer" title="Role colour">
+                    <input data-rf="name" value="${escapeHtml(r.name||'')}" placeholder="Role name (e.g. Recruiter)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <button data-roledel title="Delete role" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                ${groupHtml}
+            </div>`;
+        }
+        function renderStaffRoles(){
+            const el=document.getElementById('staffRoleRows'); if(!el) return;
+            el.innerHTML = STAFF_ROLES.length ? STAFF_ROLES.map(staffRoleRowHtml).join('') : '<p class="text-sm faint">No custom roles yet. Add one to limit what a staff member can do.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        // Give new roles a stable, slug-safe id up front so assignments keep
+        // pointing at the right role even before the first save.
+        function addStaffRole(){ STAFF_ROLES.push({id:'role-'+Math.random().toString(36).slice(2,9),name:'',color:'#4f46e5',permissions:[]}); renderStaffRoles(); }
+        function roleOptionsHtml(sel){ return '<option value="">— role —</option>'+STAFF_ROLES.filter(r=>r.name&&r.id).map(r=>`<option value="${escapeHtml(r.id)}" ${sel===r.id?'selected':''}>${escapeHtml(r.name)}</option>`).join(''); }
+        function assignRowHtml(a,i){
+            return `<div class="flex items-center gap-2" data-asn="${i}">
+                <input data-af="username" value="${escapeHtml(a.username||'')}" placeholder="staff login username" autocapitalize="off" spellcheck="false" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <select data-af="roleId" class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${roleOptionsHtml(a.roleId)}</select>
+                <button data-asndel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderAssignments(){
+            const el=document.getElementById('assignRows'); if(!el) return;
+            el.innerHTML = STAFF_ASSIGN.length ? STAFF_ASSIGN.map(assignRowHtml).join('') : '<p class="text-sm faint">No assignments yet.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); }
+        function wireTeam(){
+            const rolesHost=document.getElementById('staffRoleRows');
+            if(rolesHost){
+                rolesHost.addEventListener('input', e=>{ const row=e.target.closest('[data-role]'); if(!row) return; const i=+row.getAttribute('data-role'); const f=e.target.getAttribute('data-rf'); if(f){ STAFF_ROLES[i][f]=e.target.value; } });
+                rolesHost.addEventListener('change', e=>{ const row=e.target.closest('[data-role]'); if(!row) return; const i=+row.getAttribute('data-role');
+                    const perm=e.target.getAttribute('data-perm');
+                    if(perm){ const set=new Set(STAFF_ROLES[i].permissions||[]); e.target.checked?set.add(perm):set.delete(perm); STAFF_ROLES[i].permissions=[...set]; } });
+                rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAssignments(); });
+            }
+            const asnHost=document.getElementById('assignRows');
+            if(asnHost){
+                asnHost.addEventListener('input', e=>{ const row=e.target.closest('[data-asn]'); if(!row) return; const i=+row.getAttribute('data-asn'); const f=e.target.getAttribute('data-af'); if(f) STAFF_ASSIGN[i][f]=e.target.value; });
+                asnHost.addEventListener('change', e=>{ const row=e.target.closest('[data-asn]'); if(!row) return; const i=+row.getAttribute('data-asn'); const f=e.target.getAttribute('data-af'); if(f) STAFF_ASSIGN[i][f]=e.target.value; });
+                asnHost.addEventListener('click', e=>{ const d=e.target.closest('[data-asndel]'); if(!d) return; STAFF_ASSIGN.splice(+d.closest('[data-asn]').getAttribute('data-asn'),1); renderAssignments(); });
+            }
+        }
+        async function saveTeam(){
+            const note=document.getElementById('teamNote');
+            const roles=STAFF_ROLES.map(r=>({ id:r.id, name:String(r.name||'').trim(), color:r.color||'', permissions:r.permissions||[] })).filter(r=>r.name);
+            const asn=STAFF_ASSIGN.map(a=>({ username:String(a.username||'').trim().toLowerCase(), roleId:a.roleId||'' })).filter(a=>a.username&&a.roleId);
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as owner to manage the team.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({ staffRoles:roles, staffAssignments:asn }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                STAFF_ROLES=Array.isArray(d.staffRoles)?d.staffRoles:roles; STAFF_ASSIGN=Array.isArray(d.staffAssignments)?d.staffAssignments:asn;
+                renderStaffRoles(); renderAssignments();
+                note.textContent='Team saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+        }
+
         function applyOwnerState(){
             const show = IS_OWNER || !sessionToken();   // owners in production; anyone in preview
             document.getElementById('dataTab').classList.toggle('hidden', !show);   // gate the Data tab
@@ -1484,11 +1631,13 @@ create policy "crew read events" on public.events for select using (auth.role() 
             applyBranding(b);
             applyLayout(resolveLayout(b));
             applyEmbeds();
+            await loadMe();                 // fresh capabilities + (owner) staff-role config
             applyOwnerState();
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure();
             renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
+            wireTeam(); applyCapState();     // render team editors + gate tabs by caps
             const emP=document.getElementById('emProvider'); if(emP) emP.addEventListener('change', emToggleFields);
             setCat('appearance');
             applyThemeIcon();
