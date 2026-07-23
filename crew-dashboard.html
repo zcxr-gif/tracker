@@ -392,6 +392,21 @@
                         </div>
                         <p id="embedNote" class="hidden text-sm mt-2"></p>
                     </div>
+
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
+                            <span id="hookStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                        <p class="text-xs muted mb-2.5">Paste a Discord webhook and we’ll post new applications and every accept / decline decision (with your message) straight to your server.</p>
+                        <input id="hookUrl" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <div class="flex gap-2 mt-2">
+                            <button onclick="saveWebhook()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                            <button onclick="testWebhook()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                            <button onclick="clearWebhook()" title="Remove webhook" class="surface hair rounded-lg px-3 text-sm font-semibold muted hover:text-red-500 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        </div>
+                        <p class="text-[11px] faint mt-2">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
+                        <p id="hookNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
 
               </div><!-- /crew -->
@@ -877,6 +892,33 @@
             catch{ note.textContent='Couldn’t copy automatically.'; note.className='text-sm muted'; }
             note.classList.remove('hidden');
         }
+        // ---- Discord webhook (recruitment notifications) ----
+        function setHookNote(msg, kind){ const n=document.getElementById('hookNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
+        function renderHookStatus(d){
+            const s=document.getElementById('hookStatus'); if(!s) return;
+            if(d && d.configured){ s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> connected</span>'; }
+            else { s.innerHTML='<span class="faint">not set</span>'; }
+            if(window.lucide) lucide.createIcons();
+        }
+        async function loadWebhook(){
+            const token=sessionToken(), slug=getSlug(); if(!slug||!token) return;
+            try{ const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(res.ok){ const d=await res.json(); renderHookStatus(d); const inp=document.getElementById('hookUrl'); if(inp&&d.configured&&d.hint) inp.placeholder=d.hint; } }catch{}
+        }
+        async function postWebhook(body, okMsg){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ setHookNote('Sign in as owner or staff to manage notifications.','muted'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ setHookNote(d.error||'Could not save.','err'); return; }
+                renderHookStatus(d); setHookNote(okMsg,'ok');
+            }catch{ setHookNote('Server unreachable. Try again.','err'); }
+        }
+        function saveWebhook(){ const v=document.getElementById('hookUrl').value.trim(); if(!v){ setHookNote('Paste a webhook URL first.','muted'); return; } postWebhook({webhookUrl:v}, 'Webhook saved — new activity will post to Discord.'); }
+        function testWebhook(){ const v=document.getElementById('hookUrl').value.trim(); postWebhook(v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check your Discord channel.'); }
+        function clearWebhook(){ document.getElementById('hookUrl').value=''; postWebhook({webhookUrl:''}, 'Webhook removed.'); }
+
         function wireRecruitment(){
             const host=document.getElementById('qRows');
             host.addEventListener('input', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(!f) return; JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
@@ -1326,7 +1368,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure();
-            renderRecruitment(); wireRecruitment(); wireRequirements();
+            renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook();
             setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
