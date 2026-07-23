@@ -9,6 +9,15 @@
     <script>tailwind.config = { darkMode: 'class' };</script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        /* Never let a field or a stray wide child scroll the whole page sideways. */
+        html,body{ max-width:100%; overflow-x:hidden; }
+        input,select,textarea{ max-width:100%; }
+        /* iOS Safari auto-zooms (and then side-scrolls the page) when a focused
+           field is under 16px. Force 16px on phones; larger screens keep their scale. */
+        @media (max-width:640px){
+            input:not([type=checkbox]):not([type=radio]):not([type=color]),
+            select,textarea{ font-size:16px !important; }
+        }
         :root{ --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4; --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#4f46e5; color-scheme: light dark; }
         .dark{ --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A; --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D; }
         *{ -webkit-tap-highlight-color: transparent; }
