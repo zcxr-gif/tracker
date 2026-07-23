@@ -407,6 +407,41 @@
                         <p class="text-[11px] faint mt-2">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
                         <p id="hookNote" class="hidden text-sm mt-2"></p>
                     </div>
+
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2">Email applicants
+                            <span id="emailStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                        <p id="emailIntro" class="text-xs muted mb-2.5">Bring your own email provider so decision emails come from your domain and your account. Leave the provider on “Inflight (default)” to use ours.</p>
+                        <label class="text-xs muted">Provider
+                            <select id="emProvider" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                <option value="">Inflight (default)</option>
+                                <option value="resend">Resend</option>
+                                <option value="sendgrid">SendGrid</option>
+                                <option value="postmark">Postmark</option>
+                                <option value="mailgun">Mailgun</option>
+                            </select>
+                        </label>
+                        <div id="emFields" class="space-y-2.5 mt-2.5 hidden">
+                            <input id="emFrom" type="text" placeholder='From — e.g. Air Canada Virtual &lt;crew@yourdomain.com&gt;' autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <input id="emReply" type="email" placeholder="Reply-to (optional)" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <input id="emKey" type="password" placeholder="API key / server token" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <div id="emMailgun" class="grid grid-cols-2 gap-2.5 hidden">
+                                <input id="emDomain" type="text" placeholder="Mailgun domain (mg.yourdomain.com)" autocomplete="off" spellcheck="false"
+                                    class="surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <select id="emRegion" class="surface hair rounded-lg px-2.5 py-2 text-sm text-[var(--ink)]"><option value="us">US region</option><option value="eu">EU region</option></select>
+                            </div>
+                            <input id="emTestTo" type="email" placeholder="Send a test to… (your email)" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        </div>
+                        <div class="flex gap-2 mt-2.5">
+                            <button onclick="saveEmail()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                            <button onclick="testEmail()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                        </div>
+                        <p id="emailNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
 
               </div><!-- /crew -->
@@ -919,6 +954,60 @@
         function testWebhook(){ const v=document.getElementById('hookUrl').value.trim(); postWebhook(v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check your Discord channel.'); }
         function clearWebhook(){ document.getElementById('hookUrl').value=''; postWebhook({webhookUrl:''}, 'Webhook removed.'); }
 
+        // ---- Email provider (bring-your-own) ----
+        let EMAIL_PLATFORM=false;
+        function setEmailNote(msg, kind){ const n=document.getElementById('emailNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
+        function emToggleFields(){
+            const prov=document.getElementById('emProvider').value;
+            document.getElementById('emFields').classList.toggle('hidden', !prov);
+            document.getElementById('emMailgun').classList.toggle('hidden', prov!=='mailgun');
+        }
+        function renderEmailStatus(d){
+            EMAIL_PLATFORM = !!(d && d.platformFallback);
+            const s=document.getElementById('emailStatus'); if(s){
+                if(d && d.configured) s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> your provider</span>';
+                else if(EMAIL_PLATFORM) s.innerHTML='<span class="faint">using Inflight default</span>';
+                else s.innerHTML='<span class="faint">not sending yet</span>';
+                if(window.lucide) lucide.createIcons();
+            }
+            const intro=document.getElementById('emailIntro');
+            if(intro && !EMAIL_PLATFORM && !(d&&d.configured)) intro.innerHTML='Bring your own email provider so decision emails come from your domain. <b>No provider is set yet, so applicant emails are currently off</b> until you add one.';
+        }
+        function fillEmail(d){
+            if(!d) return;
+            document.getElementById('emProvider').value=d.provider||'';
+            document.getElementById('emFrom').value=d.from||'';
+            document.getElementById('emReply').value=d.replyTo||'';
+            document.getElementById('emDomain').value=d.domain||'';
+            document.getElementById('emRegion').value=d.region||'us';
+            if(d.keyHint) document.getElementById('emKey').placeholder=d.keyHint+' (leave blank to keep)';
+            emToggleFields(); renderEmailStatus(d);
+        }
+        async function loadEmailCfg(){
+            const token=sessionToken(), slug=getSlug(); if(!slug||!token) return;
+            try{ const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/email`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(res.ok) fillEmail(await res.json()); }catch{}
+        }
+        function emailPayload(extra){
+            const prov=document.getElementById('emProvider').value;
+            const p={ provider:prov, from:document.getElementById('emFrom').value.trim(), replyTo:document.getElementById('emReply').value.trim(),
+                domain:document.getElementById('emDomain').value.trim(), region:document.getElementById('emRegion').value };
+            const key=document.getElementById('emKey').value.trim(); if(key) p.apiKey=key;
+            return Object.assign(p, extra||{});
+        }
+        async function postEmail(body, okMsg){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ setEmailNote('Sign in as owner or staff to manage email.','muted'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/email`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ setEmailNote(d.error||'Could not save.','err'); return; }
+                fillEmail(d); document.getElementById('emKey').value=''; setEmailNote(okMsg,'ok');
+            }catch{ setEmailNote('Server unreachable. Try again.','err'); }
+        }
+        function saveEmail(){ postEmail(emailPayload(), document.getElementById('emProvider').value?'Email provider saved.':'Reverted to the Inflight default.'); }
+        function testEmail(){ const to=document.getElementById('emTestTo').value.trim(); postEmail(emailPayload({test:true, testTo:to}), 'Test sent — check that inbox.'); }
+
         function wireRecruitment(){
             const host=document.getElementById('qRows');
             host.addEventListener('input', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(!f) return; JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
@@ -1369,7 +1458,8 @@ create policy "crew read events" on public.events for select using (auth.role() 
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure();
-            renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook();
+            renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
+            const emP=document.getElementById('emProvider'); if(emP) emP.addEventListener('change', emToggleFields);
             setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
