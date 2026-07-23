@@ -141,6 +141,16 @@
     </header>
 
     <main class="max-w-6xl mx-auto px-5 py-6">
+        <!-- Owner onboarding nudge — shown until the VA connects Supabase. -->
+        <div id="onboard" class="hidden mb-4 flex items-center gap-3 rounded-xl border hair p-4" style="background:color-mix(in srgb, var(--accent) 7%, var(--surface));">
+            <span class="w-9 h-9 rounded-lg accent-bg text-white grid place-items-center shrink-0"><i data-lucide="database" class="w-5 h-5"></i></span>
+            <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold">Finish setting up your crew center</div>
+                <div class="text-xs muted">Connect your VA’s own Supabase so your crew, flights and events have a home.</div>
+            </div>
+            <button onclick="openSettings()" class="accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition shrink-0">Connect data</button>
+        </div>
+
         <div id="grid" class="crew-grid fade-in">
 
             <!-- IDENTITY -->
@@ -248,6 +258,27 @@
                         <span id="themeLabel" class="text-sm muted">System</span>
                     </button>
                 </div>
+
+                <!-- Connect Supabase (owner / Inflight only) -->
+                <div id="dataSection" class="hidden">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2 flex items-center gap-2">Your data · Supabase
+                        <span id="supaStatus" class="normal-case tracking-normal"></span></h3>
+                    <p class="text-xs muted mb-3">Connect your VA’s own Supabase project. Your crew data lives there and stays yours; Inflight keeps an owner-level key to help run it.</p>
+                    <div class="space-y-2.5">
+                        <input id="supaUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <input id="supaAnon" type="text" placeholder="anon public key (eyJ…)" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <input id="supaService" type="password" placeholder="service_role key — optional, secret" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <div class="flex gap-2">
+                            <button onclick="testSupabase()" class="flex-1 surface hair rounded-lg py-2.5 text-sm font-semibold hover:border-[var(--ink)] transition">Test</button>
+                            <button onclick="saveSupabase()" class="flex-1 accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                        </div>
+                        <p id="supaNote" class="hidden text-sm"></p>
+                    </div>
+                </div>
+
                 <p id="settingsNote" class="hidden text-sm"></p>
             </div>
         </div>
@@ -256,6 +287,7 @@
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
+        let SUPA={connected:false,url:'',anonKey:''}, IS_OWNER=false;
 
         const LAYOUT_META = {
             editorial: { name:'Editorial', desc:'Calm single-column flow' },
@@ -399,6 +431,58 @@
             note.classList.remove('hidden');
         }
 
+        // ---- Onboarding / Supabase (owner) ----
+        function supaMsg(msg,kind){
+            const n=document.getElementById('supaNote');
+            n.textContent=msg;
+            n.className='text-sm '+({ok:'text-emerald-600 dark:text-emerald-400',error:'text-red-500',warn:'text-amber-600 dark:text-amber-400'}[kind]||'muted');
+            n.classList.remove('hidden');
+        }
+        function updateSupaStatus(){
+            document.getElementById('supaStatus').innerHTML = SUPA.connected
+                ? '<span class="text-emerald-600 dark:text-emerald-400 font-semibold">● Connected</span>'
+                : '<span class="faint font-semibold">● Not connected</span>';
+        }
+        function applyOwnerState(){
+            const show = IS_OWNER || !sessionToken();   // owners in production; anyone in preview
+            document.getElementById('dataSection').classList.toggle('hidden', !show);
+            if(SUPA.url) document.getElementById('supaUrl').value=SUPA.url;
+            if(SUPA.anonKey) document.getElementById('supaAnon').value=SUPA.anonKey;
+            updateSupaStatus();
+            document.getElementById('onboard').classList.toggle('hidden', !(show && !SUPA.connected));
+        }
+        async function testSupabase(){
+            const url=document.getElementById('supaUrl').value.trim().replace(/\/+$/,'');
+            const key=document.getElementById('supaAnon').value.trim();
+            if(!url||!key){ supaMsg('Enter your project URL and anon key first.','warn'); return; }
+            supaMsg('Testing…','muted');
+            try{
+                const res=await fetch(url+'/auth/v1/health',{ headers:{ apikey:key } });
+                if(res.ok) supaMsg('Reachable — your Supabase project responded.','ok');
+                else supaMsg('Reached the URL but it returned '+res.status+'. Double-check the anon key.','warn');
+            }catch{ supaMsg('Couldn’t reach that URL. Check the project URL.','error'); }
+        }
+        async function saveSupabase(){
+            const url=document.getElementById('supaUrl').value.trim();
+            const anonKey=document.getElementById('supaAnon').value.trim();
+            const serviceKey=document.getElementById('supaService').value.trim();
+            const token=sessionToken(), slug=getSlug();
+            if(!slug || !token){ supaMsg('Sign in as the VA owner to save this connection.','warn'); return; }
+            supaMsg('Saving…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/supabase`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ url, anonKey, serviceKey }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ supaMsg(d.error||'Could not save.','error'); return; }
+                SUPA={connected:!!d.connected,url:d.url||'',anonKey:d.anonKey||''};
+                document.getElementById('supaService').value='';   // never keep the secret in the field
+                updateSupaStatus();
+                document.getElementById('onboard').classList.toggle('hidden', SUPA.connected);
+                supaMsg(SUPA.connected?'Connected — your crew center is linked to your Supabase.':'Saved.','ok');
+            }catch{ supaMsg('Server unreachable. Please try again.','error'); }
+        }
+
         // ---- Branding ----
         async function resolveBranding(){
             const q=new URLSearchParams(location.search);
@@ -418,6 +502,7 @@
                 ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
                 if(!ALLOWED.length) ALLOWED=['editorial'];
             }
+            if(b.supabase) SUPA=b.supabase;
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             if(name){
@@ -443,6 +528,7 @@
         const ROLE_LABEL={owner:'Owner',staff:'Staff',pilot:'Pilot',inflight:'Inflight'};
         function readSession(){
             let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
+            IS_OWNER = !!(s && (s.role==='owner' || s.oversight));
             if(!s||!s.name) return;
             document.getElementById('meName').textContent=s.name;
             document.getElementById('meRole').textContent=s.oversight?'Inflight · Oversight':(ROLE_LABEL[s.role]||'Member');
@@ -458,6 +544,7 @@
             applyBranding(b);
             applyLayout(resolveLayout(b));
             applyEmbeds();
+            applyOwnerState();
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();
