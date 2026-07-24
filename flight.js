@@ -6104,6 +6104,47 @@ function injectCustomStyles() {
 }
 .pilot-routes-clear:hover { border-color: #38bdf8; color: #fff; }
 
+/* Route-mode control bar (hide aircraft, 3D, clear) */
+.pilot-routes-bar {
+    position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+    z-index: 40; display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px 7px 14px; border-radius: 999px;
+    border: 1px solid rgba(56,189,248,0.4);
+    background: rgba(8,15,24,0.92); backdrop-filter: blur(8px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4); max-width: 94vw; flex-wrap: wrap; justify-content: center;
+}
+.pilot-routes-bar .prb-title { color: #e0f2fe; font-weight: 700; font-size: 0.8rem; white-space: nowrap; }
+.pilot-routes-bar .prb-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06);
+    color: #cbd5e1; font-weight: 700; font-size: 0.76rem; white-space: nowrap;
+}
+.pilot-routes-bar .prb-btn:hover { color: #fff; border-color: rgba(56,189,248,0.6); }
+.pilot-routes-bar .prb-btn.on { background: #38bdf8; color: #08131c; border-color: #38bdf8; }
+.pilot-routes-bar .prb-close { padding: 7px 10px; }
+
+/* Per-airport history card */
+.pilot-airport-card {
+    position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%);
+    z-index: 41; width: min(420px, 92vw);
+    border-radius: 16px; border: 1px solid rgba(56,189,248,0.3);
+    background: rgba(10,15,22,0.96); backdrop-filter: blur(10px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 16px 16px 14px; color: #fff;
+}
+.pac-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+.pac-icao { display: block; font-size: 1.3rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; }
+.pac-name { display: block; font-size: 0.78rem; color: #94a3b8; margin-top: 2px; }
+.pac-close { background: none; border: none; color: #94a3b8; font-size: 1.05rem; cursor: pointer; }
+.pac-close:hover { color: #fff; }
+.pac-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pac-tile { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,0.05); border-radius: 12px; padding: 11px 12px; }
+.pac-val { font-size: 1.05rem; font-weight: 800; color: #fff; }
+.pac-lbl { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
+.pac-fav { margin-top: 12px; font-size: 0.78rem; color: #94a3b8; }
+.pac-fav strong { color: #e0f2fe; }
+@media (max-width: 480px) { .pac-grid { grid-template-columns: repeat(2, 1fr); } }
+
 /* --- CONTROLLER SPICE THEMES --- */
 
 /* Specialist (Blue Glow) */
@@ -22276,6 +22317,15 @@ function renderPilotStatsHTML(stats, username) {
         return segs;
     }
 
+    let _pilotRoutesState = null; // { username, flights, aircraftHidden }
+
+    function _setAircraftLayersVisible(visible) {
+        if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+        ['sector-ops-live-flights-layer', 'sector-ops-live-flights-natural-layer', 'sector-ops-live-flights-hover-layer'].forEach(id => {
+            try { if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); } catch (_) {}
+        });
+    }
+
     function clearPilotRoutesOnMap() {
         try {
             if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap) {
@@ -22284,9 +22334,34 @@ function renderPilotStatsHTML(stats, username) {
                 if (sectorOpsMap.getSource('pilot-routes-air-src')) sectorOpsMap.removeSource('pilot-routes-air-src');
             }
         } catch (_) {}
-        document.getElementById('pilot-routes-clear')?.remove();
+        _setAircraftLayersVisible(true); // restore aircraft
+        document.getElementById('pilot-routes-bar')?.remove();
+        document.getElementById('pilot-airport-card')?.remove();
+        _pilotRoutesState = null;
     }
     window.clearPilotRoutesOnMap = clearPilotRoutesOnMap;
+
+    // Rough fuel burn (kg/hr) by aircraft name — mirrors the profile ledger.
+    function _pilotFuelBurn(name) {
+        const n = String(name || '').toLowerCase(); const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380')) return 11500; if (has('747')) return 10500; if (has('777')) return 7400;
+        if (has('a350')) return 5900; if (has('a340')) return 6800; if (has('787', 'dreamliner')) return 5300;
+        if (has('a330')) return 5700; if (has('767')) return 4600; if (has('757')) return 3600;
+        if (has('737', 'max')) return 2500; if (has('a320', 'a321', 'a319', 'a318')) return 2400;
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'embraer', 'q400', 'dash')) return 1700;
+        if (has('tbm', 'caravan', 'king air')) return 220;
+        if (has('c172', 'cub', 'sr22', 'da40', 'da62', 'spitfire')) return 40;
+        return 2200;
+    }
+    function _aircraftSizeClass(name) {
+        const n = String(name || '').toLowerCase(); const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380', '747')) return 'Heavies';
+        if (has('777', 'a350', 'a340', 'a330', '787', '767', 'md-11', 'dc-10')) return 'Widebodies';
+        if (has('737', 'a320', 'a321', 'a319', 'a318', '757', 'max')) return 'Narrowbodies';
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'embraer', 'q400', 'dash', 'atr')) return 'Regional jets';
+        if (has('c172', 'cub', 'sr22', 'da40', 'da62', 'tbm', 'caravan', 'king air')) return 'Small / GA';
+        return 'Mixed fleet';
+    }
 
     // Pro-only: draw a pilot's entire flown route network on the live map as
     // great-circle arcs, with a dot at every airport. Coords come from the
@@ -22335,13 +22410,24 @@ function renderPilotStatsHTML(stats, username) {
                 });
                 airportMap.set(leg.dep, leg.a); airportMap.set(leg.arr, leg.b);
             });
-            const airportFeatures = [...airportMap.values()].map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c } }));
+            const airportFeatures = [...airportMap.entries()].map(([icao, c]) => ({ type: 'Feature', properties: { icao }, geometry: { type: 'Point', coordinates: c } }));
+
+            await _ensurePilotAcMeta();
 
             clearPilotRoutesOnMap();
+            _pilotRoutesState = { username, flights };
             sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
             sectorOpsMap.addLayer({ id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
             sectorOpsMap.addSource('pilot-routes-air-src', { type: 'geojson', data: { type: 'FeatureCollection', features: airportFeatures } });
-            sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 4, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
+            sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
+
+            // Tap an airport node → per-airport history card.
+            sectorOpsMap.on('click', 'pilot-routes-airports', (e) => {
+                const icao = e.features && e.features[0] && e.features[0].properties && e.features[0].properties.icao;
+                if (icao) _showAirportHistoryCard(icao);
+            });
+            sectorOpsMap.on('mouseenter', 'pilot-routes-airports', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
+            sectorOpsMap.on('mouseleave', 'pilot-routes-airports', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
 
             try {
                 const bounds = new mapboxgl.LngLatBounds();
@@ -22349,22 +22435,140 @@ function renderPilotStatsHTML(stats, username) {
                 sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5 });
             } catch (_) {}
 
-            const wrap = document.getElementById('sector-ops-map-fullscreen');
-            if (wrap && !document.getElementById('pilot-routes-clear')) {
-                const chip = document.createElement('button');
-                chip.id = 'pilot-routes-clear';
-                chip.className = 'pilot-routes-clear';
-                chip.innerHTML = `<i class="fa-solid fa-xmark"></i> ${username} · ${legs.length} routes`;
-                chip.addEventListener('click', clearPilotRoutesOnMap);
-                wrap.appendChild(chip);
-            }
-            if (typeof showNotification === 'function') showNotification(`Mapped ${legs.length} routes.`, 'success');
+            _buildRoutesControlBar(username, legs.length);
+            if (typeof showNotification === 'function') showNotification(`Mapped ${legs.length} routes — tap an airport for its history.`, 'success');
         } catch (err) {
             console.error('pilot routes error', err);
             if (typeof showNotification === 'function') showNotification("Couldn't map this pilot's routes.", 'error');
         }
     }
     window.showPilotRoutesOnMap = showPilotRoutesOnMap;
+
+    // Aircraft-type metadata (UUID → name), fetched once for route/airport stats.
+    let _pilotAcMeta = null;
+    async function _ensurePilotAcMeta() {
+        if (_pilotAcMeta) return _pilotAcMeta;
+        try {
+            const metaBase = ACARS_USER_API_URL.replace('/users', '/api');
+            const meta = await fetch(`${metaBase}/metadata`).then(r => r.json()).catch(() => null);
+            if (meta && meta.ok) {
+                _pilotAcMeta = {
+                    aircraft: new Map((meta.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name])),
+                    livery: new Map((meta.liveries || []).map(l => [String(l.id).toLowerCase(), { aircraftName: l.aircraftName }])),
+                };
+            } else _pilotAcMeta = { aircraft: new Map(), livery: new Map() };
+        } catch (_) { _pilotAcMeta = { aircraft: new Map(), livery: new Map() }; }
+        return _pilotAcMeta;
+    }
+    function _resolvePilotAcName(aId, lId) {
+        if (!_pilotAcMeta) return 'Unknown';
+        const lk = lId && _pilotAcMeta.livery.get(String(lId).toLowerCase());
+        if (lk && lk.aircraftName) return lk.aircraftName;
+        const ak = aId && _pilotAcMeta.aircraft.get(String(aId).toLowerCase());
+        return ak || 'Unknown';
+    }
+
+    // The floating control bar shown while a pilot's routes are on the map:
+    // hide aircraft, toggle a 3D tilt, and clear.
+    function _buildRoutesControlBar(username, count) {
+        const wrap = document.getElementById('sector-ops-map-fullscreen');
+        if (!wrap) return;
+        document.getElementById('pilot-routes-bar')?.remove();
+        const bar = document.createElement('div');
+        bar.id = 'pilot-routes-bar';
+        bar.className = 'pilot-routes-bar';
+        bar.innerHTML = `
+            <span class="prb-title"><i class="fa-solid fa-route"></i> ${username} · ${count} routes</span>
+            <button type="button" class="prb-btn" data-act="hide-ac"><i class="fa-solid fa-eye-slash"></i> Hide aircraft</button>
+            <button type="button" class="prb-btn" data-act="tilt"><i class="fa-solid fa-cube"></i> 3D</button>
+            <button type="button" class="prb-btn prb-close" data-act="clear"><i class="fa-solid fa-xmark"></i></button>`;
+        wrap.appendChild(bar);
+
+        bar.querySelector('[data-act="clear"]').addEventListener('click', clearPilotRoutesOnMap);
+        bar.querySelector('[data-act="hide-ac"]').addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const hiding = !btn.classList.contains('on');
+            _setAircraftLayersVisible(!hiding);
+            btn.classList.toggle('on', hiding);
+            btn.innerHTML = hiding ? '<i class="fa-solid fa-eye"></i> Show aircraft' : '<i class="fa-solid fa-eye-slash"></i> Hide aircraft';
+        });
+        bar.querySelector('[data-act="tilt"]').addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const on = !btn.classList.contains('on');
+            try {
+                if (typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
+                sectorOpsMap.easeTo({ pitch: on ? 55 : 0, duration: 700 });
+            } catch (_) {}
+            btn.classList.toggle('on', on);
+        });
+    }
+
+    // Per-airport history card: how often the pilot's been there, landings,
+    // fuel & time, and their haul / aircraft-size preference for legs touching
+    // this airport — all from the already-fetched logbook.
+    function _showAirportHistoryCard(icao) {
+        const st = _pilotRoutesState;
+        if (!st) return;
+        icao = String(icao).toUpperCase();
+        const A = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[icao] : null;
+
+        let visits = 0, landings = 0, timeMin = 0, fuelKg = 0;
+        const hauls = { short: 0, medium: 0, long: 0 };
+        const sizes = {}; const acCount = {};
+        for (const f of st.flights) {
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+            if (dep !== icao && arr !== icao) continue;
+            visits++;
+            const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+            timeMin += min;
+            const name = _resolvePilotAcName(f.aircraftId || f.aircraftID, f.liveryId || f.liveryID);
+            fuelKg += (min / 60) * _pilotFuelBurn(name);
+            if (arr === icao) landings += (f.landingCount || 0);
+            const oc = airportsData[dep], dc = airportsData[arr];
+            if (oc && dc && typeof oc.lat === 'number' && typeof dc.lat === 'number') {
+                const nm = getDistanceKm(oc.lat, oc.lon, dc.lat, dc.lon) * 0.539957;
+                if (nm > 0) { if (nm < 1000) hauls.short++; else if (nm < 3000) hauls.medium++; else hauls.long++; }
+            }
+            const sz = _aircraftSizeClass(name); sizes[sz] = (sizes[sz] || 0) + 1;
+            if (name && name !== 'Unknown') acCount[name] = (acCount[name] || 0) + 1;
+        }
+
+        const haulTop = Object.entries(hauls).sort((a, b) => b[1] - a[1])[0];
+        const haulLabel = haulTop && haulTop[1] > 0 ? ({ short: 'Short hauls', medium: 'Medium hauls', long: 'Long hauls' })[haulTop[0]] : '—';
+        const sizeTop = Object.entries(sizes).sort((a, b) => b[1] - a[1])[0];
+        const sizePref = sizeTop ? sizeTop[0] : '—';
+        const acTop = Object.entries(acCount).sort((a, b) => b[1] - a[1])[0];
+        const topAc = acTop ? acTop[0] : '—';
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const nf = (n) => Math.round(n).toLocaleString();
+        const name = A && A.name ? A.name : icao;
+
+        document.getElementById('pilot-airport-card')?.remove();
+        const wrap = document.getElementById('sector-ops-map-fullscreen');
+        if (!wrap) return;
+        const card = document.createElement('div');
+        card.id = 'pilot-airport-card';
+        card.className = 'pilot-airport-card';
+        const tile = (label, value) => `<div class="pac-tile"><span class="pac-val">${value}</span><span class="pac-lbl">${label}</span></div>`;
+        card.innerHTML = `
+            <div class="pac-head">
+                <div><span class="pac-icao">${esc(icao)}</span><span class="pac-name">${esc(name)}</span></div>
+                <button type="button" class="pac-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="pac-grid">
+                ${tile('Visits', nf(visits))}
+                ${tile('Landings', nf(landings))}
+                ${tile('Time', nf(timeMin / 60) + 'h')}
+                ${tile('Est. fuel', nf(fuelKg / 1000) + 't')}
+                ${tile('Prefers', esc(haulLabel))}
+                ${tile('Usually flies', esc(sizePref))}
+            </div>
+            ${topAc !== '—' ? `<div class="pac-fav">Most flown here · <strong>${esc(topAc)}</strong></div>` : ''}
+        `;
+        wrap.appendChild(card);
+        card.querySelector('.pac-close').addEventListener('click', () => card.remove());
+    }
 
 
 

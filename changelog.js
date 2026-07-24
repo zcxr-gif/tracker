@@ -55,7 +55,7 @@
                 },
                 {
                     tag: 'new', icon: 'fa-route',
-                    text: 'Map any pilot’s routes — tap a flight’s pilot report and, as a Pro pilot, see their expanded career (flights made, airports visited, hours, landings, busiest route) and hit “Map their routes” to draw their entire flown network as great-circle arcs right on the live map.'
+                    text: 'Explore any pilot’s route network — tap a flight’s pilot report and, as a Pro pilot, hit “Map their routes” to draw their entire flown network as great-circle arcs on the 3D globe. Toggle a 3D tilt, hide all live aircraft, and tap any airport for its own history card: your visits, landings, hours and fuel there, plus whether you favour short/medium/long hauls and which aircraft you usually fly in.'
                 },
                 {
                     tag: 'improved', icon: 'fa-crown',
