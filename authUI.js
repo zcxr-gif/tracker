@@ -472,12 +472,73 @@ export const AuthUI = {
         }
     },
 
+    /**
+     * Create a free account and drop the pilot straight into the app — no
+     * email-confirmation detour. The privileged create runs in the
+     * signup-free Netlify function (service role, email pre-confirmed); we
+     * then sign in normally. If that function isn't configured/reachable we
+     * fall back to a direct Supabase sign-up so nothing breaks.
+     */
+    async _createFreeAccount(email, password, name) {
+        const enterApp = () => { this.close(); this.open(); };
+
+        // 1. Preferred path: server-side confirmed signup, then sign in.
+        try {
+            const res = await fetch('/.netlify/functions/signup-free', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, name }),
+            });
+
+            if (res.ok) {
+                const { error } = await this._supabase.auth.signInWithPassword({ email, password });
+                if (error) { this.showError(error.message); return; }
+                enterApp();
+                return;
+            }
+
+            // 409 = already registered, 400 = validation — surface these directly.
+            if (res.status === 409 || res.status === 400) {
+                const { error } = await res.json().catch(() => ({}));
+                this.showError(error || 'Could not create your account.');
+                return;
+            }
+            // Anything else (incl. 501 not_configured) falls through to the
+            // direct sign-up path below.
+        } catch (_) {
+            // Network/function unavailable — fall through to the fallback.
+        }
+
+        // 2. Fallback: direct Supabase sign-up. If the project still has email
+        //    confirmation on, there's no session yet and we ask them to confirm.
+        try {
+            const { data, error } = await this._supabase.auth.signUp({
+                email,
+                password,
+                options: { data: { full_name: name, name, is_pro: false } },
+            });
+            if (error) { this.showError(error.message); return; }
+
+            if (!data.session) {
+                const successDiv = document.getElementById('auth-success-message');
+                if (successDiv) {
+                    successDiv.innerHTML = `<i class="fa-solid fa-envelope-circle-check" style="margin-bottom:8px;font-size:1.5rem;color:#16a34a;display:block;"></i>Account created! Check your email to confirm, then sign in.`;
+                    successDiv.style.display = 'block';
+                }
+                return;
+            }
+            enterApp();
+        } catch (err) {
+            this.showError(err.message || 'Could not create your account. Please try again.');
+        }
+    },
+
     showError(message) {
         const errorDiv = document.getElementById('auth-error-message');
         if (errorDiv) {
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
-            
+
             const successDiv = document.getElementById('auth-success-message');
             if (successDiv) successDiv.style.display = 'none';
         }
@@ -689,42 +750,8 @@ export const AuthUI = {
             }
 
             this.setLoading('auth-free-signup-btn', true, 'Start with a free account');
-
-            try {
-                // Stamp is_pro:false into user metadata so the app treats them as
-                // free from the very first render, regardless of how the profiles
-                // row is provisioned server-side.
-                const { data, error } = await this._supabase.auth.signUp({
-                    email,
-                    password,
-                    options: { data: { full_name: name, name, is_pro: false } },
-                });
-
-                if (error) {
-                    this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
-                    this.showError(error.message);
-                    return;
-                }
-
-                // If the project requires email confirmation, there's no session
-                // yet — tell the pilot to confirm, then sign in.
-                if (!data.session) {
-                    this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
-                    const successDiv = document.getElementById('auth-success-message');
-                    if (successDiv) {
-                        successDiv.innerHTML = `<i class="fa-solid fa-envelope-circle-check" style="margin-bottom:8px;font-size:1.5rem;color:#16a34a;display:block;"></i>Account created! Check your email to confirm, then sign in.`;
-                        successDiv.style.display = 'block';
-                    }
-                    return;
-                }
-
-                // Signed in immediately — launch the app on the free tier.
-                this.close();
-                this.open();
-            } catch (err) {
-                this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
-                this.showError(err.message || 'Could not create your account. Please try again.');
-            }
+            await this._createFreeAccount(email, password, name);
+            this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
         });
 
         document.getElementById('auth-forgot-password')?.addEventListener('click', (e) => {
