@@ -1864,8 +1864,8 @@ const requests = [
                         return `
                             <button class="pui-dock-item ${isActive ? 'active' : ''} ${isLocked ? 'pui-dock-item-locked' : ''}"
                                     data-tab="${item.id}"
-                                    draggable="true"
-                                    title="${isLocked ? item.label + ' — Pro' : item.label}">
+                                    draggable="${this._isPro ? 'true' : 'false'}"
+                                    title="${isLocked ? item.label + ' — Pro' : item.label}"
                                 <span class="pui-dock-icon"><i class="fa-solid ${item.icon}"></i></span>
                                 <span class="pui-dock-label">${item.label}</span>
                                 ${isLocked ? '<span class="pui-dock-lock"><i class="fa-solid fa-lock"></i></span>' : ''}
@@ -1896,7 +1896,10 @@ const requests = [
             });
         });
 
-        // Drag & drop to reorder
+        // Drag & drop to reorder — Pro only. Free accounts keep the default
+        // tab order (the reorder controls in Settings are locked too).
+        if (!this._isPro) return;
+
         let dragSrc = null;
         dock.querySelectorAll('.pui-dock-item').forEach(item => {
             item.addEventListener('dragstart', (e) => {
@@ -2623,6 +2626,23 @@ _generateAirspaceHTML() {
         return `<svg class="pui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of regions you have flown to">${dots}</svg>`;
     },
 
+    /** Small inline "Pro only" lock used for individual settings controls. */
+    _proLock(msg) {
+        const ios = typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative();
+        return `
+            <div class="pui-cover-locked">
+                <i class="fa-solid fa-lock"></i>
+                <div>
+                    <strong>Pro feature</strong>
+                    <span>${msg}</span>
+                </div>
+                ${ios ? '' : '<button type="button" class="pui-btn-primary pui-btn-sm" data-action="upgrade-pro"><i class="fa-solid fa-bolt"></i> Upgrade</button>'}
+            </div>`;
+    },
+
+    /** The little crown "Pro" tag appended to gated setting labels. */
+    _proTag() { return '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'; },
+
     /**
      * Upsell panel shown to free accounts when they open a Pro-only tab.
      * Each locked feature gets a short, honest pitch plus the perks a Pro
@@ -3268,7 +3288,8 @@ if (this._activeTab === 'flight-plan') {
                             <div class="pui-card-header"><h3>${this.t('set.personality')}</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-input-group">
-                                    <label>${this.t('set.bio')}</label>
+                                    <label>${this.t('set.bio')} ${this._isPro ? '' : this._proTag()}</label>
+                                    ${this._isPro ? `
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-quote-left pui-input-icon"></i>
                                         <input type="text" id="pui-edit-bio" class="pui-input has-icon" maxlength="140"
@@ -3278,6 +3299,7 @@ if (this._activeTab === 'flight-plan') {
                                     <p class="pui-help-text">
                                         <span id="pui-bio-counter">${(this._bio || '').length}</span>/140 — ${this.t('set.bioHelp')}
                                     </p>
+                                    ` : this._proLock('Add a tagline to your dossier with Pro.')}
                                 </div>
                                 <div class="pui-input-group" style="margin-bottom:0;">
                                     <label>Profile banner ${this._isPro ? '' : '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'}</label>
@@ -3317,14 +3339,18 @@ if (this._activeTab === 'flight-plan') {
 
                         <div class="pui-card">
                             <div class="pui-card-header pui-card-header-row">
-                                <h3>${this.t('set.dockOrder')}</h3>
+                                <h3>${this.t('set.dockOrder')} ${this._isPro ? '' : this._proTag()}</h3>
+                                ${this._isPro ? `
                                 <button class="pui-btn-ghost pui-btn-sm" id="pui-dock-reset-btn" type="button">
                                     <i class="fa-solid fa-rotate-left"></i> ${this.t('common.reset')}
                                 </button>
+                                ` : ''}
                             </div>
                             <div class="pui-card-body">
+                                ${this._isPro ? `
                                 <div class="pui-dock-preview">${dockPreviewHTML}</div>
                                 <p class="pui-help-text">${this.t('set.dockOrderHelp')}</p>
+                                ` : this._proLock('Reorder your tabs with Pro.')}
                             </div>
                         </div>
                     </div>
@@ -3364,9 +3390,11 @@ if (this._activeTab === 'flight-plan') {
                                     </div>
                                 </div>
                                 <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>${this.t('set.accent')}</label>
+                                    <label>${this.t('set.accent')} ${this._isPro ? '' : this._proTag()}</label>
+                                    ${this._isPro ? `
                                     <div class="pui-accent-grid" id="pui-accent-grid">${accentSwatchesHTML}</div>
                                     <p class="pui-help-text">${this.t('set.accentHelp')}</p>
+                                    ` : this._proLock('Personalise your accent color with Pro.')}
                                 </div>
                             </div>
                         </div>
@@ -4169,7 +4197,7 @@ const contentRoot = document.getElementById('pui-content');
                 const newIfUsername = document.getElementById('pui-edit-if-username')?.value.trim();
                 const newTimezone = document.getElementById('pui-edit-timezone')?.value;
                 const newPassword = document.getElementById('pui-edit-password')?.value;
-                const newBio   = document.getElementById('pui-edit-bio')?.value || '';
+                const newBio   = this._isPro ? (document.getElementById('pui-edit-bio')?.value || '') : this._bio;
                 // Free accounts have no banner field — preserve any stored cover
                 // so it returns intact if they later upgrade to Pro.
                 const newCover = this._isPro ? (document.getElementById('pui-edit-cover')?.value.trim() || '') : this._coverUrl;

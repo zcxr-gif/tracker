@@ -2574,12 +2574,17 @@ init(supabaseClient) {
               <div class="mdui-section">
                   <div class="mdui-section-title">Pilot Identity</div>
                   <div class="mdui-rows">
+                      ${this._isPro ? `
                       <div class="mdui-form-line">
                           <span class="mdui-form-line-label">Tagline</span>
                           <span class="mdui-form-line-control">
                               <input type="text" id="mdui-edit-bio" maxlength="140" placeholder="787 type rating · long-haul" value="${(this._bio || '').replace(/"/g, '&quot;')}">
                           </span>
-                      </div>
+                      </div>` : `
+                      <div class="mdui-form-line mdui-form-line-locked">
+                          <span class="mdui-form-line-label"><i class="fa-solid fa-lock"></i> Tagline</span>
+                          <span class="mdui-form-line-control mdui-form-line-note">A dossier tagline is a Pro perk. <a data-action="upgrade-pro">Upgrade to Pro</a>.</span>
+                      </div>`}
                       ${this._isPro ? `
                       <div class="mdui-form-line">
                           <span class="mdui-form-line-label">Banner</span>
@@ -2625,10 +2630,10 @@ init(supabaseClient) {
                               </span>
                           </span>
                       </div>
-                      <div class="mdui-form-line" style="align-items: center;">
-                          <span class="mdui-form-line-label">Accent</span>
+                      <div class="mdui-form-line ${this._isPro ? '' : 'mdui-form-line-locked'}" style="align-items: center;">
+                          <span class="mdui-form-line-label">${this._isPro ? 'Accent' : '<i class="fa-solid fa-lock"></i> Accent'}</span>
                           <span class="mdui-form-line-control">
-                              <div class="mdui-accent-grid" id="mdui-accent-grid">${accentSwatchesHTML}</div>
+                              ${this._isPro ? `<div class="mdui-accent-grid" id="mdui-accent-grid">${accentSwatchesHTML}</div>` : `<span class="mdui-form-line-note">Accent colors are a Pro perk. <a data-action="upgrade-pro">Upgrade to Pro</a>.</span>`}
                           </span>
                       </div>
                   </div>
@@ -3494,9 +3499,9 @@ _attachListeners() {
             document.getElementById('mdui-save-btn')?.addEventListener('click', async () => {
                 const newName       = document.getElementById('mdui-edit-name')?.value.trim();
                 const newIfUsername = document.getElementById('mdui-edit-if')?.value.trim();
-                const newBio        = document.getElementById('mdui-edit-bio')?.value.trim();
-                // Free accounts have no banner field — preserve any stored cover
-                // so it returns intact if they later upgrade to Pro.
+                // Free accounts have no tagline/banner fields — preserve any
+                // stored values so they return intact if they upgrade to Pro.
+                const newBio        = this._isPro ? (document.getElementById('mdui-edit-bio')?.value.trim() || '') : this._bio;
                 const newCover      = this._isPro ? (document.getElementById('mdui-edit-cover')?.value.trim() || '') : this._coverUrl;
                 const newPassword   = document.getElementById('mdui-edit-pw')?.value;
                 const btn           = document.getElementById('mdui-save-btn');
