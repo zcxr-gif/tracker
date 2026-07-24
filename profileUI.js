@@ -127,6 +127,7 @@ export const ProfileUI = {
     _userVAs: null,
     _userVAsLoaded: false,
     _airportCoords: {},
+    _lifetime: null,        // aggregated lifetime/per-aircraft stats cache
 
     // Store live IF data
     _ifData: {
@@ -737,6 +738,7 @@ init(supabaseClient) {
         this._userVAs = null;
         this._userVAsLoaded = false;
         this._airportCoords = {};
+        this._lifetime = null;
 
         if (!this._injected) {
             this._inject();
@@ -2653,20 +2655,41 @@ _generateAirspaceHTML() {
         return [x, y];
     },
 
-    /** Resolve airport coordinates from the backend, cached across renders. */
+    /**
+     * Resolve airport coordinates, cached across renders. Uses the bulk
+     * endpoint so an entire logbook's worth of unique airports costs one
+     * request; falls back to per-airport lookups only if the bulk call fails.
+     */
     async _resolveAirportCoords(icaos) {
         if (!this._airportCoords) this._airportCoords = {};
         const need = [...new Set(icaos)].filter(i => i && this._airportCoords[i] === undefined);
-        await Promise.all(need.map(async (icao) => {
+        if (!need.length) return;
+
+        try {
+            const r = await fetch(`${this._backendUrl}/api/airports/coords`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ icaos: need }),
+            });
+            if (r.ok) {
+                const j = await r.json();
+                const coords = j && j.coords ? j.coords : {};
+                need.forEach(icao => {
+                    const c = coords[icao];
+                    this._airportCoords[icao] = (Array.isArray(c) && c.length >= 2) ? [c[0], c[1]] : null;
+                });
+                return;
+            }
+        } catch (_) { /* fall through to per-airport */ }
+
+        // Fallback: resolve individually (bounded — bulk endpoint not available).
+        await Promise.all(need.slice(0, 400).map(async (icao) => {
+            if (this._airportCoords[icao] !== undefined) return;
             try {
                 const r = await fetch(`${this._backendUrl}/api/airport/${encodeURIComponent(icao)}`);
-                if (r.ok) {
-                    const j = await r.json();
-                    this._airportCoords[icao] = (typeof j.latitude === 'number' && typeof j.longitude === 'number')
-                        ? [j.latitude, j.longitude] : null;
-                } else {
-                    this._airportCoords[icao] = null;
-                }
+                const j = r.ok ? await r.json() : null;
+                this._airportCoords[icao] = (j && typeof j.latitude === 'number' && typeof j.longitude === 'number')
+                    ? [j.latitude, j.longitude] : null;
             } catch (_) { this._airportCoords[icao] = null; }
         }));
     },
@@ -2677,47 +2700,264 @@ _generateAirspaceHTML() {
      * the dot-grid world map. Runs after the dashboard renders; coordinates are
      * fetched once and cached so subsequent renders are instant.
      */
-    async _hydrateFlightMap() {
-        const lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
-        if (!lb.length) return;
+    /**
+     * The flight set stats/routes draw from — the deep logbook (many pages,
+     * accumulated by the fleet fetch) once available, otherwise the dashboard's
+     * first page. Kicks the deep fetch the first time so both upgrade to the
+     * full history without blocking the initial paint.
+     */
+    _statsFlights() {
+        if (this._fleet && this._fleet.loaded && Array.isArray(this._fleet.flights) && this._fleet.flights.length) {
+            return this._fleet.flights;
+        }
+        if (this._fleet && !this._fleet.loaded && !this._fleet.loading && this._currentUser?.user_metadata?.if_username) {
+            // Load the deep logbook in the background; _fetchFleetData re-renders
+            // the dashboard on completion so routes + stats fill in.
+            this._fetchFleetData();
+        }
+        return Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+    },
 
+    async _hydrateFlightMap() {
+        const flights = this._statsFlights();
+        if (!flights.length) return;
+
+        // Collapse thousands of legs to the unique routes/airports up front, so
+        // work scales with distinct routes (bounded) — not raw flight count.
+        const legKeys = new Set();
         const legs = [];
         const icaos = new Set();
-        lb.forEach(f => {
+        for (const f of flights) {
             const dep = String(f.originAirport || '').trim().toUpperCase();
             const arr = String(f.destinationAirport || '').trim().toUpperCase();
-            if (dep && arr && dep !== arr) { legs.push([dep, arr]); icaos.add(dep); icaos.add(arr); }
-        });
+            if (!dep || !arr || dep === arr) continue;
+            icaos.add(dep); icaos.add(arr);
+            const key = dep < arr ? dep + arr : arr + dep;
+            if (legKeys.has(key)) continue;
+            legKeys.add(key);
+            legs.push([dep, arr]);
+        }
         if (!legs.length) return;
 
+        const hadDistance = !!(this._lifetime && this._lifetime.haveDistance);
         await this._resolveAirportCoords([...icaos]);
+        // Coords may unlock distance totals — refresh the ledger.
+        this._recomputeLifetime();
 
         const g = document.getElementById('pui-fm-routes');
         if (!g) return; // tab changed while resolving
 
-        // De-duplicate legs so a heavily-flown route isn't drawn many times.
-        const seenLeg = new Set();
+        // Distance just became available → refresh the ledger tiles once. The
+        // re-render re-runs hydrate, but coords are cached then so it settles.
+        if (!hadDistance && this._lifetime && this._lifetime.haveDistance
+            && this._isOpen && this._activeTab === 'dashboard') {
+            this._renderContentOnly();
+            return;
+        }
+
+        const MAX_LINES = 1500;
         let lines = '';
         const cityPts = {};
-        legs.forEach(([dep, arr]) => {
+        let drawn = 0;
+        for (const [dep, arr] of legs) {
             const a = this._airportCoords[dep];
             const b = this._airportCoords[arr];
-            if (!a || !b) return;
+            if (!a || !b) continue;
             const [x1, y1] = this._projectLatLon(a[0], a[1]);
             const [x2, y2] = this._projectLatLon(b[0], b[1]);
             cityPts[dep] = [x1, y1];
             cityPts[arr] = [x2, y2];
-            const key = dep < arr ? dep + arr : arr + dep;
-            if (seenLeg.has(key)) return;
-            seenLeg.add(key);
-            lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="pui-fm-line"/>`;
-        });
-
+            if (drawn < MAX_LINES) {
+                lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="pui-fm-line"/>`;
+                drawn++;
+            }
+        }
         const dotsSvg = Object.values(cityPts)
             .map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="pui-fm-city"/>`)
             .join('');
-
         g.innerHTML = lines + dotsSvg;
+    },
+
+    // ── Lifetime stats engine ────────────────────────────────────────────────
+
+    /** Rough fuel burn (kg/hour) by aircraft, matched on the resolved name. */
+    _fuelBurnKgPerHr(name) {
+        const n = String(name || '').toLowerCase();
+        const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380')) return 11500;
+        if (has('747')) return 10500;
+        if (has('777')) return 7400;
+        if (has('a350')) return 5900;
+        if (has('a340')) return 6800;
+        if (has('787', 'dreamliner')) return 5300;
+        if (has('a330')) return 5700;
+        if (has('767')) return 4600;
+        if (has('a300', 'a310', 'md-11', 'dc-10')) return 5200;
+        if (has('757')) return 3600;
+        if (has('737', 'max')) return 2500;
+        if (has('a320', 'a321', 'a319', 'a318')) return 2400;
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'e195', 'embraer', 'q400', 'dash')) return 1700;
+        if (has('c130', 'c-130', 'a10', 'a-10', 'f-', 'f14', 'f16', 'f22')) return 3000;
+        if (has('tbm', 'caravan', 'king air', 'spitfire')) return 220;
+        if (has('c172', 'cessna 172', 'xcub', 'cub', 'sr22', 'da40', 'da62')) return 40;
+        return 2200; // sensible default (narrowbody-ish)
+    },
+
+    _continentOfIcao(icao) {
+        const c = String(icao || '').trim().toUpperCase()[0];
+        return ({
+            K: 'N. America', C: 'N. America', M: 'N. America', T: 'Caribbean', P: 'Pacific',
+            S: 'S. America', E: 'Europe', L: 'Europe', B: 'Europe', U: 'Europe/Asia',
+            D: 'Africa', F: 'Africa', G: 'Africa', H: 'Africa',
+            O: 'Asia', V: 'Asia', W: 'Asia', Z: 'Asia', R: 'Asia', N: 'Oceania', Y: 'Oceania', A: 'Oceania',
+        })[c] || null;
+    },
+
+    _haversineNm(a, b) {
+        const R = 3440.065; // nautical miles
+        const toRad = d => d * Math.PI / 180;
+        const dLat = toRad(b[0] - a[0]);
+        const dLon = toRad(b[1] - a[1]);
+        const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+    },
+
+    /**
+     * Aggregate the (deep) logbook into lifetime + per-aircraft stats. Single
+     * O(n) pass over flights; distances reuse a per-unique-leg cache so coord
+     * math isn't repeated for a route flown hundreds of times.
+     */
+    _recomputeLifetime() {
+        const flights = this._statsFlights();
+        if (!flights.length) { this._lifetime = null; return; }
+
+        const byAircraft = new Map(); // name → {flights, minutes, landings, fuelKg, distanceNm}
+        const airports = new Set();
+        const continents = new Set();
+        const routeCount = new Map();
+        const legDistCache = new Map();
+        let totalMin = 0, totalLandings = 0, totalFuel = 0, totalDist = 0;
+        let longest = null;
+
+        for (const f of flights) {
+            const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+            const landings = f.landingCount || 0;
+            const aId = f.aircraftId || f.aircraftID;
+            const lId = f.liveryId || f.liveryID;
+            const name = aId ? this._resolveAircraftName(aId, lId) : 'Unknown';
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+
+            const fuel = (min / 60) * this._fuelBurnKgPerHr(name);
+            let dist = 0;
+            if (dep && arr && dep !== arr) {
+                const key = dep < arr ? dep + arr : arr + dep;
+                if (legDistCache.has(key)) dist = legDistCache.get(key);
+                else {
+                    const a = this._airportCoords[dep], b = this._airportCoords[arr];
+                    dist = (a && b) ? this._haversineNm(a, b) : 0;
+                    legDistCache.set(key, dist);
+                }
+                routeCount.set(`${dep}→${arr}`, (routeCount.get(`${dep}→${arr}`) || 0) + 1);
+            }
+
+            if (dep) { airports.add(dep); const c = this._continentOfIcao(dep); if (c) continents.add(c); }
+            if (arr) { airports.add(arr); const c = this._continentOfIcao(arr); if (c) continents.add(c); }
+
+            const rec = byAircraft.get(name) || { flights: 0, minutes: 0, landings: 0, fuelKg: 0, distanceNm: 0 };
+            rec.flights++; rec.minutes += min; rec.landings += landings; rec.fuelKg += fuel; rec.distanceNm += dist;
+            byAircraft.set(name, rec);
+
+            totalMin += min; totalLandings += landings; totalFuel += fuel; totalDist += dist;
+            if (!longest || min > longest.min) longest = { min, dep, arr };
+        }
+
+        let busiest = null;
+        routeCount.forEach((n, r) => { if (!busiest || n > busiest.n) busiest = { route: r, n }; });
+
+        const fleet = [...byAircraft.entries()]
+            .map(([name, r]) => ({ name, ...r }))
+            .sort((a, b) => b.minutes - a.minutes);
+
+        this._lifetime = {
+            scanned: flights.length,
+            total: (this._fleet && this._fleet.totalCount) || flights.length,
+            deep: !!(this._fleet && this._fleet.loaded),
+            totalMin, totalLandings, totalFuel, totalDist,
+            uniqueAirports: airports.size,
+            continents: continents.size,
+            longest, busiest, fleet,
+            haveDistance: totalDist > 0,
+        };
+    },
+
+    _fmtNum(n) { return Math.round(n).toLocaleString(); },
+
+    /**
+     * "Lifetime Ledger" — expanded career stats aggregated from the whole
+     * logbook: distance flown (with trips around Earth), estimated fuel burned,
+     * unique airports, continents, longest flight, busiest route, plus a
+     * per-aircraft breakdown (hours / flights / landings / est. fuel / distance).
+     */
+    _getLifetimeStatsHTML() {
+        const L = this._lifetime;
+        if (!L) {
+            if (!this._currentUser?.user_metadata?.if_username) return '';
+            return `
+                <section class="pui-card pui-ledger-card">
+                    <div class="pui-card-eyebrow">Lifetime Ledger</div>
+                    <div class="pui-empty-inline">Crunching your logbook…</div>
+                </section>`;
+        }
+
+        const hrs = L.totalMin / 60;
+        const earthNm = 21639; // circumference in NM
+        const laps = L.totalDist ? (L.totalDist / earthNm) : 0;
+        const fuelT = L.totalFuel / 1000;
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+
+        const tile = (label, value, sub = '') => `
+            <div class="pui-ledger-tile">
+                <span class="pui-ledger-value">${value}</span>
+                <span class="pui-ledger-label">${label}</span>
+                ${sub ? `<span class="pui-ledger-sub">${sub}</span>` : ''}
+            </div>`;
+
+        const tiles = [
+            tile('Distance flown', L.haveDistance ? `${this._fmtNum(L.totalDist)} <em>nm</em>` : '—', L.haveDistance ? `${laps.toFixed(1)}× around Earth` : 'mapping…'),
+            tile('Est. fuel burned', `${this._fmtNum(fuelT)} <em>t</em>`, `${this._fmtNum(L.totalFuel)} kg`),
+            tile('Hours flown', `${this._fmtNum(hrs)} <em>h</em>`, `${this._fmtNum(L.total)} flights`),
+            tile('Total landings', this._fmtNum(L.totalLandings)),
+            tile('Airports visited', this._fmtNum(L.uniqueAirports), `${L.continents} continents`),
+            tile('Longest flight', L.longest ? `${(L.longest.min / 60).toFixed(1)} <em>h</em>` : '—', L.longest && L.longest.dep ? `${esc(L.longest.dep)} → ${esc(L.longest.arr)}` : ''),
+            tile('Busiest route', L.busiest ? esc(L.busiest.route) : '—', L.busiest ? `${L.busiest.n} flights` : ''),
+        ].join('');
+
+        const topFleet = L.fleet.slice(0, 8);
+        const maxMin = topFleet.length ? topFleet[0].minutes : 1;
+        const fleetRows = topFleet.map(a => `
+            <div class="pui-ledger-row">
+                <span class="pui-ledger-ac">${esc(a.name)}</span>
+                <span class="pui-ledger-bar"><span class="pui-ledger-bar-fill" style="width:${Math.max(4, (a.minutes / maxMin) * 100)}%;"></span></span>
+                <span class="pui-ledger-cell">${this._fmtNum(a.minutes / 60)}h</span>
+                <span class="pui-ledger-cell">${this._fmtNum(a.flights)} flt</span>
+                <span class="pui-ledger-cell">${this._fmtNum(a.fuelKg / 1000)}t fuel</span>
+            </div>`).join('');
+
+        const scanNote = (!L.deep || L.scanned < L.total)
+            ? `<div class="pui-ledger-note">Based on your ${this._fmtNum(L.scanned)} most recent flights${L.total > L.scanned ? ` of ${this._fmtNum(L.total)}` : ''}. Estimated fuel is modelled from aircraft type and flight time.</div>`
+            : `<div class="pui-ledger-note">Across all ${this._fmtNum(L.total)} logged flights. Estimated fuel is modelled from aircraft type and flight time.</div>`;
+
+        return `
+            <section class="pui-card pui-ledger-card pui-fade-in">
+                <div class="pui-card-eyebrow">Lifetime Ledger</div>
+                <div class="pui-ledger-grid">${tiles}</div>
+                ${fleetRows ? `<div class="pui-ledger-fleet">
+                    <div class="pui-ledger-fleet-head">Per aircraft · lifetime</div>
+                    ${fleetRows}
+                </div>` : ''}
+                ${scanNote}
+            </section>`;
     },
 
     /**
@@ -3115,6 +3355,10 @@ _getTabContentHTML() {
             const firstName = name.trim().split(/\s+/)[0];
             const ifUsername = user?.user_metadata?.if_username || '';
 
+            // Aggregate the lifetime ledger from whatever logbook depth we have
+            // (upgrades to the full history once the deep fetch lands).
+            this._recomputeLifetime();
+
             const formatter = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: this._timezone });
             const hourString = formatter.format(new Date());
             const hour = parseInt(hourString, 10);
@@ -3314,6 +3558,8 @@ _getTabContentHTML() {
                 </div>
 
                 ${this._getVASectionHTML()}
+
+                ${this._getLifetimeStatsHTML()}
 
                 <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
                     <section class="pui-card pui-home-recent">
@@ -4857,6 +5103,13 @@ const contentRoot = document.getElementById('pui-content');
         }
 
         this._refreshFleetTab();
+
+        // The deep logbook also powers the dashboard's flight-map routes and
+        // Lifetime Ledger — refresh those once the full history is in.
+        if (this._isOpen && this._activeTab === 'dashboard') {
+            this._recomputeLifetime();
+            this._renderContentOnly();
+        }
     },
 
     _refreshFleetTab() {
@@ -6480,6 +6733,38 @@ const contentRoot = document.getElementById('pui-content');
             }
             .pui-va-name em { font-style: normal; font-family: var(--pui-font-mono); font-size: 0.72rem; color: var(--pui-text-secondary); font-weight: 600; }
             .pui-va-meta { font-size: 0.72rem; color: var(--pui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+            /* ─── Lifetime Ledger (expanded stats) ─────────────────────────── */
+            .pui-ledger-card { padding: 20px var(--pui-pad-card); margin-bottom: var(--pui-gap-md); }
+            .pui-ledger-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                gap: 10px;
+                margin-top: 4px;
+            }
+            .pui-ledger-tile {
+                display: flex; flex-direction: column; gap: 2px;
+                padding: 14px 14px;
+                border: 1px solid var(--pui-border);
+                border-radius: 14px;
+                background: var(--pui-bg-surface);
+            }
+            .pui-ledger-value { font-size: 1.35rem; font-weight: 800; color: var(--pui-text-primary); letter-spacing: -0.02em; }
+            .pui-ledger-value em { font-style: normal; font-size: 0.8rem; font-weight: 600; color: var(--pui-text-secondary); }
+            .pui-ledger-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--pui-text-tertiary); }
+            .pui-ledger-sub { font-size: 0.72rem; color: var(--pui-accent); font-weight: 600; }
+            .pui-ledger-fleet { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+            .pui-ledger-fleet-head { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pui-text-tertiary); margin-bottom: 2px; }
+            .pui-ledger-row { display: grid; grid-template-columns: minmax(90px, 1.4fr) minmax(60px, 1.6fr) auto auto auto; align-items: center; gap: 10px; }
+            .pui-ledger-ac { font-size: 0.82rem; font-weight: 600; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-ledger-bar { height: 7px; border-radius: 999px; background: var(--pui-hover); overflow: hidden; }
+            .pui-ledger-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--pui-accent); }
+            .pui-ledger-cell { font-family: var(--pui-font-mono); font-size: 0.7rem; font-weight: 700; color: var(--pui-text-secondary); white-space: nowrap; text-align: right; }
+            .pui-ledger-note { margin-top: 14px; font-size: 0.72rem; color: var(--pui-text-tertiary); line-height: 1.45; }
+            @media (max-width: 640px) {
+                .pui-ledger-row { grid-template-columns: minmax(80px, 1fr) auto auto; }
+                .pui-ledger-bar, .pui-ledger-row .pui-ledger-cell:last-child { display: none; }
+            }
 
             /* ─── Dock lock badge (free accounts) ──────────────────────────── */
             .pui-dock-item-locked { opacity: 0.72; }

@@ -56,6 +56,7 @@ export const MobileDashboardUI = {
     _userVAs:           null,
     _userVAsLoaded:     false,
     _airportCoords:     {},
+    _lifetime:          null,
     // Community aircraft catalog (/api/aircraft) — any aircraft as a banner.
     _aircraftCatalog: null,
     _aircraftCatalogPromise: null,
@@ -271,6 +272,7 @@ init(supabaseClient) {
         this._userVAs = null;
         this._userVAsLoaded = false;
         this._airportCoords = {};
+        this._lifetime = null;
 
         if (!this._injected) {
             this._injectStyles();
@@ -905,6 +907,7 @@ init(supabaseClient) {
 
     // ── Home / Command Center ─────────────────────────────────────────────────
     _tabDashboard() {
+        this._recomputeLifetime();
         const user      = this._currentUser;
         const name      = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
         const firstName = name.trim().split(/\s+/)[0];
@@ -1094,6 +1097,8 @@ init(supabaseClient) {
                 </section>
 
                 ${this._getVASectionHTML()}
+
+                ${this._getLifetimeStatsHTML()}
 
                 <section class="mdui-section">
                     <div class="mdui-section-title">Next Departure</div>
@@ -1787,40 +1792,144 @@ init(supabaseClient) {
     async _resolveAirportCoords(icaos) {
         if (!this._airportCoords) this._airportCoords = {};
         const need = [...new Set(icaos)].filter(i => i && this._airportCoords[i] === undefined);
-        await Promise.all(need.map(async (icao) => {
-            try {
-                const r = await fetch(`${this._backendUrl}/api/airport/${encodeURIComponent(icao)}`);
-                if (r.ok) { const j = await r.json(); this._airportCoords[icao] = (typeof j.latitude === 'number' && typeof j.longitude === 'number') ? [j.latitude, j.longitude] : null; }
-                else this._airportCoords[icao] = null;
-            } catch (_) { this._airportCoords[icao] = null; }
+        if (!need.length) return;
+        try {
+            const r = await fetch(`${this._backendUrl}/api/airports/coords`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ icaos: need }),
+            });
+            if (r.ok) {
+                const j = await r.json();
+                const coords = (j && j.coords) || {};
+                need.forEach(icao => { const c = coords[icao]; this._airportCoords[icao] = (Array.isArray(c) && c.length >= 2) ? [c[0], c[1]] : null; });
+                return;
+            }
+        } catch (_) { /* fall through */ }
+        await Promise.all(need.slice(0, 400).map(async (icao) => {
+            if (this._airportCoords[icao] !== undefined) return;
+            try { const r = await fetch(`${this._backendUrl}/api/airport/${encodeURIComponent(icao)}`); const j = r.ok ? await r.json() : null; this._airportCoords[icao] = (j && typeof j.latitude === 'number') ? [j.latitude, j.longitude] : null; }
+            catch (_) { this._airportCoords[icao] = null; }
         }));
     },
 
+    _statsFlights() {
+        if (this._fleet && this._fleet.loaded && Array.isArray(this._fleet.flights) && this._fleet.flights.length) return this._fleet.flights;
+        if (this._fleet && !this._fleet.loaded && !this._fleet.loading && this._currentUser?.user_metadata?.if_username) this._fetchFleetData();
+        return Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+    },
+
     async _hydrateFlightMap() {
-        const lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
-        if (!lb.length) return;
-        const legs = [], icaos = new Set();
-        lb.forEach(f => {
+        const flights = this._statsFlights();
+        if (!flights.length) return;
+        const legKeys = new Set(), legs = [], icaos = new Set();
+        for (const f of flights) {
             const dep = String(f.originAirport || '').trim().toUpperCase();
             const arr = String(f.destinationAirport || '').trim().toUpperCase();
-            if (dep && arr && dep !== arr) { legs.push([dep, arr]); icaos.add(dep); icaos.add(arr); }
-        });
+            if (!dep || !arr || dep === arr) continue;
+            icaos.add(dep); icaos.add(arr);
+            const key = dep < arr ? dep + arr : arr + dep;
+            if (legKeys.has(key)) continue; legKeys.add(key); legs.push([dep, arr]);
+        }
         if (!legs.length) return;
+        const hadDistance = !!(this._lifetime && this._lifetime.haveDistance);
         await this._resolveAirportCoords([...icaos]);
+        this._recomputeLifetime();
         const g = document.getElementById('mdui-fm-routes');
         if (!g) return;
-        const seen = new Set(); let lines = ''; const pts = {};
-        legs.forEach(([dep, arr]) => {
+        if (!hadDistance && this._lifetime && this._lifetime.haveDistance && this._isOpen && this._activeTab === 'dashboard') {
+            this._render();
+            return;
+        }
+        const MAX_LINES = 1500; let lines = ''; const pts = {}; let drawn = 0;
+        for (const [dep, arr] of legs) {
             const a = this._airportCoords[dep], b = this._airportCoords[arr];
-            if (!a || !b) return;
+            if (!a || !b) continue;
             const [x1, y1] = this._projectLatLon(a[0], a[1]);
             const [x2, y2] = this._projectLatLon(b[0], b[1]);
             pts[dep] = [x1, y1]; pts[arr] = [x2, y2];
-            const key = dep < arr ? dep + arr : arr + dep;
-            if (seen.has(key)) return; seen.add(key);
-            lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="mdui-fm-line"/>`;
-        });
+            if (drawn < MAX_LINES) { lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="mdui-fm-line"/>`; drawn++; }
+        }
         g.innerHTML = lines + Object.values(pts).map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="mdui-fm-city"/>`).join('');
+    },
+
+    _fuelBurnKgPerHr(name) {
+        const n = String(name || '').toLowerCase(); const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380')) return 11500; if (has('747')) return 10500; if (has('777')) return 7400;
+        if (has('a350')) return 5900; if (has('a340')) return 6800; if (has('787', 'dreamliner')) return 5300;
+        if (has('a330')) return 5700; if (has('767')) return 4600; if (has('a300', 'a310', 'md-11', 'dc-10')) return 5200;
+        if (has('757')) return 3600; if (has('737', 'max')) return 2500; if (has('a320', 'a321', 'a319', 'a318')) return 2400;
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'e195', 'embraer', 'q400', 'dash')) return 1700;
+        if (has('c130', 'c-130', 'a10', 'a-10', 'f-', 'f14', 'f16', 'f22')) return 3000;
+        if (has('tbm', 'caravan', 'king air', 'spitfire')) return 220;
+        if (has('c172', 'cessna 172', 'xcub', 'cub', 'sr22', 'da40', 'da62')) return 40;
+        return 2200;
+    },
+    _continentOfIcao(icao) {
+        const c = String(icao || '').trim().toUpperCase()[0];
+        return ({ K: 'N. America', C: 'N. America', M: 'N. America', T: 'Caribbean', P: 'Pacific', S: 'S. America', E: 'Europe', L: 'Europe', B: 'Europe', U: 'Europe/Asia', D: 'Africa', F: 'Africa', G: 'Africa', H: 'Africa', O: 'Asia', V: 'Asia', W: 'Asia', Z: 'Asia', R: 'Asia', N: 'Oceania', Y: 'Oceania', A: 'Oceania' })[c] || null;
+    },
+    _haversineNm(a, b) {
+        const R = 3440.065, toRad = d => d * Math.PI / 180;
+        const dLat = toRad(b[0] - a[0]), dLon = toRad(b[1] - a[1]);
+        const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+    },
+    _fmtNum(n) { return Math.round(n).toLocaleString(); },
+
+    _recomputeLifetime() {
+        const flights = this._statsFlights();
+        if (!flights.length) { this._lifetime = null; return; }
+        const byAircraft = new Map(), airports = new Set(), continents = new Set(), routeCount = new Map(), legDistCache = new Map();
+        let totalMin = 0, totalLandings = 0, totalFuel = 0, totalDist = 0, longest = null;
+        for (const f of flights) {
+            const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+            const landings = f.landingCount || 0;
+            const aId = f.aircraftId || f.aircraftID, lId = f.liveryId || f.liveryID;
+            const name = aId ? this._resolveAircraftName(aId, lId) : 'Unknown';
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+            const fuel = (min / 60) * this._fuelBurnKgPerHr(name);
+            let dist = 0;
+            if (dep && arr && dep !== arr) {
+                const key = dep < arr ? dep + arr : arr + dep;
+                if (legDistCache.has(key)) dist = legDistCache.get(key);
+                else { const a = this._airportCoords[dep], b = this._airportCoords[arr]; dist = (a && b) ? this._haversineNm(a, b) : 0; legDistCache.set(key, dist); }
+                routeCount.set(`${dep}→${arr}`, (routeCount.get(`${dep}→${arr}`) || 0) + 1);
+            }
+            if (dep) { airports.add(dep); const c = this._continentOfIcao(dep); if (c) continents.add(c); }
+            if (arr) { airports.add(arr); const c = this._continentOfIcao(arr); if (c) continents.add(c); }
+            const rec = byAircraft.get(name) || { flights: 0, minutes: 0, landings: 0, fuelKg: 0, distanceNm: 0 };
+            rec.flights++; rec.minutes += min; rec.landings += landings; rec.fuelKg += fuel; rec.distanceNm += dist;
+            byAircraft.set(name, rec);
+            totalMin += min; totalLandings += landings; totalFuel += fuel; totalDist += dist;
+            if (!longest || min > longest.min) longest = { min, dep, arr };
+        }
+        let busiest = null; routeCount.forEach((n, r) => { if (!busiest || n > busiest.n) busiest = { route: r, n }; });
+        const fleet = [...byAircraft.entries()].map(([name, r]) => ({ name, ...r })).sort((a, b) => b.minutes - a.minutes);
+        this._lifetime = { scanned: flights.length, total: (this._fleet && this._fleet.totalCount) || flights.length, deep: !!(this._fleet && this._fleet.loaded), totalMin, totalLandings, totalFuel, totalDist, uniqueAirports: airports.size, continents: continents.size, longest, busiest, fleet, haveDistance: totalDist > 0 };
+    },
+
+    _getLifetimeStatsHTML() {
+        const L = this._lifetime;
+        if (!L) {
+            if (!this._currentUser?.user_metadata?.if_username) return '';
+            return `<section class="mdui-showcard mdui-ledger"><h3 class="mdui-showcard-title">Lifetime Ledger</h3><div class="mdui-mua-empty">Crunching your logbook…</div></section>`;
+        }
+        const hrs = L.totalMin / 60, earthNm = 21639, laps = L.totalDist ? L.totalDist / earthNm : 0, fuelT = L.totalFuel / 1000;
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        const tile = (label, value, sub = '') => `<div class="mdui-ledger-tile"><span class="mdui-ledger-value">${value}</span><span class="mdui-ledger-label">${label}</span>${sub ? `<span class="mdui-ledger-sub">${sub}</span>` : ''}</div>`;
+        const tiles = [
+            tile('Distance', L.haveDistance ? `${this._fmtNum(L.totalDist)}<em>nm</em>` : '—', L.haveDistance ? `${laps.toFixed(1)}× Earth` : 'mapping…'),
+            tile('Est. fuel', `${this._fmtNum(fuelT)}<em>t</em>`, `${this._fmtNum(L.totalFuel)} kg`),
+            tile('Hours', `${this._fmtNum(hrs)}<em>h</em>`, `${this._fmtNum(L.total)} flights`),
+            tile('Landings', this._fmtNum(L.totalLandings)),
+            tile('Airports', this._fmtNum(L.uniqueAirports), `${L.continents} continents`),
+            tile('Longest', L.longest ? `${(L.longest.min / 60).toFixed(1)}<em>h</em>` : '—', L.longest && L.longest.dep ? `${esc(L.longest.dep)}→${esc(L.longest.arr)}` : ''),
+        ].join('');
+        const topFleet = L.fleet.slice(0, 8), maxMin = topFleet.length ? topFleet[0].minutes : 1;
+        const rows = topFleet.map(a => `<div class="mdui-ledger-row"><span class="mdui-ledger-ac">${esc(a.name)}</span><span class="mdui-ledger-bar"><span class="mdui-ledger-bar-fill" style="width:${Math.max(4, (a.minutes / maxMin) * 100)}%"></span></span><span class="mdui-ledger-cell">${this._fmtNum(a.minutes / 60)}h</span><span class="mdui-ledger-cell">${this._fmtNum(a.fuelKg / 1000)}t</span></div>`).join('');
+        const note = (!L.deep || L.scanned < L.total) ? `Based on your ${this._fmtNum(L.scanned)} most recent flights${L.total > L.scanned ? ` of ${this._fmtNum(L.total)}` : ''}. Fuel estimated from type + time.` : `Across all ${this._fmtNum(L.total)} flights. Fuel estimated from type + time.`;
+        return `<section class="mdui-showcard mdui-ledger"><h3 class="mdui-showcard-title">Lifetime Ledger</h3><div class="mdui-ledger-grid">${tiles}</div>${rows ? `<div class="mdui-ledger-fleet"><div class="mdui-ledger-fleet-head">Per aircraft</div>${rows}</div>` : ''}<div class="mdui-ledger-note">${note}</div></section>`;
     },
 
     async _fetchUserVAs() {
@@ -1961,6 +2070,8 @@ init(supabaseClient) {
 
     _refreshFleetTab() {
         if (this._isOpen && this._activeTab === 'fleet') this._render();
+        // Deep logbook also feeds the dashboard's routes + Lifetime Ledger.
+        else if (this._isOpen && this._activeTab === 'dashboard') { this._recomputeLifetime(); this._render(); }
     },
 
     /**
@@ -4610,6 +4721,23 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-va-name { font-size: 15px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .mdui-va-name em { font-style: normal; font-family: var(--mdui-font-mono); font-size: 11px; color: rgba(255,255,255,0.55); font-weight: 600; }
             .mdui-va-meta { font-size: 12px; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+            /* Lifetime Ledger */
+            .mdui-ledger { }
+            .mdui-ledger-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .mdui-ledger-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.07); }
+            .mdui-ledger-value { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+            .mdui-ledger-value em { font-style: normal; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.55); margin-left: 2px; }
+            .mdui-ledger-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255,255,255,0.5); }
+            .mdui-ledger-sub { font-size: 11px; font-weight: 600; color: #6cc4ff; }
+            .mdui-ledger-fleet { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+            .mdui-ledger-fleet-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); }
+            .mdui-ledger-row { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(40px, 1.2fr) auto auto; align-items: center; gap: 8px; }
+            .mdui-ledger-ac { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-ledger-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.1); overflow: hidden; }
+            .mdui-ledger-bar-fill { display: block; height: 100%; border-radius: 999px; background: #4a9fe0; }
+            .mdui-ledger-cell { font-family: var(--mdui-font-mono); font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.6); text-align: right; white-space: nowrap; }
+            .mdui-ledger-note { margin-top: 12px; font-size: 11.5px; color: rgba(255,255,255,0.45); line-height: 1.45; }
 
             /* Banner preview + aircraft picker (settings) */
             .mdui-banner-preview {
