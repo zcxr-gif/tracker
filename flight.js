@@ -22467,9 +22467,12 @@ function renderPilotStatsHTML(stats, username) {
             sectorOpsMap.on('mouseleave', 'pilot-routes-airports', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
 
             try {
+                // Auto-tilt so the elevated arcs read as 3D right away — z-offset
+                // only shows as height on a pitched camera, so fit + pitch together.
+                if (typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
                 const bounds = new mapboxgl.LngLatBounds();
                 airportFeatures.forEach(f => bounds.extend(f.geometry.coordinates));
-                sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5 });
+                sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5, pitch: 55 });
             } catch (_) {}
 
             _buildRoutesControlBar(username, legs.length);
@@ -22517,7 +22520,7 @@ function renderPilotStatsHTML(stats, username) {
         bar.innerHTML = `
             <span class="prb-title"><i class="fa-solid fa-route"></i> ${username} · ${count} routes</span>
             <button type="button" class="prb-btn" data-act="hide-ac"><i class="fa-solid fa-eye-slash"></i> Hide aircraft</button>
-            <button type="button" class="prb-btn" data-act="tilt"><i class="fa-solid fa-cube"></i> 3D</button>
+            <button type="button" class="prb-btn on" data-act="tilt"><i class="fa-solid fa-cube"></i> 3D</button>
             <button type="button" class="prb-btn prb-close" data-act="clear"><i class="fa-solid fa-xmark"></i></button>`;
         wrap.appendChild(bar);
 
