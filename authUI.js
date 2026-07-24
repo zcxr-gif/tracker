@@ -528,9 +528,17 @@ export const AuthUI = {
             if (error) { this.showError(error.message); return; }
 
             if (!data.session) {
+                // No session means the project still enforces email confirmation
+                // and the instant server path didn't run. Try an immediate
+                // sign-in in case confirmation is actually off for this project
+                // (some setups return no session from signUp but allow login).
+                const { data: signInData, error: signInErr } =
+                    await this._supabase.auth.signInWithPassword({ email, password });
+                if (!signInErr && signInData?.session) { enterApp(); return; }
+
                 const successDiv = document.getElementById('auth-success-message');
                 if (successDiv) {
-                    successDiv.innerHTML = `<i class="fa-solid fa-envelope-circle-check" style="margin-bottom:8px;font-size:1.5rem;color:#16a34a;display:block;"></i>Account created! Check your email to confirm, then sign in.`;
+                    successDiv.innerHTML = `<i class="fa-solid fa-circle-info" style="margin-bottom:8px;font-size:1.5rem;color:#2563eb;display:block;"></i>Account created, but instant sign-in isn't enabled yet. An admin needs to set the free-signup key, or turn off email confirmation in the auth settings.`;
                     successDiv.style.display = 'block';
                 }
                 return;

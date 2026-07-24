@@ -37,6 +37,20 @@ const json = (statusCode, obj) => ({ statusCode, headers: CORS, body: JSON.strin
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
+
+  // Health check: GET the URL in a browser to confirm the function is deployed
+  // and whether it can see the service-role key. Never returns the key itself.
+  if (event.httpMethod === 'GET') {
+    return json(200, {
+      ok: true,
+      configured: Boolean(SERVICE_ROLE),
+      supabaseUrl: SUPABASE_URL,
+      hint: SERVICE_ROLE
+        ? 'Ready: SUPABASE_SERVICE_ROLE_KEY is set for this deploy.'
+        : 'SUPABASE_SERVICE_ROLE_KEY is NOT visible to this deploy — set it in Netlify and redeploy (check the context: Production vs Deploy Previews vs Branch deploys).',
+    });
+  }
+
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
 
   // Not configured → tell the client to use its fallback path.
