@@ -121,6 +121,13 @@ export const ProfileUI = {
     // profile banner. Resolved from `profiles.is_pro` on open, optimistic until
     // then so a paying pilot never flashes a locked UI on a slow fetch.
     _isPro: true,
+
+    // Virtual Airlines the pilot flies for (Pro profile badges) + resolved
+    // airport coordinates for the flight-map route overlay.
+    _userVAs: null,
+    _userVAsLoaded: false,
+    _airportCoords: {},
+
     // Store live IF data
     _ifData: {
         loading: false,
@@ -725,6 +732,12 @@ init(supabaseClient) {
         if (typeof user?.isPro === 'boolean')                     this._isPro = user.isPro;
         else if (typeof user?.user_metadata?.is_pro === 'boolean') this._isPro = user.user_metadata.is_pro;
 
+        // Reset per-account derived data so a different pilot never sees stale
+        // VA badges or cached airport coords from the previous session.
+        this._userVAs = null;
+        this._userVAsLoaded = false;
+        this._airportCoords = {};
+
         if (!this._injected) {
             this._inject();
             this._injected = true;
@@ -749,6 +762,7 @@ init(supabaseClient) {
         this._editingFlightId = null; // Reset edit state
         this._render();
         this._fetchProStatus();
+        this._fetchUserVAs();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
@@ -1353,6 +1367,9 @@ if (type === 'flights') {
             if (nextPro === this._isPro) return;
 
             this._isPro = nextPro;
+
+            // Became Pro after load → pull the VA badges we skipped at open.
+            if (this._isPro && !this._userVAsLoaded) this._fetchUserVAs();
 
             // Entitlement changed under us — a locked pilot may be sitting on a
             // now-forbidden tab, and the banner/dock/settings all need refreshing.
@@ -2615,7 +2632,7 @@ _generateAirspaceHTML() {
         });
         const anyVisited = visited.size > 0;
 
-        const CW = 7;
+        const CW = WORLD_MAP.cell || 7;
         const w = WORLD_MAP.cols * CW;
         const h = WORLD_MAP.rows * CW;
         const dots = WORLD_MAP.cells.map(([x, y, c]) => {
@@ -2623,7 +2640,149 @@ _generateAirspaceHTML() {
             return `<rect x="${(x * CW).toFixed(1)}" y="${(y * CW).toFixed(1)}" width="${CW - 1.4}" height="${CW - 1.4}" rx="1.3" class="${on ? 'pfm-on' : 'pfm-off'}"/>`;
         }).join('');
 
-        return `<svg class="pui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of regions you have flown to">${dots}</svg>`;
+        // Routes drawn from real airport coordinates are injected async into the
+        // overlay group by _hydrateFlightMap() (coords resolve from the backend).
+        return `<svg class="pui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map connecting the cities you have flown to">${dots}<g class="pui-fm-routes" id="pui-fm-routes"></g></svg>`;
+    },
+
+    /** Equirectangular projection matching WORLD_MAP's grid, in SVG units. */
+    _projectLatLon(lat, lon) {
+        const CW = WORLD_MAP.cell || 7;
+        const x = (lon - WORLD_MAP.lonMin) / (WORLD_MAP.lonMax - WORLD_MAP.lonMin) * WORLD_MAP.cols * CW;
+        const y = (WORLD_MAP.latMax - lat) / (WORLD_MAP.latMax - WORLD_MAP.latMin) * WORLD_MAP.rows * CW;
+        return [x, y];
+    },
+
+    /** Resolve airport coordinates from the backend, cached across renders. */
+    async _resolveAirportCoords(icaos) {
+        if (!this._airportCoords) this._airportCoords = {};
+        const need = [...new Set(icaos)].filter(i => i && this._airportCoords[i] === undefined);
+        await Promise.all(need.map(async (icao) => {
+            try {
+                const r = await fetch(`${this._backendUrl}/api/airport/${encodeURIComponent(icao)}`);
+                if (r.ok) {
+                    const j = await r.json();
+                    this._airportCoords[icao] = (typeof j.latitude === 'number' && typeof j.longitude === 'number')
+                        ? [j.latitude, j.longitude] : null;
+                } else {
+                    this._airportCoords[icao] = null;
+                }
+            } catch (_) { this._airportCoords[icao] = null; }
+        }));
+    },
+
+    /**
+     * Fill the flight-map overlay with the pilot's route network — a dot at
+     * every city flown to and a line for every leg between them, projected onto
+     * the dot-grid world map. Runs after the dashboard renders; coordinates are
+     * fetched once and cached so subsequent renders are instant.
+     */
+    async _hydrateFlightMap() {
+        const lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+        if (!lb.length) return;
+
+        const legs = [];
+        const icaos = new Set();
+        lb.forEach(f => {
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+            if (dep && arr && dep !== arr) { legs.push([dep, arr]); icaos.add(dep); icaos.add(arr); }
+        });
+        if (!legs.length) return;
+
+        await this._resolveAirportCoords([...icaos]);
+
+        const g = document.getElementById('pui-fm-routes');
+        if (!g) return; // tab changed while resolving
+
+        // De-duplicate legs so a heavily-flown route isn't drawn many times.
+        const seenLeg = new Set();
+        let lines = '';
+        const cityPts = {};
+        legs.forEach(([dep, arr]) => {
+            const a = this._airportCoords[dep];
+            const b = this._airportCoords[arr];
+            if (!a || !b) return;
+            const [x1, y1] = this._projectLatLon(a[0], a[1]);
+            const [x2, y2] = this._projectLatLon(b[0], b[1]);
+            cityPts[dep] = [x1, y1];
+            cityPts[arr] = [x2, y2];
+            const key = dep < arr ? dep + arr : arr + dep;
+            if (seenLeg.has(key)) return;
+            seenLeg.add(key);
+            lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="pui-fm-line"/>`;
+        });
+
+        const dotsSvg = Object.values(cityPts)
+            .map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="pui-fm-city"/>`)
+            .join('');
+
+        g.innerHTML = lines + dotsSvg;
+    },
+
+    /**
+     * "Your Virtual Airlines" — badge row of the VAs a Pro pilot flies for,
+     * with each VA's logo, banner and their role/hours. Pro-only; free accounts
+     * and pilots not in any VA render nothing.
+     */
+    _getVASectionHTML() {
+        if (!this._isPro) return '';
+        const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
+        if (vas === null && this._ifData && this._currentUser?.user_metadata?.if_username) {
+            // Still loading — reserve the section with a subtle skeleton.
+            return `
+                <section class="pui-card pui-va-card">
+                    <div class="pui-card-eyebrow">Your Virtual Airlines</div>
+                    <div class="pui-va-grid">
+                        <div class="pui-skeleton" style="height:76px;border-radius:14px;"></div>
+                        <div class="pui-skeleton" style="height:76px;border-radius:14px;"></div>
+                    </div>
+                </section>`;
+        }
+        if (!vas || !vas.length) return '';
+
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        const cards = vas.map(v => {
+            const accent = /^#?[0-9a-fA-F]{3,8}$/.test(v.accent || '') ? (v.accent[0] === '#' ? v.accent : '#' + v.accent) : 'var(--pui-accent)';
+            const banner = v.banner ? `background-image:linear-gradient(90deg, rgba(0,0,0,0.6), rgba(0,0,0,0.15)), url('${String(v.banner).replace(/'/g, '&apos;')}');` : `background:linear-gradient(120deg, ${accent}22, transparent);`;
+            const logo = v.logo
+                ? `<span class="pui-va-logo" style="background-image:url('${String(v.logo).replace(/'/g, '&apos;')}');"></span>`
+                : `<span class="pui-va-logo pui-va-logo-fallback" style="border-color:${accent};color:${accent};">${esc((v.code || v.name || '?').slice(0, 2).toUpperCase())}</span>`;
+            const meta = [v.role, v.callsign, v.hours ? `${Math.round(v.hours)}h` : ''].filter(Boolean).map(esc).join(' · ');
+            const href = v.slug ? `/crew/${encodeURIComponent(v.slug)}` : (v.website || '');
+            const open = href ? `data-va-href="${esc(href)}"` : '';
+            return `
+                <button type="button" class="pui-va-badge" ${open} title="${esc(v.name)}" style="--va-accent:${accent};">
+                    <span class="pui-va-banner" style="${banner}"></span>
+                    ${logo}
+                    <span class="pui-va-info">
+                        <span class="pui-va-name">${esc(v.name)}${v.code ? ` <em>${esc(v.code)}</em>` : ''}</span>
+                        ${meta ? `<span class="pui-va-meta">${meta}</span>` : ''}
+                    </span>
+                </button>`;
+        }).join('');
+
+        return `
+            <section class="pui-card pui-va-card">
+                <div class="pui-card-eyebrow">Your Virtual Airlines</div>
+                <div class="pui-va-grid">${cards}</div>
+            </section>`;
+    },
+
+    /** Fetch the VAs this pilot flies for (Pro only). */
+    async _fetchUserVAs() {
+        const ifc = this._currentUser?.user_metadata?.if_username;
+        if (!this._isPro || !ifc) { this._userVAs = []; return; }
+        if (this._userVAsLoaded && Array.isArray(this._userVAs)) return;
+        try {
+            const r = await fetch(`${this._backendUrl}/api/pilot/vas?ifc=${encodeURIComponent(ifc)}`);
+            const j = r.ok ? await r.json() : {};
+            this._userVAs = Array.isArray(j.vas) ? j.vas : [];
+        } catch (_) {
+            this._userVAs = [];
+        }
+        this._userVAsLoaded = true;
+        if (this._isOpen && this._activeTab === 'dashboard') this._renderContentOnly();
     },
 
     /** Small inline "Pro only" lock used for individual settings controls. */
@@ -3153,6 +3312,8 @@ _getTabContentHTML() {
                         <div class="pui-flightmap">${this._getFlightMapHTML()}</div>
                     </section>
                 </div>
+
+                ${this._getVASectionHTML()}
 
                 <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
                     <section class="pui-card pui-home-recent">
@@ -3869,6 +4030,9 @@ _showCancellationModal() {
     },
 
 _attachContentListeners() {
+        // Paint the flight-map route overlay once its airport coords resolve.
+        if (this._activeTab === 'dashboard') this._hydrateFlightMap();
+
         // ─── Delegated drill-down handler ─────────────────────────────────
         // Any element with data-drill="<type>" inside the content area opens
         // the corresponding detail modal. payload reads from sibling data-*
@@ -3887,6 +4051,15 @@ const contentRoot = document.getElementById('pui-content');
                         callsign: drillTarget.dataset.callsign,
                     };
                     this._showDrillDown(type, payload);
+                    return;
+                }
+
+                // 1b. Open a Virtual Airline's crew center from its profile badge
+                const vaTarget = e.target.closest('[data-va-href]');
+                if (vaTarget && contentRoot.contains(vaTarget)) {
+                    e.stopPropagation();
+                    const href = vaTarget.dataset.vaHref;
+                    if (href) { const w = window.open(href, '_blank', 'noopener'); if (!w) window.location.assign(href); }
                     return;
                 }
 
@@ -6252,6 +6425,61 @@ const contentRoot = document.getElementById('pui-content');
             .pui-flightmap-svg { width: 100%; height: auto; max-height: 260px; display: block; }
             .pfm-off { fill: #24405a; }
             .pfm-on  { fill: #4a9fe0; }
+            .pui-fm-line { stroke: #6cc4ff; stroke-width: 0.9; stroke-opacity: 0.55; fill: none; stroke-linecap: round; }
+            .pui-fm-city { fill: #eaf6ff; stroke: #4a9fe0; stroke-width: 0.8; }
+
+            /* ─── Your Virtual Airlines (Pro badges) ───────────────────────── */
+            .pui-va-card { padding: 20px var(--pui-pad-card); margin-bottom: var(--pui-gap-md); }
+            .pui-va-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                gap: 12px;
+                margin-top: 4px;
+            }
+            .pui-va-badge {
+                position: relative;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 14px;
+                border: 1px solid var(--pui-border);
+                border-radius: 14px;
+                background: var(--pui-bg-surface);
+                cursor: pointer;
+                overflow: hidden;
+                text-align: left;
+                transition: border-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-va-badge:hover { border-color: var(--va-accent, var(--pui-accent)); transform: translateY(-2px); }
+            .pui-va-banner {
+                position: absolute; inset: 0;
+                background-size: cover; background-position: center;
+                opacity: 0.16;
+                pointer-events: none;
+            }
+            .pui-va-logo {
+                position: relative;
+                width: 46px; height: 46px;
+                flex-shrink: 0;
+                border-radius: 12px;
+                background-size: cover; background-position: center;
+                background-color: #fff;
+                border: 1px solid var(--pui-border);
+            }
+            .pui-va-logo-fallback {
+                display: grid; place-items: center;
+                background: var(--pui-bg-card);
+                border: 2px solid var(--pui-accent);
+                font-family: var(--pui-font-mono);
+                font-weight: 800; font-size: 0.9rem;
+            }
+            .pui-va-info { position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pui-va-name {
+                font-size: 0.9rem; font-weight: 700; color: var(--pui-text-primary);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pui-va-name em { font-style: normal; font-family: var(--pui-font-mono); font-size: 0.72rem; color: var(--pui-text-secondary); font-weight: 600; }
+            .pui-va-meta { font-size: 0.72rem; color: var(--pui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
             /* ─── Dock lock badge (free accounts) ──────────────────────────── */
             .pui-dock-item-locked { opacity: 0.72; }

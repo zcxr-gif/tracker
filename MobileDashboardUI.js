@@ -52,6 +52,10 @@ export const MobileDashboardUI = {
     // never flashes a locked UI. Mirrors the desktop ProfileUI behaviour.
     _isPro:             true,
     _PRO_ONLY_TABS:     ['fleet', 'airspace-intel', 'flight-plan', 'watchlist'],
+    // VA profile badges + resolved airport coords for the flight-map routes.
+    _userVAs:           null,
+    _userVAsLoaded:     false,
+    _airportCoords:     {},
     // Community aircraft catalog (/api/aircraft) — any aircraft as a banner.
     _aircraftCatalog: null,
     _aircraftCatalogPromise: null,
@@ -263,6 +267,11 @@ init(supabaseClient) {
         if (typeof user?.isPro === 'boolean')                      this._isPro = user.isPro;
         else if (typeof user?.user_metadata?.is_pro === 'boolean') this._isPro = user.user_metadata.is_pro;
 
+        // Reset per-account derived data (VA badges, cached airport coords).
+        this._userVAs = null;
+        this._userVAsLoaded = false;
+        this._airportCoords = {};
+
         if (!this._injected) {
             this._injectStyles();
             this._injectShell();
@@ -280,6 +289,7 @@ init(supabaseClient) {
         this._editingFlightId = null;
         this._render();
         this._fetchProStatus();
+        this._fetchUserVAs();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
@@ -429,6 +439,8 @@ init(supabaseClient) {
             else                            nextPro = this._isPro;
             if (nextPro === this._isPro) return;
             this._isPro = nextPro;
+
+            if (this._isPro && !this._userVAsLoaded) this._fetchUserVAs();
 
             if (this._isOpen) {
                 if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
@@ -742,7 +754,10 @@ init(supabaseClient) {
         this._attachListeners();
         this._syncBadgeCount();
 
-        if (this._activeTab === 'dashboard') this._updateLiveBanner();
+        if (this._activeTab === 'dashboard') {
+            this._updateLiveBanner();
+            this._hydrateFlightMap();
+        }
     },
 
     _navTitle() {
@@ -1077,6 +1092,8 @@ init(supabaseClient) {
                     <h3 class="mdui-showcard-title">Your Flight Map</h3>
                     <div class="mdui-flightmap">${this._getFlightMapHTML()}</div>
                 </section>
+
+                ${this._getVASectionHTML()}
 
                 <section class="mdui-section">
                     <div class="mdui-section-title">Next Departure</div>
@@ -1752,12 +1769,101 @@ init(supabaseClient) {
             });
         });
         const anyVisited = visited.size > 0;
-        const CW = 7, w = WORLD_MAP.cols * CW, h = WORLD_MAP.rows * CW;
+        const CW = WORLD_MAP.cell || 7, w = WORLD_MAP.cols * CW, h = WORLD_MAP.rows * CW;
         const dots = WORLD_MAP.cells.map(([x, y, c]) => {
             const on = anyVisited && visited.has(c);
             return `<rect x="${(x * CW).toFixed(1)}" y="${(y * CW).toFixed(1)}" width="${CW - 1.4}" height="${CW - 1.4}" rx="1.3" class="${on ? 'mdui-pfm-on' : 'mdui-pfm-off'}"/>`;
         }).join('');
-        return `<svg class="mdui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of regions you have flown to">${dots}</svg>`;
+        return `<svg class="mdui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map connecting the cities you have flown to">${dots}<g id="mdui-fm-routes"></g></svg>`;
+    },
+
+    _projectLatLon(lat, lon) {
+        const CW = WORLD_MAP.cell || 7;
+        const x = (lon - WORLD_MAP.lonMin) / (WORLD_MAP.lonMax - WORLD_MAP.lonMin) * WORLD_MAP.cols * CW;
+        const y = (WORLD_MAP.latMax - lat) / (WORLD_MAP.latMax - WORLD_MAP.latMin) * WORLD_MAP.rows * CW;
+        return [x, y];
+    },
+
+    async _resolveAirportCoords(icaos) {
+        if (!this._airportCoords) this._airportCoords = {};
+        const need = [...new Set(icaos)].filter(i => i && this._airportCoords[i] === undefined);
+        await Promise.all(need.map(async (icao) => {
+            try {
+                const r = await fetch(`${this._backendUrl}/api/airport/${encodeURIComponent(icao)}`);
+                if (r.ok) { const j = await r.json(); this._airportCoords[icao] = (typeof j.latitude === 'number' && typeof j.longitude === 'number') ? [j.latitude, j.longitude] : null; }
+                else this._airportCoords[icao] = null;
+            } catch (_) { this._airportCoords[icao] = null; }
+        }));
+    },
+
+    async _hydrateFlightMap() {
+        const lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+        if (!lb.length) return;
+        const legs = [], icaos = new Set();
+        lb.forEach(f => {
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+            if (dep && arr && dep !== arr) { legs.push([dep, arr]); icaos.add(dep); icaos.add(arr); }
+        });
+        if (!legs.length) return;
+        await this._resolveAirportCoords([...icaos]);
+        const g = document.getElementById('mdui-fm-routes');
+        if (!g) return;
+        const seen = new Set(); let lines = ''; const pts = {};
+        legs.forEach(([dep, arr]) => {
+            const a = this._airportCoords[dep], b = this._airportCoords[arr];
+            if (!a || !b) return;
+            const [x1, y1] = this._projectLatLon(a[0], a[1]);
+            const [x2, y2] = this._projectLatLon(b[0], b[1]);
+            pts[dep] = [x1, y1]; pts[arr] = [x2, y2];
+            const key = dep < arr ? dep + arr : arr + dep;
+            if (seen.has(key)) return; seen.add(key);
+            lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="mdui-fm-line"/>`;
+        });
+        g.innerHTML = lines + Object.values(pts).map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="mdui-fm-city"/>`).join('');
+    },
+
+    async _fetchUserVAs() {
+        const ifc = this._currentUser?.user_metadata?.if_username;
+        if (!this._isPro || !ifc) { this._userVAs = []; return; }
+        if (this._userVAsLoaded && Array.isArray(this._userVAs)) return;
+        try {
+            const r = await fetch(`${this._backendUrl}/api/pilot/vas?ifc=${encodeURIComponent(ifc)}`);
+            const j = r.ok ? await r.json() : {};
+            this._userVAs = Array.isArray(j.vas) ? j.vas : [];
+        } catch (_) { this._userVAs = []; }
+        this._userVAsLoaded = true;
+        if (this._isOpen && this._activeTab === 'dashboard') this._render();
+    },
+
+    _getVASectionHTML() {
+        if (!this._isPro) return '';
+        const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
+        if (!vas || !vas.length) return '';
+        const esc = (s) => this._fleetEsc(s);
+        const cards = vas.map(v => {
+            const accent = /^#?[0-9a-fA-F]{3,8}$/.test(v.accent || '') ? (v.accent[0] === '#' ? v.accent : '#' + v.accent) : 'var(--mdui-accent)';
+            const banner = v.banner ? `background-image:linear-gradient(90deg, rgba(0,0,0,0.6), rgba(0,0,0,0.15)), url('${String(v.banner).replace(/'/g, '&apos;')}');` : `background:linear-gradient(120deg, ${accent}22, transparent);`;
+            const logo = v.logo
+                ? `<span class="mdui-va-logo" style="background-image:url('${String(v.logo).replace(/'/g, '&apos;')}')"></span>`
+                : `<span class="mdui-va-logo mdui-va-logo-fallback" style="border-color:${accent};color:${accent}">${esc((v.code || v.name || '?').slice(0, 2).toUpperCase())}</span>`;
+            const meta = [v.role, v.callsign, v.hours ? `${Math.round(v.hours)}h` : ''].filter(Boolean).map(esc).join(' · ');
+            const href = v.slug ? `/crew/${encodeURIComponent(v.slug)}` : (v.website || '');
+            return `
+                <button type="button" class="mdui-va-badge" ${href ? `data-va-href="${esc(href)}"` : ''} style="--va-accent:${accent}">
+                    <span class="mdui-va-banner" style="${banner}"></span>
+                    ${logo}
+                    <span class="mdui-va-info">
+                        <span class="mdui-va-name">${esc(v.name)}${v.code ? ` <em>${esc(v.code)}</em>` : ''}</span>
+                        ${meta ? `<span class="mdui-va-meta">${meta}</span>` : ''}
+                    </span>
+                </button>`;
+        }).join('');
+        return `
+            <section class="mdui-showcard mdui-va-section">
+                <h3 class="mdui-showcard-title">Your Virtual Airlines</h3>
+                <div class="mdui-va-grid">${cards}</div>
+            </section>`;
     },
 
     /** Resolves a human-readable aircraft name from API UUIDs. */
@@ -3156,6 +3262,15 @@ _attachListeners() {
                 this._startProUpgrade(upgradeBtn);
                 return;
             }
+
+            // 4. Open a VA's crew center from its profile badge
+            const vaTarget = e.target.closest('[data-va-href]');
+            if (vaTarget && contentRoot.contains(vaTarget)) {
+                e.stopPropagation();
+                const href = vaTarget.dataset.vaHref;
+                if (href) { const w = window.open(href, '_blank', 'noopener'); if (!w) window.location.assign(href); }
+                return;
+            }
         });
     }
 
@@ -4467,6 +4582,34 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-flightmap-svg { width: 100%; height: auto; max-height: 220px; display: block; }
             .mdui-pfm-off { fill: #24405a; }
             .mdui-pfm-on  { fill: #4a9fe0; }
+            .mdui-fm-line { stroke: #6cc4ff; stroke-width: 0.9; stroke-opacity: 0.55; fill: none; stroke-linecap: round; }
+            .mdui-fm-city { fill: #eaf6ff; stroke: #4a9fe0; stroke-width: 0.8; }
+
+            /* Your Virtual Airlines (Pro badges) */
+            .mdui-va-section { padding: 20px 22px; }
+            .mdui-va-grid { display: flex; flex-direction: column; gap: 10px; }
+            .mdui-va-badge {
+                position: relative; display: flex; align-items: center; gap: 12px;
+                padding: 11px 13px; border-radius: 14px; overflow: hidden;
+                background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+                text-align: left; color: #fff;
+            }
+            .mdui-va-badge:active { transform: scale(0.98); }
+            .mdui-va-banner { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0.2; }
+            .mdui-va-logo {
+                position: relative; width: 44px; height: 44px; flex-shrink: 0;
+                border-radius: 11px; background-size: cover; background-position: center;
+                background-color: #fff; border: 1px solid rgba(255,255,255,0.15);
+            }
+            .mdui-va-logo-fallback {
+                display: grid; place-items: center; background: #0b0b0d;
+                border: 2px solid var(--va-accent, #4a9fe0);
+                font-family: var(--mdui-font-mono); font-weight: 800; font-size: 15px;
+            }
+            .mdui-va-info { position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .mdui-va-name { font-size: 15px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-va-name em { font-style: normal; font-family: var(--mdui-font-mono); font-size: 11px; color: rgba(255,255,255,0.55); font-weight: 600; }
+            .mdui-va-meta { font-size: 12px; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
             /* Banner preview + aircraft picker (settings) */
             .mdui-banner-preview {
