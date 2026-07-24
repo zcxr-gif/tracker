@@ -6124,26 +6124,43 @@ function injectCustomStyles() {
 .pilot-routes-bar .prb-btn.on { background: #38bdf8; color: #08131c; border-color: #38bdf8; }
 .pilot-routes-bar .prb-close { padding: 7px 10px; }
 
-/* Per-airport history card */
+/* Per-airport history — a bottom sheet that slides up and covers the chrome,
+   like the flight info window. A dim scrim fills the rest of the screen. */
 .pilot-airport-card {
-    position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%);
-    z-index: 41; width: min(420px, 92vw);
-    border-radius: 16px; border: 1px solid rgba(56,189,248,0.3);
-    background: rgba(10,15,22,0.96); backdrop-filter: blur(10px);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 16px 16px 14px; color: #fff;
+    position: fixed; inset: 0; z-index: 100000;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: rgba(0,0,0,0);
+    transition: background 0.4s ease;
+    pointer-events: auto;
 }
-.pac-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
-.pac-icao { display: block; font-size: 1.3rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; }
-.pac-name { display: block; font-size: 0.78rem; color: #94a3b8; margin-top: 2px; }
-.pac-close { background: none; border: none; color: #94a3b8; font-size: 1.05rem; cursor: pointer; }
-.pac-close:hover { color: #fff; }
+.pilot-airport-card.open { background: rgba(0,0,0,0.55); }
+.pilot-airport-card .pac-inner {
+    width: 100%; max-width: 560px; margin: 0 auto;
+    background: #0b1017; border-top: 1px solid rgba(56,189,248,0.25);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -12px 40px rgba(0,0,0,0.5);
+    padding: 6px 20px calc(env(safe-area-inset-bottom) + 22px);
+    color: #fff;
+    transform: translateY(110%);
+    transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pilot-airport-card.open .pac-inner { transform: translateY(0); }
+.pilot-airport-card .pac-grabber {
+    width: 40px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.25);
+    margin: 8px auto 6px;
+}
+.pac-head { display: flex; align-items: flex-start; justify-content: space-between; margin: 8px 0 16px; }
+.pac-icao { display: block; font-size: 1.5rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; }
+.pac-name { display: block; font-size: 0.82rem; color: #94a3b8; margin-top: 2px; }
+.pac-close { background: rgba(255,255,255,0.08); border: none; color: #cbd5e1; width: 34px; height: 34px; border-radius: 999px; font-size: 1rem; cursor: pointer; flex-shrink: 0; }
+.pac-close:hover { color: #fff; background: rgba(255,255,255,0.16); }
 .pac-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.pac-tile { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,0.05); border-radius: 12px; padding: 11px 12px; }
-.pac-val { font-size: 1.05rem; font-weight: 800; color: #fff; }
-.pac-lbl { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
-.pac-fav { margin-top: 12px; font-size: 0.78rem; color: #94a3b8; }
+.pac-tile { display: flex; flex-direction: column; gap: 3px; background: rgba(255,255,255,0.05); border-radius: 14px; padding: 14px 14px; }
+.pac-val { font-size: 1.2rem; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.pac-lbl { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
+.pac-fav { margin-top: 14px; font-size: 0.82rem; color: #94a3b8; }
 .pac-fav strong { color: #e0f2fe; }
-@media (max-width: 480px) { .pac-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .pac-grid { grid-template-columns: repeat(2, 1fr); } .pac-val { font-size: 1.15rem; } }
 
 /* --- CONTROLLER SPICE THEMES --- */
 
@@ -22304,17 +22321,18 @@ function renderPilotStatsHTML(stats, username) {
         }
     }
 
-    // A great-circle arc between two points as an array of [lon,lat] segments,
-    // split where it crosses the antimeridian so Mapbox draws it cleanly.
+    // A great-circle arc between two points as a single [lon,lat] path with
+    // longitudes UNWRAPPED (kept continuous past ±180) so an elevated line domes
+    // as one arc and never stretches across the globe at the antimeridian.
     function buildPilotArc(lat1, lon1, lat2, lon2) {
-        const N = 64, segs = []; let cur = [], prevLon = null;
+        const N = 96, path = []; let prevLon = null;
         for (let i = 0; i <= N; i++) {
             const p = getIntermediatePoint(lat1, lon1, lat2, lon2, i / N);
-            if (prevLon !== null && Math.abs(p.lon - prevLon) > 180) { if (cur.length >= 2) segs.push(cur); cur = []; }
-            cur.push([p.lon, p.lat]); prevLon = p.lon;
+            let lon = p.lon;
+            if (prevLon !== null) { while (lon - prevLon > 180) lon -= 360; while (lon - prevLon < -180) lon += 360; }
+            path.push([lon, p.lat]); prevLon = lon;
         }
-        if (cur.length >= 2) segs.push(cur);
-        return segs;
+        return path;
     }
 
     let _pilotRoutesState = null; // { username, flights, aircraftHidden }
@@ -22405,9 +22423,12 @@ function renderPilotStatsHTML(stats, username) {
             const COLORS = ['#38bdf8', '#f472b6', '#facc15', '#4ade80', '#a78bfa', '#fb923c', '#f87171', '#22d3ee'];
             const lineFeatures = []; const airportMap = new Map();
             legs.forEach((leg, i) => {
-                buildPilotArc(leg.a[1], leg.a[0], leg.b[1], leg.b[0]).forEach(seg => {
-                    if (seg.length >= 2) lineFeatures.push({ type: 'Feature', properties: { color: COLORS[i % COLORS.length] }, geometry: { type: 'LineString', coordinates: seg } });
-                });
+                const path = buildPilotArc(leg.a[1], leg.a[0], leg.b[1], leg.b[0]);
+                if (path.length < 2) return;
+                // Peak arc height scales with leg length so long-hauls rise higher.
+                const distKm = getDistanceKm(leg.a[1], leg.a[0], leg.b[1], leg.b[0]);
+                const peak = Math.max(80000, Math.min(900000, distKm * 55));
+                lineFeatures.push({ type: 'Feature', properties: { color: COLORS[i % COLORS.length], peak }, geometry: { type: 'LineString', coordinates: path } });
                 airportMap.set(leg.dep, leg.a); airportMap.set(leg.arr, leg.b);
             });
             const airportFeatures = [...airportMap.entries()].map(([icao, c]) => ({ type: 'Feature', properties: { icao }, geometry: { type: 'Point', coordinates: c } }));
@@ -22416,8 +22437,24 @@ function renderPilotStatsHTML(stats, username) {
 
             clearPilotRoutesOnMap();
             _pilotRoutesState = { username, flights };
-            sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
-            sectorOpsMap.addLayer({ id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
+            // lineMetrics enables ['line-progress'] for the elevated dome profile.
+            sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', lineMetrics: true, data: { type: 'FeatureCollection', features: lineFeatures } });
+            // Elevated 3D arcs: each line rises from the origin, peaks mid-route
+            // and drops into the destination (sin profile × per-leg peak height).
+            // Falls back to a flat line if the runtime doesn't support z-offset.
+            try {
+                sectorOpsMap.addLayer({
+                    id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src',
+                    layout: {
+                        'line-cap': 'round', 'line-join': 'round',
+                        'line-z-offset': ['*', ['get', 'peak'], ['sin', ['*', Math.PI, ['line-progress']]]],
+                        'line-elevation-reference': 'sea',
+                    },
+                    paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.95, 'line-emissive-strength': 1 },
+                });
+            } catch (_) {
+                sectorOpsMap.addLayer({ id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
+            }
             sectorOpsMap.addSource('pilot-routes-air-src', { type: 'geojson', data: { type: 'FeatureCollection', features: airportFeatures } });
             sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
 
@@ -22545,29 +22582,33 @@ function renderPilotStatsHTML(stats, username) {
         const name = A && A.name ? A.name : icao;
 
         document.getElementById('pilot-airport-card')?.remove();
-        const wrap = document.getElementById('sector-ops-map-fullscreen');
-        if (!wrap) return;
         const card = document.createElement('div');
         card.id = 'pilot-airport-card';
         card.className = 'pilot-airport-card';
         const tile = (label, value) => `<div class="pac-tile"><span class="pac-val">${value}</span><span class="pac-lbl">${label}</span></div>`;
         card.innerHTML = `
-            <div class="pac-head">
-                <div><span class="pac-icao">${esc(icao)}</span><span class="pac-name">${esc(name)}</span></div>
-                <button type="button" class="pac-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            <div class="pac-inner">
+                <div class="pac-grabber"></div>
+                <div class="pac-head">
+                    <div><span class="pac-icao">${esc(icao)}</span><span class="pac-name">${esc(name)}</span></div>
+                    <button type="button" class="pac-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="pac-grid">
+                    ${tile('Visits', nf(visits))}
+                    ${tile('Landings', nf(landings))}
+                    ${tile('Time', nf(timeMin / 60) + 'h')}
+                    ${tile('Est. fuel', nf(fuelKg / 1000) + 't')}
+                    ${tile('Prefers', esc(haulLabel))}
+                    ${tile('Usually flies', esc(sizePref))}
+                </div>
+                ${topAc !== '—' ? `<div class="pac-fav">Most flown here · <strong>${esc(topAc)}</strong></div>` : ''}
             </div>
-            <div class="pac-grid">
-                ${tile('Visits', nf(visits))}
-                ${tile('Landings', nf(landings))}
-                ${tile('Time', nf(timeMin / 60) + 'h')}
-                ${tile('Est. fuel', nf(fuelKg / 1000) + 't')}
-                ${tile('Prefers', esc(haulLabel))}
-                ${tile('Usually flies', esc(sizePref))}
-            </div>
-            ${topAc !== '—' ? `<div class="pac-fav">Most flown here · <strong>${esc(topAc)}</strong></div>` : ''}
         `;
-        wrap.appendChild(card);
-        card.querySelector('.pac-close').addEventListener('click', () => card.remove());
+        document.body.appendChild(card);
+        const closeCard = () => { card.classList.remove('open'); setTimeout(() => card.remove(), 420); };
+        card.querySelector('.pac-close').addEventListener('click', closeCard);
+        card.addEventListener('click', (e) => { if (e.target === card) closeCard(); });
+        requestAnimationFrame(() => card.classList.add('open'));
     }
 
 
