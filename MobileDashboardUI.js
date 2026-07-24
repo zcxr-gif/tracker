@@ -4649,13 +4649,14 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                     radial-gradient(120% 130% at 0% 0%, var(--mdui-accent-soft) 0%, rgba(0,0,0,0) 60%),
                     linear-gradient(135deg, var(--mdui-surface) 0%, transparent 100%);
             }
+            /* Left scrim keeps the greeting readable over the banner image.
+               Light by default; the real dark-theme selector overrides it. */
             .mdui-home-hero-v2.has-image::before {
                 content: ''; position: absolute; inset: 0;
-                background: linear-gradient(90deg, var(--mdui-bg, #000) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0) 82%);
+                background: linear-gradient(90deg, #f4f4f6 0%, rgba(244,244,246,0.72) 40%, rgba(244,244,246,0) 82%);
             }
-            .mdui-wrap-light .mdui-home-hero-v2.has-image::before,
-            :root:not([data-theme="dark"]) .mdui-home-hero-v2.has-image::before {
-                background: linear-gradient(90deg, #ffffff 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0) 82%);
+            #mdui-shell[data-theme="dark"] .mdui-home-hero-v2.has-image::before {
+                background: linear-gradient(90deg, #0a0a0c 0%, rgba(10,10,12,0.72) 40%, rgba(10,10,12,0) 82%);
             }
             .mdui-home-hero-inner { position: relative; z-index: 1; }
             .mdui-home-hello {

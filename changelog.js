@@ -24,6 +24,46 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.10',
+            date: 'July 2026',
+            title: 'Free Accounts & a Profile Worth Showing Off',
+            tagline: 'Start flying with InFlight for free — no card needed — and a redesigned profile that maps every city you’ve flown to, badges the Virtual Airlines you fly for, and tallies your whole career down to the fuel you’ve burned.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-user-plus',
+                    text: 'Free accounts — create an account in seconds with no payment and jump straight into the app. You keep your dashboard, dossier stats and settings; Pro unlocks the flagship tools whenever you’re ready.'
+                },
+                {
+                    tag: 'new', icon: 'fa-id-badge',
+                    text: 'A redesigned profile — a big “Hello, <you>” banner (a plane of your choice for Pro pilots, a clean look for everyone else), your most-used aircraft, and cards that finally feel like yours.'
+                },
+                {
+                    tag: 'new', icon: 'fa-earth-americas',
+                    text: 'Your Flight Map — a world map that connects every city you’ve flown to, drawn straight from your logbook and lighting up the regions you’ve reached.'
+                },
+                {
+                    tag: 'new', icon: 'fa-shield-halved',
+                    text: 'Your Virtual Airlines — Pro pilots show off the VAs they fly for as badges: the airline’s logo and banner, your role, callsign and hours, each a tap to open its crew center.'
+                },
+                {
+                    tag: 'new', icon: 'fa-gas-pump',
+                    text: 'Lifetime Ledger — your whole career in one place: distance flown (and laps around the Earth), estimated fuel burned, hours, landings, airports and continents, longest flight and busiest route — plus a per-aircraft breakdown down to the fuel each type has burned.'
+                },
+                {
+                    tag: 'new', icon: 'fa-plane-up',
+                    text: 'Pick any aircraft as your banner — Pro pilots can set their profile banner to any aircraft in our database (searchable by type, livery or tail) or their own image.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-crown',
+                    text: 'Clearer Pro — Pro tools and settings now unlock on your actual Pro membership, with a tidy upgrade prompt on anything a free account hasn’t unlocked yet.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-lock',
+                    text: 'Pro map styles, 3D traffic, custom map layers and airport pings are properly reserved for Pro — no longer handed out just for being signed in.'
+                },
+            ],
+        },
+        {
             id: '2026.07.9',
             date: 'July 2026',
             title: 'Rewind Any Flight',

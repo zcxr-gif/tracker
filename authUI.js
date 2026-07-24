@@ -221,16 +221,17 @@ export const AuthUI = {
         if (isChoose) {
             html += `
                     <h3 class="auth-choose-title">Welcome aboard</h3>
-                    <p class="auth-choose-copy">Sign in to your account, or create a new one.</p>
+                    <p class="auth-choose-copy">Track live flights, build your logbook and make your profile — free.</p>
                 </div>
                 <div class="auth-form-body auth-choose-body">
-                    <button class="auth-submit-btn auth-choose-primary" id="auth-choose-login">
-                        <i class="fa-solid fa-right-to-bracket"></i>
-                        <span>Log In</span>
-                    </button>
-                    <button class="auth-choose-secondary" id="auth-choose-signup">
+                    <button class="auth-submit-btn auth-choose-primary" id="auth-choose-signup">
                         <i class="fa-solid fa-user-plus"></i>
-                        <span>Create Account</span>
+                        <span>Create a free account</span>
+                    </button>
+                    <p class="auth-choose-freeline"><i class="fa-solid fa-circle-check"></i> Free to start — no card needed</p>
+                    <button class="auth-choose-secondary" id="auth-choose-login">
+                        <i class="fa-solid fa-right-to-bracket"></i>
+                        <span>I already have an account</span>
                     </button>
                 </div>
             `;
@@ -444,17 +445,26 @@ export const AuthUI = {
                 <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${isSignIn ? 'Sign In' : 'Continue to Pro — $1.99/mo'}</button>
             `;
 
             if (isSignUp) {
+                // Lead with the free account; Pro is the optional upgrade below.
                 html += `
-                    <div class="auth-or-divider"><span>or</span></div>
-                    <button class="auth-choose-secondary" id="auth-free-signup-btn">
-                        <i class="fa-solid fa-user"></i>
-                        <span>Start with a free account</span>
+                    <button class="auth-submit-btn" id="auth-free-signup-btn">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Create my free account</span>
                     </button>
-                    <p class="auth-free-note">Free accounts include your dashboard, dossier stats and settings. Upgrade to Pro any time for the hangar, dispatch, airspace intel, watchlist and custom profile banners.</p>
+                    <p class="auth-choose-freeline"><i class="fa-solid fa-circle-check"></i> Free to start — no card needed</p>
+                    <div class="auth-or-divider"><span>or</span></div>
+                    <button class="auth-choose-secondary auth-submit-pro" id="auth-submit-btn">
+                        <i class="fa-solid fa-bolt"></i>
+                        <span>Go Pro — $1.99/mo</span>
+                    </button>
+                    <p class="auth-free-note">Pro adds the virtual hangar, dispatch, airspace intel, the pilot watchlist and custom profile banners. Upgrade any time.</p>
+                `;
+            } else {
+                html += `
+                    <button class="auth-submit-btn" id="auth-submit-btn">Sign In</button>
                 `;
             }
 
@@ -1371,6 +1381,17 @@ export const AuthUI = {
                 color: #64748b;
                 text-align: center;
             }
+            .auth-choose-freeline {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                margin: 10px 0 2px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: #16a34a;
+            }
+            .auth-choose-freeline i { font-size: 0.85rem; }
 
             .auth-choose-ext {
                 font-size: 0.75rem;
