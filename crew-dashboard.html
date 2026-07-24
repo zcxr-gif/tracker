@@ -516,6 +516,16 @@
                         </div>
                         <details class="mt-2"><summary class="text-xs muted cursor-pointer">View SQL</summary><pre id="sqlView" class="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap surface hair rounded-lg p-3 max-h-52 overflow-auto"></pre></details>
                     </div>
+
+                    <!-- Move data into Supabase -->
+                    <div class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2">Move your crew data over
+                            <span id="migrateBadge" class="text-[10px] normal-case tracking-normal font-semibold px-1.5 py-0.5 rounded"></span></div>
+                        <p class="text-xs muted mb-2.5">Copies your roster &amp; flight log into the tables above, then serves them from <b>your</b> project so they no longer sit in Inflight’s database. Needs a saved <b>service_role</b> key. Your data stays intact either way.</p>
+                        <label class="flex items-center gap-2 text-xs muted mb-2.5 cursor-pointer"><input id="migratePurge" type="checkbox" class="accent-[var(--accent)]"> Also free the central copy once it’s moved</label>
+                        <button id="migrateBtn" onclick="migrateToSupabase()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="database-zap" class="w-4 h-4"></i> Move to my Supabase</button>
+                        <p id="migrateNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
               </div><!-- /data -->
 
@@ -570,6 +580,7 @@
             <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="route" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Route network</span><span id="routeCount" class="text-xs muted"></span></div>
                 <div class="flex items-center gap-2">
+                    <button id="viewMapBtn" onclick="openRouteMap()" title="View the network on a map" class="surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="map" class="w-4 h-4"></i> Map</button>
                     <button id="addRouteBtn" onclick="openRouteForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
                     <button onclick="closeRoutes()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
@@ -592,6 +603,69 @@
                 <p id="routeNote" class="hidden text-sm mt-2"></p>
             </div>
             <div id="routeList" class="p-5 space-y-2.5"></div>
+        </div>
+    </div>
+
+    <!-- ============ ROUTE NETWORK MAP (full-screen) ============ -->
+    <div id="routeMap" class="hidden fixed inset-0 z-[60]" style="background:var(--bg);">
+        <!-- Map canvas fills the whole overlay; UI floats on top -->
+        <div id="rmCanvas" class="absolute inset-0"></div>
+        <div id="rmLoading" class="absolute inset-0 grid place-items-center pointer-events-none">
+            <div class="flex items-center gap-2 text-sm muted surface hair rounded-full px-4 py-2"><i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> Building your network…</div>
+        </div>
+
+        <!-- Top bar: title + live stats + close -->
+        <div class="absolute top-0 inset-x-0 z-10 pointer-events-none">
+            <div class="pointer-events-auto flex items-center gap-3 px-4 sm:px-5 h-16"
+                 style="background:linear-gradient(to bottom, color-mix(in srgb, var(--bg) 92%, transparent), transparent);">
+                <div class="flex items-center gap-2 min-w-0">
+                    <i data-lucide="waypoints" class="w-5 h-5 shrink-0"></i>
+                    <span class="font-semibold tracking-tight truncate">Route network map</span>
+                </div>
+                <div id="rmStats" class="hidden md:flex items-center gap-1.5 ml-1 flex-wrap"></div>
+                <div class="flex-1"></div>
+                <button onclick="closeRouteMap()" class="shrink-0 surface hair w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+        </div>
+
+        <!-- Controls: filters (top-left, under bar) -->
+        <div class="absolute left-4 sm:left-5 top-[4.5rem] z-10 flex flex-wrap items-center gap-2 max-w-[calc(100%-2rem)]">
+            <div class="surface hair rounded-lg flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 shadow-sm">
+                <i data-lucide="search" class="w-4 h-4 faint"></i>
+                <input id="rmSearch" placeholder="Find airport (ICAO)" maxlength="4"
+                       class="bg-transparent text-sm uppercase w-28 focus:outline-none" oninput="rmApplyFiltersDebounced()">
+            </div>
+            <select id="rmAircraft" onchange="rmApplyFilters()" class="surface hair rounded-lg px-2.5 py-1.5 text-sm shadow-sm"><option value="">All aircraft</option></select>
+            <button id="rmActiveToggle" onclick="rmToggleActive()" class="surface hair rounded-lg px-3 py-1.5 text-sm shadow-sm inline-flex items-center gap-1.5"><span id="rmActiveDot" class="w-2 h-2 rounded-full accent-bg"></span> Active only</button>
+            <button onclick="rmFitAll()" title="Fit whole network" class="surface hair rounded-lg w-9 h-9 grid place-items-center shadow-sm muted hover:text-[var(--ink)]"><i data-lucide="maximize" class="w-4 h-4"></i></button>
+        </div>
+
+        <!-- Legend (bottom-left) -->
+        <div class="absolute left-4 sm:left-5 bottom-4 z-10 surface hair rounded-lg px-3 py-2.5 text-xs shadow-sm hidden sm:block">
+            <div class="flex items-center gap-2 mb-1.5"><span class="inline-block w-6 h-0.5 rounded" style="background:var(--rm-accent,#3b82f6);"></span><span class="muted">Route</span></div>
+            <div class="flex items-center gap-2 mb-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full" style="background:var(--rm-accent,#3b82f6);"></span><span class="muted">Airport</span></div>
+            <div class="flex items-center gap-2"><span class="inline-block w-4 h-4 rounded-full border-2" style="border-color:var(--rm-accent,#3b82f6);"></span><span class="muted">Hub (busier)</span></div>
+        </div>
+
+        <!-- Detail rail (right; airport or route focus) -->
+        <div id="rmRail" class="hidden absolute right-0 top-16 bottom-0 w-full sm:w-80 z-10 surface border-l hair overflow-y-auto">
+            <div class="sticky top-0 flex items-center justify-between px-4 h-12 border-b hair" style="background:var(--surface);">
+                <span id="rmRailTitle" class="font-semibold text-sm tracking-tight truncate">Details</span>
+                <button onclick="rmClearFocus()" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <div id="rmRailBody" class="p-4 space-y-2.5"></div>
+        </div>
+
+        <!-- Floating tooltip for hovered route -->
+        <div id="rmTip" class="hidden absolute z-20 pointer-events-none surface hair rounded-lg px-3 py-2 text-xs shadow-lg"></div>
+
+        <!-- Empty / unmapped notice -->
+        <div id="rmEmpty" class="hidden absolute inset-0 grid place-items-center px-6 pointer-events-none">
+            <div class="text-center max-w-sm">
+                <div class="w-14 h-14 mx-auto rounded-2xl surface hair grid place-items-center mb-4"><i data-lucide="route-off" class="w-6 h-6 faint"></i></div>
+                <p class="font-semibold tracking-tight mb-1" id="rmEmptyTitle">No routes on the map yet</p>
+                <p class="text-sm muted" id="rmEmptyMsg">Add routes with valid ICAO airports and they'll appear here as a live network.</p>
+            </div>
         </div>
     </div>
 
@@ -1474,6 +1548,314 @@
             const c=rm.closest('[data-rid]'); if(c) removeRoute(c.getAttribute('data-rid'));
         });
 
+        /* =====================================================================
+           ROUTE NETWORK MAP — a live great-circle map of the VA's routes.
+           MapLibre GL + OpenFreeMap (free, key-less; the same engine the embed
+           uses). Data comes from GET /api/crew/:slug/route-map (routes already
+           joined to airport coordinates); if that's unreachable we fall back to a
+           small built-in coord table so the demo/offline view still draws.
+           ===================================================================== */
+        const RM_MAPLIBRE_VERSION='4.7.1';
+        const RM_STYLE={ dark:'https://tiles.openfreemap.org/styles/dark', light:'https://tiles.openfreemap.org/styles/positron' };
+        // Fallback coords (lat,lon) for common majors — only used when the backend
+        // /route-map endpoint can't be reached (offline dev / demo routes).
+        const RM_FALLBACK_COORDS={ CYYZ:[43.68,-79.63],CYVR:[49.19,-123.18],CYUL:[45.47,-73.74],EGLL:[51.47,-0.46],EGKK:[51.15,-0.19],LFPG:[49.01,2.55],EHAM:[52.31,4.76],EDDF:[50.03,8.56],LEMD:[40.47,-3.56],LIRF:[41.80,12.25],LTFM:[41.26,28.74],OMDB:[25.25,55.36],OTHH:[25.27,51.61],VHHH:[22.31,113.91],RJTT:[35.55,139.78],RJAA:[35.76,140.39],RKSI:[37.46,126.44],WSSS:[1.36,103.99],YSSY:[-33.95,151.18],KJFK:[40.64,-73.78],KLAX:[33.94,-118.41],KSFO:[37.62,-122.38],KORD:[41.98,-87.90],KATL:[33.64,-84.43],KDFW:[32.90,-97.04],KMIA:[25.79,-80.29],KSEA:[47.45,-122.31],KBOS:[42.36,-71.01],SBGR:[-23.43,-46.47],FAOR:[-26.13,28.24] };
+
+        const RM={ map:null, ready:false, data:null, routeFeat:[], aptFeat:[], aptCoords:{}, markers:[], activeOnly:true, canManage:false, styleDark:false, dataHadRoutes:false };
+
+        let _rmLibPromise=null;
+        function rmLoadMapLibre(){
+            if(window.maplibregl) return Promise.resolve();
+            if(_rmLibPromise) return _rmLibPromise;
+            _rmLibPromise=new Promise((resolve,reject)=>{
+                const css=document.createElement('link'); css.rel='stylesheet';
+                css.href=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.css`; document.head.appendChild(css);
+                const s=document.createElement('script');
+                s.src=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+                s.onload=()=>resolve(); s.onerror=()=>reject(new Error('map engine failed to load')); document.head.appendChild(s);
+            });
+            return _rmLibPromise;
+        }
+
+        // Great-circle points [lon,lat] between two [lat,lon], unwrapped across the
+        // antimeridian so a Tokyo→LA arc draws as one continuous line.
+        function rmArc(a,b,n){
+            n=n||64; const R=Math.PI/180, D=180/Math.PI;
+            const φ1=a[0]*R,λ1=a[1]*R,φ2=b[0]*R,λ2=b[1]*R;
+            const x1=Math.cos(φ1)*Math.cos(λ1),y1=Math.cos(φ1)*Math.sin(λ1),z1=Math.sin(φ1);
+            const x2=Math.cos(φ2)*Math.cos(λ2),y2=Math.cos(φ2)*Math.sin(λ2),z2=Math.sin(φ2);
+            let dot=Math.max(-1,Math.min(1,x1*x2+y1*y2+z1*z2)); const d=Math.acos(dot);
+            if(d<1e-9) return [[a[1],a[0]],[b[1],b[0]]];
+            const out=[]; let prev=null;
+            for(let i=0;i<=n;i++){ const f=i/n,A=Math.sin((1-f)*d)/Math.sin(d),B=Math.sin(f*d)/Math.sin(d);
+                const x=A*x1+B*x2,y=A*y1+B*y2,z=A*z1+B*z2;
+                const lat=Math.atan2(z,Math.hypot(x,y))*D; let lon=Math.atan2(y,x)*D;
+                if(prev!=null){ while(lon-prev>180)lon-=360; while(lon-prev<-180)lon+=360; }
+                prev=lon; out.push([lon,lat]); }
+            return out;
+        }
+        function rmHexToRgb(h){ h=String(h||'').trim(); let m=h.match(/^#?([0-9a-f]{6})$/i); if(m){const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255];} m=h.match(/^#?([0-9a-f]{3})$/i); if(m)return m[1].split('').map(c=>parseInt(c+c,16)); m=h.match(/rgba?\(([^)]+)\)/i); if(m){const p=m[1].split(',').map(parseFloat);return[p[0]||0,p[1]||0,p[2]||0];} return null; }
+        // The VA's brand accent, but guaranteed visible against the map base: a
+        // near-black brand on a dark map (or near-white on a light map) falls back
+        // to a vivid blue so arcs never vanish.
+        function rmAccent(){
+            const raw=(getComputedStyle(document.documentElement).getPropertyValue('--accent')||'').trim()||'#1C1A16';
+            const rgb=rmHexToRgb(raw); if(!rgb) return '#3b82f6';
+            const lum=(0.2126*rgb[0]+0.7152*rgb[1]+0.0722*rgb[2])/255;
+            if(isDark() && lum<0.24) return '#5b8cff';
+            if(!isDark() && lum>0.82) return '#2563eb';
+            return raw;
+        }
+
+        async function rmFetch(){
+            const slug=getSlug();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/route-map`,{headers:{Accept:'application/json'}});
+                if(!res.ok) throw new Error('bad status');
+                RM.data=await res.json();
+            }catch{ RM.data=rmFallbackFromRoutes(); }
+            RM.aptCoords={}; (RM.data.airports||[]).forEach(a=>{ if(a.lat!=null) RM.aptCoords[a.icao]=[a.lat,a.lon]; });
+            RM.dataHadRoutes=(RM.data.routes||[]).some(r=>r.mapped);
+            rmComputeFeatures(); rmPopulateAircraft();
+        }
+        function rmFallbackFromRoutes(){
+            const C=RM_FALLBACK_COORDS;
+            const routes=(ROUTES||[]).map(r=>{ const o=C[r.origin]||null,d=C[r.destination]||null; return {...r,o,d,mapped:!!(o&&d),distanceNm:r.distanceNm||0}; });
+            const apt={};
+            routes.forEach(r=>{ if(r.o){ (apt[r.origin]=apt[r.origin]||{icao:r.origin,lat:r.o[0],lon:r.o[1],dep:0,arr:0,mapped:true}).dep++; }
+                                if(r.d){ (apt[r.destination]=apt[r.destination]||{icao:r.destination,lat:r.d[0],lon:r.d[1],dep:0,arr:0,mapped:true}).arr++; } });
+            const airports=Object.values(apt).map(a=>({...a,routes:a.dep+a.arr}));
+            return { routes, airports, stats:{ unmapped:routes.filter(r=>!r.mapped).length } };
+        }
+        function rmComputeFeatures(){
+            RM.routeFeat=(RM.data.routes||[]).filter(r=>r.mapped&&r.o&&r.d).map(r=>({
+                type:'Feature',
+                properties:{ id:String(r.id), origin:r.origin, destination:r.destination, flightNumber:r.flightNumber||'', aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, active:!!r.active },
+                geometry:{ type:'LineString', coordinates:rmArc(r.o,r.d) }
+            }));
+        }
+        function rmPopulateAircraft(){
+            const set=[...new Set((RM.data.routes||[]).map(r=>r.aircraft).filter(Boolean))].sort();
+            const sel=document.getElementById('rmAircraft'); if(!sel) return;
+            const cur=sel.value;
+            sel.innerHTML='<option value="">All aircraft</option>'+set.map(a=>`<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+            if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+        }
+
+        async function openRouteMap(){
+            const ov=document.getElementById('routeMap'); ov.classList.remove('hidden');
+            document.getElementById('rmLoading').classList.remove('hidden');
+            document.getElementById('rmEmpty').classList.add('hidden');
+            // Mirror the routes list: managers (and preview mode) may reveal drafts;
+            // everyone else is pinned to active-only. Draft visibility here is UI-only —
+            // the map, like /routes, is a non-sensitive listing.
+            RM.canManage=can('routes.manage');
+            if(!RM.canManage) RM.activeOnly=true;
+            const at=document.getElementById('rmActiveToggle'); if(at) at.style.display=RM.canManage?'':'none';
+            document.addEventListener('keydown',rmEsc);
+            if(!RM._obs){ RM._obs=new MutationObserver(()=>{ if(document.getElementById('routeMap').classList.contains('hidden'))return; if(isDark()!==RM.styleDark) rmBuildMap(); }); RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
+            try{ await rmLoadMapLibre(); await rmFetch(); rmBuildMap(); }
+            catch(err){ rmFail(err&&err.message); }
+            if(window.lucide) lucide.createIcons();
+        }
+        function rmEsc(e){ if(e.key==='Escape') closeRouteMap(); }
+        function closeRouteMap(){
+            const ov=document.getElementById('routeMap'); ov.classList.add('hidden');
+            document.removeEventListener('keydown',rmEsc);
+            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
+            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; } RM.ready=false;
+        }
+        function rmFail(msg){
+            document.getElementById('rmLoading').classList.add('hidden');
+            const e=document.getElementById('rmEmpty'); e.classList.remove('hidden');
+            document.getElementById('rmEmptyTitle').textContent='Map unavailable';
+            document.getElementById('rmEmptyMsg').textContent=msg||"The map engine couldn't load. Check your connection and try again.";
+        }
+        function rmBuildMap(){
+            document.getElementById('rmLoading').classList.remove('hidden');
+            RM.accent=rmAccent(); RM.styleDark=isDark();
+            document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
+            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
+            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; }
+            RM.ready=false;
+            const map=new maplibregl.Map({ container:'rmCanvas', style:RM.styleDark?RM_STYLE.dark:RM_STYLE.light,
+                center:[8,28], zoom:1.3, minZoom:0.6, maxZoom:9, attributionControl:false, dragRotate:false });
+            RM.map=map;
+            map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
+            map.on('load',()=>{ rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
+                document.getElementById('rmLoading').classList.add('hidden'); });
+            map.on('error',()=>{}); // swallow tile hiccups; the network overlay still renders
+        }
+        function rmAddLayers(){
+            const map=RM.map, accent=RM.accent;
+            const gray=RM.styleDark?'#6E685D':'#9a9488';
+            const halo=RM.styleDark?'#14120F':'#FFFFFF';
+            const empty={type:'FeatureCollection',features:[]};
+            map.addSource('rm-routes',{type:'geojson',data:empty});
+            map.addSource('rm-airports',{type:'geojson',data:empty});
+            map.addLayer({ id:'rm-routes-glow', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
+                paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2.5,6,7],'line-blur':3,
+                    'line-opacity':['case',['get','active'],0.22,0.08]} });
+            map.addLayer({ id:'rm-routes-line', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
+                paint:{'line-color':['case',['get','active'],accent,gray],
+                    'line-width':['interpolate',['linear'],['zoom'],1,0.8,6,2.4],
+                    'line-opacity':['case',['get','active'],0.82,0.3]} });
+            map.addLayer({ id:'rm-routes-hi', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
+                filter:['==',['get','id'],'__none__'],
+                paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2,6,4.5],'line-opacity':0.95} });
+            map.addLayer({ id:'rm-airports', type:'circle', source:'rm-airports',
+                paint:{'circle-radius':['interpolate',['linear'],['get','routes'],1,3.2,3,5,8,9,16,13],
+                    'circle-color':accent,'circle-stroke-color':halo,'circle-stroke-width':1.4,'circle-opacity':0.95} });
+            // Interactions
+            const tip=()=>document.getElementById('rmTip');
+            map.on('mouseenter','rm-routes-line',()=>map.getCanvas().style.cursor='pointer');
+            map.on('mouseleave','rm-routes-line',()=>{ map.getCanvas().style.cursor=''; tip().classList.add('hidden'); });
+            map.on('mousemove','rm-routes-line',(e)=>{ const f=e.features&&e.features[0]; if(f) rmShowTip(e,f.properties); });
+            map.on('click','rm-routes-line',(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusRoute(f.properties.id); } });
+            map.on('mouseenter','rm-airports',()=>map.getCanvas().style.cursor='pointer');
+            map.on('mouseleave','rm-airports',()=>map.getCanvas().style.cursor='');
+            map.on('click','rm-airports',(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusAirport(f.properties.icao); } });
+            map.on('click',(e)=>{ const hit=map.queryRenderedFeatures(e.point,{layers:['rm-airports','rm-routes-line']}); if(!hit.length) rmClearFocus(); });
+        }
+        function rmShowTip(e,p){
+            const t=document.getElementById('rmTip');
+            const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'';
+            const ac=p.aircraft?` · ${escapeHtml(p.aircraft)}`:'';
+            const draft=(p.active===false||p.active==='false')?' · draft':'';
+            const fn=p.flightNumber?`<span class="faint">${escapeHtml(p.flightNumber)}</span> `:'';
+            t.innerHTML=`${fn}<span class="font-semibold">${escapeHtml(p.origin)} → ${escapeHtml(p.destination)}</span><div class="muted mt-0.5">${dist}${ac}${draft}</div>`;
+            t.classList.remove('hidden');
+            const r=document.getElementById('routeMap').getBoundingClientRect();
+            let x=e.point.x+14,y=e.point.y+14; if(x+210>r.width)x=e.point.x-196; if(y+64>r.height)y=e.point.y-64;
+            t.style.left=Math.max(8,x)+'px'; t.style.top=Math.max(8,y)+'px';
+        }
+        function rmApplyFilters(){
+            if(!RM.map||!RM.ready) return;
+            const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
+            const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
+            const dot=document.getElementById('rmActiveDot'); if(dot) dot.style.opacity=RM.activeOnly?'1':'0.25';
+            let routes=RM.routeFeat.slice();
+            if(RM.activeOnly) routes=routes.filter(f=>f.properties.active);
+            if(aircraft) routes=routes.filter(f=>f.properties.aircraft===aircraft);
+            if(search) routes=routes.filter(f=>f.properties.origin.includes(search)||f.properties.destination.includes(search));
+            const deg={}; routes.forEach(f=>{ deg[f.properties.origin]=(deg[f.properties.origin]||0)+1; deg[f.properties.destination]=(deg[f.properties.destination]||0)+1; });
+            const apts=Object.keys(deg).map(icao=>{ const c=RM.aptCoords[icao]; return c?{type:'Feature',properties:{icao,routes:deg[icao]},geometry:{type:'Point',coordinates:[c[1],c[0]]}}:null; }).filter(Boolean);
+            RM.filteredRoutes=routes; RM.filteredApts=apts;
+            RM.map.getSource('rm-routes').setData({type:'FeatureCollection',features:routes});
+            RM.map.getSource('rm-airports').setData({type:'FeatureCollection',features:apts});
+            rmRenderLabels(apts); rmUpdateStats(routes,apts);
+            // Empty states
+            const emptyEl=document.getElementById('rmEmpty');
+            if(!routes.length){
+                emptyEl.classList.remove('hidden');
+                const filtered=RM.routeFeat.length>0;
+                document.getElementById('rmEmptyTitle').textContent=filtered?'No routes match':'No routes on the map yet';
+                document.getElementById('rmEmptyMsg').textContent=filtered
+                    ?'Try clearing the aircraft filter or airport search.'
+                    :"Add routes with valid ICAO airports and they'll appear here as a live network.";
+            } else emptyEl.classList.add('hidden');
+            // keep focus highlight consistent after a data refresh
+            if(RM.focusApt) rmFocusAirport(RM.focusApt,true); else if(RM.focusRoute) rmFocusRoute(RM.focusRoute,true);
+        }
+        function rmRenderLabels(apts){
+            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
+            const hubs=apts.filter(a=>a.properties.routes>=2).sort((a,b)=>b.properties.routes-a.properties.routes).slice(0,14);
+            hubs.forEach(a=>{
+                const el=document.createElement('div');
+                el.textContent=a.properties.icao;
+                el.style.cssText='font:600 10px/1 Inter,sans-serif;padding:2px 5px;border-radius:5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);white-space:nowrap;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,.18);opacity:.95';
+                const m=new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-8]}).setLngLat(a.geometry.coordinates).addTo(RM.map);
+                RM.markers.push(m);
+            });
+        }
+        function rmUpdateStats(routes,apts){
+            const host=document.getElementById('rmStats'); if(!host) return;
+            let longest=null,total=0;
+            routes.forEach(f=>{ const d=f.properties.distanceNm||0; total+=d; if(!longest||d>longest.d) longest={d,o:f.properties.origin,dd:f.properties.destination}; });
+            const chip=(icon,label)=>`<span class="surface hair rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5"><i data-lucide="${icon}" class="w-3.5 h-3.5 faint"></i>${label}</span>`;
+            const chips=[ chip('route',`${routes.length} route${routes.length===1?'':'s'}`), chip('map-pin',`${apts.length} airport${apts.length===1?'':'s'}`) ];
+            if(longest&&longest.d) chips.push(chip('move-right',`${longest.o}–${longest.dd} · ${Number(longest.d).toLocaleString()} nm`));
+            if(total) chips.push(chip('gauge',`${Number(total).toLocaleString()} nm`));
+            const un=RM.data&&RM.data.stats&&RM.data.stats.unmapped; if(un) chips.push(`<span class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5" style="background:color-mix(in srgb,#f59e0b 16%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 30%,var(--line));"><i data-lucide="triangle-alert" class="w-3.5 h-3.5" style="color:#f59e0b"></i>${un} unmapped</span>`);
+            host.innerHTML=chips.join(''); if(window.lucide) lucide.createIcons();
+        }
+        function rmToggleActive(){ if(!RM.canManage) return; RM.activeOnly=!RM.activeOnly; rmApplyFilters(); }
+        function rmFocusAirport(icao,keep){
+            RM.focusApt=icao; RM.focusRoute=null;
+            const match=['any',['==',['get','origin'],icao],['==',['get','destination'],icao]];
+            RM.map.setFilter('rm-routes-hi',match);
+            RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',match,0.9,0.1]);
+            const touching=(RM.filteredRoutes||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
+            rmOpenAirportRail(icao,touching);
+            if(!keep) rmFitFeatures(touching);
+        }
+        function rmFocusRoute(id,keep){
+            id=String(id); RM.focusRoute=id; RM.focusApt=null;
+            RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
+            RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['==',['get','id'],id],0.95,0.1]);
+            const r=RM.routeFeat.find(f=>f.properties.id===id);
+            if(r){ rmOpenRouteRail(r.properties); if(!keep) rmFitFeatures([r.properties]); }
+        }
+        function rmClearFocus(){
+            RM.focusApt=null; RM.focusRoute=null;
+            if(RM.map&&RM.ready){ RM.map.setFilter('rm-routes-hi',['==',['get','id'],'__none__']);
+                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['get','active'],0.82,0.3]); }
+            const rail=document.getElementById('rmRail'); rail.classList.add('hidden'); RM.railOpen=false;
+        }
+        function rmRailShow(title,html){
+            document.getElementById('rmRailTitle').innerHTML=title;
+            document.getElementById('rmRailBody').innerHTML=html;
+            document.getElementById('rmRail').classList.remove('hidden'); RM.railOpen=true;
+            if(window.lucide) lucide.createIcons();
+        }
+        function rmRouteRow(p){
+            const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'';
+            const ac=p.aircraft?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(p.aircraft)}</span>`:'';
+            const draft=p.active?'':'<span class="text-[10px] uppercase tracking-wide faint">draft</span>';
+            return `<button class="w-full text-left surface hair rounded-lg p-2.5 hover:border-[var(--ink)] transition" onclick="rmFocusRoute('${escapeHtml(p.id)}')">
+                <div class="flex items-center gap-1.5 text-sm font-semibold"><span>${escapeHtml(p.origin)}</span><i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i><span>${escapeHtml(p.destination)}</span>${p.flightNumber?`<span class="text-xs faint ml-1">${escapeHtml(p.flightNumber)}</span>`:''}${draft}</div>
+                <div class="flex items-center gap-1.5 mt-1">${ac}${dist?`<span class="text-xs muted">${dist}</span>`:''}</div>
+            </button>`;
+        }
+        function rmOpenAirportRail(icao,touching){
+            const deps=touching.filter(p=>p.origin===icao), arrs=touching.filter(p=>p.destination===icao);
+            const dests=[...new Set(deps.map(p=>p.destination))];
+            const head=`<div class="flex items-center gap-2"><span class="w-8 h-8 rounded-lg accent-bg text-white grid place-items-center text-xs font-bold">${escapeHtml(icao)}</span><span class="font-semibold tracking-tight">${escapeHtml(icao)}</span></div>`;
+            const summary=`<div class="grid grid-cols-3 gap-2 text-center">
+                <div class="surface hair rounded-lg py-2"><div class="text-lg font-bold stat-num">${touching.length}</div><div class="text-[10px] uppercase tracking-wide faint">routes</div></div>
+                <div class="surface hair rounded-lg py-2"><div class="text-lg font-bold stat-num">${deps.length}</div><div class="text-[10px] uppercase tracking-wide faint">out</div></div>
+                <div class="surface hair rounded-lg py-2"><div class="text-lg font-bold stat-num">${dests.length}</div><div class="text-[10px] uppercase tracking-wide faint">cities</div></div>
+            </div>`;
+            const list=touching.slice().sort((a,b)=>(b.distanceNm||0)-(a.distanceNm||0)).map(rmRouteRow).join('')||'<p class="text-sm faint text-center py-6">No routes.</p>';
+            rmRailShow(head, summary+'<div class="space-y-2 pt-1">'+list+'</div>');
+        }
+        function rmOpenRouteRail(p){
+            const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'—';
+            const head=`<div class="flex items-center gap-1.5 font-semibold tracking-tight"><span>${escapeHtml(p.origin)}</span><i data-lucide="arrow-right" class="w-4 h-4 faint"></i><span>${escapeHtml(p.destination)}</span></div>`;
+            const rows=[ ['Flight', p.flightNumber||'—'], ['Aircraft', p.aircraft||'Any'], ['Distance', dist], ['Status', p.active?'Active':'Draft'] ];
+            const body=`<div class="surface hair rounded-lg divide-y hair">${rows.map(r=>`<div class="flex items-center justify-between px-3 py-2 text-sm"><span class="muted">${r[0]}</span><span class="font-medium">${escapeHtml(String(r[1]))}</span></div>`).join('')}</div>
+                <div class="flex gap-2 pt-1">
+                    <button onclick="rmFocusAirport('${escapeHtml(p.origin)}')" class="flex-1 surface hair rounded-lg py-2 text-xs font-semibold hover:border-[var(--ink)]">${escapeHtml(p.origin)} hub</button>
+                    <button onclick="rmFocusAirport('${escapeHtml(p.destination)}')" class="flex-1 surface hair rounded-lg py-2 text-xs font-semibold hover:border-[var(--ink)]">${escapeHtml(p.destination)} hub</button>
+                </div>`;
+            rmRailShow(head, body);
+        }
+        function rmFitAll(){
+            if(!RM.map||!RM.ready) return;
+            const apts=RM.filteredApts||[];
+            if(!apts.length) return;
+            const b=new maplibregl.LngLatBounds();
+            apts.forEach(a=>b.extend(a.geometry.coordinates));
+            try{ RM.map.fitBounds(b,{padding:{top:96,bottom:56,left:56,right:RM.railOpen?336:56},maxZoom:6,duration:600}); }catch{}
+        }
+        function rmFitFeatures(props){
+            if(!RM.map||!props||!props.length) return;
+            const b=new maplibregl.LngLatBounds(); let any=false;
+            props.forEach(p=>{ const o=RM.aptCoords[p.origin],d=RM.aptCoords[p.destination]; if(o){b.extend([o[1],o[0]]);any=true;} if(d){b.extend([d[1],d[0]]);any=true;} });
+            if(any){ try{ RM.map.fitBounds(b,{padding:{top:100,bottom:80,left:56,right:336},maxZoom:6,duration:600}); }catch{} }
+        }
+        function rmApplyFiltersDebounced(){ clearTimeout(RM._t); RM._t=setTimeout(rmApplyFilters,120); }
+
         // ---- Flights (PIREPs) — auto-captured from IF history ----
         let PIREPS=[], PIREPS_CANREVIEW=false, PIREP_TAB='pending', PIREP_AUTO=false;
         function fmtDur(min){ min=Math.max(0,Math.round(Number(min)||0)); const h=Math.floor(min/60), m=min%60; return h?`${h}h ${m}m`:`${m}m`; }
@@ -1787,67 +2169,69 @@
         // ---- Supabase one-click setup ----
         const SETUP_SQL = `-- Inflight Crew Center — database setup for your VA's Supabase.
 -- Paste this into Supabase → SQL editor → Run. Safe to run more than once.
+-- These tables are owned by Inflight's backend (via your service_role key), so
+-- your roster and flights live in YOUR project instead of Inflight's database.
+-- ids are text so your existing crew data keeps the same ids when it moves over.
 
--- PILOTS: one row per crew member, linked to Supabase auth.
-create table if not exists public.pilots (
-  id uuid primary key references auth.users(id) on delete cascade,
-  display_name text not null default '',
-  callsign text,
-  rank text default '',
-  role text default '',
+-- CREW_PILOTS: one row per roster member.
+create table if not exists public.crew_pilots (
+  id text primary key default gen_random_uuid()::text,
+  va_ad_id text not null,
+  name text not null default '',
+  callsign text default '',
   hours numeric not null default 0,
+  role text default '',
+  aircraft text[] not null default '{}',
   status text not null default 'active',
-  joined_at timestamptz not null default now()
+  if_user_id text default '',
+  ifc_name text default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
+create index if not exists crew_pilots_va on public.crew_pilots(va_ad_id);
 
--- PIREPS: filed flights / logbook.
-create table if not exists public.pireps (
-  id uuid primary key default gen_random_uuid(),
-  pilot_id uuid not null references public.pilots(id) on delete cascade,
-  callsign text, departure text, arrival text, aircraft text,
-  minutes integer not null default 0,
+-- CREW_PIREPS: filed + auto-captured flights (the logbook). The big one.
+create table if not exists public.crew_pireps (
+  id text primary key default gen_random_uuid()::text,
+  va_ad_id text not null,
+  member_id text,
+  route_id text,
+  pilot_name text default '',
+  callsign text default '',
+  flight_number text default '',
+  if_user_id text default '',
+  flight_id text default '',
+  origin text default '',
+  destination text default '',
+  aircraft_name text default '',
+  livery_name text default '',
+  duration_min integer not null default 0,
+  landings integer not null default 0,
+  xp integer not null default 0,
+  violations integer not null default 0,
+  distance_nm integer not null default 0,
+  server text default '',
+  in_fleet boolean not null default false,
+  source text not null default 'auto',
   status text not null default 'pending',
-  filed_at timestamptz not null default now()
-);
-
--- EVENTS: group flights / tours.
-create table if not exists public.events (
-  id uuid primary key default gen_random_uuid(),
-  title text not null, departure text, arrival text,
-  starts_at timestamptz,
+  hours_applied boolean not null default false,
+  flown_at timestamptz,
+  reviewed_at timestamptz,
   created_at timestamptz not null default now()
 );
+create index if not exists crew_pireps_va on public.crew_pireps(va_ad_id);
+create index if not exists crew_pireps_flight on public.crew_pireps(va_ad_id, flight_id);
 
--- Auto-create a pilot row the moment someone signs up (seamless join).
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
-begin
-  insert into public.pilots (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)))
-  on conflict (id) do nothing;
-  return new;
-end; $$;
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created after insert on auth.users
-  for each row execute function public.handle_new_user();
+-- Row-level security: the backend uses your service_role key, which bypasses
+-- RLS, so it can always read/write. We still enable RLS and grant READ to any
+-- signed-in user, so you can safely build your own dashboards against this data.
+alter table public.crew_pilots enable row level security;
+alter table public.crew_pireps enable row level security;
 
--- Row-level security: signed-in crew can read; you edit your own row/PIREPs.
-alter table public.pilots enable row level security;
-alter table public.pireps enable row level security;
-alter table public.events enable row level security;
-
-drop policy if exists "crew read pilots" on public.pilots;
-create policy "crew read pilots" on public.pilots for select using (auth.role() = 'authenticated');
-drop policy if exists "update own pilot" on public.pilots;
-create policy "update own pilot" on public.pilots for update using (auth.uid() = id);
-
-drop policy if exists "crew read pireps" on public.pireps;
-create policy "crew read pireps" on public.pireps for select using (auth.role() = 'authenticated');
-drop policy if exists "file own pireps" on public.pireps;
-create policy "file own pireps" on public.pireps for insert with check (auth.uid() = pilot_id);
-
-drop policy if exists "crew read events" on public.events;
-create policy "crew read events" on public.events for select using (auth.role() = 'authenticated');
+drop policy if exists "crew read pilots" on public.crew_pilots;
+create policy "crew read pilots" on public.crew_pilots for select using (auth.role() = 'authenticated');
+drop policy if exists "crew read pireps" on public.crew_pireps;
+create policy "crew read pireps" on public.crew_pireps for select using (auth.role() = 'authenticated');
 `;
         function projectRef(url){ try{ const m=new URL(url).host.match(/^([a-z0-9]+)\.supabase\.co$/i); return m?m[1]:''; }catch{ return ''; } }
         function updateSqlEditorLink(){
@@ -1865,7 +2249,7 @@ create policy "crew read events" on public.events for select using (auth.role() 
             if(!url||!key){ out.textContent='Connect Supabase first.'; out.className='text-xs text-amber-600 dark:text-amber-400'; return; }
             out.textContent='Checking…'; out.className='text-xs muted';
             try{
-                const res=await fetch(`${url}/rest/v1/pilots?select=id&limit=1`,{ headers:{ apikey:key, Authorization:'Bearer '+key } });
+                const res=await fetch(`${url}/rest/v1/crew_pilots?select=id&limit=1`,{ headers:{ apikey:key, Authorization:'Bearer '+key } });
                 if(res.ok){ out.textContent='✓ Tables found — you’re set up.'; out.className='text-xs text-emerald-600 dark:text-emerald-400'; }
                 else if(res.status===404 || res.status===400){ out.textContent='Not set up yet — run the SQL above.'; out.className='text-xs text-amber-600 dark:text-amber-400'; }
                 else { out.textContent='Couldn’t verify ('+res.status+').'; out.className='text-xs muted'; }
@@ -1883,6 +2267,46 @@ create policy "crew read events" on public.events for select using (auth.role() 
             document.getElementById('supaStatus').innerHTML = SUPA.connected
                 ? '<span class="text-emerald-600 dark:text-emerald-400 font-semibold">● Connected</span>'
                 : '<span class="faint font-semibold">● Not connected</span>';
+            updateMigrateUI();
+        }
+        // Reflect where crew data currently lives + whether a move is possible.
+        function updateMigrateUI(){
+            const badge=document.getElementById('migrateBadge'), btn=document.getElementById('migrateBtn'), note=document.getElementById('migrateNote');
+            if(!badge||!btn) return;
+            const onSupa = SUPA.store==='supabase';
+            badge.textContent = onSupa ? 'On your Supabase' : 'On Inflight’s database';
+            badge.className = 'text-[10px] normal-case tracking-normal font-semibold px-1.5 py-0.5 rounded '
+                + (onSupa ? 'text-emerald-700 dark:text-emerald-400' : 'muted') + ' surface hair';
+            // A move needs a saved service_role key. Already-moved VAs can re-run
+            // it safely (idempotent) to re-sync, so we keep it enabled there.
+            const ready = !!SUPA.hasServiceKey;
+            btn.disabled = !ready;
+            btn.style.opacity = ready ? '' : '0.5';
+            btn.style.cursor = ready ? '' : 'not-allowed';
+            btn.innerHTML = onSupa
+                ? '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Re-sync to my Supabase'
+                : '<i data-lucide="database-zap" class="w-4 h-4"></i> Move to my Supabase';
+            if(note && !ready){ note.textContent='Save a service_role key above first — that’s what lets Inflight write to your project.'; note.className='text-sm muted mt-2'; note.classList.remove('hidden'); }
+            else if(note){ note.classList.add('hidden'); }
+            if(window.lucide) lucide.createIcons();
+        }
+        async function migrateToSupabase(){
+            const note=document.getElementById('migrateNote'), btn=document.getElementById('migrateBtn');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as the owner to move data.'; note.className='text-sm muted mt-2'; note.classList.remove('hidden'); return; }
+            const purge=document.getElementById('migratePurge').checked;
+            note.textContent='Moving your crew data… this can take a moment.'; note.className='text-sm muted mt-2'; note.classList.remove('hidden');
+            const prev=btn.innerHTML; btn.disabled=true; btn.innerHTML='<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> Moving…'; if(window.lucide) lucide.createIcons();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/supabase/migrate${purge?'?purge=1':''}`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not move your data.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); btn.disabled=false; btn.innerHTML=prev; if(window.lucide) lucide.createIcons(); return; }
+                SUPA.store='supabase';
+                const c=d.copied||{}; const freed=d.purged?` Freed ${(d.purged.pilots||0)+(d.purged.flights||0)} rows centrally.`:'';
+                note.textContent=`✓ Moved ${c.pilots||0} pilots and ${c.flights||0} flights to your Supabase.${freed}`;
+                note.className='text-sm text-emerald-600 dark:text-emerald-400 mt-2'; note.classList.remove('hidden');
+                updateMigrateUI();
+            }catch{ note.textContent='Server unreachable — nothing was moved.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); btn.disabled=false; btn.innerHTML=prev; if(window.lucide) lucide.createIcons(); }
         }
         // ---- Capabilities / staff permissions ----
         async function loadMe(){
@@ -2026,7 +2450,8 @@ create policy "crew read events" on public.events for select using (auth.role() 
                     body:JSON.stringify({ url, anonKey, serviceKey }) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ supaMsg(d.error||'Could not save.','error'); return; }
-                SUPA={connected:!!d.connected,url:d.url||'',anonKey:d.anonKey||''};
+                // Keep the current store; refresh connection + service-key state.
+                SUPA={ ...SUPA, connected:!!d.connected, url:d.url||'', anonKey:d.anonKey||'', hasServiceKey:!!d.hasServiceKey };
                 document.getElementById('supaService').value='';   // never keep the secret in the field
                 updateSupaStatus();
                 updateSqlEditorLink();
