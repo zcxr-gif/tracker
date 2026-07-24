@@ -10,6 +10,7 @@ import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
+import { WORLD_MAP } from './worldMapData.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     { value: 'A318', name: 'Airbus A318-100' }, { value: 'A319', name: 'Airbus A319-100' },
@@ -51,14 +52,9 @@ export const MobileDashboardUI = {
     // never flashes a locked UI. Mirrors the desktop ProfileUI behaviour.
     _isPro:             true,
     _PRO_ONLY_TABS:     ['fleet', 'airspace-intel', 'flight-plan', 'watchlist'],
-    // Preset plane banners a Pro pilot can pick without hosting an image.
-    _COVER_PRESETS: [
-        { id: 'emirates', label: 'Emirates',    url: 'CommunityPlanes/emirates.webp' },
-        { id: 'aircalin', label: 'Aircalin',    url: 'CommunityPlanes/aircalin.webp' },
-        { id: 'a350',     label: 'Airbus A350', url: 'CommunityPlanes/a350.webp' },
-        { id: 'ana',      label: 'ANA 787',     url: 'ana.png' },
-        { id: 'klax',     label: 'LAX Ramp',    url: 'klax.webp' },
-    ],
+    // Community aircraft catalog (/api/aircraft) — any aircraft as a banner.
+    _aircraftCatalog: null,
+    _aircraftCatalogPromise: null,
     _flightPlansData:   [],
     _editingFlightId:   null,
     _airportCache:      null,
@@ -976,6 +972,29 @@ init(supabaseClient) {
                 </div>`;
         }
 
+        // Most-used aircraft — bulleted list from the logbook (mockup card).
+        let mostUsedHTML = '';
+        const _mlb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+        if (this._ifData.loading && !_mlb.length) {
+            mostUsedHTML = `<div class="mdui-skel" style="width:60%;height:14px;margin:8px 0;"></div><div class="mdui-skel" style="width:45%;height:14px;margin:8px 0;"></div>`;
+        } else if (_mlb.length) {
+            const useMap = {};
+            _mlb.forEach(f => {
+                const aId = f.aircraftId || f.aircraftID;
+                const lId = f.liveryId || f.liveryID;
+                if (aId && typeof this._resolveAircraftName === 'function') {
+                    const nm = this._resolveAircraftName(aId, lId);
+                    useMap[nm] = (useMap[nm] || 0) + 1;
+                }
+            });
+            const top = Object.entries(useMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+            mostUsedHTML = top.length
+                ? `<ul class="mdui-mua-ul">${top.map(([nm, n]) => `<li><span>${this._fleetEsc(nm)}</span><span class="mdui-mua-count">${n}</span></li>`).join('')}</ul>`
+                : `<div class="mdui-mua-empty">No aircraft logged yet.</div>`;
+        } else {
+            mostUsedHTML = `<div class="mdui-mua-empty">${ifUsername ? 'No aircraft logged yet.' : 'Link your IF account to see your fleet.'}</div>`;
+        }
+
         let nextDepHTML = '';
         if (this._flightPlansData?.length > 0) {
             const next    = this._flightPlansData[0];
@@ -1032,15 +1051,32 @@ init(supabaseClient) {
                 </div>`;
         }
 
+        // Pro pilots may back the hero with any aircraft image; free = plain.
+        const heroImg = (this._isPro && this._coverUrl) ? this._coverUrl.replace(/'/g, '&apos;') : '';
+        const heroStyle = heroImg ? `background-image:url('${heroImg}');background-size:cover;background-position:center right;` : '';
+
         return `
             <div class="mdui-fade-up">
-                <header class="mdui-home-hero">
-                    <span class="mdui-home-date">${dateStr}</span>
-                    <h2 class="mdui-home-greet">${greeting}, ${firstName}.</h2>
-                    ${statChips}
+                <header class="mdui-home-hero mdui-home-hero-v2 ${heroImg ? 'has-image' : 'is-plain'}" style="${heroStyle}">
+                    <div class="mdui-home-hero-inner">
+                        <span class="mdui-home-hello">Hello,</span>
+                        <h2 class="mdui-home-name">${firstName}</h2>
+                        ${statChips}
+                    </div>
+                    <span class="mdui-home-date">${dateStr}${this._isPro ? '' : ' · Free'}</span>
                 </header>
 
                 <div id="mdui-live-banner"></div>
+
+                <section class="mdui-showcard mdui-showcard-mua">
+                    <h3 class="mdui-showcard-title">Your Most Used Aircraft</h3>
+                    ${mostUsedHTML}
+                </section>
+
+                <section class="mdui-showcard mdui-showcard-map">
+                    <h3 class="mdui-showcard-title">Your Flight Map</h3>
+                    <div class="mdui-flightmap">${this._getFlightMapHTML()}</div>
+                </section>
 
                 <section class="mdui-section">
                     <div class="mdui-section-title">Next Departure</div>
@@ -1628,6 +1664,100 @@ init(supabaseClient) {
         return String(str ?? '')
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+
+    /** Fetch + cache the community aircraft catalog (/api/aircraft). */
+    async _fetchAircraftCatalog() {
+        if (Array.isArray(this._aircraftCatalog)) return this._aircraftCatalog;
+        if (this._aircraftCatalogPromise) return this._aircraftCatalogPromise;
+        this._aircraftCatalogPromise = fetch(`${this._backendUrl}/api/aircraft`)
+            .then(r => (r.ok ? r.json() : []))
+            .then(list => {
+                const seen = new Set();
+                const cleaned = (Array.isArray(list) ? list : [])
+                    .map(a => ({
+                        type: a.aircraftType || 'Unknown',
+                        livery: a.liveryName || 'Standard',
+                        tail: a.tailNumber || '',
+                        img: a.imageUrl || (Array.isArray(a.imageUrls) && a.imageUrls[0]) || '',
+                    }))
+                    .filter(a => a.img && !seen.has(a.img) && seen.add(a.img));
+                this._aircraftCatalog = cleaned;
+                return cleaned;
+            })
+            .catch(() => { this._aircraftCatalog = []; return []; });
+        return this._aircraftCatalogPromise;
+    },
+
+    /** Full-screen aircraft picker — any aircraft in our DB as a banner. */
+    async _openAircraftPicker(onSelect) {
+        const esc = (s) => this._fleetEsc(s);
+        document.getElementById('mdui-acpick')?.remove();
+        const sheet = document.createElement('div');
+        sheet.id = 'mdui-acpick';
+        sheet.className = 'mdui-acpick';
+        sheet.innerHTML = `
+            <div class="mdui-acpick-head">
+                <h3>Choose your aircraft</h3>
+                <button class="mdui-acpick-close" id="mdui-acpick-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <input type="text" id="mdui-acpick-search" class="mdui-acpick-search" placeholder="Search type, livery or tail…" autocomplete="off">
+            <div class="mdui-acpick-grid" id="mdui-acpick-grid"><div class="mdui-acpick-loading"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading aircraft…</div></div>`;
+        document.getElementById('mdui-shell')?.appendChild(sheet);
+        requestAnimationFrame(() => sheet.classList.add('open'));
+        const cleanup = () => { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 200); };
+        document.getElementById('mdui-acpick-close')?.addEventListener('click', cleanup);
+
+        const grid = sheet.querySelector('#mdui-acpick-grid');
+        const catalog = await this._fetchAircraftCatalog();
+        if (!catalog.length) { grid.innerHTML = `<div class="mdui-acpick-loading">Couldn't load the aircraft database.</div>`; return; }
+
+        const render = (items) => {
+            if (!items.length) { grid.innerHTML = `<div class="mdui-acpick-loading">No aircraft match that search.</div>`; return; }
+            grid.innerHTML = items.slice(0, 250).map((a, i) => `
+                <button type="button" class="mdui-acpick-card" data-idx="${i}">
+                    <span class="mdui-acpick-img" style="background-image:url('${String(a.img).replace(/'/g, '&apos;')}')"></span>
+                    <span class="mdui-acpick-type">${esc(a.type)}</span>
+                    <span class="mdui-acpick-livery">${esc(a.livery)}${a.tail ? ' · ' + esc(a.tail) : ''}</span>
+                </button>`).join('');
+            grid.querySelectorAll('.mdui-acpick-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const a = items[parseInt(card.dataset.idx, 10)];
+                    if (a && typeof onSelect === 'function') onSelect(a.img);
+                    cleanup();
+                });
+            });
+        };
+        render(catalog);
+        const search = sheet.querySelector('#mdui-acpick-search');
+        search?.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            render(q ? catalog.filter(a => a.type.toLowerCase().includes(q) || a.livery.toLowerCase().includes(q) || a.tail.toLowerCase().includes(q)) : catalog);
+        });
+    },
+
+    /** Dot-grid world map with visited continents lit up (see ProfileUI). */
+    _getFlightMapHTML() {
+        const NAME_IDX = { NA: 0, SA: 1, EU: 2, AF: 3, AS: 4, OC: 5 };
+        const ICAO_CONT = {
+            K: 'NA', C: 'NA', M: 'NA', T: 'NA', P: 'NA', S: 'SA',
+            E: 'EU', L: 'EU', B: 'EU', U: 'EU', D: 'AF', F: 'AF', G: 'AF', H: 'AF',
+            O: 'AS', V: 'AS', W: 'AS', Z: 'AS', R: 'AS', Y: 'OC', N: 'OC', A: 'OC',
+        };
+        const visited = new Set();
+        (Array.isArray(this._ifData.logbook) ? this._ifData.logbook : []).forEach(f => {
+            [f.originAirport, f.destinationAirport].forEach(icao => {
+                const c = ICAO_CONT[String(icao || '').trim().toUpperCase()[0]];
+                if (c !== undefined) visited.add(NAME_IDX[c]);
+            });
+        });
+        const anyVisited = visited.size > 0;
+        const CW = 7, w = WORLD_MAP.cols * CW, h = WORLD_MAP.rows * CW;
+        const dots = WORLD_MAP.cells.map(([x, y, c]) => {
+            const on = anyVisited && visited.has(c);
+            return `<rect x="${(x * CW).toFixed(1)}" y="${(y * CW).toFixed(1)}" width="${CW - 1.4}" height="${CW - 1.4}" rx="1.3" class="${on ? 'mdui-pfm-on' : 'mdui-pfm-off'}"/>`;
+        }).join('');
+        return `<svg class="mdui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of regions you have flown to">${dots}</svg>`;
     },
 
     /** Resolves a human-readable aircraft name from API UUIDs. */
@@ -2465,12 +2595,14 @@ init(supabaseClient) {
               </div>
               ${this._isPro ? `
               <div class="mdui-section">
-                  <div class="mdui-section-title">Banner presets</div>
-                  <div class="mdui-cover-presets">
-                      <button type="button" class="mdui-cover-preset ${!this._coverUrl ? 'active' : ''}" data-cover=""><span class="mdui-cover-plain"><i class="fa-solid fa-ban"></i></span><span>Plain</span></button>
-                      ${(this._COVER_PRESETS || []).map(p => `
-                          <button type="button" class="mdui-cover-preset ${this._coverUrl === p.url ? 'active' : ''}" data-cover="${p.url}"><span class="mdui-cover-img" style="background-image:url('${p.url}')"></span><span>${p.label}</span></button>
-                      `).join('')}
+                  <div class="mdui-section-title">Banner</div>
+                  <div class="mdui-banner-preview ${this._coverUrl ? '' : 'is-plain'}" id="mdui-banner-preview"
+                       style="${this._coverUrl ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}')` : ''}">
+                      <span class="mdui-banner-preview-empty">Plain banner</span>
+                  </div>
+                  <div class="mdui-banner-actions">
+                      <button type="button" class="mdui-btn mdui-btn-secondary" id="mdui-choose-aircraft"><i class="fa-solid fa-plane"></i> Choose aircraft</button>
+                      <button type="button" class="mdui-btn mdui-btn-ghost" id="mdui-banner-plain"><i class="fa-solid fa-ban"></i> Plain</button>
                   </div>
               </div>` : ''}
 
@@ -3337,20 +3469,26 @@ _attachListeners() {
                 });
             });
 
-            // Banner presets (Pro) — fill the URL field & mark active; the value
-            // is persisted with the rest of the form on Save.
+            // Banner (Pro) — aircraft picker, plain, or own URL. Chosen URL
+            // lands in #mdui-edit-cover and is persisted with the form on Save.
             const mCoverInput = document.getElementById('mdui-edit-cover');
-            document.querySelectorAll('.mdui-cover-preset').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const url = btn.dataset.cover || '';
-                    if (mCoverInput) mCoverInput.value = url;
-                    document.querySelectorAll('.mdui-cover-preset').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                });
+            const mPreview = document.getElementById('mdui-banner-preview');
+            const mSync = () => {
+                if (!mPreview) return;
+                const val = (mCoverInput?.value || '').trim();
+                if (val) { mPreview.style.backgroundImage = `url('${val.replace(/'/g, '&apos;')}')`; mPreview.classList.remove('is-plain'); }
+                else { mPreview.style.backgroundImage = ''; mPreview.classList.add('is-plain'); }
+            };
+            mCoverInput?.addEventListener('input', mSync);
+            document.getElementById('mdui-banner-plain')?.addEventListener('click', () => {
+                if (mCoverInput) mCoverInput.value = '';
+                mSync();
             });
-            mCoverInput?.addEventListener('input', () => {
-                const val = mCoverInput.value.trim();
-                document.querySelectorAll('.mdui-cover-preset').forEach(b => b.classList.toggle('active', (b.dataset.cover || '') === val));
+            document.getElementById('mdui-choose-aircraft')?.addEventListener('click', () => {
+                this._openAircraftPicker((url) => {
+                    if (mCoverInput) mCoverInput.value = url || '';
+                    mSync();
+                });
             });
 
             document.getElementById('mdui-save-btn')?.addEventListener('click', async () => {
@@ -3510,6 +3648,7 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
         if (document.getElementById('mdui-styles')) return;
 
         const css = `
+            @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap');
             /* ════════════════════════════════════════════════════════════════
                MobileDashboardUI — InFlight glass design system
                Matches the app-wide iOS chrome (MobileLandingChromeUI /
@@ -3602,6 +3741,7 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
 
                 /* Type & effects */
                 --mdui-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+                --mdui-font-round: 'Quicksand', -apple-system, system-ui, sans-serif;
                 --mdui-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
                 --mdui-blur:      saturate(180%) blur(30px);
                 --mdui-shadow-card:  0 1px 2px rgba(0,0,0,0.05);
@@ -4263,6 +4403,115 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 font-size: 27px; font-weight: 700; margin: 6px 0 0;
                 color: var(--mdui-text); line-height: 1.12; letter-spacing: -0.6px;
             }
+
+            /* Redesigned hero (v2) — big "Hello, <name>" over an optional
+               Pro aircraft banner, plain gradient for free accounts. */
+            .mdui-home-hero-v2 {
+                position: relative; overflow: hidden;
+                border-radius: 22px; padding: 22px 22px 20px;
+                margin: 2px 0 18px; min-height: 132px;
+                display: flex; flex-direction: column; justify-content: flex-end;
+                border: 1px solid var(--mdui-border-light);
+            }
+            .mdui-home-hero-v2.is-plain {
+                background:
+                    radial-gradient(120% 130% at 0% 0%, var(--mdui-accent-soft) 0%, rgba(0,0,0,0) 60%),
+                    linear-gradient(135deg, var(--mdui-surface) 0%, transparent 100%);
+            }
+            .mdui-home-hero-v2.has-image::before {
+                content: ''; position: absolute; inset: 0;
+                background: linear-gradient(90deg, var(--mdui-bg, #000) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0) 82%);
+            }
+            .mdui-wrap-light .mdui-home-hero-v2.has-image::before,
+            :root:not([data-theme="dark"]) .mdui-home-hero-v2.has-image::before {
+                background: linear-gradient(90deg, #ffffff 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0) 82%);
+            }
+            .mdui-home-hero-inner { position: relative; z-index: 1; }
+            .mdui-home-hello {
+                display: block; font-family: var(--mdui-font-round);
+                font-size: 16px; font-weight: 500; color: var(--mdui-muted);
+            }
+            .mdui-home-name {
+                font-family: var(--mdui-font-round);
+                font-size: 40px; font-weight: 700; margin: 0 0 8px;
+                color: var(--mdui-text); line-height: 1; letter-spacing: -0.5px;
+            }
+            .mdui-home-hero-v2 .mdui-home-date { margin-top: 6px; position: relative; z-index: 1; }
+
+            /* Showcase cards (Most Used Aircraft + Flight Map) */
+            .mdui-showcard {
+                background: #0b0b0d; border-radius: 22px;
+                padding: 20px 22px; margin-bottom: 16px; color: #fff;
+                border: 1px solid rgba(255,255,255,0.06);
+            }
+            .mdui-showcard-title {
+                font-family: var(--mdui-font-round);
+                font-size: 20px; font-weight: 600; margin: 0 0 14px; color: #fff;
+            }
+            .mdui-showcard-mua .mdui-showcard-title { text-align: center; }
+            .mdui-mua-ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+            .mdui-mua-ul li {
+                display: flex; align-items: center; gap: 10px;
+                font-family: var(--mdui-font-round); font-size: 16px; font-weight: 500; color: #eef1f5;
+            }
+            .mdui-mua-ul li::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: #4a9fe0; flex-shrink: 0; }
+            .mdui-mua-ul li span:first-child { flex: 1; }
+            .mdui-mua-count { font-family: var(--mdui-font-mono); font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.45); }
+            .mdui-mua-empty { font-size: 14px; color: rgba(255,255,255,0.5); }
+            .mdui-flightmap { display: flex; justify-content: center; }
+            .mdui-flightmap-svg { width: 100%; height: auto; max-height: 220px; display: block; }
+            .mdui-pfm-off { fill: #24405a; }
+            .mdui-pfm-on  { fill: #4a9fe0; }
+
+            /* Banner preview + aircraft picker (settings) */
+            .mdui-banner-preview {
+                height: 110px; border-radius: 14px; margin-bottom: 10px;
+                background-size: cover; background-position: center;
+                border: 0.5px solid var(--mdui-border-light);
+                display: grid; place-items: center;
+            }
+            .mdui-banner-preview .mdui-banner-preview-empty { display: none; color: var(--mdui-tertiary); font-size: 13px; font-weight: 600; }
+            .mdui-banner-preview.is-plain {
+                background:
+                    radial-gradient(120% 130% at 0% 0%, var(--mdui-accent-soft) 0%, rgba(0,0,0,0) 60%),
+                    linear-gradient(135deg, var(--mdui-surface) 0%, transparent 100%);
+            }
+            .mdui-banner-preview.is-plain .mdui-banner-preview-empty { display: block; }
+            .mdui-banner-actions { display: flex; gap: 10px; }
+            .mdui-banner-actions .mdui-btn { flex: 1; }
+
+            .mdui-acpick {
+                position: fixed; inset: 0; z-index: 120;
+                background: var(--mdui-bg, #0a0a0c);
+                display: flex; flex-direction: column;
+                padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 14px);
+                transform: translateY(100%);
+                transition: transform 0.3s cubic-bezier(0.16,1,0.3,1);
+            }
+            .mdui-acpick.open { transform: translateY(0); }
+            .mdui-acpick-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+            .mdui-acpick-head h3 { margin: 0; font-size: 19px; font-weight: 700; color: var(--mdui-text); }
+            .mdui-acpick-close {
+                width: 34px; height: 34px; border-radius: 999px; border: none;
+                background: var(--mdui-surface); color: var(--mdui-text); font-size: 16px;
+            }
+            .mdui-acpick-search {
+                width: 100%; box-sizing: border-box; margin-bottom: 12px;
+                padding: 12px 14px; border-radius: 12px;
+                border: 0.5px solid var(--mdui-border-light);
+                background: var(--mdui-surface); color: var(--mdui-text); font-size: 15px;
+            }
+            .mdui-acpick-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .mdui-acpick-loading { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--mdui-muted); font-size: 14px; }
+            .mdui-acpick-card {
+                display: flex; flex-direction: column; gap: 3px; padding: 0 0 8px;
+                background: var(--mdui-surface); border: 0.5px solid var(--mdui-border-light);
+                border-radius: 14px; overflow: hidden; text-align: left; color: var(--mdui-text);
+            }
+            .mdui-acpick-card:active { transform: scale(0.97); }
+            .mdui-acpick-img { height: 96px; background-size: cover; background-position: center; background-color: var(--mdui-border-light); margin-bottom: 6px; }
+            .mdui-acpick-type { font-size: 14px; font-weight: 700; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-acpick-livery { font-size: 11.5px; color: var(--mdui-muted); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
             /* Next-departure boarding card */
             .mdui-board {

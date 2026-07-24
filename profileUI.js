@@ -28,6 +28,7 @@ import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { AirportViewer3D } from './AirportViewer3D.js';
 import { FlightDispatchUI } from './FlightDispatchUI.js';
+import { WORLD_MAP } from './worldMapData.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -174,16 +175,10 @@ export const ProfileUI = {
     // Free pilots keep the essentials: dashboard, dossier and settings.
     _PRO_ONLY_TABS: ['fleet', 'airspace-intel', 'flight-plan', 'watchlist'],
 
-    // Preset plane banners a Pro pilot can pick without hosting their own image.
-    // A Pro pilot may still paste any custom image URL; free pilots get none of
-    // this — their banner is always the plain gradient.
-    _COVER_PRESETS: [
-        { id: 'emirates', label: 'Emirates',   url: 'CommunityPlanes/emirates.webp' },
-        { id: 'aircalin', label: 'Aircalin',   url: 'CommunityPlanes/aircalin.webp' },
-        { id: 'a350',     label: 'Airbus A350', url: 'CommunityPlanes/a350.webp' },
-        { id: 'ana',      label: 'ANA 787',    url: 'ana.png' },
-        { id: 'klax',     label: 'LAX Ramp',   url: 'klax.webp' },
-    ],
+    // Community aircraft catalog (/api/aircraft), fetched on demand so a Pro
+    // pilot can pick any aircraft in our database as their banner.
+    _aircraftCatalog: null,
+    _aircraftCatalogPromise: null,
 
     // Accent color presets — applied as CSS variable overrides on the wrapper layer.
     // Each preset supplies the same four vars used throughout the stylesheet.
@@ -1400,6 +1395,108 @@ if (type === 'flights') {
         }
     },
 
+    /**
+     * Fetch the community aircraft catalog (/api/aircraft) once and cache it.
+     * Each entry carries an imageUrl we can use as a profile banner.
+     */
+    async _fetchAircraftCatalog() {
+        if (Array.isArray(this._aircraftCatalog)) return this._aircraftCatalog;
+        if (this._aircraftCatalogPromise) return this._aircraftCatalogPromise;
+        this._aircraftCatalogPromise = fetch(`${this._backendUrl}/api/aircraft`)
+            .then(r => (r.ok ? r.json() : []))
+            .then(list => {
+                const seen = new Set();
+                const cleaned = (Array.isArray(list) ? list : [])
+                    .map(a => ({
+                        type: a.aircraftType || 'Unknown',
+                        livery: a.liveryName || 'Standard',
+                        tail: a.tailNumber || '',
+                        img: a.imageUrl || (Array.isArray(a.imageUrls) && a.imageUrls[0]) || '',
+                    }))
+                    .filter(a => a.img && !seen.has(a.img) && seen.add(a.img));
+                this._aircraftCatalog = cleaned;
+                return cleaned;
+            })
+            .catch(() => { this._aircraftCatalog = []; return []; });
+        return this._aircraftCatalogPromise;
+    },
+
+    /**
+     * Modal that lets a Pro pilot pick any aircraft in our database as their
+     * banner. Searchable by type / livery / tail; selecting one hands its image
+     * URL back through onSelect.
+     */
+    async _openAircraftPicker(onSelect) {
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        document.getElementById('pui-acpick-overlay')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-acpick-overlay';
+        overlay.className = 'pui-acpick-overlay';
+        overlay.innerHTML = `
+            <div class="pui-acpick" role="dialog" aria-label="Choose an aircraft banner">
+                <div class="pui-acpick-head">
+                    <h3>Choose your aircraft</h3>
+                    <button class="pui-icon-btn" id="pui-acpick-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="pui-input-wrapper pui-acpick-search-wrap">
+                    <i class="fa-solid fa-magnifying-glass pui-input-icon"></i>
+                    <input type="text" id="pui-acpick-search" class="pui-input has-icon" placeholder="Search type, livery or tail…" autocomplete="off">
+                </div>
+                <div class="pui-acpick-grid" id="pui-acpick-grid">
+                    <div class="pui-acpick-loading"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading aircraft…</div>
+                </div>
+            </div>`;
+        document.getElementById('profile-overlay')?.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('open'));
+
+        const cleanup = () => { overlay.classList.remove('open'); setTimeout(() => overlay.remove(), 180); };
+        document.getElementById('pui-acpick-close')?.addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        const grid = overlay.querySelector('#pui-acpick-grid');
+        const catalog = await this._fetchAircraftCatalog();
+
+        const render = (items) => {
+            if (!items.length) {
+                grid.innerHTML = `<div class="pui-acpick-loading">No aircraft match that search.</div>`;
+                return;
+            }
+            grid.innerHTML = items.slice(0, 300).map((a, i) => `
+                <button type="button" class="pui-acpick-card" data-idx="${i}" title="${esc(a.type)} · ${esc(a.livery)}">
+                    <span class="pui-acpick-img" style="background-image:url('${String(a.img).replace(/'/g, '&apos;')}');"></span>
+                    <span class="pui-acpick-meta">
+                        <span class="pui-acpick-type">${esc(a.type)}</span>
+                        <span class="pui-acpick-livery">${esc(a.livery)}${a.tail ? ' · ' + esc(a.tail) : ''}</span>
+                    </span>
+                </button>`).join('');
+            grid.querySelectorAll('.pui-acpick-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const a = items[parseInt(card.dataset.idx, 10)];
+                    if (a && typeof onSelect === 'function') onSelect(a.img);
+                    cleanup();
+                });
+            });
+        };
+
+        if (!catalog.length) {
+            grid.innerHTML = `<div class="pui-acpick-loading">Couldn't load the aircraft database. Please try again.</div>`;
+            return;
+        }
+        render(catalog);
+
+        const search = overlay.querySelector('#pui-acpick-search');
+        search?.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            if (!q) return render(catalog);
+            render(catalog.filter(a =>
+                a.type.toLowerCase().includes(q) ||
+                a.livery.toLowerCase().includes(q) ||
+                a.tail.toLowerCase().includes(q)));
+        });
+        setTimeout(() => search?.focus(), 60);
+    },
+
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
 
@@ -2490,6 +2587,43 @@ _generateAirspaceHTML() {
     },
 
     /**
+     * "Your Flight Map" — a dot-grid world map (WORLD_MAP) with the continents
+     * the pilot has flown to lit up. Visited continents are inferred from the
+     * first letter of each logbook airport's ICAO (cheap, no coord lookup). With
+     * no logbook yet the whole map still shows in the muted base tone.
+     */
+    _getFlightMapHTML() {
+        const NAME_IDX = { NA: 0, SA: 1, EU: 2, AF: 3, AS: 4, OC: 5 };
+        const ICAO_CONT = {
+            K: 'NA', C: 'NA', M: 'NA', T: 'NA', P: 'NA',
+            S: 'SA',
+            E: 'EU', L: 'EU', B: 'EU', U: 'EU',
+            D: 'AF', F: 'AF', G: 'AF', H: 'AF',
+            O: 'AS', V: 'AS', W: 'AS', Z: 'AS', R: 'AS',
+            Y: 'OC', N: 'OC', A: 'OC',
+        };
+        const visited = new Set();
+        const lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+        lb.forEach(f => {
+            [f.originAirport, f.destinationAirport].forEach(icao => {
+                const c = ICAO_CONT[String(icao || '').trim().toUpperCase()[0]];
+                if (c !== undefined) visited.add(NAME_IDX[c]);
+            });
+        });
+        const anyVisited = visited.size > 0;
+
+        const CW = 7;
+        const w = WORLD_MAP.cols * CW;
+        const h = WORLD_MAP.rows * CW;
+        const dots = WORLD_MAP.cells.map(([x, y, c]) => {
+            const on = anyVisited && visited.has(c);
+            return `<rect x="${(x * CW).toFixed(1)}" y="${(y * CW).toFixed(1)}" width="${CW - 1.4}" height="${CW - 1.4}" rx="1.3" class="${on ? 'pfm-on' : 'pfm-off'}"/>`;
+        }).join('');
+
+        return `<svg class="pui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of regions you have flown to">${dots}</svg>`;
+    },
+
+    /**
      * Upsell panel shown to free accounts when they open a Pro-only tab.
      * Each locked feature gets a short, honest pitch plus the perks a Pro
      * upgrade unlocks. The upgrade button reuses the existing account-manage
@@ -2939,15 +3073,15 @@ _getTabContentHTML() {
                     </div>`;
             }
 
-            // Most-used aircraft — a compact top-list drawn from the logbook,
+            // Most-used aircraft — a bulleted top-list drawn from the logbook,
             // mirroring the mockup's "Your Most Used Aircraft" card.
             let mostUsedHTML = '';
             const _lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
             if (this._ifData.loading && !_lb.length) {
                 mostUsedHTML = `
-                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:80px;height:13px;flex:1;"></div></div>
-                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:70px;height:13px;flex:1;"></div></div>
-                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:90px;height:13px;flex:1;"></div></div>`;
+                    <div class="pui-skeleton pui-mua-skel"></div>
+                    <div class="pui-skeleton pui-mua-skel"></div>
+                    <div class="pui-skeleton pui-mua-skel"></div>`;
             } else if (_lb.length) {
                 const useMap = {};
                 _lb.forEach(f => {
@@ -2958,25 +3092,20 @@ _getTabContentHTML() {
                         useMap[nm] = (useMap[nm] || 0) + 1;
                     }
                 });
-                const top = Object.entries(useMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
-                const maxN = top.length ? top[0][1] : 1;
+                const top = Object.entries(useMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
                 mostUsedHTML = top.length
-                    ? top.map(([nm, n]) => `
-                        <div class="pui-mua-row">
-                            <span class="pui-mua-name">${this._fleetEsc(nm)}</span>
-                            <span class="pui-mua-bar"><span class="pui-mua-bar-fill" style="width:${Math.max(6, (n / maxN) * 100)}%;"></span></span>
-                            <span class="pui-mua-count">${n}</span>
-                        </div>`).join('')
-                    : `<div class="pui-empty-inline">No aircraft logged yet.</div>`;
+                    ? `<ul class="pui-mua-ul">${top.map(([nm, n]) => `<li><span class="pui-mua-name">${this._fleetEsc(nm)}</span><span class="pui-mua-count">${n}</span></li>`).join('')}</ul>`
+                    : `<div class="pui-mua-empty">No aircraft logged yet.</div>`;
             } else {
-                mostUsedHTML = `<div class="pui-empty-inline">${ifUsername ? 'No aircraft logged yet.' : 'Link your Infinite Flight account to see your fleet.'}</div>`;
+                mostUsedHTML = `<div class="pui-mua-empty">${ifUsername ? 'No aircraft logged yet.' : 'Link your Infinite Flight account to see your fleet.'}</div>`;
             }
 
-            // Hero banner. Pro pilots may back it with a plane preset or their
-            // own image; free accounts always get the plain themed gradient.
+            // Hero banner. Pro pilots may back it with any aircraft from the
+            // database or their own image; free accounts always get the plain
+            // themed gradient. A left scrim keeps the greeting legible.
             const heroImg = (this._isPro && this._coverUrl) ? this._coverUrl.replace(/'/g, '&apos;') : '';
             const heroStyle = heroImg
-                ? `background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 55%, rgba(0,0,0,0) 100%), url('${heroImg}'); background-size: cover; background-position: center;`
+                ? `background-image: url('${heroImg}'); background-size: cover; background-position: center right;`
                 : '';
 
             return `
@@ -2994,23 +3123,30 @@ _getTabContentHTML() {
 
                 <div id="pui-live-flights-wrapper" style="display:none;"></div>
 
-                <div class="pui-home-grid pui-fade-in">
-                    <section class="pui-card pui-home-mua">
-                        <div class="pui-card-eyebrow">Your Most Used Aircraft</div>
-                        <div class="pui-mua-list">${mostUsedHTML}</div>
+                <div class="pui-home-showcase pui-fade-in">
+                    <section class="pui-showcard pui-showcard-mua">
+                        <h3 class="pui-showcard-title">Your Most Used Aircraft</h3>
+                        ${mostUsedHTML}
                     </section>
-                    <section class="pui-card pui-home-recent">
-                        <div class="pui-card-eyebrow">Recent Flights</div>
-                        <div class="pui-flight-list">${recentFlightsHTML}</div>
+                    <section class="pui-showcard pui-showcard-map">
+                        <h3 class="pui-showcard-title">Your Flight Map</h3>
+                        <div class="pui-flightmap">${this._getFlightMapHTML()}</div>
                     </section>
                 </div>
 
                 <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
+                    <section class="pui-card pui-home-recent">
+                        <div class="pui-card-eyebrow">Recent Flights</div>
+                        <div class="pui-flight-list">${recentFlightsHTML}</div>
+                    </section>
                     <section class="pui-card pui-home-dispatch">
                         <div class="pui-card-eyebrow">Next Departure</div>
                         ${nextDispatch}
                     </section>
-                    <section class="pui-card pui-home-replays">
+                </div>
+
+                <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
+                    <section class="pui-card pui-home-replays" style="grid-column:1 / -1;">
                         <div class="pui-card-eyebrow">Replays</div>
                         ${replaysHTML
                             ? `<div class="pui-replay-list">${replaysHTML}</div>`
@@ -3146,17 +3282,17 @@ if (this._activeTab === 'flight-plan') {
                                 <div class="pui-input-group" style="margin-bottom:0;">
                                     <label>Profile banner ${this._isPro ? '' : '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'}</label>
                                     ${this._isPro ? `
-                                    <div class="pui-cover-presets">
-                                        <button type="button" class="pui-cover-preset ${!this._coverUrl ? 'active' : ''}" data-cover="" title="Plain banner">
-                                            <span class="pui-cover-preset-plain"><i class="fa-solid fa-ban"></i></span>
-                                            <span class="pui-cover-preset-label">Plain</span>
+                                    <div class="pui-banner-preview ${this._coverUrl ? '' : 'is-plain'}" id="pui-banner-preview"
+                                         style="${this._coverUrl ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}');` : ''}">
+                                        <span class="pui-banner-preview-empty">Plain banner</span>
+                                    </div>
+                                    <div class="pui-banner-actions">
+                                        <button type="button" class="pui-btn-secondary pui-btn-sm" id="pui-choose-aircraft-btn">
+                                            <i class="fa-solid fa-plane"></i> Choose aircraft
                                         </button>
-                                        ${this._COVER_PRESETS.map(p => `
-                                            <button type="button" class="pui-cover-preset ${this._coverUrl === p.url ? 'active' : ''}" data-cover="${p.url}" title="${p.label}">
-                                                <span class="pui-cover-preset-img" style="background-image:url('${p.url}');"></span>
-                                                <span class="pui-cover-preset-label">${p.label}</span>
-                                            </button>
-                                        `).join('')}
+                                        <button type="button" class="pui-btn-ghost pui-btn-sm" id="pui-banner-plain-btn">
+                                            <i class="fa-solid fa-ban"></i> Plain
+                                        </button>
                                     </div>
                                     <div class="pui-input-wrapper" style="margin-top:10px;">
                                         <i class="fa-solid fa-image pui-input-icon"></i>
@@ -3164,7 +3300,7 @@ if (this._activeTab === 'flight-plan') {
                                                value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
                                                placeholder="Or paste your own image URL — ${this.t('set.coverPlaceholder')}">
                                     </div>
-                                    <p class="pui-help-text">Pick a plane banner or use your own image. Shown on your dashboard and dossier.</p>
+                                    <p class="pui-help-text">Pick any aircraft from our database, or paste your own image URL. Shown on your dashboard and dossier.</p>
                                     ` : `
                                     <div class="pui-cover-locked">
                                         <i class="fa-solid fa-lock"></i>
@@ -3983,22 +4119,30 @@ const contentRoot = document.getElementById('pui-content');
                 if (bioCounter) bioCounter.textContent = String(bioInput.value.length);
             });
 
-            // ─── Profile banner presets (Pro) — fill the URL field & mark active.
-            // The value is persisted with the rest of the form on Save.
+            // ─── Profile banner (Pro) — aircraft picker, plain, or own URL.
+            // The chosen URL lands in #pui-edit-cover and is persisted on Save.
             const coverInput = document.getElementById('pui-edit-cover');
-            document.querySelectorAll('.pui-cover-preset').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const url = btn.dataset.cover || '';
-                    if (coverInput) coverInput.value = url;
-                    document.querySelectorAll('.pui-cover-preset').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                });
+            const bannerPreview = document.getElementById('pui-banner-preview');
+            const syncBannerPreview = () => {
+                if (!bannerPreview) return;
+                const val = (coverInput?.value || '').trim();
+                if (val) {
+                    bannerPreview.style.backgroundImage = `url('${val.replace(/'/g, '&apos;')}')`;
+                    bannerPreview.classList.remove('is-plain');
+                } else {
+                    bannerPreview.style.backgroundImage = '';
+                    bannerPreview.classList.add('is-plain');
+                }
+            };
+            coverInput?.addEventListener('input', syncBannerPreview);
+            document.getElementById('pui-banner-plain-btn')?.addEventListener('click', () => {
+                if (coverInput) coverInput.value = '';
+                syncBannerPreview();
             });
-            // Typing a custom URL clears any preset highlight.
-            coverInput?.addEventListener('input', () => {
-                const val = coverInput.value.trim();
-                document.querySelectorAll('.pui-cover-preset').forEach(b => {
-                    b.classList.toggle('active', (b.dataset.cover || '') === val);
+            document.getElementById('pui-choose-aircraft-btn')?.addEventListener('click', () => {
+                this._openAircraftPicker((url) => {
+                    if (coverInput) coverInput.value = url || '';
+                    syncBannerPreview();
                 });
             });
 
@@ -4997,7 +5141,7 @@ const contentRoot = document.getElementById('pui-content');
         if (document.getElementById('pui-dashboard-styles')) return;
 
         const css = `
-            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Quicksand:wght@500;600;700&display=swap');
 
             /* ═══════════════════════════════════════════════════════════════
                TOKENS — Soft premium, warm neutral foundation
@@ -5066,6 +5210,7 @@ const contentRoot = document.getElementById('pui-content');
 
                 /* Type scale */
                 --pui-font-sans:      'DM Sans', system-ui, -apple-system, sans-serif;
+                --pui-font-round:     'Quicksand', 'DM Sans', system-ui, sans-serif;
                 --pui-font-mono:      'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 
                 /* Motion */
@@ -5942,7 +6087,7 @@ const contentRoot = document.getElementById('pui-content');
             .pui-home-hero {
                 position: relative;
                 border-radius: var(--pui-radius-lg);
-                padding: 30px 28px;
+                padding: 30px 32px;
                 margin-bottom: var(--pui-gap-lg);
                 overflow: hidden;
                 display: flex;
@@ -5950,34 +6095,48 @@ const contentRoot = document.getElementById('pui-content');
                 align-items: flex-end;
                 gap: var(--pui-gap-md);
                 flex-wrap: wrap;
-                min-height: 150px;
+                min-height: 168px;
                 border: 1px solid var(--pui-border);
             }
             .pui-home-hero.is-plain {
                 background:
                     radial-gradient(120% 140% at 0% 0%, var(--pui-accent-soft) 0%, rgba(0,0,0,0) 55%),
-                    linear-gradient(135deg, var(--pui-bg-card) 0%, var(--pui-bg-surface) 100%);
+                    linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);
             }
-            .pui-home-hero.has-image { color: #fff; border-color: transparent; }
+            /* Pro banner image: a left→right scrim keeps the greeting readable
+               over any aircraft photo while the plane shows through on the right,
+               echoing the mockup. Theme-aware so it works in light and dark. */
+            .pui-home-hero.has-image::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(90deg,
+                    #f5f1ea 0%, rgba(245,241,234,0.86) 34%, rgba(245,241,234,0.35) 62%, rgba(245,241,234,0) 84%);
+            }
+            .pui-wrapper-layer[data-theme="dark"] .pui-home-hero.has-image::before {
+                background: linear-gradient(90deg,
+                    #1a1612 0%, rgba(26,22,18,0.86) 34%, rgba(26,22,18,0.35) 62%, rgba(26,22,18,0) 84%);
+            }
+            .pui-home-hero.has-image { border-color: transparent; }
             .pui-home-hero-inner { position: relative; z-index: 1; }
             .pui-home-hello {
                 display: block;
-                font-size: 1.05rem;
+                font-family: var(--pui-font-round);
+                font-size: 1.15rem;
                 font-weight: 500;
-                letter-spacing: -0.01em;
-                opacity: 0.85;
-                margin-bottom: -2px;
+                letter-spacing: 0;
+                color: var(--pui-text-secondary);
+                margin-bottom: 0;
             }
-            .pui-home-hero.is-plain .pui-home-hello { color: var(--pui-text-secondary); }
             .pui-home-name {
-                margin: 0 0 10px 0;
-                font-size: 3rem;
-                font-weight: 800;
-                letter-spacing: -0.035em;
+                margin: 0 0 12px 0;
+                font-family: var(--pui-font-round);
+                font-size: 3.2rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
                 line-height: 1;
+                color: var(--pui-text-primary);
             }
-            .pui-home-hero.is-plain .pui-home-name { color: var(--pui-text-primary); }
-            .pui-home-hero.has-image .pui-stat-strip { color: rgba(255,255,255,0.9); }
             .pui-home-hero-meta {
                 position: relative;
                 z-index: 1;
@@ -5986,7 +6145,6 @@ const contentRoot = document.getElementById('pui-content');
                 align-items: flex-end;
                 gap: 8px;
             }
-            .pui-home-hero.has-image .pui-home-date { color: rgba(255,255,255,0.85); }
             .pui-home-freechip {
                 display: inline-flex;
                 align-items: center;
@@ -6001,41 +6159,71 @@ const contentRoot = document.getElementById('pui-content');
                 color: var(--pui-text-secondary);
             }
 
-            /* ─── Most Used Aircraft card ──────────────────────────────────── */
-            .pui-home-mua { padding: 20px var(--pui-pad-card); display: flex; flex-direction: column; }
-            .pui-mua-list { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
-            .pui-mua-row { display: flex; align-items: center; gap: 12px; }
-            .pui-mua-name {
-                flex: 0 0 34%;
-                font-size: 0.82rem;
+            /* ─── Showcase cards (Most Used Aircraft + Flight Map) ─────────── */
+            .pui-home-showcase {
+                display: grid;
+                grid-template-columns: minmax(230px, 1fr) 1.9fr;
+                gap: var(--pui-gap-md);
+                margin-bottom: var(--pui-gap-md);
+            }
+            .pui-showcard {
+                background: #0b0b0d;
+                border-radius: 28px;
+                padding: 24px 26px;
+                color: #fff;
+                min-height: 220px;
+                display: flex;
+                flex-direction: column;
+                border: 1px solid rgba(255,255,255,0.06);
+            }
+            .pui-showcard-title {
+                font-family: var(--pui-font-round);
+                font-size: 1.35rem;
                 font-weight: 600;
-                color: var(--pui-text-primary);
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
+                margin: 0 0 16px 0;
+                color: #fff;
+                letter-spacing: -0.01em;
             }
-            .pui-mua-bar {
-                flex: 1;
-                height: 8px;
+            .pui-showcard-mua .pui-showcard-title { text-align: center; }
+            .pui-mua-ul {
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .pui-mua-ul li {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-family: var(--pui-font-round);
+                font-size: 1.02rem;
+                font-weight: 500;
+                color: #eef1f5;
+            }
+            .pui-mua-ul li::before {
+                content: '';
+                width: 6px;
+                height: 6px;
                 border-radius: 999px;
-                background: var(--pui-hover);
-                overflow: hidden;
+                background: #4a9fe0;
+                flex-shrink: 0;
             }
-            .pui-mua-bar-fill {
-                display: block;
-                height: 100%;
-                border-radius: 999px;
-                background: var(--pui-accent);
-            }
+            .pui-mua-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pui-mua-count {
-                flex: 0 0 auto;
                 font-family: var(--pui-font-mono);
                 font-size: 0.72rem;
                 font-weight: 700;
-                color: var(--pui-text-secondary);
-                min-width: 20px;
-                text-align: right;
+                color: rgba(255,255,255,0.45);
             }
+            .pui-mua-empty { font-size: 0.86rem; color: rgba(255,255,255,0.5); }
+            .pui-mua-skel { height: 16px; width: 60%; margin-bottom: 12px; border-radius: 6px; }
+            .pui-showcard-map { padding: 24px 26px 18px; }
+            .pui-flightmap { flex: 1; display: flex; align-items: center; justify-content: center; }
+            .pui-flightmap-svg { width: 100%; height: auto; max-height: 260px; display: block; }
+            .pfm-off { fill: #24405a; }
+            .pfm-on  { fill: #4a9fe0; }
 
             /* ─── Dock lock badge (free accounts) ──────────────────────────── */
             .pui-dock-item-locked { opacity: 0.72; }
@@ -6129,6 +6317,72 @@ const contentRoot = document.getElementById('pui-content');
             .pui-cover-locked span { display: block; font-size: 0.78rem; color: var(--pui-text-secondary); margin-top: 2px; }
             .pui-cover-locked .pui-btn-sm { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
             .pui-plan-box-free .pui-plan-renewal { line-height: 1.5; }
+
+            /* ─── Banner preview + aircraft picker (settings) ──────────────── */
+            .pui-banner-preview {
+                height: 96px;
+                border-radius: 12px;
+                background-size: cover;
+                background-position: center;
+                border: 1px solid var(--pui-border);
+                display: grid;
+                place-items: center;
+            }
+            .pui-banner-preview .pui-banner-preview-empty { display: none; color: var(--pui-text-tertiary); font-size: 0.8rem; font-weight: 600; }
+            .pui-banner-preview.is-plain {
+                background-image: none;
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--pui-accent-soft) 0%, rgba(0,0,0,0) 60%),
+                    linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);
+            }
+            .pui-banner-preview.is-plain .pui-banner-preview-empty { display: block; }
+            .pui-banner-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+            .pui-acpick-overlay {
+                position: absolute; inset: 0; z-index: 60;
+                background: rgba(0,0,0,0.45);
+                display: grid; place-items: center;
+                padding: 24px;
+                opacity: 0; transition: opacity var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-acpick-overlay.open { opacity: 1; }
+            .pui-acpick {
+                width: min(720px, 100%);
+                max-height: min(80vh, 640px);
+                display: flex; flex-direction: column;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-pop, 0 20px 50px rgba(0,0,0,0.3));
+                padding: 18px;
+            }
+            .pui-acpick-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+            .pui-acpick-head h3 { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--pui-text-primary); }
+            .pui-acpick-search-wrap { margin-bottom: 14px; }
+            .pui-acpick-grid {
+                overflow-y: auto;
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 10px;
+                padding-right: 4px;
+            }
+            .pui-acpick-loading { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--pui-text-secondary); font-size: 0.9rem; }
+            .pui-acpick-card {
+                display: flex; flex-direction: column; gap: 0;
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border);
+                border-radius: 12px;
+                overflow: hidden;
+                cursor: pointer;
+                text-align: left;
+                padding: 0;
+                transition: border-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-acpick-card:hover { border-color: var(--pui-accent); transform: translateY(-2px); }
+            .pui-acpick-img { height: 84px; background-size: cover; background-position: center; background-color: var(--pui-hover); }
+            .pui-acpick-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+            .pui-acpick-type { font-size: 0.82rem; font-weight: 700; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-acpick-livery { font-size: 0.7rem; color: var(--pui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
             .pui-stat-strip {
                 display: flex;
@@ -7879,9 +8133,10 @@ const contentRoot = document.getElementById('pui-content');
                 .pui-intel-stats-tri { grid-template-columns: 1fr; }
                 .pui-home-greeting { font-size: 1.4rem; }
                 .pui-home-hero { padding: 22px 20px; min-height: 120px; }
-                .pui-home-name { font-size: 2.1rem; }
+                .pui-home-name { font-size: 2.3rem; }
                 .pui-home-hero-meta { align-items: flex-start; }
-                .pui-mua-name { flex-basis: 42%; }
+                .pui-home-showcase { grid-template-columns: 1fr; }
+                .pui-showcard { min-height: 0; border-radius: 22px; }
                 .pui-ticket {
                     flex-direction: column;
                 }
