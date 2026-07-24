@@ -54,6 +54,10 @@
                     text: 'Pick any aircraft as your banner — Pro pilots can set their profile banner to any aircraft in our database (searchable by type, livery or tail) or their own image.'
                 },
                 {
+                    tag: 'new', icon: 'fa-map-pin',
+                    text: 'Pilot stats on the live map — Pro pilots get an expanded career on any flight they tap: flights made, airports visited, hours, landings and busiest route, right inside the pilot report.'
+                },
+                {
                     tag: 'improved', icon: 'fa-crown',
                     text: 'Clearer Pro — Pro tools and settings now unlock on your actual Pro membership, with a tidy upgrade prompt on anything a free account hasn’t unlocked yet.'
                 },

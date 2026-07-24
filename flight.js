@@ -6029,6 +6029,34 @@ function injectCustomStyles() {
 .kpi-value.warn { color: #ef4444; }
 .kpi-value small { font-size: 0.8rem; color: #52525b; }
 
+/* --- PRO: expanded pilot career on the live map --- */
+.pilot-pro-block {
+    margin-top: 14px;
+    background: rgba(10, 10, 12, 0.4);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+}
+.pilot-pro-head {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+    color: #38bdf8; margin-bottom: 12px;
+}
+.pilot-pro-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.pilot-pro-tile { display: flex; flex-direction: column; gap: 2px; }
+.pilot-pro-val { font-size: 1.15rem; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; line-height: 1.1; }
+.pilot-pro-lbl { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
+.pilot-pro-sub { font-size: 0.62rem; color: #52525b; font-weight: 600; }
+.pilot-pro-note { margin: 12px 0 0; font-size: 0.66rem; color: #52525b; line-height: 1.45; }
+.pilot-pro-loading { display: flex; align-items: center; gap: 8px; color: #a1a1aa; font-size: 0.8rem; }
+.pilot-pro-copy { margin: 0 0 12px; font-size: 0.78rem; line-height: 1.5; color: #a1a1aa; }
+.pilot-pro-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 16px; border-radius: 999px; border: none; cursor: pointer;
+    background: #38bdf8; color: #08131c; font-weight: 800; font-size: 0.8rem;
+}
+.pilot-pro-btn:hover { background: #7dd3fc; }
+
 /* --- CONTROLLER SPICE THEMES --- */
 
 /* Specialist (Blue Glow) */
@@ -22057,7 +22085,17 @@ function renderPilotStatsHTML(stats, username) {
             const pilotStats = data.stats || data.gradeInfo;
             if (data.ok && pilotStats) {
                 statsDisplay.innerHTML = renderPilotStatsHTML(pilotStats, username);
-                
+
+                // Pro-only expanded career: flights, airports visited, hours,
+                // landings, busiest route — computed from this pilot's logbook.
+                const container = statsDisplay.querySelector('.stats-rehaul-container');
+                if (container) {
+                    const proWrap = document.createElement('div');
+                    proWrap.id = 'pilot-pro-stats';
+                    container.appendChild(proWrap);
+                    renderPilotProStats(proWrap, userId, username);
+                }
+
                 // --- Accordion event listeners ---
                 const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
                 accordionHeaders.forEach(header => {
@@ -22087,6 +22125,90 @@ function renderPilotStatsHTML(stats, username) {
             statsDisplay.innerHTML = `<div class="stats-rehaul-container">
                 <p class="error-text">${error.message}</p>
             </div>`;
+        }
+    }
+
+    // Pro-only expanded career shown under the pilot report on the live map:
+    // flights made, airports visited, hours, landings and busiest route,
+    // aggregated from a bounded slice of this pilot's logbook. Free viewers
+    // get a locked teaser with an upgrade prompt instead.
+    async function renderPilotProStats(container, userId, username) {
+        if (!container) return;
+        let viewerPro = false;
+        try { viewerPro = !!(window.isInflightPro && window.isInflightPro()); } catch (_) {}
+        if (!viewerPro) { try { viewerPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+
+        if (!viewerPro) {
+            container.innerHTML = `
+                <div class="pilot-pro-block pilot-pro-locked">
+                    <div class="pilot-pro-head"><i class="fa-solid fa-crown"></i> ${esc(username)}'s full career</div>
+                    <p class="pilot-pro-copy">See flights made, airports visited, hours and busiest route for any pilot — a Pro feature.</p>
+                    ${iosNative ? '' : '<button type="button" class="pilot-pro-btn" id="pilot-pro-upsell"><i class="fa-solid fa-bolt"></i> Upgrade to Pro</button>'}
+                </div>`;
+            const btn = container.querySelector('#pilot-pro-upsell');
+            if (btn) btn.addEventListener('click', () => {
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
+            });
+            return;
+        }
+
+        container.innerHTML = `<div class="pilot-pro-block"><div class="pilot-pro-loading"><span class="spinner-small"></span> Loading ${esc(username)}'s career…</div></div>`;
+
+        try {
+            const base = ACARS_USER_API_URL.replace('/users', '/api/users');
+            const first = await fetch(`${base}/${userId}/flights?page=1`).then(r => r.json());
+            const flights = [...((first && first.flights) || [])];
+            const total = (first && first.totalCount) || flights.length;
+            const pageSize = flights.length || 1;
+            const lastPage = Math.min(Math.ceil(total / pageSize), 6); // bounded per click
+
+            if (pageSize > 0 && total > pageSize) {
+                const jobs = [];
+                for (let p = 2; p <= lastPage; p++) jobs.push(fetch(`${base}/${userId}/flights?page=${p}`).then(r => r.json()).catch(() => null));
+                (await Promise.all(jobs)).forEach(pg => { if (pg && Array.isArray(pg.flights)) flights.push(...pg.flights); });
+            }
+
+            const airports = new Set();
+            const routes = new Map();
+            let hours = 0, landings = 0, longest = 0, longestRoute = '';
+            for (const f of flights) {
+                const dep = String(f.originAirport || '').trim().toUpperCase();
+                const arr = String(f.destinationAirport || '').trim().toUpperCase();
+                if (dep) airports.add(dep);
+                if (arr) airports.add(arr);
+                const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+                hours += min / 60; landings += f.landingCount || 0;
+                if (min > longest) { longest = min; longestRoute = dep && arr ? `${dep} → ${arr}` : ''; }
+                if (dep && arr && dep !== arr) { const k = `${dep} → ${arr}`; routes.set(k, (routes.get(k) || 0) + 1); }
+            }
+            let busiest = null;
+            routes.forEach((n, r) => { if (!busiest || n > busiest.n) busiest = { r, n }; });
+
+            const scanned = flights.length;
+            const sampled = scanned < total;
+            const nf = (n) => Math.round(n).toLocaleString();
+
+            const tile = (label, value, sub = '') =>
+                `<div class="pilot-pro-tile"><span class="pilot-pro-val">${value}</span><span class="pilot-pro-lbl">${label}</span>${sub ? `<span class="pilot-pro-sub">${sub}</span>` : ''}</div>`;
+
+            container.innerHTML = `
+                <div class="pilot-pro-block">
+                    <div class="pilot-pro-head"><i class="fa-solid fa-crown"></i> Career</div>
+                    <div class="pilot-pro-grid">
+                        ${tile('Flights made', nf(total))}
+                        ${tile('Airports visited', nf(airports.size), sampled ? 'in recent flights' : '')}
+                        ${tile('Hours flown', nf(hours), sampled ? `over ${nf(scanned)} flights` : '')}
+                        ${tile('Landings', nf(landings), sampled ? 'recent' : '')}
+                        ${busiest ? tile('Busiest route', esc(busiest.r), `${busiest.n} flights`) : ''}
+                        ${longestRoute ? tile('Longest flight', `${(longest / 60).toFixed(1)}h`, esc(longestRoute)) : ''}
+                    </div>
+                    ${sampled ? `<p class="pilot-pro-note">From this pilot's ${nf(scanned)} most recent flights of ${nf(total)}.</p>` : ''}
+                </div>`;
+        } catch (err) {
+            container.innerHTML = `<div class="pilot-pro-block"><p class="pilot-pro-note">Couldn't load this pilot's career right now.</p></div>`;
         }
     }
 
