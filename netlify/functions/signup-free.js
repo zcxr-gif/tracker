@@ -16,6 +16,13 @@
 // fall back to the ordinary (email-confirmation) sign-up path instead of
 // breaking.
 
+// This Netlify runtime doesn't reliably expose a global fetch (the sibling
+// functions all pull in node-fetch), so use the global when present and fall
+// back to node-fetch otherwise.
+const fetchFn = (typeof globalThis !== 'undefined' && globalThis.fetch)
+  ? (...args) => globalThis.fetch(...args)
+  : (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+
 const SUPABASE_URL = (process.env.SUPABASE_URL || 'https://lcgaoiqwwpyqndaucyzu.supabase.co').replace(/\/+$/, '');
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -48,7 +55,7 @@ exports.handler = async (event) => {
   if (password.length < 6) return json(400, { error: 'Password must be at least 6 characters.' });
 
   try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    const res = await fetchFn(`${SUPABASE_URL}/auth/v1/admin/users`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

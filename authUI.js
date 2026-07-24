@@ -481,10 +481,14 @@ export const AuthUI = {
      */
     async _createFreeAccount(email, password, name) {
         const enterApp = () => { this.close(); this.open(); };
+        const base = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
 
-        // 1. Preferred path: server-side confirmed signup, then sign in.
+        // 1. Preferred path: server-side confirmed signup, then sign straight in.
+        //    Only a missing/unreachable function (501/404/network) falls through
+        //    to the fallback — a reachable-but-failing function surfaces its
+        //    error so problems are visible instead of silently downgrading.
         try {
-            const res = await fetch('/.netlify/functions/signup-free', {
+            const res = await fetch(`${base}/.netlify/functions/signup-free`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password, name }),
@@ -497,20 +501,24 @@ export const AuthUI = {
                 return;
             }
 
-            // 409 = already registered, 400 = validation — surface these directly.
-            if (res.status === 409 || res.status === 400) {
-                const { error } = await res.json().catch(() => ({}));
-                this.showError(error || 'Could not create your account.');
+            const payload = await res.json().catch(() => ({}));
+            console.warn('[AuthUI] signup-free returned', res.status, payload);
+
+            if (res.status === 409) { this.showError(payload.error || 'That email already has an account. Please sign in instead.'); return; }
+            if (res.status === 400) { this.showError(payload.error || 'Please check your details and try again.'); return; }
+            // 501 (service key not configured / not yet redeployed) and 404
+            // (function not deployed) drop to the fallback below. Any other
+            // status is a real server error worth showing.
+            if (res.status !== 501 && res.status !== 404) {
+                this.showError(payload.error || 'Could not create your account. Please try again.');
                 return;
             }
-            // Anything else (incl. 501 not_configured) falls through to the
-            // direct sign-up path below.
-        } catch (_) {
-            // Network/function unavailable — fall through to the fallback.
+        } catch (err) {
+            console.warn('[AuthUI] signup-free unreachable, using fallback:', err?.message);
         }
 
-        // 2. Fallback: direct Supabase sign-up. If the project still has email
-        //    confirmation on, there's no session yet and we ask them to confirm.
+        // 2. Fallback: direct Supabase sign-up. Instant when the project's
+        //    "Confirm email" setting is off; otherwise it asks them to confirm.
         try {
             const { data, error } = await this._supabase.auth.signUp({
                 email,
