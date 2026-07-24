@@ -6108,17 +6108,24 @@ function injectCustomStyles() {
 .pilot-routes-bar {
     position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
     z-index: 40; display: flex; align-items: center; gap: 8px;
-    padding: 7px 8px 7px 14px; border-radius: 999px;
+    padding: 7px 8px 7px 14px; border-radius: 999px; box-sizing: border-box;
     border: 1px solid rgba(56,189,248,0.4);
     background: rgba(8,15,24,0.92); backdrop-filter: blur(8px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4); max-width: 94vw; flex-wrap: wrap; justify-content: center;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    /* Cap to the viewport (minus a small gutter) so the pill can never spill off
+       the right edge on a narrow phone. */
+    max-width: calc(100vw - 20px); flex-wrap: wrap; justify-content: center;
 }
-.pilot-routes-bar .prb-title { color: #e0f2fe; font-weight: 700; font-size: 0.8rem; white-space: nowrap; }
+/* Truncate a long "username · N routes" instead of letting it push the pill past
+   the screen edge (the title is nowrap, so without this it overflows right). */
+.pilot-routes-bar .prb-title { color: #e0f2fe; font-weight: 700; font-size: 0.8rem; white-space: nowrap; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .pilot-routes-bar .prb-btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 7px 12px; border-radius: 999px; cursor: pointer;
-    border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06);
-    color: #cbd5e1; font-weight: 700; font-size: 0.76rem; white-space: nowrap;
+    /* Solid neutral-gray chips (were a near-transparent white that read as
+       blue-navy over the dark pill). */
+    border: 1px solid rgba(148,163,184,0.30); background: rgba(148,163,184,0.16);
+    color: #e2e8f0; font-weight: 700; font-size: 0.76rem; white-space: nowrap;
 }
 .pilot-routes-bar .prb-btn:hover { color: #fff; border-color: rgba(56,189,248,0.6); }
 .pilot-routes-bar .prb-btn.on { background: #38bdf8; color: #08131c; border-color: #38bdf8; }
@@ -6155,8 +6162,8 @@ function injectCustomStyles() {
 .pac-close { background: rgba(255,255,255,0.08); border: none; color: #cbd5e1; width: 34px; height: 34px; border-radius: 999px; font-size: 1rem; cursor: pointer; flex-shrink: 0; }
 .pac-close:hover { color: #fff; background: rgba(255,255,255,0.16); }
 .pac-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.pac-tile { display: flex; flex-direction: column; gap: 3px; background: rgba(255,255,255,0.05); border-radius: 14px; padding: 14px 14px; }
-.pac-val { font-size: 1.2rem; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.pac-tile { display: flex; flex-direction: column; gap: 3px; background: rgba(148,163,184,0.12); border-radius: 14px; padding: 14px 14px; min-width: 0; }
+.pac-val { font-size: 1.2rem; font-weight: 800; color: #fff; letter-spacing: -0.01em; min-width: 0; overflow-wrap: anywhere; }
 .pac-lbl { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
 .pac-fav { margin-top: 14px; font-size: 0.82rem; color: #94a3b8; }
 .pac-fav strong { color: #e0f2fe; }
@@ -22437,24 +22444,20 @@ function renderPilotStatsHTML(stats, username) {
 
             clearPilotRoutesOnMap();
             _pilotRoutesState = { username, flights };
-            // lineMetrics enables ['line-progress'] for the elevated dome profile.
-            sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', lineMetrics: true, data: { type: 'FeatureCollection', features: lineFeatures } });
-            // Elevated 3D arcs: each line rises from the origin, peaks mid-route
-            // and drops into the destination (sin profile × per-leg peak height).
-            // Falls back to a flat line if the runtime doesn't support z-offset.
-            try {
-                sectorOpsMap.addLayer({
-                    id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src',
-                    layout: {
-                        'line-cap': 'round', 'line-join': 'round',
-                        'line-z-offset': ['*', ['get', 'peak'], ['sin', ['*', Math.PI, ['line-progress']]]],
-                        'line-elevation-reference': 'sea',
-                    },
-                    paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.95, 'line-emissive-strength': 1 },
-                });
-            } catch (_) {
-                sectorOpsMap.addLayer({ id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
-            }
+            sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
+            // Great-circle arcs, drawn on the globe surface. We deliberately do
+            // NOT raise them into elevated domes with `line-z-offset`: elevated
+            // lines are unsupported in Mapbox's globe projection, so the arcs only
+            // appeared once the camera zoomed past the globe→mercator transition
+            // (~z6) — that's the "only shows when zoomed in close enough" bug.
+            // Flat great-circle lines render at every zoom level and still read as
+            // 3D as the globe tilts. (`peak` is left on the features, harmless, in
+            // case a future mercator mode wants the raised dome profile back.)
+            sectorOpsMap.addLayer({
+                id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.95, 'line-emissive-strength': 1 },
+            });
             sectorOpsMap.addSource('pilot-routes-air-src', { type: 'geojson', data: { type: 'FeatureCollection', features: airportFeatures } });
             sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
 
