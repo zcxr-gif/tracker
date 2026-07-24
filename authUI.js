@@ -118,35 +118,43 @@ export const AuthUI = {
         const { data } = await this._supabase.auth.getSession();
         
         if (data?.session?.user && mode !== 'update_password') {
-            
-            // Premium Access Gate: Verify subscription status from the database
+
+            // Entitlement check: read the Pro flag so we can hand it to the app.
+            // Free accounts (is_pro === false) are welcome — they enter the app
+            // with the flagship Pro tools locked and a plain profile banner,
+            // rather than being pushed into a paywall. Anything we can't resolve
+            // is treated optimistically as Pro so a transient error never locks a
+            // paying pilot out.
             const { data: profile, error: profileError } = await this._supabase
                 .from('profiles')
                 .select('is_pro')
                 .eq('id', data.session.user.id)
                 .single();
 
-            if (profile && profile.is_pro === false && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
-                // Subscription is inactive, force them to the premium renewal flow.
-                // Skipped on iOS native: App Store policy forbids surfacing the
-                // external Stripe renewal flow inside the app. Free users
-                // simply enter the app with Pro features locked.
-                this._mode = 'renew';
-                this._tempSignUpData = {
-                    email: data.session.user.email,
-                    is_renew: true
-                };
-            } else {
-                // Active Pro User -> Launch App
-                import('./profileUI.js').then(module => {
-                    if (!module.ProfileUI._supabase) {
-                        module.ProfileUI.init(this._supabase);
-                    }
-                    module.ProfileUI.open(data.session.user);
-                }).catch(err => console.error("Failed to load ProfileUI:", err));
-                
-                return; 
-            }
+            // Resolve entitlement. An explicit profiles.is_pro wins; otherwise
+            // fall back to the flag stamped in user metadata (set when a free
+            // account is created); otherwise stay optimistic so a legacy pilot
+            // with no flag at all still enters as Pro.
+            const metaPro = data.session.user.user_metadata?.is_pro;
+            let isPro;
+            if (profile && profile.is_pro === true)       isPro = true;
+            else if (profile && profile.is_pro === false) isPro = false;
+            else if (typeof metaPro === 'boolean')        isPro = metaPro;
+            else                                          isPro = true;
+
+            // Launch the app for everyone, Pro and free alike. ProfileUI gates
+            // the Pro-only features from the isPro flag we pass through here.
+            const appUser = data.session.user;
+            appUser.isPro = isPro;
+
+            import('./profileUI.js').then(module => {
+                if (!module.ProfileUI._supabase) {
+                    module.ProfileUI.init(this._supabase);
+                }
+                module.ProfileUI.open(appUser);
+            }).catch(err => console.error("Failed to load ProfileUI:", err));
+
+            return;
         } else {
             this._mode = mode;
             this._tempSignUpData = null; 
@@ -436,7 +444,21 @@ export const AuthUI = {
                 <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${isSignIn ? 'Sign In' : 'Continue'}</button>
+                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${isSignIn ? 'Sign In' : 'Continue to Pro — $1.99/mo'}</button>
+            `;
+
+            if (isSignUp) {
+                html += `
+                    <div class="auth-or-divider"><span>or</span></div>
+                    <button class="auth-choose-secondary" id="auth-free-signup-btn">
+                        <i class="fa-solid fa-user"></i>
+                        <span>Start with a free account</span>
+                    </button>
+                    <p class="auth-free-note">Free accounts include your dashboard, dossier stats and settings. Upgrade to Pro any time for the hangar, dispatch, airspace intel, watchlist and custom profile banners.</p>
+                `;
+            }
+
+            html += `
                 <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
             `;
         }
@@ -644,6 +666,64 @@ export const AuthUI = {
 
                 this.close();
                 this.open();
+            }
+        });
+
+        // Free account — create the account directly, no payment. The pilot
+        // enters the app on the free tier (Pro features locked) and can upgrade
+        // from Settings whenever they like.
+        document.getElementById('auth-free-signup-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            const email    = document.getElementById('auth-email')?.value;
+            const password = document.getElementById('auth-password')?.value;
+            const name     = document.getElementById('auth-name')?.value || '';
+            const termsCheckbox = document.getElementById('auth-terms');
+
+            if (!email || !password) {
+                this.showError("Please enter both email and password.");
+                return;
+            }
+            if (termsCheckbox && !termsCheckbox.checked) {
+                this.showError("Please agree to the Terms of Use and Privacy Policy.");
+                return;
+            }
+
+            this.setLoading('auth-free-signup-btn', true, 'Start with a free account');
+
+            try {
+                // Stamp is_pro:false into user metadata so the app treats them as
+                // free from the very first render, regardless of how the profiles
+                // row is provisioned server-side.
+                const { data, error } = await this._supabase.auth.signUp({
+                    email,
+                    password,
+                    options: { data: { full_name: name, name, is_pro: false } },
+                });
+
+                if (error) {
+                    this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
+                    this.showError(error.message);
+                    return;
+                }
+
+                // If the project requires email confirmation, there's no session
+                // yet — tell the pilot to confirm, then sign in.
+                if (!data.session) {
+                    this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
+                    const successDiv = document.getElementById('auth-success-message');
+                    if (successDiv) {
+                        successDiv.innerHTML = `<i class="fa-solid fa-envelope-circle-check" style="margin-bottom:8px;font-size:1.5rem;color:#16a34a;display:block;"></i>Account created! Check your email to confirm, then sign in.`;
+                        successDiv.style.display = 'block';
+                    }
+                    return;
+                }
+
+                // Signed in immediately — launch the app on the free tier.
+                this.close();
+                this.open();
+            } catch (err) {
+                this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
+                this.showError(err.message || 'Could not create your account. Please try again.');
             }
         });
 
@@ -1221,6 +1301,32 @@ export const AuthUI = {
                 color: #1d4ed8;
                 box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.08);
                 transform: translateY(-1px);
+            }
+
+            .auth-or-divider {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin: 16px 0;
+                color: #94a3b8;
+                font-size: 0.78rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+            }
+            .auth-or-divider::before,
+            .auth-or-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: #e2e8f0;
+            }
+            .auth-free-note {
+                margin: 12px 2px 0;
+                font-size: 0.78rem;
+                line-height: 1.45;
+                color: #64748b;
+                text-align: center;
             }
 
             .auth-choose-ext {

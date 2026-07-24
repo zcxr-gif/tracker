@@ -114,6 +114,12 @@ export const ProfileUI = {
         plan: 'Pro Access',
         price: '$1.99 / month'
     },
+
+    // Pro entitlement. `true` = full Pro Access; `false` = a free account, which
+    // enters the app with the flagship tools locked and a plain (image-free)
+    // profile banner. Resolved from `profiles.is_pro` on open, optimistic until
+    // then so a paying pilot never flashes a locked UI on a slow fetch.
+    _isPro: true,
     // Store live IF data
     _ifData: {
         loading: false,
@@ -162,6 +168,22 @@ export const ProfileUI = {
 
     // Default tab order — _dockOrder may override this
     _DEFAULT_DOCK_ORDER: ['dashboard', 'career-deep-dive', 'fleet', 'airspace-intel', 'flight-plan', 'watchlist', 'settings'],
+
+    // Tabs reserved for Pro. Free accounts still see them in the dock (with a
+    // lock badge) but opening one shows an upsell instead of the feature.
+    // Free pilots keep the essentials: dashboard, dossier and settings.
+    _PRO_ONLY_TABS: ['fleet', 'airspace-intel', 'flight-plan', 'watchlist'],
+
+    // Preset plane banners a Pro pilot can pick without hosting their own image.
+    // A Pro pilot may still paste any custom image URL; free pilots get none of
+    // this — their banner is always the plain gradient.
+    _COVER_PRESETS: [
+        { id: 'emirates', label: 'Emirates',   url: 'CommunityPlanes/emirates.webp' },
+        { id: 'aircalin', label: 'Aircalin',   url: 'CommunityPlanes/aircalin.webp' },
+        { id: 'a350',     label: 'Airbus A350', url: 'CommunityPlanes/a350.webp' },
+        { id: 'ana',      label: 'ANA 787',    url: 'ana.png' },
+        { id: 'klax',     label: 'LAX Ramp',   url: 'klax.webp' },
+    ],
 
     // Accent color presets — applied as CSS variable overrides on the wrapper layer.
     // Each preset supplies the same four vars used throughout the stylesheet.
@@ -702,6 +724,12 @@ init(supabaseClient) {
         this._coverUrl  = user?.user_metadata?.cover_url || '';
         this._dockOrder = Array.isArray(user?.user_metadata?.dock_order) ? user.user_metadata.dock_order : null;
 
+        // Pro entitlement — optimistic from cached metadata (or the flag authUI
+        // stamps on the user when it lets a free account in), then corrected by
+        // the authoritative profiles.is_pro fetch kicked off below.
+        if (typeof user?.isPro === 'boolean')                     this._isPro = user.isPro;
+        else if (typeof user?.user_metadata?.is_pro === 'boolean') this._isPro = user.user_metadata.is_pro;
+
         if (!this._injected) {
             this._inject();
             this._injected = true;
@@ -725,6 +753,7 @@ init(supabaseClient) {
         this._shellBuilt = false;
         this._editingFlightId = null; // Reset edit state
         this._render();
+        this._fetchProStatus();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
@@ -1300,6 +1329,77 @@ if (type === 'flights') {
         return { title: '', html: '' };
     },
 
+    /**
+     * Resolve the authoritative Pro entitlement from `profiles.is_pro`. Free
+     * accounts (is_pro === false) get the flagship tools locked and a plain
+     * banner; anything else is treated as Pro. On error we leave the optimistic
+     * value untouched so a transient failure never locks a paying pilot out.
+     */
+    async _fetchProStatus() {
+        if (!this._currentUser || !this._supabase) return;
+
+        try {
+            const { data, error } = await this._supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', this._currentUser.id)
+                .single();
+
+            if (error || !data) return;
+
+            // Tri-state: only an explicit true/false moves the needle. A null or
+            // absent flag (e.g. a brand-new free signup whose row isn't fully
+            // provisioned) keeps whatever authUI/metadata already told us, so we
+            // never silently upgrade a free account nor lock a paying one.
+            let nextPro;
+            if (data.is_pro === true)       nextPro = true;
+            else if (data.is_pro === false) nextPro = false;
+            else                            nextPro = this._isPro;
+            if (nextPro === this._isPro) return;
+
+            this._isPro = nextPro;
+
+            // Entitlement changed under us — a locked pilot may be sitting on a
+            // now-forbidden tab, and the banner/dock/settings all need refreshing.
+            if (this._isOpen) {
+                if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
+                    this._activeTab = 'dashboard';
+                }
+                this._render();
+            }
+        } catch (err) {
+            console.warn('[ProfileUI] Could not resolve Pro status:', err.message);
+        }
+    },
+
+    /**
+     * Start the Pro upgrade for the signed-in pilot via the same Stripe
+     * checkout the sign-up flow uses (as a logged-in renewal — no password
+     * needed). On any failure we fall back to the Settings/billing screen so
+     * the button is never a dead end.
+     */
+    async _startProUpgrade(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
+        try {
+            if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+            const payload = {
+                email: this._currentUser.email,
+                success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
+                cancel_url:  window.location.origin + '?payment=cancel',
+                is_renew: true,
+            };
+            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
+            if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
+            window.location.href = data.url;
+        } catch (err) {
+            console.warn('[ProfileUI] Upgrade checkout failed, showing billing screen:', err.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+            if (this._activeTab !== 'settings') this.switchTab('settings');
+            setTimeout(() => document.getElementById('pui-billing-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+        }
+    },
+
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
 
@@ -1600,7 +1700,7 @@ const requests = [
         const user = this._currentUser;
         const name = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
         const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
-        const planLabel = this._subscription.plan;
+        const planLabel = this._isPro ? this._subscription.plan : 'Free';
 
         const themeIcon = this._theme === 'dark' ? 'fa-moon' : 'fa-sun';
         const densityIcon = this._density === 'compact' ? 'fa-grip-lines' : 'fa-grip';
@@ -1661,16 +1761,18 @@ const requests = [
                     ${navItems.map(item => {
                         const isActive = this._activeTab === item.id;
                         const isWatch = item.id === 'watchlist';
+                        const isLocked = !this._isPro && this._PRO_ONLY_TABS.includes(item.id);
                         const badgeAttrs = isWatch ? `id="pui-dock-watchlist-badge" style="${liveCount > 0 ? '' : 'display:none;'}"` : '';
                         const badgeText = isWatch && liveCount > 0 ? liveCount : (isWatch ? '' : '');
                         return `
-                            <button class="pui-dock-item ${isActive ? 'active' : ''}"
+                            <button class="pui-dock-item ${isActive ? 'active' : ''} ${isLocked ? 'pui-dock-item-locked' : ''}"
                                     data-tab="${item.id}"
                                     draggable="true"
-                                    title="${item.label}">
+                                    title="${isLocked ? item.label + ' — Pro' : item.label}">
                                 <span class="pui-dock-icon"><i class="fa-solid ${item.icon}"></i></span>
                                 <span class="pui-dock-label">${item.label}</span>
-                                ${isWatch ? `<span class="pui-dock-badge" ${badgeAttrs}>${badgeText}</span>` : ''}
+                                ${isLocked ? '<span class="pui-dock-lock"><i class="fa-solid fa-lock"></i></span>' : ''}
+                                ${isWatch && !isLocked ? `<span class="pui-dock-badge" ${badgeAttrs}>${badgeText}</span>` : ''}
                             </button>
                         `;
                     }).join('')}
@@ -2387,7 +2489,53 @@ _generateAirspaceHTML() {
         }
     },
 
+    /**
+     * Upsell panel shown to free accounts when they open a Pro-only tab.
+     * Each locked feature gets a short, honest pitch plus the perks a Pro
+     * upgrade unlocks. The upgrade button reuses the existing account-manage
+     * action so it flows into the same Stripe path as the settings screen.
+     */
+    _getProUpsellHTML(tabId) {
+        const pitch = {
+            'fleet':          { icon: 'fa-plane-up',        title: 'Virtual Hangar', blurb: 'Track every airframe on the live map, enriched with its career stats and last leg flown.' },
+            'airspace-intel': { icon: 'fa-tower-broadcast', title: 'Airspace Intel', blurb: 'Live traffic, predictive sector loading and controller coverage across the network.' },
+            'flight-plan':    { icon: 'fa-route',           title: 'Flight Dispatch', blurb: 'File and manage full dispatch-grade flight plans with gates, fuel and countdowns.' },
+            'watchlist':      { icon: 'fa-binoculars',      title: 'Pilot Watchlist', blurb: 'Follow other pilots and get notified the moment they go live.' },
+        }[tabId] || { icon: 'fa-lock', title: 'Pro feature', blurb: 'This tool is part of Inflight Pro.' };
+
+        // App Store policy forbids surfacing the external Stripe upgrade inside
+        // the iOS app, so there we point pilots to the website instead.
+        const ios = typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative();
+
+        return `
+            <div class="pui-upsell pui-fade-in">
+                <div class="pui-upsell-card">
+                    <div class="pui-upsell-badge"><i class="fa-solid fa-crown"></i> Pro</div>
+                    <div class="pui-upsell-icon"><i class="fa-solid ${pitch.icon}"></i></div>
+                    <h2 class="pui-upsell-title">${pitch.title}</h2>
+                    <p class="pui-upsell-blurb">${pitch.blurb}</p>
+                    <ul class="pui-upsell-perks">
+                        <li><i class="fa-solid fa-check"></i> Virtual hangar, dispatch &amp; airspace intel</li>
+                        <li><i class="fa-solid fa-check"></i> Pilot watchlist with live alerts</li>
+                        <li><i class="fa-solid fa-check"></i> Custom &amp; plane profile banners</li>
+                    </ul>
+                    ${ios
+                        ? `<p class="pui-upsell-foot">Upgrade to Pro at <strong>inflight.info</strong> to unlock this. Free accounts keep the dashboard, dossier stats and settings.</p>`
+                        : `<button class="pui-btn-primary pui-btn-block" data-action="upgrade-pro">
+                            <i class="fa-solid fa-bolt"></i> Upgrade to Pro
+                        </button>
+                        <p class="pui-upsell-foot">Free accounts keep the dashboard, dossier stats and settings.</p>`}
+                </div>
+            </div>
+        `;
+    },
+
 _getTabContentHTML() {
+        // Free accounts: flagship tabs render an upsell instead of the feature.
+        if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
+            return this._getProUpsellHTML(this._activeTab);
+        }
+
         if (this._activeTab === 'onboarding') {
             return `
                 <div class="pui-onboarding-container pui-fade-in">
@@ -2544,9 +2692,10 @@ _getTabContentHTML() {
                 </div>
             `).join('') : '<div class="pui-empty-inline">Insufficient logbook data for fleet analytics.</div>';
 
-            // Base Background for Hero
-            const bgStyle = this._coverUrl 
-                ? `background-image: url('${this._coverUrl.replace(/'/g, "&apos;")}'); background-size: cover; background-position: center;` 
+            // Base Background for Hero — custom banners are Pro-only; free
+            // accounts always fall back to the plain themed gradient.
+            const bgStyle = (this._isPro && this._coverUrl)
+                ? `background-image: url('${this._coverUrl.replace(/'/g, "&apos;")}'); background-size: cover; background-position: center;`
                 : `background: linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);`;
 
             return `
@@ -2790,30 +2939,78 @@ _getTabContentHTML() {
                     </div>`;
             }
 
+            // Most-used aircraft — a compact top-list drawn from the logbook,
+            // mirroring the mockup's "Your Most Used Aircraft" card.
+            let mostUsedHTML = '';
+            const _lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+            if (this._ifData.loading && !_lb.length) {
+                mostUsedHTML = `
+                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:80px;height:13px;flex:1;"></div></div>
+                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:70px;height:13px;flex:1;"></div></div>
+                    <div class="pui-flight-row"><div class="pui-skeleton" style="width:90px;height:13px;flex:1;"></div></div>`;
+            } else if (_lb.length) {
+                const useMap = {};
+                _lb.forEach(f => {
+                    const aId = f.aircraftId || f.aircraftID;
+                    const lId = f.liveryId || f.liveryID;
+                    if (aId) {
+                        const nm = this._resolveAircraftName(aId, lId);
+                        useMap[nm] = (useMap[nm] || 0) + 1;
+                    }
+                });
+                const top = Object.entries(useMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                const maxN = top.length ? top[0][1] : 1;
+                mostUsedHTML = top.length
+                    ? top.map(([nm, n]) => `
+                        <div class="pui-mua-row">
+                            <span class="pui-mua-name">${this._fleetEsc(nm)}</span>
+                            <span class="pui-mua-bar"><span class="pui-mua-bar-fill" style="width:${Math.max(6, (n / maxN) * 100)}%;"></span></span>
+                            <span class="pui-mua-count">${n}</span>
+                        </div>`).join('')
+                    : `<div class="pui-empty-inline">No aircraft logged yet.</div>`;
+            } else {
+                mostUsedHTML = `<div class="pui-empty-inline">${ifUsername ? 'No aircraft logged yet.' : 'Link your Infinite Flight account to see your fleet.'}</div>`;
+            }
+
+            // Hero banner. Pro pilots may back it with a plane preset or their
+            // own image; free accounts always get the plain themed gradient.
+            const heroImg = (this._isPro && this._coverUrl) ? this._coverUrl.replace(/'/g, '&apos;') : '';
+            const heroStyle = heroImg
+                ? `background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 55%, rgba(0,0,0,0) 100%), url('${heroImg}'); background-size: cover; background-position: center;`
+                : '';
+
             return `
-                <div class="pui-home-header pui-fade-in">
-                    <div>
-                        <h1 class="pui-home-greeting">${greeting}, ${firstName}.</h1>
+                <div class="pui-home-hero pui-fade-in ${heroImg ? 'has-image' : 'is-plain'}" style="${heroStyle}">
+                    <div class="pui-home-hero-inner">
+                        <span class="pui-home-hello">Hello,</span>
+                        <h1 class="pui-home-name">${firstName}</h1>
                         ${statsStrip}
                     </div>
-                    <div class="pui-home-date">${dateStr}</div>
+                    <div class="pui-home-hero-meta">
+                        <span class="pui-home-date">${dateStr}</span>
+                        ${this._isPro ? '' : '<span class="pui-home-freechip"><i class="fa-solid fa-user"></i> Free account</span>'}
+                    </div>
                 </div>
 
                 <div id="pui-live-flights-wrapper" style="display:none;"></div>
 
                 <div class="pui-home-grid pui-fade-in">
+                    <section class="pui-card pui-home-mua">
+                        <div class="pui-card-eyebrow">Your Most Used Aircraft</div>
+                        <div class="pui-mua-list">${mostUsedHTML}</div>
+                    </section>
                     <section class="pui-card pui-home-recent">
                         <div class="pui-card-eyebrow">Recent Flights</div>
                         <div class="pui-flight-list">${recentFlightsHTML}</div>
                     </section>
+                </div>
+
+                <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
                     <section class="pui-card pui-home-dispatch">
                         <div class="pui-card-eyebrow">Next Departure</div>
                         ${nextDispatch}
                     </section>
-                </div>
-
-                <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
-                    <section class="pui-card pui-home-replays" style="grid-column:1 / -1;">
+                    <section class="pui-card pui-home-replays">
                         <div class="pui-card-eyebrow">Replays</div>
                         ${replaysHTML
                             ? `<div class="pui-replay-list">${replaysHTML}</div>`
@@ -2947,14 +3144,37 @@ if (this._activeTab === 'flight-plan') {
                                     </p>
                                 </div>
                                 <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>${this.t('set.cover')}</label>
-                                    <div class="pui-input-wrapper">
+                                    <label>Profile banner ${this._isPro ? '' : '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'}</label>
+                                    ${this._isPro ? `
+                                    <div class="pui-cover-presets">
+                                        <button type="button" class="pui-cover-preset ${!this._coverUrl ? 'active' : ''}" data-cover="" title="Plain banner">
+                                            <span class="pui-cover-preset-plain"><i class="fa-solid fa-ban"></i></span>
+                                            <span class="pui-cover-preset-label">Plain</span>
+                                        </button>
+                                        ${this._COVER_PRESETS.map(p => `
+                                            <button type="button" class="pui-cover-preset ${this._coverUrl === p.url ? 'active' : ''}" data-cover="${p.url}" title="${p.label}">
+                                                <span class="pui-cover-preset-img" style="background-image:url('${p.url}');"></span>
+                                                <span class="pui-cover-preset-label">${p.label}</span>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                    <div class="pui-input-wrapper" style="margin-top:10px;">
                                         <i class="fa-solid fa-image pui-input-icon"></i>
                                         <input type="url" id="pui-edit-cover" class="pui-input has-icon"
                                                value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
-                                               placeholder="${this.t('set.coverPlaceholder')}">
+                                               placeholder="Or paste your own image URL — ${this.t('set.coverPlaceholder')}">
                                     </div>
-                                    <p class="pui-help-text">${this.t('set.coverHelp')}</p>
+                                    <p class="pui-help-text">Pick a plane banner or use your own image. Shown on your dashboard and dossier.</p>
+                                    ` : `
+                                    <div class="pui-cover-locked">
+                                        <i class="fa-solid fa-lock"></i>
+                                        <div>
+                                            <strong>Custom banners are a Pro perk.</strong>
+                                            <span>Free accounts get the clean plain banner. Upgrade to add a plane photo or your own image.</span>
+                                        </div>
+                                        <button type="button" class="pui-btn-primary pui-btn-sm" data-action="upgrade-pro"><i class="fa-solid fa-bolt"></i> Upgrade</button>
+                                    </div>
+                                    `}
                                 </div>
                             </div>
                         </div>
@@ -3031,9 +3251,10 @@ if (this._activeTab === 'flight-plan') {
                             </div>
                         </div>
 
-                        <div class="pui-card ios-hide">
+                        <div class="pui-card ios-hide" id="pui-billing-card">
                             <div class="pui-card-header"><h3>${this.t('set.billing')}</h3></div>
                             <div class="pui-card-body">
+                                ${this._isPro ? `
                                 <div class="pui-plan-box">
                                     <div class="pui-plan-header">
                                         <h4>${this._subscription.plan}</h4>
@@ -3051,6 +3272,20 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-ban"></i> Cancel subscription
                                     </button>
                                 </div>
+                                ` : `
+                                <div class="pui-plan-box pui-plan-box-free">
+                                    <div class="pui-plan-header">
+                                        <h4>Free account</h4>
+                                        <span class="pui-status-badge">Free</span>
+                                    </div>
+                                    <p class="pui-plan-renewal">Dashboard, dossier stats and settings are included. Upgrade to Pro to unlock the virtual hangar, dispatch, airspace intel, the pilot watchlist and custom profile banners.</p>
+                                </div>
+                                <div class="pui-billing-actions">
+                                    <button class="pui-btn-primary pui-btn-block" data-action="upgrade-pro">
+                                        <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
+                                    </button>
+                                </div>
+                                `}
                             </div>
                         </div>
 
@@ -3529,6 +3764,14 @@ const contentRoot = document.getElementById('pui-content');
                     if (!rw) window.location.assign(rurl);
                     return;
                 }
+
+                // 4. Upgrade to Pro → start the Stripe checkout for this pilot
+                const upgradeTarget = e.target.closest('[data-action="upgrade-pro"]');
+                if (upgradeTarget && contentRoot.contains(upgradeTarget)) {
+                    e.stopPropagation();
+                    this._startProUpgrade(upgradeTarget);
+                    return;
+                }
             });
         }
 
@@ -3740,6 +3983,25 @@ const contentRoot = document.getElementById('pui-content');
                 if (bioCounter) bioCounter.textContent = String(bioInput.value.length);
             });
 
+            // ─── Profile banner presets (Pro) — fill the URL field & mark active.
+            // The value is persisted with the rest of the form on Save.
+            const coverInput = document.getElementById('pui-edit-cover');
+            document.querySelectorAll('.pui-cover-preset').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const url = btn.dataset.cover || '';
+                    if (coverInput) coverInput.value = url;
+                    document.querySelectorAll('.pui-cover-preset').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+            // Typing a custom URL clears any preset highlight.
+            coverInput?.addEventListener('input', () => {
+                const val = coverInput.value.trim();
+                document.querySelectorAll('.pui-cover-preset').forEach(b => {
+                    b.classList.toggle('active', (b.dataset.cover || '') === val);
+                });
+            });
+
             // ─── Dock order reset ──────────────────────────────────────────
             document.getElementById('pui-dock-reset-btn')?.addEventListener('click', async () => {
                 await this.resetDockOrder();
@@ -3764,7 +4026,9 @@ const contentRoot = document.getElementById('pui-content');
                 const newTimezone = document.getElementById('pui-edit-timezone')?.value;
                 const newPassword = document.getElementById('pui-edit-password')?.value;
                 const newBio   = document.getElementById('pui-edit-bio')?.value || '';
-                const newCover = document.getElementById('pui-edit-cover')?.value.trim() || '';
+                // Free accounts have no banner field — preserve any stored cover
+                // so it returns intact if they later upgrade to Pro.
+                const newCover = this._isPro ? (document.getElementById('pui-edit-cover')?.value.trim() || '') : this._coverUrl;
                 const currentTheme = this._theme;
                 const currentDensity = this._density;
 
@@ -5673,6 +5937,199 @@ const contentRoot = document.getElementById('pui-content');
                 font-weight: 500;
                 white-space: nowrap;
             }
+
+            /* ─── Redesigned dashboard hero banner ─────────────────────────── */
+            .pui-home-hero {
+                position: relative;
+                border-radius: var(--pui-radius-lg);
+                padding: 30px 28px;
+                margin-bottom: var(--pui-gap-lg);
+                overflow: hidden;
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-end;
+                gap: var(--pui-gap-md);
+                flex-wrap: wrap;
+                min-height: 150px;
+                border: 1px solid var(--pui-border);
+            }
+            .pui-home-hero.is-plain {
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--pui-accent-soft) 0%, rgba(0,0,0,0) 55%),
+                    linear-gradient(135deg, var(--pui-bg-card) 0%, var(--pui-bg-surface) 100%);
+            }
+            .pui-home-hero.has-image { color: #fff; border-color: transparent; }
+            .pui-home-hero-inner { position: relative; z-index: 1; }
+            .pui-home-hello {
+                display: block;
+                font-size: 1.05rem;
+                font-weight: 500;
+                letter-spacing: -0.01em;
+                opacity: 0.85;
+                margin-bottom: -2px;
+            }
+            .pui-home-hero.is-plain .pui-home-hello { color: var(--pui-text-secondary); }
+            .pui-home-name {
+                margin: 0 0 10px 0;
+                font-size: 3rem;
+                font-weight: 800;
+                letter-spacing: -0.035em;
+                line-height: 1;
+            }
+            .pui-home-hero.is-plain .pui-home-name { color: var(--pui-text-primary); }
+            .pui-home-hero.has-image .pui-stat-strip { color: rgba(255,255,255,0.9); }
+            .pui-home-hero-meta {
+                position: relative;
+                z-index: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 8px;
+            }
+            .pui-home-hero.has-image .pui-home-date { color: rgba(255,255,255,0.85); }
+            .pui-home-freechip {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 0.66rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                background: var(--pui-hover);
+                color: var(--pui-text-secondary);
+            }
+
+            /* ─── Most Used Aircraft card ──────────────────────────────────── */
+            .pui-home-mua { padding: 20px var(--pui-pad-card); display: flex; flex-direction: column; }
+            .pui-mua-list { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+            .pui-mua-row { display: flex; align-items: center; gap: 12px; }
+            .pui-mua-name {
+                flex: 0 0 34%;
+                font-size: 0.82rem;
+                font-weight: 600;
+                color: var(--pui-text-primary);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .pui-mua-bar {
+                flex: 1;
+                height: 8px;
+                border-radius: 999px;
+                background: var(--pui-hover);
+                overflow: hidden;
+            }
+            .pui-mua-bar-fill {
+                display: block;
+                height: 100%;
+                border-radius: 999px;
+                background: var(--pui-accent);
+            }
+            .pui-mua-count {
+                flex: 0 0 auto;
+                font-family: var(--pui-font-mono);
+                font-size: 0.72rem;
+                font-weight: 700;
+                color: var(--pui-text-secondary);
+                min-width: 20px;
+                text-align: right;
+            }
+
+            /* ─── Dock lock badge (free accounts) ──────────────────────────── */
+            .pui-dock-item-locked { opacity: 0.72; }
+            .pui-dock-lock {
+                position: absolute;
+                top: 4px;
+                right: 6px;
+                font-size: 0.58rem;
+                color: var(--pui-text-tertiary);
+            }
+
+            /* ─── Pro upsell panel ─────────────────────────────────────────── */
+            .pui-upsell { display: grid; place-items: center; padding: 40px 20px; }
+            .pui-upsell-card {
+                position: relative;
+                max-width: 440px;
+                width: 100%;
+                text-align: center;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                padding: 34px 30px 28px;
+                box-shadow: var(--pui-shadow-card);
+            }
+            .pui-upsell-badge {
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 0.64rem;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+            }
+            .pui-upsell-icon {
+                width: 60px;
+                height: 60px;
+                margin: 0 auto 16px;
+                border-radius: 16px;
+                display: grid;
+                place-items: center;
+                font-size: 1.5rem;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+            }
+            .pui-upsell-title { margin: 0 0 8px; font-size: 1.4rem; font-weight: 800; color: var(--pui-text-primary); letter-spacing: -0.02em; }
+            .pui-upsell-blurb { margin: 0 auto 18px; max-width: 340px; font-size: 0.88rem; line-height: 1.5; color: var(--pui-text-secondary); }
+            .pui-upsell-perks { list-style: none; margin: 0 0 20px; padding: 0; display: inline-flex; flex-direction: column; gap: 8px; text-align: left; }
+            .pui-upsell-perks li { display: flex; align-items: center; gap: 9px; font-size: 0.82rem; color: var(--pui-text-primary); }
+            .pui-upsell-perks li i { color: var(--pui-pos); font-size: 0.75rem; }
+            .pui-upsell-foot { margin: 14px 0 0; font-size: 0.72rem; color: var(--pui-text-tertiary); }
+
+            /* ─── Banner presets + locked notice (settings) ────────────────── */
+            .pui-pro-tag {
+                display: inline-flex; align-items: center; gap: 4px;
+                margin-left: 6px; padding: 2px 7px; border-radius: 999px;
+                font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+                background: var(--pui-accent-soft); color: var(--pui-accent);
+            }
+            .pui-cover-presets { display: flex; flex-wrap: wrap; gap: 10px; }
+            .pui-cover-preset {
+                display: flex; flex-direction: column; align-items: center; gap: 5px;
+                width: 78px; padding: 0; background: none; border: none; cursor: pointer;
+            }
+            .pui-cover-preset-img, .pui-cover-preset-plain {
+                width: 78px; height: 48px; border-radius: 10px;
+                background-size: cover; background-position: center;
+                border: 2px solid var(--pui-border);
+                transition: border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-cover-preset-plain {
+                display: grid; place-items: center;
+                background: var(--pui-hover); color: var(--pui-text-tertiary); font-size: 0.9rem;
+            }
+            .pui-cover-preset.active .pui-cover-preset-img,
+            .pui-cover-preset.active .pui-cover-preset-plain { border-color: var(--pui-accent); }
+            .pui-cover-preset-label { font-size: 0.66rem; color: var(--pui-text-secondary); font-weight: 600; }
+            .pui-cover-locked {
+                display: flex; align-items: center; gap: 14px;
+                padding: 16px; border-radius: 12px;
+                background: var(--pui-hover); border: 1px dashed var(--pui-border-strong);
+            }
+            .pui-cover-locked > i { font-size: 1.2rem; color: var(--pui-text-tertiary); }
+            .pui-cover-locked strong { display: block; font-size: 0.86rem; color: var(--pui-text-primary); }
+            .pui-cover-locked span { display: block; font-size: 0.78rem; color: var(--pui-text-secondary); margin-top: 2px; }
+            .pui-cover-locked .pui-btn-sm { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+            .pui-plan-box-free .pui-plan-renewal { line-height: 1.5; }
+
             .pui-stat-strip {
                 display: flex;
                 align-items: center;
@@ -5696,13 +6153,14 @@ const contentRoot = document.getElementById('pui-content');
                 grid-template-columns: 1fr 320px;
                 gap: var(--pui-gap-md);
             }
-            .pui-home-recent, .pui-home-dispatch {
+            .pui-home-recent, .pui-home-dispatch, .pui-home-replays {
                 padding: 20px var(--pui-pad-card);
                 display: flex;
                 flex-direction: column;
             }
             .pui-wrapper-layer[data-density="compact"] .pui-home-recent,
-            .pui-wrapper-layer[data-density="compact"] .pui-home-dispatch {
+            .pui-wrapper-layer[data-density="compact"] .pui-home-dispatch,
+            .pui-wrapper-layer[data-density="compact"] .pui-home-replays {
                 padding: 14px var(--pui-pad-card);
             }
 
@@ -7420,6 +7878,10 @@ const contentRoot = document.getElementById('pui-content');
                 .pui-intel-stats-quad { grid-template-columns: repeat(2, 1fr); }
                 .pui-intel-stats-tri { grid-template-columns: 1fr; }
                 .pui-home-greeting { font-size: 1.4rem; }
+                .pui-home-hero { padding: 22px 20px; min-height: 120px; }
+                .pui-home-name { font-size: 2.1rem; }
+                .pui-home-hero-meta { align-items: flex-start; }
+                .pui-mua-name { flex-basis: 42%; }
                 .pui-ticket {
                     flex-direction: column;
                 }

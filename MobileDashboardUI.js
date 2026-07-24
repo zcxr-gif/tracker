@@ -41,10 +41,24 @@ export const MobileDashboardUI = {
     _activeTab:         'dashboard',
     _careerActiveTab:   'overview',
     _currentUser:       null,
-    _theme:             'light',     
+    _theme:             'light',
     _accent:            'azure',
     _bio:               '',
     _coverUrl:          '',
+
+    // Pro entitlement — false = free account (flagship tools locked, plain
+    // banner). Optimistic until profiles.is_pro resolves so a paying pilot
+    // never flashes a locked UI. Mirrors the desktop ProfileUI behaviour.
+    _isPro:             true,
+    _PRO_ONLY_TABS:     ['fleet', 'airspace-intel', 'flight-plan', 'watchlist'],
+    // Preset plane banners a Pro pilot can pick without hosting an image.
+    _COVER_PRESETS: [
+        { id: 'emirates', label: 'Emirates',    url: 'CommunityPlanes/emirates.webp' },
+        { id: 'aircalin', label: 'Aircalin',    url: 'CommunityPlanes/aircalin.webp' },
+        { id: 'a350',     label: 'Airbus A350', url: 'CommunityPlanes/a350.webp' },
+        { id: 'ana',      label: 'ANA 787',     url: 'ana.png' },
+        { id: 'klax',     label: 'LAX Ramp',    url: 'klax.webp' },
+    ],
     _flightPlansData:   [],
     _editingFlightId:   null,
     _airportCache:      null,
@@ -248,6 +262,11 @@ init(supabaseClient) {
         this._bio       = user?.user_metadata?.pilot_bio || '';
         this._coverUrl  = user?.user_metadata?.cover_url || '';
 
+        // Pro entitlement — optimistic from the flag authUI stamps on the user
+        // (or cached metadata), corrected by _fetchProStatus() below.
+        if (typeof user?.isPro === 'boolean')                      this._isPro = user.isPro;
+        else if (typeof user?.user_metadata?.is_pro === 'boolean') this._isPro = user.user_metadata.is_pro;
+
         if (!this._injected) {
             this._injectStyles();
             this._injectShell();
@@ -264,6 +283,7 @@ init(supabaseClient) {
 
         this._editingFlightId = null;
         this._render();
+        this._fetchProStatus();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
@@ -374,6 +394,54 @@ init(supabaseClient) {
     },
 
     // ─── Data Fetching ────────────────────────────────────────────────────────
+
+    async _startProUpgrade(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
+        try {
+            if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+            const payload = {
+                email: this._currentUser.email,
+                success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
+                cancel_url:  window.location.origin + '?payment=cancel',
+                is_renew: true,
+            };
+            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
+            if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
+            window.location.href = data.url;
+        } catch (err) {
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+            if (this._activeTab !== 'settings') this.switchTab('settings');
+        }
+    },
+
+    async _fetchProStatus() {
+        if (!this._currentUser || !this._supabase) return;
+        try {
+            const { data, error } = await this._supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', this._currentUser.id)
+                .single();
+            if (error || !data) return;
+
+            // Tri-state: only an explicit true/false moves the needle; null/absent
+            // keeps whatever authUI/metadata already told us (mirrors ProfileUI).
+            let nextPro;
+            if (data.is_pro === true)       nextPro = true;
+            else if (data.is_pro === false) nextPro = false;
+            else                            nextPro = this._isPro;
+            if (nextPro === this._isPro) return;
+            this._isPro = nextPro;
+
+            if (this._isOpen) {
+                if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
+                    this._activeTab = 'dashboard';
+                }
+                this._render();
+            }
+        } catch (_) { }
+    },
 
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
@@ -526,12 +594,14 @@ init(supabaseClient) {
             <div id="mdui-screen"></div>
             <nav id="mdui-tabbar" role="tablist">
                 ${this._tabDef().map(t => {
-                    const badge = t.id === 'watchlist' ? `<span id="mdui-tab-badge-watchlist" class="mdui-tab-badge" style="display:none;"></span>` : '';
+                    const isLocked = !this._isPro && this._PRO_ONLY_TABS.includes(t.id);
+                    const badge = (t.id === 'watchlist' && !isLocked) ? `<span id="mdui-tab-badge-watchlist" class="mdui-tab-badge" style="display:none;"></span>` : '';
+                    const lock  = isLocked ? `<span class="mdui-tab-lock"><i class="fa-solid fa-lock"></i></span>` : '';
                     return `
-                    <button class="mdui-tab-btn" data-tab="${t.id}" aria-label="${t.label}" role="tab">
+                    <button class="mdui-tab-btn ${isLocked ? 'mdui-tab-locked' : ''}" data-tab="${t.id}" aria-label="${t.label}" role="tab">
                         <div class="mdui-tab-iconwrap">
                             <i class="${t.icon}"></i>
-                            ${badge}
+                            ${badge}${lock}
                         </div>
                         <span class="mdui-tab-label">${t.label}</span>
                     </button>`;
@@ -737,6 +807,10 @@ init(supabaseClient) {
     // ─── Tab Content ─────────────────────────────────────────────────────────
 
     _renderTabContent() {
+        // Free accounts: flagship tabs show an upsell instead of the feature.
+        if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
+            return this._tabProUpsell(this._activeTab);
+        }
         switch (this._activeTab) {
             case 'onboarding':        return this._tabOnboarding();
             case 'dashboard':         return this._tabDashboard();
@@ -748,6 +822,38 @@ init(supabaseClient) {
             case 'settings':          return this._tabSettings();
             default:                  return '';
         }
+    },
+
+    _tabProUpsell(tabId) {
+        const pitch = {
+            'fleet':          { icon: 'fa-solid fa-plane-up',        title: 'Virtual Hangar', blurb: 'Every airframe on the live map, enriched with its career stats and last leg flown.' },
+            'airspace-intel': { icon: 'fa-solid fa-tower-broadcast', title: 'Airspace Intel', blurb: 'Live traffic, predictive sector loading and controller coverage across the network.' },
+            'flight-plan':    { icon: 'fa-solid fa-route',           title: 'Flight Dispatch', blurb: 'File and manage dispatch-grade flight plans with gates, fuel and countdowns.' },
+            'watchlist':      { icon: 'fa-solid fa-binoculars',      title: 'Pilot Watchlist', blurb: 'Follow other pilots and get pinged the moment they go live.' },
+        }[tabId] || { icon: 'fa-solid fa-lock', title: 'Pro feature', blurb: 'This tool is part of Inflight Pro.' };
+
+        // App Store policy: no external upgrade CTA inside the iOS app.
+        const ios = typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative();
+
+        return `
+            <div class="mdui-upsell mdui-fade-up">
+                <div class="mdui-upsell-badge"><i class="fa-solid fa-crown"></i> Pro</div>
+                <div class="mdui-upsell-glyph"><i class="${pitch.icon}"></i></div>
+                <h2 class="mdui-upsell-title">${pitch.title}</h2>
+                <p class="mdui-upsell-sub">${pitch.blurb}</p>
+                <ul class="mdui-upsell-perks">
+                    <li><i class="fa-solid fa-check"></i> Hangar, dispatch &amp; airspace intel</li>
+                    <li><i class="fa-solid fa-check"></i> Pilot watchlist with live alerts</li>
+                    <li><i class="fa-solid fa-check"></i> Custom &amp; plane profile banners</li>
+                </ul>
+                ${ios
+                    ? `<p class="mdui-upsell-foot">Upgrade to Pro at <strong>inflight.info</strong> to unlock this. Free accounts keep Home, Dossier stats and Settings.</p>`
+                    : `<button class="mdui-btn mdui-btn-primary mdui-btn-block" data-action="upgrade-pro">
+                        <i class="fa-solid fa-bolt"></i> Upgrade to Pro
+                    </button>
+                    <p class="mdui-upsell-foot">Free accounts keep Home, Dossier stats and Settings.</p>`}
+            </div>
+        `;
     },
 
     _tabOnboarding() {
@@ -1123,7 +1229,8 @@ init(supabaseClient) {
 
         const initials = fullName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
         const grade = this._ifData?.stats?.gradeDetails?.gradeIndex;
-        const hasCover = !!this._coverUrl;
+        // Custom banners are Pro-only; free accounts get the plain hero.
+        const hasCover = this._isPro && !!this._coverUrl;
         const coverBg = hasCover
             ? `<div class="mdui-dossier-hero-bg" style="background-image:url('${this._coverUrl.replace(/'/g, "&apos;")}')"></div><div class="mdui-dossier-hero-scrim"></div>`
             : '';
@@ -2343,14 +2450,29 @@ init(supabaseClient) {
                               <input type="text" id="mdui-edit-bio" maxlength="140" placeholder="787 type rating · long-haul" value="${(this._bio || '').replace(/"/g, '&quot;')}">
                           </span>
                       </div>
+                      ${this._isPro ? `
                       <div class="mdui-form-line">
-                          <span class="mdui-form-line-label">Cover URL</span>
+                          <span class="mdui-form-line-label">Banner</span>
                           <span class="mdui-form-line-control">
-                              <input type="url" id="mdui-edit-cover" placeholder="https://…" value="${(this._coverUrl || '').replace(/"/g, '&quot;')}">
+                              <input type="url" id="mdui-edit-cover" placeholder="Plane or your own image URL" value="${(this._coverUrl || '').replace(/"/g, '&quot;')}">
                           </span>
-                      </div>
+                      </div>` : `
+                      <div class="mdui-form-line mdui-form-line-locked">
+                          <span class="mdui-form-line-label"><i class="fa-solid fa-lock"></i> Banner</span>
+                          <span class="mdui-form-line-control mdui-form-line-note">Plain banner on Free. <a data-action="upgrade-pro">Upgrade to Pro</a> for a plane photo or your own image.</span>
+                      </div>`}
                   </div>
               </div>
+              ${this._isPro ? `
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Banner presets</div>
+                  <div class="mdui-cover-presets">
+                      <button type="button" class="mdui-cover-preset ${!this._coverUrl ? 'active' : ''}" data-cover=""><span class="mdui-cover-plain"><i class="fa-solid fa-ban"></i></span><span>Plain</span></button>
+                      ${(this._COVER_PRESETS || []).map(p => `
+                          <button type="button" class="mdui-cover-preset ${this._coverUrl === p.url ? 'active' : ''}" data-cover="${p.url}"><span class="mdui-cover-img" style="background-image:url('${p.url}')"></span><span>${p.label}</span></button>
+                      `).join('')}
+                  </div>
+              </div>` : ''}
 
               <!-- Appearance -->
               <div class="mdui-section">
@@ -2383,7 +2505,7 @@ init(supabaseClient) {
               <div id="mdui-settings-msg" class="mdui-alert" style="display:none; margin-bottom: 14px;"></div>
               <button class="mdui-btn-primary mdui-btn-block" id="mdui-save-btn" style="margin-bottom: 26px;">Save Changes</button>
 
-              ${isIos ? '' : `
+              ${isIos ? '' : (this._isPro ? `
               <!-- Billing -->
               <div class="mdui-section">
                   <div class="mdui-section-title">Subscription</div>
@@ -2408,7 +2530,23 @@ init(supabaseClient) {
                       </button>
                   </div>
                   <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin-top: 8px;"></div>
-              </div>`}
+              </div>` : `
+              <!-- Plan (free) -->
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Plan</div>
+                  <div class="mdui-rows">
+                      <div class="mdui-row" data-static="true">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-user"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title">Free account</span>
+                              <span class="mdui-row-sub">Home, Dossier stats &amp; Settings included</span>
+                          </div>
+                      </div>
+                  </div>
+                  <button class="mdui-btn-primary mdui-btn-block" data-action="upgrade-pro" style="margin-top:12px;">
+                      <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
+                  </button>
+              </div>`)}
 
               <!-- Support -->
               <div class="mdui-section">
@@ -2867,10 +3005,18 @@ _attachListeners() {
             const target = e.target.closest('[data-drill]');
             if (target && contentRoot.contains(target)) {
                 e.stopPropagation();
-                this._showDrillDown(target.dataset.drill, { 
-                    icao: target.dataset.icao, 
-                    callsign: target.dataset.callsign 
+                this._showDrillDown(target.dataset.drill, {
+                    icao: target.dataset.icao,
+                    callsign: target.dataset.callsign
                 });
+                return;
+            }
+
+            // 3. Upgrade to Pro → start Stripe checkout (falls back to Settings)
+            const upgradeBtn = e.target.closest('[data-action="upgrade-pro"]');
+            if (upgradeBtn && contentRoot.contains(upgradeBtn)) {
+                e.stopPropagation();
+                this._startProUpgrade(upgradeBtn);
                 return;
             }
         });
@@ -3191,11 +3337,29 @@ _attachListeners() {
                 });
             });
 
+            // Banner presets (Pro) — fill the URL field & mark active; the value
+            // is persisted with the rest of the form on Save.
+            const mCoverInput = document.getElementById('mdui-edit-cover');
+            document.querySelectorAll('.mdui-cover-preset').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const url = btn.dataset.cover || '';
+                    if (mCoverInput) mCoverInput.value = url;
+                    document.querySelectorAll('.mdui-cover-preset').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+            mCoverInput?.addEventListener('input', () => {
+                const val = mCoverInput.value.trim();
+                document.querySelectorAll('.mdui-cover-preset').forEach(b => b.classList.toggle('active', (b.dataset.cover || '') === val));
+            });
+
             document.getElementById('mdui-save-btn')?.addEventListener('click', async () => {
                 const newName       = document.getElementById('mdui-edit-name')?.value.trim();
                 const newIfUsername = document.getElementById('mdui-edit-if')?.value.trim();
                 const newBio        = document.getElementById('mdui-edit-bio')?.value.trim();
-                const newCover      = document.getElementById('mdui-edit-cover')?.value.trim();
+                // Free accounts have no banner field — preserve any stored cover
+                // so it returns intact if they later upgrade to Pro.
+                const newCover      = this._isPro ? (document.getElementById('mdui-edit-cover')?.value.trim() || '') : this._coverUrl;
                 const newPassword   = document.getElementById('mdui-edit-pw')?.value;
                 const btn           = document.getElementById('mdui-save-btn');
                 const msgDiv        = document.getElementById('mdui-settings-msg');
@@ -3661,6 +3825,59 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-tab-btn.active { color: var(--mdui-accent); }
             .mdui-tab-btn.active i { transform: translateY(-1px) scale(1.04); }
             .mdui-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-tab-locked { opacity: 0.6; }
+            .mdui-tab-lock {
+                position: absolute; top: -4px; right: -10px;
+                font-size: 9px; color: var(--mdui-tertiary);
+            }
+
+            /* ─── Pro upsell (free accounts) ───────────────────────────────── */
+            .mdui-upsell {
+                position: relative;
+                text-align: center;
+                padding: 44px 22px calc(env(safe-area-inset-bottom) + 40px);
+                display: flex; flex-direction: column; align-items: center;
+            }
+            .mdui-upsell-badge {
+                display: inline-flex; align-items: center; gap: 5px;
+                padding: 4px 11px; border-radius: 999px;
+                font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+                background: var(--mdui-accent-soft); color: var(--mdui-accent);
+                margin-bottom: 22px;
+            }
+            .mdui-upsell-glyph {
+                width: 68px; height: 68px; border-radius: 20px;
+                display: grid; place-items: center; font-size: 27px;
+                background: var(--mdui-accent-soft); color: var(--mdui-accent);
+                margin-bottom: 18px;
+            }
+            .mdui-upsell-title { font-size: 24px; font-weight: 800; margin: 0 0 8px; color: var(--mdui-text); letter-spacing: -0.4px; }
+            .mdui-upsell-sub { font-size: 15px; line-height: 1.5; color: var(--mdui-muted); margin: 0 0 22px; max-width: 320px; }
+            .mdui-upsell-perks { list-style: none; margin: 0 0 26px; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 10px; }
+            .mdui-upsell-perks li { display: flex; align-items: center; gap: 10px; font-size: 14.5px; color: var(--mdui-text); }
+            .mdui-upsell-perks li i { color: var(--mdui-success); font-size: 13px; }
+            .mdui-upsell-foot { font-size: 12.5px; color: var(--mdui-tertiary); margin: 16px 0 0; }
+            .mdui-upsell .mdui-btn-block { max-width: 320px; }
+
+            /* ─── Banner presets + locked line (settings) ──────────────────── */
+            .mdui-cover-presets { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 2px; }
+            .mdui-cover-preset {
+                display: flex; flex-direction: column; align-items: center; gap: 5px;
+                width: 82px; padding: 0; background: none; border: none; cursor: pointer;
+                font-size: 11px; color: var(--mdui-muted); font-weight: 600;
+            }
+            .mdui-cover-img, .mdui-cover-plain {
+                width: 82px; height: 50px; border-radius: 12px;
+                background-size: cover; background-position: center;
+                border: 2px solid var(--mdui-border);
+            }
+            .mdui-cover-plain { display: grid; place-items: center; background: var(--mdui-surface); color: var(--mdui-tertiary); }
+            .mdui-cover-preset.active .mdui-cover-img,
+            .mdui-cover-preset.active .mdui-cover-plain { border-color: var(--mdui-accent); }
+            .mdui-form-line-locked .mdui-form-line-label i { margin-right: 5px; color: var(--mdui-tertiary); }
+            .mdui-form-line-note { font-size: 12.5px; color: var(--mdui-muted); line-height: 1.4; }
+            .mdui-form-line-note a { color: var(--mdui-accent); font-weight: 600; }
+
             .mdui-tab-badge {
                 position: absolute; top: -5px; right: -11px;
                 min-width: 17px; height: 17px; padding: 0 4px;
