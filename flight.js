@@ -6079,6 +6079,30 @@ function injectCustomStyles() {
     background: #38bdf8; color: #08131c; font-weight: 800; font-size: 0.8rem;
 }
 .pilot-pro-btn:hover { background: #7dd3fc; }
+.pilot-pro-map-btn { margin-top: 12px; width: 100%; justify-content: center; }
+
+/* Floating "clear pilot routes" chip over the live map */
+.pilot-routes-clear {
+    position: absolute;
+    left: 50%;
+    bottom: 96px;
+    transform: translateX(-50%);
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    background: rgba(8, 15, 24, 0.92);
+    color: #e0f2fe;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    backdrop-filter: blur(8px);
+}
+.pilot-routes-clear:hover { border-color: #38bdf8; color: #fff; }
 
 /* --- CONTROLLER SPICE THEMES --- */
 
@@ -22228,12 +22252,119 @@ function renderPilotStatsHTML(stats, username) {
                         ${busiest ? tile('Busiest route', esc(busiest.r), `${busiest.n} flights`) : ''}
                         ${longestRoute ? tile('Longest flight', `${(longest / 60).toFixed(1)}h`, esc(longestRoute)) : ''}
                     </div>
+                    <button type="button" class="pilot-pro-btn pilot-pro-map-btn" id="pilot-map-routes"><i class="fa-solid fa-route"></i> Map their routes</button>
                     ${sampled ? `<p class="pilot-pro-note">From this pilot's ${nf(scanned)} most recent flights of ${nf(total)}.</p>` : ''}
                 </div>`;
+
+            const mapBtn = container.querySelector('#pilot-map-routes');
+            if (mapBtn) mapBtn.addEventListener('click', () => showPilotRoutesOnMap(userId, username));
         } catch (err) {
             container.innerHTML = `<div class="pilot-pro-block"><p class="pilot-pro-note">Couldn't load this pilot's career right now.</p></div>`;
         }
     }
+
+    // A great-circle arc between two points as an array of [lon,lat] segments,
+    // split where it crosses the antimeridian so Mapbox draws it cleanly.
+    function buildPilotArc(lat1, lon1, lat2, lon2) {
+        const N = 64, segs = []; let cur = [], prevLon = null;
+        for (let i = 0; i <= N; i++) {
+            const p = getIntermediatePoint(lat1, lon1, lat2, lon2, i / N);
+            if (prevLon !== null && Math.abs(p.lon - prevLon) > 180) { if (cur.length >= 2) segs.push(cur); cur = []; }
+            cur.push([p.lon, p.lat]); prevLon = p.lon;
+        }
+        if (cur.length >= 2) segs.push(cur);
+        return segs;
+    }
+
+    function clearPilotRoutesOnMap() {
+        try {
+            if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap) {
+                ['pilot-routes-lines', 'pilot-routes-airports'].forEach(id => { if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id); });
+                if (sectorOpsMap.getSource('pilot-routes-src')) sectorOpsMap.removeSource('pilot-routes-src');
+                if (sectorOpsMap.getSource('pilot-routes-air-src')) sectorOpsMap.removeSource('pilot-routes-air-src');
+            }
+        } catch (_) {}
+        document.getElementById('pilot-routes-clear')?.remove();
+    }
+    window.clearPilotRoutesOnMap = clearPilotRoutesOnMap;
+
+    // Pro-only: draw a pilot's entire flown route network on the live map as
+    // great-circle arcs, with a dot at every airport. Coords come from the
+    // bundled airports.json (no per-airport network calls); legs are deduped so
+    // the work scales with distinct routes, not raw flight count.
+    async function showPilotRoutesOnMap(userId, username) {
+        if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+        let viewerPro = false;
+        try { viewerPro = !!(window.isInflightPro && window.isInflightPro()); } catch (_) {}
+        if (!viewerPro) { try { viewerPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+        if (!viewerPro) { if (window.AuthUI && window.AuthUI.open) window.AuthUI.open('signup'); return; }
+
+        if (typeof showNotification === 'function') showNotification(`Mapping ${username}'s routes…`, 'info');
+        try {
+            const base = ACARS_USER_API_URL.replace('/users', '/api/users');
+            const first = await fetch(`${base}/${userId}/flights?page=1`).then(r => r.json());
+            const flights = [...((first && first.flights) || [])];
+            const total = (first && first.totalCount) || flights.length;
+            const pageSize = flights.length || 1;
+            const lastPage = Math.min(Math.ceil(total / pageSize), 15);
+            if (pageSize > 0 && total > pageSize) {
+                const jobs = [];
+                for (let p = 2; p <= lastPage; p++) jobs.push(fetch(`${base}/${userId}/flights?page=${p}`).then(r => r.json()).catch(() => null));
+                (await Promise.all(jobs)).forEach(pg => { if (pg && Array.isArray(pg.flights)) flights.push(...pg.flights); });
+            }
+
+            const seen = new Set(); const legs = [];
+            for (const f of flights) {
+                const dep = String(f.originAirport || '').trim().toUpperCase();
+                const arr = String(f.destinationAirport || '').trim().toUpperCase();
+                if (!dep || !arr || dep === arr) continue;
+                const key = dep < arr ? dep + arr : arr + dep;
+                if (seen.has(key)) continue; seen.add(key);
+                const a = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[dep] : null;
+                const b = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[arr] : null;
+                if (!a || !b || typeof a.lat !== 'number' || typeof b.lat !== 'number') continue;
+                legs.push({ dep, arr, a: [a.lon, a.lat], b: [b.lon, b.lat] });
+            }
+            if (!legs.length) { if (typeof showNotification === 'function') showNotification('No mappable routes for this pilot yet.', 'error'); return; }
+
+            const COLORS = ['#38bdf8', '#f472b6', '#facc15', '#4ade80', '#a78bfa', '#fb923c', '#f87171', '#22d3ee'];
+            const lineFeatures = []; const airportMap = new Map();
+            legs.forEach((leg, i) => {
+                buildPilotArc(leg.a[1], leg.a[0], leg.b[1], leg.b[0]).forEach(seg => {
+                    if (seg.length >= 2) lineFeatures.push({ type: 'Feature', properties: { color: COLORS[i % COLORS.length] }, geometry: { type: 'LineString', coordinates: seg } });
+                });
+                airportMap.set(leg.dep, leg.a); airportMap.set(leg.arr, leg.b);
+            });
+            const airportFeatures = [...airportMap.values()].map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c } }));
+
+            clearPilotRoutesOnMap();
+            sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
+            sectorOpsMap.addLayer({ id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
+            sectorOpsMap.addSource('pilot-routes-air-src', { type: 'geojson', data: { type: 'FeatureCollection', features: airportFeatures } });
+            sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 4, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
+
+            try {
+                const bounds = new mapboxgl.LngLatBounds();
+                airportFeatures.forEach(f => bounds.extend(f.geometry.coordinates));
+                sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5 });
+            } catch (_) {}
+
+            const wrap = document.getElementById('sector-ops-map-fullscreen');
+            if (wrap && !document.getElementById('pilot-routes-clear')) {
+                const chip = document.createElement('button');
+                chip.id = 'pilot-routes-clear';
+                chip.className = 'pilot-routes-clear';
+                chip.innerHTML = `<i class="fa-solid fa-xmark"></i> ${username} · ${legs.length} routes`;
+                chip.addEventListener('click', clearPilotRoutesOnMap);
+                wrap.appendChild(chip);
+            }
+            if (typeof showNotification === 'function') showNotification(`Mapped ${legs.length} routes.`, 'success');
+        } catch (err) {
+            console.error('pilot routes error', err);
+            if (typeof showNotification === 'function') showNotification("Couldn't map this pilot's routes.", 'error');
+        }
+    }
+    window.showPilotRoutesOnMap = showPilotRoutesOnMap;
 
 
 

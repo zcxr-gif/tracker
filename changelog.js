@@ -54,8 +54,8 @@
                     text: 'Pick any aircraft as your banner — Pro pilots can set their profile banner to any aircraft in our database (searchable by type, livery or tail) or their own image.'
                 },
                 {
-                    tag: 'new', icon: 'fa-map-pin',
-                    text: 'Pilot stats on the live map — Pro pilots get an expanded career on any flight they tap: flights made, airports visited, hours, landings and busiest route, right inside the pilot report.'
+                    tag: 'new', icon: 'fa-route',
+                    text: 'Map any pilot’s routes — tap a flight’s pilot report and, as a Pro pilot, see their expanded career (flights made, airports visited, hours, landings, busiest route) and hit “Map their routes” to draw their entire flown network as great-circle arcs right on the live map.'
                 },
                 {
                     tag: 'improved', icon: 'fa-crown',
