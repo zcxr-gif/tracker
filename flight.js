@@ -14594,22 +14594,13 @@ function updateTrafficLegendUI() {
 
     function toggleAirportPing(icao, btn) {
         if (!icao) return;
-        // Gate matches the app's other Pro surfaces (Pro map styles, 3D
-        // buildings, day/night): a signed-in account unlocks it. The strict
-        // is_pro entitlement flags are accepted too, but a failed/slow
-        // profiles.is_pro lookup must NOT lock out a signed-in user — that
-        // was throwing the sign-up modal at logged-in Pro accounts.
+        // Pro-only surface: require an active Pro entitlement. We accept the
+        // live flag (window.isInflightPro) OR the persisted last-known Pro flag
+        // so a slow/failed profiles.is_pro lookup right after load doesn't lock
+        // out a genuine Pro account — but a free (signed-in) account gets the
+        // upsell, not the feature.
         let allowed = false;
-        try { allowed = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser); } catch (_) {}
-        if (!allowed) {
-            try {
-                for (let i = 0; i < localStorage.length; i++) {
-                    const k = localStorage.key(i);
-                    if (k && (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token')))) { allowed = true; break; }
-                }
-            } catch (_) {}
-        }
-        if (!allowed && typeof window.isInflightPro === 'function' && window.isInflightPro()) allowed = true;
+        try { allowed = typeof window.isInflightPro === 'function' && window.isInflightPro(); } catch (_) {}
         if (!allowed) {
             try { allowed = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
         }
@@ -16617,10 +16608,17 @@ renderCategory(catId) {
             const container = document.getElementById('settings-category-content');
             if (!container) return;
 
-            // Check if the user is currently signed in
-            const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-            // 3D terrain is a Pro-only entitlement (not just sign-in gated).
-            const isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
+            // Pro map & theme controls require an active Pro entitlement — being
+            // signed in on a free account no longer unlocks them. `isSignedIn` is
+            // kept as the name the gates below read, but now reflects real Pro so
+            // free accounts see the controls disabled with the upgrade upsell.
+            // The persisted last-known Pro flag is accepted as a fallback so a
+            // genuine Pro user isn't disabled while profiles.is_pro is still
+            // loading; proStatusChanged re-renders this category when it resolves.
+            let isPro = false;
+            try { isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro()); } catch (_) {}
+            if (!isPro) { try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+            const isSignedIn = isPro;
 
             let html = '';
 
@@ -23945,11 +23943,15 @@ if (flatMapToggle) {
         else if (target.name === 'map-style-mode') {
             const mode = target.value;
             
-            // Re-enforce Pro Auth for Legacy dropdown items
+            // Re-enforce Pro Auth for Legacy dropdown items — real Pro
+            // entitlement (with the persisted flag as a fallback), not just
+            // being signed in, so free accounts can't select Pro map styles.
             const proModes = ['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day'];
-            const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-            
-            if (proModes.includes(mode) && !isSignedIn) {
+            let isPro = false;
+            try { isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro()); } catch (_) {}
+            if (!isPro) { try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+
+            if (proModes.includes(mode) && !isPro) {
                 showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "This map style isn't available on this account." : "This map style requires a Pro account.", "error");
                 // Revert the radio UI to current state
                 const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
@@ -24244,6 +24246,18 @@ window.addEventListener('proStatusChanged', () => {
     // 3D terrain is Pro-gated and resolves async at boot, so re-sync the
     // elevation layer once entitlement is known (and on any later change).
     try { if (typeof updatePro3DLayers === 'function') updatePro3DLayers(); } catch (_) {}
+    // Pro-gated settings render off the entitlement, which resolves async — so
+    // re-sync the locks/controls the moment it lands (or changes), on both the
+    // mobile settings sheet and the desktop settings panel.
+    try { if (typeof MobileSettingsUI !== 'undefined' && MobileSettingsUI.refreshProLocks) MobileSettingsUI.refreshProLocks(); } catch (_) {}
+    try {
+        // Re-render the desktop settings panel if it's open, so its Pro-gated
+        // controls flip to the resolved entitlement without a manual reopen.
+        if (typeof SettingsUI !== 'undefined' && SettingsUI && SettingsUI._currentCategory
+            && document.querySelector('.settings-modal .nexus-item')) {
+            SettingsUI.renderCategory(SettingsUI._currentCategory);
+        }
+    } catch (_) {}
 });
 
 // VA hub markers: opt-in (mapFilters.showVaHubMarkers, off by default) logo

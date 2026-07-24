@@ -1948,40 +1948,17 @@ export const AtcReplay = (() => {
     // The 3D traffic view is an Inflight Pro feature. Source of truth is the
     // app's global helper; if it isn't present we fail closed (locked).
     function isProUser() {
-        // Match the rest of the app's Pro gating. Every other Pro control —
-        // custom colours, Pro map styles, 3D terrain/buildings, day-night, etc.
-        // — unlocks for any *signed-in* user (see flight.js, which gates on
-        // `ProfileUI._currentUser`). The 3D-traffic button first tried the strict
-        // `window.isInflightPro()` entitlement (a Supabase `profiles.is_pro`
-        // lookup that usually stays false), then a localStorage token scan — but
-        // that scan misses the real session: supabase-js can chunk the token
-        // across `sb-<ref>-auth-token.0/.1` keys (none of which end in
-        // `-auth-token`), and native shells may persist it outside localStorage
-        // entirely. So a signed-in Pro user sat locked. Use the app's actual
-        // source of truth — `ProfileUI._currentUser` — exactly like every other
-        // Pro control, with the entitlement + storage probes only as fallbacks.
+        // 3D traffic is a Pro feature and now requires a real Pro entitlement —
+        // being signed in on a free account no longer unlocks it. Source of
+        // truth is window.isInflightPro() (backed by profiles.is_pro); the
+        // persisted last-known Pro flag is accepted as a fallback so a slow
+        // entitlement lookup right after load doesn't briefly lock a genuine Pro
+        // user. `proStatusChanged` re-runs updateFreeLookLock() when it resolves.
         try {
             if (typeof window.isInflightPro === 'function' && window.isInflightPro()) return true;
         } catch (_) { /* ignore */ }
-        // The canonical signed-in check used across flight.js.
         try {
-            if (ProfileUI && ProfileUI._currentUser) return true;
-        } catch (_) { /* ProfileUI not ready */ }
-        // Loose window-global fallbacks (mirrors MobileSettingsUI's probe) for
-        // any context where the module binding above isn't populated yet.
-        try {
-            if (window.currentUser || window.user || window.isLoggedIn || window.session) return true;
-        } catch (_) { /* ignore */ }
-        // Last-ditch: a Supabase auth token in localStorage. Match the chunked
-        // form (`...-auth-token.0`) too, not just the exact key.
-        try {
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && (key.includes('supabase.auth.token') ||
-                            (key.startsWith('sb-') && key.includes('-auth-token')))) {
-                    return true;
-                }
-            }
+            if (localStorage.getItem('inflight_is_pro') === 'true') return true;
         } catch (_) { /* storage unavailable */ }
         return false;
     }

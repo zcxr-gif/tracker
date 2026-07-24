@@ -1302,18 +1302,20 @@ export const MobileSettingsUI = {
     },
 
     refreshProLocks() {
-        const isSignedIn = this.isSignedIn();
-        const isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
+        // Pro features require an active Pro entitlement — being signed in on a
+        // free account no longer unlocks them. Tapping a locked row opens the
+        // upgrade flow (see the intercept in the sheet's click handler). The
+        // persisted last-known Pro flag is accepted as a fallback so a genuine
+        // Pro user isn't briefly locked while profiles.is_pro is still loading;
+        // proStatusChanged re-runs this once the entitlement resolves.
+        let isPro = false;
+        try { isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro()); } catch (_) {}
+        if (!isPro) { try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
         const container = document.getElementById('mobile-settings-nexus');
         if (!container) return;
 
         container.querySelectorAll('.is-pro-feature').forEach(row => {
-            // Most pro features unlock on sign-in. Rows flagged data-requires-pro
-            // (e.g. 3D Terrain) need the actual Pro entitlement, so they stay
-            // locked for signed-in non-Pro users too.
-            const needsEntitlement = row.dataset.requiresPro === 'true';
-            const unlocked = needsEntitlement ? isPro : isSignedIn;
-            if (!unlocked) {
+            if (!isPro) {
                 row.classList.add('locked');
             } else {
                 row.classList.remove('locked');
