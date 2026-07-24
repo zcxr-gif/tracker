@@ -22453,10 +22453,16 @@ function renderPilotStatsHTML(stats, username) {
             // Flat great-circle lines render at every zoom level and still read as
             // 3D as the globe tilts. (`peak` is left on the features, harmless, in
             // case a future mercator mode wants the raised dome profile back.)
+            const arcPaint = { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.95 };
+            // `line-emissive-strength` keeps the arcs bright under Mapbox's 3D
+            // lighting, but it's a Mapbox-only property — MapLibre (the free-map
+            // engine) rejects the whole layer as an "unknown property" and the
+            // arcs never draw. Only add it on the Mapbox engine.
+            if (!isFreeMap()) arcPaint['line-emissive-strength'] = 1;
             sectorOpsMap.addLayer({
                 id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src',
                 layout: { 'line-cap': 'round', 'line-join': 'round' },
-                paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.95, 'line-emissive-strength': 1 },
+                paint: arcPaint,
             });
             sectorOpsMap.addSource('pilot-routes-air-src', { type: 'geojson', data: { type: 'FeatureCollection', features: airportFeatures } });
             sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
@@ -22470,12 +22476,14 @@ function renderPilotStatsHTML(stats, username) {
             sectorOpsMap.on('mouseleave', 'pilot-routes-airports', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
 
             try {
-                // Auto-tilt so the elevated arcs read as 3D right away — z-offset
-                // only shows as height on a pitched camera, so fit + pitch together.
-                if (typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
+                // Tilt the globe so the arcs read as 3D right away. On a flat map
+                // (the free MapLibre engine, or the Mapbox flat toggle) respect the
+                // user's choice: don't force globe and keep the camera top-down.
+                const flatMap = !!mapFilters.useFlatMap;
+                if (!flatMap && typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
                 const bounds = new mapboxgl.LngLatBounds();
                 airportFeatures.forEach(f => bounds.extend(f.geometry.coordinates));
-                sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5, pitch: 55 });
+                sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5, pitch: flatMap ? 0 : 55 });
             } catch (_) {}
 
             _buildRoutesControlBar(username, legs.length);
@@ -22539,7 +22547,9 @@ function renderPilotStatsHTML(stats, username) {
             const btn = e.currentTarget;
             const on = !btn.classList.contains('on');
             try {
-                if (typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
+                // On a flat map, don't switch to globe — just pitch the camera so
+                // the tilt still gives a sense of depth on mercator.
+                if (!mapFilters.useFlatMap && typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
                 sectorOpsMap.easeTo({ pitch: on ? 55 : 0, duration: 700 });
             } catch (_) {}
             btn.classList.toggle('on', on);
