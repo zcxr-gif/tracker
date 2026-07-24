@@ -131,16 +131,14 @@ export const AuthUI = {
                 .eq('id', data.session.user.id)
                 .single();
 
-            // Resolve entitlement. An explicit profiles.is_pro wins; otherwise
-            // fall back to the flag stamped in user metadata (set when a free
-            // account is created); otherwise stay optimistic so a legacy pilot
-            // with no flag at all still enters as Pro.
-            const metaPro = data.session.user.user_metadata?.is_pro;
-            let isPro;
-            if (profile && profile.is_pro === true)       isPro = true;
-            else if (profile && profile.is_pro === false) isPro = false;
-            else if (typeof metaPro === 'boolean')        isPro = metaPro;
-            else                                          isPro = true;
+            // Resolve entitlement (reliable): a signed-in account is Pro UNLESS
+            // it's explicitly a free account. `profiles.is_pro` is only trusted
+            // as an explicit `true` — it often stays null/false even for paying
+            // pilots — and a free account is the one we stamped
+            // `user_metadata.is_pro === false` at free sign-up. Anything else
+            // signed in is a legacy/paid Pro account, so it stays unlocked.
+            const metaFree = data.session.user.user_metadata?.is_pro === false;
+            const isPro = (profile && profile.is_pro === true) ? true : !metaFree;
 
             // Launch the app for everyone, Pro and free alike. ProfileUI gates
             // the Pro-only features from the isPro flag we pass through here.

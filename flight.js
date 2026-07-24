@@ -1579,26 +1579,49 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     async function refreshProStatus() {
         try {
             const { data: sessionData } = await supabase.auth.getSession();
-            const userId = sessionData?.session?.user?.id;
+            const user = sessionData?.session?.user;
+            const userId = user?.id;
             if (!userId) {
                 window.InflightUser = { isPro: false, loaded: true };
                 persistProStatus(false);
                 return false;
             }
-            const { data: profile, error } = await supabase
+            const { data: profile } = await supabase
                 .from('profiles')
                 .select('is_pro')
                 .eq('id', userId)
                 .single();
-            const isPro = !error && !!(profile && profile.is_pro);
+
+            // Entitlement rule (reliable): a signed-in account is Pro UNLESS it
+            // is explicitly a free account. `profiles.is_pro` is only trusted
+            // when it's an explicit true (it often stays null/false even for
+            // paying pilots), and a free account is only the one we stamped
+            // `user_metadata.is_pro === false` at free sign-up. Everything else
+            // that's signed in is a legacy/paid Pro account.
+            const metaFree = user?.user_metadata?.is_pro === false;
+            const isPro = (profile && profile.is_pro === true) ? true : !metaFree;
+
             window.InflightUser = { isPro, loaded: true };
             persistProStatus(isPro);
             window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro } }));
             return isPro;
         } catch (e) {
             console.warn('[Pro] status refresh failed:', e);
-            window.InflightUser = { isPro: false, loaded: true };
-            return false;
+            // On failure, don't lock out a signed-in pilot — default to Pro if a
+            // session exists and it isn't a stamped free account; not-Pro if
+            // signed out or we can't confirm a session.
+            let signedIn = false, metaFree = false;
+            try {
+                const { data } = await supabase.auth.getSession();
+                const u = data?.session?.user;
+                signedIn = !!u;
+                metaFree = u?.user_metadata?.is_pro === false;
+            } catch (_) {}
+            const fallback = signedIn && !metaFree;
+            window.InflightUser = { isPro: fallback, loaded: true };
+            persistProStatus(fallback);
+            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro: fallback } }));
+            return fallback;
         }
     }
     window.refreshProStatus = refreshProStatus;

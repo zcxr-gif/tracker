@@ -100,6 +100,7 @@ export const ProfileUI = {
     _airspaceNetwork: null,
     _airspaceRefreshTimer: null,
     _liveFlights: [],
+    _liveExpanded: false,   // live-flight panel is opt-in (collapsed by default)
     _currentAllFlights: [], // Stores real-time global flight data for autocomplete
     _socketUnsubscribe: null,
 
@@ -1361,14 +1362,13 @@ if (type === 'flights') {
 
             if (error || !data) return;
 
-            // Tri-state: only an explicit true/false moves the needle. A null or
-            // absent flag (e.g. a brand-new free signup whose row isn't fully
-            // provisioned) keeps whatever authUI/metadata already told us, so we
-            // never silently upgrade a free account nor lock a paying one.
-            let nextPro;
-            if (data.is_pro === true)       nextPro = true;
-            else if (data.is_pro === false) nextPro = false;
-            else                            nextPro = this._isPro;
+            // Reliable rule: only an explicit profiles.is_pro === true forces
+            // Pro; a free account is the one explicitly stamped
+            // user_metadata.is_pro === false. profiles.is_pro often stays
+            // null/false even for paying pilots, so we never use it to lock
+            // someone out — that regressed real Pro accounts.
+            const metaFree = this._currentUser?.user_metadata?.is_pro === false;
+            const nextPro = (data.is_pro === true) ? true : !metaFree;
             if (nextPro === this._isPro) return;
 
             this._isPro = nextPro;
@@ -1972,6 +1972,7 @@ async _updateLiveFlightDOM() {
             wrapper.style.display = 'none';
             this._3dViewerHostKey = null;
             this._active3DFlightId = null;
+            this._liveExpanded = false; // next live flight starts collapsed
             
             // Premium memory management: Destroy lingering 3D instance if flights clear
             if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
@@ -1981,6 +1982,46 @@ async _updateLiveFlightDOM() {
         }
 
         wrapper.style.display = 'block';
+
+        // Collapsible, opt-in live panel. Collapsed by default so the heavy
+        // 3D/analytics build never disrupts the dashboard as it loads — a compact
+        // header shows there's a live flight and the pilot opens it by choice.
+        const _lf0 = this._liveFlights[0] || {};
+        const _liveCount = this._liveFlights.length;
+        const headerHTML = (expanded) => `
+            <button type="button" class="pui-live-toggle ${expanded ? 'open' : ''}" id="pui-live-toggle">
+                <span class="pui-live-dot"></span>
+                <span class="pui-live-toggle-main">
+                    <span class="pui-live-toggle-title">Live now${_liveCount > 1 ? ` · ${_liveCount} flights` : ''}</span>
+                    <span class="pui-live-toggle-sub">${this._fleetEsc(_lf0.callsign || 'Live flight')} · ${this._fleetEsc(_lf0.departureIcao || '----')} → ${this._fleetEsc(_lf0.arrivalIcao || '----')}</span>
+                </span>
+                <i class="fa-solid fa-chevron-${expanded ? 'up' : 'down'} pui-live-toggle-chev"></i>
+            </button>`;
+
+        const _destroy3D = () => {
+            if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') AircraftViewer3D.destroy();
+            this._active3DFlightId = null;
+            this._3dViewerHostKey = null;
+        };
+
+        if (!this._liveExpanded) {
+            _destroy3D();
+            wrapper.innerHTML = `<div class="pui-live-shell">${headerHTML(false)}</div>`;
+            document.getElementById('pui-live-toggle')?.addEventListener('click', () => {
+                this._liveExpanded = true;
+                this._updateLiveFlightDOM();
+            });
+            return;
+        }
+
+        // Expanded: paint the header + a skeleton right away, then build the
+        // cards into the body so there's a proper loading state, not a jump.
+        wrapper.innerHTML = `<div class="pui-live-shell open">${headerHTML(true)}<div class="pui-live-body" id="pui-live-body"><div class="pui-live-skel"><div class="pui-skeleton" style="height:200px;border-radius:var(--pui-radius-lg);"></div></div></div></div>`;
+        document.getElementById('pui-live-toggle')?.addEventListener('click', () => {
+            _destroy3D();
+            this._liveExpanded = false;
+            this._updateLiveFlightDOM();
+        });
 
         const flightsWithDispatch = await Promise.all(this._liveFlights.map(async (flight) => {
             let plan = null;
@@ -2144,7 +2185,11 @@ async _updateLiveFlightDOM() {
         const existingCarousel = wrapper.querySelector('.pui-live-carousel');
         const currentScrollPos = existingCarousel ? existingCarousel.scrollLeft : 0;
 
-        wrapper.innerHTML = `<div class="pui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
+        // Inject into the panel body (keep the header). Bail if the pilot
+        // collapsed the panel while the async build was in flight.
+        const _liveBody = document.getElementById('pui-live-body');
+        if (!_liveBody || !this._liveExpanded) return;
+        _liveBody.innerHTML = `<div class="pui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
 
         // --- 3D WINDOW STRICT SINGLETON LOGIC ---
         wrapper.querySelectorAll('.pui-launch-3d-btn').forEach(btn => {
@@ -7094,6 +7139,45 @@ const contentRoot = document.getElementById('pui-content');
                 scrollbar-width: none;
             }
             .pui-live-carousel::-webkit-scrollbar { display: none; }
+
+            /* Collapsible live-flight panel (opt-in, no layout jump on load) */
+            .pui-live-shell {
+                margin-bottom: var(--pui-gap-md);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                background: var(--pui-bg-card);
+                overflow: hidden;
+            }
+            .pui-live-toggle {
+                width: 100%;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 14px 18px;
+                background: none;
+                border: none;
+                cursor: pointer;
+                text-align: left;
+                color: var(--pui-text-primary);
+            }
+            .pui-live-dot {
+                width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0;
+                background: var(--pui-pos);
+                box-shadow: 0 0 0 0 rgba(74,140,90,0.5);
+                animation: pui-live-pulse 1.8s infinite;
+            }
+            @keyframes pui-live-pulse {
+                0% { box-shadow: 0 0 0 0 rgba(74,140,90,0.45); }
+                70% { box-shadow: 0 0 0 7px rgba(74,140,90,0); }
+                100% { box-shadow: 0 0 0 0 rgba(74,140,90,0); }
+            }
+            .pui-live-toggle-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+            .pui-live-toggle-title { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pui-pos); }
+            .pui-live-toggle-sub { font-size: 0.86rem; font-weight: 600; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-live-toggle-chev { color: var(--pui-text-tertiary); font-size: 0.8rem; transition: transform var(--pui-d-fast) var(--pui-ease); }
+            .pui-live-toggle.open .pui-live-toggle-chev { color: var(--pui-text-secondary); }
+            .pui-live-body { padding: 0 12px 12px; }
+            .pui-live-skel { padding: 4px 0; }
 
             .pui-live-card {
                 position: relative;

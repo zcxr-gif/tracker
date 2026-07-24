@@ -66,6 +66,7 @@ export const MobileDashboardUI = {
     
     // Telemetry & Watchlist
     _liveFlights:       [],
+    _liveExpanded:      false,   // live panel is opt-in (collapsed by default)
     _currentAllFlights: [],
     _watchlist:         [],
     _watchedPilotStatus:{},
@@ -435,12 +436,12 @@ init(supabaseClient) {
                 .single();
             if (error || !data) return;
 
-            // Tri-state: only an explicit true/false moves the needle; null/absent
-            // keeps whatever authUI/metadata already told us (mirrors ProfileUI).
-            let nextPro;
-            if (data.is_pro === true)       nextPro = true;
-            else if (data.is_pro === false) nextPro = false;
-            else                            nextPro = this._isPro;
+            // Reliable rule (mirrors ProfileUI): only profiles.is_pro === true
+            // forces Pro; a free account is the one stamped
+            // user_metadata.is_pro === false. Never lock out on a null/false
+            // is_pro, which regressed real Pro accounts.
+            const metaFree = this._currentUser?.user_metadata?.is_pro === false;
+            const nextPro = (data.is_pro === true) ? true : !metaFree;
             if (nextPro === this._isPro) return;
             this._isPro = nextPro;
 
@@ -2971,12 +2972,39 @@ init(supabaseClient) {
             // dashboard doesn't jump 200px when a live flight ends.
             banner.style.display = '';
             banner.style.minHeight = '0';
+            this._liveExpanded = false;
             this._close3DHUD();
             return;
         }
 
         banner.style.display = 'block';
         banner.style.minHeight = '';
+
+        // Opt-in, collapsed by default so the heavy live card / 3D never
+        // disrupts the dashboard as it loads. Compact header opens it by choice.
+        const _lf0 = this._liveFlights[0] || {};
+        const _p0 = _lf0.properties || _lf0;
+        const _liveCount = this._liveFlights.length;
+        const esc0 = (s) => this._fleetEsc(s);
+        const liveHeader = (expanded) => `
+            <button type="button" class="mdui-live-toggle ${expanded ? 'open' : ''}" id="mdui-live-toggle">
+                <span class="mdui-live-dot"></span>
+                <span class="mdui-live-toggle-main">
+                    <span class="mdui-live-toggle-title">Live now${_liveCount > 1 ? ` · ${_liveCount} flights` : ''}</span>
+                    <span class="mdui-live-toggle-sub">${esc0(_p0.callsign || _lf0.callsign || 'Live flight')} · ${esc0(_p0.departureIcao || _lf0.departureIcao || '----')} → ${esc0(_p0.arrivalIcao || _lf0.arrivalIcao || '----')}</span>
+                </span>
+                <i class="fa-solid fa-chevron-${expanded ? 'up' : 'down'} mdui-live-toggle-chev"></i>
+            </button>`;
+
+        if (!this._liveExpanded) {
+            this._close3DHUD();
+            banner.innerHTML = `<div class="mdui-live-shell">${liveHeader(false)}</div>`;
+            document.getElementById('mdui-live-toggle')?.addEventListener('click', () => {
+                this._liveExpanded = true;
+                this._updateLiveBanner();
+            });
+            return;
+        }
 
         // 3D viewer is gated on ground speed so the camera has something
         // meaningful to track. Static planes on the ramp would render a
@@ -3066,7 +3094,12 @@ init(supabaseClient) {
         // than a horizontal carousel, especially on small phones. Most
         // pilots only have one live flight at a time, so the carousel
         // was solving a problem we didn't have.
-        banner.innerHTML = `<div class="mdui-live-stack">${cardsHtmlArray.join('')}</div>`;
+        banner.innerHTML = `<div class="mdui-live-shell open">${liveHeader(true)}<div class="mdui-live-body"><div class="mdui-live-stack">${cardsHtmlArray.join('')}</div></div></div>`;
+        document.getElementById('mdui-live-toggle')?.addEventListener('click', () => {
+            this._close3DHUD();
+            this._liveExpanded = false;
+            this._updateLiveBanner();
+        });
 
         banner.querySelectorAll('.mdui-launch-3d-btn').forEach(btn => {
             // Disabled buttons drop the click before this fires; we still
@@ -4741,6 +4774,18 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-ledger-bar-fill { display: block; height: 100%; border-radius: 999px; background: #4a9fe0; }
             .mdui-ledger-cell { font-family: var(--mdui-font-mono); font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.6); text-align: right; white-space: nowrap; }
             .mdui-ledger-note { margin-top: 12px; font-size: 11.5px; color: rgba(255,255,255,0.45); line-height: 1.45; }
+
+            /* Collapsible live-flight panel (opt-in) */
+            .mdui-live-shell { border: 0.5px solid var(--mdui-border-light); border-radius: 16px; background: var(--mdui-surface); overflow: hidden; margin-bottom: 4px; }
+            .mdui-live-toggle { width: 100%; display: flex; align-items: center; gap: 11px; padding: 13px 15px; background: none; border: none; text-align: left; color: var(--mdui-text); }
+            .mdui-live-toggle:active { opacity: 0.7; }
+            .mdui-live-dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; background: var(--mdui-success, #34c759); animation: mdui-live-pulse 1.8s infinite; }
+            @keyframes mdui-live-pulse { 0% { box-shadow: 0 0 0 0 rgba(52,199,89,0.45); } 70% { box-shadow: 0 0 0 7px rgba(52,199,89,0); } 100% { box-shadow: 0 0 0 0 rgba(52,199,89,0); } }
+            .mdui-live-toggle-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+            .mdui-live-toggle-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--mdui-success, #34c759); }
+            .mdui-live-toggle-sub { font-size: 14px; font-weight: 600; color: var(--mdui-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-live-toggle-chev { color: var(--mdui-tertiary); font-size: 13px; }
+            .mdui-live-body { padding: 0 8px 8px; }
 
             /* Banner preview + aircraft picker (settings) */
             .mdui-banner-preview {
