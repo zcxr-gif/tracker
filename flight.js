@@ -1579,26 +1579,49 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     async function refreshProStatus() {
         try {
             const { data: sessionData } = await supabase.auth.getSession();
-            const userId = sessionData?.session?.user?.id;
+            const user = sessionData?.session?.user;
+            const userId = user?.id;
             if (!userId) {
                 window.InflightUser = { isPro: false, loaded: true };
                 persistProStatus(false);
                 return false;
             }
-            const { data: profile, error } = await supabase
+            const { data: profile } = await supabase
                 .from('profiles')
                 .select('is_pro')
                 .eq('id', userId)
                 .single();
-            const isPro = !error && !!(profile && profile.is_pro);
+
+            // Entitlement rule (reliable): a signed-in account is Pro UNLESS it
+            // is explicitly a free account. `profiles.is_pro` is only trusted
+            // when it's an explicit true (it often stays null/false even for
+            // paying pilots), and a free account is only the one we stamped
+            // `user_metadata.is_pro === false` at free sign-up. Everything else
+            // that's signed in is a legacy/paid Pro account.
+            const metaFree = user?.user_metadata?.is_pro === false;
+            const isPro = (profile && profile.is_pro === true) ? true : !metaFree;
+
             window.InflightUser = { isPro, loaded: true };
             persistProStatus(isPro);
             window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro } }));
             return isPro;
         } catch (e) {
             console.warn('[Pro] status refresh failed:', e);
-            window.InflightUser = { isPro: false, loaded: true };
-            return false;
+            // On failure, don't lock out a signed-in pilot — default to Pro if a
+            // session exists and it isn't a stamped free account; not-Pro if
+            // signed out or we can't confirm a session.
+            let signedIn = false, metaFree = false;
+            try {
+                const { data } = await supabase.auth.getSession();
+                const u = data?.session?.user;
+                signedIn = !!u;
+                metaFree = u?.user_metadata?.is_pro === false;
+            } catch (_) {}
+            const fallback = signedIn && !metaFree;
+            window.InflightUser = { isPro: fallback, loaded: true };
+            persistProStatus(fallback);
+            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro: fallback } }));
+            return fallback;
         }
     }
     window.refreshProStatus = refreshProStatus;
@@ -6028,6 +6051,116 @@ function injectCustomStyles() {
 
 .kpi-value.warn { color: #ef4444; }
 .kpi-value small { font-size: 0.8rem; color: #52525b; }
+
+/* --- PRO: expanded pilot career on the live map --- */
+.pilot-pro-block {
+    margin-top: 14px;
+    background: rgba(10, 10, 12, 0.4);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+}
+.pilot-pro-head {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+    color: #38bdf8; margin-bottom: 12px;
+}
+.pilot-pro-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.pilot-pro-tile { display: flex; flex-direction: column; gap: 2px; }
+.pilot-pro-val { font-size: 1.15rem; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; line-height: 1.1; }
+.pilot-pro-lbl { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
+.pilot-pro-sub { font-size: 0.62rem; color: #52525b; font-weight: 600; }
+.pilot-pro-note { margin: 12px 0 0; font-size: 0.66rem; color: #52525b; line-height: 1.45; }
+.pilot-pro-loading { display: flex; align-items: center; gap: 8px; color: #a1a1aa; font-size: 0.8rem; }
+.pilot-pro-copy { margin: 0 0 12px; font-size: 0.78rem; line-height: 1.5; color: #a1a1aa; }
+.pilot-pro-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 16px; border-radius: 999px; border: none; cursor: pointer;
+    background: #38bdf8; color: #08131c; font-weight: 800; font-size: 0.8rem;
+}
+.pilot-pro-btn:hover { background: #7dd3fc; }
+.pilot-pro-map-btn { margin-top: 12px; width: 100%; justify-content: center; }
+
+/* Floating "clear pilot routes" chip over the live map */
+.pilot-routes-clear {
+    position: absolute;
+    left: 50%;
+    bottom: 96px;
+    transform: translateX(-50%);
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    background: rgba(8, 15, 24, 0.92);
+    color: #e0f2fe;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    backdrop-filter: blur(8px);
+}
+.pilot-routes-clear:hover { border-color: #38bdf8; color: #fff; }
+
+/* Route-mode control bar (hide aircraft, 3D, clear) */
+.pilot-routes-bar {
+    position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+    z-index: 40; display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px 7px 14px; border-radius: 999px;
+    border: 1px solid rgba(56,189,248,0.4);
+    background: rgba(8,15,24,0.92); backdrop-filter: blur(8px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4); max-width: 94vw; flex-wrap: wrap; justify-content: center;
+}
+.pilot-routes-bar .prb-title { color: #e0f2fe; font-weight: 700; font-size: 0.8rem; white-space: nowrap; }
+.pilot-routes-bar .prb-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06);
+    color: #cbd5e1; font-weight: 700; font-size: 0.76rem; white-space: nowrap;
+}
+.pilot-routes-bar .prb-btn:hover { color: #fff; border-color: rgba(56,189,248,0.6); }
+.pilot-routes-bar .prb-btn.on { background: #38bdf8; color: #08131c; border-color: #38bdf8; }
+.pilot-routes-bar .prb-close { padding: 7px 10px; }
+
+/* Per-airport history — a bottom sheet that slides up and covers the chrome,
+   like the flight info window. A dim scrim fills the rest of the screen. */
+.pilot-airport-card {
+    position: fixed; inset: 0; z-index: 100000;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: rgba(0,0,0,0);
+    transition: background 0.4s ease;
+    pointer-events: auto;
+}
+.pilot-airport-card.open { background: rgba(0,0,0,0.55); }
+.pilot-airport-card .pac-inner {
+    width: 100%; max-width: 560px; margin: 0 auto;
+    background: #0b1017; border-top: 1px solid rgba(56,189,248,0.25);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -12px 40px rgba(0,0,0,0.5);
+    padding: 6px 20px calc(env(safe-area-inset-bottom) + 22px);
+    color: #fff;
+    transform: translateY(110%);
+    transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pilot-airport-card.open .pac-inner { transform: translateY(0); }
+.pilot-airport-card .pac-grabber {
+    width: 40px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.25);
+    margin: 8px auto 6px;
+}
+.pac-head { display: flex; align-items: flex-start; justify-content: space-between; margin: 8px 0 16px; }
+.pac-icao { display: block; font-size: 1.5rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em; }
+.pac-name { display: block; font-size: 0.82rem; color: #94a3b8; margin-top: 2px; }
+.pac-close { background: rgba(255,255,255,0.08); border: none; color: #cbd5e1; width: 34px; height: 34px; border-radius: 999px; font-size: 1rem; cursor: pointer; flex-shrink: 0; }
+.pac-close:hover { color: #fff; background: rgba(255,255,255,0.16); }
+.pac-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pac-tile { display: flex; flex-direction: column; gap: 3px; background: rgba(255,255,255,0.05); border-radius: 14px; padding: 14px 14px; }
+.pac-val { font-size: 1.2rem; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.pac-lbl { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; }
+.pac-fav { margin-top: 14px; font-size: 0.82rem; color: #94a3b8; }
+.pac-fav strong { color: #e0f2fe; }
+@media (max-width: 520px) { .pac-grid { grid-template-columns: repeat(2, 1fr); } .pac-val { font-size: 1.15rem; } }
 
 /* --- CONTROLLER SPICE THEMES --- */
 
@@ -14594,22 +14727,13 @@ function updateTrafficLegendUI() {
 
     function toggleAirportPing(icao, btn) {
         if (!icao) return;
-        // Gate matches the app's other Pro surfaces (Pro map styles, 3D
-        // buildings, day/night): a signed-in account unlocks it. The strict
-        // is_pro entitlement flags are accepted too, but a failed/slow
-        // profiles.is_pro lookup must NOT lock out a signed-in user — that
-        // was throwing the sign-up modal at logged-in Pro accounts.
+        // Pro-only surface: require an active Pro entitlement. We accept the
+        // live flag (window.isInflightPro) OR the persisted last-known Pro flag
+        // so a slow/failed profiles.is_pro lookup right after load doesn't lock
+        // out a genuine Pro account — but a free (signed-in) account gets the
+        // upsell, not the feature.
         let allowed = false;
-        try { allowed = !!(typeof ProfileUI !== 'undefined' && ProfileUI && ProfileUI._currentUser); } catch (_) {}
-        if (!allowed) {
-            try {
-                for (let i = 0; i < localStorage.length; i++) {
-                    const k = localStorage.key(i);
-                    if (k && (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token')))) { allowed = true; break; }
-                }
-            } catch (_) {}
-        }
-        if (!allowed && typeof window.isInflightPro === 'function' && window.isInflightPro()) allowed = true;
+        try { allowed = typeof window.isInflightPro === 'function' && window.isInflightPro(); } catch (_) {}
         if (!allowed) {
             try { allowed = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {}
         }
@@ -16617,10 +16741,17 @@ renderCategory(catId) {
             const container = document.getElementById('settings-category-content');
             if (!container) return;
 
-            // Check if the user is currently signed in
-            const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-            // 3D terrain is a Pro-only entitlement (not just sign-in gated).
-            const isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
+            // Pro map & theme controls require an active Pro entitlement — being
+            // signed in on a free account no longer unlocks them. `isSignedIn` is
+            // kept as the name the gates below read, but now reflects real Pro so
+            // free accounts see the controls disabled with the upgrade upsell.
+            // The persisted last-known Pro flag is accepted as a fallback so a
+            // genuine Pro user isn't disabled while profiles.is_pro is still
+            // loading; proStatusChanged re-renders this category when it resolves.
+            let isPro = false;
+            try { isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro()); } catch (_) {}
+            if (!isPro) { try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+            const isSignedIn = isPro;
 
             let html = '';
 
@@ -22059,7 +22190,17 @@ function renderPilotStatsHTML(stats, username) {
             const pilotStats = data.stats || data.gradeInfo;
             if (data.ok && pilotStats) {
                 statsDisplay.innerHTML = renderPilotStatsHTML(pilotStats, username);
-                
+
+                // Pro-only expanded career: flights, airports visited, hours,
+                // landings, busiest route — computed from this pilot's logbook.
+                const container = statsDisplay.querySelector('.stats-rehaul-container');
+                if (container) {
+                    const proWrap = document.createElement('div');
+                    proWrap.id = 'pilot-pro-stats';
+                    container.appendChild(proWrap);
+                    renderPilotProStats(proWrap, userId, username);
+                }
+
                 // --- Accordion event listeners ---
                 const accordionHeaders = statsDisplay.querySelectorAll('.accordion-header');
                 accordionHeaders.forEach(header => {
@@ -22090,6 +22231,387 @@ function renderPilotStatsHTML(stats, username) {
                 <p class="error-text">${error.message}</p>
             </div>`;
         }
+    }
+
+    // Pro-only expanded career shown under the pilot report on the live map:
+    // flights made, airports visited, hours, landings and busiest route,
+    // aggregated from a bounded slice of this pilot's logbook. Free viewers
+    // get a locked teaser with an upgrade prompt instead.
+    async function renderPilotProStats(container, userId, username) {
+        if (!container) return;
+        let viewerPro = false;
+        try { viewerPro = !!(window.isInflightPro && window.isInflightPro()); } catch (_) {}
+        if (!viewerPro) { try { viewerPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const iosNative = (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative());
+
+        if (!viewerPro) {
+            container.innerHTML = `
+                <div class="pilot-pro-block pilot-pro-locked">
+                    <div class="pilot-pro-head"><i class="fa-solid fa-crown"></i> ${esc(username)}'s full career</div>
+                    <p class="pilot-pro-copy">See flights made, airports visited, hours and busiest route for any pilot — a Pro feature.</p>
+                    ${iosNative ? '' : '<button type="button" class="pilot-pro-btn" id="pilot-pro-upsell"><i class="fa-solid fa-bolt"></i> Upgrade to Pro</button>'}
+                </div>`;
+            const btn = container.querySelector('#pilot-pro-upsell');
+            if (btn) btn.addEventListener('click', () => {
+                if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signup');
+            });
+            return;
+        }
+
+        container.innerHTML = `<div class="pilot-pro-block"><div class="pilot-pro-loading"><span class="spinner-small"></span> Loading ${esc(username)}'s career…</div></div>`;
+
+        try {
+            const base = ACARS_USER_API_URL.replace('/users', '/api/users');
+            const first = await fetch(`${base}/${userId}/flights?page=1`).then(r => r.json());
+            const flights = [...((first && first.flights) || [])];
+            const total = (first && first.totalCount) || flights.length;
+            const pageSize = flights.length || 1;
+            const lastPage = Math.min(Math.ceil(total / pageSize), 6); // bounded per click
+
+            if (pageSize > 0 && total > pageSize) {
+                const jobs = [];
+                for (let p = 2; p <= lastPage; p++) jobs.push(fetch(`${base}/${userId}/flights?page=${p}`).then(r => r.json()).catch(() => null));
+                (await Promise.all(jobs)).forEach(pg => { if (pg && Array.isArray(pg.flights)) flights.push(...pg.flights); });
+            }
+
+            const airports = new Set();
+            const routes = new Map();
+            let hours = 0, landings = 0, longest = 0, longestRoute = '';
+            for (const f of flights) {
+                const dep = String(f.originAirport || '').trim().toUpperCase();
+                const arr = String(f.destinationAirport || '').trim().toUpperCase();
+                if (dep) airports.add(dep);
+                if (arr) airports.add(arr);
+                const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+                hours += min / 60; landings += f.landingCount || 0;
+                if (min > longest) { longest = min; longestRoute = dep && arr ? `${dep} → ${arr}` : ''; }
+                if (dep && arr && dep !== arr) { const k = `${dep} → ${arr}`; routes.set(k, (routes.get(k) || 0) + 1); }
+            }
+            let busiest = null;
+            routes.forEach((n, r) => { if (!busiest || n > busiest.n) busiest = { r, n }; });
+
+            const scanned = flights.length;
+            const sampled = scanned < total;
+            const nf = (n) => Math.round(n).toLocaleString();
+
+            const tile = (label, value, sub = '') =>
+                `<div class="pilot-pro-tile"><span class="pilot-pro-val">${value}</span><span class="pilot-pro-lbl">${label}</span>${sub ? `<span class="pilot-pro-sub">${sub}</span>` : ''}</div>`;
+
+            container.innerHTML = `
+                <div class="pilot-pro-block">
+                    <div class="pilot-pro-head"><i class="fa-solid fa-crown"></i> Career</div>
+                    <div class="pilot-pro-grid">
+                        ${tile('Flights made', nf(total))}
+                        ${tile('Airports visited', nf(airports.size), sampled ? 'in recent flights' : '')}
+                        ${tile('Hours flown', nf(hours), sampled ? `over ${nf(scanned)} flights` : '')}
+                        ${tile('Landings', nf(landings), sampled ? 'recent' : '')}
+                        ${busiest ? tile('Busiest route', esc(busiest.r), `${busiest.n} flights`) : ''}
+                        ${longestRoute ? tile('Longest flight', `${(longest / 60).toFixed(1)}h`, esc(longestRoute)) : ''}
+                    </div>
+                    <button type="button" class="pilot-pro-btn pilot-pro-map-btn" id="pilot-map-routes"><i class="fa-solid fa-route"></i> Map their routes</button>
+                    ${sampled ? `<p class="pilot-pro-note">From this pilot's ${nf(scanned)} most recent flights of ${nf(total)}.</p>` : ''}
+                </div>`;
+
+            const mapBtn = container.querySelector('#pilot-map-routes');
+            if (mapBtn) mapBtn.addEventListener('click', () => showPilotRoutesOnMap(userId, username));
+        } catch (err) {
+            container.innerHTML = `<div class="pilot-pro-block"><p class="pilot-pro-note">Couldn't load this pilot's career right now.</p></div>`;
+        }
+    }
+
+    // A great-circle arc between two points as a single [lon,lat] path with
+    // longitudes UNWRAPPED (kept continuous past ±180) so an elevated line domes
+    // as one arc and never stretches across the globe at the antimeridian.
+    function buildPilotArc(lat1, lon1, lat2, lon2) {
+        const N = 96, path = []; let prevLon = null;
+        for (let i = 0; i <= N; i++) {
+            const p = getIntermediatePoint(lat1, lon1, lat2, lon2, i / N);
+            let lon = p.lon;
+            if (prevLon !== null) { while (lon - prevLon > 180) lon -= 360; while (lon - prevLon < -180) lon += 360; }
+            path.push([lon, p.lat]); prevLon = lon;
+        }
+        return path;
+    }
+
+    let _pilotRoutesState = null; // { username, flights, aircraftHidden }
+
+    function _setAircraftLayersVisible(visible) {
+        if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+        ['sector-ops-live-flights-layer', 'sector-ops-live-flights-natural-layer', 'sector-ops-live-flights-hover-layer'].forEach(id => {
+            try { if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); } catch (_) {}
+        });
+    }
+
+    function clearPilotRoutesOnMap() {
+        try {
+            if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap) {
+                ['pilot-routes-lines', 'pilot-routes-airports'].forEach(id => { if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id); });
+                if (sectorOpsMap.getSource('pilot-routes-src')) sectorOpsMap.removeSource('pilot-routes-src');
+                if (sectorOpsMap.getSource('pilot-routes-air-src')) sectorOpsMap.removeSource('pilot-routes-air-src');
+            }
+        } catch (_) {}
+        _setAircraftLayersVisible(true); // restore aircraft
+        document.getElementById('pilot-routes-bar')?.remove();
+        document.getElementById('pilot-airport-card')?.remove();
+        _pilotRoutesState = null;
+    }
+    window.clearPilotRoutesOnMap = clearPilotRoutesOnMap;
+
+    // Rough fuel burn (kg/hr) by aircraft name — mirrors the profile ledger.
+    function _pilotFuelBurn(name) {
+        const n = String(name || '').toLowerCase(); const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380')) return 11500; if (has('747')) return 10500; if (has('777')) return 7400;
+        if (has('a350')) return 5900; if (has('a340')) return 6800; if (has('787', 'dreamliner')) return 5300;
+        if (has('a330')) return 5700; if (has('767')) return 4600; if (has('757')) return 3600;
+        if (has('737', 'max')) return 2500; if (has('a320', 'a321', 'a319', 'a318')) return 2400;
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'embraer', 'q400', 'dash')) return 1700;
+        if (has('tbm', 'caravan', 'king air')) return 220;
+        if (has('c172', 'cub', 'sr22', 'da40', 'da62', 'spitfire')) return 40;
+        return 2200;
+    }
+    function _aircraftSizeClass(name) {
+        const n = String(name || '').toLowerCase(); const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380', '747')) return 'Heavies';
+        if (has('777', 'a350', 'a340', 'a330', '787', '767', 'md-11', 'dc-10')) return 'Widebodies';
+        if (has('737', 'a320', 'a321', 'a319', 'a318', '757', 'max')) return 'Narrowbodies';
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'embraer', 'q400', 'dash', 'atr')) return 'Regional jets';
+        if (has('c172', 'cub', 'sr22', 'da40', 'da62', 'tbm', 'caravan', 'king air')) return 'Small / GA';
+        return 'Mixed fleet';
+    }
+
+    // Pro-only: draw a pilot's entire flown route network on the live map as
+    // great-circle arcs, with a dot at every airport. Coords come from the
+    // bundled airports.json (no per-airport network calls); legs are deduped so
+    // the work scales with distinct routes, not raw flight count.
+    async function showPilotRoutesOnMap(userId, username) {
+        if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+        let viewerPro = false;
+        try { viewerPro = !!(window.isInflightPro && window.isInflightPro()); } catch (_) {}
+        if (!viewerPro) { try { viewerPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+        if (!viewerPro) { if (window.AuthUI && window.AuthUI.open) window.AuthUI.open('signup'); return; }
+
+        if (typeof showNotification === 'function') showNotification(`Mapping ${username}'s routes…`, 'info');
+        try {
+            const base = ACARS_USER_API_URL.replace('/users', '/api/users');
+            const first = await fetch(`${base}/${userId}/flights?page=1`).then(r => r.json());
+            const flights = [...((first && first.flights) || [])];
+            const total = (first && first.totalCount) || flights.length;
+            const pageSize = flights.length || 1;
+            const lastPage = Math.min(Math.ceil(total / pageSize), 15);
+            if (pageSize > 0 && total > pageSize) {
+                const jobs = [];
+                for (let p = 2; p <= lastPage; p++) jobs.push(fetch(`${base}/${userId}/flights?page=${p}`).then(r => r.json()).catch(() => null));
+                (await Promise.all(jobs)).forEach(pg => { if (pg && Array.isArray(pg.flights)) flights.push(...pg.flights); });
+            }
+
+            const seen = new Set(); const legs = [];
+            for (const f of flights) {
+                const dep = String(f.originAirport || '').trim().toUpperCase();
+                const arr = String(f.destinationAirport || '').trim().toUpperCase();
+                if (!dep || !arr || dep === arr) continue;
+                const key = dep < arr ? dep + arr : arr + dep;
+                if (seen.has(key)) continue; seen.add(key);
+                const a = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[dep] : null;
+                const b = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[arr] : null;
+                if (!a || !b || typeof a.lat !== 'number' || typeof b.lat !== 'number') continue;
+                legs.push({ dep, arr, a: [a.lon, a.lat], b: [b.lon, b.lat] });
+            }
+            if (!legs.length) { if (typeof showNotification === 'function') showNotification('No mappable routes for this pilot yet.', 'error'); return; }
+
+            const COLORS = ['#38bdf8', '#f472b6', '#facc15', '#4ade80', '#a78bfa', '#fb923c', '#f87171', '#22d3ee'];
+            const lineFeatures = []; const airportMap = new Map();
+            legs.forEach((leg, i) => {
+                const path = buildPilotArc(leg.a[1], leg.a[0], leg.b[1], leg.b[0]);
+                if (path.length < 2) return;
+                // Peak arc height scales with leg length so long-hauls rise higher.
+                const distKm = getDistanceKm(leg.a[1], leg.a[0], leg.b[1], leg.b[0]);
+                const peak = Math.max(80000, Math.min(900000, distKm * 55));
+                lineFeatures.push({ type: 'Feature', properties: { color: COLORS[i % COLORS.length], peak }, geometry: { type: 'LineString', coordinates: path } });
+                airportMap.set(leg.dep, leg.a); airportMap.set(leg.arr, leg.b);
+            });
+            const airportFeatures = [...airportMap.entries()].map(([icao, c]) => ({ type: 'Feature', properties: { icao }, geometry: { type: 'Point', coordinates: c } }));
+
+            await _ensurePilotAcMeta();
+
+            clearPilotRoutesOnMap();
+            _pilotRoutesState = { username, flights };
+            // lineMetrics enables ['line-progress'] for the elevated dome profile.
+            sectorOpsMap.addSource('pilot-routes-src', { type: 'geojson', lineMetrics: true, data: { type: 'FeatureCollection', features: lineFeatures } });
+            // Elevated 3D arcs: each line rises from the origin, peaks mid-route
+            // and drops into the destination (sin profile × per-leg peak height).
+            // Falls back to a flat line if the runtime doesn't support z-offset.
+            try {
+                sectorOpsMap.addLayer({
+                    id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src',
+                    layout: {
+                        'line-cap': 'round', 'line-join': 'round',
+                        'line-z-offset': ['*', ['get', 'peak'], ['sin', ['*', Math.PI, ['line-progress']]]],
+                        'line-elevation-reference': 'sea',
+                    },
+                    paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.95, 'line-emissive-strength': 1 },
+                });
+            } catch (_) {
+                sectorOpsMap.addLayer({ id: 'pilot-routes-lines', type: 'line', source: 'pilot-routes-src', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
+            }
+            sectorOpsMap.addSource('pilot-routes-air-src', { type: 'geojson', data: { type: 'FeatureCollection', features: airportFeatures } });
+            sectorOpsMap.addLayer({ id: 'pilot-routes-airports', type: 'circle', source: 'pilot-routes-air-src', paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2 } });
+
+            // Tap an airport node → per-airport history card.
+            sectorOpsMap.on('click', 'pilot-routes-airports', (e) => {
+                const icao = e.features && e.features[0] && e.features[0].properties && e.features[0].properties.icao;
+                if (icao) _showAirportHistoryCard(icao);
+            });
+            sectorOpsMap.on('mouseenter', 'pilot-routes-airports', () => { sectorOpsMap.getCanvas().style.cursor = 'pointer'; });
+            sectorOpsMap.on('mouseleave', 'pilot-routes-airports', () => { sectorOpsMap.getCanvas().style.cursor = ''; });
+
+            try {
+                // Auto-tilt so the elevated arcs read as 3D right away — z-offset
+                // only shows as height on a pitched camera, so fit + pitch together.
+                if (typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
+                const bounds = new mapboxgl.LngLatBounds();
+                airportFeatures.forEach(f => bounds.extend(f.geometry.coordinates));
+                sectorOpsMap.fitBounds(bounds, { padding: 90, duration: 900, maxZoom: 5, pitch: 55 });
+            } catch (_) {}
+
+            _buildRoutesControlBar(username, legs.length);
+            if (typeof showNotification === 'function') showNotification(`Mapped ${legs.length} routes — tap an airport for its history.`, 'success');
+        } catch (err) {
+            console.error('pilot routes error', err);
+            if (typeof showNotification === 'function') showNotification("Couldn't map this pilot's routes.", 'error');
+        }
+    }
+    window.showPilotRoutesOnMap = showPilotRoutesOnMap;
+
+    // Aircraft-type metadata (UUID → name), fetched once for route/airport stats.
+    let _pilotAcMeta = null;
+    async function _ensurePilotAcMeta() {
+        if (_pilotAcMeta) return _pilotAcMeta;
+        try {
+            const metaBase = ACARS_USER_API_URL.replace('/users', '/api');
+            const meta = await fetch(`${metaBase}/metadata`).then(r => r.json()).catch(() => null);
+            if (meta && meta.ok) {
+                _pilotAcMeta = {
+                    aircraft: new Map((meta.aircraft || []).map(a => [String(a.id).toLowerCase(), a.name])),
+                    livery: new Map((meta.liveries || []).map(l => [String(l.id).toLowerCase(), { aircraftName: l.aircraftName }])),
+                };
+            } else _pilotAcMeta = { aircraft: new Map(), livery: new Map() };
+        } catch (_) { _pilotAcMeta = { aircraft: new Map(), livery: new Map() }; }
+        return _pilotAcMeta;
+    }
+    function _resolvePilotAcName(aId, lId) {
+        if (!_pilotAcMeta) return 'Unknown';
+        const lk = lId && _pilotAcMeta.livery.get(String(lId).toLowerCase());
+        if (lk && lk.aircraftName) return lk.aircraftName;
+        const ak = aId && _pilotAcMeta.aircraft.get(String(aId).toLowerCase());
+        return ak || 'Unknown';
+    }
+
+    // The floating control bar shown while a pilot's routes are on the map:
+    // hide aircraft, toggle a 3D tilt, and clear.
+    function _buildRoutesControlBar(username, count) {
+        const wrap = document.getElementById('sector-ops-map-fullscreen');
+        if (!wrap) return;
+        document.getElementById('pilot-routes-bar')?.remove();
+        const bar = document.createElement('div');
+        bar.id = 'pilot-routes-bar';
+        bar.className = 'pilot-routes-bar';
+        bar.innerHTML = `
+            <span class="prb-title"><i class="fa-solid fa-route"></i> ${username} · ${count} routes</span>
+            <button type="button" class="prb-btn" data-act="hide-ac"><i class="fa-solid fa-eye-slash"></i> Hide aircraft</button>
+            <button type="button" class="prb-btn on" data-act="tilt"><i class="fa-solid fa-cube"></i> 3D</button>
+            <button type="button" class="prb-btn prb-close" data-act="clear"><i class="fa-solid fa-xmark"></i></button>`;
+        wrap.appendChild(bar);
+
+        bar.querySelector('[data-act="clear"]').addEventListener('click', clearPilotRoutesOnMap);
+        bar.querySelector('[data-act="hide-ac"]').addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const hiding = !btn.classList.contains('on');
+            _setAircraftLayersVisible(!hiding);
+            btn.classList.toggle('on', hiding);
+            btn.innerHTML = hiding ? '<i class="fa-solid fa-eye"></i> Show aircraft' : '<i class="fa-solid fa-eye-slash"></i> Hide aircraft';
+        });
+        bar.querySelector('[data-act="tilt"]').addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const on = !btn.classList.contains('on');
+            try {
+                if (typeof sectorOpsMap.setProjection === 'function') sectorOpsMap.setProjection('globe');
+                sectorOpsMap.easeTo({ pitch: on ? 55 : 0, duration: 700 });
+            } catch (_) {}
+            btn.classList.toggle('on', on);
+        });
+    }
+
+    // Per-airport history card: how often the pilot's been there, landings,
+    // fuel & time, and their haul / aircraft-size preference for legs touching
+    // this airport — all from the already-fetched logbook.
+    function _showAirportHistoryCard(icao) {
+        const st = _pilotRoutesState;
+        if (!st) return;
+        icao = String(icao).toUpperCase();
+        const A = (typeof airportsData !== 'undefined' && airportsData) ? airportsData[icao] : null;
+
+        let visits = 0, landings = 0, timeMin = 0, fuelKg = 0;
+        const hauls = { short: 0, medium: 0, long: 0 };
+        const sizes = {}; const acCount = {};
+        for (const f of st.flights) {
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+            if (dep !== icao && arr !== icao) continue;
+            visits++;
+            const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+            timeMin += min;
+            const name = _resolvePilotAcName(f.aircraftId || f.aircraftID, f.liveryId || f.liveryID);
+            fuelKg += (min / 60) * _pilotFuelBurn(name);
+            if (arr === icao) landings += (f.landingCount || 0);
+            const oc = airportsData[dep], dc = airportsData[arr];
+            if (oc && dc && typeof oc.lat === 'number' && typeof dc.lat === 'number') {
+                const nm = getDistanceKm(oc.lat, oc.lon, dc.lat, dc.lon) * 0.539957;
+                if (nm > 0) { if (nm < 1000) hauls.short++; else if (nm < 3000) hauls.medium++; else hauls.long++; }
+            }
+            const sz = _aircraftSizeClass(name); sizes[sz] = (sizes[sz] || 0) + 1;
+            if (name && name !== 'Unknown') acCount[name] = (acCount[name] || 0) + 1;
+        }
+
+        const haulTop = Object.entries(hauls).sort((a, b) => b[1] - a[1])[0];
+        const haulLabel = haulTop && haulTop[1] > 0 ? ({ short: 'Short hauls', medium: 'Medium hauls', long: 'Long hauls' })[haulTop[0]] : '—';
+        const sizeTop = Object.entries(sizes).sort((a, b) => b[1] - a[1])[0];
+        const sizePref = sizeTop ? sizeTop[0] : '—';
+        const acTop = Object.entries(acCount).sort((a, b) => b[1] - a[1])[0];
+        const topAc = acTop ? acTop[0] : '—';
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const nf = (n) => Math.round(n).toLocaleString();
+        const name = A && A.name ? A.name : icao;
+
+        document.getElementById('pilot-airport-card')?.remove();
+        const card = document.createElement('div');
+        card.id = 'pilot-airport-card';
+        card.className = 'pilot-airport-card';
+        const tile = (label, value) => `<div class="pac-tile"><span class="pac-val">${value}</span><span class="pac-lbl">${label}</span></div>`;
+        card.innerHTML = `
+            <div class="pac-inner">
+                <div class="pac-grabber"></div>
+                <div class="pac-head">
+                    <div><span class="pac-icao">${esc(icao)}</span><span class="pac-name">${esc(name)}</span></div>
+                    <button type="button" class="pac-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="pac-grid">
+                    ${tile('Visits', nf(visits))}
+                    ${tile('Landings', nf(landings))}
+                    ${tile('Time', nf(timeMin / 60) + 'h')}
+                    ${tile('Est. fuel', nf(fuelKg / 1000) + 't')}
+                    ${tile('Prefers', esc(haulLabel))}
+                    ${tile('Usually flies', esc(sizePref))}
+                </div>
+                ${topAc !== '—' ? `<div class="pac-fav">Most flown here · <strong>${esc(topAc)}</strong></div>` : ''}
+            </div>
+        `;
+        document.body.appendChild(card);
+        const closeCard = () => { card.classList.remove('open'); setTimeout(() => card.remove(), 420); };
+        card.querySelector('.pac-close').addEventListener('click', closeCard);
+        card.addEventListener('click', (e) => { if (e.target === card) closeCard(); });
+        requestAnimationFrame(() => card.classList.add('open'));
     }
 
 
@@ -23945,11 +24467,15 @@ if (flatMapToggle) {
         else if (target.name === 'map-style-mode') {
             const mode = target.value;
             
-            // Re-enforce Pro Auth for Legacy dropdown items
+            // Re-enforce Pro Auth for Legacy dropdown items — real Pro
+            // entitlement (with the persisted flag as a fallback), not just
+            // being signed in, so free accounts can't select Pro map styles.
             const proModes = ['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day'];
-            const isSignedIn = !!(typeof ProfileUI !== 'undefined' && ProfileUI?._currentUser);
-            
-            if (proModes.includes(mode) && !isSignedIn) {
+            let isPro = false;
+            try { isPro = !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro()); } catch (_) {}
+            if (!isPro) { try { isPro = localStorage.getItem('inflight_is_pro') === 'true'; } catch (_) {} }
+
+            if (proModes.includes(mode) && !isPro) {
                 showNotification((typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) ? "This map style isn't available on this account." : "This map style requires a Pro account.", "error");
                 // Revert the radio UI to current state
                 const currentRadio = document.querySelector(`input[name="map-style-mode"][value="${mapFilters.mapStyle || 'dark'}"]`);
@@ -24244,6 +24770,18 @@ window.addEventListener('proStatusChanged', () => {
     // 3D terrain is Pro-gated and resolves async at boot, so re-sync the
     // elevation layer once entitlement is known (and on any later change).
     try { if (typeof updatePro3DLayers === 'function') updatePro3DLayers(); } catch (_) {}
+    // Pro-gated settings render off the entitlement, which resolves async — so
+    // re-sync the locks/controls the moment it lands (or changes), on both the
+    // mobile settings sheet and the desktop settings panel.
+    try { if (typeof MobileSettingsUI !== 'undefined' && MobileSettingsUI.refreshProLocks) MobileSettingsUI.refreshProLocks(); } catch (_) {}
+    try {
+        // Re-render the desktop settings panel if it's open, so its Pro-gated
+        // controls flip to the resolved entitlement without a manual reopen.
+        if (typeof SettingsUI !== 'undefined' && SettingsUI && SettingsUI._currentCategory
+            && document.querySelector('.settings-modal .nexus-item')) {
+            SettingsUI.renderCategory(SettingsUI._currentCategory);
+        }
+    } catch (_) {}
 });
 
 // VA hub markers: opt-in (mapFilters.showVaHubMarkers, off by default) logo

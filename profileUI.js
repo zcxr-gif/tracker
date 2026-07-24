@@ -28,6 +28,7 @@ import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { AirportViewer3D } from './AirportViewer3D.js';
 import { FlightDispatchUI } from './FlightDispatchUI.js';
+import { WORLD_MAP } from './worldMapData.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -99,6 +100,7 @@ export const ProfileUI = {
     _airspaceNetwork: null,
     _airspaceRefreshTimer: null,
     _liveFlights: [],
+    _liveExpanded: false,   // live-flight panel is opt-in (collapsed by default)
     _currentAllFlights: [], // Stores real-time global flight data for autocomplete
     _socketUnsubscribe: null,
 
@@ -114,6 +116,20 @@ export const ProfileUI = {
         plan: 'Pro Access',
         price: '$1.99 / month'
     },
+
+    // Pro entitlement. `true` = full Pro Access; `false` = a free account, which
+    // enters the app with the flagship tools locked and a plain (image-free)
+    // profile banner. Resolved from `profiles.is_pro` on open, optimistic until
+    // then so a paying pilot never flashes a locked UI on a slow fetch.
+    _isPro: true,
+
+    // Virtual Airlines the pilot flies for (Pro profile badges) + resolved
+    // airport coordinates for the flight-map route overlay.
+    _userVAs: null,
+    _userVAsLoaded: false,
+    _airportCoords: {},
+    _lifetime: null,        // aggregated lifetime/per-aircraft stats cache
+
     // Store live IF data
     _ifData: {
         loading: false,
@@ -125,6 +141,9 @@ export const ProfileUI = {
         error: null
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
+    // Community/database API (aircraft catalog, airport coords, pilot VAs) —
+    // a different service than the ACARS flight feed above.
+    _communityBackend: window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run',
 
     // ── Fleet (virtual hangar) ───────────────────────────────────────────────
     // The fleet lists only aircraft currently on the live map. A deep slice of
@@ -162,6 +181,16 @@ export const ProfileUI = {
 
     // Default tab order — _dockOrder may override this
     _DEFAULT_DOCK_ORDER: ['dashboard', 'career-deep-dive', 'fleet', 'airspace-intel', 'flight-plan', 'watchlist', 'settings'],
+
+    // Tabs reserved for Pro. Free accounts still see them in the dock (with a
+    // lock badge) but opening one shows an upsell instead of the feature.
+    // Free pilots keep the essentials: dashboard, dossier and settings.
+    _PRO_ONLY_TABS: ['fleet', 'airspace-intel', 'flight-plan', 'watchlist'],
+
+    // Community aircraft catalog (/api/aircraft), fetched on demand so a Pro
+    // pilot can pick any aircraft in our database as their banner.
+    _aircraftCatalog: null,
+    _aircraftCatalogPromise: null,
 
     // Accent color presets — applied as CSS variable overrides on the wrapper layer.
     // Each preset supplies the same four vars used throughout the stylesheet.
@@ -702,6 +731,19 @@ init(supabaseClient) {
         this._coverUrl  = user?.user_metadata?.cover_url || '';
         this._dockOrder = Array.isArray(user?.user_metadata?.dock_order) ? user.user_metadata.dock_order : null;
 
+        // Pro entitlement — optimistic from cached metadata (or the flag authUI
+        // stamps on the user when it lets a free account in), then corrected by
+        // the authoritative profiles.is_pro fetch kicked off below.
+        if (typeof user?.isPro === 'boolean')                     this._isPro = user.isPro;
+        else if (typeof user?.user_metadata?.is_pro === 'boolean') this._isPro = user.user_metadata.is_pro;
+
+        // Reset per-account derived data so a different pilot never sees stale
+        // VA badges or cached airport coords from the previous session.
+        this._userVAs = null;
+        this._userVAsLoaded = false;
+        this._airportCoords = {};
+        this._lifetime = null;
+
         if (!this._injected) {
             this._inject();
             this._injected = true;
@@ -725,6 +767,8 @@ init(supabaseClient) {
         this._shellBuilt = false;
         this._editingFlightId = null; // Reset edit state
         this._render();
+        this._fetchProStatus();
+        this._fetchUserVAs();
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
@@ -1300,6 +1344,181 @@ if (type === 'flights') {
         return { title: '', html: '' };
     },
 
+    /**
+     * Resolve the authoritative Pro entitlement from `profiles.is_pro`. Free
+     * accounts (is_pro === false) get the flagship tools locked and a plain
+     * banner; anything else is treated as Pro. On error we leave the optimistic
+     * value untouched so a transient failure never locks a paying pilot out.
+     */
+    async _fetchProStatus() {
+        if (!this._currentUser || !this._supabase) return;
+
+        try {
+            const { data, error } = await this._supabase
+                .from('profiles')
+                .select('is_pro')
+                .eq('id', this._currentUser.id)
+                .single();
+
+            if (error || !data) return;
+
+            // Reliable rule: only an explicit profiles.is_pro === true forces
+            // Pro; a free account is the one explicitly stamped
+            // user_metadata.is_pro === false. profiles.is_pro often stays
+            // null/false even for paying pilots, so we never use it to lock
+            // someone out — that regressed real Pro accounts.
+            const metaFree = this._currentUser?.user_metadata?.is_pro === false;
+            const nextPro = (data.is_pro === true) ? true : !metaFree;
+            if (nextPro === this._isPro) return;
+
+            this._isPro = nextPro;
+
+            // Became Pro after load → pull the VA badges we skipped at open.
+            if (this._isPro && !this._userVAsLoaded) this._fetchUserVAs();
+
+            // Entitlement changed under us — a locked pilot may be sitting on a
+            // now-forbidden tab, and the banner/dock/settings all need refreshing.
+            if (this._isOpen) {
+                if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
+                    this._activeTab = 'dashboard';
+                }
+                this._render();
+            }
+        } catch (err) {
+            console.warn('[ProfileUI] Could not resolve Pro status:', err.message);
+        }
+    },
+
+    /**
+     * Start the Pro upgrade for the signed-in pilot via the same Stripe
+     * checkout the sign-up flow uses (as a logged-in renewal — no password
+     * needed). On any failure we fall back to the Settings/billing screen so
+     * the button is never a dead end.
+     */
+    async _startProUpgrade(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
+        try {
+            if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+            const payload = {
+                email: this._currentUser.email,
+                success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
+                cancel_url:  window.location.origin + '?payment=cancel',
+                is_renew: true,
+            };
+            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
+            if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
+            window.location.href = data.url;
+        } catch (err) {
+            console.warn('[ProfileUI] Upgrade checkout failed, showing billing screen:', err.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+            if (this._activeTab !== 'settings') this.switchTab('settings');
+            setTimeout(() => document.getElementById('pui-billing-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+        }
+    },
+
+    /**
+     * Fetch the community aircraft catalog (/api/aircraft) once and cache it.
+     * Each entry carries an imageUrl we can use as a profile banner.
+     */
+    async _fetchAircraftCatalog() {
+        if (Array.isArray(this._aircraftCatalog)) return this._aircraftCatalog;
+        if (this._aircraftCatalogPromise) return this._aircraftCatalogPromise;
+        this._aircraftCatalogPromise = fetch(`${this._communityBackend}/api/aircraft`)
+            .then(r => (r.ok ? r.json() : []))
+            .then(list => {
+                const seen = new Set();
+                const cleaned = (Array.isArray(list) ? list : [])
+                    .map(a => ({
+                        type: a.aircraftType || 'Unknown',
+                        livery: a.liveryName || 'Standard',
+                        tail: a.tailNumber || '',
+                        img: a.imageUrl || (Array.isArray(a.imageUrls) && a.imageUrls[0]) || '',
+                    }))
+                    .filter(a => a.img && !seen.has(a.img) && seen.add(a.img));
+                this._aircraftCatalog = cleaned;
+                return cleaned;
+            })
+            .catch(() => { this._aircraftCatalog = []; return []; });
+        return this._aircraftCatalogPromise;
+    },
+
+    /**
+     * Modal that lets a Pro pilot pick any aircraft in our database as their
+     * banner. Searchable by type / livery / tail; selecting one hands its image
+     * URL back through onSelect.
+     */
+    async _openAircraftPicker(onSelect) {
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        document.getElementById('pui-acpick-overlay')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-acpick-overlay';
+        overlay.className = 'pui-acpick-overlay';
+        overlay.innerHTML = `
+            <div class="pui-acpick" role="dialog" aria-label="Choose an aircraft banner">
+                <div class="pui-acpick-head">
+                    <h3>Choose your aircraft</h3>
+                    <button class="pui-icon-btn" id="pui-acpick-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="pui-input-wrapper pui-acpick-search-wrap">
+                    <i class="fa-solid fa-magnifying-glass pui-input-icon"></i>
+                    <input type="text" id="pui-acpick-search" class="pui-input has-icon" placeholder="Search type, livery or tail…" autocomplete="off">
+                </div>
+                <div class="pui-acpick-grid" id="pui-acpick-grid">
+                    <div class="pui-acpick-loading"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading aircraft…</div>
+                </div>
+            </div>`;
+        document.getElementById('profile-overlay')?.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('open'));
+
+        const cleanup = () => { overlay.classList.remove('open'); setTimeout(() => overlay.remove(), 180); };
+        document.getElementById('pui-acpick-close')?.addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        const grid = overlay.querySelector('#pui-acpick-grid');
+        const catalog = await this._fetchAircraftCatalog();
+
+        const render = (items) => {
+            if (!items.length) {
+                grid.innerHTML = `<div class="pui-acpick-loading">No aircraft match that search.</div>`;
+                return;
+            }
+            grid.innerHTML = items.slice(0, 300).map((a, i) => `
+                <button type="button" class="pui-acpick-card" data-idx="${i}" title="${esc(a.type)} · ${esc(a.livery)}">
+                    <span class="pui-acpick-img" style="background-image:url('${String(a.img).replace(/'/g, '&apos;')}');"></span>
+                    <span class="pui-acpick-meta">
+                        <span class="pui-acpick-type">${esc(a.type)}</span>
+                        <span class="pui-acpick-livery">${esc(a.livery)}${a.tail ? ' · ' + esc(a.tail) : ''}</span>
+                    </span>
+                </button>`).join('');
+            grid.querySelectorAll('.pui-acpick-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const a = items[parseInt(card.dataset.idx, 10)];
+                    if (a && typeof onSelect === 'function') onSelect(a.img);
+                    cleanup();
+                });
+            });
+        };
+
+        if (!catalog.length) {
+            grid.innerHTML = `<div class="pui-acpick-loading">Couldn't load the aircraft database. Please try again.</div>`;
+            return;
+        }
+        render(catalog);
+
+        const search = overlay.querySelector('#pui-acpick-search');
+        search?.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            if (!q) return render(catalog);
+            render(catalog.filter(a =>
+                a.type.toLowerCase().includes(q) ||
+                a.livery.toLowerCase().includes(q) ||
+                a.tail.toLowerCase().includes(q)));
+        });
+        setTimeout(() => search?.focus(), 60);
+    },
+
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
 
@@ -1600,7 +1819,7 @@ const requests = [
         const user = this._currentUser;
         const name = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
         const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
-        const planLabel = this._subscription.plan;
+        const planLabel = this._isPro ? this._subscription.plan : 'Free';
 
         const themeIcon = this._theme === 'dark' ? 'fa-moon' : 'fa-sun';
         const densityIcon = this._density === 'compact' ? 'fa-grip-lines' : 'fa-grip';
@@ -1661,16 +1880,18 @@ const requests = [
                     ${navItems.map(item => {
                         const isActive = this._activeTab === item.id;
                         const isWatch = item.id === 'watchlist';
+                        const isLocked = !this._isPro && this._PRO_ONLY_TABS.includes(item.id);
                         const badgeAttrs = isWatch ? `id="pui-dock-watchlist-badge" style="${liveCount > 0 ? '' : 'display:none;'}"` : '';
                         const badgeText = isWatch && liveCount > 0 ? liveCount : (isWatch ? '' : '');
                         return `
-                            <button class="pui-dock-item ${isActive ? 'active' : ''}"
+                            <button class="pui-dock-item ${isActive ? 'active' : ''} ${isLocked ? 'pui-dock-item-locked' : ''}"
                                     data-tab="${item.id}"
-                                    draggable="true"
-                                    title="${item.label}">
+                                    draggable="${this._isPro ? 'true' : 'false'}"
+                                    title="${isLocked ? item.label + ' — Pro' : item.label}"
                                 <span class="pui-dock-icon"><i class="fa-solid ${item.icon}"></i></span>
                                 <span class="pui-dock-label">${item.label}</span>
-                                ${isWatch ? `<span class="pui-dock-badge" ${badgeAttrs}>${badgeText}</span>` : ''}
+                                ${isLocked ? '<span class="pui-dock-lock"><i class="fa-solid fa-lock"></i></span>' : ''}
+                                ${isWatch && !isLocked ? `<span class="pui-dock-badge" ${badgeAttrs}>${badgeText}</span>` : ''}
                             </button>
                         `;
                     }).join('')}
@@ -1697,7 +1918,10 @@ const requests = [
             });
         });
 
-        // Drag & drop to reorder
+        // Drag & drop to reorder — Pro only. Free accounts keep the default
+        // tab order (the reorder controls in Settings are locked too).
+        if (!this._isPro) return;
+
         let dragSrc = null;
         dock.querySelectorAll('.pui-dock-item').forEach(item => {
             item.addEventListener('dragstart', (e) => {
@@ -1748,6 +1972,7 @@ async _updateLiveFlightDOM() {
             wrapper.style.display = 'none';
             this._3dViewerHostKey = null;
             this._active3DFlightId = null;
+            this._liveExpanded = false; // next live flight starts collapsed
             
             // Premium memory management: Destroy lingering 3D instance if flights clear
             if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') {
@@ -1757,6 +1982,46 @@ async _updateLiveFlightDOM() {
         }
 
         wrapper.style.display = 'block';
+
+        // Collapsible, opt-in live panel. Collapsed by default so the heavy
+        // 3D/analytics build never disrupts the dashboard as it loads — a compact
+        // header shows there's a live flight and the pilot opens it by choice.
+        const _lf0 = this._liveFlights[0] || {};
+        const _liveCount = this._liveFlights.length;
+        const headerHTML = (expanded) => `
+            <button type="button" class="pui-live-toggle ${expanded ? 'open' : ''}" id="pui-live-toggle">
+                <span class="pui-live-dot"></span>
+                <span class="pui-live-toggle-main">
+                    <span class="pui-live-toggle-title">Live now${_liveCount > 1 ? ` · ${_liveCount} flights` : ''}</span>
+                    <span class="pui-live-toggle-sub">${this._fleetEsc(_lf0.callsign || 'Live flight')} · ${this._fleetEsc(_lf0.departureIcao || '----')} → ${this._fleetEsc(_lf0.arrivalIcao || '----')}</span>
+                </span>
+                <i class="fa-solid fa-chevron-${expanded ? 'up' : 'down'} pui-live-toggle-chev"></i>
+            </button>`;
+
+        const _destroy3D = () => {
+            if (typeof AircraftViewer3D !== 'undefined' && typeof AircraftViewer3D.destroy === 'function') AircraftViewer3D.destroy();
+            this._active3DFlightId = null;
+            this._3dViewerHostKey = null;
+        };
+
+        if (!this._liveExpanded) {
+            _destroy3D();
+            wrapper.innerHTML = `<div class="pui-live-shell">${headerHTML(false)}</div>`;
+            document.getElementById('pui-live-toggle')?.addEventListener('click', () => {
+                this._liveExpanded = true;
+                this._updateLiveFlightDOM();
+            });
+            return;
+        }
+
+        // Expanded: paint the header + a skeleton right away, then build the
+        // cards into the body so there's a proper loading state, not a jump.
+        wrapper.innerHTML = `<div class="pui-live-shell open">${headerHTML(true)}<div class="pui-live-body" id="pui-live-body"><div class="pui-live-skel"><div class="pui-skeleton" style="height:200px;border-radius:var(--pui-radius-lg);"></div></div></div></div>`;
+        document.getElementById('pui-live-toggle')?.addEventListener('click', () => {
+            _destroy3D();
+            this._liveExpanded = false;
+            this._updateLiveFlightDOM();
+        });
 
         const flightsWithDispatch = await Promise.all(this._liveFlights.map(async (flight) => {
             let plan = null;
@@ -1920,7 +2185,11 @@ async _updateLiveFlightDOM() {
         const existingCarousel = wrapper.querySelector('.pui-live-carousel');
         const currentScrollPos = existingCarousel ? existingCarousel.scrollLeft : 0;
 
-        wrapper.innerHTML = `<div class="pui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
+        // Inject into the panel body (keep the header). Bail if the pilot
+        // collapsed the panel while the async build was in flight.
+        const _liveBody = document.getElementById('pui-live-body');
+        if (!_liveBody || !this._liveExpanded) return;
+        _liveBody.innerHTML = `<div class="pui-live-carousel" style="cursor: grab;">${cardsHtmlArray.join('')}</div>`;
 
         // --- 3D WINDOW STRICT SINGLETON LOGIC ---
         wrapper.querySelectorAll('.pui-launch-3d-btn').forEach(btn => {
@@ -2387,7 +2656,487 @@ _generateAirspaceHTML() {
         }
     },
 
+    /**
+     * "Your Flight Map" — a dot-grid world map (WORLD_MAP) with the continents
+     * the pilot has flown to lit up. Visited continents are inferred from the
+     * first letter of each logbook airport's ICAO (cheap, no coord lookup). With
+     * no logbook yet the whole map still shows in the muted base tone.
+     */
+    _getFlightMapHTML() {
+        const NAME_IDX = { NA: 0, SA: 1, EU: 2, AF: 3, AS: 4, OC: 5 };
+        const ICAO_CONT = {
+            K: 'NA', C: 'NA', M: 'NA', T: 'NA', P: 'NA',
+            S: 'SA',
+            E: 'EU', L: 'EU', B: 'EU', U: 'EU',
+            D: 'AF', F: 'AF', G: 'AF', H: 'AF',
+            O: 'AS', V: 'AS', W: 'AS', Z: 'AS', R: 'AS',
+            Y: 'OC', N: 'OC', A: 'OC',
+        };
+        const visited = new Set();
+        const lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+        lb.forEach(f => {
+            [f.originAirport, f.destinationAirport].forEach(icao => {
+                const c = ICAO_CONT[String(icao || '').trim().toUpperCase()[0]];
+                if (c !== undefined) visited.add(NAME_IDX[c]);
+            });
+        });
+        const anyVisited = visited.size > 0;
+
+        const CW = WORLD_MAP.cell || 7;
+        const w = WORLD_MAP.cols * CW;
+        const h = WORLD_MAP.rows * CW;
+        const dots = WORLD_MAP.cells.map(([x, y, c]) => {
+            const on = anyVisited && visited.has(c);
+            return `<rect x="${(x * CW).toFixed(1)}" y="${(y * CW).toFixed(1)}" width="${CW - 1.4}" height="${CW - 1.4}" rx="1.3" class="${on ? 'pfm-on' : 'pfm-off'}"/>`;
+        }).join('');
+
+        // Routes drawn from real airport coordinates are injected async into the
+        // overlay group by _hydrateFlightMap() (coords resolve from the backend).
+        return `<svg class="pui-flightmap-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map connecting the cities you have flown to">${dots}<g class="pui-fm-routes" id="pui-fm-routes"></g></svg>`;
+    },
+
+    /** Equirectangular projection matching WORLD_MAP's grid, in SVG units. */
+    _projectLatLon(lat, lon) {
+        const CW = WORLD_MAP.cell || 7;
+        const x = (lon - WORLD_MAP.lonMin) / (WORLD_MAP.lonMax - WORLD_MAP.lonMin) * WORLD_MAP.cols * CW;
+        const y = (WORLD_MAP.latMax - lat) / (WORLD_MAP.latMax - WORLD_MAP.latMin) * WORLD_MAP.rows * CW;
+        return [x, y];
+    },
+
+    /**
+     * Resolve airport coordinates, cached across renders. Uses the bulk
+     * endpoint so an entire logbook's worth of unique airports costs one
+     * request; falls back to per-airport lookups only if the bulk call fails.
+     */
+    async _resolveAirportCoords(icaos) {
+        if (!this._airportCoords) this._airportCoords = {};
+        const need = [...new Set(icaos)].filter(i => i && this._airportCoords[i] === undefined);
+        if (!need.length) return;
+
+        try {
+            const r = await fetch(`${this._communityBackend}/api/airports/coords`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ icaos: need }),
+            });
+            if (r.ok) {
+                const j = await r.json();
+                const coords = j && j.coords ? j.coords : {};
+                need.forEach(icao => {
+                    const c = coords[icao];
+                    this._airportCoords[icao] = (Array.isArray(c) && c.length >= 2) ? [c[0], c[1]] : null;
+                });
+                return;
+            }
+        } catch (_) { /* fall through to per-airport */ }
+
+        // Fallback: resolve individually (bounded — bulk endpoint not available).
+        await Promise.all(need.slice(0, 400).map(async (icao) => {
+            if (this._airportCoords[icao] !== undefined) return;
+            try {
+                const r = await fetch(`${this._communityBackend}/api/airport/${encodeURIComponent(icao)}`);
+                const j = r.ok ? await r.json() : null;
+                this._airportCoords[icao] = (j && typeof j.latitude === 'number' && typeof j.longitude === 'number')
+                    ? [j.latitude, j.longitude] : null;
+            } catch (_) { this._airportCoords[icao] = null; }
+        }));
+    },
+
+    /**
+     * Fill the flight-map overlay with the pilot's route network — a dot at
+     * every city flown to and a line for every leg between them, projected onto
+     * the dot-grid world map. Runs after the dashboard renders; coordinates are
+     * fetched once and cached so subsequent renders are instant.
+     */
+    /**
+     * The flight set stats/routes draw from — the deep logbook (many pages,
+     * accumulated by the fleet fetch) once available, otherwise the dashboard's
+     * first page. Kicks the deep fetch the first time so both upgrade to the
+     * full history without blocking the initial paint.
+     */
+    _statsFlights() {
+        if (this._fleet && this._fleet.loaded && Array.isArray(this._fleet.flights) && this._fleet.flights.length) {
+            return this._fleet.flights;
+        }
+        if (this._fleet && !this._fleet.loaded && !this._fleet.loading && this._currentUser?.user_metadata?.if_username) {
+            // Load the deep logbook in the background; _fetchFleetData re-renders
+            // the dashboard on completion so routes + stats fill in.
+            this._fetchFleetData();
+        }
+        return Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+    },
+
+    async _hydrateFlightMap() {
+        const flights = this._statsFlights();
+        if (!flights.length) return;
+
+        // Collapse thousands of legs to the unique routes/airports up front, so
+        // work scales with distinct routes (bounded) — not raw flight count.
+        const legKeys = new Set();
+        const legs = [];
+        const icaos = new Set();
+        for (const f of flights) {
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+            if (!dep || !arr || dep === arr) continue;
+            icaos.add(dep); icaos.add(arr);
+            const key = dep < arr ? dep + arr : arr + dep;
+            if (legKeys.has(key)) continue;
+            legKeys.add(key);
+            legs.push([dep, arr]);
+        }
+        if (!legs.length) return;
+
+        const hadDistance = !!(this._lifetime && this._lifetime.haveDistance);
+        await this._resolveAirportCoords([...icaos]);
+        // Coords may unlock distance totals — refresh the ledger.
+        this._recomputeLifetime();
+
+        const g = document.getElementById('pui-fm-routes');
+        if (!g) return; // tab changed while resolving
+
+        // Distance just became available → refresh the ledger tiles once. The
+        // re-render re-runs hydrate, but coords are cached then so it settles.
+        if (!hadDistance && this._lifetime && this._lifetime.haveDistance
+            && this._isOpen && this._activeTab === 'dashboard') {
+            this._renderContentOnly();
+            return;
+        }
+
+        const MAX_LINES = 1500;
+        let lines = '';
+        const cityPts = {};
+        let drawn = 0;
+        for (const [dep, arr] of legs) {
+            const a = this._airportCoords[dep];
+            const b = this._airportCoords[arr];
+            if (!a || !b) continue;
+            const [x1, y1] = this._projectLatLon(a[0], a[1]);
+            const [x2, y2] = this._projectLatLon(b[0], b[1]);
+            cityPts[dep] = [x1, y1];
+            cityPts[arr] = [x2, y2];
+            if (drawn < MAX_LINES) {
+                lines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="pui-fm-line"/>`;
+                drawn++;
+            }
+        }
+        const dotsSvg = Object.values(cityPts)
+            .map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="pui-fm-city"/>`)
+            .join('');
+        g.innerHTML = lines + dotsSvg;
+    },
+
+    // ── Lifetime stats engine ────────────────────────────────────────────────
+
+    /** Rough fuel burn (kg/hour) by aircraft, matched on the resolved name. */
+    _fuelBurnKgPerHr(name) {
+        const n = String(name || '').toLowerCase();
+        const has = (...k) => k.some(s => n.includes(s));
+        if (has('a380')) return 11500;
+        if (has('747')) return 10500;
+        if (has('777')) return 7400;
+        if (has('a350')) return 5900;
+        if (has('a340')) return 6800;
+        if (has('787', 'dreamliner')) return 5300;
+        if (has('a330')) return 5700;
+        if (has('767')) return 4600;
+        if (has('a300', 'a310', 'md-11', 'dc-10')) return 5200;
+        if (has('757')) return 3600;
+        if (has('737', 'max')) return 2500;
+        if (has('a320', 'a321', 'a319', 'a318')) return 2400;
+        if (has('a220', 'crj', 'e170', 'e175', 'e190', 'e195', 'embraer', 'q400', 'dash')) return 1700;
+        if (has('c130', 'c-130', 'a10', 'a-10', 'f-', 'f14', 'f16', 'f22')) return 3000;
+        if (has('tbm', 'caravan', 'king air', 'spitfire')) return 220;
+        if (has('c172', 'cessna 172', 'xcub', 'cub', 'sr22', 'da40', 'da62')) return 40;
+        return 2200; // sensible default (narrowbody-ish)
+    },
+
+    _continentOfIcao(icao) {
+        const c = String(icao || '').trim().toUpperCase()[0];
+        return ({
+            K: 'N. America', C: 'N. America', M: 'N. America', T: 'Caribbean', P: 'Pacific',
+            S: 'S. America', E: 'Europe', L: 'Europe', B: 'Europe', U: 'Europe/Asia',
+            D: 'Africa', F: 'Africa', G: 'Africa', H: 'Africa',
+            O: 'Asia', V: 'Asia', W: 'Asia', Z: 'Asia', R: 'Asia', N: 'Oceania', Y: 'Oceania', A: 'Oceania',
+        })[c] || null;
+    },
+
+    _haversineNm(a, b) {
+        const R = 3440.065; // nautical miles
+        const toRad = d => d * Math.PI / 180;
+        const dLat = toRad(b[0] - a[0]);
+        const dLon = toRad(b[1] - a[1]);
+        const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+    },
+
+    /**
+     * Aggregate the (deep) logbook into lifetime + per-aircraft stats. Single
+     * O(n) pass over flights; distances reuse a per-unique-leg cache so coord
+     * math isn't repeated for a route flown hundreds of times.
+     */
+    _recomputeLifetime() {
+        const flights = this._statsFlights();
+        if (!flights.length) { this._lifetime = null; return; }
+
+        const byAircraft = new Map(); // name → {flights, minutes, landings, fuelKg, distanceNm}
+        const airports = new Set();
+        const continents = new Set();
+        const routeCount = new Map();
+        const legDistCache = new Map();
+        let totalMin = 0, totalLandings = 0, totalFuel = 0, totalDist = 0;
+        let longest = null;
+
+        for (const f of flights) {
+            const min = typeof f.totalTime === 'number' ? f.totalTime : 0;
+            const landings = f.landingCount || 0;
+            const aId = f.aircraftId || f.aircraftID;
+            const lId = f.liveryId || f.liveryID;
+            const name = aId ? this._resolveAircraftName(aId, lId) : 'Unknown';
+            const dep = String(f.originAirport || '').trim().toUpperCase();
+            const arr = String(f.destinationAirport || '').trim().toUpperCase();
+
+            const fuel = (min / 60) * this._fuelBurnKgPerHr(name);
+            let dist = 0;
+            if (dep && arr && dep !== arr) {
+                const key = dep < arr ? dep + arr : arr + dep;
+                if (legDistCache.has(key)) dist = legDistCache.get(key);
+                else {
+                    const a = this._airportCoords[dep], b = this._airportCoords[arr];
+                    dist = (a && b) ? this._haversineNm(a, b) : 0;
+                    legDistCache.set(key, dist);
+                }
+                routeCount.set(`${dep}→${arr}`, (routeCount.get(`${dep}→${arr}`) || 0) + 1);
+            }
+
+            if (dep) { airports.add(dep); const c = this._continentOfIcao(dep); if (c) continents.add(c); }
+            if (arr) { airports.add(arr); const c = this._continentOfIcao(arr); if (c) continents.add(c); }
+
+            const rec = byAircraft.get(name) || { flights: 0, minutes: 0, landings: 0, fuelKg: 0, distanceNm: 0 };
+            rec.flights++; rec.minutes += min; rec.landings += landings; rec.fuelKg += fuel; rec.distanceNm += dist;
+            byAircraft.set(name, rec);
+
+            totalMin += min; totalLandings += landings; totalFuel += fuel; totalDist += dist;
+            if (!longest || min > longest.min) longest = { min, dep, arr };
+        }
+
+        let busiest = null;
+        routeCount.forEach((n, r) => { if (!busiest || n > busiest.n) busiest = { route: r, n }; });
+
+        const fleet = [...byAircraft.entries()]
+            .map(([name, r]) => ({ name, ...r }))
+            .sort((a, b) => b.minutes - a.minutes);
+
+        this._lifetime = {
+            scanned: flights.length,
+            total: (this._fleet && this._fleet.totalCount) || flights.length,
+            deep: !!(this._fleet && this._fleet.loaded),
+            totalMin, totalLandings, totalFuel, totalDist,
+            uniqueAirports: airports.size,
+            continents: continents.size,
+            longest, busiest, fleet,
+            haveDistance: totalDist > 0,
+        };
+    },
+
+    _fmtNum(n) { return Math.round(n).toLocaleString(); },
+
+    /**
+     * "Lifetime Ledger" — expanded career stats aggregated from the whole
+     * logbook: distance flown (with trips around Earth), estimated fuel burned,
+     * unique airports, continents, longest flight, busiest route, plus a
+     * per-aircraft breakdown (hours / flights / landings / est. fuel / distance).
+     */
+    _getLifetimeStatsHTML() {
+        const L = this._lifetime;
+        if (!L) {
+            if (!this._currentUser?.user_metadata?.if_username) return '';
+            return `
+                <section class="pui-card pui-ledger-card">
+                    <div class="pui-card-eyebrow">Lifetime Ledger</div>
+                    <div class="pui-empty-inline">Crunching your logbook…</div>
+                </section>`;
+        }
+
+        const hrs = L.totalMin / 60;
+        const earthNm = 21639; // circumference in NM
+        const laps = L.totalDist ? (L.totalDist / earthNm) : 0;
+        const fuelT = L.totalFuel / 1000;
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+
+        const tile = (label, value, sub = '') => `
+            <div class="pui-ledger-tile">
+                <span class="pui-ledger-value">${value}</span>
+                <span class="pui-ledger-label">${label}</span>
+                ${sub ? `<span class="pui-ledger-sub">${sub}</span>` : ''}
+            </div>`;
+
+        const tiles = [
+            tile('Distance flown', L.haveDistance ? `${this._fmtNum(L.totalDist)} <em>nm</em>` : '—', L.haveDistance ? `${laps.toFixed(1)}× around Earth` : 'mapping…'),
+            tile('Est. fuel burned', `${this._fmtNum(fuelT)} <em>t</em>`, `${this._fmtNum(L.totalFuel)} kg`),
+            tile('Hours flown', `${this._fmtNum(hrs)} <em>h</em>`, `${this._fmtNum(L.total)} flights`),
+            tile('Total landings', this._fmtNum(L.totalLandings)),
+            tile('Airports visited', this._fmtNum(L.uniqueAirports), `${L.continents} continents`),
+            tile('Longest flight', L.longest ? `${(L.longest.min / 60).toFixed(1)} <em>h</em>` : '—', L.longest && L.longest.dep ? `${esc(L.longest.dep)} → ${esc(L.longest.arr)}` : ''),
+            tile('Busiest route', L.busiest ? esc(L.busiest.route) : '—', L.busiest ? `${L.busiest.n} flights` : ''),
+        ].join('');
+
+        const topFleet = L.fleet.slice(0, 8);
+        const maxMin = topFleet.length ? topFleet[0].minutes : 1;
+        const fleetRows = topFleet.map(a => `
+            <div class="pui-ledger-row">
+                <span class="pui-ledger-ac">${esc(a.name)}</span>
+                <span class="pui-ledger-bar"><span class="pui-ledger-bar-fill" style="width:${Math.max(4, (a.minutes / maxMin) * 100)}%;"></span></span>
+                <span class="pui-ledger-cell">${this._fmtNum(a.minutes / 60)}h</span>
+                <span class="pui-ledger-cell">${this._fmtNum(a.flights)} flt</span>
+                <span class="pui-ledger-cell">${this._fmtNum(a.fuelKg / 1000)}t fuel</span>
+            </div>`).join('');
+
+        const scanNote = (!L.deep || L.scanned < L.total)
+            ? `<div class="pui-ledger-note">Based on your ${this._fmtNum(L.scanned)} most recent flights${L.total > L.scanned ? ` of ${this._fmtNum(L.total)}` : ''}. Estimated fuel is modelled from aircraft type and flight time.</div>`
+            : `<div class="pui-ledger-note">Across all ${this._fmtNum(L.total)} logged flights. Estimated fuel is modelled from aircraft type and flight time.</div>`;
+
+        return `
+            <section class="pui-card pui-ledger-card pui-fade-in">
+                <div class="pui-card-eyebrow">Lifetime Ledger</div>
+                <div class="pui-ledger-grid">${tiles}</div>
+                ${fleetRows ? `<div class="pui-ledger-fleet">
+                    <div class="pui-ledger-fleet-head">Per aircraft · lifetime</div>
+                    ${fleetRows}
+                </div>` : ''}
+                ${scanNote}
+            </section>`;
+    },
+
+    /**
+     * "Your Virtual Airlines" — badge row of the VAs a Pro pilot flies for,
+     * with each VA's logo, banner and their role/hours. Pro-only; free accounts
+     * and pilots not in any VA render nothing.
+     */
+    _getVASectionHTML() {
+        if (!this._isPro) return '';
+        const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
+        if (vas === null && this._ifData && this._currentUser?.user_metadata?.if_username) {
+            // Still loading — reserve the section with a subtle skeleton.
+            return `
+                <section class="pui-card pui-va-card">
+                    <div class="pui-card-eyebrow">Your Virtual Airlines</div>
+                    <div class="pui-va-grid">
+                        <div class="pui-skeleton" style="height:76px;border-radius:14px;"></div>
+                        <div class="pui-skeleton" style="height:76px;border-radius:14px;"></div>
+                    </div>
+                </section>`;
+        }
+        if (!vas || !vas.length) return '';
+
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        const cards = vas.map(v => {
+            const accent = /^#?[0-9a-fA-F]{3,8}$/.test(v.accent || '') ? (v.accent[0] === '#' ? v.accent : '#' + v.accent) : 'var(--pui-accent)';
+            const banner = v.banner ? `background-image:linear-gradient(90deg, rgba(0,0,0,0.6), rgba(0,0,0,0.15)), url('${String(v.banner).replace(/'/g, '&apos;')}');` : `background:linear-gradient(120deg, ${accent}22, transparent);`;
+            const logo = v.logo
+                ? `<span class="pui-va-logo" style="background-image:url('${String(v.logo).replace(/'/g, '&apos;')}');"></span>`
+                : `<span class="pui-va-logo pui-va-logo-fallback" style="border-color:${accent};color:${accent};">${esc((v.code || v.name || '?').slice(0, 2).toUpperCase())}</span>`;
+            const meta = [v.role, v.callsign, v.hours ? `${Math.round(v.hours)}h` : ''].filter(Boolean).map(esc).join(' · ');
+            const href = v.slug ? `/crew/${encodeURIComponent(v.slug)}` : (v.website || '');
+            const open = href ? `data-va-href="${esc(href)}"` : '';
+            return `
+                <button type="button" class="pui-va-badge" ${open} title="${esc(v.name)}" style="--va-accent:${accent};">
+                    <span class="pui-va-banner" style="${banner}"></span>
+                    ${logo}
+                    <span class="pui-va-info">
+                        <span class="pui-va-name">${esc(v.name)}${v.code ? ` <em>${esc(v.code)}</em>` : ''}</span>
+                        ${meta ? `<span class="pui-va-meta">${meta}</span>` : ''}
+                    </span>
+                </button>`;
+        }).join('');
+
+        return `
+            <section class="pui-card pui-va-card">
+                <div class="pui-card-eyebrow">Your Virtual Airlines</div>
+                <div class="pui-va-grid">${cards}</div>
+            </section>`;
+    },
+
+    /** Fetch the VAs this pilot flies for (Pro only). */
+    async _fetchUserVAs() {
+        const ifc = this._currentUser?.user_metadata?.if_username;
+        if (!this._isPro || !ifc) { this._userVAs = []; return; }
+        if (this._userVAsLoaded && Array.isArray(this._userVAs)) return;
+        try {
+            const r = await fetch(`${this._communityBackend}/api/pilot/vas?ifc=${encodeURIComponent(ifc)}`);
+            const j = r.ok ? await r.json() : {};
+            this._userVAs = Array.isArray(j.vas) ? j.vas : [];
+        } catch (_) {
+            this._userVAs = [];
+        }
+        this._userVAsLoaded = true;
+        if (this._isOpen && this._activeTab === 'dashboard') this._renderContentOnly();
+    },
+
+    /** Small inline "Pro only" lock used for individual settings controls. */
+    _proLock(msg) {
+        const ios = typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative();
+        return `
+            <div class="pui-cover-locked">
+                <i class="fa-solid fa-lock"></i>
+                <div>
+                    <strong>Pro feature</strong>
+                    <span>${msg}</span>
+                </div>
+                ${ios ? '' : '<button type="button" class="pui-btn-primary pui-btn-sm" data-action="upgrade-pro"><i class="fa-solid fa-bolt"></i> Upgrade</button>'}
+            </div>`;
+    },
+
+    /** The little crown "Pro" tag appended to gated setting labels. */
+    _proTag() { return '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'; },
+
+    /**
+     * Upsell panel shown to free accounts when they open a Pro-only tab.
+     * Each locked feature gets a short, honest pitch plus the perks a Pro
+     * upgrade unlocks. The upgrade button reuses the existing account-manage
+     * action so it flows into the same Stripe path as the settings screen.
+     */
+    _getProUpsellHTML(tabId) {
+        const pitch = {
+            'fleet':          { icon: 'fa-plane-up',        title: 'Virtual Hangar', blurb: 'Track every airframe on the live map, enriched with its career stats and last leg flown.' },
+            'airspace-intel': { icon: 'fa-tower-broadcast', title: 'Airspace Intel', blurb: 'Live traffic, predictive sector loading and controller coverage across the network.' },
+            'flight-plan':    { icon: 'fa-route',           title: 'Flight Dispatch', blurb: 'File and manage full dispatch-grade flight plans with gates, fuel and countdowns.' },
+            'watchlist':      { icon: 'fa-binoculars',      title: 'Pilot Watchlist', blurb: 'Follow other pilots and get notified the moment they go live.' },
+        }[tabId] || { icon: 'fa-lock', title: 'Pro feature', blurb: 'This tool is part of Inflight Pro.' };
+
+        // App Store policy forbids surfacing the external Stripe upgrade inside
+        // the iOS app, so there we point pilots to the website instead.
+        const ios = typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative();
+
+        return `
+            <div class="pui-upsell pui-fade-in">
+                <div class="pui-upsell-card">
+                    <div class="pui-upsell-badge"><i class="fa-solid fa-crown"></i> Pro</div>
+                    <div class="pui-upsell-icon"><i class="fa-solid ${pitch.icon}"></i></div>
+                    <h2 class="pui-upsell-title">${pitch.title}</h2>
+                    <p class="pui-upsell-blurb">${pitch.blurb}</p>
+                    <ul class="pui-upsell-perks">
+                        <li><i class="fa-solid fa-check"></i> Virtual hangar, dispatch &amp; airspace intel</li>
+                        <li><i class="fa-solid fa-check"></i> Pilot watchlist with live alerts</li>
+                        <li><i class="fa-solid fa-check"></i> Custom &amp; plane profile banners</li>
+                    </ul>
+                    ${ios
+                        ? `<p class="pui-upsell-foot">Upgrade to Pro at <strong>inflight.info</strong> to unlock this. Free accounts keep the dashboard, dossier stats and settings.</p>`
+                        : `<button class="pui-btn-primary pui-btn-block" data-action="upgrade-pro">
+                            <i class="fa-solid fa-bolt"></i> Upgrade to Pro
+                        </button>
+                        <p class="pui-upsell-foot">Free accounts keep the dashboard, dossier stats and settings.</p>`}
+                </div>
+            </div>
+        `;
+    },
+
 _getTabContentHTML() {
+        // Free accounts: flagship tabs render an upsell instead of the feature.
+        if (!this._isPro && this._PRO_ONLY_TABS.includes(this._activeTab)) {
+            return this._getProUpsellHTML(this._activeTab);
+        }
+
         if (this._activeTab === 'onboarding') {
             return `
                 <div class="pui-onboarding-container pui-fade-in">
@@ -2544,9 +3293,10 @@ _getTabContentHTML() {
                 </div>
             `).join('') : '<div class="pui-empty-inline">Insufficient logbook data for fleet analytics.</div>';
 
-            // Base Background for Hero
-            const bgStyle = this._coverUrl 
-                ? `background-image: url('${this._coverUrl.replace(/'/g, "&apos;")}'); background-size: cover; background-position: center;` 
+            // Base Background for Hero — custom banners are Pro-only; free
+            // accounts always fall back to the plain themed gradient.
+            const bgStyle = (this._isPro && this._coverUrl)
+                ? `background-image: url('${this._coverUrl.replace(/'/g, "&apos;")}'); background-size: cover; background-position: center;`
                 : `background: linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);`;
 
             return `
@@ -2652,6 +3402,10 @@ _getTabContentHTML() {
             const name = user?.user_metadata?.full_name || user?.user_metadata?.name || 'Captain';
             const firstName = name.trim().split(/\s+/)[0];
             const ifUsername = user?.user_metadata?.if_username || '';
+
+            // Aggregate the lifetime ledger from whatever logbook depth we have
+            // (upgrades to the full history once the deep fetch lands).
+            this._recomputeLifetime();
 
             const formatter = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: this._timezone });
             const hourString = formatter.format(new Date());
@@ -2790,18 +3544,72 @@ _getTabContentHTML() {
                     </div>`;
             }
 
+            // Most-used aircraft — a bulleted top-list drawn from the logbook,
+            // mirroring the mockup's "Your Most Used Aircraft" card.
+            let mostUsedHTML = '';
+            const _lb = Array.isArray(this._ifData.logbook) ? this._ifData.logbook : [];
+            if (this._ifData.loading && !_lb.length) {
+                mostUsedHTML = `
+                    <div class="pui-skeleton pui-mua-skel"></div>
+                    <div class="pui-skeleton pui-mua-skel"></div>
+                    <div class="pui-skeleton pui-mua-skel"></div>`;
+            } else if (_lb.length) {
+                const useMap = {};
+                _lb.forEach(f => {
+                    const aId = f.aircraftId || f.aircraftID;
+                    const lId = f.liveryId || f.liveryID;
+                    if (aId) {
+                        const nm = this._resolveAircraftName(aId, lId);
+                        useMap[nm] = (useMap[nm] || 0) + 1;
+                    }
+                });
+                const top = Object.entries(useMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+                mostUsedHTML = top.length
+                    ? `<ul class="pui-mua-ul">${top.map(([nm, n]) => `<li><span class="pui-mua-name">${this._fleetEsc(nm)}</span><span class="pui-mua-count">${n}</span></li>`).join('')}</ul>`
+                    : `<div class="pui-mua-empty">No aircraft logged yet.</div>`;
+            } else {
+                mostUsedHTML = `<div class="pui-mua-empty">${ifUsername ? 'No aircraft logged yet.' : 'Link your Infinite Flight account to see your fleet.'}</div>`;
+            }
+
+            // Hero banner. Pro pilots may back it with any aircraft from the
+            // database or their own image; free accounts always get the plain
+            // themed gradient. A left scrim keeps the greeting legible.
+            const heroImg = (this._isPro && this._coverUrl) ? this._coverUrl.replace(/'/g, '&apos;') : '';
+            const heroStyle = heroImg
+                ? `background-image: url('${heroImg}'); background-size: cover; background-position: center right;`
+                : '';
+
             return `
-                <div class="pui-home-header pui-fade-in">
-                    <div>
-                        <h1 class="pui-home-greeting">${greeting}, ${firstName}.</h1>
+                <div class="pui-home-hero pui-fade-in ${heroImg ? 'has-image' : 'is-plain'}" style="${heroStyle}">
+                    <div class="pui-home-hero-inner">
+                        <span class="pui-home-hello">Hello,</span>
+                        <h1 class="pui-home-name">${firstName}</h1>
                         ${statsStrip}
                     </div>
-                    <div class="pui-home-date">${dateStr}</div>
+                    <div class="pui-home-hero-meta">
+                        <span class="pui-home-date">${dateStr}</span>
+                        ${this._isPro ? '' : '<span class="pui-home-freechip"><i class="fa-solid fa-user"></i> Free account</span>'}
+                    </div>
                 </div>
 
                 <div id="pui-live-flights-wrapper" style="display:none;"></div>
 
-                <div class="pui-home-grid pui-fade-in">
+                <div class="pui-home-showcase pui-fade-in">
+                    <section class="pui-showcard pui-showcard-mua">
+                        <h3 class="pui-showcard-title">Your Most Used Aircraft</h3>
+                        ${mostUsedHTML}
+                    </section>
+                    <section class="pui-showcard pui-showcard-map">
+                        <h3 class="pui-showcard-title">Your Flight Map</h3>
+                        <div class="pui-flightmap">${this._getFlightMapHTML()}</div>
+                    </section>
+                </div>
+
+                ${this._getVASectionHTML()}
+
+                ${this._getLifetimeStatsHTML()}
+
+                <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
                     <section class="pui-card pui-home-recent">
                         <div class="pui-card-eyebrow">Recent Flights</div>
                         <div class="pui-flight-list">${recentFlightsHTML}</div>
@@ -2935,7 +3743,8 @@ if (this._activeTab === 'flight-plan') {
                             <div class="pui-card-header"><h3>${this.t('set.personality')}</h3></div>
                             <div class="pui-card-body">
                                 <div class="pui-input-group">
-                                    <label>${this.t('set.bio')}</label>
+                                    <label>${this.t('set.bio')} ${this._isPro ? '' : this._proTag()}</label>
+                                    ${this._isPro ? `
                                     <div class="pui-input-wrapper">
                                         <i class="fa-solid fa-quote-left pui-input-icon"></i>
                                         <input type="text" id="pui-edit-bio" class="pui-input has-icon" maxlength="140"
@@ -2945,30 +3754,58 @@ if (this._activeTab === 'flight-plan') {
                                     <p class="pui-help-text">
                                         <span id="pui-bio-counter">${(this._bio || '').length}</span>/140 — ${this.t('set.bioHelp')}
                                     </p>
+                                    ` : this._proLock('Add a tagline to your dossier with Pro.')}
                                 </div>
                                 <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>${this.t('set.cover')}</label>
-                                    <div class="pui-input-wrapper">
+                                    <label>Profile banner ${this._isPro ? '' : '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'}</label>
+                                    ${this._isPro ? `
+                                    <div class="pui-banner-preview ${this._coverUrl ? '' : 'is-plain'}" id="pui-banner-preview"
+                                         style="${this._coverUrl ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}');` : ''}">
+                                        <span class="pui-banner-preview-empty">Plain banner</span>
+                                    </div>
+                                    <div class="pui-banner-actions">
+                                        <button type="button" class="pui-btn-secondary pui-btn-sm" id="pui-choose-aircraft-btn">
+                                            <i class="fa-solid fa-plane"></i> Choose aircraft
+                                        </button>
+                                        <button type="button" class="pui-btn-ghost pui-btn-sm" id="pui-banner-plain-btn">
+                                            <i class="fa-solid fa-ban"></i> Plain
+                                        </button>
+                                    </div>
+                                    <div class="pui-input-wrapper" style="margin-top:10px;">
                                         <i class="fa-solid fa-image pui-input-icon"></i>
                                         <input type="url" id="pui-edit-cover" class="pui-input has-icon"
                                                value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
-                                               placeholder="${this.t('set.coverPlaceholder')}">
+                                               placeholder="Or paste your own image URL — ${this.t('set.coverPlaceholder')}">
                                     </div>
-                                    <p class="pui-help-text">${this.t('set.coverHelp')}</p>
+                                    <p class="pui-help-text">Pick any aircraft from our database, or paste your own image URL. Shown on your dashboard and dossier.</p>
+                                    ` : `
+                                    <div class="pui-cover-locked">
+                                        <i class="fa-solid fa-lock"></i>
+                                        <div>
+                                            <strong>Custom banners are a Pro perk.</strong>
+                                            <span>Free accounts get the clean plain banner. Upgrade to add a plane photo or your own image.</span>
+                                        </div>
+                                        <button type="button" class="pui-btn-primary pui-btn-sm" data-action="upgrade-pro"><i class="fa-solid fa-bolt"></i> Upgrade</button>
+                                    </div>
+                                    `}
                                 </div>
                             </div>
                         </div>
 
                         <div class="pui-card">
                             <div class="pui-card-header pui-card-header-row">
-                                <h3>${this.t('set.dockOrder')}</h3>
+                                <h3>${this.t('set.dockOrder')} ${this._isPro ? '' : this._proTag()}</h3>
+                                ${this._isPro ? `
                                 <button class="pui-btn-ghost pui-btn-sm" id="pui-dock-reset-btn" type="button">
                                     <i class="fa-solid fa-rotate-left"></i> ${this.t('common.reset')}
                                 </button>
+                                ` : ''}
                             </div>
                             <div class="pui-card-body">
+                                ${this._isPro ? `
                                 <div class="pui-dock-preview">${dockPreviewHTML}</div>
                                 <p class="pui-help-text">${this.t('set.dockOrderHelp')}</p>
+                                ` : this._proLock('Reorder your tabs with Pro.')}
                             </div>
                         </div>
                     </div>
@@ -3008,9 +3845,11 @@ if (this._activeTab === 'flight-plan') {
                                     </div>
                                 </div>
                                 <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>${this.t('set.accent')}</label>
+                                    <label>${this.t('set.accent')} ${this._isPro ? '' : this._proTag()}</label>
+                                    ${this._isPro ? `
                                     <div class="pui-accent-grid" id="pui-accent-grid">${accentSwatchesHTML}</div>
                                     <p class="pui-help-text">${this.t('set.accentHelp')}</p>
+                                    ` : this._proLock('Personalise your accent color with Pro.')}
                                 </div>
                             </div>
                         </div>
@@ -3031,9 +3870,10 @@ if (this._activeTab === 'flight-plan') {
                             </div>
                         </div>
 
-                        <div class="pui-card ios-hide">
+                        <div class="pui-card ios-hide" id="pui-billing-card">
                             <div class="pui-card-header"><h3>${this.t('set.billing')}</h3></div>
                             <div class="pui-card-body">
+                                ${this._isPro ? `
                                 <div class="pui-plan-box">
                                     <div class="pui-plan-header">
                                         <h4>${this._subscription.plan}</h4>
@@ -3051,6 +3891,20 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-ban"></i> Cancel subscription
                                     </button>
                                 </div>
+                                ` : `
+                                <div class="pui-plan-box pui-plan-box-free">
+                                    <div class="pui-plan-header">
+                                        <h4>Free account</h4>
+                                        <span class="pui-status-badge">Free</span>
+                                    </div>
+                                    <p class="pui-plan-renewal">Dashboard, dossier stats and settings are included. Upgrade to Pro to unlock the virtual hangar, dispatch, airspace intel, the pilot watchlist and custom profile banners.</p>
+                                </div>
+                                <div class="pui-billing-actions">
+                                    <button class="pui-btn-primary pui-btn-block" data-action="upgrade-pro">
+                                        <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
+                                    </button>
+                                </div>
+                                `}
                             </div>
                         </div>
 
@@ -3470,6 +4324,9 @@ _showCancellationModal() {
     },
 
 _attachContentListeners() {
+        // Paint the flight-map route overlay once its airport coords resolve.
+        if (this._activeTab === 'dashboard') this._hydrateFlightMap();
+
         // ─── Delegated drill-down handler ─────────────────────────────────
         // Any element with data-drill="<type>" inside the content area opens
         // the corresponding detail modal. payload reads from sibling data-*
@@ -3488,6 +4345,15 @@ const contentRoot = document.getElementById('pui-content');
                         callsign: drillTarget.dataset.callsign,
                     };
                     this._showDrillDown(type, payload);
+                    return;
+                }
+
+                // 1b. Open a Virtual Airline's crew center from its profile badge
+                const vaTarget = e.target.closest('[data-va-href]');
+                if (vaTarget && contentRoot.contains(vaTarget)) {
+                    e.stopPropagation();
+                    const href = vaTarget.dataset.vaHref;
+                    if (href) { const w = window.open(href, '_blank', 'noopener'); if (!w) window.location.assign(href); }
                     return;
                 }
 
@@ -3527,6 +4393,14 @@ const contentRoot = document.getElementById('pui-content');
                     this.close();
                     const rw = window.open(rurl, '_blank', 'noopener');   // same-tab fallback for mobile
                     if (!rw) window.location.assign(rurl);
+                    return;
+                }
+
+                // 4. Upgrade to Pro → start the Stripe checkout for this pilot
+                const upgradeTarget = e.target.closest('[data-action="upgrade-pro"]');
+                if (upgradeTarget && contentRoot.contains(upgradeTarget)) {
+                    e.stopPropagation();
+                    this._startProUpgrade(upgradeTarget);
                     return;
                 }
             });
@@ -3740,6 +4614,33 @@ const contentRoot = document.getElementById('pui-content');
                 if (bioCounter) bioCounter.textContent = String(bioInput.value.length);
             });
 
+            // ─── Profile banner (Pro) — aircraft picker, plain, or own URL.
+            // The chosen URL lands in #pui-edit-cover and is persisted on Save.
+            const coverInput = document.getElementById('pui-edit-cover');
+            const bannerPreview = document.getElementById('pui-banner-preview');
+            const syncBannerPreview = () => {
+                if (!bannerPreview) return;
+                const val = (coverInput?.value || '').trim();
+                if (val) {
+                    bannerPreview.style.backgroundImage = `url('${val.replace(/'/g, '&apos;')}')`;
+                    bannerPreview.classList.remove('is-plain');
+                } else {
+                    bannerPreview.style.backgroundImage = '';
+                    bannerPreview.classList.add('is-plain');
+                }
+            };
+            coverInput?.addEventListener('input', syncBannerPreview);
+            document.getElementById('pui-banner-plain-btn')?.addEventListener('click', () => {
+                if (coverInput) coverInput.value = '';
+                syncBannerPreview();
+            });
+            document.getElementById('pui-choose-aircraft-btn')?.addEventListener('click', () => {
+                this._openAircraftPicker((url) => {
+                    if (coverInput) coverInput.value = url || '';
+                    syncBannerPreview();
+                });
+            });
+
             // ─── Dock order reset ──────────────────────────────────────────
             document.getElementById('pui-dock-reset-btn')?.addEventListener('click', async () => {
                 await this.resetDockOrder();
@@ -3763,8 +4664,10 @@ const contentRoot = document.getElementById('pui-content');
                 const newIfUsername = document.getElementById('pui-edit-if-username')?.value.trim();
                 const newTimezone = document.getElementById('pui-edit-timezone')?.value;
                 const newPassword = document.getElementById('pui-edit-password')?.value;
-                const newBio   = document.getElementById('pui-edit-bio')?.value || '';
-                const newCover = document.getElementById('pui-edit-cover')?.value.trim() || '';
+                const newBio   = this._isPro ? (document.getElementById('pui-edit-bio')?.value || '') : this._bio;
+                // Free accounts have no banner field — preserve any stored cover
+                // so it returns intact if they later upgrade to Pro.
+                const newCover = this._isPro ? (document.getElementById('pui-edit-cover')?.value.trim() || '') : this._coverUrl;
                 const currentTheme = this._theme;
                 const currentDensity = this._density;
 
@@ -4248,6 +5151,13 @@ const contentRoot = document.getElementById('pui-content');
         }
 
         this._refreshFleetTab();
+
+        // The deep logbook also powers the dashboard's flight-map routes and
+        // Lifetime Ledger — refresh those once the full history is in.
+        if (this._isOpen && this._activeTab === 'dashboard') {
+            this._recomputeLifetime();
+            this._renderContentOnly();
+        }
     },
 
     _refreshFleetTab() {
@@ -4733,7 +5643,7 @@ const contentRoot = document.getElementById('pui-content');
         if (document.getElementById('pui-dashboard-styles')) return;
 
         const css = `
-            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Quicksand:wght@500;600;700&display=swap');
 
             /* ═══════════════════════════════════════════════════════════════
                TOKENS — Soft premium, warm neutral foundation
@@ -4802,6 +5712,7 @@ const contentRoot = document.getElementById('pui-content');
 
                 /* Type scale */
                 --pui-font-sans:      'DM Sans', system-ui, -apple-system, sans-serif;
+                --pui-font-round:     'Quicksand', 'DM Sans', system-ui, sans-serif;
                 --pui-font-mono:      'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 
                 /* Motion */
@@ -5673,6 +6584,395 @@ const contentRoot = document.getElementById('pui-content');
                 font-weight: 500;
                 white-space: nowrap;
             }
+
+            /* ─── Redesigned dashboard hero banner ─────────────────────────── */
+            .pui-home-hero {
+                position: relative;
+                border-radius: var(--pui-radius-lg);
+                padding: 30px 32px;
+                margin-bottom: var(--pui-gap-lg);
+                overflow: hidden;
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-end;
+                gap: var(--pui-gap-md);
+                flex-wrap: wrap;
+                min-height: 168px;
+                border: 1px solid var(--pui-border);
+            }
+            .pui-home-hero.is-plain {
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--pui-accent-soft) 0%, rgba(0,0,0,0) 55%),
+                    linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);
+            }
+            /* Pro banner image: a left→right scrim keeps the greeting readable
+               over any aircraft photo while the plane shows through on the right,
+               echoing the mockup. Theme-aware so it works in light and dark. */
+            .pui-home-hero.has-image::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(90deg,
+                    #f5f1ea 0%, rgba(245,241,234,0.86) 34%, rgba(245,241,234,0.35) 62%, rgba(245,241,234,0) 84%);
+            }
+            .pui-wrapper-layer[data-theme="dark"] .pui-home-hero.has-image::before {
+                background: linear-gradient(90deg,
+                    #1a1612 0%, rgba(26,22,18,0.86) 34%, rgba(26,22,18,0.35) 62%, rgba(26,22,18,0) 84%);
+            }
+            .pui-home-hero.has-image { border-color: transparent; }
+            .pui-home-hero-inner { position: relative; z-index: 1; }
+            .pui-home-hello {
+                display: block;
+                font-family: var(--pui-font-round);
+                font-size: 1.15rem;
+                font-weight: 500;
+                letter-spacing: 0;
+                color: var(--pui-text-secondary);
+                margin-bottom: 0;
+            }
+            .pui-home-name {
+                margin: 0 0 12px 0;
+                font-family: var(--pui-font-round);
+                font-size: 3.2rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+                line-height: 1;
+                color: var(--pui-text-primary);
+            }
+            .pui-home-hero-meta {
+                position: relative;
+                z-index: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 8px;
+            }
+            .pui-home-freechip {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 0.66rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                background: var(--pui-hover);
+                color: var(--pui-text-secondary);
+            }
+
+            /* ─── Showcase cards (Most Used Aircraft + Flight Map) ─────────── */
+            .pui-home-showcase {
+                display: grid;
+                grid-template-columns: minmax(230px, 1fr) 1.9fr;
+                gap: var(--pui-gap-md);
+                margin-bottom: var(--pui-gap-md);
+            }
+            .pui-showcard {
+                background: #0b0b0d;
+                border-radius: 28px;
+                padding: 24px 26px;
+                color: #fff;
+                min-height: 220px;
+                display: flex;
+                flex-direction: column;
+                border: 1px solid rgba(255,255,255,0.06);
+            }
+            .pui-showcard-title {
+                font-family: var(--pui-font-round);
+                font-size: 1.35rem;
+                font-weight: 600;
+                margin: 0 0 16px 0;
+                color: #fff;
+                letter-spacing: -0.01em;
+            }
+            .pui-showcard-mua .pui-showcard-title { text-align: center; }
+            .pui-mua-ul {
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .pui-mua-ul li {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-family: var(--pui-font-round);
+                font-size: 1.02rem;
+                font-weight: 500;
+                color: #eef1f5;
+            }
+            .pui-mua-ul li::before {
+                content: '';
+                width: 6px;
+                height: 6px;
+                border-radius: 999px;
+                background: #4a9fe0;
+                flex-shrink: 0;
+            }
+            .pui-mua-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-mua-count {
+                font-family: var(--pui-font-mono);
+                font-size: 0.72rem;
+                font-weight: 700;
+                color: rgba(255,255,255,0.45);
+            }
+            .pui-mua-empty { font-size: 0.86rem; color: rgba(255,255,255,0.5); }
+            .pui-mua-skel { height: 16px; width: 60%; margin-bottom: 12px; border-radius: 6px; }
+            .pui-showcard-map { padding: 24px 26px 18px; }
+            .pui-flightmap { flex: 1; display: flex; align-items: center; justify-content: center; }
+            .pui-flightmap-svg { width: 100%; height: auto; max-height: 260px; display: block; }
+            .pfm-off { fill: #24405a; }
+            .pfm-on  { fill: #4a9fe0; }
+            .pui-fm-line { stroke: #6cc4ff; stroke-width: 0.9; stroke-opacity: 0.55; fill: none; stroke-linecap: round; }
+            .pui-fm-city { fill: #eaf6ff; stroke: #4a9fe0; stroke-width: 0.8; }
+
+            /* ─── Your Virtual Airlines (Pro badges) ───────────────────────── */
+            .pui-va-card { padding: 20px var(--pui-pad-card); margin-bottom: var(--pui-gap-md); }
+            .pui-va-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                gap: 12px;
+                margin-top: 4px;
+            }
+            .pui-va-badge {
+                position: relative;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 14px;
+                border: 1px solid var(--pui-border);
+                border-radius: 14px;
+                background: var(--pui-bg-surface);
+                cursor: pointer;
+                overflow: hidden;
+                text-align: left;
+                transition: border-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-va-badge:hover { border-color: var(--va-accent, var(--pui-accent)); transform: translateY(-2px); }
+            .pui-va-banner {
+                position: absolute; inset: 0;
+                background-size: cover; background-position: center;
+                opacity: 0.16;
+                pointer-events: none;
+            }
+            .pui-va-logo {
+                position: relative;
+                width: 46px; height: 46px;
+                flex-shrink: 0;
+                border-radius: 12px;
+                background-size: cover; background-position: center;
+                background-color: #fff;
+                border: 1px solid var(--pui-border);
+            }
+            .pui-va-logo-fallback {
+                display: grid; place-items: center;
+                background: var(--pui-bg-card);
+                border: 2px solid var(--pui-accent);
+                font-family: var(--pui-font-mono);
+                font-weight: 800; font-size: 0.9rem;
+            }
+            .pui-va-info { position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pui-va-name {
+                font-size: 0.9rem; font-weight: 700; color: var(--pui-text-primary);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pui-va-name em { font-style: normal; font-family: var(--pui-font-mono); font-size: 0.72rem; color: var(--pui-text-secondary); font-weight: 600; }
+            .pui-va-meta { font-size: 0.72rem; color: var(--pui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+            /* ─── Lifetime Ledger (expanded stats) ─────────────────────────── */
+            .pui-ledger-card { padding: 20px var(--pui-pad-card); margin-bottom: var(--pui-gap-md); }
+            .pui-ledger-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                gap: 10px;
+                margin-top: 4px;
+            }
+            .pui-ledger-tile {
+                display: flex; flex-direction: column; gap: 2px;
+                padding: 14px 14px;
+                border: 1px solid var(--pui-border);
+                border-radius: 14px;
+                background: var(--pui-bg-surface);
+            }
+            .pui-ledger-value { font-size: 1.35rem; font-weight: 800; color: var(--pui-text-primary); letter-spacing: -0.02em; }
+            .pui-ledger-value em { font-style: normal; font-size: 0.8rem; font-weight: 600; color: var(--pui-text-secondary); }
+            .pui-ledger-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--pui-text-tertiary); }
+            .pui-ledger-sub { font-size: 0.72rem; color: var(--pui-accent); font-weight: 600; }
+            .pui-ledger-fleet { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+            .pui-ledger-fleet-head { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pui-text-tertiary); margin-bottom: 2px; }
+            .pui-ledger-row { display: grid; grid-template-columns: minmax(90px, 1.4fr) minmax(60px, 1.6fr) auto auto auto; align-items: center; gap: 10px; }
+            .pui-ledger-ac { font-size: 0.82rem; font-weight: 600; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-ledger-bar { height: 7px; border-radius: 999px; background: var(--pui-hover); overflow: hidden; }
+            .pui-ledger-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--pui-accent); }
+            .pui-ledger-cell { font-family: var(--pui-font-mono); font-size: 0.7rem; font-weight: 700; color: var(--pui-text-secondary); white-space: nowrap; text-align: right; }
+            .pui-ledger-note { margin-top: 14px; font-size: 0.72rem; color: var(--pui-text-tertiary); line-height: 1.45; }
+            @media (max-width: 640px) {
+                .pui-ledger-row { grid-template-columns: minmax(80px, 1fr) auto auto; }
+                .pui-ledger-bar, .pui-ledger-row .pui-ledger-cell:last-child { display: none; }
+            }
+
+            /* ─── Dock lock badge (free accounts) ──────────────────────────── */
+            .pui-dock-item-locked { opacity: 0.72; }
+            .pui-dock-lock {
+                position: absolute;
+                top: 4px;
+                right: 6px;
+                font-size: 0.58rem;
+                color: var(--pui-text-tertiary);
+            }
+
+            /* ─── Pro upsell panel ─────────────────────────────────────────── */
+            .pui-upsell { display: grid; place-items: center; padding: 40px 20px; }
+            .pui-upsell-card {
+                position: relative;
+                max-width: 440px;
+                width: 100%;
+                text-align: center;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                padding: 34px 30px 28px;
+                box-shadow: var(--pui-shadow-card);
+            }
+            .pui-upsell-badge {
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 0.64rem;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+            }
+            .pui-upsell-icon {
+                width: 60px;
+                height: 60px;
+                margin: 0 auto 16px;
+                border-radius: 16px;
+                display: grid;
+                place-items: center;
+                font-size: 1.5rem;
+                background: var(--pui-accent-soft);
+                color: var(--pui-accent);
+            }
+            .pui-upsell-title { margin: 0 0 8px; font-size: 1.4rem; font-weight: 800; color: var(--pui-text-primary); letter-spacing: -0.02em; }
+            .pui-upsell-blurb { margin: 0 auto 18px; max-width: 340px; font-size: 0.88rem; line-height: 1.5; color: var(--pui-text-secondary); }
+            .pui-upsell-perks { list-style: none; margin: 0 0 20px; padding: 0; display: inline-flex; flex-direction: column; gap: 8px; text-align: left; }
+            .pui-upsell-perks li { display: flex; align-items: center; gap: 9px; font-size: 0.82rem; color: var(--pui-text-primary); }
+            .pui-upsell-perks li i { color: var(--pui-pos); font-size: 0.75rem; }
+            .pui-upsell-foot { margin: 14px 0 0; font-size: 0.72rem; color: var(--pui-text-tertiary); }
+
+            /* ─── Banner presets + locked notice (settings) ────────────────── */
+            .pui-pro-tag {
+                display: inline-flex; align-items: center; gap: 4px;
+                margin-left: 6px; padding: 2px 7px; border-radius: 999px;
+                font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+                background: var(--pui-accent-soft); color: var(--pui-accent);
+            }
+            .pui-cover-presets { display: flex; flex-wrap: wrap; gap: 10px; }
+            .pui-cover-preset {
+                display: flex; flex-direction: column; align-items: center; gap: 5px;
+                width: 78px; padding: 0; background: none; border: none; cursor: pointer;
+            }
+            .pui-cover-preset-img, .pui-cover-preset-plain {
+                width: 78px; height: 48px; border-radius: 10px;
+                background-size: cover; background-position: center;
+                border: 2px solid var(--pui-border);
+                transition: border-color var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-cover-preset-plain {
+                display: grid; place-items: center;
+                background: var(--pui-hover); color: var(--pui-text-tertiary); font-size: 0.9rem;
+            }
+            .pui-cover-preset.active .pui-cover-preset-img,
+            .pui-cover-preset.active .pui-cover-preset-plain { border-color: var(--pui-accent); }
+            .pui-cover-preset-label { font-size: 0.66rem; color: var(--pui-text-secondary); font-weight: 600; }
+            .pui-cover-locked {
+                display: flex; align-items: center; gap: 14px;
+                padding: 16px; border-radius: 12px;
+                background: var(--pui-hover); border: 1px dashed var(--pui-border-strong);
+            }
+            .pui-cover-locked > i { font-size: 1.2rem; color: var(--pui-text-tertiary); }
+            .pui-cover-locked strong { display: block; font-size: 0.86rem; color: var(--pui-text-primary); }
+            .pui-cover-locked span { display: block; font-size: 0.78rem; color: var(--pui-text-secondary); margin-top: 2px; }
+            .pui-cover-locked .pui-btn-sm { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+            .pui-plan-box-free .pui-plan-renewal { line-height: 1.5; }
+
+            /* ─── Banner preview + aircraft picker (settings) ──────────────── */
+            .pui-banner-preview {
+                height: 96px;
+                border-radius: 12px;
+                background-size: cover;
+                background-position: center;
+                border: 1px solid var(--pui-border);
+                display: grid;
+                place-items: center;
+            }
+            .pui-banner-preview .pui-banner-preview-empty { display: none; color: var(--pui-text-tertiary); font-size: 0.8rem; font-weight: 600; }
+            .pui-banner-preview.is-plain {
+                background-image: none;
+                background:
+                    radial-gradient(120% 140% at 0% 0%, var(--pui-accent-soft) 0%, rgba(0,0,0,0) 60%),
+                    linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);
+            }
+            .pui-banner-preview.is-plain .pui-banner-preview-empty { display: block; }
+            .pui-banner-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+            .pui-acpick-overlay {
+                position: absolute; inset: 0; z-index: 60;
+                background: rgba(0,0,0,0.45);
+                display: grid; place-items: center;
+                padding: 24px;
+                opacity: 0; transition: opacity var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-acpick-overlay.open { opacity: 1; }
+            .pui-acpick {
+                width: min(720px, 100%);
+                max-height: min(80vh, 640px);
+                display: flex; flex-direction: column;
+                background: var(--pui-bg-card);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                box-shadow: var(--pui-shadow-pop, 0 20px 50px rgba(0,0,0,0.3));
+                padding: 18px;
+            }
+            .pui-acpick-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+            .pui-acpick-head h3 { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--pui-text-primary); }
+            .pui-acpick-search-wrap { margin-bottom: 14px; }
+            .pui-acpick-grid {
+                overflow-y: auto;
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 10px;
+                padding-right: 4px;
+            }
+            .pui-acpick-loading { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--pui-text-secondary); font-size: 0.9rem; }
+            .pui-acpick-card {
+                display: flex; flex-direction: column; gap: 0;
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border);
+                border-radius: 12px;
+                overflow: hidden;
+                cursor: pointer;
+                text-align: left;
+                padding: 0;
+                transition: border-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
+            }
+            .pui-acpick-card:hover { border-color: var(--pui-accent); transform: translateY(-2px); }
+            .pui-acpick-img { height: 84px; background-size: cover; background-position: center; background-color: var(--pui-hover); }
+            .pui-acpick-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+            .pui-acpick-type { font-size: 0.82rem; font-weight: 700; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-acpick-livery { font-size: 0.7rem; color: var(--pui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
             .pui-stat-strip {
                 display: flex;
                 align-items: center;
@@ -5696,13 +6996,14 @@ const contentRoot = document.getElementById('pui-content');
                 grid-template-columns: 1fr 320px;
                 gap: var(--pui-gap-md);
             }
-            .pui-home-recent, .pui-home-dispatch {
+            .pui-home-recent, .pui-home-dispatch, .pui-home-replays {
                 padding: 20px var(--pui-pad-card);
                 display: flex;
                 flex-direction: column;
             }
             .pui-wrapper-layer[data-density="compact"] .pui-home-recent,
-            .pui-wrapper-layer[data-density="compact"] .pui-home-dispatch {
+            .pui-wrapper-layer[data-density="compact"] .pui-home-dispatch,
+            .pui-wrapper-layer[data-density="compact"] .pui-home-replays {
                 padding: 14px var(--pui-pad-card);
             }
 
@@ -5838,6 +7139,45 @@ const contentRoot = document.getElementById('pui-content');
                 scrollbar-width: none;
             }
             .pui-live-carousel::-webkit-scrollbar { display: none; }
+
+            /* Collapsible live-flight panel (opt-in, no layout jump on load) */
+            .pui-live-shell {
+                margin-bottom: var(--pui-gap-md);
+                border: 1px solid var(--pui-border);
+                border-radius: var(--pui-radius-lg);
+                background: var(--pui-bg-card);
+                overflow: hidden;
+            }
+            .pui-live-toggle {
+                width: 100%;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 14px 18px;
+                background: none;
+                border: none;
+                cursor: pointer;
+                text-align: left;
+                color: var(--pui-text-primary);
+            }
+            .pui-live-dot {
+                width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0;
+                background: var(--pui-pos);
+                box-shadow: 0 0 0 0 rgba(74,140,90,0.5);
+                animation: pui-live-pulse 1.8s infinite;
+            }
+            @keyframes pui-live-pulse {
+                0% { box-shadow: 0 0 0 0 rgba(74,140,90,0.45); }
+                70% { box-shadow: 0 0 0 7px rgba(74,140,90,0); }
+                100% { box-shadow: 0 0 0 0 rgba(74,140,90,0); }
+            }
+            .pui-live-toggle-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+            .pui-live-toggle-title { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pui-pos); }
+            .pui-live-toggle-sub { font-size: 0.86rem; font-weight: 600; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-live-toggle-chev { color: var(--pui-text-tertiary); font-size: 0.8rem; transition: transform var(--pui-d-fast) var(--pui-ease); }
+            .pui-live-toggle.open .pui-live-toggle-chev { color: var(--pui-text-secondary); }
+            .pui-live-body { padding: 0 12px 12px; }
+            .pui-live-skel { padding: 4px 0; }
 
             .pui-live-card {
                 position: relative;
@@ -7420,6 +8760,11 @@ const contentRoot = document.getElementById('pui-content');
                 .pui-intel-stats-quad { grid-template-columns: repeat(2, 1fr); }
                 .pui-intel-stats-tri { grid-template-columns: 1fr; }
                 .pui-home-greeting { font-size: 1.4rem; }
+                .pui-home-hero { padding: 22px 20px; min-height: 120px; }
+                .pui-home-name { font-size: 2.3rem; }
+                .pui-home-hero-meta { align-items: flex-start; }
+                .pui-home-showcase { grid-template-columns: 1fr; }
+                .pui-showcard { min-height: 0; border-radius: 22px; }
                 .pui-ticket {
                     flex-direction: column;
                 }

@@ -118,35 +118,41 @@ export const AuthUI = {
         const { data } = await this._supabase.auth.getSession();
         
         if (data?.session?.user && mode !== 'update_password') {
-            
-            // Premium Access Gate: Verify subscription status from the database
+
+            // Entitlement check: read the Pro flag so we can hand it to the app.
+            // Free accounts (is_pro === false) are welcome — they enter the app
+            // with the flagship Pro tools locked and a plain profile banner,
+            // rather than being pushed into a paywall. Anything we can't resolve
+            // is treated optimistically as Pro so a transient error never locks a
+            // paying pilot out.
             const { data: profile, error: profileError } = await this._supabase
                 .from('profiles')
                 .select('is_pro')
                 .eq('id', data.session.user.id)
                 .single();
 
-            if (profile && profile.is_pro === false && !(typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative())) {
-                // Subscription is inactive, force them to the premium renewal flow.
-                // Skipped on iOS native: App Store policy forbids surfacing the
-                // external Stripe renewal flow inside the app. Free users
-                // simply enter the app with Pro features locked.
-                this._mode = 'renew';
-                this._tempSignUpData = {
-                    email: data.session.user.email,
-                    is_renew: true
-                };
-            } else {
-                // Active Pro User -> Launch App
-                import('./profileUI.js').then(module => {
-                    if (!module.ProfileUI._supabase) {
-                        module.ProfileUI.init(this._supabase);
-                    }
-                    module.ProfileUI.open(data.session.user);
-                }).catch(err => console.error("Failed to load ProfileUI:", err));
-                
-                return; 
-            }
+            // Resolve entitlement (reliable): a signed-in account is Pro UNLESS
+            // it's explicitly a free account. `profiles.is_pro` is only trusted
+            // as an explicit `true` — it often stays null/false even for paying
+            // pilots — and a free account is the one we stamped
+            // `user_metadata.is_pro === false` at free sign-up. Anything else
+            // signed in is a legacy/paid Pro account, so it stays unlocked.
+            const metaFree = data.session.user.user_metadata?.is_pro === false;
+            const isPro = (profile && profile.is_pro === true) ? true : !metaFree;
+
+            // Launch the app for everyone, Pro and free alike. ProfileUI gates
+            // the Pro-only features from the isPro flag we pass through here.
+            const appUser = data.session.user;
+            appUser.isPro = isPro;
+
+            import('./profileUI.js').then(module => {
+                if (!module.ProfileUI._supabase) {
+                    module.ProfileUI.init(this._supabase);
+                }
+                module.ProfileUI.open(appUser);
+            }).catch(err => console.error("Failed to load ProfileUI:", err));
+
+            return;
         } else {
             this._mode = mode;
             this._tempSignUpData = null; 
@@ -213,16 +219,17 @@ export const AuthUI = {
         if (isChoose) {
             html += `
                     <h3 class="auth-choose-title">Welcome aboard</h3>
-                    <p class="auth-choose-copy">Sign in to your account, or create a new one.</p>
+                    <p class="auth-choose-copy">Track live flights, build your logbook and make your profile — free.</p>
                 </div>
                 <div class="auth-form-body auth-choose-body">
-                    <button class="auth-submit-btn auth-choose-primary" id="auth-choose-login">
-                        <i class="fa-solid fa-right-to-bracket"></i>
-                        <span>Log In</span>
-                    </button>
-                    <button class="auth-choose-secondary" id="auth-choose-signup">
+                    <button class="auth-submit-btn auth-choose-primary" id="auth-choose-signup">
                         <i class="fa-solid fa-user-plus"></i>
-                        <span>Create Account</span>
+                        <span>Create a free account</span>
+                    </button>
+                    <p class="auth-choose-freeline"><i class="fa-solid fa-circle-check"></i> Free to start — no card needed</p>
+                    <button class="auth-choose-secondary" id="auth-choose-login">
+                        <i class="fa-solid fa-right-to-bracket"></i>
+                        <span>I already have an account</span>
                     </button>
                 </div>
             `;
@@ -436,7 +443,30 @@ export const AuthUI = {
                 <div id="auth-success-message" class="auth-success" style="display: none;"></div>
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
 
-                <button class="auth-submit-btn ${isSignUp ? 'auth-submit-pro' : ''}" id="auth-submit-btn">${isSignIn ? 'Sign In' : 'Continue'}</button>
+            `;
+
+            if (isSignUp) {
+                // Lead with the free account; Pro is the optional upgrade below.
+                html += `
+                    <button class="auth-submit-btn" id="auth-free-signup-btn">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Create my free account</span>
+                    </button>
+                    <p class="auth-choose-freeline"><i class="fa-solid fa-circle-check"></i> Free to start — no card needed</p>
+                    <div class="auth-or-divider"><span>or</span></div>
+                    <button class="auth-choose-secondary auth-submit-pro" id="auth-submit-btn">
+                        <i class="fa-solid fa-bolt"></i>
+                        <span>Go Pro — $1.99/mo</span>
+                    </button>
+                    <p class="auth-free-note">Pro adds the virtual hangar, dispatch, airspace intel, the pilot watchlist and custom profile banners. Upgrade any time.</p>
+                `;
+            } else {
+                html += `
+                    <button class="auth-submit-btn" id="auth-submit-btn">Sign In</button>
+                `;
+            }
+
+            html += `
                 <button class="auth-back-btn" id="auth-back-to-choose">Back</button>
             `;
         }
@@ -450,12 +480,89 @@ export const AuthUI = {
         }
     },
 
+    /**
+     * Create a free account and drop the pilot straight into the app — no
+     * email-confirmation detour. The privileged create runs in the
+     * signup-free Netlify function (service role, email pre-confirmed); we
+     * then sign in normally. If that function isn't configured/reachable we
+     * fall back to a direct Supabase sign-up so nothing breaks.
+     */
+    async _createFreeAccount(email, password, name) {
+        const enterApp = () => { this.close(); this.open(); };
+        const base = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
+
+        // 1. Preferred path: server-side confirmed signup, then sign straight in.
+        //    Only a missing/unreachable function (501/404/network) falls through
+        //    to the fallback — a reachable-but-failing function surfaces its
+        //    error so problems are visible instead of silently downgrading.
+        try {
+            const res = await fetch(`${base}/.netlify/functions/signup-free`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, name }),
+            });
+
+            if (res.ok) {
+                const { error } = await this._supabase.auth.signInWithPassword({ email, password });
+                if (error) { this.showError(error.message); return; }
+                enterApp();
+                return;
+            }
+
+            const payload = await res.json().catch(() => ({}));
+            console.warn('[AuthUI] signup-free returned', res.status, payload);
+
+            if (res.status === 409) { this.showError(payload.error || 'That email already has an account. Please sign in instead.'); return; }
+            if (res.status === 400) { this.showError(payload.error || 'Please check your details and try again.'); return; }
+            // 501 (service key not configured / not yet redeployed) and 404
+            // (function not deployed) drop to the fallback below. Any other
+            // status is a real server error worth showing.
+            if (res.status !== 501 && res.status !== 404) {
+                this.showError(payload.error || 'Could not create your account. Please try again.');
+                return;
+            }
+        } catch (err) {
+            console.warn('[AuthUI] signup-free unreachable, using fallback:', err?.message);
+        }
+
+        // 2. Fallback: direct Supabase sign-up. Instant when the project's
+        //    "Confirm email" setting is off; otherwise it asks them to confirm.
+        try {
+            const { data, error } = await this._supabase.auth.signUp({
+                email,
+                password,
+                options: { data: { full_name: name, name, is_pro: false } },
+            });
+            if (error) { this.showError(error.message); return; }
+
+            if (!data.session) {
+                // No session means the project still enforces email confirmation
+                // and the instant server path didn't run. Try an immediate
+                // sign-in in case confirmation is actually off for this project
+                // (some setups return no session from signUp but allow login).
+                const { data: signInData, error: signInErr } =
+                    await this._supabase.auth.signInWithPassword({ email, password });
+                if (!signInErr && signInData?.session) { enterApp(); return; }
+
+                const successDiv = document.getElementById('auth-success-message');
+                if (successDiv) {
+                    successDiv.innerHTML = `<i class="fa-solid fa-circle-info" style="margin-bottom:8px;font-size:1.5rem;color:#2563eb;display:block;"></i>Account created, but instant sign-in isn't enabled yet. An admin needs to set the free-signup key, or turn off email confirmation in the auth settings.`;
+                    successDiv.style.display = 'block';
+                }
+                return;
+            }
+            enterApp();
+        } catch (err) {
+            this.showError(err.message || 'Could not create your account. Please try again.');
+        }
+    },
+
     showError(message) {
         const errorDiv = document.getElementById('auth-error-message');
         if (errorDiv) {
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
-            
+
             const successDiv = document.getElementById('auth-success-message');
             if (successDiv) successDiv.style.display = 'none';
         }
@@ -645,6 +752,30 @@ export const AuthUI = {
                 this.close();
                 this.open();
             }
+        });
+
+        // Free account — create the account directly, no payment. The pilot
+        // enters the app on the free tier (Pro features locked) and can upgrade
+        // from Settings whenever they like.
+        document.getElementById('auth-free-signup-btn')?.addEventListener('click', async () => {
+            this.hideError();
+            const email    = document.getElementById('auth-email')?.value;
+            const password = document.getElementById('auth-password')?.value;
+            const name     = document.getElementById('auth-name')?.value || '';
+            const termsCheckbox = document.getElementById('auth-terms');
+
+            if (!email || !password) {
+                this.showError("Please enter both email and password.");
+                return;
+            }
+            if (termsCheckbox && !termsCheckbox.checked) {
+                this.showError("Please agree to the Terms of Use and Privacy Policy.");
+                return;
+            }
+
+            this.setLoading('auth-free-signup-btn', true, 'Start with a free account');
+            await this._createFreeAccount(email, password, name);
+            this.setLoading('auth-free-signup-btn', false, 'Start with a free account');
         });
 
         document.getElementById('auth-forgot-password')?.addEventListener('click', (e) => {
@@ -1222,6 +1353,43 @@ export const AuthUI = {
                 box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.08);
                 transform: translateY(-1px);
             }
+
+            .auth-or-divider {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin: 16px 0;
+                color: #94a3b8;
+                font-size: 0.78rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+            }
+            .auth-or-divider::before,
+            .auth-or-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: #e2e8f0;
+            }
+            .auth-free-note {
+                margin: 12px 2px 0;
+                font-size: 0.78rem;
+                line-height: 1.45;
+                color: #64748b;
+                text-align: center;
+            }
+            .auth-choose-freeline {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                margin: 10px 0 2px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: #16a34a;
+            }
+            .auth-choose-freeline i { font-size: 0.85rem; }
 
             .auth-choose-ext {
                 font-size: 0.75rem;
