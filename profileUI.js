@@ -140,6 +140,9 @@ export const ProfileUI = {
         error: null
     },
     _backendUrl: window.APP_CONFIG?.backendUrl || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
+    // Community/database API (aircraft catalog, airport coords, pilot VAs) —
+    // a different service than the ACARS flight feed above.
+    _communityBackend: window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run',
 
     // ── Fleet (virtual hangar) ───────────────────────────────────────────────
     // The fleet lists only aircraft currently on the live map. A deep slice of
@@ -1421,7 +1424,7 @@ if (type === 'flights') {
     async _fetchAircraftCatalog() {
         if (Array.isArray(this._aircraftCatalog)) return this._aircraftCatalog;
         if (this._aircraftCatalogPromise) return this._aircraftCatalogPromise;
-        this._aircraftCatalogPromise = fetch(`${this._backendUrl}/api/aircraft`)
+        this._aircraftCatalogPromise = fetch(`${this._communityBackend}/api/aircraft`)
             .then(r => (r.ok ? r.json() : []))
             .then(list => {
                 const seen = new Set();
@@ -2666,7 +2669,7 @@ _generateAirspaceHTML() {
         if (!need.length) return;
 
         try {
-            const r = await fetch(`${this._backendUrl}/api/airports/coords`, {
+            const r = await fetch(`${this._communityBackend}/api/airports/coords`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ icaos: need }),
@@ -2686,7 +2689,7 @@ _generateAirspaceHTML() {
         await Promise.all(need.slice(0, 400).map(async (icao) => {
             if (this._airportCoords[icao] !== undefined) return;
             try {
-                const r = await fetch(`${this._backendUrl}/api/airport/${encodeURIComponent(icao)}`);
+                const r = await fetch(`${this._communityBackend}/api/airport/${encodeURIComponent(icao)}`);
                 const j = r.ok ? await r.json() : null;
                 this._airportCoords[icao] = (j && typeof j.latitude === 'number' && typeof j.longitude === 'number')
                     ? [j.latitude, j.longitude] : null;
@@ -3015,7 +3018,7 @@ _generateAirspaceHTML() {
         if (!this._isPro || !ifc) { this._userVAs = []; return; }
         if (this._userVAsLoaded && Array.isArray(this._userVAs)) return;
         try {
-            const r = await fetch(`${this._backendUrl}/api/pilot/vas?ifc=${encodeURIComponent(ifc)}`);
+            const r = await fetch(`${this._communityBackend}/api/pilot/vas?ifc=${encodeURIComponent(ifc)}`);
             const j = r.ok ? await r.json() : {};
             this._userVAs = Array.isArray(j.vas) ? j.vas : [];
         } catch (_) {
