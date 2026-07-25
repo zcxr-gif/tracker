@@ -1747,7 +1747,8 @@ init(supabaseClient) {
         const backend = this._communityBackend
             || window.APP_CONFIG?.communityBackendUrl
             || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-        this._vaBannerCatalogPromise = fetch(`${backend}/api/va-ads?limit=200&status=approved`)
+        // limit is capped at 100 server-side; asking for more just gets 100.
+        this._vaBannerCatalogPromise = fetch(`${backend}/api/va-ads?limit=100&status=approved`)
             .then(r => (r.ok ? r.json() : []))
             .then(payload => {
                 const arr = Array.isArray(payload) ? payload
@@ -1799,10 +1800,8 @@ init(supabaseClient) {
             grid.innerHTML = items.slice(0, 300).map((v, i) => `
                 <button type="button" class="mdui-acpick-card" data-idx="${i}">
                     <span class="mdui-acpick-img" style="background-image:url('${String(v.banner).replace(/'/g, '&apos;')}')"></span>
-                    <span class="mdui-acpick-meta">
-                        <span class="mdui-acpick-type">${esc(v.name)}</span>
-                        <span class="mdui-acpick-livery">${esc(v.tagline || 'Partner VA')}</span>
-                    </span>
+                    <span class="mdui-acpick-type">${esc(v.name)}</span>
+                    <span class="mdui-acpick-livery">${esc(v.tagline || 'Partner VA')}</span>
                 </button>`).join('');
             grid.querySelectorAll('.mdui-acpick-card').forEach(card => {
                 card.addEventListener('click', () => {
@@ -5018,7 +5017,17 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 border: 0.5px solid var(--mdui-border-light);
                 background: var(--mdui-surface); color: var(--mdui-text); font-size: 15px;
             }
-            .mdui-acpick-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            /* grid-auto-rows/align-content are load-bearing, not tidiness: with
+               plain `auto` rows the cards (which are <button>s, and WebKit sizes
+               those badly as grid items) collapsed to thin strips — the 96px
+               image shrank away and the labels were clipped by overflow:hidden.
+               max-content rows size to the card, and start stops the grid
+               redistributing height across them. */
+            .mdui-acpick-grid {
+                flex: 1; overflow-y: auto; display: grid;
+                grid-template-columns: repeat(2, 1fr); gap: 10px;
+                grid-auto-rows: max-content; align-content: start;
+            }
             .mdui-acpick-loading { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--mdui-muted); font-size: 14px; }
             .mdui-acpick-card {
                 display: flex; flex-direction: column; gap: 3px; padding: 0 0 8px;
@@ -5026,7 +5035,14 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 border-radius: 14px; overflow: hidden; text-align: left; color: var(--mdui-text);
             }
             .mdui-acpick-card:active { transform: scale(0.97); }
-            .mdui-acpick-img { height: 96px; background-size: cover; background-position: center; background-color: var(--mdui-border-light); margin-bottom: 6px; }
+            /* flex-shrink:0 is the other half of the fix above — as a flex item
+               the image defaults to shrinkable, so anything that squeezes the
+               card squeezes the picture to nothing rather than overflowing. */
+            .mdui-acpick-img {
+                flex: 0 0 96px; height: 96px; min-height: 96px; width: 100%;
+                background-size: cover; background-position: center;
+                background-color: var(--mdui-border-light); margin-bottom: 6px;
+            }
             .mdui-acpick-type { font-size: 14px; font-weight: 700; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .mdui-acpick-livery { font-size: 11.5px; color: var(--mdui-muted); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

@@ -1491,7 +1491,8 @@ if (type === 'flights') {
             })).filter(v => v.id && v.banner && !seen.has(v.id) && seen.add(v.id));
         };
 
-        this._vaBannerCatalogPromise = fetch(`${this._communityBackend}/api/va-ads?limit=200&status=approved`)
+        // limit is capped at 100 server-side; asking for more just gets 100.
+        this._vaBannerCatalogPromise = fetch(`${this._communityBackend}/api/va-ads?limit=100&status=approved`)
             .then(r => (r.ok ? r.json() : []))
             .then(payload => {
                 const list = pick(payload).sort((a, b) => a.name.localeCompare(b.name));
@@ -7193,6 +7194,8 @@ const contentRoot = document.getElementById('pui-content');
                 overflow-y: auto;
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                grid-auto-rows: max-content;
+                align-content: start;
                 gap: 10px;
                 padding-right: 4px;
             }
@@ -7209,7 +7212,10 @@ const contentRoot = document.getElementById('pui-content');
                 transition: border-color var(--pui-d-fast) var(--pui-ease), transform var(--pui-d-fast) var(--pui-ease);
             }
             .pui-acpick-card:hover { border-color: var(--pui-accent); transform: translateY(-2px); }
-            .pui-acpick-img { height: 84px; background-size: cover; background-position: center; background-color: var(--pui-hover); }
+            /* flex-shrink:0 — the card is a column flex container, so without it
+               anything that squeezes the card collapses the picture instead of
+               overflowing. (Same failure the mobile picker hit.) */
+            .pui-acpick-img { flex: 0 0 84px; height: 84px; min-height: 84px; background-size: cover; background-position: center; background-color: var(--pui-hover); }
             .pui-acpick-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
             .pui-acpick-type { font-size: 0.82rem; font-weight: 700; color: var(--pui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pui-acpick-livery { font-size: 0.7rem; color: var(--pui-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
