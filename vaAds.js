@@ -365,6 +365,13 @@
                 : []);
         return {
             id: ad.id || ad._id || '',
+            // The VA's crew center address (/crew/<slug>). Present on approved
+            // ads that have one configured; null otherwise, and we never guess
+            // one from the callsign — a VA with a custom slug would 404.
+            slug: (() => {
+                const s = String(ad.slug || '').trim().toLowerCase();
+                return /^[a-z0-9][a-z0-9._-]{0,80}$/.test(s) ? s : null;
+            })(),
             callsign: String(ad.callsign || ad.callsignCode || ad.code || '').trim().toUpperCase(),
             name: ad.name || ad.vaName || ad.title || 'Unknown VA',
             tagline: ad.tagline || ad.slogan || '',
@@ -949,6 +956,22 @@
             }
             .va-ad-btn:hover { background: rgba(56,189,248,0.25); }
             /* Yellow "Apply now" — the attention CTA that jumps to the VA's site. */
+            /* Crew Center: the sign-in door for pilots already in the VA. Styled
+               as a secondary action so it reads as distinct from "Apply now",
+               which is aimed at people who aren't members yet. */
+            .va-ad-crew {
+                display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+                padding: 9px 16px; border-radius: 10px; font-weight: 800; font-size: 0.82rem;
+                background: rgba(56,189,248,0.12); color: #7dd3fc;
+                border: 1px solid rgba(56,189,248,0.42);
+                transition: background .15s ease, border-color .15s ease, transform .12s ease;
+            }
+            .va-ad-crew:hover { background: rgba(56,189,248,0.2); border-color: rgba(56,189,248,0.7); }
+            .va-ad-crew:active { transform: scale(0.98); }
+            .va-ad-crew.sm { padding: 6px 11px; font-size: 0.76rem; border-radius: 8px; }
+            .va-ad-card-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+            .va-ad-card-actions .va-ad-apply.sm { margin-top: 0; }
+
             .va-ad-apply {
                 display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
                 padding: 9px 16px; border-radius: 10px; font-weight: 800; font-size: 0.82rem;
@@ -1703,7 +1726,10 @@
                         ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
                         ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
                         ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
-                        ${ad.website ? `<a class="va-ad-apply sm" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
+                        <div class="va-ad-card-actions">
+                            ${crewButtonHTML(ad, 'va-ad-crew sm')}
+                            ${ad.website ? `<a class="va-ad-apply sm" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -1773,8 +1799,42 @@
         });
     }
 
+    /**
+     * "Crew Center" CTA — the sign-in door for a VA's own portal.
+     *
+     * Only rendered when the VA actually has a crew center configured; we never
+     * synthesise a slug from the callsign, because a VA with a custom slug would
+     * get a dead link. No account with us is required to use it.
+     */
+    function crewButtonHTML(ad, cls) {
+        if (!ad || !ad.slug) return '';
+        return `<a class="${cls}" data-va-link="crew" data-va-crew="${esc(ad.slug)}"
+                   data-va-ad-id="${esc(ad.id)}" href="/crew/${encodeURIComponent(ad.slug)}"
+                   rel="noopener"><i class="fa-solid fa-right-to-bracket"></i> Crew Center</a>`;
+    }
+
+    // Inside the app the crew center opens as an overlay over the map; on the
+    // landing/embed surfaces (where the overlay module isn't loaded) the anchor's
+    // own href takes over, so the link works either way.
+    function bindCrewButtons(root) {
+        root.querySelectorAll('[data-va-crew]').forEach((el) => {
+            if (el.dataset.crewWired) return;
+            el.dataset.crewWired = '1';
+            el.addEventListener('click', (e) => {
+                e.stopPropagation(); // don't also open the detail panel
+                const slug = el.getAttribute('data-va-crew');
+                const overlay = window.CrewCenterOverlay;
+                if (slug && overlay && typeof overlay.open === 'function' && overlay.open(slug)) {
+                    e.preventDefault();
+                    track(el.getAttribute('data-va-ad-id'), 'click');
+                }
+            });
+        });
+    }
+
     function bindCards(body) {
         bindFavButtons(body);
+        bindCrewButtons(body);
         body.querySelectorAll('.va-ad-card[data-va-ad-id]').forEach((el) => {
             // The card is listed in the panel — an impression for that partner.
             track(el.getAttribute('data-va-ad-id'), 'impression');
@@ -2116,6 +2176,10 @@
             // data-va-link tags each CTA so the delegated handler below can tell
             // the statistics which destination a visitor actually chose.
             const actions = [];
+            // Crew Center leads: for a pilot already in the VA it's the thing
+            // they came for, and it needs no account with us.
+            const crewCta = crewButtonHTML(ad, 'va-ad-crew');
+            if (crewCta) actions.push(crewCta);
             if (ad.website) actions.push(`<a class="va-ad-apply" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>`);
             if (ad.website) actions.push(`<a class="va-ad-btn" data-va-link="website" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
             if (ad.discord) actions.push(`<a class="va-ad-btn" data-va-link="discord" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
@@ -2192,6 +2256,10 @@
 
             const back = body.querySelector('.va-ad-back');
             if (back) back.addEventListener('click', () => loadPartnersList(''));
+
+            // Crew Center CTA in the detail panel gets the same in-app overlay
+            // treatment as the list cards.
+            bindCrewButtons(body);
 
             // Wire fleet cards → open that flight on the map.
             body.querySelectorAll('[data-va-fleet-idx]').forEach((el) => {
