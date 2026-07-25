@@ -166,6 +166,68 @@
         return res.json();
     }
 
+    // ---------------------------------------------------------------------
+    // Statistics beacons
+    //
+    // Every VA in the directory gets a daily scorecard — how many people saw it
+    // on the tracker, how many opened it, and which links they followed. That
+    // only works if this side reports what actually happened, so each surface
+    // below fires a small typed event.
+    //
+    // Rules that keep it honest and cheap:
+    //   • Events are QUEUED and flushed in one batched request (or a sendBeacon
+    //     when the page is going away), never one request per click.
+    //   • "Was seen" events (impression / open / profile) are deduped per VA for
+    //     the life of the page, so a card rotating back into view — or a panel
+    //     reopened five times — doesn't inflate the numbers. Clicks are never
+    //     deduped: each one is a real, separate action.
+    //   • Everything fails silently. A blocked or offline stats endpoint must
+    //     never affect what the user sees.
+    // ---------------------------------------------------------------------
+
+    const STATS_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/va-stats/track';
+    const STATS_FLUSH_MS = 4000;
+    const ONCE_PER_SESSION = new Set(['impression', 'open', 'profile', 'roster']);
+
+    let statsQueue = [];
+    let statsTimer = null;
+    const statsSeen = new Set();
+
+    function flushStats(useBeacon) {
+        if (statsTimer) { clearTimeout(statsTimer); statsTimer = null; }
+        if (!statsQueue.length) return;
+        const payload = JSON.stringify({ events: statsQueue.splice(0, statsQueue.length) });
+        try {
+            if (useBeacon && navigator.sendBeacon) {
+                // A Blob with a JSON type keeps the request parseable by the same
+                // express.json() handler the fetch path uses.
+                navigator.sendBeacon(STATS_URL, new Blob([payload], { type: 'application/json' }));
+                return;
+            }
+            fetch(STATS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+                keepalive: true,
+            }).catch(() => {});
+        } catch (e) { /* stats are never worth surfacing */ }
+    }
+
+    // Queue one event. `immediate` skips the batching delay for actions a user
+    // might navigate away from right after (outbound link clicks).
+    function track(vaId, type, immediate) {
+        const id = String(vaId || '').trim();
+        if (!id || !type) return;
+        if (ONCE_PER_SESSION.has(type)) {
+            const key = type + ':' + id;
+            if (statsSeen.has(key)) return;
+            statsSeen.add(key);
+        }
+        statsQueue.push({ vaId: id, type: type });
+        if (statsQueue.length >= 20 || immediate) { flushStats(false); return; }
+        if (!statsTimer) statsTimer = setTimeout(() => flushStats(false), STATS_FLUSH_MS);
+    }
+
     function buildQuery(params) {
         const q = new URLSearchParams();
         Object.keys(params || {}).forEach((k) => {
@@ -1149,7 +1211,7 @@
                     <div class="va-ad-name">${esc(ad.name)}</div>
                     ${ad.tagline ? `<div class="va-ad-tag">${esc(ad.tagline)}</div>` : ''}
                     ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
-                    ${ad.website ? `<a class="va-ad-apply sm" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
+                    ${ad.website ? `<a class="va-ad-apply sm" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
                 </div>
                 <i class="fa-solid fa-chevron-right" style="color:rgba(255,255,255,0.4); align-self:center;"></i>
             </div>`;
@@ -1179,6 +1241,9 @@
         const render = () => {
             const ad = ads[idx];
             featureEl.setAttribute('data-va-ad-id', ad.id);
+            // The card is on screen now — that's an impression for this partner.
+            // Rotating back to it later won't count twice (deduped per session).
+            track(ad.id, 'impression');
             cardEl.innerHTML = featureCardInner(ad);
             if (dotsEl) {
                 dotsEl.innerHTML = ads
@@ -1190,6 +1255,7 @@
 
         featureEl.addEventListener('click', (e) => {
             if (e.target.closest('.va-ad-apply')) return; // CTA navigates to the VA site
+            track(featureEl.getAttribute('data-va-ad-id'), 'click');
             openPartners(featureEl.getAttribute('data-va-ad-id'));
         });
 
@@ -1238,6 +1304,7 @@
             const ad = withBanner[idx];
             fullEl.setAttribute('data-va-ad-id', ad.id);
             fullEl.setAttribute('title', `View ${ad.name}`);
+            track(ad.id, 'impression');
             imgEl.src = ad.banner;
             imgEl.alt = `${ad.name} banner`;
             if (dotsEl) {
@@ -1255,7 +1322,10 @@
             slot.style.display = 'none';
         });
 
-        fullEl.addEventListener('click', () => openPartners(fullEl.getAttribute('data-va-ad-id')));
+        fullEl.addEventListener('click', () => {
+            track(fullEl.getAttribute('data-va-ad-id'), 'click');
+            openPartners(fullEl.getAttribute('data-va-ad-id'));
+        });
 
         if (withBanner.length > 1) {
             slot._adRotateTimer = setInterval(() => {
@@ -1422,16 +1492,19 @@
                         ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
                         ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
                         ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
-                        ${ad.website ? `<a class="va-ad-apply sm" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
+                        ${ad.website ? `<a class="va-ad-apply sm" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
                     </div>
                 </div>
             </div>`;
     }
 
     function bindCards(body) {
-        body.querySelectorAll('[data-va-ad-id]').forEach((el) => {
+        body.querySelectorAll('.va-ad-card[data-va-ad-id]').forEach((el) => {
+            // The card is listed in the panel — an impression for that partner.
+            track(el.getAttribute('data-va-ad-id'), 'impression');
             el.addEventListener('click', (e) => {
                 if (e.target.closest('.va-ad-apply')) return; // the CTA navigates, not the card
+                track(el.getAttribute('data-va-ad-id'), 'click');
                 showDetail(el.getAttribute('data-va-ad-id'));
             });
         });
@@ -1736,6 +1809,7 @@
 
     async function showDetail(id) {
         const body = overlayEl.querySelector('.va-partners-body');
+        track(id, 'profile');
         body.innerHTML = `<div class="va-partners-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>`;
         try {
             // Pull the ad, its scheduled events and its pilot roster together;
@@ -1752,10 +1826,12 @@
             if (ad.featured) pills.push('<span class="va-ad-pill va-ad-pill-featured">Featured</span>');
             if (ad.recruiting) pills.push('<span class="va-ad-pill">Recruiting</span>');
             const chips = (ad.tags || []).map((tg) => `<span class="va-ad-chip">${esc(tg)}</span>`).join('');
+            // data-va-link tags each CTA so the delegated handler below can tell
+            // the statistics which destination a visitor actually chose.
             const actions = [];
-            if (ad.website) actions.push(`<a class="va-ad-apply" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>`);
-            if (ad.website) actions.push(`<a class="va-ad-btn" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
-            if (ad.discord) actions.push(`<a class="va-ad-btn" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
+            if (ad.website) actions.push(`<a class="va-ad-apply" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>`);
+            if (ad.website) actions.push(`<a class="va-ad-btn" data-va-link="website" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
+            if (ad.discord) actions.push(`<a class="va-ad-btn" data-va-link="discord" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
 
             const fleet = liveFleetFor(ad);
             const code = vaCodeFromCallsign(ad.callsign);
@@ -1833,6 +1909,7 @@
             body.querySelectorAll('[data-va-fleet-idx]').forEach((el) => {
                 el.addEventListener('click', () => {
                     const entry = fleet[Number(el.getAttribute('data-va-fleet-idx'))];
+                    track(id, 'fleet');
                     if (entry) openFleetFlight(entry);
                 });
             });
@@ -1840,6 +1917,13 @@
             // Scheduled events (month calendar + list) and the pilot roster.
             renderEvents(body.querySelector('.va-events-section'), evs);
             renderRoster(body.querySelector('.va-roster-section'), id, roster);
+            // Both sections belong to this VA — tag their links so the delegated
+            // click handler can attribute an event click without another lookup.
+            body.querySelectorAll('.va-event-link').forEach((a) => {
+                a.setAttribute('data-va-link', 'event');
+                a.setAttribute('data-va-ad-id', id);
+            });
+            if (roster && roster.pilots && roster.pilots.length) track(id, 'roster');
 
             // Hydrate aircraft photos lazily: community shot for the exact
             // type+livery, else the type's Generic livery, else default art.
@@ -1857,7 +1941,7 @@
     function openPartners(adId) {
         ensureOverlay();
         overlayEl.classList.add('visible');
-        if (adId) showDetail(adId);
+        if (adId) { track(adId, 'open'); showDetail(adId); }
         else loadPartnersList('');
     }
 
@@ -1890,13 +1974,31 @@
         // opens that partner's detail when clicked, wherever it lives.
         document.addEventListener('click', (e) => {
             const el = e.target.closest && e.target.closest('.va-cs-info[data-va-ad-id]');
-            if (el) { e.preventDefault(); openPartners(el.getAttribute('data-va-ad-id')); }
+            if (el) {
+                e.preventDefault();
+                track(el.getAttribute('data-va-ad-id'), 'badge');
+                openPartners(el.getAttribute('data-va-ad-id'));
+            }
         });
+        // Outbound CTAs (apply / website / Discord / event link). Delegated so it
+        // covers every surface that renders one, including markup injected later.
+        // The link still navigates normally — we only record which one was taken,
+        // flushed immediately since the user may leave straight away.
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest && e.target.closest('[data-va-link][data-va-ad-id]');
+            if (link) track(link.getAttribute('data-va-ad-id'), link.getAttribute('data-va-link'), true);
+        }, true);
         // The simple flight window lives in an iframe and asks the host (here)
         // to open a partner when its badge is tapped.
         window.addEventListener('message', (e) => {
             const d = e && e.data;
             if (d && d.type === 'INFLIGHT_OPEN_VA_PARTNER' && d.id) openPartners(d.id);
+        });
+        // Anything still queued when the page goes away rides out on a beacon,
+        // which the browser delivers even as the document is being torn down.
+        window.addEventListener('pagehide', () => flushStats(true));
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flushStats(true);
         });
 
         const isTopWindow = (window === window.parent);
@@ -1925,6 +2027,10 @@
         callsignBadgeHTML,
         partnersForIcao,
         allPartners,
-        loadDirectory
+        loadDirectory,
+        // Report a VA interaction from anywhere else in the tracker. type is one
+        // of impression / click / open / profile / apply / website / discord /
+        // event / fleet / roster / badge / share.
+        track
     };
 })();
