@@ -11,6 +11,7 @@ import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { WORLD_MAP } from './worldMapData.js';
+import { computeAchievements } from './pilotAchievements.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     { value: 'A318', name: 'Airbus A318-100' }, { value: 'A319', name: 'Airbus A319-100' },
@@ -1112,6 +1113,8 @@ init(supabaseClient) {
 
                 ${this._getLifetimeStatsHTML()}
 
+                ${this._getAchievementsHTML()}
+
                 <section class="mdui-section">
                     <div class="mdui-section-title">Next Departure</div>
                     ${nextDepHTML}
@@ -2016,6 +2019,55 @@ init(supabaseClient) {
         let busiest = null; routeCount.forEach((n, r) => { if (!busiest || n > busiest.n) busiest = { route: r, n }; });
         const fleet = [...byAircraft.entries()].map(([name, r]) => ({ name, ...r })).sort((a, b) => b.minutes - a.minutes);
         this._lifetime = { scanned: flights.length, total: (this._fleet && this._fleet.totalCount) || flights.length, deep: !!(this._fleet && this._fleet.loaded), totalMin, totalLandings, totalFuel, totalDist, uniqueAirports: airports.size, continents: continents.size, longest, busiest, fleet, haveDistance: totalDist > 0 };
+    },
+
+    /**
+     * "Career Milestones" — the mobile twin of ProfileUI._getAchievementsHTML().
+     * Same derivation (pilotAchievements.computeAchievements), same free-and-Pro
+     * availability; only the markup differs to match the mdui card idiom.
+     */
+    _getAchievementsHTML() {
+        if (!this._currentUser?.user_metadata?.if_username) return '';
+        const L = this._lifetime;
+        if (!L) return `<section class="mdui-showcard mdui-ach"><h3 class="mdui-showcard-title">Career Milestones</h3><div class="mdui-mua-empty">Crunching your logbook…</div></section>`;
+
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        const ach = computeAchievements({
+            lifetime: L,
+            stats: this._ifData?.stats || null,
+            totalFlights: this._ifData?.logbookTotal ?? L.total ?? null,
+        });
+
+        const pips = (t) => Array.from({ length: t.totalTiers }, (_, i) =>
+            `<span class="mdui-ach-pip${i < t.earnedCount ? ' is-on' : ''}"></span>`).join('');
+
+        const items = ach.tracks.map(t => {
+            const shown = t.known ? `${this._fmtNum(t.value)}${t.unit ? `<em>${esc(t.unit)}</em>` : ''}` : '—';
+            const sub = t.complete ? 'All tiers complete' : (t.known ? esc(t.nextBlurb) : 'Awaiting data');
+            return `<div class="mdui-ach-item${t.complete ? ' is-complete' : ''}${t.known ? '' : ' is-unknown'}">
+                <div class="mdui-ach-top">
+                    <span class="mdui-ach-icon"><i class="fa-solid ${esc(t.icon)}"></i></span>
+                    <span class="mdui-ach-meta"><span class="mdui-ach-name">${esc(t.name)}</span><span class="mdui-ach-rank">${t.currentLabel ? esc(t.currentLabel) : 'Not started'}</span></span>
+                    <span class="mdui-ach-value">${shown}</span>
+                </div>
+                <div class="mdui-ach-pips">${pips(t)}</div>
+                <div class="mdui-ach-bar"><span style="width:${Math.round(t.progress * 100)}%"></span></div>
+                <div class="mdui-ach-sub">${sub}</div>
+            </div>`;
+        }).join('');
+
+        const next = ach.nextUp.length
+            ? `<div class="mdui-ach-next"><div class="mdui-ach-next-head">Closest to unlocking</div>${ach.nextUp.map(t => `<div class="mdui-ach-next-row"><span class="mdui-ach-next-label"><i class="fa-solid ${esc(t.icon)}"></i> ${esc(t.nextLabel)}</span><span class="mdui-ach-next-bar"><span style="width:${Math.round(t.progress * 100)}%"></span></span><span class="mdui-ach-next-pct">${Math.round(t.progress * 100)}%</span></div>`).join('')}</div>`
+            : '';
+
+        const safety = ach.safety === null ? '' : `<span class="mdui-ach-safety">Safety ${ach.safety.toFixed(1)}%</span>`;
+
+        return `<section class="mdui-showcard mdui-ach">
+            <h3 class="mdui-showcard-title">Career Milestones</h3>
+            <div class="mdui-ach-score"><span class="mdui-ach-score-value">${ach.earnedTiers}<em>/${ach.totalTiers}</em></span><span class="mdui-ach-score-label">tiers earned · ${ach.completedTracks} maxed</span>${safety}</div>
+            ${next}
+            <div class="mdui-ach-grid">${items}</div>
+        </section>`;
     },
 
     _getLifetimeStatsHTML() {
@@ -4931,6 +4983,39 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-ledger-bar-fill { display: block; height: 100%; border-radius: 999px; background: #4a9fe0; }
             .mdui-ledger-cell { font-family: var(--mdui-font-mono); font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.6); text-align: right; white-space: nowrap; }
             .mdui-ledger-note { margin-top: 12px; font-size: 11.5px; color: rgba(255,255,255,0.45); line-height: 1.45; }
+
+            /* Career Milestones */
+            .mdui-ach-score { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+            .mdui-ach-score-value { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.3px; font-variant-numeric: tabular-nums; }
+            .mdui-ach-score-value em { font-style: normal; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.5); }
+            .mdui-ach-score-label { font-size: 11.5px; color: rgba(255,255,255,0.5); flex: 1 1 auto; }
+            .mdui-ach-safety { font-size: 11.5px; font-weight: 700; color: var(--mdui-success); white-space: nowrap; }
+            .mdui-ach-next { padding: 11px 12px; border-radius: 14px; background: rgba(255,255,255,0.04); margin-bottom: 12px; }
+            .mdui-ach-next-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); margin-bottom: 8px; }
+            .mdui-ach-next-row { display: grid; grid-template-columns: minmax(90px, 1.3fr) 2fr auto; align-items: center; gap: 9px; padding: 3px 0; }
+            .mdui-ach-next-label { font-size: 12px; color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-ach-next-label i { opacity: 0.6; margin-right: 4px; }
+            .mdui-ach-next-bar { height: 5px; border-radius: 999px; background: rgba(255,255,255,0.1); overflow: hidden; }
+            .mdui-ach-next-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--mdui-accent); }
+            .mdui-ach-next-pct { font-family: var(--mdui-font-mono); font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.55); }
+            .mdui-ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
+            .mdui-ach-item { padding: 11px 12px; border-radius: 14px; background: rgba(255,255,255,0.04); border: 0.5px solid var(--mdui-border-light); }
+            .mdui-ach-item.is-complete { border-color: var(--mdui-accent); }
+            .mdui-ach-item.is-unknown { opacity: 0.55; }
+            .mdui-ach-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+            .mdui-ach-icon { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); font-size: 11px; }
+            .mdui-ach-item.is-complete .mdui-ach-icon { background: var(--mdui-accent); color: var(--mdui-on-accent); }
+            .mdui-ach-meta { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+            .mdui-ach-name { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255,255,255,0.45); }
+            .mdui-ach-rank { font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .mdui-ach-value { font-family: var(--mdui-font-mono); font-size: 12px; font-weight: 700; color: #fff; flex: none; }
+            .mdui-ach-value em { font-style: normal; font-size: 10px; color: rgba(255,255,255,0.5); }
+            .mdui-ach-pips { display: flex; gap: 3px; margin-bottom: 6px; }
+            .mdui-ach-pip { flex: 1 1 0; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.12); }
+            .mdui-ach-pip.is-on { background: var(--mdui-accent); }
+            .mdui-ach-bar { height: 4px; border-radius: 999px; background: rgba(255,255,255,0.1); overflow: hidden; margin-bottom: 6px; }
+            .mdui-ach-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--mdui-accent); }
+            .mdui-ach-sub { font-size: 10.5px; color: rgba(255,255,255,0.45); line-height: 1.4; }
 
             /* Collapsible live-flight panel (opt-in) */
             .mdui-live-shell { border: 0.5px solid var(--mdui-border-light); border-radius: 16px; background: var(--mdui-surface); overflow: hidden; margin-bottom: 4px; }
