@@ -1619,8 +1619,12 @@
             const id = `icon-${key}`;
             if (map.hasImage(id)) continue;
             const [xR, yR, wR, hR] = uv;
-            const x = Math.floor(xR * img.width), y = Math.floor(yR * img.height);
-            const w = Math.floor(wR * img.width), h = Math.floor(hR * img.height);
+            // Round both tile edges and derive the extent, so the crop neither
+            // shaves the sprite nor skews the pixelRatio below. Mirrors the
+            // slicing in flight.js loadSpriteSheetAndGenerateIcons().
+            const x = Math.round(xR * img.width), y = Math.round(yR * img.height);
+            const w = Math.round((xR + wR) * img.width) - x;
+            const h = Math.round((yR + hR) * img.height) - y;
             if (w === 0 || h === 0) continue;
             const data = ctx.getImageData(x, y, w, h);
             map.addImage(id, data, { pixelRatio: w / SPRITE_TARGET_SIZE, sdf: false });

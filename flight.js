@@ -86,10 +86,15 @@ async function loadSpriteSheetAndGenerateIcons(map) {
         const [iconKey, uvRatios] = entries[i];
         const [xRatio, yRatio, wRatio, hRatio] = uvRatios;
         
-        const pixelX = Math.floor(xRatio * img.width);
-        const pixelY = Math.floor(yRatio * img.height);
-        const pixelW = Math.floor(wRatio * img.width);
-        const pixelH = Math.floor(hRatio * img.height);
+        // Round both edges of the tile and derive the extent from them, rather
+        // than flooring the origin and the size independently. Flooring the
+        // size always truncates (a 31.82px tile became 31px), which both shaved
+        // the sprite and skewed the pixelRatio below — two aircraft authored at
+        // the same size could end up registered at different logical sizes.
+        const pixelX = Math.round(xRatio * img.width);
+        const pixelY = Math.round(yRatio * img.height);
+        const pixelW = Math.round((xRatio + wRatio) * img.width) - pixelX;
+        const pixelH = Math.round((yRatio + hRatio) * img.height) - pixelY;
 
         if (pixelW === 0 || pixelH === 0) continue;
 
