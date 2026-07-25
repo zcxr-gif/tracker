@@ -1085,6 +1085,10 @@ let mapFilters = {
         // Opt-in: drop partner VA logos on their hub airports on the live map.
         // Off by default; toggled from Settings → VA. See renderVaHubMarkers().
         showVaHubMarkers: false,
+        // Opt-in: pin partner VA events on their departure airport, so an event
+        // about to go out is visible on the map instead of buried in a panel.
+        // Off by default — the map is busy enough. See renderVaEventMarkers().
+        showVaEventMarkers: false,
         showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -17147,6 +17151,15 @@ renderCategory(catId) {
                                 Show partner virtual airlines' logos pinned to their hub airports on the
                                 live map. Tap a logo to view that VA. Off by default.
                             </p>
+                            <div class="settings-row" style="margin-top: 14px;">
+                                <div class="row-label"><i class="fa-solid fa-calendar-day"></i> VA Events on Map</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-va-event-markers" ${mapFilters.showVaEventMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <p style="margin: 8px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
+                                Pin partner VA events on their departure airport, with a countdown. Tap a pin
+                                for the details — and once the group has taken off, to watch the whole
+                                formation live. Off by default.
+                            </p>
                         </div>
 
                         <div class="settings-section">
@@ -17375,6 +17388,17 @@ renderCategory(catId) {
                 mapFilters.showVaHubMarkers = e.target.checked;
                 saveFiltersToLocalStorage();
                 if (typeof renderVaHubMarkers === 'function') renderVaHubMarkers();
+            });
+        }
+
+        // VA event pins — same story as the hub markers: its own marker layer,
+        // so it refreshes itself rather than going through updateMapFilters.
+        const vaEventToggle = document.getElementById('set-va-event-markers');
+        if (vaEventToggle) {
+            vaEventToggle.addEventListener('change', (e) => {
+                mapFilters.showVaEventMarkers = e.target.checked;
+                saveFiltersToLocalStorage();
+                if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
             });
         }
 
@@ -24789,6 +24813,233 @@ function renderVaHubMarkers() {
 }
 window.renderVaHubMarkers = renderVaHubMarkers;
 
+/* =========================================================================
+ * VA EVENT MARKERS  (opt-in — Settings → VA)
+ *
+ * A VA schedules an event with a departure airport; this pins it on that
+ * airport so it is visible where it actually matters — on the map, at the
+ * field people are about to spawn at — instead of only inside the Partners
+ * panel.
+ *
+ * Deliberately quiet: OFF by default, only events with a departure airport,
+ * only within a look-ahead window, and one pin per airport (the soonest event
+ * wins) so a popular hub never stacks. A pin that is under way glows; one whose
+ * formation has already been published offers "Watch live", which drops the
+ * viewer straight into group-watch mode.
+ *
+ * Data comes from ONE request for every partner's events, refreshed on a slow
+ * timer — event schedules change on the order of days, not seconds.
+ * ========================================================================= */
+
+let vaEventMarkers = [];
+let vaEventStylesInjected = false;
+let vaEventCache = { at: 0, events: [] };
+let vaEventRefreshTimer = null;
+const VA_EVENT_CACHE_MS = 5 * 60 * 1000;
+
+function injectVaEventMarkerStyles() {
+    if (vaEventStylesInjected || typeof document === 'undefined') return;
+    vaEventStylesInjected = true;
+    const style = document.createElement('style');
+    style.id = 'va-event-marker-styles';
+    style.textContent = `
+        /* Same rule as the hub markers: the root's transform belongs to Mapbox,
+           so it carries no size, transition or transform of its own. */
+        .va-event-marker { cursor: pointer; will-change: transform; }
+        .va-event-marker-inner {
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 9px 4px 5px; border-radius: 999px;
+            background: rgba(12,16,24,0.86); border: 1.5px solid rgba(56,189,248,0.75);
+            box-shadow: 0 3px 12px rgba(0,0,0,0.55); white-space: nowrap;
+            font: 800 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif; color: #e2e8f0;
+            transition: transform .15s ease, border-color .15s ease;
+        }
+        .va-event-marker:hover .va-event-marker-inner {
+            transform: scale(1.08); border-color: #7dd3fc;
+        }
+        .va-event-marker-logo {
+            width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+            background: rgba(255,255,255,0.10); flex-shrink: 0;
+        }
+        .va-event-marker-when { opacity: 0.68; font-weight: 700; }
+        /* An event under way reads differently from one that is merely soon. */
+        .va-event-marker.is-live .va-event-marker-inner {
+            border-color: rgba(52,211,153,0.85); background: rgba(6,26,20,0.9);
+        }
+        .va-event-marker.is-live .va-event-marker-when { color: #6ee7b7; opacity: 1; }
+        .va-event-pop {
+            font: 500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+            max-width: 260px; color: #e8ebf2;
+        }
+        .va-event-pop h4 { margin: 0 0 3px; font-size: 0.9rem; font-weight: 800; }
+        .va-event-pop .vep-va { font-size: 0.74rem; opacity: 0.66; margin: 0 0 8px; }
+        .va-event-pop .vep-when { font-size: 0.76rem; margin: 0 0 8px; }
+        .va-event-pop .vep-desc {
+            font-size: 0.75rem; opacity: 0.75; margin: 0 0 10px;
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .va-event-pop .vep-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .va-event-pop button, .va-event-pop a.vep-btn {
+            flex: 1; min-width: 92px; text-align: center; text-decoration: none;
+            padding: 6px 10px; border-radius: 8px; border: 0; cursor: pointer;
+            background: rgba(255,255,255,0.12); color: #e8ebf2;
+            font-size: 0.74rem; font-weight: 700;
+        }
+        .va-event-pop button:hover, .va-event-pop a.vep-btn:hover { background: rgba(255,255,255,0.2); }
+        .va-event-pop .vep-watch { background: rgba(52,211,153,0.22); color: #6ee7b7; }
+        .va-event-pop .vep-watch:hover { background: rgba(52,211,153,0.34); }`;
+    document.head.appendChild(style);
+}
+
+function clearVaEventMarkers() {
+    vaEventMarkers.forEach((m) => { try { m.remove(); } catch (_) {} });
+    vaEventMarkers = [];
+}
+
+// Every partner's upcoming events in one request, cached for a few minutes.
+// Fails soft to an empty list — a missing events feed must never disturb the map.
+async function fetchUpcomingVaEvents() {
+    if (Date.now() - vaEventCache.at < VA_EVENT_CACHE_MS) return vaEventCache.events;
+    try {
+        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const res = await fetch(`${base}/api/public/va-events/upcoming?window=72`, {
+            headers: { Accept: 'application/json' },
+        });
+        const data = await res.json();
+        vaEventCache = { at: Date.now(), events: Array.isArray(data.events) ? data.events : [] };
+    } catch (_) {
+        vaEventCache = { at: Date.now(), events: [] };
+    }
+    return vaEventCache.events;
+}
+
+// "in 3h 20m" / "starting now" / "under way". The pin has room for a few
+// characters, so this stays terse; the popup carries the exact time.
+function vaEventCountdown(startsAt) {
+    const t = new Date(startsAt).getTime();
+    if (!Number.isFinite(t)) return '';
+    const diff = t - Date.now();
+    if (diff <= -30 * 60 * 1000) return 'under way';
+    if (diff <= 60 * 1000) return 'now';
+    const mins = Math.round(diff / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ${String(mins % 60).padStart(2, '0')}m`;
+    return `${Math.round(hrs / 24)}d`;
+}
+
+const isVaEventLive = (startsAt) => {
+    const t = new Date(startsAt).getTime();
+    return Number.isFinite(t) && Date.now() >= t - 15 * 60 * 1000 && Date.now() <= t + 3 * 60 * 60 * 1000;
+};
+
+function renderVaEventMarkers() {
+    if (!sectorOpsMap) return;
+    clearVaEventMarkers();
+    if (vaEventRefreshTimer) { clearInterval(vaEventRefreshTimer); vaEventRefreshTimer = null; }
+    if (!mapFilters.showVaEventMarkers) return;
+
+    injectVaEventMarkerStyles();
+
+    const place = (events) => {
+        // The user may have toggled it back off while the feed loaded.
+        if (!mapFilters.showVaEventMarkers || !sectorOpsMap) return;
+
+        // One pin per airport: the soonest event at that field wins, so a busy
+        // hub shows a single marker rather than a stack of overlapping pills.
+        const byAirport = new Map();
+        for (const ev of events) {
+            const icao = String(ev.departureIcao || '').toUpperCase();
+            if (!icao) continue;
+            const prev = byAirport.get(icao);
+            if (!prev || new Date(ev.startsAt) < new Date(prev.startsAt)) byAirport.set(icao, ev);
+        }
+
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        byAirport.forEach((ev, icao) => {
+            const airport = airportsData[icao];
+            if (!airport || airport.lat == null || airport.lon == null) return;
+
+            const live = isVaEventLive(ev.startsAt);
+            const el = document.createElement('div');
+            el.className = `va-event-marker${live ? ' is-live' : ''}`;
+            el.title = `${ev.va?.name || 'VA'} — ${ev.title}`;
+            el.innerHTML = `
+                <div class="va-event-marker-inner">
+                    ${ev.va?.logo
+                        ? `<img class="va-event-marker-logo" src="${esc(ev.va.logo)}" alt="" onerror="this.remove()">`
+                        : ''}
+                    <span>${esc(icao)}</span>
+                    <span class="va-event-marker-when">${esc(vaEventCountdown(ev.startsAt))}</span>
+                </div>`;
+
+            const when = new Date(ev.startsAt);
+            const popupHtml = `
+                <div class="va-event-pop">
+                    <h4>${esc(ev.title)}</h4>
+                    <p class="vep-va">${esc(ev.va?.name || 'Partner VA')} · departs ${esc(icao)}</p>
+                    <p class="vep-when">${esc(when.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }))}
+                        · ${esc(vaEventCountdown(ev.startsAt))}</p>
+                    ${ev.description ? `<p class="vep-desc">${esc(ev.description)}</p>` : ''}
+                    <div class="vep-actions">
+                        ${ev.groupCode ? `<button type="button" class="vep-watch" data-group-code="${esc(ev.groupCode)}">Watch live</button>` : ''}
+                        <button type="button" class="vep-open" data-va-id="${esc(ev.va?.id || '')}">View VA</button>
+                        ${ev.link ? `<a class="vep-btn" href="${esc(ev.link)}" target="_blank" rel="noopener noreferrer">Details</a>` : ''}
+                    </div>
+                </div>`;
+
+            const popup = new mapboxgl.Popup({ offset: 18, closeButton: true, maxWidth: '280px' })
+                .setHTML(popupHtml);
+
+            // Wire the popup's buttons once it is actually in the DOM — the
+            // markup above is a string until Mapbox mounts it.
+            popup.on('open', () => {
+                const root = popup.getElement();
+                if (!root) return;
+                root.querySelector('.vep-open')?.addEventListener('click', () => {
+                    const id = ev.va?.id;
+                    if (id && window.InflightVaAds?.openPartners) window.InflightVaAds.openPartners(id);
+                });
+                // "Watch live" reuses the group-watch view the share links open,
+                // so an event pin and a pasted link land in exactly the same place.
+                root.querySelector('.vep-watch')?.addEventListener('click', async () => {
+                    try {
+                        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+                        const res = await fetch(`${base}/api/group-flights/${encodeURIComponent(ev.groupCode)}`);
+                        const data = await res.json();
+                        if (data && data.ok) { popup.remove(); enterGroupWatch(data); }
+                    } catch (_) { /* a dead link just does nothing */ }
+                });
+            });
+
+            const marker = new mapboxgl.Marker({
+                element: el,
+                anchor: 'bottom',
+                rotationAlignment: 'viewport',
+                pitchAlignment: 'viewport',
+            })
+                .setLngLat([airport.lon, airport.lat])
+                .setPopup(popup)
+                .addTo(sectorOpsMap);
+            vaEventMarkers.push(marker);
+        });
+    };
+
+    fetchUpcomingVaEvents().then(place).catch(() => {});
+
+    // Refresh on a slow timer so countdowns stay honest and an event that goes
+    // live re-colours itself, without polling a feed that changes daily.
+    vaEventRefreshTimer = setInterval(() => {
+        if (!mapFilters.showVaEventMarkers) return;
+        if (document.visibilityState !== 'visible') return;
+        fetchUpcomingVaEvents().then((evs) => { clearVaEventMarkers(); place(evs); }).catch(() => {});
+    }, 60 * 1000);
+}
+window.renderVaEventMarkers = renderVaEventMarkers;
+
 // renderAirportMarkers needs a loaded style; when one isn't ready yet the
 // render is queued (once) for the next idle frame instead of being dropped,
 // so settings changes still land "on the fly" instead of waiting for the
@@ -25411,6 +25662,8 @@ async function initializeApp() {
         // off, which is the default). The map and airport coords are ready by
         // now; the partner directory is awaited inside.
         renderVaHubMarkers();
+        // Same for the opt-in VA event pins — the events feed is awaited inside.
+        renderVaEventMarkers();
 
         // A reload never restores a flight/airport window, so a persisted
         // 'false' left by a session that ended with a window open is always
