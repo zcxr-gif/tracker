@@ -764,6 +764,11 @@ init(supabaseClient) {
         if (!this._injected) {
             this._inject();
             this._injected = true;
+            // Starring a VA in the Partners overlay should show up here without
+            // waiting for a reopen — both can be on screen at once.
+            window.addEventListener('va-favorites-changed', () => {
+                if (this._isOpen && this._activeTab === 'dashboard') this._renderContentOnly();
+            });
         }
 
         if (!this._airspaceNetwork) {
@@ -3265,7 +3270,47 @@ _generateAirspaceHTML() {
      * with each VA's logo, banner and their role/hours. Pro-only; free accounts
      * and pilots not in any VA render nothing.
      */
+    /**
+     * VAs a pilot has starred in the Partners tab, shaped like the membership
+     * records from /api/pilot/vas so both render through the same badge.
+     *
+     * Favourites are anonymous and localStorage-backed, so they show for any
+     * signed-in account regardless of tier — the point is that a pilot who
+     * starred their VA can reach its crew center login from their profile.
+     */
+    _favoriteVAs() {
+        try {
+            const api = window.InflightVaAds;
+            if (!api || typeof api.getFavorites !== 'function') return [];
+            return api.getFavorites().map(f => ({
+                id: f.id,
+                name: f.name || f.code || 'Virtual Airline',
+                slug: f.slug || null,
+                logo: f.logo || '',
+                code: f.code || '',
+                favorite: true,
+            }));
+        } catch (_) { return []; }
+    },
+
     _getVASectionHTML() {
+        // Membership badges stay Pro (they carry role/hours pulled from the
+        // VA), but a starred VA is the pilot's own bookmark — gating that would
+        // strand free pilots who are in a VA, since crew access never required
+        // an account with us in the first place.
+        const favorites = this._favoriteVAs();
+        const memberVAs = this._isPro && Array.isArray(this._userVAs) ? this._userVAs : [];
+
+        // Membership wins on collision: it carries role and hours.
+        const seen = new Set(memberVAs.map(v => String(v.id || v.slug || v.name)));
+        const merged = memberVAs.concat(
+            favorites.filter(f => !seen.has(String(f.id || f.slug || f.name)))
+        );
+
+        if (merged.length) return this._renderVABadges(merged);
+
+        // Nothing starred and no memberships: fall through to the Pro-only
+        // loading skeleton so the section doesn't flicker in for free accounts.
         if (!this._isPro) return '';
         const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
         if (vas === null && this._ifData && this._currentUser?.user_metadata?.if_username) {
@@ -3280,7 +3325,14 @@ _generateAirspaceHTML() {
                 </section>`;
         }
         if (!vas || !vas.length) return '';
+        return this._renderVABadges(vas);
+    },
 
+    /**
+     * Badge row shared by VA memberships and starred favourites. A favourite
+     * carries no role/hours, so its meta line simply comes out empty.
+     */
+    _renderVABadges(vas) {
         const esc = (s) => this._fleetEsc(String(s ?? ''));
         const cards = vas.map(v => {
             const accent = /^#?[0-9a-fA-F]{3,8}$/.test(v.accent || '') ? (v.accent[0] === '#' ? v.accent : '#' + v.accent) : 'var(--pui-accent)';

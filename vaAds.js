@@ -1718,7 +1718,7 @@
         return `
             <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
                 ${bannerImgHTML(ad.banner, 'va-ad-card-banner', ad.name)}
-                ${favButtonHTML(ad.id)}
+                ${favButtonHTML(ad)}
                 <div class="va-ad-card-body">
                     ${logo}
                     <div style="min-width:0; flex:1;">
@@ -1749,28 +1749,63 @@
 
     const FAV_KEY = 'inflight_va_favorites';
 
-    function favIds() {
-        try {
-            const raw = JSON.parse(localStorage.getItem(FAV_KEY) || '[]');
-            return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
-        } catch (_) { return []; }
+    // Records, not bare ids: the profile renders favourites directly from this
+    // store, so it needs enough to draw a badge (name, logo, slug) without
+    // another round trip — and it still works for a signed-out pilot.
+    function favRecords() {
+        let raw;
+        try { raw = JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); }
+        catch (_) { return []; }
+        if (!Array.isArray(raw)) return [];
+        return raw.map((entry) => {
+            // v1 of this store held plain id strings. Keep those working — they
+            // render as a bare badge until the pilot next opens Partners.
+            if (typeof entry === 'string') return { id: entry, name: '', slug: null, logo: '', code: '' };
+            if (!entry || typeof entry !== 'object') return null;
+            const id = String(entry.id || '').trim();
+            if (!id) return null;
+            const slug = String(entry.slug || '').trim().toLowerCase();
+            return {
+                id,
+                name: String(entry.name || '').slice(0, 120),
+                slug: /^[a-z0-9][a-z0-9._-]{0,80}$/.test(slug) ? slug : null,
+                logo: safeUrl(entry.logo) || '',
+                code: String(entry.code || '').slice(0, 12),
+            };
+        }).filter(Boolean);
     }
+
+    function favIds() { return favRecords().map((r) => r.id); }
 
     function isFav(id) { return favIds().includes(String(id)); }
 
-    function toggleFav(id) {
-        const key = String(id);
-        if (!key) return false;
-        const cur = favIds();
-        const at = cur.indexOf(key);
-        if (at >= 0) cur.splice(at, 1); else cur.push(key);
+    function toggleFav(ad) {
+        // Accepts a full ad (preferred, so we can store the render fields) or a
+        // bare id when that's all the caller has.
+        const rec = (ad && typeof ad === 'object')
+            ? { id: String(ad.id || ''), name: ad.name || '', slug: ad.slug || null, logo: ad.logo || '', code: ad.callsign || '' }
+            : { id: String(ad || ''), name: '', slug: null, logo: '', code: '' };
+        if (!rec.id) return false;
+
+        const cur = favRecords();
+        const at = cur.findIndex((r) => r.id === rec.id);
+        if (at >= 0) cur.splice(at, 1); else cur.push(rec);
         try { localStorage.setItem(FAV_KEY, JSON.stringify(cur.slice(0, 200))); } catch (_) {}
+        // Let the profile refresh without waiting for a reload.
+        try { window.dispatchEvent(new CustomEvent('va-favorites-changed')); } catch (_) {}
         return at < 0; // true when it just became a favourite
     }
 
-    function favButtonHTML(id) {
-        const on = isFav(id);
-        return `<button type="button" class="va-fav-btn${on ? ' is-on' : ''}" data-va-fav="${esc(id)}"
+    // The render fields ride along on the button so toggling doesn't need to
+    // look the ad back up (the detail fetch is async; the star must be instant).
+    function favButtonHTML(ad) {
+        const obj = (ad && typeof ad === 'object') ? ad : { id: ad };
+        const on = isFav(obj.id);
+        return `<button type="button" class="va-fav-btn${on ? ' is-on' : ''}" data-va-fav="${esc(obj.id)}"
+                        data-va-fav-name="${esc(obj.name || '')}"
+                        data-va-fav-slug="${esc(obj.slug || '')}"
+                        data-va-fav-logo="${esc(obj.logo || '')}"
+                        data-va-fav-code="${esc(obj.callsign || '')}"
                         aria-pressed="${on}" title="${on ? 'Remove from favourites' : 'Save to favourites'}"
                         aria-label="${on ? 'Remove from favourites' : 'Save to favourites'}">
                     <i class="fa-${on ? 'solid' : 'regular'} fa-star"></i>
@@ -1787,7 +1822,13 @@
                 // Never let the star bubble into the card's open-detail handler.
                 e.preventDefault();
                 e.stopPropagation();
-                const nowOn = toggleFav(btn.getAttribute('data-va-fav'));
+                const nowOn = toggleFav({
+                    id: btn.getAttribute('data-va-fav'),
+                    name: btn.getAttribute('data-va-fav-name') || '',
+                    slug: btn.getAttribute('data-va-fav-slug') || null,
+                    logo: btn.getAttribute('data-va-fav-logo') || '',
+                    callsign: btn.getAttribute('data-va-fav-code') || '',
+                });
                 btn.classList.toggle('is-on', nowOn);
                 btn.setAttribute('aria-pressed', String(nowOn));
                 const label = nowOn ? 'Remove from favourites' : 'Save to favourites';
@@ -2543,6 +2584,11 @@
         hydrateFlightBanner,
         openPartners,
         closePartners,
+        // Favourited VAs, for the profile's "Your Virtual Airlines" section.
+        // Anonymous and localStorage-backed, so it works for any account tier —
+        // and for a pilot who has never signed in at all.
+        getFavorites: favRecords,
+        isFavorite: isFav,
         matchCallsign,
         isCallsignMember,
         vaFilterMember,

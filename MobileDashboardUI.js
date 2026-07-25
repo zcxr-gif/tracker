@@ -292,6 +292,10 @@ init(supabaseClient) {
             this._injectStyles();
             this._injectShell();
             this._injected = true;
+            // Mirror ProfileUI: a star toggled in Partners reflects here live.
+            window.addEventListener('va-favorites-changed', () => {
+                if (this._isOpen && this._activeTab === 'dashboard') this._render();
+            });
         }
 
         this._applyVisualPreferences();
@@ -2128,10 +2132,38 @@ init(supabaseClient) {
         try { return decodeURIComponent(m[1]); } catch (_) { return null; }
     },
 
+    /**
+     * Starred VAs from the Partners tab, shaped like the /api/pilot/vas
+     * membership records so both render through the same badge. Mirrors
+     * ProfileUI._favoriteVAs().
+     */
+    _favoriteVAs() {
+        try {
+            const api = window.InflightVaAds;
+            if (!api || typeof api.getFavorites !== 'function') return [];
+            return api.getFavorites().map(f => ({
+                id: f.id,
+                name: f.name || f.code || 'Virtual Airline',
+                slug: f.slug || null,
+                logo: f.logo || '',
+                code: f.code || '',
+                favorite: true,
+            }));
+        } catch (_) { return []; }
+    },
+
     _getVASectionHTML() {
-        if (!this._isPro) return '';
-        const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
-        if (!vas || !vas.length) return '';
+        // Memberships stay Pro (they carry role/hours from the VA); a starred VA
+        // is the pilot's own bookmark, so it shows on any tier — crew access
+        // never required an account with us to begin with.
+        const favorites = this._favoriteVAs();
+        const memberVAs = this._isPro && Array.isArray(this._userVAs) ? this._userVAs : [];
+        const seen = new Set(memberVAs.map(v => String(v.id || v.slug || v.name)));
+        const vas = memberVAs.concat(
+            favorites.filter(f => !seen.has(String(f.id || f.slug || f.name)))
+        );
+
+        if (!vas.length) return '';
         const esc = (s) => this._fleetEsc(s);
         const cards = vas.map(v => {
             const accent = /^#?[0-9a-fA-F]{3,8}$/.test(v.accent || '') ? (v.accent[0] === '#' ? v.accent : '#' + v.accent) : 'var(--mdui-accent)';
