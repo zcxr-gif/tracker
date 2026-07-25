@@ -911,6 +911,22 @@
             }
             .va-ad-card .va-ad-card-body { flex: 1 1 auto; }
             .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
+            /* The card is position:static, so anchor the star against the panel
+               and let the card establish the containing block only here. */
+            .va-ad-card { position: relative; }
+            .va-fav-btn {
+                position: absolute; top: 8px; right: 8px; z-index: 2;
+                width: 30px; height: 30px; border-radius: 9px;
+                display: grid; place-items: center; cursor: pointer;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(12,14,20,0.62); color: rgba(255,255,255,0.62);
+                font-size: 12px; line-height: 1;
+                backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+                transition: color .15s ease, border-color .15s ease, background .15s ease;
+            }
+            .va-fav-btn:hover { color: #fbbf24; border-color: rgba(251,191,36,0.5); background: rgba(12,14,20,0.85); }
+            .va-fav-btn.is-on { color: #fbbf24; border-color: rgba(251,191,36,0.55); }
+            .va-fav-btn:active { transform: scale(0.94); }
             /* No explicit display: it's a flex child of .va-ad-card (so already
                block-level, no inline gap) and the mobile rule below hides it
                with display:none — setting display here would override that. */
@@ -1679,6 +1695,7 @@
         return `
             <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
                 ${bannerImgHTML(ad.banner, 'va-ad-card-banner', ad.name)}
+                ${favButtonHTML(ad.id)}
                 <div class="va-ad-card-body">
                     ${logo}
                     <div style="min-width:0; flex:1;">
@@ -1692,7 +1709,72 @@
             </div>`;
     }
 
+    // ---------------------------------------------------------------------
+    // Favourites
+    //
+    // Pinning a VA is how a pilot keeps their own crew center within reach:
+    // favourites sort to the top of the Partners list so the one they actually
+    // sign in to isn't buried behind whoever happens to be busiest right now.
+    //
+    // Deliberately localStorage-only and anonymous. Crew Center access must not
+    // require an account with us, so favouriting can't either — a VA pilot who
+    // has never signed in here still gets the shortcut.
+    // ---------------------------------------------------------------------
+
+    const FAV_KEY = 'inflight_va_favorites';
+
+    function favIds() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(FAV_KEY) || '[]');
+            return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
+        } catch (_) { return []; }
+    }
+
+    function isFav(id) { return favIds().includes(String(id)); }
+
+    function toggleFav(id) {
+        const key = String(id);
+        if (!key) return false;
+        const cur = favIds();
+        const at = cur.indexOf(key);
+        if (at >= 0) cur.splice(at, 1); else cur.push(key);
+        try { localStorage.setItem(FAV_KEY, JSON.stringify(cur.slice(0, 200))); } catch (_) {}
+        return at < 0; // true when it just became a favourite
+    }
+
+    function favButtonHTML(id) {
+        const on = isFav(id);
+        return `<button type="button" class="va-fav-btn${on ? ' is-on' : ''}" data-va-fav="${esc(id)}"
+                        aria-pressed="${on}" title="${on ? 'Remove from favourites' : 'Save to favourites'}"
+                        aria-label="${on ? 'Remove from favourites' : 'Save to favourites'}">
+                    <i class="fa-${on ? 'solid' : 'regular'} fa-star"></i>
+                </button>`;
+    }
+
+    // Delegated so it covers both the list cards and the detail panel, and
+    // survives re-renders.
+    function bindFavButtons(root) {
+        root.querySelectorAll('[data-va-fav]').forEach((btn) => {
+            if (btn.dataset.favWired) return;
+            btn.dataset.favWired = '1';
+            btn.addEventListener('click', (e) => {
+                // Never let the star bubble into the card's open-detail handler.
+                e.preventDefault();
+                e.stopPropagation();
+                const nowOn = toggleFav(btn.getAttribute('data-va-fav'));
+                btn.classList.toggle('is-on', nowOn);
+                btn.setAttribute('aria-pressed', String(nowOn));
+                const label = nowOn ? 'Remove from favourites' : 'Save to favourites';
+                btn.title = label;
+                btn.setAttribute('aria-label', label);
+                const icon = btn.querySelector('i');
+                if (icon) icon.className = `fa-${nowOn ? 'solid' : 'regular'} fa-star`;
+            });
+        });
+    }
+
     function bindCards(body) {
+        bindFavButtons(body);
         body.querySelectorAll('.va-ad-card[data-va-ad-id]').forEach((el) => {
             // The card is listed in the panel — an impression for that partner.
             track(el.getAttribute('data-va-ad-id'), 'impression');
@@ -1717,8 +1799,12 @@
             // be warm for callsign matching. Both fail soft to zero badges.
             await loadDirectory().catch(() => {});
             const counts = liveCountsByAd();
-            // Most-live first, then featured, otherwise keep server order.
+            // Favourites first — a pilot's own VA should never be buried behind
+            // whoever happens to be busiest — then most-live, then featured,
+            // otherwise keep server order.
+            const favs = new Set(favIds());
             ads.sort((a, b) =>
+                (favs.has(String(b.id)) ? 1 : 0) - (favs.has(String(a.id)) ? 1 : 0) ||
                 (counts.get(String(b.id)) || 0) - (counts.get(String(a.id)) || 0) ||
                 (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
             body.innerHTML = ads.map((ad) => cardHTML(ad, counts.get(String(ad.id)) || 0)).join('');
