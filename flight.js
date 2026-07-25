@@ -52,10 +52,129 @@ window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
 
 
+// --- TRUE SIGNED DISTANCE FIELD GENERATION -----------------------------------
+// Mapbox's SDF shader reads the alpha channel as a *distance* from the shape
+// edge, not as coverage. It thresholds at 0.75 and applies a smoothstep whose
+// width grows as icon-size shrinks — so feeding it a plain anti-aliased sprite
+// (a 2px alpha ramp) makes edges dissolve into haze at small sizes, which is
+// exactly what the mobile 0.01-0.15 size range hits hardest.
+//
+// These helpers convert a sprite's alpha mask into a real distance field with
+// an 8px spread, using the separable squared-EDT from Felzenszwalb &
+// Huttenlocher (the same approach TinySDF uses for glyphs).
+
+const SDF_RADIUS = 8;   // spread in px; matches Mapbox's SDF_PX
+const SDF_CUTOFF = 0.25; // places the shape edge at alpha 191 (= shader buffer 0.75)
+
+// 1D squared distance transform along a single row/column of `f`, result in `d`.
+// `v` (hull vertices) and `z` (hull boundaries) are scratch buffers.
+function edt1d(f, d, v, z, n) {
+    v[0] = 0;
+    z[0] = -Infinity;
+    z[1] = Infinity;
+    for (let q = 1, k = 0; q < n; q++) {
+        let s;
+        do {
+            const r = v[k];
+            s = (f[q] - f[r] + q * q - r * r) / (2 * q - 2 * r);
+        } while (s <= z[k] && --k > -1);
+        k++;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = Infinity;
+    }
+    for (let q = 0, k = 0; q < n; q++) {
+        while (z[k + 1] < q) k++;
+        const r = v[k];
+        d[q] = (q - r) * (q - r) + f[r];
+    }
+}
+
+// 2D squared EDT over `data` (width*height, 0 = seed, Infinity = background).
+function edt2d(data, width, height) {
+    const size = Math.max(width, height);
+    const f = new Float64Array(size);
+    const d = new Float64Array(size);
+    const v = new Int32Array(size);
+    const z = new Float64Array(size + 1);
+
+    for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) f[y] = data[y * width + x];
+        edt1d(f, d, v, z, height);
+        for (let y = 0; y < height; y++) data[y * width + x] = d[y];
+    }
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) f[x] = data[y * width + x];
+        edt1d(f, d, v, z, width);
+        for (let x = 0; x < width; x++) data[y * width + x] = d[x];
+    }
+}
+
+// Convert an anti-aliased sprite into a true SDF, padded by SDF_RADIUS on every
+// side so the field has room to fall off outside the silhouette.
+//
+// The padding is deliberately NOT compensated for in pixelRatio: the caller
+// keeps deriving it from the *unpadded* width, and because both the physical
+// and logical size grow by the same factor, the ratio — and therefore the
+// on-screen size of every aircraft — is unchanged.
+function buildSdfImageData(src, ctx) {
+    const R = SDF_RADIUS;
+    const w = src.width, h = src.height;
+    const pw = w + R * 2, ph = h + R * 2;
+    const n = pw * ph;
+
+    // Two fields, each seeded on one side of the shape boundary. After the EDT,
+    // distToInside holds every pixel's distance to the nearest *inside* pixel
+    // (nonzero only outside the shape) and distToOutside the reverse. The
+    // sentinel must be a large finite number, not Infinity: the hull arithmetic
+    // in edt1d subtracts these values, and Infinity - Infinity is NaN.
+    const INF = 1e20;
+    const distToInside = new Float64Array(n).fill(INF);
+    const distToOutside = new Float64Array(n).fill(INF);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const a = src.data[(y * w + x) * 4 + 3];
+            const p = (y + R) * pw + (x + R);
+            if (a >= 128) distToInside[p] = 0; else distToOutside[p] = 0;
+        }
+    }
+    // Everything in the padding ring is outside the shape.
+    for (let p = 0; p < n; p++) {
+        const px = p % pw, py = (p / pw) | 0;
+        if (px < R || py < R || px >= R + w || py >= R + h) distToOutside[p] = 0;
+    }
+
+    edt2d(distToInside, pw, ph);
+    edt2d(distToOutside, pw, ph);
+
+    const out = ctx.createImageData(pw, ph);
+    for (let p = 0; p < n; p++) {
+        // Signed distance, positive outside the shape: outside pixels have a
+        // nonzero distToInside and a zero distToOutside, and vice versa.
+        const dist = Math.sqrt(distToInside[p]) - Math.sqrt(distToOutside[p]);
+        const a = Math.round(255 - 255 * (dist / R + SDF_CUTOFF));
+        const o = p * 4;
+        out.data[o] = 255;
+        out.data[o + 1] = 255;
+        out.data[o + 2] = 255;
+        out.data[o + 3] = a < 0 ? 0 : a > 255 ? 255 : a;
+    }
+    return out;
+}
+
+// Which edge-rendering path the map should use for tintable aircraft icons.
+// 'sharp'  -> true distance fields (buildSdfImageData)
+// 'legacy' -> the original behaviour: hand Mapbox the raw sprite with sdf:true
+// Exposed as a setting so the two can be compared side by side on a live map.
+function getIconEdgeMode() {
+    return (window.mapFilters && window.mapFilters.iconEdgeMode) || 'sharp';
+}
+
 async function loadSpriteSheetAndGenerateIcons(map) {
-    const spriteUrl = './markers.png'; 
+    const spriteUrl = './markers.png';
 
     const USE_SDF = true;
+    const SHARP_EDGES = getIconEdgeMode() === 'sharp';
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -114,8 +233,14 @@ async function loadSpriteSheetAndGenerateIcons(map) {
 
         // Register Base Icon with 'sdf: true' for Native Mapbox GPU Tinting
         // This replaces the old multi-canvas system and unlocks infinite colors.
+        //
+        // In 'sharp' mode the sprite's alpha mask is first converted into a true
+        // distance field, which is what Mapbox's SDF shader actually expects.
+        // 'legacy' hands over the raw sprite (the original behaviour) so the two
+        // can be compared from Settings.
         if (!map.hasImage(`icon-${iconKey}`)) {
-            const baseImageData = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+            const rawSprite = baseCtx.getImageData(pixelX, pixelY, pixelW, pixelH);
+            const baseImageData = SHARP_EDGES ? buildSdfImageData(rawSprite, baseCtx) : rawSprite;
             map.addImage(`icon-${iconKey}`, baseImageData, { pixelRatio: pRatio, sdf: true });
 
             // Also register a NON-SDF "natural" twin of every base icon (skip the
@@ -1064,6 +1189,11 @@ window.pinFlight = function(flightId) {
     let cachedFlightDataForStatsView = { flightProps: null, plan: null };
 let mapFilters = {
         activeAirportStyle: 'default',
+        // 'sharp'  -> aircraft icons are rendered from true signed distance
+        //             fields, so tinted planes keep clean edges at any size
+        // 'legacy' -> the previous behaviour (raw sprite handed to Mapbox with
+        //             sdf:true), kept switchable for side-by-side comparison
+        iconEdgeMode: 'sharp',
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -1428,6 +1558,37 @@ function applyAircraftLayerStyles() {
         sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', colorExpr);
     }
 }
+
+// Drop every registered aircraft sprite and rebuild it. Needed when the icon
+// edge mode changes, because the sharp/legacy choice is baked into the image
+// data at addImage() time — the loader's hasImage() guards would otherwise keep
+// serving whichever variant was registered first.
+async function reloadAircraftIcons() {
+    if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+
+    // Blank the icon-image expressions first so no layer references a sprite
+    // mid-removal, which Mapbox logs as a missing-image warning.
+    const layers = [
+        'sector-ops-live-flights-layer',
+        'sector-ops-live-flights-natural-layer',
+        'sector-ops-live-flights-hover-layer'
+    ];
+    layers.forEach(id => {
+        if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'icon-image', '');
+    });
+
+    Object.keys(spriteUVs).forEach(key => {
+        [`icon-${key}`, `icon-${key}-nat`].forEach(id => {
+            if (sectorOpsMap.hasImage(id)) {
+                try { sectorOpsMap.removeImage(id); } catch (err) {}
+            }
+        });
+    });
+
+    await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
+    applyAircraftLayerStyles();
+}
+window.reloadAircraftIcons = reloadAircraftIcons;
 window.applyAircraftLayerStyles = applyAircraftLayerStyles;
 
 // --- PREMIUM CLOUD SYNC ENGINE ---
@@ -18501,7 +18662,27 @@ const AtcBoardUI = {
                                 <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
                             </li>
                         </ul>
-                        
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Edges</span>
+                        </div>
+
+                        <ul class="filter-toggle-list" id="icon-edge-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-edge-sharp" name="icon-edge-mode" value="sharp">
+                                <label for="icon-edge-sharp"><i class="fa-solid fa-wand-sparkles"></i> Sharp (distance fields)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-edge-legacy" name="icon-edge-mode" value="legacy">
+                                <label for="icon-edge-legacy"><i class="fa-solid fa-clock-rotate-left"></i> Legacy (raw sprite)</label>
+                            </li>
+                        </ul>
+                        <p style="padding: 0 10px 4px; margin: 0; color: #8b93a7; font-size: 0.78rem; line-height: 1.4;">
+                            Affects tinted aircraft — your plane, watchlist pilots, highlighted traffic,
+                            and every plane in the Blue / Orange / Custom color modes. Most visible at
+                            small icon sizes.
+                        </p>
+
                         <div class="mobile-only-filter-section">
                             <div class="filter-section-divider">
                                 <span class="filter-section-title">Mobile Display Mode</span>
@@ -24338,6 +24519,9 @@ if (flatMapToggle) {
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
 
+        const edgeRadio = document.querySelector(`input[name="icon-edge-mode"][value="${mapFilters.iconEdgeMode || 'sharp'}"]`);
+        if (edgeRadio) edgeRadio.checked = true;
+
         // Colors
         document.getElementById('theme-color-start').value = mapFilters.themeStartColor || '#121426';
         document.getElementById('theme-color-end').value = mapFilters.themeEndColor || '#121426';
@@ -24491,6 +24675,12 @@ if (flatMapToggle) {
             // planes live on the SDF vs. natural layer, so re-apply icon-image
             // (and icon-color) across both, not just the tint.
             applyAircraftLayerStyles();
+        } else if (target.name === 'icon-edge-mode') {
+            mapFilters.iconEdgeMode = target.value;
+            saveFiltersToLocalStorage();
+            // The sharp/legacy choice is baked in when each sprite is registered,
+            // so the whole icon set has to be rebuilt, not just restyled.
+            reloadAircraftIcons();
         } else if (target.name === 'mobile-display-mode') {
             const val = target.value;
             const simpleToggle = document.getElementById('filter-toggle-simple-window');

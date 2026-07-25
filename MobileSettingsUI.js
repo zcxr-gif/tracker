@@ -399,6 +399,16 @@ export const MobileSettingsUI = {
                                 <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
                             </div>
 
+                            <div class="mobile-section-header">Icon Edges</div>
+                            <div class="settings-mobile-grid">
+                                <button class="m-setting-pill" data-setting="iconEdgeMode" data-value="sharp">Sharp</button>
+                                <button class="m-setting-pill" data-setting="iconEdgeMode" data-value="legacy">Legacy</button>
+                            </div>
+                            <div class="m-setting-hint">
+                                Affects tinted planes — yours, watchlist, highlighted traffic, and every
+                                plane in Blue / Orange / Custom. Most visible at small icon sizes.
+                            </div>
+
                             <div class="mobile-section-header">Display</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
@@ -1937,6 +1947,11 @@ export const MobileSettingsUI = {
                 }
                 window.mapFilters[setting] = value;
                 if (window.updateMapFilters) window.updateMapFilters();
+                // Sharp vs legacy edges is baked into each sprite when it's
+                // registered, so the icon set has to be rebuilt, not restyled.
+                if (setting === 'iconEdgeMode' && window.reloadAircraftIcons) {
+                    window.reloadAircraftIcons();
+                }
             });
         });
 
@@ -2330,6 +2345,7 @@ export const MobileSettingsUI = {
                 }
                 .m-setting-pill.active { background: #38bdf8; color: black; border-color: #38bdf8; }
                 .m-setting-pill:active { transform: scale(0.96); }
+                .m-setting-hint { padding: 8px 20px 0; font-size: 0.74rem; line-height: 1.45; color: #71717a; }
                 /* Flight-window mode picker: stack the icon above the label so all
                    three read as a clean segmented control that never overflows. */
                 .m-fw-mode-grid .m-setting-pill { flex-direction: column; gap: 5px; padding: 11px 6px; }
