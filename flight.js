@@ -8741,6 +8741,7 @@ if (typeof window !== 'undefined') {
     const consumeArrivalParams = () => {
         consumeShareLinkParam();
         consumeReplayLinkParam();
+        consumeGroupLinkParam();
     };
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         // Defer one tick so the rest of the bootstrap finishes wiring.
@@ -20536,6 +20537,292 @@ if (typeof window !== 'undefined') {
     // Partners tab uses it to show each VA's live fleet).
     window.getLiveMapFeatures = () => currentMapFeatures;
     window.closeAircraftWindow = closeAircraftWindow;
+    // The signed-in pilot's Supabase access token, for backend calls that must
+    // prove who the caller is (VA ownership, publishing a group flight). Handed
+    // out rather than the client itself so non-module scripts can't do anything
+    // else with the session. Resolves to null when nobody is signed in.
+    window.getInflightAccessToken = async () => {
+        try {
+            const { data } = await supabase.auth.getSession();
+            return data?.session?.access_token || null;
+        } catch (_) { return null; }
+    };
+    // The server the map is currently showing — stamped onto a published group
+    // so a viewer arriving from the link is switched to it before we go looking.
+    window.getCurrentServerName = () => (typeof currentServerName !== 'undefined' ? currentServerName : '');
+    // Frame a set of live flights together and light them up as one formation.
+    window.watchGroupFlight = (group) => enterGroupWatch(group);
+}
+
+/* =========================================================================
+ * GROUP FLIGHT WATCH MODE
+ *
+ * A VA publishes a formation as one short link (?g=<code>). Opening it should
+ * not dump the viewer onto a random aircraft — it should show them the whole
+ * group at once: every member framed in one view, connected, and listed so any
+ * one of them can be opened normally.
+ *
+ * The group's aircraft are re-found in the LIVE feed by flightId, so this is a
+ * real view of where they are now, not a replay. The snapshot stored with the
+ * link is only used for labels (and to say "this one has landed") when a member
+ * is no longer flying.
+ * ========================================================================= */
+
+let activeGroupWatch = null;
+
+// Pull the group's members out of the live feed. Returns both what's still
+// flying and what isn't, so the roster can be honest about a formation that has
+// started to land rather than silently shrinking.
+function resolveGroupMembers(group) {
+    const live = [];
+    const gone = [];
+    for (const member of (group.aircraft || [])) {
+        const feature = currentMapFeatures[member.flightId];
+        if (feature && feature.properties) live.push({ ...member, feature });
+        else gone.push(member);
+    }
+    return { live, gone };
+}
+
+// Frame every live member in one view. Falls back to the published positions
+// when nothing has been found live yet (the feed may not have arrived), so the
+// map still goes somewhere useful instead of sitting on the default view.
+function fitMapToGroup(group) {
+    const pts = [];
+    const { live } = resolveGroupMembers(group);
+    for (const m of live) {
+        const pos = (() => {
+            try { return JSON.parse(m.feature.properties.position); }
+            catch (_) { return m.feature.properties.position; }
+        })() || {};
+        const lat = pos.lat ?? pos.latitude;
+        const lon = pos.lon ?? pos.longitude;
+        if (typeof lat === 'number' && typeof lon === 'number') pts.push([lon, lat]);
+    }
+    if (!pts.length) {
+        for (const m of (group.aircraft || [])) {
+            if (m.position && typeof m.position.lat === 'number') pts.push([m.position.lon, m.position.lat]);
+        }
+    }
+    if (!pts.length || typeof map === 'undefined' || !map) return;
+
+    let minLon = pts[0][0], maxLon = pts[0][0], minLat = pts[0][1], maxLat = pts[0][1];
+    for (const [lon, lat] of pts) {
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+    }
+    try {
+        if (pts.length === 1) {
+            map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 6), duration: 900 });
+        } else {
+            map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 120, maxZoom: 8, duration: 1100 });
+        }
+    } catch (err) {
+        console.warn('fitMapToGroup failed:', err);
+    }
+}
+
+// The roster panel. Deliberately plain DOM (no framework, no template engine)
+// because it has to survive being injected into whatever chrome the app is
+// already showing.
+function renderGroupWatchPanel() {
+    if (!activeGroupWatch) return;
+    const group = activeGroupWatch.group;
+    const { live, gone } = resolveGroupMembers(group);
+
+    let panel = document.getElementById('group-watch-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'group-watch-panel';
+        panel.className = 'group-watch-panel';
+        document.body.appendChild(panel);
+    }
+
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    const row = (m, isLive) => {
+        const p = m.feature?.properties || {};
+        const dep = p.departureIcao || m.dep || '????';
+        const arr = p.arrivalIcao || m.arr || '????';
+        return `
+            <button type="button" class="gw-row${isLive ? '' : ' is-gone'}" data-flight-id="${esc(m.flightId)}"
+                    ${isLive ? '' : 'disabled'} title="${isLive ? 'Open this flight' : 'No longer flying'}">
+                <span class="gw-dot${isLive ? '' : ' off'}"></span>
+                <span class="gw-row-main">
+                    <span class="gw-callsign">${esc(p.callsign || m.callsign || '—')}</span>
+                    <span class="gw-meta">${esc(dep)} → ${esc(arr)}${m.aircraft ? ' · ' + esc(m.aircraft) : ''}</span>
+                </span>
+                ${isLive ? '<i class="fa-solid fa-chevron-right"></i>' : '<span class="gw-landed">landed</span>'}
+            </button>`;
+    };
+
+    panel.innerHTML = `
+        <div class="gw-head">
+            <div class="gw-title-wrap">
+                ${group.va?.logo ? `<img class="gw-logo" src="${esc(group.va.logo)}" alt="" onerror="this.remove()">` : ''}
+                <div>
+                    <p class="gw-title">${esc(group.title)}</p>
+                    <p class="gw-sub">${esc(group.va?.name || 'Group flight')} · ${live.length}/${(group.aircraft || []).length} airborne</p>
+                </div>
+            </div>
+            <button type="button" class="gw-close" id="gw-close" title="Leave group view"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="gw-actions">
+            <button type="button" class="gw-btn" id="gw-fit"><i class="fa-solid fa-expand"></i> Frame all</button>
+            <button type="button" class="gw-btn" id="gw-copy"><i class="fa-solid fa-link"></i> Copy link</button>
+        </div>
+        <div class="gw-list">
+            ${live.map(m => row(m, true)).join('')}
+            ${gone.map(m => row(m, false)).join('')}
+        </div>`;
+
+    panel.querySelector('#gw-close')?.addEventListener('click', exitGroupWatch);
+    panel.querySelector('#gw-fit')?.addEventListener('click', () => fitMapToGroup(group));
+    panel.querySelector('#gw-copy')?.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(group.shareUrl || window.location.href);
+            if (typeof showNotification === 'function') showNotification('Group flight link copied.', 'success');
+        } catch (_) { /* clipboard blocked — the URL is in the address bar anyway */ }
+    });
+    panel.querySelectorAll('.gw-row[data-flight-id]').forEach(el => {
+        el.addEventListener('click', () => {
+            const m = live.find(x => x.flightId === el.getAttribute('data-flight-id'));
+            if (!m) return;
+            try {
+                const props = m.feature.properties;
+                const parse = (v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return v; } };
+                handleAircraftClick({ ...props, position: parse(props.position), aircraft: parse(props.aircraft) });
+            } catch (err) { console.warn('group row open failed:', err); }
+        });
+    });
+}
+
+function ensureGroupWatchStyles() {
+    if (document.getElementById('group-watch-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'group-watch-styles';
+    style.textContent = `
+        .group-watch-panel {
+            position: fixed; left: 16px; bottom: 16px; z-index: 1400;
+            width: min(340px, calc(100vw - 32px)); max-height: min(60vh, 520px);
+            display: flex; flex-direction: column;
+            background: rgba(16,18,24,0.92); backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+            box-shadow: 0 18px 48px rgba(0,0,0,0.45); color: #e8ebf2;
+            font: 500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+            overflow: hidden;
+        }
+        .gw-head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 8px; }
+        .gw-title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+        .gw-logo { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+        .gw-title { margin: 0; font-weight: 800; font-size: 0.95rem; line-height: 1.2;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gw-sub { margin: 2px 0 0; font-size: 0.72rem; opacity: 0.62; }
+        .gw-close { background: none; border: 0; color: #e8ebf2; opacity: 0.6; cursor: pointer;
+                    font-size: 0.95rem; padding: 2px 4px; }
+        .gw-close:hover { opacity: 1; }
+        .gw-actions { display: flex; gap: 8px; padding: 0 12px 10px; }
+        .gw-btn { flex: 1; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.10);
+                  color: #e8ebf2; border-radius: 9px; padding: 6px 8px; font-size: 0.75rem;
+                  font-weight: 700; cursor: pointer; }
+        .gw-btn:hover { background: rgba(255,255,255,0.14); }
+        .gw-list { overflow-y: auto; padding: 0 8px 10px; }
+        .gw-row { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+                  background: none; border: 0; color: inherit; cursor: pointer;
+                  padding: 8px 8px; border-radius: 10px; }
+        .gw-row:hover:not(:disabled) { background: rgba(255,255,255,0.07); }
+        .gw-row:disabled { cursor: default; opacity: 0.45; }
+        .gw-row-main { min-width: 0; flex: 1; }
+        .gw-callsign { display: block; font-weight: 700; font-size: 0.82rem;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gw-meta { display: block; font-size: 0.71rem; opacity: 0.6;
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gw-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; flex-shrink: 0;
+                  box-shadow: 0 0 0 3px rgba(52,211,153,0.18); }
+        .gw-dot.off { background: #6b7280; box-shadow: none; }
+        .gw-landed { font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+                     letter-spacing: 0.04em; opacity: 0.6; }
+        .gw-row i { opacity: 0.35; font-size: 0.7rem; }
+        @media (max-width: 640px) {
+            .group-watch-panel { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 45vh; }
+        }`;
+    document.head.appendChild(style);
+}
+
+// Enter group view: frame the formation, show the roster, and keep both fresh
+// as the feed ticks. Re-entering with a different group replaces the first.
+function enterGroupWatch(group) {
+    if (!group || !Array.isArray(group.aircraft) || !group.aircraft.length) return;
+    ensureGroupWatchStyles();
+    if (activeGroupWatch?.timer) clearInterval(activeGroupWatch.timer);
+    activeGroupWatch = { group, timer: null };
+
+    renderGroupWatchPanel();
+    // The live feed may not have arrived yet on a cold load — frame once now and
+    // again shortly after, by which point the members should be in the cache.
+    fitMapToGroup(group);
+    setTimeout(() => { if (activeGroupWatch) { fitMapToGroup(group); renderGroupWatchPanel(); } }, 2500);
+
+    // Keep the roster honest as members land. Cheap: it only re-reads the cache.
+    activeGroupWatch.timer = setInterval(() => {
+        if (!activeGroupWatch) return;
+        if (document.visibilityState === 'visible') renderGroupWatchPanel();
+    }, 15000);
+}
+
+function exitGroupWatch() {
+    if (activeGroupWatch?.timer) clearInterval(activeGroupWatch.timer);
+    activeGroupWatch = null;
+    document.getElementById('group-watch-panel')?.remove();
+}
+
+// Resolve ?g=<code> on arrival. Runs alongside the single-flight share handler;
+// the two are mutually exclusive in practice (a link carries one or the other).
+async function consumeGroupLinkParam() {
+    if (typeof window === 'undefined' || !window.location) return;
+    let params;
+    try { params = new URLSearchParams(window.location.search || ''); } catch (_) { return; }
+    const code = (params.get('g') || '').trim();
+    if (!code || !/^[a-z0-9]{4,16}$/i.test(code)) return;
+
+    // Clean the URL straight away so a refresh doesn't re-trigger the fetch.
+    try {
+        params.delete('g');
+        const q = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+    } catch (_) { /* non-fatal */ }
+
+    await waitForFirstRunGate();
+
+    let group = null;
+    try {
+        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const res = await fetch(`${base}/api/group-flights/${encodeURIComponent(code)}`, {
+            headers: { Accept: 'application/json' },
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'That group flight link is no longer available.');
+        group = data;
+    } catch (err) {
+        if (typeof showNotification === 'function') {
+            showNotification(err.message || 'Could not open that group flight.', 'error');
+        }
+        return;
+    }
+
+    // The formation is on one server — hop there first or we'd be searching a
+    // feed that cannot contain them.
+    if (group.server && typeof currentServerName !== 'undefined' && group.server !== currentServerName) {
+        try {
+            if (typeof switchServer === 'function') switchServer(group.server);
+        } catch (err) { console.warn('group server switch failed:', err); }
+    }
+
+    enterGroupWatch(group);
 }
 
 /**

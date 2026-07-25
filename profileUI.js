@@ -177,6 +177,19 @@ export const ProfileUI = {
     _accent:    'caramel',     // key into _ACCENT_PRESETS
     _bio:       '',            // pilot tagline / bio (max ~140 chars)
     _coverUrl:  '',            // optional cover banner image URL
+    // When the banner came from a partner VA's artwork, these hold which one.
+    // They are what makes the banner FREE: a plane photo or an arbitrary image
+    // URL is still a Pro perk, but flying a VA's colours costs nothing, so any
+    // account with _coverVaId set renders its banner. They also drive the VA
+    // badge on the dossier, which turns the banner into an affiliation rather
+    // than just wallpaper.
+    _coverVaId:   '',
+    _coverVaName: '',
+    // Partner VA directory (id, name, banner, logo), fetched on demand for the
+    // banner picker. Always the live list, so VAs partnered in future appear
+    // without a code change.
+    _vaBannerCatalog: null,
+    _vaBannerCatalogPromise: null,
     _dockOrder: null,          // array of tab ids overriding default order, or null
 
     // Default tab order — _dockOrder may override this
@@ -729,6 +742,8 @@ init(supabaseClient) {
 
         this._bio       = user?.user_metadata?.pilot_bio || '';
         this._coverUrl  = user?.user_metadata?.cover_url || '';
+        this._coverVaId   = user?.user_metadata?.cover_va_id || '';
+        this._coverVaName = user?.user_metadata?.cover_va_name || '';
         this._dockOrder = Array.isArray(user?.user_metadata?.dock_order) ? user.user_metadata.dock_order : null;
 
         // Pro entitlement — optimistic from cached metadata (or the flag authUI
@@ -1441,6 +1456,123 @@ if (type === 'flights') {
             })
             .catch(() => { this._aircraftCatalog = []; return []; });
         return this._aircraftCatalogPromise;
+    },
+
+    /**
+     * True when the pilot's banner may actually be painted. A VA banner is free
+     * for everyone — that's the whole point of the VA picker — while a plane
+     * photo or a custom image URL stays a Pro perk. One helper so the dossier
+     * hero, the dashboard hero and the settings preview can never disagree.
+     */
+    _canShowBanner() {
+        return !!this._coverUrl && (this._isPro || !!this._coverVaId);
+    },
+
+    /**
+     * The partner VA directory, as banner options. Fetched once per session
+     * from the live VA-Ads list, so a VA partnered next month shows up here
+     * with no code change. Only VAs that actually have banner artwork are
+     * offered — the rest would just paint an empty box.
+     */
+    async _fetchVaBannerCatalog() {
+        if (Array.isArray(this._vaBannerCatalog)) return this._vaBannerCatalog;
+        if (this._vaBannerCatalogPromise) return this._vaBannerCatalogPromise;
+
+        const pick = (payload) => {
+            const arr = Array.isArray(payload) ? payload
+                : (payload && Array.isArray(payload.data) ? payload.data : []);
+            const seen = new Set();
+            return arr.map(a => ({
+                id: String(a.id || a._id || ''),
+                name: a.name || a.vaName || 'Virtual Airline',
+                tagline: a.tagline || '',
+                banner: a.bannerUrl || a.banner || '',
+                logo: a.logoUrl || a.logo || '',
+            })).filter(v => v.id && v.banner && !seen.has(v.id) && seen.add(v.id));
+        };
+
+        this._vaBannerCatalogPromise = fetch(`${this._communityBackend}/api/va-ads?limit=200&status=approved`)
+            .then(r => (r.ok ? r.json() : []))
+            .then(payload => {
+                const list = pick(payload).sort((a, b) => a.name.localeCompare(b.name));
+                this._vaBannerCatalog = list;
+                return list;
+            })
+            .catch(() => { this._vaBannerCatalog = []; return []; });
+        return this._vaBannerCatalogPromise;
+    },
+
+    /**
+     * Modal that lets ANY pilot — free or Pro — wear a partner VA's banner.
+     * Searchable by VA name; selecting one hands back both the image and the VA
+     * identity, because the identity is what keeps the banner unlocked on a
+     * free account (and what the dossier badge renders).
+     */
+    async _openVaBannerPicker(onSelect) {
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        document.getElementById('pui-acpick-overlay')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'pui-acpick-overlay';
+        overlay.className = 'pui-acpick-overlay';
+        overlay.innerHTML = `
+            <div class="pui-acpick" role="dialog" aria-label="Choose a virtual airline banner">
+                <div class="pui-acpick-head">
+                    <h3>Fly a VA's colours</h3>
+                    <button class="pui-icon-btn" id="pui-acpick-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <p class="pui-vapick-note">
+                    <i class="fa-solid fa-gift"></i>
+                    Partner VA banners are free on every account — no Pro needed.
+                </p>
+                <div class="pui-input-wrapper pui-acpick-search-wrap">
+                    <i class="fa-solid fa-magnifying-glass pui-input-icon"></i>
+                    <input type="text" id="pui-acpick-search" class="pui-input has-icon" placeholder="Search virtual airlines…" autocomplete="off">
+                </div>
+                <div class="pui-acpick-grid" id="pui-acpick-grid">
+                    <div class="pui-acpick-loading"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading partner VAs…</div>
+                </div>
+            </div>`;
+        document.getElementById('profile-overlay')?.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('open'));
+
+        const cleanup = () => { overlay.classList.remove('open'); setTimeout(() => overlay.remove(), 180); };
+        document.getElementById('pui-acpick-close')?.addEventListener('click', cleanup);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+        const grid = overlay.querySelector('#pui-acpick-grid');
+        const catalog = await this._fetchVaBannerCatalog();
+
+        const render = (items) => {
+            if (!items.length) {
+                grid.innerHTML = `<div class="pui-acpick-loading">No partner VAs match that search.</div>`;
+                return;
+            }
+            grid.innerHTML = items.slice(0, 300).map((v, i) => `
+                <button type="button" class="pui-acpick-card" data-idx="${i}" title="${esc(v.name)}">
+                    <span class="pui-acpick-img" style="background-image:url('${String(v.banner).replace(/'/g, '&apos;')}');"></span>
+                    <span class="pui-acpick-meta">
+                        <span class="pui-acpick-type">${esc(v.name)}</span>
+                        <span class="pui-acpick-livery">${esc(v.tagline || 'Partner VA')}</span>
+                    </span>
+                </button>`).join('');
+            grid.querySelectorAll('.pui-acpick-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const v = items[parseInt(card.dataset.idx, 10)];
+                    if (v && typeof onSelect === 'function') onSelect(v);
+                    cleanup();
+                });
+            });
+        };
+        render(catalog);
+
+        const search = overlay.querySelector('#pui-acpick-search');
+        search?.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            render(!q ? catalog : catalog.filter(v =>
+                v.name.toLowerCase().includes(q) || v.tagline.toLowerCase().includes(q)));
+        });
+        setTimeout(() => search?.focus(), 220);
     },
 
     /**
@@ -3293,14 +3425,23 @@ _getTabContentHTML() {
                 </div>
             `).join('') : '<div class="pui-empty-inline">Insufficient logbook data for fleet analytics.</div>';
 
-            // Base Background for Hero — custom banners are Pro-only; free
-            // accounts always fall back to the plain themed gradient.
-            const bgStyle = (this._isPro && this._coverUrl)
+            // Base Background for Hero. Plane photos and custom images are Pro;
+            // a partner VA's banner is free on every account (_canShowBanner).
+            const bgStyle = this._canShowBanner()
                 ? `background-image: url('${this._coverUrl.replace(/'/g, "&apos;")}'); background-size: cover; background-position: center;`
                 : `background: linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);`;
+            // When the banner is a VA's, say whose — the badge is what turns
+            // borrowed artwork into an affiliation.
+            const vaBadge = (this._canShowBanner() && this._coverVaId)
+                ? `<div class="pui-hero-va-badge" title="Flying ${this._fleetEsc(this._coverVaName)}'s colours">
+                       <i class="fa-solid fa-handshake-angle"></i>
+                       <span>${this._fleetEsc(this._coverVaName || 'Partner VA')}</span>
+                   </div>`
+                : '';
 
             return `
                 <div class="pui-dossier-hero pui-fade-in" style="${bgStyle}">
+                    ${vaBadge}
                     <div class="pui-dossier-hero-overlay">
                         <div class="pui-dossier-hero-content">
                             <div class="pui-dossier-profile-group">
@@ -3572,9 +3713,10 @@ _getTabContentHTML() {
             }
 
             // Hero banner. Pro pilots may back it with any aircraft from the
-            // database or their own image; free accounts always get the plain
-            // themed gradient. A left scrim keeps the greeting legible.
-            const heroImg = (this._isPro && this._coverUrl) ? this._coverUrl.replace(/'/g, '&apos;') : '';
+            // database or their own image; every account, free included, may
+            // back it with a partner VA's banner. A left scrim keeps the
+            // greeting legible.
+            const heroImg = this._canShowBanner() ? this._coverUrl.replace(/'/g, '&apos;') : '';
             const heroStyle = heroImg
                 ? `background-image: url('${heroImg}'); background-size: cover; background-position: center right;`
                 : '';
@@ -3757,36 +3899,41 @@ if (this._activeTab === 'flight-plan') {
                                     ` : this._proLock('Add a tagline to your dossier with Pro.')}
                                 </div>
                                 <div class="pui-input-group" style="margin-bottom:0;">
-                                    <label>Profile banner ${this._isPro ? '' : '<span class="pui-pro-tag"><i class="fa-solid fa-crown"></i> Pro</span>'}</label>
-                                    ${this._isPro ? `
-                                    <div class="pui-banner-preview ${this._coverUrl ? '' : 'is-plain'}" id="pui-banner-preview"
-                                         style="${this._coverUrl ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}');` : ''}">
+                                    <label>Profile banner</label>
+                                    <div class="pui-banner-preview ${this._canShowBanner() ? '' : 'is-plain'}" id="pui-banner-preview"
+                                         style="${this._canShowBanner() ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}');` : ''}">
                                         <span class="pui-banner-preview-empty">Plain banner</span>
                                     </div>
+                                    ${this._coverVaId ? `
+                                    <p class="pui-banner-va-note">
+                                        <i class="fa-solid fa-handshake-angle"></i>
+                                        Flying <strong>${this._fleetEsc(this._coverVaName || 'a partner VA')}</strong>'s colours
+                                    </p>` : ''}
                                     <div class="pui-banner-actions">
+                                        <!-- Free for everyone: a partner VA's artwork. This is the one
+                                             banner source that is NOT gated, so it leads. -->
+                                        <button type="button" class="pui-btn-secondary pui-btn-sm" id="pui-choose-va-btn">
+                                            <i class="fa-solid fa-handshake-angle"></i> Choose VA
+                                            <span class="pui-free-tag">Free</span>
+                                        </button>
+                                        ${this._isPro ? `
                                         <button type="button" class="pui-btn-secondary pui-btn-sm" id="pui-choose-aircraft-btn">
                                             <i class="fa-solid fa-plane"></i> Choose aircraft
-                                        </button>
+                                        </button>` : ''}
                                         <button type="button" class="pui-btn-ghost pui-btn-sm" id="pui-banner-plain-btn">
                                             <i class="fa-solid fa-ban"></i> Plain
                                         </button>
                                     </div>
+                                    ${this._isPro ? `
                                     <div class="pui-input-wrapper" style="margin-top:10px;">
                                         <i class="fa-solid fa-image pui-input-icon"></i>
                                         <input type="url" id="pui-edit-cover" class="pui-input has-icon"
                                                value="${(this._coverUrl || '').replace(/"/g, '&quot;')}"
                                                placeholder="Or paste your own image URL — ${this.t('set.coverPlaceholder')}">
                                     </div>
-                                    <p class="pui-help-text">Pick any aircraft from our database, or paste your own image URL. Shown on your dashboard and dossier.</p>
+                                    <p class="pui-help-text">Wear a partner VA's banner, pick any aircraft from our database, or paste your own image URL. Shown on your dashboard and dossier.</p>
                                     ` : `
-                                    <div class="pui-cover-locked">
-                                        <i class="fa-solid fa-lock"></i>
-                                        <div>
-                                            <strong>Custom banners are a Pro perk.</strong>
-                                            <span>Free accounts get the clean plain banner. Upgrade to add a plane photo or your own image.</span>
-                                        </div>
-                                        <button type="button" class="pui-btn-primary pui-btn-sm" data-action="upgrade-pro"><i class="fa-solid fa-bolt"></i> Upgrade</button>
-                                    </div>
+                                    <p class="pui-help-text">Partner VA banners are free on every account. Aircraft photos and your own image URL come with Pro.</p>
                                     `}
                                 </div>
                             </div>
@@ -4614,13 +4761,20 @@ const contentRoot = document.getElementById('pui-content');
                 if (bioCounter) bioCounter.textContent = String(bioInput.value.length);
             });
 
-            // ─── Profile banner (Pro) — aircraft picker, plain, or own URL.
-            // The chosen URL lands in #pui-edit-cover and is persisted on Save.
+            // ─── Profile banner — VA picker (free), aircraft picker / own URL
+            // (Pro), or plain. #pui-edit-cover only exists for Pro accounts, so
+            // the pending choice is staged on `this` and read back on Save; that
+            // way a free pilot's VA pick survives without a text field to hold it.
             const coverInput = document.getElementById('pui-edit-cover');
             const bannerPreview = document.getElementById('pui-banner-preview');
+            // Staged edits, seeded from what's already saved.
+            this._pendingCover   = this._coverUrl;
+            this._pendingVaId    = this._coverVaId;
+            this._pendingVaName  = this._coverVaName;
+
             const syncBannerPreview = () => {
                 if (!bannerPreview) return;
-                const val = (coverInput?.value || '').trim();
+                const val = (this._pendingCover || '').trim();
                 if (val) {
                     bannerPreview.style.backgroundImage = `url('${val.replace(/'/g, '&apos;')}')`;
                     bannerPreview.classList.remove('is-plain');
@@ -4628,15 +4782,43 @@ const contentRoot = document.getElementById('pui-content');
                     bannerPreview.style.backgroundImage = '';
                     bannerPreview.classList.add('is-plain');
                 }
+                // The "flying X's colours" note follows the staged pick, so it
+                // can't claim a VA the pilot just replaced with a plane photo.
+                const note = document.querySelector('.pui-banner-va-note');
+                if (note) {
+                    note.style.display = this._pendingVaId ? '' : 'none';
+                    const strong = note.querySelector('strong');
+                    if (strong && this._pendingVaName) strong.textContent = this._pendingVaName;
+                }
             };
-            coverInput?.addEventListener('input', syncBannerPreview);
+
+            // Typing a URL by hand is a custom banner — it stops being a VA one.
+            coverInput?.addEventListener('input', () => {
+                this._pendingCover  = (coverInput.value || '').trim();
+                this._pendingVaId   = '';
+                this._pendingVaName = '';
+                syncBannerPreview();
+            });
             document.getElementById('pui-banner-plain-btn')?.addEventListener('click', () => {
                 if (coverInput) coverInput.value = '';
+                this._pendingCover = ''; this._pendingVaId = ''; this._pendingVaName = '';
                 syncBannerPreview();
+            });
+            document.getElementById('pui-choose-va-btn')?.addEventListener('click', () => {
+                this._openVaBannerPicker((va) => {
+                    if (coverInput) coverInput.value = va.banner || '';
+                    this._pendingCover  = va.banner || '';
+                    this._pendingVaId   = va.id || '';
+                    this._pendingVaName = va.name || '';
+                    syncBannerPreview();
+                });
             });
             document.getElementById('pui-choose-aircraft-btn')?.addEventListener('click', () => {
                 this._openAircraftPicker((url) => {
                     if (coverInput) coverInput.value = url || '';
+                    this._pendingCover  = url || '';
+                    this._pendingVaId   = '';   // a plane photo is not an affiliation
+                    this._pendingVaName = '';
                     syncBannerPreview();
                 });
             });
@@ -4665,9 +4847,19 @@ const contentRoot = document.getElementById('pui-content');
                 const newTimezone = document.getElementById('pui-edit-timezone')?.value;
                 const newPassword = document.getElementById('pui-edit-password')?.value;
                 const newBio   = this._isPro ? (document.getElementById('pui-edit-bio')?.value || '') : this._bio;
-                // Free accounts have no banner field — preserve any stored cover
-                // so it returns intact if they later upgrade to Pro.
-                const newCover = this._isPro ? (document.getElementById('pui-edit-cover')?.value.trim() || '') : this._coverUrl;
+                // Banner. Everyone can stage a change now (a free account through
+                // the VA picker), so read the staged value rather than the Pro-only
+                // text field. A free account that somehow staged a non-VA image
+                // falls back to what was already stored — the VA identity is the
+                // thing that unlocks it, so without one there is nothing to save.
+                let newCover   = this._pendingCover ?? this._coverUrl;
+                let newVaId    = this._pendingVaId ?? this._coverVaId;
+                let newVaName  = this._pendingVaName ?? this._coverVaName;
+                if (!this._isPro && newCover && !newVaId) {
+                    newCover  = this._coverUrl;
+                    newVaId   = this._coverVaId;
+                    newVaName = this._coverVaName;
+                }
                 const currentTheme = this._theme;
                 const currentDensity = this._density;
 
@@ -4694,11 +4886,18 @@ const contentRoot = document.getElementById('pui-content');
                 // the user can edit bio + cover and submit them along with the
                 // rest. Trim bio to 140 chars (matches input maxlength).
                 updates.data.pilot_bio   = newBio.slice(0, 140);
-                updates.data.cover_url   = newCover.slice(0, 500);
+                updates.data.cover_url   = (newCover || '').slice(0, 500);
+                // Which VA the banner belongs to (blank for a plane photo, a
+                // custom URL, or plain). Persisted alongside the image because
+                // it is what keeps the banner visible on a free account.
+                updates.data.cover_va_id   = (newVaId || '').slice(0, 40);
+                updates.data.cover_va_name = (newVaName || '').slice(0, 80);
                 updates.data.locale      = this._locale;
                 updates.data.accent_color= this._accent;
-                this._bio      = updates.data.pilot_bio;
-                this._coverUrl = updates.data.cover_url;
+                this._bio        = updates.data.pilot_bio;
+                this._coverUrl   = updates.data.cover_url;
+                this._coverVaId  = updates.data.cover_va_id;
+                this._coverVaName= updates.data.cover_va_name;
 
                 if (newPassword) {
                     updates.password = newPassword;
@@ -6925,7 +7124,49 @@ const contentRoot = document.getElementById('pui-content');
                     linear-gradient(135deg, var(--pui-bg-surface) 0%, var(--pui-bg-base) 100%);
             }
             .pui-banner-preview.is-plain .pui-banner-preview-empty { display: block; }
-            .pui-banner-actions { display: flex; gap: 8px; margin-top: 10px; }
+            .pui-banner-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+            /* "Free" chip on the VA picker button — the point of the whole
+               feature is that this one costs nothing, so it says so. */
+            .pui-free-tag {
+                margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+                background: rgba(52,199,89,0.16); color: #34c759;
+                font-size: 0.65rem; font-weight: 800; letter-spacing: 0.02em;
+                text-transform: uppercase;
+            }
+            /* "Flying X's colours" note under the settings preview. */
+            .pui-banner-va-note {
+                margin: 8px 0 0; font-size: 0.78rem; font-weight: 600;
+                color: var(--pui-text-secondary); display: flex; align-items: center; gap: 6px;
+            }
+            .pui-banner-va-note i { color: var(--pui-accent); font-size: 0.72rem; }
+            .pui-banner-va-note strong { color: var(--pui-text-primary); }
+
+            /* Affiliation badge floated over the dossier hero when the banner
+               belongs to a partner VA. Sits above the scrim so it stays legible
+               against any artwork. */
+            .pui-hero-va-badge {
+                position: absolute; top: 12px; right: 12px; z-index: 3;
+                display: inline-flex; align-items: center; gap: 6px;
+                padding: 5px 10px; border-radius: 999px;
+                background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.16);
+                color: #fff; font-size: 0.72rem; font-weight: 700;
+                max-width: 60%; overflow: hidden;
+            }
+            .pui-hero-va-badge span {
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .pui-hero-va-badge i { font-size: 0.68rem; opacity: 0.85; }
+
+            /* Free-banner explainer at the top of the VA picker. */
+            .pui-vapick-note {
+                margin: 0 0 12px; padding: 8px 12px; border-radius: var(--pui-radius-md);
+                background: rgba(52,199,89,0.10); border: 1px solid rgba(52,199,89,0.22);
+                color: var(--pui-text-secondary); font-size: 0.78rem; font-weight: 600;
+                display: flex; align-items: center; gap: 8px;
+            }
+            .pui-vapick-note i { color: #34c759; }
 
             .pui-acpick-overlay {
                 position: absolute; inset: 0; z-index: 60;

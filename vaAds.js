@@ -228,6 +228,116 @@
         if (!statsTimer) statsTimer = setTimeout(() => flushStats(false), STATS_FLUSH_MS);
     }
 
+    // ---------------------------------------------------------------------
+    // Group flights
+    //
+    // A VA runs an event, a dozen aircraft depart together, and the owner wants
+    // ONE link to post on the IFC rather than twelve. The owner selects the
+    // aircraft from their VA's own Live Fleet list, titles it, and gets a short
+    // link back.
+    //
+    // Who is allowed to publish is decided by the backend, not here: the VA is
+    // bound to whichever Inflight account signs in with the contact email
+    // already on file for the partnership, and only one account can hold it.
+    // This side simply asks "do I own a VA?" once per session and shows the
+    // controls if the answer names the VA whose panel is open.
+    // ---------------------------------------------------------------------
+
+    const GROUP_API = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+    let ownerStatePromise = null;   // cached per page load
+
+    async function accessToken() {
+        try {
+            return typeof window.getInflightAccessToken === 'function'
+                ? await window.getInflightAccessToken()
+                : null;
+        } catch (e) { return null; }
+    }
+
+    // { signedIn, va } for the current account. The two are kept apart on
+    // purpose: "not signed in" and "signed in but hasn't linked a VA yet" need
+    // different treatment — the second gets offered the claim, the first
+    // shouldn't be nagged. Cached because every panel render would otherwise
+    // re-ask and the answer can't change mid-session (a claim updates it in
+    // place).
+    async function ownerState() {
+        if (ownerStatePromise) return ownerStatePromise;
+        ownerStatePromise = (async () => {
+            const token = await accessToken();
+            if (!token) return { signedIn: false, va: null };
+            try {
+                const res = await fetch(`${GROUP_API}/api/va-link/me`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ accessToken: token }),
+                });
+                const data = await res.json();
+                if (!data || !data.ok) return { signedIn: false, va: null };
+                return { signedIn: !!data.signedIn, va: data.va || null };
+            } catch (e) { return { signedIn: false, va: null }; }
+        })();
+        return ownerStatePromise;
+    }
+
+    // Bind this account to the VA registered to its email address.
+    async function claimVa() {
+        const token = await accessToken();
+        if (!token) return { ok: false, error: 'Sign in to Inflight first.' };
+        try {
+            const res = await fetch(`${GROUP_API}/api/va-link/claim`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accessToken: token }),
+            });
+            const data = await res.json();
+            if (data && data.ok) ownerStatePromise = Promise.resolve({ signedIn: true, va: data.va });
+            return data || { ok: false, error: 'Could not link your account.' };
+        } catch (e) {
+            return { ok: false, error: 'Could not reach the server.' };
+        }
+    }
+
+    // Publish. `fleet` entries are the same shape liveFleetFor() produces.
+    async function publishGroupFlight(title, fleet, eventId) {
+        const token = await accessToken();
+        if (!token) return { ok: false, error: 'Sign in to Inflight first.' };
+        const aircraft = fleet.map((f) => {
+            const pos = parseMaybeJSON(f.props.position) || {};
+            return {
+                flightId: f.props.flightId || f.props.id || '',
+                callsign: f.callsign,
+                username: f.username,
+                aircraft: f.type,
+                livery: f.livery,
+                dep: f.dep,
+                arr: f.arr,
+                lat: pos.lat != null ? pos.lat : pos.latitude,
+                lon: pos.lon != null ? pos.lon : pos.longitude,
+                altFt: f.altFt,
+                gsKt: f.gsKt,
+                headingDeg: pos.heading_deg,
+            };
+        }).filter((a) => a.flightId);
+
+        try {
+            const res = await fetch(`${GROUP_API}/api/group-flights`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    accessToken: token,
+                    title,
+                    aircraft,
+                    eventId: eventId || undefined,
+                    server: typeof window.getCurrentServerName === 'function' ? window.getCurrentServerName() : '',
+                }),
+            });
+            return await res.json();
+        } catch (e) {
+            return { ok: false, error: 'Could not reach the server.' };
+        }
+    }
+
     function buildQuery(params) {
         const q = new URLSearchParams();
         Object.keys(params || {}).forEach((k) => {
@@ -1009,6 +1119,75 @@
             .va-event-title { font-size: 0.88rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
             .va-event-link { color: #7dd3fc; text-decoration: none; font-size: 0.75rem; }
             .va-event-link:hover { color: #bae6fd; }
+
+            /* "Watch live" — shown on an event once its group flight is up. */
+            .va-event-watch {
+                margin-left: 10px; display: inline-flex; align-items: center; gap: 5px;
+                padding: 2px 8px; border-radius: 999px; cursor: pointer;
+                background: rgba(52,211,153,0.16); border: 1px solid rgba(52,211,153,0.32);
+                color: #6ee7b7; font-size: 0.68rem; font-weight: 800;
+            }
+            .va-event-watch:hover { background: rgba(52,211,153,0.26); color: #a7f3d0; }
+
+            /* Group-flight composer — only rendered for the VA's own owner. */
+            .va-group-box {
+                margin: 10px 0 4px; padding: 12px; border-radius: 12px;
+                background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+            }
+            .va-group-head {
+                display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+                font-size: 0.82rem; font-weight: 800; color: #e2e8f0;
+            }
+            .va-group-head i { color: #38bdf8; }
+            .va-group-owner {
+                margin-left: auto; font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 0.04em; color: rgba(255,255,255,0.42);
+            }
+            .va-group-hint { margin: 0 0 10px; font-size: 0.72rem; color: rgba(255,255,255,0.55); }
+            .va-group-picks {
+                display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 4px; max-height: 168px; overflow-y: auto; margin-bottom: 10px;
+            }
+            .va-group-pick {
+                display: flex; align-items: center; gap: 7px; padding: 5px 7px;
+                border-radius: 8px; cursor: pointer; font-size: 0.72rem;
+                background: rgba(255,255,255,0.03);
+            }
+            .va-group-pick:hover { background: rgba(255,255,255,0.08); }
+            .va-group-cs { font-weight: 700; color: #e2e8f0; }
+            .va-group-rt { color: rgba(255,255,255,0.45); margin-left: auto; white-space: nowrap; }
+            .va-group-title, .va-group-event, .va-group-result input {
+                width: 100%; box-sizing: border-box; padding: 7px 10px; margin-bottom: 8px;
+                border-radius: 9px; border: 1px solid rgba(255,255,255,0.12);
+                background: rgba(0,0,0,0.28); color: #e2e8f0; font-size: 0.78rem;
+                font-family: inherit;
+            }
+            .va-group-go {
+                width: 100%; padding: 8px; border-radius: 9px; border: 0; cursor: pointer;
+                background: #0284c7; color: #fff; font-size: 0.78rem; font-weight: 800;
+                display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+            }
+            .va-group-go:hover:not(:disabled) { background: #0369a1; }
+            .va-group-go:disabled { opacity: 0.55; cursor: default; }
+            .va-group-msg { margin: 8px 0 0; font-size: 0.72rem; color: rgba(255,255,255,0.62); min-height: 1em; }
+            .va-group-result { display: flex; gap: 6px; margin-top: 8px; }
+            .va-group-result input { margin: 0; }
+            .va-group-copy {
+                flex-shrink: 0; padding: 0 12px; border-radius: 9px; border: 0; cursor: pointer;
+                background: rgba(255,255,255,0.12); color: #e2e8f0; font-size: 0.72rem; font-weight: 700;
+            }
+            .va-group-copy:hover { background: rgba(255,255,255,0.2); }
+            /* The claim prompt is deliberately quieter than the composer —
+               most signed-in pilots don't run a VA and shouldn't be nagged. */
+            .va-group-box.is-claim { background: rgba(255,255,255,0.02); }
+            .va-group-claim {
+                padding: 6px 12px; border-radius: 9px; cursor: pointer;
+                background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14);
+                color: #e2e8f0; font-size: 0.72rem; font-weight: 700;
+                display: inline-flex; align-items: center; gap: 6px;
+            }
+            .va-group-claim:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+            .va-group-claim:disabled { opacity: 0.55; cursor: default; }
             .va-event-when { font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 3px; }
             .va-event-when i { color: #7dd3fc; margin-right: 5px; }
             .va-event-desc { font-size: 0.78rem; color: rgba(255,255,255,0.72); margin-top: 5px; line-height: 1.5; white-space: pre-wrap; }
@@ -1597,6 +1776,10 @@
         const link = it.link
             ? `<a class="va-event-link" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer" title="Open event link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
             : '';
+        // The formation for this event is in the air — one tap frames it.
+        const watch = it.groupCode
+            ? `<button type="button" class="va-event-watch" data-group-code="${esc(it.groupCode)}" title="Watch this group flight"><i class="fa-solid fa-satellite-dish"></i> Watch live</button>`
+            : '';
         // Event banners are .webp; an animated upload comes back as ANIMATED
         // WebP and plays by itself inside an <img>. It MUST stay an <img> (never
         // a <canvas> or a background paint of a frame) or it freezes on frame 1.
@@ -1619,7 +1802,7 @@
                     </div>
                     <div class="va-event-main">
                         <div class="va-event-title">${esc(it.title)}${link}${status}</div>
-                        <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}${dep}</div>
+                        <div class="va-event-when"><i class="fa-regular fa-clock"></i>${esc(fmtEventTime(it.when))}${dep}${watch}</div>
                         ${it.description ? `<div class="va-event-desc">${esc(it.description)}</div>` : ''}
                     </div>
                 </div>
@@ -1691,6 +1874,9 @@
                     link: safeUrl(e.link),
                     banner: safeUrl(e.bannerUrl || e.banner),
                     dep: String(e.departureIcao || '').trim().toUpperCase(),
+                    // Set once the VA has published a group flight for this
+                    // event — the card then offers to watch the formation.
+                    groupCode: String(e.groupCode || '').trim(),
                     when
                 };
             })
@@ -1892,6 +2078,7 @@
                         <h4>Live Fleet</h4>
                         <span class="va-fleet-count">${fleet.length ? fleet.length + ' in the air' : ''}</span>
                     </div>
+                    <div class="va-group-slot"></div>
                     ${fleet.length
                         ? `<div class="va-fleet-grid">${fleetCards}</div>`
                         : `<div class="va-fleet-empty"><i class="fa-solid fa-plane-slash"></i>No ${esc(ad.name)} aircraft in the air right now — check back soon.</div>`}
@@ -1924,6 +2111,8 @@
                 a.setAttribute('data-va-ad-id', id);
             });
             if (roster && roster.pilots && roster.pilots.length) track(id, 'roster');
+            // Group-flight composer — only for the account that owns THIS VA.
+            renderGroupComposer(body.querySelector('.va-group-slot'), ad, fleet, evs);
 
             // Hydrate aircraft photos lazily: community shot for the exact
             // type+livery, else the type's Generic livery, else default art.
@@ -1936,6 +2125,154 @@
         } catch (e) {
             body.innerHTML = `<div class="va-partners-empty">Couldn't load this partner.</div>`;
         }
+    }
+
+    // Render the group-flight composer into the VA detail panel.
+    //
+    // Three states, decided by the backend's answer to "which VA does this
+    // account own":
+    //   • not signed in, or signed in and owns a DIFFERENT VA → render nothing.
+    //     The panel is a public directory entry; a stranger shouldn't see
+    //     publishing controls for someone else's airline.
+    //   • signed in, owns nothing yet → offer the one-click claim. This is the
+    //     only route a VA has into the feature, so it can't be omitted; it's
+    //     kept quiet because most signed-in pilots don't run a VA.
+    //   • owns this VA, fewer than two aircraft airborne → explain why the
+    //     button isn't there yet, rather than showing a dead control.
+    //   • owns this VA, formation in the air → select, title, publish.
+    async function renderGroupComposer(slot, ad, fleet, events) {
+        if (!slot) return;
+        const state = await ownerState();
+        if (!state.signedIn) return;
+
+        if (!state.va) {
+            slot.innerHTML = `
+                <div class="va-group-box is-claim">
+                    <p class="va-group-hint">
+                        Run ${esc(ad.name)}? Link this account with the email address on file for your
+                        partnership and you can publish group-flight links for your events.
+                    </p>
+                    <button type="button" class="va-group-claim"><i class="fa-solid fa-link"></i> Link my account</button>
+                    <p class="va-group-msg"></p>
+                </div>`;
+            const box = slot.querySelector('.va-group-box');
+            const btn = box.querySelector('.va-group-claim');
+            const msg = box.querySelector('.va-group-msg');
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                msg.textContent = 'Checking…';
+                const out = await claimVa();
+                if (out && out.ok) {
+                    // Re-render the panel so the composer replaces this prompt.
+                    msg.textContent = `Linked to ${out.va?.name || 'your VA'}.`;
+                    renderGroupComposer(slot, ad, fleet, events);
+                } else {
+                    btn.disabled = false;
+                    msg.textContent = (out && out.error) || 'Could not link your account.';
+                }
+            });
+            return;
+        }
+
+        const mine = state.va;
+        if (String(mine.id) !== String(ad.id)) return;
+
+        // Only the VA's own scheduled events can be attached, and only ones
+        // near enough in time to plausibly be the flight taking off now.
+        const soon = (events || []).filter((e) => {
+            const t = new Date(e.startsAt).getTime();
+            return Number.isFinite(t) && Math.abs(Date.now() - t) < 12 * 60 * 60 * 1000;
+        });
+
+        if (fleet.length < 2) {
+            slot.innerHTML = `
+                <div class="va-group-box">
+                    <div class="va-group-head">
+                        <i class="fa-solid fa-people-group"></i>
+                        <span>Group flight</span>
+                        <span class="va-group-owner">You manage ${esc(mine.name)}</span>
+                    </div>
+                    <p class="va-group-hint">Once at least two of your aircraft are airborne, select them here to publish one link people can watch the whole formation on.</p>
+                </div>`;
+            return;
+        }
+
+        slot.innerHTML = `
+            <div class="va-group-box">
+                <div class="va-group-head">
+                    <i class="fa-solid fa-people-group"></i>
+                    <span>Group flight</span>
+                    <span class="va-group-owner">You manage ${esc(mine.name)}</span>
+                </div>
+                <p class="va-group-hint">Pick the aircraft flying together, give it a title, and share one link.</p>
+                <div class="va-group-picks">
+                    ${fleet.map((f, i) => `
+                        <label class="va-group-pick">
+                            <input type="checkbox" data-group-idx="${i}" checked>
+                            <span class="va-group-cs">${esc(f.callsign)}</span>
+                            <span class="va-group-rt">${esc(f.dep)} → ${esc(f.arr)}</span>
+                        </label>`).join('')}
+                </div>
+                <input type="text" class="va-group-title" maxlength="90" placeholder="Event title — e.g. Transatlantic Friday">
+                ${soon.length ? `
+                <select class="va-group-event">
+                    <option value="">Don't attach to an event</option>
+                    ${soon.map((e) => `<option value="${esc(e.id)}">Attach to: ${esc(e.title)}</option>`).join('')}
+                </select>` : ''}
+                <button type="button" class="va-group-go"><i class="fa-solid fa-link"></i> Create group link</button>
+                <p class="va-group-msg"></p>
+            </div>`;
+
+        const box = slot.querySelector('.va-group-box');
+        const titleEl = box.querySelector('.va-group-title');
+        const eventEl = box.querySelector('.va-group-event');
+        const goEl = box.querySelector('.va-group-go');
+        const msgEl = box.querySelector('.va-group-msg');
+        // Pre-fill from an imminent event so the common case is one click.
+        if (soon.length && titleEl) titleEl.value = soon[0].title || '';
+
+        const selected = () => Array.from(box.querySelectorAll('[data-group-idx]'))
+            .filter((cb) => cb.checked)
+            .map((cb) => fleet[Number(cb.getAttribute('data-group-idx'))])
+            .filter(Boolean);
+
+        goEl.addEventListener('click', async () => {
+            const picks = selected();
+            const title = (titleEl.value || '').trim();
+            if (picks.length < 2) { msgEl.textContent = 'Pick at least two aircraft.'; return; }
+            if (!title) { msgEl.textContent = 'Give the group flight a title.'; return; }
+
+            goEl.disabled = true;
+            msgEl.textContent = 'Creating…';
+            const out = await publishGroupFlight(title, picks, eventEl ? eventEl.value : '');
+            goEl.disabled = false;
+
+            if (!out || !out.ok) {
+                msgEl.textContent = (out && out.error) || 'Could not create the link.';
+                return;
+            }
+            // Show the link and put it on the clipboard in one go — the whole
+            // point is pasting it somewhere else immediately.
+            box.querySelector('.va-group-result')?.remove();
+            const result = document.createElement('div');
+            result.className = 'va-group-result';
+            result.innerHTML = `
+                <input type="text" readonly value="${esc(out.shareUrl)}">
+                <button type="button" class="va-group-copy"><i class="fa-solid fa-copy"></i> Copy</button>`;
+            box.appendChild(result);
+            msgEl.textContent = `Live — ${out.count} aircraft.`;
+
+            const copy = async () => {
+                try {
+                    await navigator.clipboard.writeText(out.shareUrl);
+                    msgEl.textContent = 'Link copied — paste it wherever you like.';
+                } catch (e) {
+                    result.querySelector('input').select();
+                }
+            };
+            result.querySelector('.va-group-copy').addEventListener('click', copy);
+            copy();
+        });
     }
 
     function openPartners(adId) {
@@ -1988,6 +2325,25 @@
             const link = e.target.closest && e.target.closest('[data-va-link][data-va-ad-id]');
             if (link) track(link.getAttribute('data-va-ad-id'), link.getAttribute('data-va-link'), true);
         }, true);
+        // "Watch live" on an event card whose formation is airborne. Fetches the
+        // group and hands it to the map's group-watch view, closing the panel so
+        // the formation isn't hidden behind it.
+        document.addEventListener('click', async (e) => {
+            const btn = e.target.closest && e.target.closest('[data-group-code]');
+            if (!btn) return;
+            e.preventDefault();
+            const code = btn.getAttribute('data-group-code');
+            try {
+                const res = await fetch(`${GROUP_API}/api/group-flights/${encodeURIComponent(code)}`, {
+                    headers: { Accept: 'application/json' },
+                });
+                const data = await res.json();
+                if (data && data.ok && typeof window.watchGroupFlight === 'function') {
+                    closePartners();
+                    window.watchGroupFlight(data);
+                }
+            } catch (err) { /* a dead link just does nothing */ }
+        });
         // The simple flight window lives in an iframe and asks the host (here)
         // to open a partner when its badge is tapped.
         window.addEventListener('message', (e) => {
