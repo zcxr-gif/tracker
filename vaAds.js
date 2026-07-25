@@ -475,10 +475,24 @@
     let directory = null; // [{ code, ad }] sorted longest-code-first
     let allAds = [];      // every partner ad we pulled (used for hub lookups)
 
+    // How long to wait before retrying a directory load that came back empty.
+    // matchCallsign() calls loadDirectory() on the first flight that renders and
+    // then on every subsequent one until the cache warms, so a failed load must
+    // not turn into a request per flight per tick.
+    const DIRECTORY_RETRY_MS = 20000;
+    let directoryRetryAt = 0;
+
     function loadDirectory() {
         if (directoryPromise) return directoryPromise;
+        // A previous attempt failed and we're still inside its cooldown: hand
+        // back what we have rather than starting another request.
+        if (directoryRetryAt && Date.now() < directoryRetryAt) {
+            return Promise.resolve(directory || []);
+        }
+
         directoryPromise = (async () => {
             const all = [];
+            let failed = false;
             try {
                 // A few pages is plenty to cover the partner roster; bail early
                 // once we've seen the last page.
@@ -490,8 +504,25 @@
                     if (!pagination) break;
                 }
             } catch (e) {
-                // Keep whatever we managed to collect; matching just covers less.
+                failed = true;
             }
+
+            // Never cache an empty directory as if it were the answer.
+            //
+            // This used to memoize unconditionally, which meant one bad network
+            // moment at startup left `allAds` empty for the entire session: the
+            // VA filter pickers (desktop and mobile both read allPartners())
+            // painted "no virtual airlines" forever, while the Partners list
+            // kept working because it calls list() directly rather than going
+            // through the directory. Releasing the promise lets the next caller
+            // — a picker opening, or the next flight to render — try again.
+            if (failed || !all.length) {
+                directoryPromise = null;
+                directoryRetryAt = Date.now() + DIRECTORY_RETRY_MS;
+                return directory || [];
+            }
+
+            directoryRetryAt = 0;
             allAds = all;
             directory = all
                 .map((ad) => ({ code: vaCodeFromCallsign(ad.callsign), ad }))
