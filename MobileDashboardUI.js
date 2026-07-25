@@ -5018,11 +5018,13 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 background: var(--mdui-surface); color: var(--mdui-text); font-size: 15px;
             }
             /* grid-auto-rows/align-content are load-bearing, not tidiness: with
-               plain `auto` rows the cards (which are <button>s, and WebKit sizes
+               plain auto rows the cards (which are buttons, and WebKit sizes
                those badly as grid items) collapsed to thin strips — the 96px
                image shrank away and the labels were clipped by overflow:hidden.
                max-content rows size to the card, and start stops the grid
-               redistributing height across them. */
+               redistributing height across them.
+               NOTE: this whole stylesheet is a JS template literal — never use
+               a backtick or a dollar-brace in these comments. */
             .mdui-acpick-grid {
                 flex: 1; overflow-y: auto; display: grid;
                 grid-template-columns: repeat(2, 1fr); gap: 10px;
