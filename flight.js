@@ -22,10 +22,10 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
-import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
-
-installSlowConnectionMonitor();
+// The notification centre. Importing it registers window.InflightNotify, which
+// showNotification() below adapts the app's existing calls onto.
+import './notifications.js';
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -13724,19 +13724,22 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     };
 
     // --- Notifications ---
-    function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#27272a" }
-        }).showToast();
+    // Adapter for the app's long-standing showNotification(message, type) calls.
+    // The implementation behind it is now the in-app notification centre
+    // (notifications.js) rather than the Toastify CDN script, so every existing
+    // call site gets the new look, the swipe-to-dismiss and the repeat
+    // coalescing without being touched. Callers wanting a title, an action
+    // button or a sticky/updatable notice should use window.InflightNotify
+    // directly — see notifications.js.
+    function showNotification(message, type, opts) {
+        if (window.InflightNotify) return window.InflightNotify.notify(message, type || 'info', opts);
+        // Only reachable if this runs before the module registers itself.
+        console.log(`[notify:${type || 'info'}] ${message}`);
+        return { dismiss() {}, update() {} };
     }
 
     window.showGlobalNotification = showNotification;
+    window.showNotification = showNotification;
 
     // Traffic-tab filter chips (airport window): each chip HIDES its pilot-
     // state / phase group. The hide classes live on the tab container and the

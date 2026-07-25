@@ -4256,15 +4256,11 @@ if (this._activeTab === 'flight-plan') {
                 await this._supabase.auth.signOut();
                 cleanup();
                 if (typeof this.close === 'function') this.close();
-                if (window.Toastify) {
-                    window.Toastify({
-                        text: "Your account has been deleted.",
-                        duration: 5000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "#ef4444" }
-                    }).showToast();
-                }
+                // Account deletion is final and the UI it was triggered from
+                // is now gone, so this one is sticky until acknowledged.
+                window.InflightNotify?.notify('Your account has been deleted.', 'warning', {
+                    title: 'Account removed', timeout: 0,
+                });
             } catch (err) {
                 submitBtn.innerHTML = originalHtml;
                 submitBtn.disabled = false;
