@@ -20693,6 +20693,7 @@ function renderGroupWatchPanel() {
                     <p class="gw-sub">${esc(group.va?.name || 'Group flight')} · ${live.length}/${(group.aircraft || []).length} airborne</p>
                 </div>
             </div>
+            <button type="button" class="gw-collapse" id="gw-collapse" title="Collapse"><i class="fa-solid fa-chevron-down"></i></button>
             <button type="button" class="gw-close" id="gw-close" title="Leave group view"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="gw-actions">
@@ -20704,6 +20705,15 @@ function renderGroupWatchPanel() {
             ${gone.map(m => row(m, false)).join('')}
         </div>`;
 
+    // Collapsed state lives on the panel element and is re-applied after each
+    // re-render, so a 15-second roster refresh doesn't pop it back open.
+    if (activeGroupWatch.collapsed) panel.classList.add('is-collapsed');
+    panel.querySelector('#gw-collapse')?.addEventListener('click', () => {
+        activeGroupWatch.collapsed = !activeGroupWatch.collapsed;
+        panel.classList.toggle('is-collapsed', activeGroupWatch.collapsed);
+        const icon = panel.querySelector('#gw-collapse i');
+        if (icon) icon.className = activeGroupWatch.collapsed ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+    });
     panel.querySelector('#gw-close')?.addEventListener('click', exitGroupWatch);
     panel.querySelector('#gw-fit')?.addEventListener('click', () => fitMapToGroup(group));
     panel.querySelector('#gw-copy')?.addEventListener('click', async () => {
@@ -20731,7 +20741,7 @@ function ensureGroupWatchStyles() {
     style.id = 'group-watch-styles';
     style.textContent = `
         .group-watch-panel {
-            position: fixed; left: 16px; bottom: 16px; z-index: 1400;
+            position: fixed; left: 16px; bottom: 16px; z-index: 1600;
             width: min(340px, calc(100vw - 32px)); max-height: min(60vh, 520px);
             display: flex; flex-direction: column;
             background: rgba(16,18,24,0.92); backdrop-filter: blur(16px);
@@ -20771,8 +20781,27 @@ function ensureGroupWatchStyles() {
         .gw-landed { font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
                      letter-spacing: 0.04em; opacity: 0.6; }
         .gw-row i { opacity: 0.35; font-size: 0.7rem; }
+        /* Collapse control — the panel is a persistent overlay, so on a phone it
+           has to be possible to shrink it to a title bar and get the map back
+           without leaving the group entirely. */
+        .gw-collapse { display: none; background: none; border: 0; color: #e8ebf2;
+                       opacity: 0.6; cursor: pointer; font-size: 0.9rem; padding: 2px 4px; }
+        .gw-collapse:hover { opacity: 1; }
+        .group-watch-panel.is-collapsed .gw-actions,
+        .group-watch-panel.is-collapsed .gw-list { display: none; }
         @media (max-width: 640px) {
-            .group-watch-panel { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 45vh; }
+            .group-watch-panel {
+                left: 8px; right: 8px; width: auto; max-height: 42vh;
+                /* Clear the iOS landing tab bar the same way the app's own
+                   popovers do, rather than sitting behind it. */
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 72px);
+            }
+            .gw-collapse { display: block; }
+            .gw-head { padding: 10px 10px 6px; }
+            .gw-title { font-size: 0.88rem; }
+            /* Touch targets: the roster is the thing people actually poke at. */
+            .gw-row { padding: 11px 8px; }
+            .gw-btn { padding: 9px 8px; }
         }`;
     document.head.appendChild(style);
 }
@@ -20783,7 +20812,11 @@ function enterGroupWatch(group) {
     if (!group || !Array.isArray(group.aircraft) || !group.aircraft.length) return;
     ensureGroupWatchStyles();
     if (activeGroupWatch?.timer) clearInterval(activeGroupWatch.timer);
-    activeGroupWatch = { group, timer: null };
+    // Start collapsed on a phone: the formation is the thing worth looking at,
+    // and a 42vh roster over a small map buries it. The title bar stays, so it's
+    // one tap to bring the list back.
+    const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+    activeGroupWatch = { group, timer: null, collapsed: narrow };
 
     renderGroupWatchPanel();
     // The live feed may not have arrived yet on a cold load — frame once now and
@@ -24867,6 +24900,27 @@ function injectVaEventMarkerStyles() {
             border-color: rgba(52,211,153,0.85); background: rgba(6,26,20,0.9);
         }
         .va-event-marker.is-live .va-event-marker-when { color: #6ee7b7; opacity: 1; }
+        /* The app globally strips mapbox popups back to nothing —
+           transparent, no padding, and pointer-events:none so a hover card
+           can't block clicks on the aircraft behind it. This popup is the
+           opposite case: it has BUTTONS in it and must be clickable and
+           legible. Both are re-enabled, scoped to this popup's own class so
+           the global behaviour is untouched everywhere else. */
+        .mapboxgl-popup.va-event-popup { pointer-events: auto !important; }
+        .mapboxgl-popup.va-event-popup .mapboxgl-popup-content {
+            pointer-events: auto !important;
+            background: rgba(16,18,24,0.95) !important;
+            -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+            padding: 12px !important;
+            border-radius: 14px !important;
+            border: 1px solid rgba(255,255,255,0.13) !important;
+            box-shadow: 0 12px 34px rgba(0,0,0,0.5) !important;
+        }
+        .mapboxgl-popup.va-event-popup .mapboxgl-popup-close-button {
+            color: #e8ebf2; font-size: 18px; padding: 2px 7px; opacity: 0.6;
+            background: none; border: 0; right: 2px; top: 2px;
+        }
+        .mapboxgl-popup.va-event-popup .mapboxgl-popup-close-button:hover { opacity: 1; background: none; }
         .va-event-pop {
             font: 500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
             max-width: 260px; color: #e8ebf2;
@@ -24991,8 +25045,12 @@ function renderVaEventMarkers() {
                     </div>
                 </div>`;
 
-            const popup = new mapboxgl.Popup({ offset: 18, closeButton: true, maxWidth: '280px' })
-                .setHTML(popupHtml);
+            // className is what re-enables interaction and the dark card look
+            // (see the .va-event-popup rules) — without it the global popup
+            // reset would leave these buttons unclickable and unreadable.
+            const popup = new mapboxgl.Popup({
+                offset: 18, closeButton: true, maxWidth: '280px', className: 'va-event-popup',
+            }).setHTML(popupHtml);
 
             // Wire the popup's buttons once it is actually in the DOM — the
             // markup above is a string until Mapbox mounts it.

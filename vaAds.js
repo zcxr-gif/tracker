@@ -1188,6 +1188,21 @@
             }
             .va-group-claim:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
             .va-group-claim:disabled { opacity: 0.55; cursor: default; }
+
+            @media (max-width: 768px) {
+                /* iOS Safari zooms the whole page when a focused input's text is
+                   under 16px. The composer is used one-handed on a phone mid-
+                   event, so these have to be 16px or the map lurches on tap. */
+                .va-group-title, .va-group-event, .va-group-result input { font-size: 16px; padding: 10px 12px; }
+                /* Comfortable tap targets: one aircraft per row, taller rows,
+                   a full-width publish button and a bigger watch chip. */
+                .va-group-picks { grid-template-columns: 1fr; max-height: 200px; }
+                .va-group-pick { padding: 10px 10px; font-size: 0.8rem; }
+                .va-group-go { padding: 12px; font-size: 0.85rem; }
+                .va-group-claim { padding: 10px 14px; font-size: 0.8rem; }
+                .va-group-copy { padding: 0 16px; }
+                .va-event-watch { padding: 5px 11px; font-size: 0.72rem; margin-left: 8px; }
+            }
             .va-event-when { font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 3px; }
             .va-event-when i { color: #7dd3fc; margin-right: 5px; }
             .va-event-desc { font-size: 0.78rem; color: rgba(255,255,255,0.72); margin-top: 5px; line-height: 1.5; white-space: pre-wrap; }
