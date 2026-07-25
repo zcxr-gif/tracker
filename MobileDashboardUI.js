@@ -46,6 +46,13 @@ export const MobileDashboardUI = {
     _accent:            'azure',
     _bio:               '',
     _coverUrl:          '',
+    // Which partner VA the banner belongs to, when it came from one. This is
+    // what makes the banner FREE — a plane photo or a custom URL stays a Pro
+    // perk, wearing a VA's colours does not. Mirrors the desktop ProfileUI.
+    _coverVaId:         '',
+    _coverVaName:       '',
+    _vaBannerCatalog: null,
+    _vaBannerCatalogPromise: null,
 
     // Pro entitlement — false = free account (flagship tools locked, plain
     // banner). Optimistic until profiles.is_pro resolves so a paying pilot
@@ -265,6 +272,8 @@ init(supabaseClient) {
 
         this._bio       = user?.user_metadata?.pilot_bio || '';
         this._coverUrl  = user?.user_metadata?.cover_url || '';
+        this._coverVaId   = user?.user_metadata?.cover_va_id || '';
+        this._coverVaName = user?.user_metadata?.cover_va_name || '';
 
         // Pro entitlement — optimistic from the flag authUI stamps on the user
         // (or cached metadata), corrected by _fetchProStatus() below.
@@ -1073,7 +1082,7 @@ init(supabaseClient) {
         }
 
         // Pro pilots may back the hero with any aircraft image; free = plain.
-        const heroImg = (this._isPro && this._coverUrl) ? this._coverUrl.replace(/'/g, '&apos;') : '';
+        const heroImg = this._canShowBanner() ? this._coverUrl.replace(/'/g, '&apos;') : '';
         const heroStyle = heroImg ? `background-image:url('${heroImg}');background-size:cover;background-position:center right;` : '';
 
         return `
@@ -1290,15 +1299,22 @@ init(supabaseClient) {
 
         const initials = fullName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
         const grade = this._ifData?.stats?.gradeDetails?.gradeIndex;
-        // Custom banners are Pro-only; free accounts get the plain hero.
-        const hasCover = this._isPro && !!this._coverUrl;
+        // Plane photos and custom images are Pro; a partner VA's banner is free
+        // on every account (_canShowBanner).
+        const hasCover = this._canShowBanner();
         const coverBg = hasCover
             ? `<div class="mdui-dossier-hero-bg" style="background-image:url('${this._coverUrl.replace(/'/g, "&apos;")}')"></div><div class="mdui-dossier-hero-scrim"></div>`
+            : '';
+        // Name whose colours are being worn — the badge is what turns borrowed
+        // artwork into an affiliation.
+        const vaBadge = (hasCover && this._coverVaId)
+            ? `<div class="mdui-hero-va-badge"><i class="fa-solid fa-handshake-angle"></i><span>${this._fleetEsc(this._coverVaName || 'Partner VA')}</span></div>`
             : '';
 
         const heroHTML = `
             <div class="mdui-dossier-hero mdui-fade-up ${hasCover ? 'has-cover' : ''}">
                 ${coverBg}
+                ${vaBadge}
                 <div class="mdui-dossier-hero-row">
                     <div class="mdui-dossier-avatar">${initials}</div>
                     <div class="mdui-dossier-id">
@@ -1712,6 +1728,96 @@ init(supabaseClient) {
             })
             .catch(() => { this._aircraftCatalog = []; return []; });
         return this._aircraftCatalogPromise;
+    },
+
+    /**
+     * True when the banner may actually be painted. A partner VA's banner is
+     * free on every account; a plane photo or custom URL is Pro. One helper so
+     * the dashboard hero, the dossier hero and the settings preview agree.
+     */
+    _canShowBanner() {
+        return !!this._coverUrl && (this._isPro || !!this._coverVaId);
+    },
+
+    /** The partner VA directory as banner options — live, so future partners
+     *  appear with no code change. Only VAs with artwork are offered. */
+    async _fetchVaBannerCatalog() {
+        if (Array.isArray(this._vaBannerCatalog)) return this._vaBannerCatalog;
+        if (this._vaBannerCatalogPromise) return this._vaBannerCatalogPromise;
+        const backend = this._communityBackend
+            || window.APP_CONFIG?.communityBackendUrl
+            || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        // limit is capped at 100 server-side; asking for more just gets 100.
+        this._vaBannerCatalogPromise = fetch(`${backend}/api/va-ads?limit=100&status=approved`)
+            .then(r => (r.ok ? r.json() : []))
+            .then(payload => {
+                const arr = Array.isArray(payload) ? payload
+                    : (payload && Array.isArray(payload.data) ? payload.data : []);
+                const seen = new Set();
+                const list = arr.map(a => ({
+                    id: String(a.id || a._id || ''),
+                    name: a.name || 'Virtual Airline',
+                    tagline: a.tagline || '',
+                    banner: a.bannerUrl || a.banner || '',
+                })).filter(v => v.id && v.banner && !seen.has(v.id) && seen.add(v.id))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                this._vaBannerCatalog = list;
+                return list;
+            })
+            .catch(() => { this._vaBannerCatalog = []; return []; });
+        return this._vaBannerCatalogPromise;
+    },
+
+    /** Full-screen VA picker — free on every account. Reuses the aircraft
+     *  picker's sheet chrome so the two feel identical. */
+    async _openVaBannerPicker(onSelect) {
+        const esc = (s) => this._fleetEsc(s);
+        document.getElementById('mdui-acpick')?.remove();
+        const sheet = document.createElement('div');
+        sheet.id = 'mdui-acpick';
+        sheet.className = 'mdui-acpick';
+        sheet.innerHTML = `
+            <div class="mdui-acpick-head">
+                <h3>Fly a VA's colours</h3>
+                <button class="mdui-acpick-close" id="mdui-acpick-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="mdui-vapick-note"><i class="fa-solid fa-gift"></i> Free on every account — no Pro needed.</p>
+            <input type="text" id="mdui-acpick-search" class="mdui-acpick-search" placeholder="Search virtual airlines…" autocomplete="off">
+            <div class="mdui-acpick-grid" id="mdui-acpick-grid"><div class="mdui-acpick-loading"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading partner VAs…</div></div>`;
+        document.body.appendChild(sheet);
+        requestAnimationFrame(() => sheet.classList.add('open'));
+
+        const cleanup = () => { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 200); };
+        sheet.querySelector('#mdui-acpick-close')?.addEventListener('click', cleanup);
+
+        const grid = sheet.querySelector('#mdui-acpick-grid');
+        const catalog = await this._fetchVaBannerCatalog();
+        const render = (items) => {
+            if (!items.length) {
+                grid.innerHTML = `<div class="mdui-acpick-loading">No partner VAs match that search.</div>`;
+                return;
+            }
+            grid.innerHTML = items.slice(0, 300).map((v, i) => `
+                <button type="button" class="mdui-acpick-card" data-idx="${i}">
+                    <span class="mdui-acpick-img" style="background-image:url('${String(v.banner).replace(/'/g, '&apos;')}')"></span>
+                    <span class="mdui-acpick-type">${esc(v.name)}</span>
+                    <span class="mdui-acpick-livery">${esc(v.tagline || 'Partner VA')}</span>
+                </button>`).join('');
+            grid.querySelectorAll('.mdui-acpick-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const v = items[parseInt(card.dataset.idx, 10)];
+                    if (v && typeof onSelect === 'function') onSelect(v);
+                    cleanup();
+                });
+            });
+        };
+        render(catalog);
+        const search = sheet.querySelector('#mdui-acpick-search');
+        search?.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            render(!q ? catalog : catalog.filter(v =>
+                v.name.toLowerCase().includes(q) || v.tagline.toLowerCase().includes(q)));
+        });
     },
 
     /** Full-screen aircraft picker — any aircraft in our DB as a banner. */
@@ -2811,25 +2917,31 @@ init(supabaseClient) {
                           <span class="mdui-form-line-control">
                               <input type="url" id="mdui-edit-cover" placeholder="Plane or your own image URL" value="${(this._coverUrl || '').replace(/"/g, '&quot;')}">
                           </span>
-                      </div>` : `
-                      <div class="mdui-form-line mdui-form-line-locked">
-                          <span class="mdui-form-line-label"><i class="fa-solid fa-lock"></i> Banner</span>
-                          <span class="mdui-form-line-control mdui-form-line-note">Plain banner on Free. <a data-action="upgrade-pro">Upgrade to Pro</a> for a plane photo or your own image.</span>
-                      </div>`}
+                      </div>` : ''}
                   </div>
               </div>
-              ${this._isPro ? `
+              <!-- Banner. No longer Pro-gated as a whole: a partner VA's
+                   artwork is free on every account, so the section always
+                   renders and only the aircraft/URL routes stay behind Pro. -->
               <div class="mdui-section">
                   <div class="mdui-section-title">Banner</div>
-                  <div class="mdui-banner-preview ${this._coverUrl ? '' : 'is-plain'}" id="mdui-banner-preview"
-                       style="${this._coverUrl ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}')` : ''}">
+                  <div class="mdui-banner-preview ${this._canShowBanner() ? '' : 'is-plain'}" id="mdui-banner-preview"
+                       style="${this._canShowBanner() ? `background-image:url('${(this._coverUrl || '').replace(/'/g, '&apos;').replace(/"/g, '&quot;')}')` : ''}">
                       <span class="mdui-banner-preview-empty">Plain banner</span>
                   </div>
+                  <p class="mdui-banner-va-note" id="mdui-banner-va-note" style="${this._coverVaId ? '' : 'display:none'}">
+                      <i class="fa-solid fa-handshake-angle"></i>
+                      Flying <strong>${this._fleetEsc(this._coverVaName || 'a partner VA')}</strong>'s colours
+                  </p>
                   <div class="mdui-banner-actions">
-                      <button type="button" class="mdui-btn mdui-btn-secondary" id="mdui-choose-aircraft"><i class="fa-solid fa-plane"></i> Choose aircraft</button>
+                      <button type="button" class="mdui-btn mdui-btn-secondary" id="mdui-choose-va">
+                          <i class="fa-solid fa-handshake-angle"></i> Choose VA <span class="mdui-free-tag">Free</span>
+                      </button>
+                      ${this._isPro ? `<button type="button" class="mdui-btn mdui-btn-secondary" id="mdui-choose-aircraft"><i class="fa-solid fa-plane"></i> Choose aircraft</button>` : ''}
                       <button type="button" class="mdui-btn mdui-btn-ghost" id="mdui-banner-plain"><i class="fa-solid fa-ban"></i> Plain</button>
                   </div>
-              </div>` : ''}
+                  ${this._isPro ? '' : `<p class="mdui-banner-hint">Partner VA banners are free. <a data-action="upgrade-pro">Upgrade to Pro</a> for a plane photo or your own image.</p>`}
+              </div>
 
               <!-- Appearance -->
               <div class="mdui-section">
@@ -3735,24 +3847,56 @@ _attachListeners() {
                 });
             });
 
-            // Banner (Pro) — aircraft picker, plain, or own URL. Chosen URL
-            // lands in #mdui-edit-cover and is persisted with the form on Save.
+            // Banner — VA picker (free), aircraft picker / own URL (Pro), or
+            // plain. #mdui-edit-cover only exists for Pro, so the pending choice
+            // is staged on `this` and read back on Save; that way a free pilot's
+            // VA pick survives without a text field to hold it.
             const mCoverInput = document.getElementById('mdui-edit-cover');
             const mPreview = document.getElementById('mdui-banner-preview');
+            this._pendingCover  = this._coverUrl;
+            this._pendingVaId   = this._coverVaId;
+            this._pendingVaName = this._coverVaName;
+
             const mSync = () => {
-                if (!mPreview) return;
-                const val = (mCoverInput?.value || '').trim();
-                if (val) { mPreview.style.backgroundImage = `url('${val.replace(/'/g, '&apos;')}')`; mPreview.classList.remove('is-plain'); }
-                else { mPreview.style.backgroundImage = ''; mPreview.classList.add('is-plain'); }
+                if (mPreview) {
+                    const val = (this._pendingCover || '').trim();
+                    if (val) { mPreview.style.backgroundImage = `url('${val.replace(/'/g, '&apos;')}')`; mPreview.classList.remove('is-plain'); }
+                    else { mPreview.style.backgroundImage = ''; mPreview.classList.add('is-plain'); }
+                }
+                const note = document.getElementById('mdui-banner-va-note');
+                if (note) {
+                    note.style.display = this._pendingVaId ? '' : 'none';
+                    const strong = note.querySelector('strong');
+                    if (strong && this._pendingVaName) strong.textContent = this._pendingVaName;
+                }
             };
-            mCoverInput?.addEventListener('input', mSync);
+            // Typing a URL by hand is a custom banner — it stops being a VA one.
+            mCoverInput?.addEventListener('input', () => {
+                this._pendingCover  = (mCoverInput.value || '').trim();
+                this._pendingVaId   = '';
+                this._pendingVaName = '';
+                mSync();
+            });
             document.getElementById('mdui-banner-plain')?.addEventListener('click', () => {
                 if (mCoverInput) mCoverInput.value = '';
+                this._pendingCover = ''; this._pendingVaId = ''; this._pendingVaName = '';
                 mSync();
+            });
+            document.getElementById('mdui-choose-va')?.addEventListener('click', () => {
+                this._openVaBannerPicker((va) => {
+                    if (mCoverInput) mCoverInput.value = va.banner || '';
+                    this._pendingCover  = va.banner || '';
+                    this._pendingVaId   = va.id || '';
+                    this._pendingVaName = va.name || '';
+                    mSync();
+                });
             });
             document.getElementById('mdui-choose-aircraft')?.addEventListener('click', () => {
                 this._openAircraftPicker((url) => {
                     if (mCoverInput) mCoverInput.value = url || '';
+                    this._pendingCover  = url || '';
+                    this._pendingVaId   = '';   // a plane photo is not an affiliation
+                    this._pendingVaName = '';
                     mSync();
                 });
             });
@@ -3763,7 +3907,17 @@ _attachListeners() {
                 // Free accounts have no tagline/banner fields — preserve any
                 // stored values so they return intact if they upgrade to Pro.
                 const newBio        = this._isPro ? (document.getElementById('mdui-edit-bio')?.value.trim() || '') : this._bio;
-                const newCover      = this._isPro ? (document.getElementById('mdui-edit-cover')?.value.trim() || '') : this._coverUrl;
+                // Banner: read the STAGED choice, since a free account has no
+                // text field. A free account can only save a VA banner, so one
+                // without a VA identity falls back to what was already stored.
+                let newCover        = this._pendingCover ?? this._coverUrl;
+                let newVaId         = this._pendingVaId ?? this._coverVaId;
+                let newVaName       = this._pendingVaName ?? this._coverVaName;
+                if (!this._isPro && newCover && !newVaId) {
+                    newCover  = this._coverUrl;
+                    newVaId   = this._coverVaId;
+                    newVaName = this._coverVaName;
+                }
                 const newPassword   = document.getElementById('mdui-edit-pw')?.value;
                 const btn           = document.getElementById('mdui-save-btn');
                 const msgDiv        = document.getElementById('mdui-settings-msg');
@@ -3774,11 +3928,18 @@ _attachListeners() {
                     theme: this._theme, 
                     accent_color: this._accent,
                     pilot_bio: newBio,
-                    cover_url: newCover
+                    cover_url: (newCover || '').slice(0, 500),
+                    // Which VA the banner belongs to — blank for a plane photo,
+                    // a custom URL, or plain. Persisted with the image because
+                    // it is what keeps the banner visible on a free account.
+                    cover_va_id: (newVaId || '').slice(0, 40),
+                    cover_va_name: (newVaName || '').slice(0, 80)
                 }};
-                
+
                 this._bio = newBio;
-                this._coverUrl = newCover;
+                this._coverUrl = updates.data.cover_url;
+                this._coverVaId = updates.data.cover_va_id;
+                this._coverVaName = updates.data.cover_va_name;
 
                 if (newPassword) updates.password = newPassword;
 
@@ -3890,15 +4051,11 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 await this._supabase.auth.signOut();
                 cleanup();
                 this.close();
-                if (window.Toastify) {
-                    window.Toastify({
-                        text: "Your account has been deleted.",
-                        duration: 5000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "#ef4444" }
-                    }).showToast();
-                }
+                // Account deletion is final and the UI it was triggered from
+                // is now gone, so this one is sticky until acknowledged.
+                window.InflightNotify?.notify('Your account has been deleted.', 'warning', {
+                    title: 'Account removed', timeout: 0,
+                });
             } catch (err) {
                 submitBtn.innerHTML = originalHtml;
                 submitBtn.disabled = false;
@@ -4801,8 +4958,39 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                     linear-gradient(135deg, var(--mdui-surface) 0%, transparent 100%);
             }
             .mdui-banner-preview.is-plain .mdui-banner-preview-empty { display: block; }
-            .mdui-banner-actions { display: flex; gap: 10px; }
-            .mdui-banner-actions .mdui-btn { flex: 1; }
+            .mdui-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+            .mdui-banner-actions .mdui-btn { flex: 1; min-width: 130px; }
+            /* "Free" chip — the whole point is that this banner route costs
+               nothing, so the button says so. */
+            .mdui-free-tag {
+                margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+                background: rgba(52,199,89,0.16); color: #34c759;
+                font-size: 10px; font-weight: 800; text-transform: uppercase;
+            }
+            .mdui-banner-va-note {
+                margin: 8px 0 0; font-size: 12.5px; font-weight: 600;
+                color: var(--mdui-text-2, #71717a); display: flex; align-items: center; gap: 6px;
+            }
+            .mdui-banner-va-note strong { color: var(--mdui-text); }
+            .mdui-banner-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--mdui-text-2, #71717a); }
+            .mdui-vapick-note {
+                margin: 0 0 12px; padding: 8px 12px; border-radius: 10px;
+                background: rgba(52,199,89,0.10); border: 1px solid rgba(52,199,89,0.22);
+                color: var(--mdui-text-2, #71717a); font-size: 12.5px; font-weight: 600;
+                display: flex; align-items: center; gap: 8px;
+            }
+            .mdui-vapick-note i { color: #34c759; }
+            /* Affiliation badge over the mobile dossier hero. */
+            .mdui-hero-va-badge {
+                position: absolute; top: 10px; right: 10px; z-index: 3;
+                display: inline-flex; align-items: center; gap: 5px;
+                padding: 4px 9px; border-radius: 999px; max-width: 62%;
+                background: rgba(0,0,0,0.55); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.16);
+                color: #fff; font-size: 11px; font-weight: 700;
+            }
+            .mdui-hero-va-badge span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mdui-hero-va-badge i { font-size: 10px; opacity: 0.85; }
 
             .mdui-acpick {
                 position: fixed; inset: 0; z-index: 120;
@@ -4825,7 +5013,19 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 border: 0.5px solid var(--mdui-border-light);
                 background: var(--mdui-surface); color: var(--mdui-text); font-size: 15px;
             }
-            .mdui-acpick-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            /* grid-auto-rows/align-content are load-bearing, not tidiness: with
+               plain auto rows the cards (which are buttons, and WebKit sizes
+               those badly as grid items) collapsed to thin strips — the 96px
+               image shrank away and the labels were clipped by overflow:hidden.
+               max-content rows size to the card, and start stops the grid
+               redistributing height across them.
+               NOTE: this whole stylesheet is a JS template literal — never use
+               a backtick or a dollar-brace in these comments. */
+            .mdui-acpick-grid {
+                flex: 1; overflow-y: auto; display: grid;
+                grid-template-columns: repeat(2, 1fr); gap: 10px;
+                grid-auto-rows: max-content; align-content: start;
+            }
             .mdui-acpick-loading { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--mdui-muted); font-size: 14px; }
             .mdui-acpick-card {
                 display: flex; flex-direction: column; gap: 3px; padding: 0 0 8px;
@@ -4833,7 +5033,14 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 border-radius: 14px; overflow: hidden; text-align: left; color: var(--mdui-text);
             }
             .mdui-acpick-card:active { transform: scale(0.97); }
-            .mdui-acpick-img { height: 96px; background-size: cover; background-position: center; background-color: var(--mdui-border-light); margin-bottom: 6px; }
+            /* flex-shrink:0 is the other half of the fix above — as a flex item
+               the image defaults to shrinkable, so anything that squeezes the
+               card squeezes the picture to nothing rather than overflowing. */
+            .mdui-acpick-img {
+                flex: 0 0 96px; height: 96px; min-height: 96px; width: 100%;
+                background-size: cover; background-position: center;
+                background-color: var(--mdui-border-light); margin-bottom: 6px;
+            }
             .mdui-acpick-type { font-size: 14px; font-weight: 700; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .mdui-acpick-livery { font-size: 11.5px; color: var(--mdui-muted); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

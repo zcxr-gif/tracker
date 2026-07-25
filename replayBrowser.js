@@ -40,11 +40,8 @@
   }
 
   function toast(msg, type) {
-    if (window.Toastify) {
-      window.Toastify({
-        text: msg, duration: 3800, gravity: 'bottom', position: 'center', close: true,
-        style: { background: type === 'error' ? 'linear-gradient(135deg,#b91c1c,#7f1d1d)' : 'linear-gradient(135deg,#0e7490,#155e75)', borderRadius: '10px' }
-      }).showToast();
+    if (window.InflightNotify) {
+      window.InflightNotify.notify(msg, type === 'error' ? 'error' : 'info', { title: 'Replays' });
     } else {
       (type === 'error' ? console.error : console.log)('[Replays] ' + msg);
     }

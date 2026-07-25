@@ -452,7 +452,12 @@ export const MobileSettingsUI = {
                             <div class="mobile-section-header">Virtual Airlines</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('showVaHubMarkers', 'VA Hub Markers', 'fa-handshake-angle')}
+                                ${this.renderToggle('showVaEventMarkers', 'VA Events on Map', 'fa-calendar-day')}
                             </div>
+                            <p class="m-settings-note">
+                                Pin partner VA events on their departure airport with a countdown. Tap a pin
+                                for details — and once the group has taken off, to watch the whole formation.
+                            </p>
 
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">
@@ -1820,6 +1825,9 @@ export const MobileSettingsUI = {
                 // VA hub markers aren't a map-filter layer, so refresh their
                 // dedicated DOM marker layer directly when toggled.
                 if (setting === 'showVaHubMarkers' && window.renderVaHubMarkers) window.renderVaHubMarkers();
+                // Same for the VA event pins — its own DOM marker layer, so it
+                // refreshes itself rather than going through updateMapFilters.
+                if (setting === 'showVaEventMarkers' && window.renderVaEventMarkers) window.renderVaEventMarkers();
                 if (window.updateMapFilters) window.updateMapFilters();
                 // Persist the change so it survives a reload (desktop toggles
                 // already do this; updateMapFilters() itself does not save).
@@ -2306,6 +2314,11 @@ export const MobileSettingsUI = {
 
                 .mobile-section-header { padding: 16px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
                 .mobile-section-header.pro-accent { color: #fbbf24; display: flex; align-items: center; gap: 6px; }
+                /* Explanatory line under a settings group — matches the helper
+                   text the desktop settings panel puts under the same toggles. */
+                .m-settings-note {
+                    margin: 8px 20px 0; font-size: 0.75rem; line-height: 1.5; color: #71717a;
+                }
 
                 .settings-mobile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 20px; }
                 .m-setting-pill {

@@ -22,10 +22,10 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
-import { installSlowConnectionMonitor } from './slowConnectionMonitor.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
-
-installSlowConnectionMonitor();
+// The notification centre. Importing it registers window.InflightNotify, which
+// showNotification() below adapts the app's existing calls onto.
+import './notifications.js';
 
 console.log(
     "%cInflight %cdesigned by and property of _Servernoob",
@@ -1085,6 +1085,10 @@ let mapFilters = {
         // Opt-in: drop partner VA logos on their hub airports on the live map.
         // Off by default; toggled from Settings → VA. See renderVaHubMarkers().
         showVaHubMarkers: false,
+        // Opt-in: pin partner VA events on their departure airport, so an event
+        // about to go out is visible on the map instead of buried in a panel.
+        // Off by default — the map is busy enough. See renderVaEventMarkers().
+        showVaEventMarkers: false,
         showGroupFlights: false,
         showUnstaffedAirports: false,
         showStaffOnly: false,
@@ -8741,6 +8745,7 @@ if (typeof window !== 'undefined') {
     const consumeArrivalParams = () => {
         consumeShareLinkParam();
         consumeReplayLinkParam();
+        consumeGroupLinkParam();
     };
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         // Defer one tick so the rest of the bootstrap finishes wiring.
@@ -13719,19 +13724,22 @@ async function createAirportInfoWindowHTML(icao, requestId) {
     };
 
     // --- Notifications ---
-    function showNotification(message, type) {
-        Toastify({
-            text: message,
-            duration: 3000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            stopOnFocus: true,
-            style: { background: type === 'success' ? "#28a745" : type === 'error' ? "#dc3545" : "#27272a" }
-        }).showToast();
+    // Adapter for the app's long-standing showNotification(message, type) calls.
+    // The implementation behind it is now the in-app notification centre
+    // (notifications.js) rather than the Toastify CDN script, so every existing
+    // call site gets the new look, the swipe-to-dismiss and the repeat
+    // coalescing without being touched. Callers wanting a title, an action
+    // button or a sticky/updatable notice should use window.InflightNotify
+    // directly — see notifications.js.
+    function showNotification(message, type, opts) {
+        if (window.InflightNotify) return window.InflightNotify.notify(message, type || 'info', opts);
+        // Only reachable if this runs before the module registers itself.
+        console.log(`[notify:${type || 'info'}] ${message}`);
+        return { dismiss() {}, update() {} };
     }
 
     window.showGlobalNotification = showNotification;
+    window.showNotification = showNotification;
 
     // Traffic-tab filter chips (airport window): each chip HIDES its pilot-
     // state / phase group. The hide classes live on the tab container and the
@@ -17146,6 +17154,15 @@ renderCategory(catId) {
                                 Show partner virtual airlines' logos pinned to their hub airports on the
                                 live map. Tap a logo to view that VA. Off by default.
                             </p>
+                            <div class="settings-row" style="margin-top: 14px;">
+                                <div class="row-label"><i class="fa-solid fa-calendar-day"></i> VA Events on Map</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-va-event-markers" ${mapFilters.showVaEventMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <p style="margin: 8px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
+                                Pin partner VA events on their departure airport, with a countdown. Tap a pin
+                                for the details — and once the group has taken off, to watch the whole
+                                formation live. Off by default.
+                            </p>
                         </div>
 
                         <div class="settings-section">
@@ -17374,6 +17391,17 @@ renderCategory(catId) {
                 mapFilters.showVaHubMarkers = e.target.checked;
                 saveFiltersToLocalStorage();
                 if (typeof renderVaHubMarkers === 'function') renderVaHubMarkers();
+            });
+        }
+
+        // VA event pins — same story as the hub markers: its own marker layer,
+        // so it refreshes itself rather than going through updateMapFilters.
+        const vaEventToggle = document.getElementById('set-va-event-markers');
+        if (vaEventToggle) {
+            vaEventToggle.addEventListener('change', (e) => {
+                mapFilters.showVaEventMarkers = e.target.checked;
+                saveFiltersToLocalStorage();
+                if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
             });
         }
 
@@ -20536,6 +20564,325 @@ if (typeof window !== 'undefined') {
     // Partners tab uses it to show each VA's live fleet).
     window.getLiveMapFeatures = () => currentMapFeatures;
     window.closeAircraftWindow = closeAircraftWindow;
+    // The signed-in pilot's Supabase access token, for backend calls that must
+    // prove who the caller is (VA ownership, publishing a group flight). Handed
+    // out rather than the client itself so non-module scripts can't do anything
+    // else with the session. Resolves to null when nobody is signed in.
+    window.getInflightAccessToken = async () => {
+        try {
+            const { data } = await supabase.auth.getSession();
+            return data?.session?.access_token || null;
+        } catch (_) { return null; }
+    };
+    // The server the map is currently showing — stamped onto a published group
+    // so a viewer arriving from the link is switched to it before we go looking.
+    window.getCurrentServerName = () => (typeof currentServerName !== 'undefined' ? currentServerName : '');
+    // Frame a set of live flights together and light them up as one formation.
+    window.watchGroupFlight = (group) => enterGroupWatch(group);
+}
+
+/* =========================================================================
+ * GROUP FLIGHT WATCH MODE
+ *
+ * A VA publishes a formation as one short link (?g=<code>). Opening it should
+ * not dump the viewer onto a random aircraft — it should show them the whole
+ * group at once: every member framed in one view, connected, and listed so any
+ * one of them can be opened normally.
+ *
+ * The group's aircraft are re-found in the LIVE feed by flightId, so this is a
+ * real view of where they are now, not a replay. The snapshot stored with the
+ * link is only used for labels (and to say "this one has landed") when a member
+ * is no longer flying.
+ * ========================================================================= */
+
+let activeGroupWatch = null;
+
+// Pull the group's members out of the live feed. Returns both what's still
+// flying and what isn't, so the roster can be honest about a formation that has
+// started to land rather than silently shrinking.
+function resolveGroupMembers(group) {
+    const live = [];
+    const gone = [];
+    for (const member of (group.aircraft || [])) {
+        const feature = currentMapFeatures[member.flightId];
+        if (feature && feature.properties) live.push({ ...member, feature });
+        else gone.push(member);
+    }
+    return { live, gone };
+}
+
+// Frame every live member in one view. Falls back to the published positions
+// when nothing has been found live yet (the feed may not have arrived), so the
+// map still goes somewhere useful instead of sitting on the default view.
+function fitMapToGroup(group) {
+    const pts = [];
+    const { live } = resolveGroupMembers(group);
+    for (const m of live) {
+        const pos = (() => {
+            try { return JSON.parse(m.feature.properties.position); }
+            catch (_) { return m.feature.properties.position; }
+        })() || {};
+        const lat = pos.lat ?? pos.latitude;
+        const lon = pos.lon ?? pos.longitude;
+        if (typeof lat === 'number' && typeof lon === 'number') pts.push([lon, lat]);
+    }
+    if (!pts.length) {
+        for (const m of (group.aircraft || [])) {
+            if (m.position && typeof m.position.lat === 'number') pts.push([m.position.lon, m.position.lat]);
+        }
+    }
+    if (!pts.length || typeof map === 'undefined' || !map) return;
+
+    let minLon = pts[0][0], maxLon = pts[0][0], minLat = pts[0][1], maxLat = pts[0][1];
+    for (const [lon, lat] of pts) {
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+    }
+    try {
+        if (pts.length === 1) {
+            map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 6), duration: 900 });
+        } else {
+            map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 120, maxZoom: 8, duration: 1100 });
+        }
+    } catch (err) {
+        console.warn('fitMapToGroup failed:', err);
+    }
+}
+
+// The roster panel. Deliberately plain DOM (no framework, no template engine)
+// because it has to survive being injected into whatever chrome the app is
+// already showing.
+function renderGroupWatchPanel() {
+    if (!activeGroupWatch) return;
+    const group = activeGroupWatch.group;
+    const { live, gone } = resolveGroupMembers(group);
+
+    let panel = document.getElementById('group-watch-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'group-watch-panel';
+        panel.className = 'group-watch-panel';
+        document.body.appendChild(panel);
+    }
+
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    const row = (m, isLive) => {
+        const p = m.feature?.properties || {};
+        const dep = p.departureIcao || m.dep || '????';
+        const arr = p.arrivalIcao || m.arr || '????';
+        return `
+            <button type="button" class="gw-row${isLive ? '' : ' is-gone'}" data-flight-id="${esc(m.flightId)}"
+                    ${isLive ? '' : 'disabled'} title="${isLive ? 'Open this flight' : 'No longer flying'}">
+                <span class="gw-dot${isLive ? '' : ' off'}"></span>
+                <span class="gw-row-main">
+                    <span class="gw-callsign">${esc(p.callsign || m.callsign || '—')}</span>
+                    <span class="gw-meta">${esc(dep)} → ${esc(arr)}${m.aircraft ? ' · ' + esc(m.aircraft) : ''}</span>
+                </span>
+                ${isLive ? '<i class="fa-solid fa-chevron-right"></i>' : '<span class="gw-landed">landed</span>'}
+            </button>`;
+    };
+
+    panel.innerHTML = `
+        <div class="gw-head">
+            <div class="gw-title-wrap">
+                ${group.va?.logo ? `<img class="gw-logo" src="${esc(group.va.logo)}" alt="" onerror="this.remove()">` : ''}
+                <div>
+                    <p class="gw-title">${esc(group.title)}</p>
+                    <p class="gw-sub">${esc(group.va?.name || 'Group flight')} · ${live.length}/${(group.aircraft || []).length} airborne</p>
+                </div>
+            </div>
+            <button type="button" class="gw-collapse" id="gw-collapse" title="Collapse"><i class="fa-solid fa-chevron-down"></i></button>
+            <button type="button" class="gw-close" id="gw-close" title="Leave group view"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="gw-actions">
+            <button type="button" class="gw-btn" id="gw-fit"><i class="fa-solid fa-expand"></i> Frame all</button>
+            <button type="button" class="gw-btn" id="gw-copy"><i class="fa-solid fa-link"></i> Copy link</button>
+        </div>
+        <div class="gw-list">
+            ${live.map(m => row(m, true)).join('')}
+            ${gone.map(m => row(m, false)).join('')}
+        </div>`;
+
+    // Collapsed state lives on the panel element and is re-applied after each
+    // re-render, so a 15-second roster refresh doesn't pop it back open.
+    if (activeGroupWatch.collapsed) panel.classList.add('is-collapsed');
+    panel.querySelector('#gw-collapse')?.addEventListener('click', () => {
+        activeGroupWatch.collapsed = !activeGroupWatch.collapsed;
+        panel.classList.toggle('is-collapsed', activeGroupWatch.collapsed);
+        const icon = panel.querySelector('#gw-collapse i');
+        if (icon) icon.className = activeGroupWatch.collapsed ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+    });
+    panel.querySelector('#gw-close')?.addEventListener('click', exitGroupWatch);
+    panel.querySelector('#gw-fit')?.addEventListener('click', () => fitMapToGroup(group));
+    panel.querySelector('#gw-copy')?.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(group.shareUrl || window.location.href);
+            if (typeof showNotification === 'function') showNotification('Group flight link copied.', 'success');
+        } catch (_) { /* clipboard blocked — the URL is in the address bar anyway */ }
+    });
+    panel.querySelectorAll('.gw-row[data-flight-id]').forEach(el => {
+        el.addEventListener('click', () => {
+            const m = live.find(x => x.flightId === el.getAttribute('data-flight-id'));
+            if (!m) return;
+            try {
+                const props = m.feature.properties;
+                const parse = (v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return v; } };
+                handleAircraftClick({ ...props, position: parse(props.position), aircraft: parse(props.aircraft) });
+            } catch (err) { console.warn('group row open failed:', err); }
+        });
+    });
+}
+
+function ensureGroupWatchStyles() {
+    if (document.getElementById('group-watch-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'group-watch-styles';
+    style.textContent = `
+        .group-watch-panel {
+            position: fixed; left: 16px; bottom: 16px; z-index: 1600;
+            width: min(340px, calc(100vw - 32px)); max-height: min(60vh, 520px);
+            display: flex; flex-direction: column;
+            background: rgba(16,18,24,0.92); backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+            box-shadow: 0 18px 48px rgba(0,0,0,0.45); color: #e8ebf2;
+            font: 500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+            overflow: hidden;
+        }
+        .gw-head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 8px; }
+        .gw-title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+        .gw-logo { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+        .gw-title { margin: 0; font-weight: 800; font-size: 0.95rem; line-height: 1.2;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gw-sub { margin: 2px 0 0; font-size: 0.72rem; opacity: 0.62; }
+        .gw-close { background: none; border: 0; color: #e8ebf2; opacity: 0.6; cursor: pointer;
+                    font-size: 0.95rem; padding: 2px 4px; }
+        .gw-close:hover { opacity: 1; }
+        .gw-actions { display: flex; gap: 8px; padding: 0 12px 10px; }
+        .gw-btn { flex: 1; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.10);
+                  color: #e8ebf2; border-radius: 9px; padding: 6px 8px; font-size: 0.75rem;
+                  font-weight: 700; cursor: pointer; }
+        .gw-btn:hover { background: rgba(255,255,255,0.14); }
+        .gw-list { overflow-y: auto; padding: 0 8px 10px; }
+        .gw-row { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+                  background: none; border: 0; color: inherit; cursor: pointer;
+                  padding: 8px 8px; border-radius: 10px; }
+        .gw-row:hover:not(:disabled) { background: rgba(255,255,255,0.07); }
+        .gw-row:disabled { cursor: default; opacity: 0.45; }
+        .gw-row-main { min-width: 0; flex: 1; }
+        .gw-callsign { display: block; font-weight: 700; font-size: 0.82rem;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gw-meta { display: block; font-size: 0.71rem; opacity: 0.6;
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gw-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; flex-shrink: 0;
+                  box-shadow: 0 0 0 3px rgba(52,211,153,0.18); }
+        .gw-dot.off { background: #6b7280; box-shadow: none; }
+        .gw-landed { font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+                     letter-spacing: 0.04em; opacity: 0.6; }
+        .gw-row i { opacity: 0.35; font-size: 0.7rem; }
+        /* Collapse control — the panel is a persistent overlay, so on a phone it
+           has to be possible to shrink it to a title bar and get the map back
+           without leaving the group entirely. */
+        .gw-collapse { display: none; background: none; border: 0; color: #e8ebf2;
+                       opacity: 0.6; cursor: pointer; font-size: 0.9rem; padding: 2px 4px; }
+        .gw-collapse:hover { opacity: 1; }
+        .group-watch-panel.is-collapsed .gw-actions,
+        .group-watch-panel.is-collapsed .gw-list { display: none; }
+        @media (max-width: 640px) {
+            .group-watch-panel {
+                left: 8px; right: 8px; width: auto; max-height: 42vh;
+                /* Clear the iOS landing tab bar the same way the app's own
+                   popovers do, rather than sitting behind it. */
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 72px);
+            }
+            .gw-collapse { display: block; }
+            .gw-head { padding: 10px 10px 6px; }
+            .gw-title { font-size: 0.88rem; }
+            /* Touch targets: the roster is the thing people actually poke at. */
+            .gw-row { padding: 11px 8px; }
+            .gw-btn { padding: 9px 8px; }
+        }`;
+    document.head.appendChild(style);
+}
+
+// Enter group view: frame the formation, show the roster, and keep both fresh
+// as the feed ticks. Re-entering with a different group replaces the first.
+function enterGroupWatch(group) {
+    if (!group || !Array.isArray(group.aircraft) || !group.aircraft.length) return;
+    ensureGroupWatchStyles();
+    if (activeGroupWatch?.timer) clearInterval(activeGroupWatch.timer);
+    // Start collapsed on a phone: the formation is the thing worth looking at,
+    // and a 42vh roster over a small map buries it. The title bar stays, so it's
+    // one tap to bring the list back.
+    const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+    activeGroupWatch = { group, timer: null, collapsed: narrow };
+
+    renderGroupWatchPanel();
+    // The live feed may not have arrived yet on a cold load — frame once now and
+    // again shortly after, by which point the members should be in the cache.
+    fitMapToGroup(group);
+    setTimeout(() => { if (activeGroupWatch) { fitMapToGroup(group); renderGroupWatchPanel(); } }, 2500);
+
+    // Keep the roster honest as members land. Cheap: it only re-reads the cache.
+    activeGroupWatch.timer = setInterval(() => {
+        if (!activeGroupWatch) return;
+        if (document.visibilityState === 'visible') renderGroupWatchPanel();
+    }, 15000);
+}
+
+function exitGroupWatch() {
+    if (activeGroupWatch?.timer) clearInterval(activeGroupWatch.timer);
+    activeGroupWatch = null;
+    document.getElementById('group-watch-panel')?.remove();
+}
+
+// Resolve ?g=<code> on arrival. Runs alongside the single-flight share handler;
+// the two are mutually exclusive in practice (a link carries one or the other).
+async function consumeGroupLinkParam() {
+    if (typeof window === 'undefined' || !window.location) return;
+    let params;
+    try { params = new URLSearchParams(window.location.search || ''); } catch (_) { return; }
+    const code = (params.get('g') || '').trim();
+    if (!code || !/^[a-z0-9]{4,16}$/i.test(code)) return;
+
+    // Clean the URL straight away so a refresh doesn't re-trigger the fetch.
+    try {
+        params.delete('g');
+        const q = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+    } catch (_) { /* non-fatal */ }
+
+    await waitForFirstRunGate();
+
+    let group = null;
+    try {
+        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const res = await fetch(`${base}/api/group-flights/${encodeURIComponent(code)}`, {
+            headers: { Accept: 'application/json' },
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'That group flight link is no longer available.');
+        group = data;
+    } catch (err) {
+        if (typeof showNotification === 'function') {
+            showNotification(err.message || 'Could not open that group flight.', 'error');
+        }
+        return;
+    }
+
+    // The formation is on one server — hop there first or we'd be searching a
+    // feed that cannot contain them.
+    if (group.server && typeof currentServerName !== 'undefined' && group.server !== currentServerName) {
+        try {
+            if (typeof switchServer === 'function') switchServer(group.server);
+        } catch (err) { console.warn('group server switch failed:', err); }
+    }
+
+    enterGroupWatch(group);
 }
 
 /**
@@ -24502,6 +24849,258 @@ function renderVaHubMarkers() {
 }
 window.renderVaHubMarkers = renderVaHubMarkers;
 
+/* =========================================================================
+ * VA EVENT MARKERS  (opt-in — Settings → VA)
+ *
+ * A VA schedules an event with a departure airport; this pins it on that
+ * airport so it is visible where it actually matters — on the map, at the
+ * field people are about to spawn at — instead of only inside the Partners
+ * panel.
+ *
+ * Deliberately quiet: OFF by default, only events with a departure airport,
+ * only within a look-ahead window, and one pin per airport (the soonest event
+ * wins) so a popular hub never stacks. A pin that is under way glows; one whose
+ * formation has already been published offers "Watch live", which drops the
+ * viewer straight into group-watch mode.
+ *
+ * Data comes from ONE request for every partner's events, refreshed on a slow
+ * timer — event schedules change on the order of days, not seconds.
+ * ========================================================================= */
+
+let vaEventMarkers = [];
+let vaEventStylesInjected = false;
+let vaEventCache = { at: 0, events: [] };
+let vaEventRefreshTimer = null;
+const VA_EVENT_CACHE_MS = 5 * 60 * 1000;
+
+function injectVaEventMarkerStyles() {
+    if (vaEventStylesInjected || typeof document === 'undefined') return;
+    vaEventStylesInjected = true;
+    const style = document.createElement('style');
+    style.id = 'va-event-marker-styles';
+    style.textContent = `
+        /* Same rule as the hub markers: the root's transform belongs to Mapbox,
+           so it carries no size, transition or transform of its own. */
+        .va-event-marker { cursor: pointer; will-change: transform; }
+        .va-event-marker-inner {
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 9px 4px 5px; border-radius: 999px;
+            background: rgba(12,16,24,0.86); border: 1.5px solid rgba(56,189,248,0.75);
+            box-shadow: 0 3px 12px rgba(0,0,0,0.55); white-space: nowrap;
+            font: 800 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif; color: #e2e8f0;
+            transition: transform .15s ease, border-color .15s ease;
+        }
+        .va-event-marker:hover .va-event-marker-inner {
+            transform: scale(1.08); border-color: #7dd3fc;
+        }
+        .va-event-marker-logo {
+            width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+            background: rgba(255,255,255,0.10); flex-shrink: 0;
+        }
+        .va-event-marker-when { opacity: 0.68; font-weight: 700; }
+        /* An event under way reads differently from one that is merely soon. */
+        .va-event-marker.is-live .va-event-marker-inner {
+            border-color: rgba(52,211,153,0.85); background: rgba(6,26,20,0.9);
+        }
+        .va-event-marker.is-live .va-event-marker-when { color: #6ee7b7; opacity: 1; }
+        /* The app globally strips mapbox popups back to nothing —
+           transparent, no padding, and pointer-events:none so a hover card
+           can't block clicks on the aircraft behind it. This popup is the
+           opposite case: it has BUTTONS in it and must be clickable and
+           legible. Both are re-enabled, scoped to this popup's own class so
+           the global behaviour is untouched everywhere else. */
+        .mapboxgl-popup.va-event-popup { pointer-events: auto !important; }
+        .mapboxgl-popup.va-event-popup .mapboxgl-popup-content {
+            pointer-events: auto !important;
+            background: rgba(16,18,24,0.95) !important;
+            -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+            padding: 12px !important;
+            border-radius: 14px !important;
+            border: 1px solid rgba(255,255,255,0.13) !important;
+            box-shadow: 0 12px 34px rgba(0,0,0,0.5) !important;
+        }
+        .mapboxgl-popup.va-event-popup .mapboxgl-popup-close-button {
+            color: #e8ebf2; font-size: 18px; padding: 2px 7px; opacity: 0.6;
+            background: none; border: 0; right: 2px; top: 2px;
+        }
+        .mapboxgl-popup.va-event-popup .mapboxgl-popup-close-button:hover { opacity: 1; background: none; }
+        .va-event-pop {
+            font: 500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+            max-width: 260px; color: #e8ebf2;
+        }
+        .va-event-pop h4 { margin: 0 0 3px; font-size: 0.9rem; font-weight: 800; }
+        .va-event-pop .vep-va { font-size: 0.74rem; opacity: 0.66; margin: 0 0 8px; }
+        .va-event-pop .vep-when { font-size: 0.76rem; margin: 0 0 8px; }
+        .va-event-pop .vep-desc {
+            font-size: 0.75rem; opacity: 0.75; margin: 0 0 10px;
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .va-event-pop .vep-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .va-event-pop button, .va-event-pop a.vep-btn {
+            flex: 1; min-width: 92px; text-align: center; text-decoration: none;
+            padding: 6px 10px; border-radius: 8px; border: 0; cursor: pointer;
+            background: rgba(255,255,255,0.12); color: #e8ebf2;
+            font-size: 0.74rem; font-weight: 700;
+        }
+        .va-event-pop button:hover, .va-event-pop a.vep-btn:hover { background: rgba(255,255,255,0.2); }
+        .va-event-pop .vep-watch { background: rgba(52,211,153,0.22); color: #6ee7b7; }
+        .va-event-pop .vep-watch:hover { background: rgba(52,211,153,0.34); }`;
+    document.head.appendChild(style);
+}
+
+function clearVaEventMarkers() {
+    vaEventMarkers.forEach((m) => { try { m.remove(); } catch (_) {} });
+    vaEventMarkers = [];
+}
+
+// Every partner's upcoming events in one request, cached for a few minutes.
+// Fails soft to an empty list — a missing events feed must never disturb the map.
+async function fetchUpcomingVaEvents() {
+    if (Date.now() - vaEventCache.at < VA_EVENT_CACHE_MS) return vaEventCache.events;
+    try {
+        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const res = await fetch(`${base}/api/public/va-events/upcoming?window=72`, {
+            headers: { Accept: 'application/json' },
+        });
+        const data = await res.json();
+        vaEventCache = { at: Date.now(), events: Array.isArray(data.events) ? data.events : [] };
+    } catch (_) {
+        vaEventCache = { at: Date.now(), events: [] };
+    }
+    return vaEventCache.events;
+}
+
+// "in 3h 20m" / "starting now" / "under way". The pin has room for a few
+// characters, so this stays terse; the popup carries the exact time.
+function vaEventCountdown(startsAt) {
+    const t = new Date(startsAt).getTime();
+    if (!Number.isFinite(t)) return '';
+    const diff = t - Date.now();
+    if (diff <= -30 * 60 * 1000) return 'under way';
+    if (diff <= 60 * 1000) return 'now';
+    const mins = Math.round(diff / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ${String(mins % 60).padStart(2, '0')}m`;
+    return `${Math.round(hrs / 24)}d`;
+}
+
+const isVaEventLive = (startsAt) => {
+    const t = new Date(startsAt).getTime();
+    return Number.isFinite(t) && Date.now() >= t - 15 * 60 * 1000 && Date.now() <= t + 3 * 60 * 60 * 1000;
+};
+
+function renderVaEventMarkers() {
+    if (!sectorOpsMap) return;
+    clearVaEventMarkers();
+    if (vaEventRefreshTimer) { clearInterval(vaEventRefreshTimer); vaEventRefreshTimer = null; }
+    if (!mapFilters.showVaEventMarkers) return;
+
+    injectVaEventMarkerStyles();
+
+    const place = (events) => {
+        // The user may have toggled it back off while the feed loaded.
+        if (!mapFilters.showVaEventMarkers || !sectorOpsMap) return;
+
+        // One pin per airport: the soonest event at that field wins, so a busy
+        // hub shows a single marker rather than a stack of overlapping pills.
+        const byAirport = new Map();
+        for (const ev of events) {
+            const icao = String(ev.departureIcao || '').toUpperCase();
+            if (!icao) continue;
+            const prev = byAirport.get(icao);
+            if (!prev || new Date(ev.startsAt) < new Date(prev.startsAt)) byAirport.set(icao, ev);
+        }
+
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        byAirport.forEach((ev, icao) => {
+            const airport = airportsData[icao];
+            if (!airport || airport.lat == null || airport.lon == null) return;
+
+            const live = isVaEventLive(ev.startsAt);
+            const el = document.createElement('div');
+            el.className = `va-event-marker${live ? ' is-live' : ''}`;
+            el.title = `${ev.va?.name || 'VA'} — ${ev.title}`;
+            el.innerHTML = `
+                <div class="va-event-marker-inner">
+                    ${ev.va?.logo
+                        ? `<img class="va-event-marker-logo" src="${esc(ev.va.logo)}" alt="" onerror="this.remove()">`
+                        : ''}
+                    <span>${esc(icao)}</span>
+                    <span class="va-event-marker-when">${esc(vaEventCountdown(ev.startsAt))}</span>
+                </div>`;
+
+            const when = new Date(ev.startsAt);
+            const popupHtml = `
+                <div class="va-event-pop">
+                    <h4>${esc(ev.title)}</h4>
+                    <p class="vep-va">${esc(ev.va?.name || 'Partner VA')} · departs ${esc(icao)}</p>
+                    <p class="vep-when">${esc(when.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }))}
+                        · ${esc(vaEventCountdown(ev.startsAt))}</p>
+                    ${ev.description ? `<p class="vep-desc">${esc(ev.description)}</p>` : ''}
+                    <div class="vep-actions">
+                        ${ev.groupCode ? `<button type="button" class="vep-watch" data-group-code="${esc(ev.groupCode)}">Watch live</button>` : ''}
+                        <button type="button" class="vep-open" data-va-id="${esc(ev.va?.id || '')}">View VA</button>
+                        ${ev.link ? `<a class="vep-btn" href="${esc(ev.link)}" target="_blank" rel="noopener noreferrer">Details</a>` : ''}
+                    </div>
+                </div>`;
+
+            // className is what re-enables interaction and the dark card look
+            // (see the .va-event-popup rules) — without it the global popup
+            // reset would leave these buttons unclickable and unreadable.
+            const popup = new mapboxgl.Popup({
+                offset: 18, closeButton: true, maxWidth: '280px', className: 'va-event-popup',
+            }).setHTML(popupHtml);
+
+            // Wire the popup's buttons once it is actually in the DOM — the
+            // markup above is a string until Mapbox mounts it.
+            popup.on('open', () => {
+                const root = popup.getElement();
+                if (!root) return;
+                root.querySelector('.vep-open')?.addEventListener('click', () => {
+                    const id = ev.va?.id;
+                    if (id && window.InflightVaAds?.openPartners) window.InflightVaAds.openPartners(id);
+                });
+                // "Watch live" reuses the group-watch view the share links open,
+                // so an event pin and a pasted link land in exactly the same place.
+                root.querySelector('.vep-watch')?.addEventListener('click', async () => {
+                    try {
+                        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+                        const res = await fetch(`${base}/api/group-flights/${encodeURIComponent(ev.groupCode)}`);
+                        const data = await res.json();
+                        if (data && data.ok) { popup.remove(); enterGroupWatch(data); }
+                    } catch (_) { /* a dead link just does nothing */ }
+                });
+            });
+
+            const marker = new mapboxgl.Marker({
+                element: el,
+                anchor: 'bottom',
+                rotationAlignment: 'viewport',
+                pitchAlignment: 'viewport',
+            })
+                .setLngLat([airport.lon, airport.lat])
+                .setPopup(popup)
+                .addTo(sectorOpsMap);
+            vaEventMarkers.push(marker);
+        });
+    };
+
+    fetchUpcomingVaEvents().then(place).catch(() => {});
+
+    // Refresh on a slow timer so countdowns stay honest and an event that goes
+    // live re-colours itself, without polling a feed that changes daily.
+    vaEventRefreshTimer = setInterval(() => {
+        if (!mapFilters.showVaEventMarkers) return;
+        if (document.visibilityState !== 'visible') return;
+        fetchUpcomingVaEvents().then((evs) => { clearVaEventMarkers(); place(evs); }).catch(() => {});
+    }, 60 * 1000);
+}
+window.renderVaEventMarkers = renderVaEventMarkers;
+
 // renderAirportMarkers needs a loaded style; when one isn't ready yet the
 // render is queued (once) for the next idle frame instead of being dropped,
 // so settings changes still land "on the fly" instead of waiting for the
@@ -25124,6 +25723,8 @@ async function initializeApp() {
         // off, which is the default). The map and airport coords are ready by
         // now; the partner directory is awaited inside.
         renderVaHubMarkers();
+        // Same for the opt-in VA event pins — the events feed is awaited inside.
+        renderVaEventMarkers();
 
         // A reload never restores a flight/airport window, so a persisted
         // 'false' left by a session that ended with a window open is always
