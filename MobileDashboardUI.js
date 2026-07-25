@@ -12,6 +12,7 @@ import { socketDataHub } from './SocketDataHub.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
+import { CrewCenterOverlay } from './crewCenterOverlay.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     { value: 'A318', name: 'Airbus A318-100' }, { value: 'A319', name: 'Airbus A319-100' },
@@ -2106,6 +2107,27 @@ init(supabaseClient) {
         if (this._isOpen && this._activeTab === 'dashboard') this._render();
     },
 
+    /**
+     * Pull the VA slug out of a badge's href when — and only when — it points at
+     * a crew center on this origin. Mirrors ProfileUI._crewSlugFromHref: a VA's
+     * own external website returns null and keeps opening in a tab, so nothing
+     * unexpected ends up framed inside the app.
+     */
+    _crewSlugFromHref(href) {
+        const raw = String(href || '').trim();
+        if (!raw) return null;
+        let path;
+        try {
+            const u = new URL(raw, window.location.origin);
+            if (u.origin !== window.location.origin) return null;
+            path = u.pathname;
+        } catch (_) { return null; }
+
+        const m = /^\/crew\/([^/]+)\/?$/.exec(path);
+        if (!m) return null;
+        try { return decodeURIComponent(m[1]); } catch (_) { return null; }
+    },
+
     _getVASectionHTML() {
         if (!this._isPro) return '';
         const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
@@ -3578,7 +3600,13 @@ _attachListeners() {
             if (vaTarget && contentRoot.contains(vaTarget)) {
                 e.stopPropagation();
                 const href = vaTarget.dataset.vaHref;
-                if (href) { const w = window.open(href, '_blank', 'noopener'); if (!w) window.location.assign(href); }
+                if (!href) return;
+                // Same-origin crew centers open as an in-app overlay; a VA's own
+                // external website still opens away from the app.
+                const slug = this._crewSlugFromHref(href);
+                if (slug && CrewCenterOverlay.open(slug)) return;
+                const w = window.open(href, '_blank', 'noopener');
+                if (!w) window.location.assign(href);
                 return;
             }
         });

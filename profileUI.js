@@ -30,6 +30,7 @@ import { AirportViewer3D } from './AirportViewer3D.js';
 import { FlightDispatchUI } from './FlightDispatchUI.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
+import { CrewCenterOverlay } from './crewCenterOverlay.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -3236,6 +3237,30 @@ _generateAirspaceHTML() {
     },
 
     /**
+     * Pull the VA slug out of a badge's href when — and only when — it points at
+     * a crew center on this origin. Returns null for a VA's own external site,
+     * for absolute URLs to anywhere else, and for anything that doesn't match
+     * the /crew/<slug> shape, so those keep their existing open-in-a-tab
+     * behaviour and nothing unexpected ends up framed inside the app.
+     */
+    _crewSlugFromHref(href) {
+        const raw = String(href || '').trim();
+        if (!raw) return null;
+        let path;
+        try {
+            // Resolve against this origin; an absolute URL elsewhere fails the
+            // origin check below rather than being parsed as a path.
+            const u = new URL(raw, window.location.origin);
+            if (u.origin !== window.location.origin) return null;
+            path = u.pathname;
+        } catch (_) { return null; }
+
+        const m = /^\/crew\/([^/]+)\/?$/.exec(path);
+        if (!m) return null;
+        try { return decodeURIComponent(m[1]); } catch (_) { return null; }
+    },
+
+    /**
      * "Your Virtual Airlines" — badge row of the VAs a Pro pilot flies for,
      * with each VA's logo, banner and their role/hours. Pro-only; free accounts
      * and pilots not in any VA render nothing.
@@ -4593,7 +4618,14 @@ const contentRoot = document.getElementById('pui-content');
                 if (vaTarget && contentRoot.contains(vaTarget)) {
                     e.stopPropagation();
                     const href = vaTarget.dataset.vaHref;
-                    if (href) { const w = window.open(href, '_blank', 'noopener'); if (!w) window.location.assign(href); }
+                    if (!href) return;
+                    // A crew center is same-origin, so it opens as an overlay
+                    // over the map instead of a new tab. Anything else (a VA's
+                    // own website) still leaves the app.
+                    const slug = this._crewSlugFromHref(href);
+                    if (slug && CrewCenterOverlay.open(slug)) return;
+                    const w = window.open(href, '_blank', 'noopener');
+                    if (!w) window.location.assign(href);
                     return;
                 }
 
