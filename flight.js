@@ -264,58 +264,6 @@ async function loadSpriteSheetAndGenerateIcons(map) {
 }
 
 
-function applyTrafficHighlighting() {
-    const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
-    const inSet = new Set(inbounds);
-    const outSet = new Set(outbounds);
-
-    // Update feature properties in the cache
-    Object.values(currentMapFeatures).forEach(f => {
-        const fid = f.properties.flightId;
-        if (isTrafficHighlightActive) {
-            if (inSet.has(fid)) f.properties.trafficType = 'inbound';
-            else if (outSet.has(fid)) f.properties.trafficType = 'outbound';
-            else f.properties.trafficType = 'none';
-        } else {
-            f.properties.trafficType = 'none';
-        }
-    });
-
-    // 1. Update the layer's icon-image expression
-    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            getIconImageExpression()
-        );
-
-        // --- NEW PREMIUM COLORS ---
-        const iconColorExpression = getPremiumColorExpression();
-
-        sectorOpsMap.setPaintProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-color', 
-            iconColorExpression
-        );
-
-        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-            sectorOpsMap.setPaintProperty(
-                'sector-ops-live-flights-hover-layer', 
-                'icon-color', 
-                iconColorExpression
-            );
-        }
-    }
-
-    // 2. Sync the updated data to the Mapbox source
-    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
-}
-
 function getIconImageExpression() {
     const cat = ['coalesce', ['get', 'category'], 'B777'];
 
@@ -438,73 +386,6 @@ function reportBootState(state, detail) {
     } catch (_) { /* CustomEvent unavailable — the splash falls back to polling */ }
 }
 window.reportBootState = reportBootState;
-
-/**
- * Resolves once live traffic is actually drawn on the map — or gives up.
- *
- * The socket is warmed in parallel with the map, so by the time the layers
- * exist there is usually already a full packet sitting in currentMapFeatures.
- * What was missing was any guarantee that it had been pushed and rendered
- * before the splash lifted, which is why aircraft appeared a beat behind the
- * map. This waits for data (if it has not landed yet), forces it out, and then
- * waits for the map to go idle — Mapbox's "nothing left to draw" signal.
- *
- * Every stage is bounded. An empty server, a dead socket or a slow tile fetch
- * must delay the reveal, never prevent it.
- *
- * @param {number} maxWaitMs Total budget across all stages.
- */
-async function waitForFirstTrafficRender(maxWaitMs = 4000) {
-    if (!sectorOpsMap) return;
-    const deadline = Date.now() + maxWaitMs;
-    const remaining = () => Math.max(0, deadline - Date.now());
-
-    // 1. Wait for the first packet, if it hasn't arrived yet.
-    if (Object.keys(currentMapFeatures).length === 0) {
-        await new Promise(resolve => {
-            let settled = false;
-            let unsubscribe = null;
-            const finish = () => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                if (unsubscribe) { try { unsubscribe(); } catch (_) {} }
-                resolve();
-            };
-            const timer = setTimeout(finish, remaining());
-            try {
-                unsubscribe = socketDataHub.subscribe('all_flights_update', finish);
-            } catch (_) { finish(); }
-        });
-    }
-
-    // Nothing to draw (empty server, or the socket never answered) — reveal.
-    if (Object.keys(currentMapFeatures).length === 0) return;
-
-    // 2. Push it now. Bypasses the camera gate deliberately: this is boot, the
-    //    user is not interacting, and the whole point is to have the aircraft
-    //    on screen before the splash lifts.
-    if (mapAnimator) {
-        mapAnimator.invalidateRoster();
-        mapAnimator._updateMapSource();
-    }
-
-    // 3. Wait for Mapbox to finish drawing them.
-    await new Promise(resolve => {
-        let settled = false;
-        const finish = () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            try { sectorOpsMap.off('idle', finish); } catch (_) {}
-            resolve();
-        };
-        // Always allow a little time even if the budget is already spent —
-        // one idle frame is usually milliseconds away at this point.
-        const timer = setTimeout(finish, Math.max(300, remaining()));
-        sectorOpsMap.once('idle', finish);
-    });
-}
 
 document.addEventListener('DOMContentLoaded', async () => {
     window.loadingStartTime = Date.now();
@@ -26373,6 +26254,73 @@ async function updateSectorOpsSecondaryData() {
     // ====================================================================
 
 
+
+/**
+ * Resolves once live traffic is actually drawn on the map — or gives up.
+ *
+ * The socket is warmed in parallel with the map, so by the time the layers
+ * exist there is usually already a full packet sitting in currentMapFeatures.
+ * What was missing was any guarantee that it had been pushed and rendered
+ * before the splash lifted, which is why aircraft appeared a beat behind the
+ * map. This waits for data (if it has not landed yet), forces it out, and then
+ * waits for the map to go idle — Mapbox's "nothing left to draw" signal.
+ *
+ * Every stage is bounded. An empty server, a dead socket or a slow tile fetch
+ * must delay the reveal, never prevent it.
+ *
+ * @param {number} maxWaitMs Total budget across all stages.
+ */
+async function waitForFirstTrafficRender(maxWaitMs = 4000) {
+    if (!sectorOpsMap) return;
+    const deadline = Date.now() + maxWaitMs;
+    const remaining = () => Math.max(0, deadline - Date.now());
+
+    // 1. Wait for the first packet, if it hasn't arrived yet.
+    if (Object.keys(currentMapFeatures).length === 0) {
+        await new Promise(resolve => {
+            let settled = false;
+            let unsubscribe = null;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                if (unsubscribe) { try { unsubscribe(); } catch (_) {} }
+                resolve();
+            };
+            const timer = setTimeout(finish, remaining());
+            try {
+                unsubscribe = socketDataHub.subscribe('all_flights_update', finish);
+            } catch (_) { finish(); }
+        });
+    }
+
+    // Nothing to draw (empty server, or the socket never answered) — reveal.
+    if (Object.keys(currentMapFeatures).length === 0) return;
+
+    // 2. Push it now. Bypasses the camera gate deliberately: this is boot, the
+    //    user is not interacting, and the whole point is to have the aircraft
+    //    on screen before the splash lifts.
+    if (mapAnimator) {
+        mapAnimator.invalidateRoster();
+        mapAnimator._updateMapSource();
+    }
+
+    // 3. Wait for Mapbox to finish drawing them.
+    await new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try { sectorOpsMap.off('idle', finish); } catch (_) {}
+            resolve();
+        };
+        // Always allow a little time even if the budget is already spent —
+        // one idle frame is usually milliseconds away at this point.
+        const timer = setTimeout(finish, Math.max(300, remaining()));
+        sectorOpsMap.once('idle', finish);
+    });
+}
 
     // --- Initial Load ---
 async function initializeApp() {
