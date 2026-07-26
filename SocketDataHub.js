@@ -11,6 +11,15 @@
  * * ----------------------------------------------------------------------------
  * CHANNEL: 'all_flights_update'
  * ----------------------------------------------------------------------------
+ * Published on every backend tick. The payload is either the socket packet of
+ * the same name, or — when the backend supports the incremental protocol — a
+ * snapshot reassembled by FlightDeltaClient.js from the delta stream. The two
+ * are identical in shape, with one detail worth knowing: on the delta path
+ * `position.lastReport` carries the epoch milliseconds rather than the ISO
+ * string, because the string is redundant with `lastReportMs` and costs real
+ * bandwidth at a thousand aircraft a tick. Anything reading it should keep
+ * going through `new Date(...)` / `Date.parse(...)`, which accept both.
+ *
  * @typedef {Object} AllFlightsUpdatePayload
  * @property {number|string} timestamp - Server-side timestamp of the data packet.
  * @property {string} server - The active server name (e.g., "Expert Server").
@@ -43,6 +52,12 @@
  * @typedef {Object} SecondaryDataUpdatePayload
  * @property {string} server - The active server name.
  * @property {AtcFacility[]} atc - Array of active Air Traffic Control facilities.
+ * @property {Array} [notams] - Active NOTAMs for the session.
+ *
+ * Note: the IF world status (`world`) is deliberately NOT on this channel. It
+ * is ~100 KB of airport/flight-ID lists that nothing here reads, so the backend
+ * keeps it server-side and serves it from GET /api/live/world/:sessionId for
+ * the rare caller that wants it.
  * * @typedef {Object} AtcFacility
  * @property {number} type - ATC Type ID (0: GND, 1: TWR, 4/5: APP, 6: Center).
  * @property {string} username - Controller's username.

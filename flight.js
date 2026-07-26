@@ -17,6 +17,7 @@ import { AuthUI } from './authUI.js';
 import { ProfileUI } from './profileUI.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
+import { FlightDeltaClient } from './FlightDeltaClient.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
@@ -1154,6 +1155,16 @@ window.pinFlight = function(flightId) {
     let sectorOpsLiveFlightPathLayers = {}; // NEW: To track multiple flight trails
     let sectorOpsAtcNotamInterval = null; // <-- MODIFIED: Renamed from sectorOpsLiveFlightsInterval
     let sectorOpsSocket = null; // <-- NEW: Socket.IO client instance
+    // Reassembles the backend's incremental flight stream back into the full
+    // snapshots the rest of the app is written against. See FlightDeltaClient.js
+    // — on a busy server that is ~11 KB per tick instead of ~600 KB.
+    const flightDeltaClient = new FlightDeltaClient({
+        onResyncNeeded: (serverName) => {
+            if (sectorOpsSocket && sectorOpsSocket.connected) {
+                sectorOpsSocket.emit('request_flight_sync', serverName || currentServerName);
+            }
+        },
+    });
     let activeAtcFacilities = []; // To store fetched ATC data
     let activeNotams = []; // To store fetched NOTAMs data
     let atcPopup = null; // To manage a single, shared popup instance
@@ -7583,6 +7594,9 @@ function generateTrafficForecastHTML(congestion) {
 
         // 6. Socket Handshake
         if (sectorOpsSocket && sectorOpsSocket.connected) {
+            // The reassembled state belongs to the server we're leaving; the
+            // sync that follows the room change rebuilds it for the new one.
+            flightDeltaClient.reset(currentServerName);
             sectorOpsSocket.emit('join_server_room', currentServerName);
         }
 
@@ -12289,6 +12303,16 @@ function handleSocketFlightUpdate(data) {
     }
 }
 
+/**
+ * Hand a reconstructed snapshot to the same places a full `all_flights_update`
+ * would have gone, so nothing downstream can tell the difference.
+ */
+function dispatchFlightSnapshot(snapshot) {
+    if (!snapshot) return; // sequence gap — a resync is already on its way
+    handleSocketFlightUpdate(snapshot);
+    socketDataHub.publish('all_flights_update', snapshot);
+}
+
 function initializeSectorOpsSocket() {
     // Prevent duplicate connections if called multiple times
     if (sectorOpsSocket && sectorOpsSocket.connected) {
@@ -12321,13 +12345,32 @@ function initializeSectorOpsSocket() {
     sectorOpsSocket.on('connect', () => {
         // [UPDATED] Use currentServerName
         console.log(`Socket: Connected with ID ${sectorOpsSocket.id}. Joining room: ${currentServerName.toLowerCase()}`);
+        // Anything we reassembled before the drop is stale — the sync that
+        // follows the upgrade below is what we rebuild from.
+        flightDeltaClient.reset(currentServerName);
+        // Ask for the incremental stream *before* joining, so the join answers
+        // with a delta sync instead of a full snapshot we'd immediately
+        // replace. A backend that predates deltas has no handler for this
+        // event and just keeps sending full snapshots, so it is safe to send
+        // unconditionally.
+        sectorOpsSocket.emit('enable_flight_deltas', currentServerName);
         sectorOpsSocket.emit('join_server_room', currentServerName);
     });
 
-    // Listen for the broadcasted flight data
+    // Listen for the broadcasted flight data. Full snapshots still arrive when
+    // talking to a backend without delta support.
     sectorOpsSocket.on('all_flights_update', (data) => {
         handleSocketFlightUpdate(data); // Your existing function
         socketDataHub.publish('all_flights_update', data); // Broadcasts to any new files
+    });
+
+    // Incremental stream: a full state packet on join/resync, then diffs.
+    sectorOpsSocket.on('all_flights_sync', (packet) => {
+        dispatchFlightSnapshot(flightDeltaClient.applySync(packet));
+    });
+
+    sectorOpsSocket.on('all_flights_delta', (packet) => {
+        dispatchFlightSnapshot(flightDeltaClient.applyDelta(packet));
     });
 
     // Inside initializeSectorOpsSocket() in flight.js
@@ -12355,6 +12398,9 @@ function initializeSectorOpsSocket() {
 
     sectorOpsSocket.on('disconnect', (reason) => {
         console.warn(`Socket: Disconnected. Reason: ${reason}`);
+        // Deltas apply on top of a known state; a reconnect starts from a fresh
+        // sync, so holding the old one would only invite drift.
+        flightDeltaClient.reset();
     });
 
     sectorOpsSocket.on('connect_error', (error) => {
