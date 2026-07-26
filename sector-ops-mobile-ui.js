@@ -933,6 +933,26 @@ disableHudControls() {
                transform/transition deliberately carry NO !important: the drag
                handlers track the finger with inline transform/transition
                while a gesture is in progress, and inline styles must win. */
+            /* Applied for exactly one frame while the window is converted from
+               a desktop panel into a sheet.
+
+               The class swap changes transform from the desktop resting value
+               (translateX(28px) translateY(10px) scale(0.96), anchored top
+               right) to the sheet's parked translateY(100%) — and the sheet
+               rule below carries a transform transition, so the browser
+               happily ANIMATED that conversion. The window flew in from the
+               top right, dropped to the bottom, and only then slid up. The
+               guard further down stops the desktop rules applying to a sheet;
+               nothing stopped the journey between the two.
+
+               Killing transitions across the swap makes the parked state a
+               silent starting position instead of a destination to travel to. */
+            .info-window.sheet-preparing,
+            .info-window.sheet-preparing * {
+                transition: none !important;
+                animation: none !important;
+            }
+
             .info-window.mobile-legacy-sheet {
                 /* --- [CRITICAL] Override desktop styles --- */
                 display: flex !important; /* Use flex (from desktop) */
@@ -1250,14 +1270,28 @@ disableHudControls() {
         this.overlayEl.id = 'mobile-window-overlay';
         viewContainer.appendChild(this.overlayEl);
         
-        // 2. Add class to the *original* window. Strip any stale visibility
-        // state first (the desktop path can re-add 'visible' before routing
-        // here, e.g. on trip-card exit) so the sheet always presents from
-        // its parked position below the bottom edge instead of popping in
-        // already expanded.
+        // 2. Convert the *original* window into the sheet.
+        //
+        // Transitions are suppressed across the whole conversion. Without
+        // that, switching from the desktop panel's transform to the sheet's
+        // parked one is an animatable change, so the window visibly flew in
+        // from the top right and dropped to the bottom before the slide-up
+        // even began. The forced reflow commits the parked position while
+        // transitions are still off, so re-enabling them leaves nothing
+        // in flight.
+        //
+        // Stale visibility state is stripped first (the desktop path can
+        // re-add 'visible' before routing here, e.g. on trip-card exit) so the
+        // sheet always presents from below the bottom edge instead of popping
+        // in already expanded.
+        this.activeWindow.classList.add('sheet-preparing');
         this.activeWindow.classList.remove('visible', 'peek');
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
+
+        // Commit the parked geometry with transitions still disabled.
+        void this.activeWindow.offsetHeight;
+        this.activeWindow.classList.remove('sheet-preparing');
         
         // 3. Animate it in [REMOVED]
         // We now wait for the observer to populate content *before* animating.

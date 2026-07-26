@@ -51,7 +51,7 @@
                 },
                 {
                     tag: 'improved', icon: 'fa-window-maximize',
-                    text: 'Flight windows open properly — the window now grows into its finished size instead of snapping to it, and switching between flights no longer collapses the panel and rebuilds it. On phones the sheet slides up cleanly rather than jumping into place.'
+                    text: 'Flight windows open properly — the window now grows into its finished size instead of snapping to it, and switching between flights no longer collapses the panel and rebuilds it. On phones it no longer swings in from the top corner and drops to the bottom before opening — the sheet simply slides up.'
                 },
                 {
                     tag: 'improved', icon: 'fa-cloud-sun',

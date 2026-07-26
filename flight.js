@@ -8207,9 +8207,15 @@ function toggleTripCardMode(active) {
         takeoverUI.classList.remove('active');
         if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
         if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
-            aircraftInfoWindow.classList.add('visible');
+            // On mobile the window becomes a bottom sheet, and openWindow()
+            // drives its own entrance. Adding 'visible' first would start the
+            // desktop entrance from the top right and leave the sheet
+            // conversion to animate out of it — the exact journey the sheet is
+            // supposed to avoid. Every other open path already routes this way.
             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
                 window.MobileUIHandler.openWindow(aircraftInfoWindow);
+            } else {
+                aircraftInfoWindow.classList.add('visible');
             }
         }
     }
