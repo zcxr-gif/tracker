@@ -113,15 +113,20 @@ export const ProfileUI = {
     _3dViewerHostKey: null,
     _active3DFlightId: null,
 
+    // Placeholders until _fetchSubscriptionData() resolves. They have to be
+    // renderable on their own: the fetch fails outright when the pilot has no
+    // subscriptions row, and a missing `nextPayment` printed
+    // "Next payment · undefined" on the billing card.
     _subscription: {
         status: 'Active',
         plan: 'Pro Access',
         price: '$1.99 / month',
+        nextPayment: 'Pending',
         // Renewal state. `cancelAtPeriodEnd` flips the card from "Next payment"
         // to "Access ends" — a cancelled subscription keeps Pro until the paid
         // period runs out, so the date means the opposite thing.
         cancelAtPeriodEnd: false,
-        periodEndLabel: '',
+        periodEndLabel: 'Next payment',
         daysLeft: null,
     },
 
