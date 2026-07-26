@@ -14,27 +14,95 @@
 
 const PER_CATEGORY_CAP = 5;
 
+// Field delimiter for the airport prefilter haystack. NUL can never
+// appear in a user query, so a match in the joined string cannot span a
+// field boundary - it means some individual field really does match.
+const SEP = '\u0000';
+
 const norm = (s) => (s == null ? '' : String(s)).toLowerCase().trim();
 const upper = (s) => (s == null ? '' : String(s)).toUpperCase();
 
-// Rank: lower is better. Exact prefix wins, then word-prefix, then substring.
-function rankMatch(haystack, needle) {
-    const h = norm(haystack);
-    const n = norm(needle);
+// Word separators, matching the [\s\-/] the ranker used to split on. ASCII is
+// handled by code so the hot loop stays branch-cheap; the regex fallback only
+// runs for non-ASCII (NBSP and friends), which is exact but effectively never
+// reached.
+const SEPARATOR_RE = /[\s\-/]/;
+function isSeparator(code) {
+    if (code === 32 || code === 9 || code === 10 || code === 11 ||
+        code === 12 || code === 13 || code === 45 /* - */ || code === 47 /* / */) return true;
+    return code > 127 && SEPARATOR_RE.test(String.fromCharCode(code));
+}
+
+// Whether the needle itself spans a word boundary. The original ranker tested
+// word prefixes with h.split(/[\s\-/]+/).some(w => w.startsWith(n)); no split
+// word can contain a separator, so a needle containing one could never earn
+// the word-prefix rank. That behaviour is preserved here — dropping it would
+// silently re-order results for multi-word queries like "delta air".
+// Memoised on the needle, which is constant for a whole search.
+let _sepNeedle = null;
+let _sepNeedleHas = false;
+function needleHasSeparator(n) {
+    if (n !== _sepNeedle) {
+        _sepNeedle = n;
+        _sepNeedleHas = false;
+        for (let i = 0; i < n.length; i++) {
+            if (isSeparator(n.charCodeAt(i))) { _sepNeedleHas = true; break; }
+        }
+    }
+    return _sepNeedleHas;
+}
+
+/**
+ * Rank a pre-normalised haystack against a pre-normalised needle.
+ * Lower is better: exact, then whole-string prefix, then word prefix, then
+ * substring (penalised by how deep the match sits).
+ *
+ * Both arguments must already be lowercase and trimmed. Normalising inside
+ * the ranker meant re-lowercasing the same ~330,000 airport fields on every
+ * keystroke; the airport index now stores its fields pre-normalised and the
+ * query is normalised once per search.
+ */
+function rankNormalized(h, n) {
     if (!h || !n) return Infinity;
     if (h === n) return 0;
     if (h.startsWith(n)) return 1;
-    const wordPrefix = h.split(/[\s\-/]+/).some(w => w.startsWith(n));
-    if (wordPrefix) return 2;
-    const idx = h.indexOf(n);
-    if (idx >= 0) return 3 + Math.min(idx / 50, 1);
-    return Infinity;
+
+    // Walk the occurrences looking for one that begins a word. This replaces
+    // a regex split that allocated an array of words per field per airport.
+    let idx = h.indexOf(n);
+    if (idx < 0) return Infinity;
+    const first = idx;
+    if (!needleHasSeparator(n)) {
+        while (idx > 0) {
+            if (isSeparator(h.charCodeAt(idx - 1))) return 2;
+            idx = h.indexOf(n, idx + 1);
+            if (idx < 0) break;
+        }
+    }
+    return 3 + Math.min(first / 50, 1);
+}
+
+// Rank: lower is better. Exact prefix wins, then word-prefix, then substring.
+function rankMatch(haystack, needle) {
+    return rankNormalized(norm(haystack), norm(needle));
+}
+
+// `fields` must already be normalised; `needle` too.
+function bestRankNormalized(fields, needle) {
+    let best = Infinity;
+    for (let i = 0; i < fields.length; i++) {
+        const r = rankNormalized(fields[i], needle);
+        if (r < best) best = r;
+        if (best === 0) break;
+    }
+    return best;
 }
 
 function bestRank(fields, needle) {
+    const n = norm(needle);
     let best = Infinity;
     for (const f of fields) {
-        const r = rankMatch(f, needle);
+        const r = rankNormalized(norm(f), n);
         if (r < best) best = r;
         if (best === 0) break;
     }
@@ -54,13 +122,32 @@ function buildAirportIndex(airportsData) {
         const icao = keys[i];
         const a = airportsData[icao];
         if (!a) continue;
+        const icaoU = icao.toUpperCase();
+        const iataU = (a.iata || '').toUpperCase();
+        const name = a.name || '';
+        const country = a.country || '';
+        const fields = [
+            icaoU.toLowerCase(),
+            iataU.toLowerCase(),
+            name.toLowerCase().trim(),
+            country.toLowerCase().trim(),
+        ];
         out[i] = {
-            icao: icao.toUpperCase(),
-            iata: (a.iata || '').toUpperCase(),
-            name: a.name || '',
-            country: a.country || '',
+            icao: icaoU,
+            iata: iataU,
+            name,
+            country,
             lat: a.lat,
             lon: a.lon,
+            // Pre-normalised match fields. Built once with the index rather
+            // than re-derived for all ~83,000 airports on every keystroke.
+            _m: fields,
+            // All four fields joined by NUL for a single-scan prefilter. A
+            // query can never contain NUL, so a match can't span a field
+            // boundary: _hay contains the needle exactly when some field does.
+            // One indexOf rejects the ~99.9% of airports that can't match,
+            // instead of four plus the ranking work.
+            _hay: fields.join(SEP),
         };
     }
     _airportIndex = out.filter(Boolean);
@@ -68,22 +155,37 @@ function buildAirportIndex(airportsData) {
     return _airportIndex;
 }
 
-function searchFlights(query, flights, airportsData) {
-    const results = [];
-    for (const f of flights) {
-        const p = f.properties || {};
+// The aircraft blob is only parsed when the flat mirrors are missing. Live
+// features carry aircraftName/liveryName/registration as top-level properties,
+// so the common path avoids a JSON.parse per flight per keystroke.
+function aircraftFields(p) {
+    let acName = p.aircraftName;
+    let livName = p.liveryName;
+    let reg = p.registration;
+    if (acName == null || livName == null) {
         let acData = p.aircraft;
         if (typeof acData === 'string') {
-            try { acData = JSON.parse(acData); } catch { acData = {}; }
+            try { acData = JSON.parse(acData); } catch { acData = null; }
         }
         acData = acData || {};
+        if (acName == null) acName = acData.aircraftName;
+        if (livName == null) livName = acData.liveryName;
+        if (reg == null) reg = acData.registration;
+    }
+    return { acName: acName || '', livName: livName || '', reg: reg || '' };
+}
+
+function searchFlights(query, flights, airportsData) {
+    const results = [];
+    const n = norm(query);
+    for (const f of flights) {
+        const p = f.properties || {};
+        const { acName, livName, reg } = aircraftFields(p);
         const callsign = p.callsign || '';
         const username = p.username || '';
-        const reg = acData.registration || p.registration || '';
-        const acName = acData.aircraftName || p.aircraftName || '';
-        const livName = acData.liveryName || p.liveryName || '';
 
-        const r = bestRank([callsign, username, reg, acName, livName], query);
+        const r = bestRankNormalized(
+            [norm(callsign), norm(username), norm(reg), norm(acName), norm(livName)], n);
         if (r !== Infinity) {
             // Join airport display names so the UI can show "Tokyo HND — Toronto YYZ"
             // style route banners without holding its own copy of airportsData.
@@ -102,15 +204,17 @@ function searchFlights(query, flights, airportsData) {
 // Each result carries the user's current flight feature for the live-status row.
 function searchUsers(query, flights) {
     const byUser = new Map();
+    const n = norm(query);
     for (const f of flights) {
         const p = f.properties || {};
         const username = (p.username || '').trim();
-        if (!username || /^anonymous$/i.test(username)) continue;
+        if (!username) continue;
+        const key = username.toLowerCase();
+        if (key === 'anonymous') continue;
 
-        const r = rankMatch(username, query);
+        const r = rankNormalized(key, n);
         if (r === Infinity) continue;
 
-        const key = username.toLowerCase();
         const existing = byUser.get(key);
         if (!existing || r < existing.rank) {
             byUser.set(key, { rank: r, username, userId: p.userId || null, feature: f });
@@ -124,8 +228,12 @@ function searchUsers(query, flights) {
 // Airports are matched by ICAO, IATA, name, and country.
 function searchAirports(query, airportIndex) {
     const results = [];
-    for (const a of airportIndex) {
-        const r = bestRank([a.icao, a.iata, a.name, a.country], query);
+    const n = norm(query);
+    for (let i = 0; i < airportIndex.length; i++) {
+        const a = airportIndex[i];
+        // Single-scan rejection before any ranking work (see _hay above).
+        if (a._hay.indexOf(n) < 0) continue;
+        const r = bestRankNormalized(a._m, n);
         if (r !== Infinity) results.push({ rank: r, airport: a });
     }
     // Tie-breaker: shorter ICAO first (favor real 4-letter codes), then name length.
@@ -143,20 +251,17 @@ function searchAirlines(query, flights) {
     const tally = new Map();
     for (const f of flights) {
         const p = f.properties || {};
-        let acData = p.aircraft;
-        if (typeof acData === 'string') {
-            try { acData = JSON.parse(acData); } catch { acData = {}; }
-        }
-        const liv = (acData && acData.liveryName) || p.liveryName;
+        const liv = p.liveryName != null ? p.liveryName : aircraftFields(p).livName;
         if (!liv) continue;
         const key = String(liv).trim();
-        if (!key || /^generic$/i.test(key)) continue;
+        if (!key || key.toLowerCase() === 'generic') continue;
         tally.set(key, (tally.get(key) || 0) + 1);
     }
 
     const results = [];
+    const n = norm(query);
     for (const [name, count] of tally) {
-        const r = rankMatch(name, query);
+        const r = rankNormalized(norm(name), n);
         if (r !== Infinity) results.push({ rank: r, name, count });
     }
     // Tie-breaker: higher active fleet count first.

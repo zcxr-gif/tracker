@@ -464,6 +464,10 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let isAircraftWindowLoading = false;
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
     window.getLiveFlightData = () => Object.values(currentMapFeatures);
+    // Direct lookup for the common "find one flight by id" case. Callers were
+    // doing getLiveFlightData().find(...), which materialises an array of every
+    // flight on the server and then scans it linearly.
+    window.getLiveFlightById = (flightId) => currentMapFeatures[flightId] || null;
     let natTracksLayerInstance = null;
 
     window.pinnedFlights = new Set();
@@ -11011,6 +11015,10 @@ async function fetchAirportsData() {
             airportsData = rawAirports;
         }
 
+        // The nearest-airport index is derived from this data, so drop it and
+        // let the next lookup rebuild against what we just loaded.
+        invalidateAirportIndex();
+
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
 
     } catch (error) {
@@ -11025,19 +11033,81 @@ async function fetchAirportsData() {
 // Shared lookups over the bundled airports DB for satellite modules (the
 // weather pill uses these to find METAR stations near the aircraft without
 // re-downloading the 12 MB airports.json).
+// The DB holds ~83,000 fields. Scanning all of them per lookup — materialising
+// Object.entries(), regex-testing every key, running a haversine for each
+// survivor and then sorting the whole ~9,000-entry result to take four — cost
+// ~60 ms of blocked main thread, and the weather pill repeats it every minute
+// while a flight window is open. Instead the proper-ICAO subset is extracted
+// once into parallel typed arrays, and lookups reject on a cheap lat/lon box
+// before spending a haversine.
+let _airportIndex = null;
+
+function buildAirportIndex() {
+    const icaos = [];
+    const lats = [];
+    const lons = [];
+    for (const icao in airportsData) {
+        // Proper 4-letter ICAO codes only — numeric-prefixed US strips and
+        // heliports essentially never publish METARs. Char codes rather than
+        // a regex: same test, no per-key RegExp machinery.
+        if (icao.length !== 4) continue;
+        let alpha = true;
+        for (let i = 0; i < 4; i++) {
+            const c = icao.charCodeAt(i);
+            if (c < 65 || c > 90) { alpha = false; break; }
+        }
+        if (!alpha) continue;
+        const apt = airportsData[icao];
+        if (!apt || apt.lat == null || apt.lon == null) continue;
+        icaos.push(icao);
+        lats.push(apt.lat);
+        lons.push(apt.lon);
+    }
+    return { icaos, lats: Float64Array.from(lats), lons: Float64Array.from(lons) };
+}
+
+// Called after airportsData is (re)populated so the index can't go stale.
+function invalidateAirportIndex() { _airportIndex = null; }
+
 window.findNearestAirports = (lat, lon, count = 4) => {
     if (lat == null || lon == null || !airportsData) return [];
-    const out = [];
-    for (const [icao, apt] of Object.entries(airportsData)) {
-        // Proper 4-letter ICAO codes only — numeric-prefixed US strips and
-        // heliports essentially never publish METARs.
-        if (icao.length !== 4 || !/^[A-Z]{4}$/.test(icao)) continue;
-        if (apt.lat == null || apt.lon == null) continue;
-        const km = getDistanceKm(lat, lon, apt.lat, apt.lon);
-        out.push({ icao, lat: apt.lat, lon: apt.lon, km });
+    if (!_airportIndex) _airportIndex = buildAirportIndex();
+    const { icaos, lats, lons } = _airportIndex;
+
+    const KM_PER_DEG_LAT = 111.32;
+    const best = [];
+
+    // Widen a latitude band until the answer is provably complete. Only
+    // latitude is filtered on: a latitude delta maps directly to ground
+    // distance, so a band of ±degs is guaranteed to contain everything within
+    // degs * 111.32 km. (Bounding longitude too is tempting, but no simple
+    // cos(lat) box is sound near the poles — two points at 80°N half the world
+    // apart in longitude are close together over the pole, so such a box
+    // discards genuine nearest neighbours.)
+    for (let degs = 2; ; degs *= 3) {
+        const whole = degs >= 180;
+        best.length = 0;
+
+        for (let i = 0; i < icaos.length; i++) {
+            if (!whole && Math.abs(lats[i] - lat) > degs) continue;
+
+            const km = getDistanceKm(lat, lon, lats[i], lons[i]);
+            if (best.length < count) {
+                best.push({ icao: icaos[i], lat: lats[i], lon: lons[i], km });
+                best.sort((a, b) => a.km - b.km);
+            } else if (km < best[count - 1].km) {
+                best[count - 1] = { icao: icaos[i], lat: lats[i], lon: lons[i], km };
+                best.sort((a, b) => a.km - b.km);
+            }
+        }
+
+        // Trust the result only once the worst kept candidate lies inside the
+        // radius this band fully covers — otherwise a nearer field could sit
+        // just outside it. A whole-globe pass is exact by construction.
+        if (whole) break;
+        if (best.length >= count && best[count - 1].km <= degs * KM_PER_DEG_LAT) break;
     }
-    out.sort((a, b) => a.km - b.km);
-    return out.slice(0, count);
+    return best;
 };
 
 window.getAirportCoords = (icao) => {
@@ -24855,18 +24925,28 @@ function setupSearchEventListeners() {
     });
 
     // --- 2. Input Typing ---
+    // The search sweeps every airport in the DB plus every live flight, so
+    // running it on each keystroke meant a burst of full scans while the user
+    // was still typing — and every one but the last was thrown away. Coalesce
+    // to one search once typing pauses; short enough to still feel immediate.
+    let searchDebounceTimer = null;
     searchInput.addEventListener('input', () => {
         const val = searchInput.value;
         searchClear.style.display = val ? 'flex' : 'none';
 
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+
         if (val.length >= 2) {
-            handleSearchInput(val);
-            // Slight delay to allow render to finish
-            setTimeout(() => {
+            searchDebounceTimer = setTimeout(() => {
+                searchDebounceTimer = null;
+                // The field may have been cleared or closed while we waited.
+                if (searchInput.value !== val) return;
+                handleSearchInput(val);
                 if (dropdown.children.length > 0) openDropdown();
                 else closeDropdown();
-            }, 50);
+            }, 120);
         } else {
+            searchDebounceTimer = null;
             closeDropdown();
         }
     });
@@ -25588,6 +25668,12 @@ function renderAirportMarkers() {
     updateActiveAirportsGlanceLayer();
 }
 
+// Memo for updateUnstaffedLayer: the staffed-airport set that produced the
+// FeatureCollection currently held by the source, so an ATC refresh that
+// doesn't change it can skip the rebuild and the setData entirely.
+let _unstaffedLayerKey = null;
+let _unstaffedLayerData = null;
+
 async function updateUnstaffedLayer(show, excludeIcaos) {
     const SOURCE_ID = 'unstaffed-airports-source';
     const LAYER_ID = 'unstaffed-airports-layer';
@@ -25644,18 +25730,38 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
     }
 
     // 2. BLAZING FAST FILTERING
-    // Just map the pre-calculated list and exclude the 1-6 currently staffed ones
-    const features = precalculatedMajorAirports
-        .filter(apt => !excludeIcaos.has(apt.icao)) // <--- The only dynamic part
-        .map(apt => ({
+    // Only the 1-6 currently staffed airports are dynamic, but this runs on
+    // every secondary_data_update — i.e. every ATC refresh — and rebuilt tens
+    // of thousands of feature objects each time whether or not the staffed set
+    // had changed. Rebuild only on an actual change, and reuse the payload
+    // otherwise.
+    const excludeKey = Array.from(excludeIcaos).sort().join(',');
+    const layerExists = !!sectorOpsMap.getSource(SOURCE_ID);
+
+    if (layerExists && _unstaffedLayerKey === excludeKey && _unstaffedLayerData
+        && sectorOpsMap.getLayer(LAYER_ID)) {
+        // Same staffed set as last time — the source already holds this exact
+        // FeatureCollection, so there is nothing to push.
+        sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', 'visible');
+        return;
+    }
+
+    const features = [];
+    for (let i = 0; i < precalculatedMajorAirports.length; i++) {
+        const apt = precalculatedMajorAirports[i];
+        if (excludeIcaos.has(apt.icao)) continue; // <--- The only dynamic part
+        features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
             properties: { icao: apt.icao }
-        }));
+        });
+    }
 
     const sourceData = { type: 'FeatureCollection', features };
+    _unstaffedLayerKey = excludeKey;
+    _unstaffedLayerData = sourceData;
 
-    if (sectorOpsMap.getSource(SOURCE_ID)) {
+    if (layerExists) {
         sectorOpsMap.getSource(SOURCE_ID).setData(sourceData);
     } else {
         sectorOpsMap.addSource(SOURCE_ID, {
