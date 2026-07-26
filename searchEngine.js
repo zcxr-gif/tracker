@@ -236,12 +236,19 @@ function searchAirports(query, airportIndex) {
         const r = bestRankNormalized(a._m, n);
         if (r !== Infinity) results.push({ rank: r, airport: a });
     }
-    // Tie-breaker: shorter ICAO first (favor real 4-letter codes), then name length.
+    // Tie-breaker: shorter ICAO first (favor real 4-letter codes), then name
+    // length, then the code itself. That last step matters: sort is stable, so
+    // without it a fully tied group came back in whatever order the airport
+    // file happened to list them. The database now loads as two tiers, and the
+    // supplementary one arrives after first paint, so insertion order is no
+    // longer fixed — results would otherwise shuffle when it lands.
     results.sort((a, b) => {
         if (a.rank !== b.rank) return a.rank - b.rank;
         const la = a.airport.icao.length, lb = b.airport.icao.length;
         if (la !== lb) return la - lb;
-        return a.airport.name.length - b.airport.name.length;
+        const na = a.airport.name.length, nb = b.airport.name.length;
+        if (na !== nb) return na - nb;
+        return a.airport.icao < b.airport.icao ? -1 : a.airport.icao > b.airport.icao ? 1 : 0;
     });
     return results.slice(0, PER_CATEGORY_CAP);
 }

@@ -10986,40 +10986,86 @@ function getLiteFlightPhase(position) {
 }
 
 /**
- * --- [NEW FIX] Fetches the airport database from airports.json
- * This function was missing, causing a 'ReferenceError'.
+ * Normalises whatever an airport file contains into an ICAO-keyed object.
+ * Accepts both the indexed object form and the raw array form.
+ */
+function indexAirportRecords(raw) {
+    if (!Array.isArray(raw)) return raw || {};
+    return raw.reduce((acc, airport) => {
+        // Use 'icao' or 'ident' as the key, ensure it's uppercase
+        const ikey = airport.icao || airport.ident;
+        if (ikey) acc[ikey.toUpperCase()] = airport;
+        return acc;
+    }, {});
+}
+
+// Drop every cached view derived from airportsData. Called whenever the object
+// gains entries so the indexes can't serve a stale subset.
+function invalidateAirportDerivedCaches() {
+    invalidateAirportIndex();
+    if (window.GlobalSearchEngine && typeof window.GlobalSearchEngine.invalidateAirportIndex === 'function') {
+        window.GlobalSearchEngine.invalidateAirportIndex();
+    }
+}
+
+/**
+ * Loads the supplementary airport tier in the background and folds it into the
+ * live object. See tools/build-airport-data.js for what lives in each tier:
+ * nothing here is addressed by key, it exists so global search can find US
+ * local identifiers, heliports and private strips. Failure is silently
+ * tolerated — the app is fully functional on the core tier alone.
+ */
+async function loadSupplementaryAirports() {
+    try {
+        const response = await fetch('airports-extra.json');
+        if (!response.ok) return;
+        const extra = indexAirportRecords(await response.json());
+        const added = Object.keys(extra).length;
+        if (!added) return;
+
+        Object.assign(airportsData, extra);
+        invalidateAirportDerivedCaches();
+        console.log(`Airports: +${added.toLocaleString()} supplementary entries (search only).`);
+    } catch (_) {
+        /* Non-fatal: core tier already covers every functional lookup. */
+    }
+}
+
+/**
+ * Fetches the airport database.
+ *
+ * The database is ~82,700 fields / 11.6 MB, which boot used to download and
+ * parse in full before the map could initialise. It is now split in two (see
+ * tools/build-airport-data.js): the ~19,000 real ICAO fields, which is
+ * everything any lookup actually resolves against, and the rest, which only
+ * global search ever reads. Only the first is awaited — 430 KB over the wire
+ * instead of 2 MB, and roughly a fifth of the parse.
+ *
+ * Falls back to the original monolithic file if the split isn't deployed, so
+ * an out-of-date deploy degrades to the old behaviour rather than breaking.
  */
 async function fetchAirportsData() {
     try {
-        const response = await fetch('airports.json'); // Assumes airports.json is in the same directory
-        if (!response.ok) {
-            throw new Error('Could not load airports.json database.');
-        }
-        
-        const rawAirports = await response.json();
+        let response = await fetch('airports-core.json');
+        let usedSplit = response.ok;
 
-        // Check if the file is an array (which needs to be indexed)
-        // or an object (which is already indexed)
-        if (Array.isArray(rawAirports)) {
-            // It's an array, so we must index it by ICAO
-            airportsData = rawAirports.reduce((acc, airport) => {
-                // Use 'icao' or 'ident' as the key, ensure it's uppercase
-                const ikey = airport.icao || airport.ident; 
-                if (ikey) {
-                    acc[ikey.toUpperCase()] = airport;
-                }
-                return acc;
-            }, {});
-        } else {
-            // It's already an object, just use it
-            airportsData = rawAirports;
+        if (!usedSplit) {
+            response = await fetch('airports.json');
+            if (!response.ok) {
+                throw new Error('Could not load airports database.');
+            }
         }
+
+        airportsData = indexAirportRecords(await response.json());
 
         // The nearest-airport index is derived from this data, so drop it and
         // let the next lookup rebuild against what we just loaded.
-        invalidateAirportIndex();
+        invalidateAirportDerivedCaches();
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
+
+        // Fire-and-forget: boot must not wait on the search-only tier.
+        if (usedSplit) loadSupplementaryAirports();
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
