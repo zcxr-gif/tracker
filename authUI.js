@@ -27,11 +27,25 @@ export const AuthUI = {
 
             if (paymentStatus === 'success') {
                 const pendingData = localStorage.getItem('inflight_pending_signup');
-                
-                if (sessionId && pendingData) {
+                let userData = null;
+                try { userData = pendingData ? JSON.parse(pendingData) : null; }
+                catch (_) { userData = null; }
+
+                // `process-stripe-payment` is the only thing that actually
+                // provisions the entitlement, so it has to run for every kind of
+                // checkout. A paid sign-up leaves the pending blob behind (we
+                // need the credentials to log the new account in); an upgrade
+                // from an existing account has nothing to stash, so we key off
+                // the live session instead. Requiring the blob meant upgrades
+                // were charged and never provisioned.
+                let signedIn = false;
+                try {
+                    const { data: sessionData } = await this._supabase.auth.getSession();
+                    signedIn = !!sessionData?.session?.user;
+                } catch (_) { /* treated as signed out */ }
+
+                if (sessionId && (userData || signedIn)) {
                     try {
-                        const userData = JSON.parse(pendingData);
-                        
                         // 1. Invoke the Stripe Edge Function
                         const { data: result, error: functionError } = await this._supabase.functions.invoke('process-stripe-payment', {
                             body: { sessionId: sessionId }
@@ -41,8 +55,9 @@ export const AuthUI = {
                             throw new Error(result?.error || functionError?.message || "Failed to verify Stripe payment on the server.");
                         }
 
-                        // 2. If it's a renewal, the user is already logged in, skip signInWithPassword
-                        if (!userData.is_renew) {
+                        // 2. Only a brand-new paid sign-up needs logging in. A
+                        //    renewal/upgrade is already in an active session.
+                        if (userData && !userData.is_renew) {
                             const { error: loginError } = await this._supabase.auth.signInWithPassword({
                                 email: userData.email,
                                 password: userData.password
@@ -54,9 +69,21 @@ export const AuthUI = {
                         }
 
                         localStorage.removeItem('inflight_pending_signup');
+
+                        // 3. The browser is still holding the pre-payment
+                        //    session and entitlement cache. Pull the new Pro
+                        //    flag through before opening anything, otherwise the
+                        //    pilot lands back in the app still locked out.
+                        const unlocked = await this._activateProEntitlement();
+
                         this.open();
-                        return; 
-                        
+                        if (!unlocked) {
+                            setTimeout(() => {
+                                this.showSuccess("Payment received — your Pro features are being activated. If they don't appear in a few minutes, please reload the page.");
+                            }, 50);
+                        }
+                        return;
+
                     } catch (e) {
                         console.error("Stripe auto-processing failed:", e);
                         setTimeout(() => {
@@ -91,6 +118,56 @@ export const AuthUI = {
                 }, 500);
             }
         }
+    },
+
+    /**
+     * Make a just-purchased Pro entitlement visible to the running page.
+     *
+     * Coming back from Stripe the browser still holds the session it had before
+     * paying — a free account carries `user_metadata.is_pro === false`, and the
+     * cached `inflight_is_pro` flag that most gated surfaces read is still
+     * 'false'. Neither clears itself, so without this the pilot returns from a
+     * successful checkout to the same locked app.
+     *
+     * `profiles.is_pro` is stamped server-side while the checkout is being
+     * processed, so we poll it briefly rather than trusting the first read, then
+     * hand off to refreshProStatus() which repopulates window.InflightUser, the
+     * localStorage cache and fires `proStatusChanged` to unlock the UI.
+     *
+     * @returns {Promise<boolean>} true once the account reads as Pro.
+     */
+    async _activateProEntitlement() {
+        // Pick up any user_metadata the checkout stamped on the auth user.
+        try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the existing session */ }
+
+        let isPro = false;
+        for (const wait of [0, 800, 1600, 2500]) {
+            if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+            try {
+                const { data: sessionData } = await this._supabase.auth.getSession();
+                const user = sessionData?.session?.user;
+                if (!user) break;
+
+                const { data: profile } = await this._supabase
+                    .from('profiles')
+                    .select('is_pro')
+                    .eq('id', user.id)
+                    .single();
+
+                if (profile?.is_pro === true) { isPro = true; break; }
+            } catch (_) { /* retry until the attempts run out */ }
+        }
+
+        // Repaint the gated surfaces from the authoritative flag either way — a
+        // legacy account that was never stamped free still resolves to Pro here.
+        try {
+            if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
+                const resolved = await window.refreshProStatus();
+                if (resolved === true) isPro = true;
+            }
+        } catch (_) { /* the reload path still picks it up */ }
+
+        return isPro;
     },
 
     setupRecoveryListener() {

@@ -426,6 +426,17 @@ init(supabaseClient) {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
         try {
             if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+
+            // Claim the checkout before we leave (mirrors ProfileUI). Stripe
+            // returns to `?payment=success`, where AuthUI.checkPaymentStatus()
+            // calls process-stripe-payment — the step that actually grants Pro.
+            try {
+                localStorage.setItem('inflight_pending_signup', JSON.stringify({
+                    email: this._currentUser.email,
+                    is_renew: true,
+                }));
+            } catch (_) { /* private mode: the signed-in fallback still claims it */ }
+
             const payload = {
                 email: this._currentUser.email,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
@@ -436,6 +447,7 @@ init(supabaseClient) {
             if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
             window.location.href = data.url;
         } catch (err) {
+            try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
             if (btn) { btn.disabled = false; btn.innerHTML = restore; }
             if (this._activeTab !== 'settings') this.switchTab('settings');
         }

@@ -1422,6 +1422,19 @@ if (type === 'flights') {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
         try {
             if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+
+            // Mark the checkout as ours before leaving the page. Stripe returns
+            // to `?payment=success`, where AuthUI.checkPaymentStatus() claims the
+            // receipt and calls process-stripe-payment — the step that actually
+            // grants Pro. Without this marker an upgrade was charged and the
+            // account stayed on the free tier.
+            try {
+                localStorage.setItem('inflight_pending_signup', JSON.stringify({
+                    email: this._currentUser.email,
+                    is_renew: true,
+                }));
+            } catch (_) { /* private mode: the signed-in fallback still claims it */ }
+
             const payload = {
                 email: this._currentUser.email,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
@@ -1433,6 +1446,7 @@ if (type === 'flights') {
             window.location.href = data.url;
         } catch (err) {
             console.warn('[ProfileUI] Upgrade checkout failed, showing billing screen:', err.message);
+            try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
             if (btn) { btn.disabled = false; btn.innerHTML = restore; }
             if (this._activeTab !== 'settings') this.switchTab('settings');
             setTimeout(() => document.getElementById('pui-billing-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
