@@ -113,10 +113,21 @@ export const ProfileUI = {
     _3dViewerHostKey: null,
     _active3DFlightId: null,
 
+    // Placeholders until _fetchSubscriptionData() resolves. They have to be
+    // renderable on their own: the fetch fails outright when the pilot has no
+    // subscriptions row, and a missing `nextPayment` printed
+    // "Next payment · undefined" on the billing card.
     _subscription: {
         status: 'Active',
         plan: 'Pro Access',
-        price: '$1.99 / month'
+        price: '$1.99 / month',
+        nextPayment: 'Pending',
+        // Renewal state. `cancelAtPeriodEnd` flips the card from "Next payment"
+        // to "Access ends" — a cancelled subscription keeps Pro until the paid
+        // period runs out, so the date means the opposite thing.
+        cancelAtPeriodEnd: false,
+        periodEndLabel: 'Next payment',
+        daysLeft: null,
     },
 
     // Pro entitlement. `true` = full Pro Access; `false` = a free account, which
@@ -1422,8 +1433,25 @@ if (type === 'flights') {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
         try {
             if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+
+            // Mark the checkout as ours before leaving the page. Stripe returns
+            // to `?payment=success`, where AuthUI.checkPaymentStatus() claims the
+            // receipt and calls process-stripe-payment — the step that actually
+            // grants Pro. Without this marker an upgrade was charged and the
+            // account stayed on the free tier.
+            try {
+                localStorage.setItem('inflight_pending_signup', JSON.stringify({
+                    email: this._currentUser.email,
+                    is_renew: true,
+                }));
+            } catch (_) { /* private mode: the signed-in fallback still claims it */ }
+
             const payload = {
                 email: this._currentUser.email,
+                // Upgrades know exactly who is paying — passing the id through
+                // lets the payment processor resolve the account directly
+                // instead of matching on the checkout email.
+                user_id: this._currentUser.id,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url:  window.location.origin + '?payment=cancel',
                 is_renew: true,
@@ -1433,9 +1461,74 @@ if (type === 'flights') {
             window.location.href = data.url;
         } catch (err) {
             console.warn('[ProfileUI] Upgrade checkout failed, showing billing screen:', err.message);
+            try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
             if (btn) { btn.disabled = false; btn.innerHTML = restore; }
             if (this._activeTab !== 'settings') this.switchTab('settings');
             setTimeout(() => document.getElementById('pui-billing-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+        }
+    },
+
+    /**
+     * Re-apply Pro from a subscription that is already live at Stripe.
+     *
+     * The upgrade only provisions when the pilot lands back on the success URL,
+     * so a dropped redirect, a closed tab or a failed verification leaves a
+     * paying pilot on the free tier with no way out but support. This asks the
+     * server to look their subscription up and re-grant — it never grants on
+     * the client's say-so, and does nothing if Stripe has no active
+     * subscription for the account.
+     */
+    async _restoreProAccess(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        // Same call from both cards, but it reads very differently depending on
+        // where you started: a free-tier pilot is recovering lost access, a Pro
+        // pilot is just refilling a billing card that never got its row.
+        const wasPro = this._isPro === true;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking…'; }
+        this._showMessage('pui-billing-msg', 'Checking your subscription with Stripe…', 'success');
+
+        try {
+            if (!this._supabase || !this._currentUser) throw new Error('No active session.');
+
+            const { data, error } = await this._supabase.functions.invoke('restore-pro-access');
+            if (error) throw new Error(error.message || 'Could not reach the server.');
+            if (data?.error) throw new Error(data.error);
+
+            if (!data?.restored) {
+                this._showMessage(
+                    'pui-billing-msg',
+                    wasPro
+                        ? 'Stripe has no active subscription on this email, so there are no billing dates to show. If you paid with a different email, contact support.'
+                        : 'No active subscription found for this account. If you paid with a different email, contact support and we’ll move it across.',
+                    'error'
+                );
+                if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+                return;
+            }
+
+            // Granted server-side — pull the new entitlement through so the
+            // gated surfaces unlock without a reload.
+            this._showMessage(
+                'pui-billing-msg',
+                wasPro ? 'Billing details refreshed from Stripe.' : 'Pro restored — welcome back. Unlocking your tools…',
+                'success'
+            );
+            try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the session we have */ }
+            try {
+                if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
+                    await window.refreshProStatus();
+                }
+            } catch (_) { /* the reload path still picks it up */ }
+
+            this._isPro = true;
+            if (!this._userVAsLoaded) this._fetchUserVAs();
+            this._fetchSubscriptionData?.();
+            if (this._isOpen) this._render();
+
+        } catch (err) {
+            console.warn('[ProfileUI] Restore Pro failed:', err.message);
+            this._showMessage('pui-billing-msg', `Could not restore Pro: ${err.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
         }
     },
 
@@ -1663,20 +1756,17 @@ if (type === 'flights') {
         if (!this._currentUser || !this._supabase) return;
 
         try {
+            // `select('*')` on purpose: the renewal columns are added by a
+            // migration, and naming a column the database doesn't have yet
+            // fails the whole query and blanks the billing card.
             const { data, error } = await this._supabase
                 .from('subscriptions')
-                .select('status, plan_name, current_period_end, amount')
+                .select('*')
                 .eq('user_id', this._currentUser.id)
                 .single();
 
             if (data && !error) {
-                const nextDate = new Date(data.current_period_end);
-                this._subscription = {
-                    status: data.status === 'active' ? 'Active' : 'Inactive',
-                    plan: data.plan_name || 'Pro Access',
-                    nextPayment: isNaN(nextDate) ? 'Pending' : nextDate.toLocaleDateString('en-US', { timeZone: this._timezone }),
-                    price: `$${(data.amount / 100).toFixed(2)} / month`
-                };
+                this._subscription = this._buildSubscriptionView(data);
 
                 if (this._activeTab === 'settings' && this._isOpen) {
                     this._renderContentOnly();
@@ -1685,6 +1775,56 @@ if (type === 'flights') {
         } catch (err) {
             console.warn("Using default subscription data.");
         }
+    },
+
+    /**
+     * Shape a raw `subscriptions` row into what the billing card renders.
+     *
+     * The important distinction is what `current_period_end` MEANS. On a
+     * renewing subscription it's the next charge. On one that's been cancelled
+     * it's the last day of access — Stripe keeps the pilot on Pro until the
+     * period they already paid for runs out. Showing "Next payment" against a
+     * cancelled subscription tells them they're about to be charged again,
+     * which is the opposite of the truth.
+     */
+    _buildSubscriptionView(row) {
+        const periodEnd = row.current_period_end ? new Date(row.current_period_end) : null;
+        const validEnd = periodEnd && !isNaN(periodEnd.getTime()) ? periodEnd : null;
+        const cancelAtPeriodEnd = row.cancel_at_period_end === true;
+        const raw = String(row.status || '').toLowerCase();
+
+        // Days remaining, rounded up so the final partial day still reads "1
+        // day left" rather than "0".
+        let daysLeft = null;
+        if (validEnd) {
+            daysLeft = Math.max(0, Math.ceil((validEnd.getTime() - Date.now()) / 86400000));
+        }
+
+        let status;
+        if (cancelAtPeriodEnd && (raw === 'active' || raw === 'trialing')) status = 'Cancels';
+        else if (raw === 'trialing') status = 'Trial';
+        else if (raw === 'past_due') status = 'Past due';
+        else if (raw === 'active') status = 'Active';
+        else if (!raw) status = 'Active';
+        else status = 'Inactive';
+
+        // `Number(null)` is 0, which would advertise the plan as $0.00 / month.
+        const amount = row.amount == null ? NaN : Number(row.amount);
+
+        return {
+            status,
+            plan: row.plan_name || 'Pro Access',
+            price: Number.isFinite(amount) ? `$${(amount / 100).toFixed(2)} / month` : '$1.99 / month',
+            nextPayment: validEnd
+                ? validEnd.toLocaleDateString('en-US', { timeZone: this._timezone, year: 'numeric', month: 'short', day: 'numeric' })
+                : 'Pending',
+            cancelAtPeriodEnd,
+            periodEndLabel: cancelAtPeriodEnd ? 'Access ends'
+                : status === 'Inactive' ? 'Ended'          // already lapsed — the date is history, not a charge
+                : raw === 'trialing' ? 'Trial ends'
+                : 'Next payment',
+            daysLeft,
+        };
     },
 
     async _fetchFlightPlans() {
@@ -4198,10 +4338,27 @@ if (this._activeTab === 'flight-plan') {
                                 <div class="pui-plan-box">
                                     <div class="pui-plan-header">
                                         <h4>${this._subscription.plan}</h4>
-                                        <span class="pui-status-badge ${this._subscription.status === 'Active' ? 'pos' : 'neg'}">${this._subscription.status}</span>
+                                        <span class="pui-status-badge ${
+                                            this._subscription.status === 'Active' || this._subscription.status === 'Trial' ? 'pos'
+                                            : this._subscription.status === 'Cancels' || this._subscription.status === 'Past due' ? 'warn'
+                                            : 'neg'
+                                        }">${this._subscription.status}</span>
                                     </div>
                                     <p class="pui-plan-price">${this._subscription.price}</p>
-                                    <p class="pui-plan-renewal">Next payment · ${this._subscription.nextPayment}</p>
+                                    <p class="pui-plan-renewal">${this._subscription.periodEndLabel} · ${this._subscription.nextPayment}</p>
+                                    ${this._subscription.cancelAtPeriodEnd ? `
+                                    <p class="pui-plan-note">
+                                        <i class="fa-solid fa-circle-info"></i>
+                                        Cancelled — this won't renew. You keep Pro until ${this._subscription.nextPayment}${
+                                            this._subscription.daysLeft !== null
+                                                ? ` (${this._subscription.daysLeft} ${this._subscription.daysLeft === 1 ? 'day' : 'days'} left)`
+                                                : ''
+                                        }.
+                                    </p>` : (this._subscription.status === 'Past due' ? `
+                                    <p class="pui-plan-note">
+                                        <i class="fa-solid fa-triangle-exclamation"></i>
+                                        We couldn't take your last payment. Update your card to keep Pro.
+                                    </p>` : '')}
                                 </div>
                                 <div id="pui-billing-msg" class="pui-alert" style="display: none; margin-top: 14px;"></div>
                                 <div class="pui-billing-actions">
@@ -4212,6 +4369,12 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-ban"></i> Cancel subscription
                                     </button>
                                 </div>
+                                <p class="pui-help-text" style="margin-top: 12px; text-align: center;">
+                                    Dates look wrong or missing?
+                                    <button type="button" class="pui-btn-ghost pui-btn-sm" data-action="restore-pro" style="margin-left: 4px;">
+                                        <i class="fa-solid fa-rotate"></i> Refresh from Stripe
+                                    </button>
+                                </p>
                                 ` : `
                                 <div class="pui-plan-box pui-plan-box-free">
                                     <div class="pui-plan-header">
@@ -4225,6 +4388,13 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
                                     </button>
                                 </div>
+                                <div id="pui-billing-msg" class="pui-alert" style="display: none; margin-top: 14px;"></div>
+                                <p class="pui-help-text" style="margin-top: 12px; text-align: center;">
+                                    Already paid but still on the free tier?
+                                    <button type="button" class="pui-btn-ghost pui-btn-sm" data-action="restore-pro" style="margin-left: 4px;">
+                                        <i class="fa-solid fa-rotate"></i> Restore Pro access
+                                    </button>
+                                </p>
                                 `}
                             </div>
                         </div>
@@ -4725,6 +4895,16 @@ const contentRoot = document.getElementById('pui-content');
                 if (upgradeTarget && contentRoot.contains(upgradeTarget)) {
                     e.stopPropagation();
                     this._startProUpgrade(upgradeTarget);
+                    return;
+                }
+
+                // 4b. Restore Pro → re-check Stripe for a live subscription and
+                // re-apply the entitlement. For pilots who paid but never got
+                // provisioned (a dropped redirect, a closed tab).
+                const restoreTarget = e.target.closest('[data-action="restore-pro"]');
+                if (restoreTarget && contentRoot.contains(restoreTarget)) {
+                    e.stopPropagation();
+                    this._restoreProAccess(restoreTarget);
                     return;
                 }
             });
@@ -6847,6 +7027,22 @@ const contentRoot = document.getElementById('pui-content');
             }
             .pui-status-badge.pos { background: var(--pui-pos-soft); color: var(--pui-pos); }
             .pui-status-badge.neg { background: var(--pui-neg-soft); color: var(--pui-neg); }
+            /* Still entitled, but on the way out (cancelled, or a failed
+               charge Stripe is still retrying) — not a success, not a loss. */
+            .pui-status-badge.warn { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+            .pui-wrapper-layer[data-theme="light"] .pui-status-badge.warn { color: #b45309; }
+
+            .pui-plan-note {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                margin-top: 10px;
+                font-size: 0.78rem;
+                line-height: 1.45;
+                color: var(--pui-text-secondary);
+            }
+            .pui-plan-note i { margin-top: 2px; color: #fbbf24; }
+            .pui-wrapper-layer[data-theme="light"] .pui-plan-note i { color: #b45309; }
 
             .pui-mini-tag {
                 display: inline-flex;

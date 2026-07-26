@@ -92,6 +92,11 @@ export const MobileDashboardUI = {
         plan:        'Pro Access',
         nextPayment: 'Upcoming',
         price:       '$1.99 / month',
+        // See ProfileUI._buildSubscriptionView — a cancelled subscription's
+        // period end is the last day of access, not the next charge.
+        cancelAtPeriodEnd: false,
+        periodEndLabel: 'Next payment',
+        daysLeft: null,
     },
     _ifData: {
         loading:       false,
@@ -426,8 +431,21 @@ init(supabaseClient) {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
         try {
             if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+
+            // Claim the checkout before we leave (mirrors ProfileUI). Stripe
+            // returns to `?payment=success`, where AuthUI.checkPaymentStatus()
+            // calls process-stripe-payment — the step that actually grants Pro.
+            try {
+                localStorage.setItem('inflight_pending_signup', JSON.stringify({
+                    email: this._currentUser.email,
+                    is_renew: true,
+                }));
+            } catch (_) { /* private mode: the signed-in fallback still claims it */ }
+
             const payload = {
                 email: this._currentUser.email,
+                // Resolve the account by id server-side (mirrors ProfileUI).
+                user_id: this._currentUser.id,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url:  window.location.origin + '?payment=cancel',
                 is_renew: true,
@@ -436,8 +454,63 @@ init(supabaseClient) {
             if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
             window.location.href = data.url;
         } catch (err) {
+            try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
             if (btn) { btn.disabled = false; btn.innerHTML = restore; }
             if (this._activeTab !== 'settings') this.switchTab('settings');
+        }
+    },
+
+    /**
+     * Re-apply Pro from a subscription already live at Stripe (mirrors
+     * ProfileUI._restoreProAccess). The grant happens server-side — this only
+     * asks, and reflects the answer.
+     */
+    async _restoreProAccess(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        // Same call from the free card and the Pro card — see ProfileUI.
+        const wasPro = this._isPro === true;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking…'; }
+        this._showMessage('mdui-billing-msg', 'Checking your subscription with Stripe…', 'success');
+
+        try {
+            if (!this._supabase || !this._currentUser) throw new Error('No active session.');
+
+            const { data, error } = await this._supabase.functions.invoke('restore-pro-access');
+            if (error) throw new Error(error.message || 'Could not reach the server.');
+            if (data?.error) throw new Error(data.error);
+
+            if (!data?.restored) {
+                this._showMessage(
+                    'mdui-billing-msg',
+                    wasPro
+                        ? 'Stripe has no active subscription on this email, so there are no billing dates to show.'
+                        : 'No active subscription found for this account. If you paid with a different email, contact support.',
+                    'error'
+                );
+                if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+                return;
+            }
+
+            this._showMessage(
+                'mdui-billing-msg',
+                wasPro ? 'Billing details refreshed from Stripe.' : 'Pro restored — unlocking your tools…',
+                'success'
+            );
+            try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the session we have */ }
+            try {
+                if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
+                    await window.refreshProStatus();
+                }
+            } catch (_) { /* the reload path still picks it up */ }
+
+            this._isPro = true;
+            if (!this._userVAsLoaded) this._fetchUserVAs();
+            this._fetchSubscriptionData?.();
+            if (this._isOpen) this._render();
+
+        } catch (err) {
+            this._showMessage('mdui-billing-msg', `Could not restore Pro: ${err.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
         }
     },
 
@@ -474,22 +547,60 @@ init(supabaseClient) {
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
         try {
+            // select('*') so a database without the renewal columns yet still
+            // returns the row instead of failing the whole query.
             const { data, error } = await this._supabase
                 .from('subscriptions')
-                .select('status, plan_name, current_period_end, amount')
+                .select('*')
                 .eq('user_id', this._currentUser.id)
                 .single();
             if (data && !error) {
-                const nextDate = new Date(data.current_period_end);
-                this._subscription = {
-                    status:      data.status === 'active' ? 'Active' : 'Inactive',
-                    plan:        data.plan_name || 'Pro Access',
-                    nextPayment: isNaN(nextDate) ? 'Pending' : nextDate.toLocaleDateString(),
-                    price:       `$${(data.amount / 100).toFixed(2)} / month`,
-                };
+                this._subscription = this._buildSubscriptionView(data);
                 if (this._activeTab === 'settings' && this._isOpen) this._render();
             }
         } catch (_) { }
+    },
+
+    /**
+     * Shape a raw `subscriptions` row for the billing rows (mirrors
+     * ProfileUI._buildSubscriptionView). `current_period_end` is the next
+     * charge on a renewing subscription and the last day of access on a
+     * cancelled one — labelling both "Next payment" tells a pilot who just
+     * cancelled that they're about to be billed again.
+     */
+    _buildSubscriptionView(row) {
+        const periodEnd = row.current_period_end ? new Date(row.current_period_end) : null;
+        const validEnd = periodEnd && !isNaN(periodEnd.getTime()) ? periodEnd : null;
+        const cancelAtPeriodEnd = row.cancel_at_period_end === true;
+        const raw = String(row.status || '').toLowerCase();
+
+        let daysLeft = null;
+        if (validEnd) daysLeft = Math.max(0, Math.ceil((validEnd.getTime() - Date.now()) / 86400000));
+
+        let status;
+        if (cancelAtPeriodEnd && (raw === 'active' || raw === 'trialing')) status = 'Cancels';
+        else if (raw === 'trialing') status = 'Trial';
+        else if (raw === 'past_due') status = 'Past due';
+        else if (raw === 'active' || !raw) status = 'Active';
+        else status = 'Inactive';
+
+        // `Number(null)` is 0, which would advertise the plan as $0.00 / month.
+        const amount = row.amount == null ? NaN : Number(row.amount);
+
+        return {
+            status,
+            plan: row.plan_name || 'Pro Access',
+            price: Number.isFinite(amount) ? `$${(amount / 100).toFixed(2)} / month` : '$1.99 / month',
+            nextPayment: validEnd
+                ? validEnd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                : 'Pending',
+            cancelAtPeriodEnd,
+            periodEndLabel: cancelAtPeriodEnd ? 'Access ends'
+                : status === 'Inactive' ? 'Ended'          // already lapsed — the date is history, not a charge
+                : raw === 'trialing' ? 'Trial ends'
+                : 'Next payment',
+            daysLeft,
+        };
     },
 
     async _fetchFlightPlans() {
@@ -3086,16 +3197,38 @@ init(supabaseClient) {
                   <div class="mdui-section-title">Subscription</div>
                   <div class="mdui-rows">
                       <div class="mdui-row" data-static="true">
-                          <span class="mdui-row-glyph tone-blue"><i class="fa-solid fa-rocket"></i></span>
+                          <span class="mdui-row-glyph ${this._subscription.cancelAtPeriodEnd ? 'tone-orange' : 'tone-blue'}"><i class="fa-solid fa-rocket"></i></span>
                           <div class="mdui-row-main">
                               <span class="mdui-row-title">${this._subscription.plan}</span>
                               <span class="mdui-row-sub">${this._subscription.price} · ${this._subscription.status}</span>
                           </div>
                           <span class="mdui-row-value">${this._subscription.nextPayment || ''}</span>
                       </div>
+                      <div class="mdui-row" data-static="true">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-calendar-day"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title">${this._subscription.periodEndLabel}</span>
+                              ${this._subscription.cancelAtPeriodEnd ? `
+                              <span class="mdui-row-sub">Won't renew${
+                                  this._subscription.daysLeft !== null
+                                      ? ` · ${this._subscription.daysLeft} ${this._subscription.daysLeft === 1 ? 'day' : 'days'} left`
+                                      : ''
+                              }</span>` : (this._subscription.status === 'Past due' ? `
+                              <span class="mdui-row-sub">Payment failed — update your card to keep Pro</span>` : '')}
+                          </div>
+                          <span class="mdui-row-value">${this._subscription.nextPayment || '—'}</span>
+                      </div>
                       <button class="mdui-row" id="mdui-billing-update" type="button">
                           <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-credit-card"></i></span>
                           <div class="mdui-row-main"><span class="mdui-row-title">Update Payment Method</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
+                      </button>
+                      <button class="mdui-row" data-action="restore-pro" type="button">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-rotate"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title">Refresh From Stripe</span>
+                              <span class="mdui-row-sub">Re-check your subscription dates</span>
+                          </div>
                           <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </button>
                       <button class="mdui-row destructive" id="mdui-billing-cancel" type="button">
@@ -3120,6 +3253,10 @@ init(supabaseClient) {
                   </div>
                   <button class="mdui-btn-primary mdui-btn-block" data-action="upgrade-pro" style="margin-top:12px;">
                       <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
+                  </button>
+                  <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin-top: 10px;"></div>
+                  <button class="mdui-btn-ghost mdui-btn-block" data-action="restore-pro" type="button" style="margin-top:10px;">
+                      <i class="fa-solid fa-rotate"></i> Already paid? Restore Pro access
                   </button>
               </div>`)}
 
@@ -3616,6 +3753,14 @@ _attachListeners() {
                     icao: target.dataset.icao,
                     callsign: target.dataset.callsign
                 });
+                return;
+            }
+
+            // 3b. Restore Pro → re-check Stripe for a live subscription
+            const restoreBtn = e.target.closest('[data-action="restore-pro"]');
+            if (restoreBtn && contentRoot.contains(restoreBtn)) {
+                e.stopPropagation();
+                this._restoreProAccess(restoreBtn);
                 return;
             }
 
