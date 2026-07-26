@@ -153,6 +153,52 @@
         #sector-ops-map-fullscreen {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
+            /* Needed so the ::after placeholder below anchors to this element.
+               Mapbox sets this itself once it initialises, but not before —
+               and "before" is exactly when the placeholder has to work. */
+            position: relative;
+
+            /* Backdrop for the window between this container existing and
+               Mapbox painting its first frame. Share-link arrivals skip the
+               splash entirely (they go straight to a flight), so without this
+               they got flat #0d1117 — indistinguishable from a broken page —
+               until the tiles arrived. The Mapbox canvas draws over it.
+               Purely decorative: no JS, no layout cost, nothing to tear down. */
+            background:
+                radial-gradient(ellipse at 50% 45%, rgba(96, 132, 184, 0.16) 0%, transparent 62%),
+                linear-gradient(180deg, #131722 0%, #0d1117 100%);
+        }
+
+        /* A slow horizon sweep, so the wait reads as "loading" rather than
+           "frozen". Sits behind the canvas and never intercepts input. */
+        #sector-ops-map-fullscreen::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            background: linear-gradient(100deg,
+                transparent 38%,
+                rgba(255, 255, 255, 0.045) 50%,
+                transparent 62%);
+            background-size: 260% 100%;
+            animation: inflight-map-sweep 2.4s ease-in-out infinite;
+        }
+        /* Retired the moment the map reports its first paint. Driven by a
+           class rather than :has(.mapboxgl-canvas-container) so it also works
+           on browsers without :has() support, where the sweep would otherwise
+           keep running on top of a perfectly good map. */
+        #sector-ops-map-fullscreen.map-painted::after {
+            display: none;
+        }
+
+        @keyframes inflight-map-sweep {
+            0%   { background-position: 120% 0; }
+            100% { background-position: -20% 0; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            #sector-ops-map-fullscreen::after { animation: none; }
         }
 
         /* This rule makes the main content area fill the entire viewport */
@@ -2087,6 +2133,53 @@
             animation: inflight-splash-fade-out 460ms ease-in forwards;
         }
 
+        /* Boot status line. Reserves no space until it has something to say,
+           so a fast load looks exactly as it did before. */
+        /* Empty means absent — otherwise the stack's 28px gap would push the
+           logo off-centre for the whole of a fast, silent load. */
+        .inflight-splash-status:empty { display: none; }
+        .inflight-splash-status {
+            margin: 0;
+            max-width: 32ch;
+            font-size: 0.9rem;
+            line-height: 1.45;
+            color: rgba(233, 234, 236, 0.72);
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 320ms ease, transform 320ms ease;
+        }
+        .inflight-splash-status.is-visible {
+            opacity: 1;
+            transform: none;
+        }
+        .inflight-splash-status.is-error {
+            color: #ffb4a8;
+        }
+
+        .inflight-splash-retry {
+            margin: 0;
+            padding: 9px 20px;
+            font: inherit;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #e9eaec;
+            background: rgba(255, 255, 255, 0.09);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background 160ms ease, border-color 160ms ease;
+        }
+        .inflight-splash-retry:hover,
+        .inflight-splash-retry:focus-visible {
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        .inflight-splash-retry[hidden] { display: none; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .inflight-splash-status { transition: none; }
+        }
+
         .inflight-splash-stack {
             position: relative;
             display: flex;
@@ -2239,6 +2332,12 @@
             <div class="inflight-splash-logo-wrap">
                 <img src="Images/inflight.png" alt="Inflight" class="inflight-splash-logo" id="inflight-splash-logo">
             </div>
+            <!-- Boot status. Stays empty (and takes no space) for the first few
+                 seconds so a fast load is still a clean logo-only splash; fills
+                 in only if the map is slow, and turns into an explanation plus
+                 a retry if it fails outright. -->
+            <p class="inflight-splash-status" id="inflight-splash-status" role="status" aria-live="polite"></p>
+            <button type="button" class="inflight-splash-retry" id="inflight-splash-retry" hidden>Try again</button>
         </div>
         <div class="inflight-splash-partners" id="inflight-splash-partners" hidden aria-hidden="true">
             <span class="inflight-splash-partners-label">Our Partner VAs</span>
@@ -2289,8 +2388,23 @@
 
             var dismissed     = false;
             var minVisibleMs  = 3000;  // Linger so partner VAs load + settle cleanly
-            var maxVisibleMs  = 6000;  // Safety net if `load` never fires
             var start         = Date.now();
+
+            // The splash is dismissed when the MAP reports it has painted, not
+            // on window.load. window.load only means the page's subresources
+            // finished; the map is still fetching its token, style and tiles
+            // well after that, so dismissing on it faded the splash out over a
+            // bare #0d1117 page and left the user staring at black on any slow
+            // connection. flight.js publishes boot state via
+            // window.__inflightBoot + the 'inflight:boot' event.
+            var status = document.getElementById('inflight-splash-status');
+
+            function setStatus(text, isError) {
+                if (!status) return;
+                status.textContent = text || '';
+                status.classList.toggle('is-error', !!isError);
+                status.classList.toggle('is-visible', !!text);
+            }
 
             function dismiss() {
                 if (dismissed) return;
@@ -2303,12 +2417,66 @@
                 }, remaining);
             }
 
-            if (document.readyState === 'complete') {
-                dismiss();
-            } else {
-                window.addEventListener('load', dismiss, { once: true });
+            var failed = false;
+            function fail(detail) {
+                // First failure wins. The stall net below fires on a timer and
+                // must not overwrite a specific, actionable message ("Could not
+                // reach the InFlight servers") with its generic one.
+                if (dismissed || failed) return;
+                failed = true;
+                // Deliberately does NOT dismiss: there is nothing behind the
+                // splash worth revealing, so keep the explanation on screen.
+                setStatus(detail || 'InFlight could not start.', true);
+                var retry = document.getElementById('inflight-splash-retry');
+                if (retry) retry.hidden = false;
             }
-            setTimeout(dismiss, maxVisibleMs);
+
+            // Progressive reassurance. Silence is fine for the first few
+            // seconds; past that the user deserves to know it is still working
+            // rather than wondering whether the app has hung.
+            var reassure = [
+                { at: 4000,  text: 'Loading the map…' },
+                { at: 9000,  text: 'Still loading — this can take a moment on a slow connection.' },
+                { at: 18000, text: 'Taking longer than usual. Hang tight…' }
+            ];
+            var timers = reassure.map(function (step) {
+                return setTimeout(function () {
+                    if (!dismissed && !overlay.classList.contains('has-error')) setStatus(step.text);
+                }, step.at);
+            });
+
+            function onBoot(state, detail) {
+                if (state === 'map-ready') {
+                    timers.forEach(clearTimeout);
+                    setStatus('');
+                    dismiss();
+                } else if (state === 'map-error') {
+                    timers.forEach(clearTimeout);
+                    overlay.classList.add('has-error');
+                    fail(detail);
+                }
+            }
+
+            window.addEventListener('inflight:boot', function (e) {
+                var d = (e && e.detail) || {};
+                onBoot(d.state, d.detail);
+            });
+
+            // flight.js is a module and may have reported a state before this
+            // listener attached, so reconcile with whatever is already there.
+            if (window.__inflightBoot) onBoot(window.__inflightBoot.state, window.__inflightBoot.detail);
+
+            // Last-resort net: if the map never reports either way — a wedged
+            // GPU context, a blocked CDN, an exception before flight.js runs —
+            // surface it rather than leaving a logo spinning forever.
+            setTimeout(function () {
+                if (!dismissed && (!window.__inflightBoot || window.__inflightBoot.state !== 'map-ready')) {
+                    fail('The map is not responding. Check your connection and try again.');
+                }
+            }, 30000);
+
+            var retryBtn = document.getElementById('inflight-splash-retry');
+            if (retryBtn) retryBtn.addEventListener('click', function () { window.location.reload(); });
         })();
     </script>
     <script>

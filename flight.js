@@ -397,6 +397,45 @@ function getHoverIconImageExpression() {
     return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777'], '_S'];
 }
 
+/**
+ * Publishes boot progress for the splash screen in index.html.
+ *
+ * The splash used to dismiss on window.load, which is unrelated to whether the
+ * map has drawn anything — on a slow connection it faded out over the bare
+ * #0d1117 page and the user was left looking at black. It now waits on these
+ * states instead, so it can hold until there is a map to reveal, describe what
+ * is happening if that takes a while, and offer a retry if it never arrives.
+ *
+ * States, in order: 'booting' -> 'loading-data' -> 'map-init' -> 'map-ready',
+ * with 'map-error' as the terminal failure. Safe to call before the splash
+ * exists (it just records the latest state on window).
+ *
+ * @param {string} state
+ * @param {string} [detail] Human-readable context, shown on failure.
+ */
+function reportBootState(state, detail) {
+    // Never regress out of a terminal state: a late tile error must not undo
+    // 'map-ready', and a stray success must not mask a reported failure.
+    const previous = window.__inflightBoot && window.__inflightBoot.state;
+    if (previous === 'map-ready' || (previous === 'map-error' && state !== 'map-ready')) return;
+
+    window.__inflightBoot = { state, detail: detail || '', at: Date.now() };
+
+    // Retire the map container's loading placeholder (see index.html) as soon
+    // as there is a real map behind it. Share-link arrivals skip the splash
+    // entirely, so this is the only thing standing between them and a blank
+    // dark rectangle while tiles stream in.
+    if (state === 'map-ready') {
+        const container = document.getElementById('sector-ops-map-fullscreen');
+        if (container) container.classList.add('map-painted');
+    }
+
+    try {
+        window.dispatchEvent(new CustomEvent('inflight:boot', { detail: window.__inflightBoot }));
+    } catch (_) { /* CustomEvent unavailable — the splash falls back to polling */ }
+}
+window.reportBootState = reportBootState;
+
 document.addEventListener('DOMContentLoaded', async () => {
     window.loadingStartTime = Date.now();
 
@@ -19252,6 +19291,27 @@ function initializeSectorOpsMap(centerICAO) {
     if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
 });
 
+    // Tell the splash the map has actually painted. It used to dismiss on
+    // window.load, which says nothing about the map — on a slow connection it
+    // faded out over a bare #0d1117 page and left the user staring at black
+    // while tiles were still arriving. 'load' is Mapbox's "style parsed and
+    // first frame rendered" signal, which is exactly the moment there is
+    // something to look at.
+    sectorOpsMap.once('load', () => reportBootState('map-ready'));
+
+    // A map that never loads must say so rather than fading to black. Mapbox
+    // reports a lot of non-fatal errors (a single tile 404, a missing sprite),
+    // so only escalate the ones that mean the map itself cannot come up, and
+    // only while it still hasn't painted.
+    sectorOpsMap.on('error', (e) => {
+        if (window.__inflightBoot && window.__inflightBoot.state === 'map-ready') return;
+        const status = e && e.error && e.error.status;
+        const message = String((e && e.error && e.error.message) || '');
+        const fatal = status === 401 || status === 403 ||
+            /access token|style is not|Failed to fetch/i.test(message);
+        if (fatal) reportBootState('map-error', message || 'The map failed to load.');
+    });
+
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
             GroupFlightManager.init(sectorOpsMap);
@@ -26194,15 +26254,32 @@ async function initializeApp() {
         // [PERF FIX] Parallelize: kick off all 3 fetches at once, but only
         // block on the two the map actually needs (token + airport coords).
         // Runways finish in the background while the map is rendering.
+        reportBootState('loading-data');
+
         const apiKeysPromise = fetchApiKeys();
         const airportsPromise = fetchAirportsData();
         // Warm the runway DB in the background. Boot never waits on it — the
         // airport panels that need it await ensureRunwaysData() themselves.
         ensureRunwaysData();
 
-        await Promise.all([apiKeysPromise, airportsPromise]);
+        try {
+            await Promise.all([apiKeysPromise, airportsPromise]);
+        } catch (err) {
+            // Without a Mapbox token or airport coordinates there is no map to
+            // show. Say so on the splash instead of dismissing to a black page.
+            reportBootState('map-error', 'Could not reach the InFlight servers.');
+            throw err;
+        }
 
-        // Initialize the Sector Ops view (map render starts now)
+        if (!MAPBOX_ACCESS_TOKEN) {
+            reportBootState('map-error', 'The map could not be configured.');
+            return;
+        }
+
+        reportBootState('map-init');
+
+        // Initialize the Sector Ops view (map render starts now). The splash
+        // stays up until the map reports it has painted — see reportBootState.
         await initializeSectorOpsView();
 
         // First-launch gate: on the very first run (or after the legal docs
@@ -26290,5 +26367,10 @@ if (urlParams.get('auth') === 'signup') {
     }
 }
 
-    initializeApp();
+    // Any unhandled failure during boot must reach the splash, or the overlay
+    // would sit there indefinitely on a page that is never going to load.
+    initializeApp().catch(err => {
+        console.error('Boot failed:', err);
+        reportBootState('map-error', 'Something went wrong while starting InFlight.');
+    });
 });
