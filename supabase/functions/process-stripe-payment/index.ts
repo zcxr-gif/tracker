@@ -169,10 +169,25 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    // 3. Resolve which account this purchase belongs to. Prefer an explicit id
-    //    from create-stripe-checkout; fall back to the email Stripe collected.
-    const email = (session.customer_details?.email || session.customer_email || session.metadata?.email || '').trim();
-    let userId: string | null = session.client_reference_id || session.metadata?.user_id || null;
+    // 3. Resolve which account this purchase belongs to.
+    //
+    //    create-stripe-checkout puts its payload on `subscription_data.metadata`,
+    //    which Stripe copies onto the SUBSCRIPTION — not onto the session. So
+    //    the sign-up credentials live at `subscription.metadata.temp_password`,
+    //    and reading `session.metadata` finds nothing.
+    const subscription = session.subscription;
+    const subMeta = subscription?.metadata ?? {};
+
+    const email = (
+      session.customer_details?.email ||
+      session.customer_email ||
+      subMeta.user_email ||
+      session.metadata?.email ||
+      ''
+    ).trim();
+
+    let userId: string | null =
+      session.client_reference_id || subMeta.user_id || session.metadata?.user_id || null;
 
     if (!userId) {
       if (!email) throw new Error('Checkout session has no email or user id to match an account.');
@@ -184,21 +199,19 @@ Deno.serve(async (req) => {
         // account fails with "already registered").
         userId = existing.id;
       } else {
-        // Paid sign-up where the account was never provisioned. Create it
-        // confirmed; the client logs in with the password it still holds.
-        const password = session.metadata?.password;
+        // Paid sign-up: no account exists yet, because create-stripe-checkout
+        // only stashes the credentials. Provision it confirmed; the client logs
+        // in with the password it still holds in localStorage.
+        const password = subMeta.temp_password || session.metadata?.password;
         if (!password) {
           throw new Error('Paid, but no account exists for this email and no credentials were supplied. Please contact support.');
         }
+        const displayName = subMeta.user_name || session.metadata?.name || '';
         const { data: created, error: createError } = await admin.auth.admin.createUser({
           email,
           password,
           email_confirm: true,
-          user_metadata: {
-            full_name: session.metadata?.name || '',
-            name: session.metadata?.name || '',
-            is_pro: true,
-          },
+          user_metadata: { full_name: displayName, name: displayName, is_pro: true },
         });
         if (createError) throw new Error(`Could not create your account: ${createError.message}`);
         userId = created.user.id;
@@ -208,7 +221,25 @@ Deno.serve(async (req) => {
     if (!userId) throw new Error('Could not resolve the account for this payment.');
 
     // 4. Grant.
-    await grantPro(admin, userId, session.subscription, session.amount_total ?? null);
+    await grantPro(admin, userId, subscription, session.amount_total ?? null);
+
+    // 5. The sign-up password rode to Stripe in plaintext metadata and has now
+    //    served its purpose. Drop it so it isn't sitting in the dashboard for
+    //    the life of the subscription. Best-effort — the grant already landed.
+    if (subMeta.temp_password && subscription?.id) {
+      try {
+        await fetch(`https://api.stripe.com/v1/subscriptions/${subscription.id}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'metadata[temp_password]=',
+        });
+      } catch (err) {
+        console.warn('[process-stripe-payment] could not scrub temp_password:', (err as Error).message);
+      }
+    }
 
     return json(200, {
       success: true,

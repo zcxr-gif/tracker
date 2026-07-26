@@ -439,6 +439,8 @@ init(supabaseClient) {
 
             const payload = {
                 email: this._currentUser.email,
+                // Resolve the account by id server-side (mirrors ProfileUI).
+                user_id: this._currentUser.id,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url:  window.location.origin + '?payment=cancel',
                 is_renew: true,

@@ -1437,6 +1437,10 @@ if (type === 'flights') {
 
             const payload = {
                 email: this._currentUser.email,
+                // Upgrades know exactly who is paying — passing the id through
+                // lets the payment processor resolve the account directly
+                // instead of matching on the checkout email.
+                user_id: this._currentUser.id,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url:  window.location.origin + '?payment=cancel',
                 is_renew: true,
