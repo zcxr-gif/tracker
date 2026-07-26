@@ -1474,16 +1474,23 @@ function getUnderAircraftAnchor() {
 }
 
 function scheduleMapSourceUpdate() {
-    if (mapSourceUpdateTimeout) return; 
-    
+    if (mapSourceUpdateTimeout) return;
+
     mapSourceUpdateTimeout = setTimeout(() => {
+        mapSourceUpdateTimeout = null;
+        // Route through the animator so this shares the camera gating: photo
+        // lookups resolve at arbitrary times, and rebuilding the source in the
+        // middle of a zoom is exactly what makes aircraft blink out and back.
+        if (mapAnimator) {
+            mapAnimator.scheduleUpdate();
+            return;
+        }
         if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.isStyleLoaded() && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
                 type: 'FeatureCollection',
                 features: Object.values(currentMapFeatures)
             });
         }
-        mapSourceUpdateTimeout = null;
     }, 400); // Batches all image resolutions into a single update every 400ms
 }
 
@@ -15633,6 +15640,11 @@ function initializeAircraftLayer() {
 
         if (typeof MapAnimator !== 'undefined' && !mapAnimator) {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+            // Hold live-traffic source updates while the camera is moving.
+            // Rebuilding this source mid-gesture makes aircraft and labels
+            // blink out and back as the retiled data swaps in — see
+            // bindInteraction() for why setData() is expensive.
+            mapAnimator.bindInteraction(sectorOpsMap);
         }
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
@@ -19219,6 +19231,29 @@ async function setupMapLayersAndFog() {
 }
 
 /**
+ * How many parsed tiles Mapbox may retain per source.
+ *
+ * Mapbox's own default is null — sized dynamically from the viewport, which
+ * lands around 45 tiles. This map asked for 2000. A parsed vector tile costs
+ * roughly 500 KB, so that ceiling permitted on the order of a gigabyte of tile
+ * memory, and the way that manifests is memory pressure and GC pauses during
+ * exactly the interactions that allocate: zooming and panning.
+ *
+ * The intent behind the large value was sound — keeping tiles so zooming back
+ * out is instant — so this keeps a generous cache rather than reverting to the
+ * default, but sizes it against what the device can actually afford.
+ * navigator.deviceMemory is Chromium-only and coarse (capped at 8), so the
+ * unknown case takes the middle option rather than the largest.
+ */
+function pickTileCacheSize() {
+    const gb = (typeof navigator !== 'undefined' && navigator.deviceMemory) || 0;
+    if (!gb) return 120;      // unknown (Safari/Firefox) — generous but bounded
+    if (gb <= 2) return 60;   // ~30 MB of tiles
+    if (gb <= 4) return 120;  // ~60 MB
+    return 250;               // ~125 MB on a desktop-class device
+}
+
+/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
@@ -19248,7 +19283,10 @@ function initializeSectorOpsMap(centerICAO) {
         // is what makes tiles dissolve in/out instead of popping. The previous
         // `fadeDuration: 0` was the root cause of the "inorganic load-in/load-out"
         // feel during zoom.
-        maxTileCacheSize: 2000,    // Keep more tiles cached so zooming back in is instant
+        // Keep tiles cached so zooming back in is instant, but sized to the
+        // device — 2000 tiles is ~1 GB and the resulting memory pressure
+        // showed up as stutter while zooming. See pickTileCacheSize().
+        maxTileCacheSize: pickTileCacheSize(),
         prefetchZoomDelta: 4,      // Stretch cached low-res tiles to hide the empty grid while high-res loads
         crossSourceCollisions: false,
         trackResize: true,

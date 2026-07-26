@@ -33,6 +33,10 @@
  * updating the map source when data changes.
  */
 export class MapAnimator {
+    // Longest a source update may be held back by camera interaction. A pinch
+    // held mid-gesture, or a slow flyTo, must not stall live traffic forever.
+    static MAX_DEFER_MS = 2000;
+
     /**
      * @param {mapboxgl.Map} map - The Mapbox map instance.
      * @param {string} sourceName - The name of the GeoJSON source to update.
@@ -49,6 +53,65 @@ export class MapAnimator {
         this._rosterDirty = true;   // the *set* of flight ids changed
         this._featureList = [];     // cached Object.values() snapshot
         this._stopped = false;
+
+        // Camera-interaction gating (see bindInteraction).
+        this._interacting = false;
+        this._deferredSince = 0;
+        this._unbindInteraction = null;
+    }
+
+    /**
+     * Suspends source updates while the camera is moving.
+     *
+     * `setData()` is not a cheap assignment: Mapbox throws away the source's
+     * tile index, rebuilds it, and re-runs symbol layout — glyph and icon
+     * quads, collision boxes — for every tile, across all four layers drawn
+     * from this source. When that lands in the middle of a pinch or a wheel
+     * zoom it competes with the tiles the gesture is already asking for, and
+     * the freshly rebuilt tiles swap in underneath the user: aircraft and
+     * labels visibly blink out and back. That is the "loading in and out"
+     * during zoom.
+     *
+     * Live positions arrive every few seconds, so holding one update for the
+     * length of a gesture costs nothing perceptible — the flush happens the
+     * moment the camera settles, with the newest data. `movestart`/`moveend`
+     * cover zoom, pan, rotate, pitch and programmatic flyTo alike.
+     *
+     * @param {mapboxgl.Map} [map] Defaults to the map this animator drives.
+     */
+    bindInteraction(map) {
+        const target = map || this.map;
+        if (!target || this._unbindInteraction) return;
+
+        const onStart = () => { this._interacting = true; };
+        const onEnd = () => {
+            this._interacting = false;
+            this._deferredSince = 0;
+            // Repaint immediately rather than waiting for the next frame, so
+            // the map is correct the instant the camera stops.
+            if (this._dirty && !this._stopped) this._updateMapSource();
+        };
+
+        target.on('movestart', onStart);
+        target.on('moveend', onEnd);
+
+        this._unbindInteraction = () => {
+            target.off('movestart', onStart);
+            target.off('moveend', onEnd);
+            this._unbindInteraction = null;
+        };
+    }
+
+    /**
+     * Whether a flush should be held back right now. A gesture can be held
+     * indefinitely (a finger resting mid-pinch, a long flyTo), so updates are
+     * only ever deferred for MAX_DEFER_MS before being let through.
+     */
+    _shouldDefer() {
+        if (!this._interacting) return false;
+        const now = Date.now();
+        if (!this._deferredSince) { this._deferredSince = now; return true; }
+        return (now - this._deferredSince) < MapAnimator.MAX_DEFER_MS;
     }
 
     /**
@@ -68,6 +131,7 @@ export class MapAnimator {
             cancelAnimationFrame(this._frameHandle);
             this._frameHandle = null;
         }
+        if (this._unbindInteraction) this._unbindInteraction();
         console.log('MapAnimator (Teleport) stopped.');
     }
 
@@ -130,7 +194,15 @@ export class MapAnimator {
 
         this._frameHandle = requestAnimationFrame(() => {
             this._frameHandle = null;
-            if (this._dirty) this._updateMapSource();
+            if (!this._dirty) return;
+            // Hold the update while the camera is moving; moveend flushes it.
+            // Re-arming here is what lets the MAX_DEFER_MS escape hatch fire
+            // during a gesture that never seems to end.
+            if (this._shouldDefer()) {
+                this.scheduleUpdate();
+                return;
+            }
+            this._updateMapSource();
         });
     }
 
