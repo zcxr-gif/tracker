@@ -23,6 +23,7 @@ import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
+import { NetworkBoardUI } from './networkBoard.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -19254,6 +19255,7 @@ window.globalNatTracks = natTracks;
         setupWeatherSettingsWindowEvents();
         setupFilterSettingsWindowEvents();
         AtcBoardUI.init();
+        NetworkBoardUI.init();
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
