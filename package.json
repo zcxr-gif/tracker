@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "build:data": "node tools/build-data.js",
+    "verify:data": "node tools/verify-data.js"
+  },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
     "node-fetch": "^2.7.0",

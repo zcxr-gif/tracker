@@ -57,6 +57,18 @@
                     tag: 'improved', icon: 'fa-cloud-sun',
                     text: 'Fewer hitches while you fly — the weather pill’s nearest-station lookup and the busiest parts of the live feed were quietly stalling the app every few seconds. They do not any more.'
                 },
+                {
+                    tag: 'improved', icon: 'fa-tower-control',
+                    text: 'The map names the airports that matter — zoomed out you now see the big international fields instead of whichever tiny airstrip happened to get there first, and smaller fields fade in as you zoom toward them. Heliports and closed strips no longer take a label from the airport next door.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-magnifying-glass-plus',
+                    text: 'Search leads with the airport you meant — typing a city now puts its main airport first. “Paris” starts with Orly rather than a municipal strip in Tennessee, and “Dubai” with Dubai International rather than a creek seaplane base.'
+                },
+                {
+                    tag: 'new', icon: 'fa-chart-simple',
+                    text: 'New Network panel — see what the whole server is doing at a glance: the busiest routes, the aircraft everyone is flying, and which airlines are out in force, with live counts for how many pilots are airborne and on the ground. Tap any row and the map narrows to just those flights, so you can go from “A350s are everywhere tonight” to watching only them in one press. On phones it sits beside the airport list as a second tab in Airports &amp; ATC.'
+                },
             ],
         },
         {

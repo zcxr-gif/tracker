@@ -1,0 +1,49 @@
+# Gates the generated runtime data files.
+#
+# airports-core/extra.json and runways-core/extra.json are build artefacts that
+# are committed to the repo, which means they can silently go stale: refresh
+# airports.json from upstream, forget to re-run the build, and the app ships a
+# database that disagrees with the source it was generated from. Nothing caught
+# that before this workflow.
+#
+# tools/verify-data.js re-derives every tier from the sources and compares, then
+# checks the invariants consumers rely on. It uses only Node builtins, so there
+# is no install step.
+#
+# The two path lists are duplicated on purpose: GitHub Actions does not support
+# YAML anchors, so they cannot be shared. Keep them in sync.
+name: Data integrity
+
+on:
+  pull_request:
+    paths:
+      - 'airports.json'
+      - 'runways.json'
+      - 'Boundaries.geojson'
+      - 'airports-*.json'
+      - 'runways-*.json'
+      - 'tools/**'
+      - '.github/workflows/data-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'airports.json'
+      - 'runways.json'
+      - 'Boundaries.geojson'
+      - 'airports-*.json'
+      - 'runways-*.json'
+      - 'tools/**'
+      - '.github/workflows/data-integrity.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify generated data is current and valid
+        run: node tools/verify-data.js

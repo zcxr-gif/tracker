@@ -23,6 +23,7 @@ import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
+import { NetworkBoardUI } from './networkBoard.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -19254,6 +19255,7 @@ window.globalNatTracks = natTracks;
         setupWeatherSettingsWindowEvents();
         setupFilterSettingsWindowEvents();
         AtcBoardUI.init();
+        NetworkBoardUI.init();
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
@@ -25993,6 +25995,86 @@ function renderAirportMarkers() {
     updateActiveAirportsGlanceLayer();
 }
 
+// Airport size classes, mirroring tools/build-data.js. Higher is bigger; see
+// that file for what each tier means and how it's derived from runway geometry.
+const APT_SIZE_MAJOR = 4;
+const APT_SIZE_SMALL = 1;
+
+// Zoom thresholds for the unstaffed label layer: the minimum size class a field
+// must have to compete for a label at each zoom. Mapbox evaluates zoom
+// expressions inside `filter` at integer zoom levels only, so the stops are
+// integers by necessity rather than by preference.
+const APT_LABEL_ZOOM_STEPS = [
+    /* < z5 */ APT_SIZE_MAJOR,
+    5, 3,
+    6, 2,
+    8, APT_SIZE_SMALL,
+];
+
+/**
+ * The airports eligible for an ICAO label on the map, with the size class that
+ * decides when each one appears and which wins a label collision.
+ *
+ * The size class is precomputed into the airport tiers by tools/build-data.js.
+ * This used to be derived here instead, by testing each airport's *name*
+ * against a substring blocklist, chunked 1,000 keys at a time across animation
+ * frames because doing it in one pass janked the map. Reading a number that's
+ * already in the data is a single synchronous pass, so the chunking — and the
+ * frame it cost on first ATC refresh — is gone.
+ *
+ * When the size classes aren't present the app is running against the legacy
+ * monolithic airports.json, which has no runway-derived data to classify from.
+ * That case falls back to the old name-based filter and reports every survivor
+ * as major, which makes the zoom filter and sort key no-ops and leaves the
+ * layer behaving exactly as it did before size classes existed.
+ */
+function buildLabelledAirportList() {
+    const out = [];
+    let classified = 0;
+
+    for (const icao in airportsData) {
+        // Real 4-letter ICAO indicators only, matching the tiering in
+        // tools/build-data.js: numeric-prefixed US strips and local
+        // identifiers are never labelled on the map.
+        if (icao.length !== 4) continue;
+        let alpha = true;
+        for (let c = 0; c < 4; c++) {
+            const code = icao.charCodeAt(c);
+            if (code < 65 || code > 90) { alpha = false; break; }
+        }
+        if (!alpha) continue;
+
+        const airport = airportsData[icao];
+        if (!airport || airport.lat == null || airport.lon == null) continue;
+
+        const size = airport.s;
+        if (size != null) {
+            classified++;
+            // Tier 0 is heliports, seaplane bases and fields with no open
+            // runway — never labelled, at any zoom.
+            if (size < APT_SIZE_SMALL) continue;
+            out.push({ icao, lon: airport.lon, lat: airport.lat, size });
+        } else {
+            out.push({ icao, lon: airport.lon, lat: airport.lat, size: APT_SIZE_MAJOR });
+        }
+    }
+
+    if (!classified) {
+        // Legacy database: no classes anywhere, so apply the name blocklist the
+        // classes replaced and leave every survivor at major.
+        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
+        const filtered = out.filter(({ icao }) => {
+            const name = (airportsData[icao].name || '').toLowerCase();
+            return !junk.some(word => name.indexOf(word) !== -1);
+        });
+        console.log(`Airport labels: ${filtered.length.toLocaleString()} fields (legacy name filter — no size classes in this database).`);
+        return filtered;
+    }
+
+    console.log(`Airport labels: ${out.length.toLocaleString()} labelled fields of ${classified.toLocaleString()} classified.`);
+    return out;
+}
+
 // Memo for updateUnstaffedLayer: the staffed-airport set that produced the
 // FeatureCollection currently held by the source, so an ATC refresh that
 // doesn't change it can skip the rebuild and the setData entirely.
@@ -26008,50 +26090,10 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
         return;
     }
 
-    // 1. DO THE HEAVY MATH NON-BLOCKING (CHUNKED)
+    // 1. Resolve which fields are labelled, once. Cheap now that the size
+    //    classes are precomputed — see buildLabelledAirportList.
     if (!precalculatedMajorAirports) {
-        console.log("Pre-calculating major airports in chunks to prevent lag...");
-        precalculatedMajorAirports = [];
-        const junk = ['water', 'seaplane', 'heliport', 'helipad', 'strip', 'field', 'glider'];
-        
-        const icaoKeys = Object.keys(airportsData);
-        const BATCH_SIZE = 1000; // Process 1000 airports per frame
-        
-        for (let i = 0; i < icaoKeys.length; i += BATCH_SIZE) {
-            const batch = icaoKeys.slice(i, i + BATCH_SIZE);
-            
-            batch.forEach(icao => {
-                const airport = airportsData[icao];
-                // Optimized filters: Fast string checks instead of regex
-                if (!icao || icao.length !== 4) return;
-                
-                let hasNumber = false;
-                for (let c = 0; c < 4; c++) {
-                    if (icao.charCodeAt(c) >= 48 && icao.charCodeAt(c) <= 57) {
-                        hasNumber = true;
-                        break;
-                    }
-                }
-                if (hasNumber) return;
-
-                const name = (airport.name || "").toLowerCase();
-                
-                let isJunk = false;
-                for (let j = 0; j < junk.length; j++) {
-                    if (name.indexOf(junk[j]) !== -1) {
-                        isJunk = true;
-                        break;
-                    }
-                }
-                
-                if (!isJunk) {
-                    precalculatedMajorAirports.push({ icao: icao, lon: airport.lon, lat: airport.lat });
-                }
-            });
-            
-            // Yield to the main thread so the browser doesn't freeze
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
+        precalculatedMajorAirports = buildLabelledAirportList();
     }
 
     // 2. BLAZING FAST FILTERING
@@ -26078,7 +26120,9 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
         features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
-            properties: { icao: apt.icao }
+            // `size` drives the zoom filter, the collision sort key and the
+            // text size — see the layer definition below.
+            properties: { icao: apt.icao, size: apt.size }
         });
     }
 
@@ -26099,19 +26143,30 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
             id: LAYER_ID,
             type: 'symbol',
             source: SOURCE_ID,
+            // Only fields big enough to be worth a label at the current zoom.
+            // Without this every one of the ~13,700 labelled fields competed
+            // for a slot from z5 up, and since the collision winner was
+            // whichever feature the source listed first, a grass strip
+            // routinely took the slot from the international airport beside it.
+            filter: ['>=', ['get', 'size'], ['step', ['zoom'], ...APT_LABEL_ZOOM_STEPS]],
             layout: {
                 'text-field': '{icao}',
                 'text-font': mapTextFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']), // Aviation font
+                // Bigger fields read as more important, and the ramp still
+                // grows with zoom: 8-12px for a strip, 11-15px for a hub.
                 'text-size': [
                     'interpolate', ['linear'], ['zoom'],
-                    4, 8,
-                    8, 12
+                    4, ['+', 7, ['get', 'size']],
+                    8, ['+', 11, ['get', 'size']]
                 ],
                 // Show ONLY when zoomed in to prevent lag
                 'text-allow-overlap': false,
                 'text-ignore-placement': false,
                 'text-padding': 2,
                 'symbol-spacing': 20, // Prevent overlapping
+                // Mapbox places lower sort keys first, so invert the class:
+                // major (4) becomes 0 and wins the slot when labels collide.
+                'symbol-sort-key': ['-', APT_SIZE_MAJOR, ['get', 'size']],
             },
             paint: {
                 'text-color': '#475569', // Muted slate gray
