@@ -23,6 +23,12 @@
 const TOP_N = 8;
 const REFRESH_MS = 10_000;
 
+// Viewports at or below this width get the iOS chrome, which presents this
+// board inside its "Airports & ATC" sheet. Must match the width
+// MobileLandingChromeUI.init() bails out above, or the two disagree about who
+// owns the board.
+const MOBILE_CHROME_MAX_WIDTH = 768;
+
 // Tabs, in display order. `filterKeys` are the tactical-filter fields a row in
 // that tab writes; they're listed here so clearing a filter can blank exactly
 // the fields the board set and nothing else.
@@ -133,6 +139,8 @@ export const NetworkBoardUI = {
     _visible: false,
     _tab: 'routes',
     _timer: null,
+    // Container currently displaying the board — see renderInto().
+    _host: null,
     // The filter this board applied, so it can be described and cleared without
     // touching rules the user set in the Filters modal.
     _applied: null,
@@ -162,20 +170,7 @@ export const NetworkBoardUI = {
 
         const content = document.getElementById('network-board-content');
 
-        content?.addEventListener('click', (e) => {
-            const tabBtn = e.target.closest('[data-nb-tab]');
-            if (tabBtn) {
-                this._tab = tabBtn.dataset.nbTab;
-                this.render();
-                return;
-            }
-            if (e.target.closest('[data-nb-clear]')) {
-                this._clearFilter();
-                return;
-            }
-            const row = e.target.closest('[data-nb-row]');
-            if (row) this._onRowClick(row);
-        });
+        content?.addEventListener('click', (e) => this.handleClick(e));
 
         // The toolbar button lives in index.html so it sits with its siblings;
         // wiring it here keeps the whole feature in one file.
@@ -184,22 +179,90 @@ export const NetworkBoardUI = {
     },
 
     toggle(show) {
+        // On phones the board is presented inside the iOS "Airports & ATC"
+        // sheet, not this panel — MobileLandingChromeUI initialises at the same
+        // <=768px and listens for the same openNetworkBoard event. Without this
+        // guard both would open, and the desktop panel would float over the
+        // mobile chrome that is already showing the board.
+        if (MOBILE_CHROME_MAX_WIDTH >= window.innerWidth) return;
+
         const el = document.getElementById('network-board-window');
         if (!el) return;
         this._visible = show === undefined ? !this._visible : !!show;
 
         if (this._visible) {
-            this.render();
+            this.renderInto(document.getElementById('network-board-content'));
             el.classList.add('visible');
-            // Only poll while the board is on screen. It reads the live cache,
-            // so there is nothing to refresh into a hidden panel.
-            if (!this._timer) this._timer = setInterval(() => this.render(), REFRESH_MS);
+            this.startAutoRefresh();
         } else {
             el.classList.remove('visible');
-            if (this._timer) { clearInterval(this._timer); this._timer = null; }
+            this.stopAutoRefresh();
         }
 
         document.getElementById('toolbar-network-btn')?.classList.toggle('active', this._visible);
+    },
+
+    // ---------------- host-agnostic view ----------------
+    //
+    // The board is presented in two different shells: the desktop .info-window
+    // above, and the mobile "Airports & ATC" full sheet, which is a different
+    // component in a different file. Rather than duplicate the markup and the
+    // interactions there, a host hands over any container and the board renders
+    // and re-renders into it. Only one host is ever on screen — the desktop
+    // toolbar is hidden at <=992px and the iOS chrome only exists at <=768px —
+    // so a single current host is all this needs to track.
+
+    /** Adopt `hostEl` as the container and paint it. */
+    renderInto(hostEl) {
+        if (!hostEl) return;
+        this._host = hostEl;
+        this.render();
+    },
+
+    /** Release a host when its shell closes, so a stale node isn't repainted. */
+    detach(hostEl) {
+        if (!hostEl || this._host === hostEl) this._host = null;
+    },
+
+    render() {
+        // isConnected guards the case where a host was torn out of the DOM
+        // without telling us (a re-rendered sheet, say).
+        if (!this._host || !this._host.isConnected) return;
+        this._host.innerHTML = this._buildHTML();
+    },
+
+    /**
+     * Delegated click handling, shared by both shells.
+     * @returns {boolean} true when the click was the board's to handle, so a
+     *   host can stop processing it as one of its own rows.
+     */
+    handleClick(e) {
+        const tabBtn = e.target.closest('[data-nb-tab]');
+        if (tabBtn) {
+            this._tab = tabBtn.dataset.nbTab;
+            this.render();
+            return true;
+        }
+        if (e.target.closest('[data-nb-clear]')) {
+            this._clearFilter();
+            return true;
+        }
+        const row = e.target.closest('[data-nb-row]');
+        if (row) {
+            this._onRowClick(row);
+            return true;
+        }
+        return false;
+    },
+
+    // Polling only runs while a shell is showing the board — it reads the live
+    // cache, so there is nothing to refresh into a panel nobody can see.
+    startAutoRefresh() {
+        if (!this._timer) this._timer = setInterval(() => this.render(), REFRESH_MS);
+    },
+
+    stopAutoRefresh() {
+        if (this._timer) { clearInterval(this._timer); this._timer = null; }
     },
 
     // ---------------- filters ----------------
@@ -255,10 +318,8 @@ export const NetworkBoardUI = {
 
     // ---------------- rendering ----------------
 
-    render() {
-        const content = document.getElementById('network-board-content');
-        if (!content) return;
-
+    /** The board's full inner markup for the current state. */
+    _buildHTML() {
         const stats = collectStats();
         const rows = stats[this._tab] || [];
         const max = rows.length ? rows[0].count : 0;
@@ -315,7 +376,7 @@ export const NetworkBoardUI = {
             }).join('');
         }
 
-        content.innerHTML = `
+        return `
             <div class="nb-stats">
                 ${statCell(stats.airborne, 'Airborne')}
                 ${statCell(stats.ground, 'On Ground')}
@@ -342,14 +403,20 @@ export const NetworkBoardUI = {
                .info-window-content regardless of which stylesheet is injected
                first — both are single-class rules, so equal specificity would
                otherwise make the winner depend on boot order. */
-            .info-window.nb-window {
-                width: 420px;
-                /* The app's --text-dim is slate (#94a3b8), which carries a
-                   visible blue cast on small text like the rank column. This
-                   board stays in the neutral zinc family the rest of the
-                   chrome uses (#71717a is already the app's dim grey). */
-                --nb-dim: #71717a;
-            }
+            /* Single class, so any host that opts in gets the variable — the
+               mobile sheet tags its own body .nb-window and is not an
+               .info-window.
+               The app's --text-dim is slate (#94a3b8), which carries a visible
+               blue cast on small text like the rank column, so the board stays
+               in the neutral zinc family the rest of the chrome uses (#71717a
+               is already the app's dim grey). */
+            .nb-window { --nb-dim: #71717a; }
+
+            /* Width is desktop-panel-only: doubled up so it beats
+               .info-window's own width regardless of which stylesheet is
+               injected first, since equal specificity would otherwise make the
+               winner depend on boot order. */
+            .info-window.nb-window { width: 420px; }
             .nb-window .nb-content { padding: 14px 16px 16px; overflow-y: auto; }
 
             .nb-stats {

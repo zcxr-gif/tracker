@@ -11,6 +11,8 @@
  * landingUI.js#applyMobileChrome when the viewport is mobile.
  */
 
+import { NetworkBoardUI } from './networkBoard.js';
+
 const SERVER_META = {
     Expert:   { icon: 'fa-shield-halved', color: '#30d158', desc: 'Strict rules, realistic ops' },
     Training: { icon: 'fa-graduation-cap', color: '#ffd60a', desc: 'Practice with relaxed rules' },
@@ -196,6 +198,14 @@ export const MobileLandingChromeUI = {
                         <button type="button" class="ios-fullsheet-close" data-dismiss="atc" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 </div>
+                <!-- Two views of the same live network: where activity is
+                     (Airports & ATC) and what is flying (the Network board,
+                     shared with the desktop panel). A segment here rather than
+                     a seventh tab — the bar is already full at six. -->
+                <div class="ios-seg" id="ios-atc-seg">
+                    <button type="button" class="ios-seg-btn is-on" data-atc-view="airports">Airports</button>
+                    <button type="button" class="ios-seg-btn" data-atc-view="network">Network</button>
+                </div>
                 <div class="ios-atc-search">
                     <i class="fa-solid fa-magnifying-glass"></i>
                     <input type="search" id="ios-atc-search-input" placeholder="Search airports" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
@@ -350,6 +360,19 @@ export const MobileLandingChromeUI = {
                 this._closeAtcSheet();
                 return;
             }
+            // Airports / Network segment.
+            const seg = e.target.closest('[data-atc-view]');
+            if (seg) {
+                window.InflightHaptics?.tap?.();
+                this._setAtcView(seg.dataset.atcView);
+                return;
+            }
+            // In the Network view the body belongs to NetworkBoardUI, so give it
+            // the click before any of the airport-row handlers below run.
+            if (this._atcView === 'network') {
+                if (NetworkBoardUI.handleClick(e)) return;
+                return;
+            }
             // Traffic filter chips: toggle the hidden group for THAT airport
             // (each field keeps its own selection) and re-render.
             const tchip = e.target.closest('[data-atc-tchip]');
@@ -422,6 +445,11 @@ export const MobileLandingChromeUI = {
             if (this._atcSheetOpen) this._renderAtcSheet();
         });
         this._updateAtcBadge();
+
+        // Same event the desktop toolbar button and the Network orb fire, so one
+        // dispatch reaches the board on every viewport. NetworkBoardUI's own
+        // handler stands down below 768px and leaves the presentation to us.
+        window.addEventListener('openNetworkBoard', () => this._openAtcSheet('network'));
 
         // Swipe-down-to-dismiss on the full sheets (matches Settings).
         this._attachFullSheetSwipe('ios-atc-sheet', () => this._closeAtcSheet());
@@ -556,11 +584,14 @@ export const MobileLandingChromeUI = {
         dot.textContent = count > 99 ? '99+' : String(count);
         dot.classList.toggle('is-on', count > 0);
     },
-    _openAtcSheet() {
+    _openAtcSheet(view) {
         const sheet = document.getElementById('ios-atc-sheet');
         if (!sheet) return;
         this._atcSheetOpen = true;
-        this._renderAtcSheet();
+        // `view` lets the sheet be opened straight onto a segment — the
+        // openNetworkBoard event uses it so the phone reaches the Network board
+        // in one tap, the way the desktop toolbar button does.
+        this._setAtcView(view || this._atcView || 'airports');
         sheet.classList.add('is-open');
         document.body.style.overflow = 'hidden';
     },
@@ -570,6 +601,49 @@ export const MobileLandingChromeUI = {
         this._atcSheetOpen = false;
         sheet.classList.remove('is-open');
         document.body.style.overflow = '';
+        // Stop the board polling into a sheet nobody can see, and let go of the
+        // body element so a later re-render can't paint a detached node.
+        NetworkBoardUI.stopAutoRefresh();
+        NetworkBoardUI.detach(document.getElementById('ios-atc-body'));
+    },
+
+    /**
+     * Switch the sheet between the airport board and the Network board.
+     * The search field only applies to the airport list, so it is hidden in the
+     * Network view rather than left there doing nothing.
+     */
+    _setAtcView(view) {
+        this._atcView = (view === 'network') ? 'network' : 'airports';
+        const isNetwork = this._atcView === 'network';
+
+        const sheet = document.getElementById('ios-atc-sheet');
+        sheet?.querySelectorAll('[data-atc-view]').forEach(btn => {
+            btn.classList.toggle('is-on', btn.dataset.atcView === this._atcView);
+        });
+
+        // The title stays "Network" to match the desktop panel, so the eyebrow
+        // changes instead — "Live Network" above "Network" reads as a stutter.
+        const title = sheet?.querySelector('.ios-fullsheet-title');
+        if (title) title.textContent = isNetwork ? 'Network' : 'Airports & ATC';
+        const eyebrow = sheet?.querySelector('.ios-fullsheet-eyebrow');
+        if (eyebrow) eyebrow.textContent = isNetwork ? 'Right Now' : 'Live Network';
+
+        const search = sheet?.querySelector('.ios-atc-search');
+        if (search) search.style.display = isNetwork ? 'none' : '';
+        const count = document.getElementById('ios-atc-count');
+        if (count) count.style.display = isNetwork ? 'none' : '';
+
+        const body = document.getElementById('ios-atc-body');
+        if (isNetwork) {
+            body?.classList.add('nb-window');
+            NetworkBoardUI.renderInto(body);
+            NetworkBoardUI.startAutoRefresh();
+        } else {
+            NetworkBoardUI.stopAutoRefresh();
+            NetworkBoardUI.detach(body);
+            body?.classList.remove('nb-window');
+            this._renderAtcSheet();
+        }
     },
     // iOS swipe-down-to-dismiss for the full sheets: drag from the grabber or
     // the title bar to flick the sheet away (the body scrolls normally).
@@ -793,6 +867,11 @@ export const MobileLandingChromeUI = {
         const body = document.getElementById('ios-atc-body');
         const countEl = document.getElementById('ios-atc-count');
         if (!body) return;
+
+        // The Network segment owns the body while it is selected. This is also
+        // called from the activeAtcUpdated listener and from row interactions,
+        // any of which would otherwise repaint the airport list over the board.
+        if (this._atcView === 'network') return;
 
         // Airport board — staffed fields on top, then every airport with live
         // traffic, sorted by next-hour arrival flow. Keep a stable list so a
@@ -1932,6 +2011,47 @@ export const MobileLandingChromeUI = {
             .ios-atc-arr-eta { color: var(--ios-text-3); font-variant-numeric: tabular-nums; font-weight: 600; }
 
             /* --- Airport search bar (lives outside the re-rendered body) --- */
+            /* --- Airports / Network segmented control ---
+               Same values as the aircraft-window segmented control further
+               down, so the two read as the same control: iOS's grey track fill
+               with a lighter pill behind the selected segment. No accent
+               colour, which also keeps the Network board's own neutral palette
+               intact. */
+            .ios-seg {
+                display: flex;
+                gap: 2px;
+                margin: 0 16px 10px;
+                padding: 2px;
+                height: 32px;
+                background: rgba(118, 118, 128, 0.24);
+                border: 0.5px solid var(--ios-stroke, rgba(255,255,255,0.10));
+                border-radius: 9px;
+                box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.10);
+            }
+            .ios-seg-btn {
+                flex: 1;
+                border: none;
+                background: transparent;
+                border-radius: 7px;
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: -0.08px;
+                color: rgba(235, 235, 245, 0.66);
+                cursor: pointer;
+                transition: color 0.22s ease, background 0.22s ease;
+            }
+            .ios-seg-btn.is-on {
+                background: rgba(255, 255, 255, 0.22);
+                border: 0.5px solid rgba(255, 255, 255, 0.18);
+                color: #ffffff;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.18), inset 0 0.5px 0 rgba(255,255,255,0.20);
+            }
+
+            /* The Network board supplies its own padding on desktop via
+               .nb-content; in this sheet the body is the host, so pad it here. */
+            .ios-atc-body.nb-window { padding: 0 16px 16px; }
+
             .ios-atc-search {
                 display: flex; align-items: center; gap: 8px;
                 margin: 0 16px 10px;

@@ -697,6 +697,17 @@ export const LandingUI = {
                             </button>
                         </div>
 
+                        <!-- Network board. This orb is the only way in between
+                             769px and 992px: the map toolbar that also opens it
+                             is hidden below 992px, and the iOS tab bar that
+                             hosts it on phones only exists at 768px and under. -->
+                        <div class="nexus-orb-wrapper desktop-only-tab">
+                            <button class="orb-btn" id="tile-network" aria-label="Network activity">
+                                <i class="fa-solid fa-chart-simple"></i>
+                                <span class="tab-label">Network</span>
+                            </button>
+                        </div>
+
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
@@ -780,6 +791,12 @@ export const LandingUI = {
         const atcBtn = document.getElementById('tile-atc');
         atcBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openAtcBoard'));
+        });
+
+        // Network board (mirrors the Network segment of the mobile ATC sheet).
+        const networkBtn = document.getElementById('tile-network');
+        networkBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openNetworkBoard'));
         });
         window.addEventListener('activeAtcUpdated', (e) => {
             const dot = document.getElementById('atc-active-dot');
