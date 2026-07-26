@@ -4,21 +4,28 @@
  * -------------------------------------------------------------------
  * A module to handle updating flight positions on a Mapbox GL JS map.
  *
- * --- [USER-REQUESTED REWRITE: Teleport-Only Model] ---
+ * --- Teleport model, frame-coalesced ---
  *
- * This model provides *no animation or interpolation*.
+ * There is no interpolation: when new flight data arrives the GeoJSON
+ * feature is moved straight to the new coordinates and its properties
+ * are replaced.
  *
- * When new flight data arrives, the GeoJSON feature is
- * immediately "teleported" to the new coordinates and its
- * properties (like heading) are updated.
+ * What *is* batched is the push to Mapbox. `updateFlight()` is called
+ * once per aircraft per socket tick, so pushing the whole
+ * FeatureCollection from inside it made every tick O(flights²) — with
+ * 1,200 aircraft that was 1,200 `setData()` calls each re-serialising
+ * 1,200 features. Updates now mutate the shared feature cache and mark
+ * the source dirty; a single `setData()` runs on the next animation
+ * frame with the final state of the tick.
  *
- * The map source is updated immediately on each 'updateFlight'
- * or 'removeFlight' call.
+ * Two further allocations are avoided:
+ *   • the `Object.values()` snapshot is rebuilt only when the *set* of
+ *     tracked flights changes, since features are mutated in place and
+ *     the array holds live references;
+ *   • features are updated in place rather than replaced, which also
+ *     preserves the numeric `id` flight.js assigns for feature-state.
  * ===================================================================
  */
-
-// All animation-related constants and the FlightAnimationState class
-// have been removed as they are no longer needed.
 
 /**
  * Main manager for the Mapbox map.
@@ -26,6 +33,10 @@
  * updating the map source when data changes.
  */
 export class MapAnimator {
+    // Longest a source update may be held back by camera interaction. A pinch
+    // held mid-gesture, or a slow flyTo, must not stall live traffic forever.
+    static MAX_DEFER_MS = 2000;
+
     /**
      * @param {mapboxgl.Map} map - The Mapbox map instance.
      * @param {string} sourceName - The name of the GeoJSON source to update.
@@ -35,67 +46,192 @@ export class MapAnimator {
         this.map = map;
         this.sourceName = sourceName;
         this.currentMapFeatures = featuresObject; // This is a SHARED REFERENCE
-        
-        // No animation state or loop IDs are needed for teleporting.
+
+        // Frame-coalescing state.
+        this._frameHandle = null;   // pending requestAnimationFrame id
+        this._dirty = false;        // feature data changed since the last flush
+        this._rosterDirty = true;   // the *set* of flight ids changed
+        this._featureList = [];     // cached Object.values() snapshot
+        this._stopped = false;
+
+        // Camera-interaction gating (see bindInteraction).
+        this._interacting = false;
+        this._deferredSince = 0;
+        this._unbindInteraction = null;
     }
 
     /**
-     * Starts the animator. (No-op in teleport mode).
+     * Suspends source updates while the camera is moving.
+     *
+     * `setData()` is not a cheap assignment: Mapbox throws away the source's
+     * tile index, rebuilds it, and re-runs symbol layout — glyph and icon
+     * quads, collision boxes — for every tile, across all four layers drawn
+     * from this source. When that lands in the middle of a pinch or a wheel
+     * zoom it competes with the tiles the gesture is already asking for, and
+     * the freshly rebuilt tiles swap in underneath the user: aircraft and
+     * labels visibly blink out and back. That is the "loading in and out"
+     * during zoom.
+     *
+     * Live positions arrive every few seconds, so holding one update for the
+     * length of a gesture costs nothing perceptible — the flush happens the
+     * moment the camera settles, with the newest data. `movestart`/`moveend`
+     * cover zoom, pan, rotate, pitch and programmatic flyTo alike.
+     *
+     * @param {mapboxgl.Map} [map] Defaults to the map this animator drives.
+     */
+    bindInteraction(map) {
+        const target = map || this.map;
+        if (!target || this._unbindInteraction) return;
+
+        const onStart = () => { this._interacting = true; };
+        const onEnd = () => {
+            this._interacting = false;
+            this._deferredSince = 0;
+            // Repaint immediately rather than waiting for the next frame, so
+            // the map is correct the instant the camera stops.
+            if (this._dirty && !this._stopped) this._updateMapSource();
+        };
+
+        target.on('movestart', onStart);
+        target.on('moveend', onEnd);
+
+        this._unbindInteraction = () => {
+            target.off('movestart', onStart);
+            target.off('moveend', onEnd);
+            this._unbindInteraction = null;
+        };
+    }
+
+    /**
+     * Whether a flush should be held back right now. A gesture can be held
+     * indefinitely (a finger resting mid-pinch, a long flyTo), so updates are
+     * only ever deferred for MAX_DEFER_MS before being let through.
+     */
+    _shouldDefer() {
+        if (!this._interacting) return false;
+        const now = Date.now();
+        if (!this._deferredSince) { this._deferredSince = now; return true; }
+        return (now - this._deferredSince) < MapAnimator.MAX_DEFER_MS;
+    }
+
+    /**
+     * Starts the animator. (No animation loop — flushes are frame-driven.)
      */
     start() {
-        // No animation loop is used in this model.
+        this._stopped = false;
         console.log('MapAnimator (Teleport) started.');
     }
 
     /**
-     * Stops the animator. (No-op in teleport mode).
+     * Stops the animator and cancels any pending flush.
      */
     stop() {
-        // No animation loop to stop.
+        this._stopped = true;
+        if (this._frameHandle !== null) {
+            cancelAnimationFrame(this._frameHandle);
+            this._frameHandle = null;
+        }
+        if (this._unbindInteraction) this._unbindInteraction();
         console.log('MapAnimator (Teleport) stopped.');
     }
 
     /**
      * Updates or creates a flight's state based on new data.
      * This will "teleport" the feature to the new position.
+     *
+     * flight.js owns the same cache and has usually written the feature
+     * already, so the common path here is an in-place refresh — no new
+     * objects, no snapshot rebuild.
+     *
      * @param {object} newPosition - {lon, lat, heading_deg}
      * @param {object} newProperties - The full properties object.
      */
-    updateFlight(newPosition, newProperties) { 
+    updateFlight(newPosition, newProperties) {
         const flightId = newProperties.flightId;
-        const newApiLon = newPosition.lon;
-        const newApiLat = newPosition.lat;
+        const existing = this.currentMapFeatures[flightId];
 
-        // Regardless of 'Ground' or 'Airborne', just
-        // create or update the feature in the master list.
-        // This is the "teleport".
-        this.currentMapFeatures[flightId] = {
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [newApiLon, newApiLat]
-            },
-            properties: newProperties // Includes new heading, phase, etc.
-        };
+        if (existing && existing.geometry) {
+            // In-place update: keeps `id` (and any other caller-set field)
+            // and keeps the cached feature list valid.
+            existing.properties = newProperties;
+            existing.geometry.coordinates[0] = newPosition.lon;
+            existing.geometry.coordinates[1] = newPosition.lat;
+        } else {
+            this.currentMapFeatures[flightId] = {
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [newPosition.lon, newPosition.lat]
+                },
+                properties: newProperties // Includes new heading, phase, etc.
+            };
+            // A flight appeared — the cached snapshot no longer matches.
+            this._rosterDirty = true;
+        }
 
-        // Trigger an immediate update of the map source.
-        this._updateMapSource();
+        this.scheduleUpdate();
     }
 
     /**
      * Removes a flight from the map.
-     * @param {string} flightId 
+     * @param {string} flightId
      */
     removeFlight(flightId) {
+        if (!(flightId in this.currentMapFeatures)) return;
         delete this.currentMapFeatures[flightId];
-
-        // Trigger an immediate update to remove it from the map.
-        this._updateMapSource();
+        this._rosterDirty = true;
+        this.scheduleUpdate();
     }
 
     /**
-     * Pushes the current state of *all* features to the map source.
-     * This is called by updateFlight and removeFlight.
+     * Marks the source dirty and queues a single flush for the next frame.
+     * Cheap to call repeatedly — the whole point is that a tick's worth of
+     * per-aircraft updates collapses into one `setData()`.
+     */
+    scheduleUpdate() {
+        this._dirty = true;
+        if (this._frameHandle !== null || this._stopped) return;
+
+        this._frameHandle = requestAnimationFrame(() => {
+            this._frameHandle = null;
+            if (!this._dirty) return;
+            // Hold the update while the camera is moving; moveend flushes it.
+            // Re-arming here is what lets the MAX_DEFER_MS escape hatch fire
+            // during a gesture that never seems to end.
+            if (this._shouldDefer()) {
+                this.scheduleUpdate();
+                return;
+            }
+            this._updateMapSource();
+        });
+    }
+
+    /**
+     * Marks the cached feature snapshot stale. flight.js calls this when it
+     * adds or deletes entries in the shared cache directly (e.g. the
+     * end-of-tick sweep of flights that stopped reporting).
+     */
+    invalidateRoster() {
+        this._rosterDirty = true;
+    }
+
+    /**
+     * Returns the FeatureCollection array, rebuilding it only when the set of
+     * tracked flights changed. Features are mutated in place, so between
+     * roster changes the cached array already reflects current positions.
+     */
+    _getFeatureList() {
+        if (this._rosterDirty) {
+            this._featureList = Object.values(this.currentMapFeatures);
+            this._rosterDirty = false;
+        }
+        return this._featureList;
+    }
+
+    /**
+     * Pushes the current state of *all* features to the map source
+     * immediately. Callers that need the map in sync right now (rather than
+     * next frame) can still call this directly.
      */
     _updateMapSource() {
         const source = this.map.getSource(this.sourceName);
@@ -105,10 +241,14 @@ export class MapAnimator {
             return;
         }
 
-        // This single call pushes all changes to the map at once.
+        this._dirty = false;
+
+        // This single call pushes all changes to the map at once. The wrapper
+        // is fresh each flush (Mapbox holds on to the object it is given) but
+        // the expensive part — the feature array — is reused.
         source.setData({
             type: 'FeatureCollection',
-            features: Object.values(this.currentMapFeatures)
+            features: this._getFeatureList()
         });
     }
 }

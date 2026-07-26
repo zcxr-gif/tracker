@@ -24,6 +24,42 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.26',
+            date: 'July 2026',
+            title: 'Faster Everywhere',
+            tagline: 'The app opens dramatically quicker, the map is live and flying before the loading screen lifts, and everything from zooming to opening a flight now moves the way it should.',
+            entries: [
+                {
+                    tag: 'improved', icon: 'fa-gauge-high',
+                    text: 'A much faster start — the first thing you see now arrives roughly ten times sooner, and the app pulls down a fraction of what it used to before the map appears. The difference is biggest on mobile data.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-plane-circle-check',
+                    text: 'Everything is ready at once — the loading screen now waits for the map, your controls and live traffic to all be on screen together, so aircraft no longer pop in a second after everything else.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-triangle-exclamation',
+                    text: 'No more staring at a black screen — if the map is taking a while, the loading screen tells you it is still working. If it cannot start at all, it says why and offers a Try again button instead of leaving you on an empty page.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-magnifying-glass-location',
+                    text: 'Smoother zooming — aircraft and their labels no longer blink out and back while you pinch or scroll, and the map keeps a sensible amount of detail cached instead of hoarding it until your device starts to struggle.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-magnifying-glass',
+                    text: 'Search keeps up with your typing — results across every airport and every live flight come back several times faster, with no stutter between keystrokes.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-window-maximize',
+                    text: 'Flight windows open properly — the window now grows into its finished size instead of snapping to it, and switching between flights no longer collapses the panel and rebuilds it. On phones it no longer swings in from the top corner and drops to the bottom before opening — the sheet simply slides up.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-cloud-sun',
+                    text: 'Fewer hitches while you fly — the weather pill’s nearest-station lookup and the busiest parts of the live feed were quietly stalling the app every few seconds. They do not any more.'
+                },
+            ],
+        },
+        {
             id: '2026.07.11',
             date: 'July 2026',
             title: 'Upgrades That Actually Land',
@@ -307,15 +343,15 @@
             id: '2026.07.1',
             date: 'July 2026',
             title: 'Sharing, Trip Card & Live Fleets',
-            tagline: 'Flight links that never die, a trip card rebuilt as a cockpit HUD, and every partner VA\u2019s fleet live on its page.',
+            tagline: 'Flight links that never die, a trip card rebuilt as a cockpit HUD, and every partner VA’s fleet live on its page.',
             entries: [
                 { tag: 'new', icon: 'fa-share-nodes', text: 'Share Flight rebuilt — links now carry the flight with them and open instantly for the recipient. Links from the mobile apps finally work too.' },
                 { tag: 'new', icon: 'fa-clock-rotate-left', text: 'Shared flight already landed? The link drops straight into the full map replay instead of a dead spinner.' },
                 { tag: 'new', icon: 'fa-image', text: 'Sharing inflight.info in Discord, WhatsApp or iMessage now unfurls with a branded banner and description.' },
-                { tag: 'improved', icon: 'fa-gauge-high', text: 'Trip card completely rehauled — a spread-out glass HUD in the replay panel\u2019s style: live phase of flight, ETA and Zulu time, V/S, heading, airport names and a one-tap Replay handoff.' },
-                { tag: 'new', icon: 'fa-plane', text: 'Partner pages show the VA\u2019s Live Fleet — aircraft photo cards for every member in the air. Tap one to jump to that flight on the map.' },
-                { tag: 'improved', icon: 'fa-user-check', text: 'Fleet lists and live counts only include callsigns carrying the VA\u2019s membership tag — no more strangers in the roster.' },
-                { tag: 'fixed', icon: 'fa-wand-magic-sparkles', text: 'First launch is smooth now — Terms, the window picker and What\u2019s New take turns instead of piling on top of each other.' },
+                { tag: 'improved', icon: 'fa-gauge-high', text: 'Trip card completely rehauled — a spread-out glass HUD in the replay panel’s style: live phase of flight, ETA and Zulu time, V/S, heading, airport names and a one-tap Replay handoff.' },
+                { tag: 'new', icon: 'fa-plane', text: 'Partner pages show the VA’s Live Fleet — aircraft photo cards for every member in the air. Tap one to jump to that flight on the map.' },
+                { tag: 'improved', icon: 'fa-user-check', text: 'Fleet lists and live counts only include callsigns carrying the VA’s membership tag — no more strangers in the roster.' },
+                { tag: 'fixed', icon: 'fa-wand-magic-sparkles', text: 'First launch is smooth now — Terms, the window picker and What’s New take turns instead of piling on top of each other.' },
                 { tag: 'fixed', icon: 'fa-link', text: 'Opening a shared flight on your very first visit no longer stalls behind the intro.' }
             ]
         },

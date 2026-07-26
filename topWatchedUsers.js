@@ -70,14 +70,17 @@ function describeFeature(f) {
 }
 
 function lookupLive(row) {
-    const flights = (typeof window.getLiveFlightData === 'function')
-        ? (window.getLiveFlightData() || [])
-        : [];
-
-    // Preferred path: the backend told us exactly which flight this row is.
+    // Preferred path: the backend told us exactly which flight this row is, so
+    // resolve it by key. This runs once per leaderboard row, and the old path
+    // materialised an array of every flight on the server and scanned it
+    // linearly — for each row.
     const fid = row && row.flightId;
     if (fid) {
-        const match = flights.find(f => f && f.properties && f.properties.flightId === fid);
+        const match = (typeof window.getLiveFlightById === 'function')
+            ? window.getLiveFlightById(fid)
+            // Fallback for a host that predates the keyed accessor.
+            : ((typeof window.getLiveFlightData === 'function' ? window.getLiveFlightData() : null) || [])
+                .find(f => f && f.properties && f.properties.flightId === fid);
         if (match) return describeFeature(match);
         // Backend has a flightId but the local cache doesn't (the flight may
         // have just ended on this server or we're viewing a different
@@ -87,6 +90,11 @@ function lookupLive(row) {
 
     const target = String((row && row.pilotName) || '').toLowerCase();
     if (!target) return null;
+
+    // Only the username heuristic needs the whole list.
+    const flights = (typeof window.getLiveFlightData === 'function')
+        ? (window.getLiveFlightData() || [])
+        : [];
 
     const matches = [];
     for (const f of flights) {

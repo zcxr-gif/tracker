@@ -651,10 +651,16 @@
     }
 
     function updateAircraftPosition() {
-        if (!state.ctx?.flightId || typeof window.getLiveFlightData !== 'function') return;
+        if (!state.ctx?.flightId) return;
         try {
-            const feature = window.getLiveFlightData().find(f =>
-                (f.properties?.flightId || null) === state.ctx.flightId);
+            // Keyed lookup where available — the fallback scan materialises an
+            // array of every flight on the server just to find one.
+            const feature = (typeof window.getLiveFlightById === 'function')
+                ? window.getLiveFlightById(state.ctx.flightId)
+                : (typeof window.getLiveFlightData === 'function'
+                    ? window.getLiveFlightData().find(f =>
+                        (f.properties?.flightId || null) === state.ctx.flightId)
+                    : null);
             const coords = feature?.geometry?.coordinates;
             if (coords && coords.length >= 2) {
                 state.position = { lat: coords[1], lon: coords[0] };

@@ -264,58 +264,6 @@ async function loadSpriteSheetAndGenerateIcons(map) {
 }
 
 
-function applyTrafficHighlighting() {
-    const { in: inbounds, out: outbounds } = window.currentAirportTraffic || { in: [], out: [] };
-    const inSet = new Set(inbounds);
-    const outSet = new Set(outbounds);
-
-    // Update feature properties in the cache
-    Object.values(currentMapFeatures).forEach(f => {
-        const fid = f.properties.flightId;
-        if (isTrafficHighlightActive) {
-            if (inSet.has(fid)) f.properties.trafficType = 'inbound';
-            else if (outSet.has(fid)) f.properties.trafficType = 'outbound';
-            else f.properties.trafficType = 'none';
-        } else {
-            f.properties.trafficType = 'none';
-        }
-    });
-
-    // 1. Update the layer's icon-image expression
-    if (sectorOpsMap && sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
-        sectorOpsMap.setLayoutProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-image', 
-            getIconImageExpression()
-        );
-
-        // --- NEW PREMIUM COLORS ---
-        const iconColorExpression = getPremiumColorExpression();
-
-        sectorOpsMap.setPaintProperty(
-            'sector-ops-live-flights-layer', 
-            'icon-color', 
-            iconColorExpression
-        );
-
-        if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
-            sectorOpsMap.setPaintProperty(
-                'sector-ops-live-flights-hover-layer', 
-                'icon-color', 
-                iconColorExpression
-            );
-        }
-    }
-
-    // 2. Sync the updated data to the Mapbox source
-    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
-}
-
 function getIconImageExpression() {
     const cat = ['coalesce', ['get', 'category'], 'B777'];
 
@@ -397,6 +345,48 @@ function getHoverIconImageExpression() {
     return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777'], '_S'];
 }
 
+/**
+ * Publishes boot progress for the splash screen in index.html.
+ *
+ * The splash used to dismiss on window.load, which is unrelated to whether the
+ * map has drawn anything — on a slow connection it faded out over the bare
+ * #0d1117 page and the user was left looking at black. It now waits on these
+ * states instead, so it can hold until there is a map to reveal, describe what
+ * is happening if that takes a while, and offer a retry if it never arrives.
+ *
+ * States, in order: 'booting' -> 'loading-data' -> 'map-init' -> 'map-ready',
+ * with 'map-error' as the terminal failure. Safe to call before the splash
+ * exists (it just records the latest state on window).
+ *
+ * @param {string} state
+ * @param {string} [detail] Human-readable context, shown on failure.
+ */
+function reportBootState(state, detail) {
+    // Never regress out of a terminal state: a late tile error must not undo
+    // 'map-ready', and a stray success must not mask a reported failure.
+    const previous = window.__inflightBoot && window.__inflightBoot.state;
+    if (previous === 'map-ready' || (previous === 'map-error' && state !== 'map-ready')) return;
+    if (state === 'map-painted') window.__inflightMapPainted = true;
+
+    window.__inflightBoot = { state, detail: detail || '', at: Date.now() };
+
+    // Retire the map container's loading placeholder (see index.html) as soon
+    // as there is a real map behind it. Share-link arrivals skip the splash
+    // entirely, so this is the only thing standing between them and a blank
+    // dark rectangle while tiles stream in. Keyed on the map having painted,
+    // not on the full reveal — there is a real map to show well before the
+    // chrome and traffic are ready.
+    if (state === 'map-painted' || state === 'map-ready') {
+        const container = document.getElementById('sector-ops-map-fullscreen');
+        if (container) container.classList.add('map-painted');
+    }
+
+    try {
+        window.dispatchEvent(new CustomEvent('inflight:boot', { detail: window.__inflightBoot }));
+    } catch (_) { /* CustomEvent unavailable — the splash falls back to polling */ }
+}
+window.reportBootState = reportBootState;
+
 document.addEventListener('DOMContentLoaded', async () => {
     window.loadingStartTime = Date.now();
 
@@ -464,6 +454,10 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     let isAircraftWindowLoading = false;
     let activeFirIds = new Set(); // Globally track which FIRs are staffed
     window.getLiveFlightData = () => Object.values(currentMapFeatures);
+    // Direct lookup for the common "find one flight by id" case. Callers were
+    // doing getLiveFlightData().find(...), which materialises an array of every
+    // flight on the server and then scans it linearly.
+    window.getLiveFlightById = (flightId) => currentMapFeatures[flightId] || null;
     let natTracksLayerInstance = null;
 
     window.pinnedFlights = new Set();
@@ -1431,16 +1425,23 @@ function getUnderAircraftAnchor() {
 }
 
 function scheduleMapSourceUpdate() {
-    if (mapSourceUpdateTimeout) return; 
-    
+    if (mapSourceUpdateTimeout) return;
+
     mapSourceUpdateTimeout = setTimeout(() => {
+        mapSourceUpdateTimeout = null;
+        // Route through the animator so this shares the camera gating: photo
+        // lookups resolve at arbitrary times, and rebuilding the source in the
+        // middle of a zoom is exactly what makes aircraft blink out and back.
+        if (mapAnimator) {
+            mapAnimator.scheduleUpdate();
+            return;
+        }
         if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.isStyleLoaded() && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
                 type: 'FeatureCollection',
                 features: Object.values(currentMapFeatures)
             });
         }
-        mapSourceUpdateTimeout = null;
     }, 400); // Batches all image resolutions into a single update every 400ms
 }
 
@@ -3416,6 +3417,42 @@ function injectCustomStyles() {
             opacity: 1;
             transform: translateX(0) translateY(0) scale(1);
             pointer-events: auto;
+        }
+
+        /* --- CONTENT SWAP ---------------------------------------------------
+           The window opens immediately with a spinner and its real content
+           arrives a network round trip later. Writing that content straight
+           into the element made the panel jump from the spinner's box to full
+           height in a single frame — the entrance animation played, then the
+           window snapped. These two rules let setInfoWindowContent() morph the
+           height instead and fade the new content in over it.
+
+           .iw-morphing is only present while a swap is in flight, so the
+           height transition can never interfere with the sheet's own motion
+           on mobile or with the entrance transform above. */
+        .info-window.iw-morphing {
+            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+                        height 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        /* Direct children rather than a wrapper: content is written as raw
+           innerHTML, so there is nothing to wrap without rewriting every
+           builder. */
+        .info-window.iw-swapping > * {
+            animation: iw-content-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes iw-content-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: none; }
+        }
+        /* The spinner state holds a stable box so the window has something
+           honest to size to while the fetch is in flight. */
+        .info-window.iw-loading { overflow: hidden; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .info-window,
+            .info-window.iw-morphing { transition: none; }
+            .info-window.iw-swapping > * { animation: none; }
         }
         /* --- MOBILE SHEET GUARD --- */
         /* On phones the same windows are re-presented as a bottom sheet
@@ -7125,12 +7162,25 @@ async function trackPilotView(flight) {
 async function initializeMapBoundaries(map) {
     if (!map) return;
 
+    // The FIR network is ~1.2 MB of GeoJSON and the toggle that reveals it
+    // (showAtcBoundaries) defaults to OFF, so building these layers eagerly
+    // meant every session downloaded and parsed the whole thing during map
+    // init for something it was never going to draw. Adding the source is
+    // what triggers the fetch, so the only way not to pay for it is not to
+    // create it. applyAtcBoundaryVisibility() calls back in here the moment
+    // the user turns the toggle on.
+    //
+    // Nothing else depends on these layers existing: updateActiveSectors()
+    // opens with `if (!map.getLayer(layerId)) return`, so the staffed-sector
+    // highlighting simply no-ops until the boundaries are real.
+    if (!mapFilters.showAtcBoundaries) return;
+
     try {
         // 1. Switched to local GeoJSON
         if (!map.getSource('fir-boundaries')) {
             map.addSource('fir-boundaries', {
                 type: 'geojson',
-                data: './Boundaries.geojson' 
+                data: './Boundaries.geojson'
             });
         }
 
@@ -7185,7 +7235,13 @@ async function initializeMapBoundaries(map) {
     }
 
     // Honour the user's ATC-boundaries toggle for the freshly created layers.
-    applyAtcBoundaryVisibility(map);
+    // Set visibility directly rather than calling applyAtcBoundaryVisibility():
+    // that function now builds the layers on demand, so calling it from here
+    // would recurse forever if layer creation above had thrown.
+    const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
+    ['fir-fills', 'fir-borders'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    });
 }
 
 // Show or hide every FIR boundary layer based on the showAtcBoundaries toggle.
@@ -7195,6 +7251,16 @@ async function initializeMapBoundaries(map) {
 function applyAtcBoundaryVisibility(map) {
     const target = map || sectorOpsMap;
     if (!target) return;
+
+    // Turning the toggle on is what pays for the FIR network — build the
+    // source and layers on demand the first time it is enabled. Guarded
+    // against re-entry: initializeMapBoundaries() ends by calling back here,
+    // and by then the layers exist so this branch is skipped.
+    if (mapFilters.showAtcBoundaries && !target.getLayer('fir-fills')) {
+        initializeMapBoundaries(target);
+        return;
+    }
+
     const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
     ['fir-fills', 'fir-borders'].forEach(id => {
         if (target.getLayer(id)) {
@@ -7465,9 +7531,12 @@ function generateTrafficForecastHTML(congestion) {
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
         }
-        
+
         if (mapAnimator && typeof mapAnimator._updateMapSource === 'function') {
-            mapAnimator._updateMapSource(); 
+            // The roster was emptied behind the animator's back — drop its
+            // cached snapshot before forcing the flush.
+            mapAnimator.invalidateRoster();
+            mapAnimator._updateMapSource();
         }
         
         if (currentFlightInWindow) {
@@ -8138,15 +8207,130 @@ function toggleTripCardMode(active) {
         takeoverUI.classList.remove('active');
         if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter(); 
         if (typeof aircraftInfoWindow !== 'undefined' && aircraftInfoWindow) {
-            aircraftInfoWindow.classList.add('visible');
+            // On mobile the window becomes a bottom sheet, and openWindow()
+            // drives its own entrance. Adding 'visible' first would start the
+            // desktop entrance from the top right and leave the sheet
+            // conversion to animate out of it — the exact journey the sheet is
+            // supposed to avoid. Every other open path already routes this way.
             if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
                 window.MobileUIHandler.openWindow(aircraftInfoWindow);
+            } else {
+                aircraftInfoWindow.classList.add('visible');
             }
         }
     }
 }
 
 window.toggleTripCardMode = toggleTripCardMode;
+
+// ── Info-window content transitions ─────────────────────────────────────────
+// The window is shown the moment a flight is tapped — the right call, it is
+// immediate feedback — but its real content is a network round trip away. It
+// was opened, filled with a 300px spinner, and then had the full panel written
+// straight over it, so the entrance animation played against a small box and
+// the window snapped to full height when the data landed.
+//
+// These two helpers keep the box stable while loading and morph it into the
+// finished panel instead. Both no-op into a plain innerHTML write whenever
+// animating would be wrong: on the mobile sheet (which owns its own geometry
+// and animates itself in only once populated), while the window is closed, and
+// under prefers-reduced-motion.
+
+const IW_MIN_LOADING_HEIGHT = 280;
+const IW_MORPH_MS = 420;
+
+function iwShouldAnimate(windowEl) {
+    if (!windowEl || !windowEl.classList.contains('visible')) return false;
+    // The bottom sheet drives its own transform and height; a competing height
+    // transition here is what used to make it lurch.
+    if (windowEl.classList.contains('mobile-legacy-sheet')) return false;
+    try {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    } catch (_) { /* matchMedia unavailable — animate */ }
+    return true;
+}
+
+function iwClearMorph(windowEl) {
+    windowEl.style.height = '';
+    windowEl.classList.remove('iw-morphing', 'iw-swapping', 'iw-loading');
+    if (windowEl._iwMorphTimer) {
+        clearTimeout(windowEl._iwMorphTimer);
+        windowEl._iwMorphTimer = null;
+    }
+}
+
+/**
+ * Writes the loading state without letting the window collapse.
+ *
+ * Re-opening on a different flight is the case that matters: the window is
+ * already full height, and shrinking it to a spinner box only to grow it again
+ * a moment later reads as two jumps. Holding the current height means the
+ * spinner appears inside the panel that is already there.
+ */
+function setInfoWindowLoading(windowEl, html) {
+    if (!windowEl) return;
+    if (!iwShouldAnimate(windowEl)) {
+        windowEl.innerHTML = html;
+        return;
+    }
+    const current = windowEl.getBoundingClientRect().height;
+    windowEl.innerHTML = html;
+    windowEl.classList.add('iw-loading');
+    windowEl.style.height = Math.max(current, IW_MIN_LOADING_HEIGHT) + 'px';
+}
+
+/**
+ * Swaps in finished content, morphing the window's height to fit and fading
+ * the new content in over the change.
+ */
+function setInfoWindowContent(windowEl, html) {
+    if (!windowEl) return;
+    if (!iwShouldAnimate(windowEl)) {
+        if (windowEl.style.height) windowEl.style.height = '';
+        windowEl.classList.remove('iw-loading');
+        windowEl.innerHTML = html;
+        return;
+    }
+
+    const from = windowEl.getBoundingClientRect().height;
+    windowEl.innerHTML = html;
+    windowEl.classList.remove('iw-loading');
+
+    // An iframe sized at 100% has no natural height to measure against, so
+    // simple/embed mode just drops the lock and lets its own rules size it.
+    if (windowEl.querySelector('iframe')) {
+        iwClearMorph(windowEl);
+        windowEl.classList.add('iw-swapping');
+        windowEl._iwMorphTimer = setTimeout(() => iwClearMorph(windowEl), IW_MORPH_MS);
+        return;
+    }
+
+    // Measure what the new content actually wants. max-height still applies,
+    // so an over-tall panel measures at its clamped height and the window
+    // scrolls internally exactly as before.
+    windowEl.style.height = 'auto';
+    const to = windowEl.getBoundingClientRect().height;
+
+    if (Math.abs(to - from) < 2) {
+        iwClearMorph(windowEl);
+        return;
+    }
+
+    windowEl.style.height = from + 'px';
+    void windowEl.offsetHeight;               // commit the start height
+    windowEl.classList.add('iw-morphing', 'iw-swapping');
+    windowEl.style.height = to + 'px';
+
+    const finish = () => iwClearMorph(windowEl);
+    windowEl.addEventListener('transitionend', function onEnd(e) {
+        if (e.target !== windowEl || e.propertyName !== 'height') return;
+        windowEl.removeEventListener('transitionend', onEnd);
+        finish();
+    });
+    // transitionend can be missed (tab hidden, interrupted swap) and the
+    // window must never be left pinned to a fixed height.
+    windowEl._iwMorphTimer = setTimeout(finish, IW_MORPH_MS + 120);
+}
 
 // Canonical web origin for share links. Inside the native Capacitor builds
 // window.location.origin is capacitor://localhost — links built from that are
@@ -8597,6 +8781,9 @@ async function consumeShareLinkParam() {
             if (seedCache && typeof currentMapFeatures !== 'undefined' &&
                 !currentMapFeatures[effectiveFlightId]) {
                 currentMapFeatures[effectiveFlightId] = feature;
+                // Direct write to the shared cache — tell the animator its
+                // snapshot is stale so the seeded flight actually renders.
+                if (mapAnimator) mapAnimator.invalidateRoster();
             }
             const props = feature.properties;
             const flightProps = {
@@ -9653,8 +9840,25 @@ const AIRLINE_LIVERY_ICAO = {
  * Flight are free-form, so the livery is the only reliable airline signal.
  * Liveries without a match (GA, military, generic) return null = no logo.
  */
+// Livery → ICAO is a pure function of the livery string, and a live server
+// serves a few hundred distinct liveries across thousands of aircraft. Without
+// this cache the four regex passes below ran once per aircraft per socket tick.
+// Only the string→ICAO match is memoised; the blocklist is applied on every
+// call because it is refreshed asynchronously and may change after boot.
+const _airlineIcaoCache = new Map();
+
 function getAirlineIcaoFromLivery(liveryName) {
     if (!liveryName) return null;
+    let icao = _airlineIcaoCache.get(liveryName);
+    if (icao === undefined) {
+        icao = _resolveAirlineIcaoFromLivery(liveryName);
+        _airlineIcaoCache.set(liveryName, icao);
+    }
+    if (!icao) return null;
+    return airlineLogoBlocklist.has(icao) ? null : icao;
+}
+
+function _resolveAirlineIcaoFromLivery(liveryName) {
     const name = String(liveryName).toLowerCase()
         .replace(/\(.*?\)/g, ' ')        // drop variant suffixes: "(Retro)", "(Star Alliance)"
         .replace(/[^a-z0-9\s]/g, '')     // strip punctuation: "Jet2.com" -> "jet2com"
@@ -9665,7 +9869,7 @@ function getAirlineIcaoFromLivery(liveryName) {
     // Longest prefix wins so "air india express" beats "air india".
     for (let n = Math.min(words.length, 5); n >= 1; n--) {
         const icao = AIRLINE_LIVERY_ICAO[words.slice(0, n).join(' ')];
-        if (icao) return airlineLogoBlocklist.has(icao) ? null : icao;
+        if (icao) return icao;
     }
     return null;
 }
@@ -10511,15 +10715,14 @@ function retagAirportRadius() {
     const apt = (ar && ar.icao && typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
     const radiusKm = (ar && ar.radiusNm) ? ar.radiusNm * 1.852 : 0;
 
+    // Read the position off the feature geometry rather than JSON.parse-ing
+    // the serialised copy in properties — same numbers, no parse per aircraft.
     Object.values(currentMapFeatures).forEach(f => {
         if (!apt || !radiusKm) { f.properties.__inRadius = 1; return; }
-        try {
-            const pos = JSON.parse(f.properties.position);
-            const km = getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon);
-            f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
-        } catch (_) {
-            f.properties.__inRadius = 1;
-        }
+        const coords = f.geometry && f.geometry.coordinates;
+        if (!coords) { f.properties.__inRadius = 1; return; }
+        const km = getDistanceKm(coords[1], coords[0], apt.lat, apt.lon);
+        f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
     });
 
     if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
@@ -10892,27 +11095,76 @@ async function fetchAndDisplayGeocode(lat, lon) {
 }
 
 
-    // --- NEW: Fetch Runway Data ---
-async function fetchRunwaysData() {
-    try {
-        // Make sure the path to your JSON file is correct
-        const response = await fetch('runways.json'); 
-        if (!response.ok) throw new Error('Could not load runway data.');
-        const rawRunways = await response.json();
+    // --- Runway data ---
+    // The source database is ~25 MB, so it is deliberately kept off the boot
+    // critical path: nothing on first paint needs it. It is also split in two
+    // (see tools/build-data.js) — the core tier holds every real ICAO field,
+    // which is all any lookup here resolves against, and the supplementary
+    // tier holds the local-identifier fields that are only reachable by
+    // picking one out of global search. That tier is fetched on demand rather
+    // than speculatively, so the overwhelming majority of sessions never pay
+    // for it.
+    let runwaysCorePromise = null;
+    let runwaysExtraPromise = null;
 
-        // Re-structure data for easier lookup by airport ICAO
-        runwaysData = rawRunways.reduce((acc, runway) => {
-            const ident = runway.airport_ident;
-            if (!acc[ident]) {
-                acc[ident] = [];
+const isIcaoIdent = (icao) => /^[A-Z]{4}$/.test(String(icao || '').toUpperCase());
+
+/**
+ * Guarantees runway data is loaded before the caller reads runwaysData.
+ * @param {string} [icao] The field about to be looked up. Pass it when known:
+ *   a non-ICAO identifier is the only thing that needs the supplementary tier,
+ *   so naming it keeps that download out of every other session.
+ */
+function ensureRunwaysData(icao) {
+    if (!runwaysCorePromise) {
+        runwaysCorePromise = fetchRunwayTier('runways-core.json', 'runways.json');
+    }
+    if (icao && !isIcaoIdent(icao) && !runwaysExtraPromise) {
+        runwaysExtraPromise = fetchRunwayTier('runways-extra.json', null);
+    }
+    return runwaysExtraPromise
+        ? Promise.all([runwaysCorePromise, runwaysExtraPromise])
+        : runwaysCorePromise;
+}
+window.ensureRunwaysData = ensureRunwaysData;
+
+/**
+ * Loads one runway tier and folds it into runwaysData.
+ *
+ * The generated tiers ship pre-indexed by airport, which is the shape this
+ * used to build at runtime by reducing over all 47,161 records. The legacy
+ * array form is still accepted so the monolithic fallback keeps working.
+ *
+ * @param {string} url            Tier to load.
+ * @param {string|null} fallback  Legacy file to try if the tier is missing.
+ */
+async function fetchRunwayTier(url, fallback) {
+    try {
+        let response = await fetch(url);
+        if (!response.ok && fallback) response = await fetch(fallback);
+        if (!response.ok) throw new Error(`Could not load runway data (${url}).`);
+
+        const raw = await response.json();
+
+        if (Array.isArray(raw)) {
+            // Legacy monolithic shape — index it the way the tiers already are.
+            for (const runway of raw) {
+                const ident = runway.airport_ident;
+                if (!ident) continue;
+                (runwaysData[ident] || (runwaysData[ident] = [])).push(runway);
             }
-            acc[ident].push(runway);
-            return acc;
-        }, {});
-        console.log(`Successfully loaded and indexed runway data for ${Object.keys(runwaysData).length} airports.`);
+        } else {
+            Object.assign(runwaysData, raw);
+        }
+
+        console.log(`Runway data: ${Object.keys(runwaysData).length.toLocaleString()} airports indexed (${url}).`);
     } catch (error) {
         console.error('Failed to fetch runway data:', error);
-        showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
+        // Only the core tier is worth interrupting the user over; a missing
+        // supplementary tier just means an obscure field lists no runways.
+        if (fallback) {
+            showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
+        }
     }
 }
 
@@ -10949,36 +11201,86 @@ function getLiteFlightPhase(position) {
 }
 
 /**
- * --- [NEW FIX] Fetches the airport database from airports.json
- * This function was missing, causing a 'ReferenceError'.
+ * Normalises whatever an airport file contains into an ICAO-keyed object.
+ * Accepts both the indexed object form and the raw array form.
+ */
+function indexAirportRecords(raw) {
+    if (!Array.isArray(raw)) return raw || {};
+    return raw.reduce((acc, airport) => {
+        // Use 'icao' or 'ident' as the key, ensure it's uppercase
+        const ikey = airport.icao || airport.ident;
+        if (ikey) acc[ikey.toUpperCase()] = airport;
+        return acc;
+    }, {});
+}
+
+// Drop every cached view derived from airportsData. Called whenever the object
+// gains entries so the indexes can't serve a stale subset.
+function invalidateAirportDerivedCaches() {
+    invalidateAirportIndex();
+    if (window.GlobalSearchEngine && typeof window.GlobalSearchEngine.invalidateAirportIndex === 'function') {
+        window.GlobalSearchEngine.invalidateAirportIndex();
+    }
+}
+
+/**
+ * Loads the supplementary airport tier in the background and folds it into the
+ * live object. See tools/build-data.js for what lives in each tier:
+ * nothing here is addressed by key, it exists so global search can find US
+ * local identifiers, heliports and private strips. Failure is silently
+ * tolerated — the app is fully functional on the core tier alone.
+ */
+async function loadSupplementaryAirports() {
+    try {
+        const response = await fetch('airports-extra.json');
+        if (!response.ok) return;
+        const extra = indexAirportRecords(await response.json());
+        const added = Object.keys(extra).length;
+        if (!added) return;
+
+        Object.assign(airportsData, extra);
+        invalidateAirportDerivedCaches();
+        console.log(`Airports: +${added.toLocaleString()} supplementary entries (search only).`);
+    } catch (_) {
+        /* Non-fatal: core tier already covers every functional lookup. */
+    }
+}
+
+/**
+ * Fetches the airport database.
+ *
+ * The database is ~82,700 fields / 11.6 MB, which boot used to download and
+ * parse in full before the map could initialise. It is now split in two (see
+ * tools/build-data.js): the ~19,000 real ICAO fields, which is
+ * everything any lookup actually resolves against, and the rest, which only
+ * global search ever reads. Only the first is awaited — 430 KB over the wire
+ * instead of 2 MB, and roughly a fifth of the parse.
+ *
+ * Falls back to the original monolithic file if the split isn't deployed, so
+ * an out-of-date deploy degrades to the old behaviour rather than breaking.
  */
 async function fetchAirportsData() {
     try {
-        const response = await fetch('airports.json'); // Assumes airports.json is in the same directory
-        if (!response.ok) {
-            throw new Error('Could not load airports.json database.');
-        }
-        
-        const rawAirports = await response.json();
+        let response = await fetch('airports-core.json');
+        let usedSplit = response.ok;
 
-        // Check if the file is an array (which needs to be indexed)
-        // or an object (which is already indexed)
-        if (Array.isArray(rawAirports)) {
-            // It's an array, so we must index it by ICAO
-            airportsData = rawAirports.reduce((acc, airport) => {
-                // Use 'icao' or 'ident' as the key, ensure it's uppercase
-                const ikey = airport.icao || airport.ident; 
-                if (ikey) {
-                    acc[ikey.toUpperCase()] = airport;
-                }
-                return acc;
-            }, {});
-        } else {
-            // It's already an object, just use it
-            airportsData = rawAirports;
+        if (!usedSplit) {
+            response = await fetch('airports.json');
+            if (!response.ok) {
+                throw new Error('Could not load airports database.');
+            }
         }
+
+        airportsData = indexAirportRecords(await response.json());
+
+        // The nearest-airport index is derived from this data, so drop it and
+        // let the next lookup rebuild against what we just loaded.
+        invalidateAirportDerivedCaches();
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
+
+        // Fire-and-forget: boot must not wait on the search-only tier.
+        if (usedSplit) loadSupplementaryAirports();
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
@@ -10992,19 +11294,81 @@ async function fetchAirportsData() {
 // Shared lookups over the bundled airports DB for satellite modules (the
 // weather pill uses these to find METAR stations near the aircraft without
 // re-downloading the 12 MB airports.json).
+// The DB holds ~83,000 fields. Scanning all of them per lookup — materialising
+// Object.entries(), regex-testing every key, running a haversine for each
+// survivor and then sorting the whole ~9,000-entry result to take four — cost
+// ~60 ms of blocked main thread, and the weather pill repeats it every minute
+// while a flight window is open. Instead the proper-ICAO subset is extracted
+// once into parallel typed arrays, and lookups reject on a cheap lat/lon box
+// before spending a haversine.
+let _airportIndex = null;
+
+function buildAirportIndex() {
+    const icaos = [];
+    const lats = [];
+    const lons = [];
+    for (const icao in airportsData) {
+        // Proper 4-letter ICAO codes only — numeric-prefixed US strips and
+        // heliports essentially never publish METARs. Char codes rather than
+        // a regex: same test, no per-key RegExp machinery.
+        if (icao.length !== 4) continue;
+        let alpha = true;
+        for (let i = 0; i < 4; i++) {
+            const c = icao.charCodeAt(i);
+            if (c < 65 || c > 90) { alpha = false; break; }
+        }
+        if (!alpha) continue;
+        const apt = airportsData[icao];
+        if (!apt || apt.lat == null || apt.lon == null) continue;
+        icaos.push(icao);
+        lats.push(apt.lat);
+        lons.push(apt.lon);
+    }
+    return { icaos, lats: Float64Array.from(lats), lons: Float64Array.from(lons) };
+}
+
+// Called after airportsData is (re)populated so the index can't go stale.
+function invalidateAirportIndex() { _airportIndex = null; }
+
 window.findNearestAirports = (lat, lon, count = 4) => {
     if (lat == null || lon == null || !airportsData) return [];
-    const out = [];
-    for (const [icao, apt] of Object.entries(airportsData)) {
-        // Proper 4-letter ICAO codes only — numeric-prefixed US strips and
-        // heliports essentially never publish METARs.
-        if (icao.length !== 4 || !/^[A-Z]{4}$/.test(icao)) continue;
-        if (apt.lat == null || apt.lon == null) continue;
-        const km = getDistanceKm(lat, lon, apt.lat, apt.lon);
-        out.push({ icao, lat: apt.lat, lon: apt.lon, km });
+    if (!_airportIndex) _airportIndex = buildAirportIndex();
+    const { icaos, lats, lons } = _airportIndex;
+
+    const KM_PER_DEG_LAT = 111.32;
+    const best = [];
+
+    // Widen a latitude band until the answer is provably complete. Only
+    // latitude is filtered on: a latitude delta maps directly to ground
+    // distance, so a band of ±degs is guaranteed to contain everything within
+    // degs * 111.32 km. (Bounding longitude too is tempting, but no simple
+    // cos(lat) box is sound near the poles — two points at 80°N half the world
+    // apart in longitude are close together over the pole, so such a box
+    // discards genuine nearest neighbours.)
+    for (let degs = 2; ; degs *= 3) {
+        const whole = degs >= 180;
+        best.length = 0;
+
+        for (let i = 0; i < icaos.length; i++) {
+            if (!whole && Math.abs(lats[i] - lat) > degs) continue;
+
+            const km = getDistanceKm(lat, lon, lats[i], lons[i]);
+            if (best.length < count) {
+                best.push({ icao: icaos[i], lat: lats[i], lon: lons[i], km });
+                best.sort((a, b) => a.km - b.km);
+            } else if (km < best[count - 1].km) {
+                best[count - 1] = { icao: icaos[i], lat: lats[i], lon: lons[i], km };
+                best.sort((a, b) => a.km - b.km);
+            }
+        }
+
+        // Trust the result only once the worst kept candidate lies inside the
+        // radius this band fully covers — otherwise a nearer field could sit
+        // just outside it. A whole-globe pass is exact by construction.
+        if (whole) break;
+        if (best.length >= count && best[count - 1].km <= degs * KM_PER_DEG_LAT) break;
     }
-    out.sort((a, b) => a.km - b.km);
-    return out.slice(0, count);
+    return best;
 };
 
 window.getAirportCoords = (icao) => {
@@ -11051,8 +11415,23 @@ window.getAirportCoords = (icao) => {
 // 'icon-default' sprite, so those flights showed nothing.)
 const GENERIC_AIRCRAFT_CATEGORY = 'B777';
 
+// Aircraft name → sprite category is a pure lookup over a fixed table, but the
+// uncached path runs ~30 substring tests (plus four throwaway arrays) and used
+// to be evaluated once per aircraft per socket tick. Infinite Flight ships a
+// few dozen airframes, so the cache saturates immediately.
+const _aircraftCategoryCache = new Map();
+
 function getAircraftCategory(aircraftName) {
     if (!aircraftName) return GENERIC_AIRCRAFT_CATEGORY;
+    let cat = _aircraftCategoryCache.get(aircraftName);
+    if (cat === undefined) {
+        cat = _resolveAircraftCategory(aircraftName);
+        _aircraftCategoryCache.set(aircraftName, cat);
+    }
+    return cat;
+}
+
+function _resolveAircraftCategory(aircraftName) {
     const name = aircraftName.toUpperCase();
 
     // 1. Military / Fighters
@@ -11503,6 +11882,39 @@ function handleSocketFlightUpdate(data) {
     const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
     const flights = data.flights;
     const updatedFlightIds = new Set();
+    // Set when a flight joins or leaves, so the animator knows to rebuild its
+    // cached FeatureCollection snapshot rather than reuse it.
+    let rosterChanged = false;
+
+    // ── Per-tick constants ──────────────────────────────────────────────
+    // Everything below was previously recomputed inside the per-aircraft
+    // loop. On a busy server that is a few thousand redundant evaluations
+    // per packet — including, in the watchlist case, a fresh lowercased
+    // string per watched pilot per aircraft.
+    const packetTimeMs = lastSocketUpdateTimestamp;
+
+    // Airport traffic highlight: membership tested once per aircraft against
+    // a Set instead of scanning two arrays.
+    const highlightTraffic = isTrafficHighlightActive && !!window.currentAirportTraffic;
+    const inboundSet = highlightTraffic ? new Set(window.currentAirportTraffic.in) : null;
+    const outboundSet = highlightTraffic ? new Set(window.currentAirportTraffic.out) : null;
+
+    // Airport-radius filter: resolve the airport and radius once.
+    const radiusFilter = mapFilters.tactical && mapFilters.tactical.airportRadius;
+    const radiusApt = (radiusFilter && radiusFilter.icao && typeof airportsData !== 'undefined')
+        ? airportsData[radiusFilter.icao] : null;
+    const radiusKm = (radiusApt && radiusFilter.radiusNm) ? radiusFilter.radiusNm * 1.852 : 0;
+
+    // Pilot relations: the signed-in pilot's name and the watchlist as a Set
+    // of pre-lowercased usernames.
+    const myIfName = ProfileUI?._currentUser?.user_metadata?.if_username?.toLowerCase() || null;
+    const watchSet = new Set(
+        (ProfileUI?._watchlist || [])
+            .map(w => w?.watched_username?.toLowerCase())
+            .filter(Boolean)
+    );
+
+    const vaFocusActive = !!vaFilterAd;
 
     flights.forEach(flight => {
         if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
@@ -11514,18 +11926,23 @@ function handleSocketFlightUpdate(data) {
         // --- [CRITICAL FIX] STALENESS CHECK ---
         // 1. Calculate the timestamp of the incoming data
         // We prefer the position report time, falling back to the packet time.
+        // The epoch value is cached alongside it (__lastUpdateMs) so the next
+        // tick compares numbers instead of re-parsing two date strings for
+        // every aircraft.
         const newTimestampRaw = flight.position.lastReport || data.timestamp;
-        const newTime = new Date(newTimestampRaw).getTime();
+        const newTime = (newTimestampRaw === data.timestamp)
+            ? packetTimeMs
+            : new Date(newTimestampRaw).getTime();
 
-        if (!window.flightNumericIdMap.has(flightId)) {
-            window.flightNumericIdMap.set(flightId, window.nextFlightNumericId++);
-        }
-        const numericId = window.flightNumericIdMap.get(flightId);
+        const cachedFeature = currentMapFeatures[flightId];
+        const existingProps = cachedFeature?.properties || {};
 
         // 2. Get the timestamp of the data we already have (if any)
-        let existingTime = 0;
-        if (currentMapFeatures[flightId] && currentMapFeatures[flightId].properties && currentMapFeatures[flightId].properties.last_update) {
-            existingTime = new Date(currentMapFeatures[flightId].properties.last_update).getTime();
+        let existingTime = existingProps.__lastUpdateMs;
+        if (existingTime === undefined) {
+            existingTime = existingProps.last_update
+                ? new Date(existingProps.last_update).getTime()
+                : 0;
         }
 
         // 3. If new data is OLDER than or EQUAL to existing data, ignore it.
@@ -11536,6 +11953,11 @@ function handleSocketFlightUpdate(data) {
         }
         // --- [END FIX] ---
 
+        if (!window.flightNumericIdMap.has(flightId)) {
+            window.flightNumericIdMap.set(flightId, window.nextFlightNumericId++);
+        }
+        const numericId = window.flightNumericIdMap.get(flightId);
+
         updatedFlightIds.add(flightId);
 
         const litePhase = getLiteFlightPhase(flight.position);
@@ -11544,8 +11966,13 @@ function handleSocketFlightUpdate(data) {
         const livName = aircraftData?.liveryName || '';
         const lookupKey = `${acName}/${livName}`;
 
-        let existingFeature = currentMapFeatures[flightId] || {};
-        let existingProps = existingFeature.properties || {};
+        // The aircraft/livery/registration triple is stable for the life of a
+        // flight, so re-serialising it every tick was pure waste. Reuse the
+        // string we already built whenever the triple hasn't changed.
+        const acSignature = `${acName}\u0000${livName}\u0000${aircraftData?.registration || ''}`;
+        const aircraftJson = (existingProps.__acSig === acSignature && existingProps.aircraft !== undefined)
+            ? existingProps.aircraft
+            : JSON.stringify(aircraftData);
 
         const newProperties = {
             flightId: flight.flightId,
@@ -11555,7 +11982,8 @@ function handleSocketFlightUpdate(data) {
             speed: flight.position.gs_kt || 0,
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
-            aircraft: JSON.stringify(aircraftData),
+            aircraft: aircraftJson,
+            __acSig: acSignature,
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName, // ADD THIS: For direct filtering
             airlineIcao: getAirlineIcaoFromLivery(livName), // drives the label's airline-logo badge
@@ -11571,48 +11999,39 @@ function handleSocketFlightUpdate(data) {
             pilotState: flight.pilotState,
             last_update: newTimestampRaw, // Store the specific time used for the check
             
+            // Cached epoch form of last_update, so the next packet's staleness
+            // check is a number compare instead of a Date-string parse.
+            __lastUpdateMs: newTime,
+
             // Preserve existing cached data (Images + TAIL NUMBER)
-            trafficType: (() => {
-                if (isTrafficHighlightActive && window.currentAirportTraffic) {
-                    if (window.currentAirportTraffic.in.includes(flightId)) return 'inbound';
-                    if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
-                }
-                return 'none';
-            })(),
+            trafficType: !highlightTraffic
+                ? 'none'
+                : (inboundSet.has(flightId) ? 'inbound'
+                    : outboundSet.has(flightId) ? 'outbound'
+                    : 'none'),
 
             // Airport-radius (proximity) filter tag. 1 = keep, 0 = outside the
             // chosen airport's radius. When the filter is inactive every plane
             // is tagged 1 so the Mapbox filter (added only while active) is a
             // no-op. Mirrored by retagAirportRadius() for instant updates.
-            __inRadius: (() => {
-                const ar = mapFilters.tactical && mapFilters.tactical.airportRadius;
-                if (!ar || !ar.icao || !ar.radiusNm) return 1;
-                const apt = (typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
-                if (!apt) return 1;
-                const km = getDistanceKm(flight.position.lat, flight.position.lon, apt.lat, apt.lon);
-                return (km <= ar.radiusNm * 1.852) ? 1 : 0;
-            })(),
+            __inRadius: !radiusKm
+                ? 1
+                : (getDistanceKm(flight.position.lat, flight.position.lon, radiusApt.lat, radiusApt.lon) <= radiusKm ? 1 : 0),
 
             // Single-VA focus tag. 1 = show (or no VA focus); 0 = not the focused
             // VA. Mirrors __inRadius; retagVaFilter() recomputes it on a focus
             // change. See computeVaMatch().
-            __vaMatch: (typeof computeVaMatch === 'function')
+            __vaMatch: (vaFocusActive && typeof computeVaMatch === 'function')
                 ? computeVaMatch(flight.callsign, flight.username) : 1,
 
             // --- PREMIUM VISIBILITY FEATURE ---
-            // Tag relation (user vs friend) for Mapbox color masking
+            // Tag relation (user vs friend) for Mapbox color masking.
+            // Resolved against the per-tick watchlist Set built above.
             pilotRelation: (() => {
-                const myIfName = ProfileUI._currentUser?.user_metadata?.if_username?.toLowerCase();
                 const flightUser = flight.username?.toLowerCase();
-                
-                if (myIfName && flightUser === myIfName) {
-                    return 'user';
-                }
-                
-                if (ProfileUI._watchlist && ProfileUI._watchlist.some(w => w.watched_username.toLowerCase() === flightUser)) {
-                    return 'watchlist';
-                }
-                
+                if (!flightUser) return 'none';
+                if (myIfName && flightUser === myIfName) return 'user';
+                if (watchSet.has(flightUser)) return 'watchlist';
                 return 'none';
             })(),
 
@@ -11663,10 +12082,17 @@ function handleSocketFlightUpdate(data) {
                 },
                 properties: newProperties
             };
+            // A new flight joined the roster, so the animator's cached
+            // FeatureCollection snapshot has to be rebuilt on the next flush.
+            rosterChanged = true;
         } else {
-            currentMapFeatures[flightId].id = numericId;
-            currentMapFeatures[flightId].properties = newProperties;
-            currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
+            const cached = currentMapFeatures[flightId];
+            cached.id = numericId;
+            cached.properties = newProperties;
+            // Write the coordinates in place instead of swapping in a fresh
+            // array — one less allocation per aircraft per tick.
+            cached.geometry.coordinates[0] = flight.position.lon;
+            cached.geometry.coordinates[1] = flight.position.lat;
         }
 
         // ================================================================
@@ -11822,20 +12248,31 @@ function handleSocketFlightUpdate(data) {
             }
         }
 
-        // Only update the Map Animation/Icons if the map is actually ready.
-        if (isMapReady) {
-            mapAnimator.updateFlight(flight.position, newProperties);
-        }
+        // The feature cache the animator renders from is the same object we
+        // just wrote above, so there is nothing further to hand it per
+        // aircraft — the tick is flushed once, after the loop.
     });
 
-    // Clean up old flights
+    // Clean up flights that stopped reporting. Keys are already strings, so
+    // the old String() coercion per key was dead work.
     for (const flightId in currentMapFeatures) {
-        if (!updatedFlightIds.has(String(flightId))) {
-            if (isMapReady) {
-                mapAnimator.removeFlight(flightId);
-            }
+        if (!updatedFlightIds.has(flightId)) {
             delete currentMapFeatures[flightId];
+            rosterChanged = true;
         }
+    }
+
+    // One flush for the whole tick. The animator coalesces onto the next
+    // animation frame, so this replaces what used to be one full
+    // FeatureCollection rebuild + setData() per aircraft.
+    //
+    // The roster flag is raised even when the map isn't ready (e.g. mid
+    // style-reload): joins and departures that happen during that window
+    // still have to invalidate the cached snapshot, or the first flush after
+    // the map comes back would render a stale set.
+    if (mapAnimator) {
+        if (rosterChanged) mapAnimator.invalidateRoster();
+        if (isMapReady) mapAnimator.scheduleUpdate();
     }
 
     // Push the new positions to the 3D dot field (no-op unless it's showing).
@@ -13250,6 +13687,11 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             ? `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">3D</span>` 
             : '';
 
+        // Runways load lazily, so make sure the data has landed before reading
+        // it. Resolves instantly once warmed by the background fetch. Naming
+        // the field lets it pull the supplementary tier only if this is one of
+        // the local-identifier airports that needs it.
+        await ensureRunwaysData(icao);
         const airportRunways = runwaysData[icao] || [];
 
         // --- Weather & ATIS Logic ---
@@ -15300,6 +15742,11 @@ function initializeAircraftLayer() {
 
         if (typeof MapAnimator !== 'undefined' && !mapAnimator) {
             mapAnimator = new MapAnimator(sectorOpsMap, 'sector-ops-live-flights-source', currentMapFeatures);
+            // Hold live-traffic source updates while the camera is moving.
+            // Rebuilding this source mid-gesture makes aircraft and labels
+            // blink out and back as the retiled data swaps in — see
+            // bindInteraction() for why setData() is expensive.
+            mapAnimator.bindInteraction(sectorOpsMap);
         }
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
@@ -18886,6 +19333,29 @@ async function setupMapLayersAndFog() {
 }
 
 /**
+ * How many parsed tiles Mapbox may retain per source.
+ *
+ * Mapbox's own default is null — sized dynamically from the viewport, which
+ * lands around 45 tiles. This map asked for 2000. A parsed vector tile costs
+ * roughly 500 KB, so that ceiling permitted on the order of a gigabyte of tile
+ * memory, and the way that manifests is memory pressure and GC pauses during
+ * exactly the interactions that allocate: zooming and panning.
+ *
+ * The intent behind the large value was sound — keeping tiles so zooming back
+ * out is instant — so this keeps a generous cache rather than reverting to the
+ * default, but sizes it against what the device can actually afford.
+ * navigator.deviceMemory is Chromium-only and coarse (capped at 8), so the
+ * unknown case takes the middle option rather than the largest.
+ */
+function pickTileCacheSize() {
+    const gb = (typeof navigator !== 'undefined' && navigator.deviceMemory) || 0;
+    if (!gb) return 120;      // unknown (Safari/Firefox) — generous but bounded
+    if (gb <= 2) return 60;   // ~30 MB of tiles
+    if (gb <= 4) return 120;  // ~60 MB
+    return 250;               // ~125 MB on a desktop-class device
+}
+
+/**
  * [UPDATED] Initializes the Sector Ops map with high-performance configurations.
  */
 function initializeSectorOpsMap(centerICAO) {
@@ -18915,7 +19385,10 @@ function initializeSectorOpsMap(centerICAO) {
         // is what makes tiles dissolve in/out instead of popping. The previous
         // `fadeDuration: 0` was the root cause of the "inorganic load-in/load-out"
         // feel during zoom.
-        maxTileCacheSize: 2000,    // Keep more tiles cached so zooming back in is instant
+        // Keep tiles cached so zooming back in is instant, but sized to the
+        // device — 2000 tiles is ~1 GB and the resulting memory pressure
+        // showed up as stutter while zooming. See pickTileCacheSize().
+        maxTileCacheSize: pickTileCacheSize(),
         prefetchZoomDelta: 4,      // Stretch cached low-res tiles to hide the empty grid while high-res loads
         crossSourceCollisions: false,
         trackResize: true,
@@ -18986,6 +19459,32 @@ function initializeSectorOpsMap(centerICAO) {
 
     if (typeof rebuildDynamicLayers !== 'undefined') rebuildDynamicLayers();
 });
+
+    // Tell the splash the map has actually painted. It used to dismiss on
+    // window.load, which says nothing about the map — on a slow connection it
+    // faded out over a bare #0d1117 page and left the user staring at black
+    // while tiles were still arriving. 'load' is Mapbox's "style parsed and
+    // first frame rendered" signal, which is exactly the moment there is
+    // something to look at.
+    // The map having painted is a milestone, not the reveal. Layers, the live
+    // traffic already buffered from the socket, and the desktop/mobile chrome
+    // are all built *after* this fires — revealing here is what made planes
+    // and UI pop in a second behind the map. initializeApp() reports
+    // 'map-ready' once all of that is actually on screen.
+    sectorOpsMap.once('load', () => reportBootState('map-painted'));
+
+    // A map that never loads must say so rather than fading to black. Mapbox
+    // reports a lot of non-fatal errors (a single tile 404, a missing sprite),
+    // so only escalate the ones that mean the map itself cannot come up, and
+    // only while it still hasn't painted.
+    sectorOpsMap.on('error', (e) => {
+        if (window.__inflightBoot && window.__inflightBoot.state === 'map-ready') return;
+        const status = e && e.error && e.error.status;
+        const message = String((e && e.error && e.error.message) || '');
+        const fatal = status === 401 || status === 403 ||
+            /access token|style is not|Failed to fetch/i.test(message);
+        if (fatal) reportBootState('map-error', message || 'The map failed to load.');
+    });
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
@@ -19490,6 +19989,7 @@ async function formatDataForEmbedAirport(icao) {
 
     // Runways — physical list plus wind-scored recommendations against the
     // METAR we just parsed (same physics the standard window's INFO tab uses).
+    try { await ensureRunwaysData(icao); } catch (_) {}
     const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
     const runways = rawRunways
         .filter(r => !r.closed && (r.le_ident || r.he_ident))
@@ -19599,6 +20099,7 @@ async function formatAirportSummary(icao) {
     } catch (_) {}
 
     // Runway summary — open runways plus the longest hard length.
+    try { await ensureRunwaysData(icao); } catch (_) {}
     const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
     const openRunways = rawRunways.filter(r => !r.closed && (r.le_ident || r.he_ident));
     const runwayCount = openRunways.length;
@@ -20327,6 +20828,11 @@ function closeAircraftWindow() {
 async function handleAircraftClick(flightProps, optionalSessionId = null, event = null) {
     if (!flightProps || !flightProps.flightId) return;
 
+    // Runway data is lazy (26 MB) and the phase readout in this window depends
+    // on it. Warming it here — rather than blocking boot — means it is ready
+    // by the time the window renders, without holding up first paint.
+    ensureRunwaysData();
+
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
 
@@ -20391,12 +20897,15 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     const windowEl = document.getElementById('aircraft-info-window');
     if (windowEl) {
-        windowEl.innerHTML = `
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
+        // Height is held at whatever the window already occupies (see
+        // setInfoWindowLoading) so re-opening on another flight does not
+        // collapse the panel to a spinner box and grow it back.
+        setInfoWindowLoading(windowEl, `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 280px; color: #fff;">
                 <div class="spinner-small" style="margin-bottom: 1rem;"></div>
                 <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight Data...</p>
             </div>
-        `;
+        `);
     }
 
     try {
@@ -20498,7 +21007,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
                 : 'flightinfo.html';
-            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
+            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {
@@ -21678,7 +22187,9 @@ let totalDistanceNM = 0;
     }
 
     // --- HTML Construction ---
-    windowEl.innerHTML = `
+    // Morphs the window from the loading box to the finished panel instead of
+    // snapping to it — see setInfoWindowContent.
+    setInfoWindowContent(windowEl, `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; height: auto; min-height: 220px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
@@ -22098,7 +22609,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
     </div>
-    `;
+    `);
 
     // --- POST-RENDER LOGIC ---
     // Destination dropdown: expand/collapse, fetching the airport summary
@@ -24739,18 +25250,28 @@ function setupSearchEventListeners() {
     });
 
     // --- 2. Input Typing ---
+    // The search sweeps every airport in the DB plus every live flight, so
+    // running it on each keystroke meant a burst of full scans while the user
+    // was still typing — and every one but the last was thrown away. Coalesce
+    // to one search once typing pauses; short enough to still feel immediate.
+    let searchDebounceTimer = null;
     searchInput.addEventListener('input', () => {
         const val = searchInput.value;
         searchClear.style.display = val ? 'flex' : 'none';
 
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+
         if (val.length >= 2) {
-            handleSearchInput(val);
-            // Slight delay to allow render to finish
-            setTimeout(() => {
+            searchDebounceTimer = setTimeout(() => {
+                searchDebounceTimer = null;
+                // The field may have been cleared or closed while we waited.
+                if (searchInput.value !== val) return;
+                handleSearchInput(val);
                 if (dropdown.children.length > 0) openDropdown();
                 else closeDropdown();
-            }, 50);
+            }, 120);
         } else {
+            searchDebounceTimer = null;
             closeDropdown();
         }
     });
@@ -25472,6 +25993,12 @@ function renderAirportMarkers() {
     updateActiveAirportsGlanceLayer();
 }
 
+// Memo for updateUnstaffedLayer: the staffed-airport set that produced the
+// FeatureCollection currently held by the source, so an ATC refresh that
+// doesn't change it can skip the rebuild and the setData entirely.
+let _unstaffedLayerKey = null;
+let _unstaffedLayerData = null;
+
 async function updateUnstaffedLayer(show, excludeIcaos) {
     const SOURCE_ID = 'unstaffed-airports-source';
     const LAYER_ID = 'unstaffed-airports-layer';
@@ -25528,18 +26055,38 @@ async function updateUnstaffedLayer(show, excludeIcaos) {
     }
 
     // 2. BLAZING FAST FILTERING
-    // Just map the pre-calculated list and exclude the 1-6 currently staffed ones
-    const features = precalculatedMajorAirports
-        .filter(apt => !excludeIcaos.has(apt.icao)) // <--- The only dynamic part
-        .map(apt => ({
+    // Only the 1-6 currently staffed airports are dynamic, but this runs on
+    // every secondary_data_update — i.e. every ATC refresh — and rebuilt tens
+    // of thousands of feature objects each time whether or not the staffed set
+    // had changed. Rebuild only on an actual change, and reuse the payload
+    // otherwise.
+    const excludeKey = Array.from(excludeIcaos).sort().join(',');
+    const layerExists = !!sectorOpsMap.getSource(SOURCE_ID);
+
+    if (layerExists && _unstaffedLayerKey === excludeKey && _unstaffedLayerData
+        && sectorOpsMap.getLayer(LAYER_ID)) {
+        // Same staffed set as last time — the source already holds this exact
+        // FeatureCollection, so there is nothing to push.
+        sectorOpsMap.setLayoutProperty(LAYER_ID, 'visibility', 'visible');
+        return;
+    }
+
+    const features = [];
+    for (let i = 0; i < precalculatedMajorAirports.length; i++) {
+        const apt = precalculatedMajorAirports[i];
+        if (excludeIcaos.has(apt.icao)) continue; // <--- The only dynamic part
+        features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
             properties: { icao: apt.icao }
-        }));
+        });
+    }
 
     const sourceData = { type: 'FeatureCollection', features };
+    _unstaffedLayerKey = excludeKey;
+    _unstaffedLayerData = sourceData;
 
-    if (sectorOpsMap.getSource(SOURCE_ID)) {
+    if (layerExists) {
         sectorOpsMap.getSource(SOURCE_ID).setData(sourceData);
     } else {
         sectorOpsMap.addSource(SOURCE_ID, {
@@ -25864,6 +26411,73 @@ async function updateSectorOpsSecondaryData() {
 
 
 
+/**
+ * Resolves once live traffic is actually drawn on the map — or gives up.
+ *
+ * The socket is warmed in parallel with the map, so by the time the layers
+ * exist there is usually already a full packet sitting in currentMapFeatures.
+ * What was missing was any guarantee that it had been pushed and rendered
+ * before the splash lifted, which is why aircraft appeared a beat behind the
+ * map. This waits for data (if it has not landed yet), forces it out, and then
+ * waits for the map to go idle — Mapbox's "nothing left to draw" signal.
+ *
+ * Every stage is bounded. An empty server, a dead socket or a slow tile fetch
+ * must delay the reveal, never prevent it.
+ *
+ * @param {number} maxWaitMs Total budget across all stages.
+ */
+async function waitForFirstTrafficRender(maxWaitMs = 4000) {
+    if (!sectorOpsMap) return;
+    const deadline = Date.now() + maxWaitMs;
+    const remaining = () => Math.max(0, deadline - Date.now());
+
+    // 1. Wait for the first packet, if it hasn't arrived yet.
+    if (Object.keys(currentMapFeatures).length === 0) {
+        await new Promise(resolve => {
+            let settled = false;
+            let unsubscribe = null;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                if (unsubscribe) { try { unsubscribe(); } catch (_) {} }
+                resolve();
+            };
+            const timer = setTimeout(finish, remaining());
+            try {
+                unsubscribe = socketDataHub.subscribe('all_flights_update', finish);
+            } catch (_) { finish(); }
+        });
+    }
+
+    // Nothing to draw (empty server, or the socket never answered) — reveal.
+    if (Object.keys(currentMapFeatures).length === 0) return;
+
+    // 2. Push it now. Bypasses the camera gate deliberately: this is boot, the
+    //    user is not interacting, and the whole point is to have the aircraft
+    //    on screen before the splash lifts.
+    if (mapAnimator) {
+        mapAnimator.invalidateRoster();
+        mapAnimator._updateMapSource();
+    }
+
+    // 3. Wait for Mapbox to finish drawing them.
+    await new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try { sectorOpsMap.off('idle', finish); } catch (_) {}
+            resolve();
+        };
+        // Always allow a little time even if the budget is already spent —
+        // one idle frame is usually milliseconds away at this point.
+        const timer = setTimeout(finish, Math.max(300, remaining()));
+        sectorOpsMap.once('idle', finish);
+    });
+}
+
     // --- Initial Load ---
 async function initializeApp() {
 
@@ -25886,13 +26500,32 @@ async function initializeApp() {
         // [PERF FIX] Parallelize: kick off all 3 fetches at once, but only
         // block on the two the map actually needs (token + airport coords).
         // Runways finish in the background while the map is rendering.
+        reportBootState('loading-data');
+
         const apiKeysPromise = fetchApiKeys();
         const airportsPromise = fetchAirportsData();
-        const runwaysPromise = fetchRunwaysData();
+        // Warm the runway DB in the background. Boot never waits on it — the
+        // airport panels that need it await ensureRunwaysData() themselves.
+        ensureRunwaysData();
 
-        await Promise.all([apiKeysPromise, airportsPromise]);
+        try {
+            await Promise.all([apiKeysPromise, airportsPromise]);
+        } catch (err) {
+            // Without a Mapbox token or airport coordinates there is no map to
+            // show. Say so on the splash instead of dismissing to a black page.
+            reportBootState('map-error', 'Could not reach the InFlight servers.');
+            throw err;
+        }
 
-        // Initialize the Sector Ops view (map render starts now)
+        if (!MAPBOX_ACCESS_TOKEN) {
+            reportBootState('map-error', 'The map could not be configured.');
+            return;
+        }
+
+        reportBootState('map-init');
+
+        // Initialize the Sector Ops view (map render starts now). The splash
+        // stays up until the map reports it has painted — see reportBootState.
         await initializeSectorOpsView();
 
         // First-launch gate: on the very first run (or after the legal docs
@@ -25902,8 +26535,9 @@ async function initializeApp() {
         // block the rest of boot from finishing underneath the modal.
         runFirstRunExperience(sectorOpsMap);
 
-        // Make sure runways finished too before we move on to anything that needs them
-        await runwaysPromise;
+        // Runways keep loading in the background — the UI below does not read
+        // them, so blocking here just delayed first interaction by the length
+        // of a 26 MB download.
 
         await LandingUI.init();
         SettingsUI.init();
@@ -25934,6 +26568,21 @@ async function initializeApp() {
             flights: Object.keys(currentMapFeatures).length || 0,
             atc: activeAtcFacilities.length || 0
         });
+
+        // ── Reveal ──────────────────────────────────────────────────────────
+        // Everything above builds the desktop and mobile chrome; it is all in
+        // the DOM by this point, so the splash is guaranteed to lift onto a
+        // complete UI rather than onto a bare map that then populates.
+        reportBootState('ui-ready');
+
+        // Then make sure the aircraft are actually painted. The socket has been
+        // buffering since before the map existed, so this is usually just a
+        // flush plus one idle frame — but it is bounded, so an empty server or
+        // a dead socket delays the reveal rather than blocking it.
+        await waitForFirstTrafficRender();
+
+        // Map, chrome and traffic are all on screen — lift the splash.
+        reportBootState('map-ready');
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch, exclude } = e.detail;
@@ -25979,5 +26628,10 @@ if (urlParams.get('auth') === 'signup') {
     }
 }
 
-    initializeApp();
+    // Any unhandled failure during boot must reach the splash, or the overlay
+    // would sit there indefinitely on a page that is never going to load.
+    initializeApp().catch(err => {
+        console.error('Boot failed:', err);
+        reportBootState('map-error', 'Something went wrong while starting InFlight.');
+    });
 });

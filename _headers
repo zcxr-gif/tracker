@@ -1,0 +1,41 @@
+# Netlify response headers.
+#
+# Netlify's default for static files is `max-age=0, must-revalidate`, which
+# costs a conditional round trip on every visit. The bundled reference data
+# below changes only when it is regenerated from upstream — a handful of times
+# a year — but it is by far the heaviest thing the app fetches, so the default
+# means every repeat visit stalls on revalidating it.
+#
+# `stale-while-revalidate` gives the best of both: served instantly from cache,
+# refreshed in the background, so a regenerated file reaches users on their
+# next visit without anyone ever waiting on the network for it.
+#
+# These filenames are not content-hashed, so the max-age is kept to a day
+# rather than the year you would use for immutable assets.
+
+/airports-core.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/airports-extra.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/airports.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/runways-core.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/runways-extra.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/runways.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/Boundaries.geojson
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/VATSpy.dat
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/prefix.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
