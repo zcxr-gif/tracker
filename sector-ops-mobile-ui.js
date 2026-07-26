@@ -1166,6 +1166,20 @@ disableHudControls() {
         document.head.appendChild(style);
     },
 
+    /**
+     * Runs `fn` after the browser has committed the current styles.
+     *
+     * A single rAF is not enough: a callback scheduled from the same task that
+     * mutated the DOM can still run before the style recalculation for that
+     * mutation, so a class added inside it may be batched together with the
+     * element's initial state and the transition has nothing to animate from.
+     * Waiting a second frame guarantees the start state is laid out and
+     * painted. This is what makes the sheet slide rather than jump.
+     */
+    nextFrame(fn) {
+        requestAnimationFrame(() => requestAnimationFrame(fn));
+    },
+
     openWindow(windowElement) {
         if (!this.isMobile()) return;
 
@@ -1339,9 +1353,17 @@ disableHudControls() {
                 // 1. Populate first (while off-screen)
                 this.populateLegacySheet(windowElement);
 
-                // 2. NOW, animate it in
+                // 2. NOW, animate it in.
+                // Must be a double rAF, not a timer. populateLegacySheet()
+                // just wrote a large subtree; a setTimeout(10) can still land
+                // in the same style-recalc batch as that insertion, so the
+                // sheet's parked transform never gets committed as a start
+                // value and the browser has nothing to interpolate from — the
+                // sheet jumps to its open position instead of sliding. Two
+                // frames guarantees the parked state has been through layout
+                // and paint before the target class is added.
                 if (this.activeWindow) {
-                    setTimeout(() => {
+                    this.nextFrame(() => {
                         if (this.isSimpleSheetExpandedOnly()) {
                             // iPad: skip the phone-only peek bar and open
                             // straight into the expanded "second state".
@@ -1356,19 +1378,19 @@ disableHudControls() {
                             this.activeWindow.classList.add('visible', 'peek');
                             this.legacySheetState.currentState = 'peek';
                         }
-                    }, 10);
+                    });
                 }
 
             } else { // 'hud' mode
                 // 1. Populate first (while off-screen)
                 this.populateSplitView(windowElement);
 
-                // 2. NOW, animate them in
-                setTimeout(() => {
+                // 2. NOW, animate them in (double rAF, same reason as above)
+                this.nextFrame(() => {
                     if (this.topWindowEl) this.topWindowEl.classList.add('visible');
                     if (this.miniIslandEl) this.miniIslandEl.classList.add('island-active');
                     this.drawerState = 0; // Set initial state
-                }, 10);
+                });
             }
 
             return true;

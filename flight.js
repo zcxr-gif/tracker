@@ -3418,6 +3418,42 @@ function injectCustomStyles() {
             transform: translateX(0) translateY(0) scale(1);
             pointer-events: auto;
         }
+
+        /* --- CONTENT SWAP ---------------------------------------------------
+           The window opens immediately with a spinner and its real content
+           arrives a network round trip later. Writing that content straight
+           into the element made the panel jump from the spinner's box to full
+           height in a single frame — the entrance animation played, then the
+           window snapped. These two rules let setInfoWindowContent() morph the
+           height instead and fade the new content in over it.
+
+           .iw-morphing is only present while a swap is in flight, so the
+           height transition can never interfere with the sheet's own motion
+           on mobile or with the entrance transform above. */
+        .info-window.iw-morphing {
+            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+                        height 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        /* Direct children rather than a wrapper: content is written as raw
+           innerHTML, so there is nothing to wrap without rewriting every
+           builder. */
+        .info-window.iw-swapping > * {
+            animation: iw-content-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes iw-content-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: none; }
+        }
+        /* The spinner state holds a stable box so the window has something
+           honest to size to while the fetch is in flight. */
+        .info-window.iw-loading { overflow: hidden; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .info-window,
+            .info-window.iw-morphing { transition: none; }
+            .info-window.iw-swapping > * { animation: none; }
+        }
         /* --- MOBILE SHEET GUARD --- */
         /* On phones the same windows are re-presented as a bottom sheet
            (sector-ops-mobile-ui.js adds .mobile-legacy-sheet). The desktop
@@ -8180,6 +8216,115 @@ function toggleTripCardMode(active) {
 }
 
 window.toggleTripCardMode = toggleTripCardMode;
+
+// ── Info-window content transitions ─────────────────────────────────────────
+// The window is shown the moment a flight is tapped — the right call, it is
+// immediate feedback — but its real content is a network round trip away. It
+// was opened, filled with a 300px spinner, and then had the full panel written
+// straight over it, so the entrance animation played against a small box and
+// the window snapped to full height when the data landed.
+//
+// These two helpers keep the box stable while loading and morph it into the
+// finished panel instead. Both no-op into a plain innerHTML write whenever
+// animating would be wrong: on the mobile sheet (which owns its own geometry
+// and animates itself in only once populated), while the window is closed, and
+// under prefers-reduced-motion.
+
+const IW_MIN_LOADING_HEIGHT = 280;
+const IW_MORPH_MS = 420;
+
+function iwShouldAnimate(windowEl) {
+    if (!windowEl || !windowEl.classList.contains('visible')) return false;
+    // The bottom sheet drives its own transform and height; a competing height
+    // transition here is what used to make it lurch.
+    if (windowEl.classList.contains('mobile-legacy-sheet')) return false;
+    try {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    } catch (_) { /* matchMedia unavailable — animate */ }
+    return true;
+}
+
+function iwClearMorph(windowEl) {
+    windowEl.style.height = '';
+    windowEl.classList.remove('iw-morphing', 'iw-swapping', 'iw-loading');
+    if (windowEl._iwMorphTimer) {
+        clearTimeout(windowEl._iwMorphTimer);
+        windowEl._iwMorphTimer = null;
+    }
+}
+
+/**
+ * Writes the loading state without letting the window collapse.
+ *
+ * Re-opening on a different flight is the case that matters: the window is
+ * already full height, and shrinking it to a spinner box only to grow it again
+ * a moment later reads as two jumps. Holding the current height means the
+ * spinner appears inside the panel that is already there.
+ */
+function setInfoWindowLoading(windowEl, html) {
+    if (!windowEl) return;
+    if (!iwShouldAnimate(windowEl)) {
+        windowEl.innerHTML = html;
+        return;
+    }
+    const current = windowEl.getBoundingClientRect().height;
+    windowEl.innerHTML = html;
+    windowEl.classList.add('iw-loading');
+    windowEl.style.height = Math.max(current, IW_MIN_LOADING_HEIGHT) + 'px';
+}
+
+/**
+ * Swaps in finished content, morphing the window's height to fit and fading
+ * the new content in over the change.
+ */
+function setInfoWindowContent(windowEl, html) {
+    if (!windowEl) return;
+    if (!iwShouldAnimate(windowEl)) {
+        if (windowEl.style.height) windowEl.style.height = '';
+        windowEl.classList.remove('iw-loading');
+        windowEl.innerHTML = html;
+        return;
+    }
+
+    const from = windowEl.getBoundingClientRect().height;
+    windowEl.innerHTML = html;
+    windowEl.classList.remove('iw-loading');
+
+    // An iframe sized at 100% has no natural height to measure against, so
+    // simple/embed mode just drops the lock and lets its own rules size it.
+    if (windowEl.querySelector('iframe')) {
+        iwClearMorph(windowEl);
+        windowEl.classList.add('iw-swapping');
+        windowEl._iwMorphTimer = setTimeout(() => iwClearMorph(windowEl), IW_MORPH_MS);
+        return;
+    }
+
+    // Measure what the new content actually wants. max-height still applies,
+    // so an over-tall panel measures at its clamped height and the window
+    // scrolls internally exactly as before.
+    windowEl.style.height = 'auto';
+    const to = windowEl.getBoundingClientRect().height;
+
+    if (Math.abs(to - from) < 2) {
+        iwClearMorph(windowEl);
+        return;
+    }
+
+    windowEl.style.height = from + 'px';
+    void windowEl.offsetHeight;               // commit the start height
+    windowEl.classList.add('iw-morphing', 'iw-swapping');
+    windowEl.style.height = to + 'px';
+
+    const finish = () => iwClearMorph(windowEl);
+    windowEl.addEventListener('transitionend', function onEnd(e) {
+        if (e.target !== windowEl || e.propertyName !== 'height') return;
+        windowEl.removeEventListener('transitionend', onEnd);
+        finish();
+    });
+    // transitionend can be missed (tab hidden, interrupted swap) and the
+    // window must never be left pinned to a fixed height.
+    windowEl._iwMorphTimer = setTimeout(finish, IW_MORPH_MS + 120);
+}
 
 // Canonical web origin for share links. Inside the native Capacitor builds
 // window.location.origin is capacitor://localhost — links built from that are
@@ -20746,12 +20891,15 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     const windowEl = document.getElementById('aircraft-info-window');
     if (windowEl) {
-        windowEl.innerHTML = `
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #fff;">
+        // Height is held at whatever the window already occupies (see
+        // setInfoWindowLoading) so re-opening on another flight does not
+        // collapse the panel to a spinner box and grow it back.
+        setInfoWindowLoading(windowEl, `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 280px; color: #fff;">
                 <div class="spinner-small" style="margin-bottom: 1rem;"></div>
                 <p style="font-family: 'Inter', sans-serif; font-size: 0.9rem; color: #94a3b8;">Acquiring Flight Data...</p>
             </div>
-        `;
+        `);
     }
 
     try {
@@ -20853,7 +21001,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
                 : 'flightinfo.html';
-            windowEl.innerHTML = `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`;
+            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {
@@ -22033,7 +22181,9 @@ let totalDistanceNM = 0;
     }
 
     // --- HTML Construction ---
-    windowEl.innerHTML = `
+    // Morphs the window from the loading box to the finished panel instead of
+    // snapping to it — see setInfoWindowContent.
+    setInfoWindowContent(windowEl, `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; height: auto; min-height: 220px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
@@ -22453,7 +22603,7 @@ let totalDistanceNM = 0;
             </div>
         </div>
     </div>
-    `;
+    `);
 
     // --- POST-RENDER LOGIC ---
     // Destination dropdown: expand/collapse, fetching the airport summary
