@@ -109,6 +109,10 @@ function bestRank(fields, needle) {
     return best;
 }
 
+// A real ICAO location indicator, matching the core-tier test in
+// tools/build-data.js.
+const ICAO_KEY_RE = /^[A-Z]{4}$/;
+
 let _airportIndex = null;
 let _airportIndexSize = 0;
 
@@ -139,6 +143,13 @@ function buildAirportIndex(airportsData) {
             country,
             lat: a.lat,
             lon: a.lon,
+            // Size class 0-4 from tools/build-data.js; 0 when the database
+            // predates it, which leaves the ranking tie-break inert.
+            size: a.s || 0,
+            // Whether the key is a real ICAO location indicator, as opposed to
+            // a US local identifier or another supplementary-tier key. Computed
+            // with the index rather than per comparison inside the sort.
+            isIcao: ICAO_KEY_RE.test(icaoU),
             // Pre-normalised match fields. Built once with the index rather
             // than re-derived for all ~83,000 airports on every keystroke.
             _m: fields,
@@ -236,16 +247,31 @@ function searchAirports(query, airportIndex) {
         const r = bestRankNormalized(a._m, n);
         if (r !== Infinity) results.push({ rank: r, airport: a });
     }
-    // Tie-breaker: shorter ICAO first (favor real 4-letter codes), then name
-    // length, then the code itself. That last step matters: sort is stable, so
-    // without it a fully tied group came back in whatever order the airport
-    // file happened to list them. The database now loads as two tiers, and the
-    // supplementary one arrives after first paint, so insertion order is no
-    // longer fixed — results would otherwise shuffle when it lands.
+    // Tie-breaker: real ICAO codes first, then the bigger airport, then name
+    // length, then the code itself.
+    //
+    // The ICAO test used to be `icao.length` ascending, described as favouring
+    // real 4-letter codes — but it did the opposite. Real indicators are
+    // exactly 4 characters, and the database holds 1,762 three-character local
+    // identifiers, so every one of those sorted ahead of all 19,008 real
+    // airports on any tie: "paris" led with 7M6 Paris Municipal over Orly, and
+    // "dubai" with DCG Dubai Creek SPB over OMDB. Length can't express the
+    // intent anyway — of the 38,081 four-character keys only 19,008 are real
+    // ICAO, the rest being alphanumeric locals like K65S. Testing the shape of
+    // the key does what the comment always claimed.
+    //
+    // Size then orders fields of the same kind, so "london" leads with Heathrow
+    // rather than whichever "London ..." airfield happened to tie.
+    //
+    // The final step matters: sort is stable, so without it a fully tied group
+    // came back in whatever order the airport file happened to list them. The
+    // database now loads as two tiers, and the supplementary one arrives after
+    // first paint, so insertion order is no longer fixed — results would
+    // otherwise shuffle when it lands.
     results.sort((a, b) => {
         if (a.rank !== b.rank) return a.rank - b.rank;
-        const la = a.airport.icao.length, lb = b.airport.icao.length;
-        if (la !== lb) return la - lb;
+        if (a.airport.isIcao !== b.airport.isIcao) return a.airport.isIcao ? -1 : 1;
+        if (a.airport.size !== b.airport.size) return b.airport.size - a.airport.size;
         const na = a.airport.name.length, nb = b.airport.name.length;
         if (na !== nb) return na - nb;
         return a.airport.icao < b.airport.icao ? -1 : a.airport.icao > b.airport.icao ? 1 : 0;
