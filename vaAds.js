@@ -365,6 +365,13 @@
                 : []);
         return {
             id: ad.id || ad._id || '',
+            // The VA's crew center address (/crew/<slug>). Present on approved
+            // ads that have one configured; null otherwise, and we never guess
+            // one from the callsign — a VA with a custom slug would 404.
+            slug: (() => {
+                const s = String(ad.slug || '').trim().toLowerCase();
+                return /^[a-z0-9][a-z0-9._-]{0,80}$/.test(s) ? s : null;
+            })(),
             callsign: String(ad.callsign || ad.callsignCode || ad.code || '').trim().toUpperCase(),
             name: ad.name || ad.vaName || ad.title || 'Unknown VA',
             tagline: ad.tagline || ad.slogan || '',
@@ -468,10 +475,24 @@
     let directory = null; // [{ code, ad }] sorted longest-code-first
     let allAds = [];      // every partner ad we pulled (used for hub lookups)
 
+    // How long to wait before retrying a directory load that came back empty.
+    // matchCallsign() calls loadDirectory() on the first flight that renders and
+    // then on every subsequent one until the cache warms, so a failed load must
+    // not turn into a request per flight per tick.
+    const DIRECTORY_RETRY_MS = 20000;
+    let directoryRetryAt = 0;
+
     function loadDirectory() {
         if (directoryPromise) return directoryPromise;
+        // A previous attempt failed and we're still inside its cooldown: hand
+        // back what we have rather than starting another request.
+        if (directoryRetryAt && Date.now() < directoryRetryAt) {
+            return Promise.resolve(directory || []);
+        }
+
         directoryPromise = (async () => {
             const all = [];
+            let failed = false;
             try {
                 // A few pages is plenty to cover the partner roster; bail early
                 // once we've seen the last page.
@@ -483,8 +504,25 @@
                     if (!pagination) break;
                 }
             } catch (e) {
-                // Keep whatever we managed to collect; matching just covers less.
+                failed = true;
             }
+
+            // Never cache an empty directory as if it were the answer.
+            //
+            // This used to memoize unconditionally, which meant one bad network
+            // moment at startup left `allAds` empty for the entire session: the
+            // VA filter pickers (desktop and mobile both read allPartners())
+            // painted "no virtual airlines" forever, while the Partners list
+            // kept working because it calls list() directly rather than going
+            // through the directory. Releasing the promise lets the next caller
+            // — a picker opening, or the next flight to render — try again.
+            if (failed || !all.length) {
+                directoryPromise = null;
+                directoryRetryAt = Date.now() + DIRECTORY_RETRY_MS;
+                return directory || [];
+            }
+
+            directoryRetryAt = 0;
             allAds = all;
             directory = all
                 .map((ad) => ({ code: vaCodeFromCallsign(ad.callsign), ad }))
@@ -911,6 +949,22 @@
             }
             .va-ad-card .va-ad-card-body { flex: 1 1 auto; }
             .va-ad-card:hover { border-color: rgba(56,189,248,0.4); transform: translateY(-2px); }
+            /* The card is position:static, so anchor the star against the panel
+               and let the card establish the containing block only here. */
+            .va-ad-card { position: relative; }
+            .va-fav-btn {
+                position: absolute; top: 8px; right: 8px; z-index: 2;
+                width: 30px; height: 30px; border-radius: 9px;
+                display: grid; place-items: center; cursor: pointer;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(12,14,20,0.62); color: rgba(255,255,255,0.62);
+                font-size: 12px; line-height: 1;
+                backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+                transition: color .15s ease, border-color .15s ease, background .15s ease;
+            }
+            .va-fav-btn:hover { color: #fbbf24; border-color: rgba(251,191,36,0.5); background: rgba(12,14,20,0.85); }
+            .va-fav-btn.is-on { color: #fbbf24; border-color: rgba(251,191,36,0.55); }
+            .va-fav-btn:active { transform: scale(0.94); }
             /* No explicit display: it's a flex child of .va-ad-card (so already
                block-level, no inline gap) and the mobile rule below hides it
                with display:none — setting display here would override that. */
@@ -933,6 +987,22 @@
             }
             .va-ad-btn:hover { background: rgba(56,189,248,0.25); }
             /* Yellow "Apply now" — the attention CTA that jumps to the VA's site. */
+            /* Crew Center: the sign-in door for pilots already in the VA. Styled
+               as a secondary action so it reads as distinct from "Apply now",
+               which is aimed at people who aren't members yet. */
+            .va-ad-crew {
+                display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+                padding: 9px 16px; border-radius: 10px; font-weight: 800; font-size: 0.82rem;
+                background: rgba(56,189,248,0.12); color: #7dd3fc;
+                border: 1px solid rgba(56,189,248,0.42);
+                transition: background .15s ease, border-color .15s ease, transform .12s ease;
+            }
+            .va-ad-crew:hover { background: rgba(56,189,248,0.2); border-color: rgba(56,189,248,0.7); }
+            .va-ad-crew:active { transform: scale(0.98); }
+            .va-ad-crew.sm { padding: 6px 11px; font-size: 0.76rem; border-radius: 8px; }
+            .va-ad-card-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+            .va-ad-card-actions .va-ad-apply.sm { margin-top: 0; }
+
             .va-ad-apply {
                 display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
                 padding: 9px 16px; border-radius: 10px; font-weight: 800; font-size: 0.82rem;
@@ -1679,6 +1749,7 @@
         return `
             <div class="va-ad-card" data-va-ad-id="${esc(ad.id)}" role="button" tabindex="0">
                 ${bannerImgHTML(ad.banner, 'va-ad-card-banner', ad.name)}
+                ${favButtonHTML(ad)}
                 <div class="va-ad-card-body">
                     ${logo}
                     <div style="min-width:0; flex:1;">
@@ -1686,13 +1757,156 @@
                         ${sub ? `<div class="va-ad-card-sub">${esc(sub)}</div>` : ''}
                         ${ad.tagline ? `<div class="va-ad-card-sub">${esc(ad.tagline)}</div>` : ''}
                         ${chips ? `<div class="va-ad-chips">${chips}</div>` : ''}
-                        ${ad.website ? `<a class="va-ad-apply sm" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
+                        <div class="va-ad-card-actions">
+                            ${crewButtonHTML(ad, 'va-ad-crew sm')}
+                            ${ad.website ? `<a class="va-ad-apply sm" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>` : ''}
+                        </div>
                     </div>
                 </div>
             </div>`;
     }
 
+    // ---------------------------------------------------------------------
+    // Favourites
+    //
+    // Pinning a VA is how a pilot keeps their own crew center within reach:
+    // favourites sort to the top of the Partners list so the one they actually
+    // sign in to isn't buried behind whoever happens to be busiest right now.
+    //
+    // Deliberately localStorage-only and anonymous. Crew Center access must not
+    // require an account with us, so favouriting can't either — a VA pilot who
+    // has never signed in here still gets the shortcut.
+    // ---------------------------------------------------------------------
+
+    const FAV_KEY = 'inflight_va_favorites';
+
+    // Records, not bare ids: the profile renders favourites directly from this
+    // store, so it needs enough to draw a badge (name, logo, slug) without
+    // another round trip — and it still works for a signed-out pilot.
+    function favRecords() {
+        let raw;
+        try { raw = JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); }
+        catch (_) { return []; }
+        if (!Array.isArray(raw)) return [];
+        return raw.map((entry) => {
+            // v1 of this store held plain id strings. Keep those working — they
+            // render as a bare badge until the pilot next opens Partners.
+            if (typeof entry === 'string') return { id: entry, name: '', slug: null, logo: '', code: '' };
+            if (!entry || typeof entry !== 'object') return null;
+            const id = String(entry.id || '').trim();
+            if (!id) return null;
+            const slug = String(entry.slug || '').trim().toLowerCase();
+            return {
+                id,
+                name: String(entry.name || '').slice(0, 120),
+                slug: /^[a-z0-9][a-z0-9._-]{0,80}$/.test(slug) ? slug : null,
+                logo: safeUrl(entry.logo) || '',
+                code: String(entry.code || '').slice(0, 12),
+            };
+        }).filter(Boolean);
+    }
+
+    function favIds() { return favRecords().map((r) => r.id); }
+
+    function isFav(id) { return favIds().includes(String(id)); }
+
+    function toggleFav(ad) {
+        // Accepts a full ad (preferred, so we can store the render fields) or a
+        // bare id when that's all the caller has.
+        const rec = (ad && typeof ad === 'object')
+            ? { id: String(ad.id || ''), name: ad.name || '', slug: ad.slug || null, logo: ad.logo || '', code: ad.callsign || '' }
+            : { id: String(ad || ''), name: '', slug: null, logo: '', code: '' };
+        if (!rec.id) return false;
+
+        const cur = favRecords();
+        const at = cur.findIndex((r) => r.id === rec.id);
+        if (at >= 0) cur.splice(at, 1); else cur.push(rec);
+        try { localStorage.setItem(FAV_KEY, JSON.stringify(cur.slice(0, 200))); } catch (_) {}
+        // Let the profile refresh without waiting for a reload.
+        try { window.dispatchEvent(new CustomEvent('va-favorites-changed')); } catch (_) {}
+        return at < 0; // true when it just became a favourite
+    }
+
+    // The render fields ride along on the button so toggling doesn't need to
+    // look the ad back up (the detail fetch is async; the star must be instant).
+    function favButtonHTML(ad) {
+        const obj = (ad && typeof ad === 'object') ? ad : { id: ad };
+        const on = isFav(obj.id);
+        return `<button type="button" class="va-fav-btn${on ? ' is-on' : ''}" data-va-fav="${esc(obj.id)}"
+                        data-va-fav-name="${esc(obj.name || '')}"
+                        data-va-fav-slug="${esc(obj.slug || '')}"
+                        data-va-fav-logo="${esc(obj.logo || '')}"
+                        data-va-fav-code="${esc(obj.callsign || '')}"
+                        aria-pressed="${on}" title="${on ? 'Remove from favourites' : 'Save to favourites'}"
+                        aria-label="${on ? 'Remove from favourites' : 'Save to favourites'}">
+                    <i class="fa-${on ? 'solid' : 'regular'} fa-star"></i>
+                </button>`;
+    }
+
+    // Delegated so it covers both the list cards and the detail panel, and
+    // survives re-renders.
+    function bindFavButtons(root) {
+        root.querySelectorAll('[data-va-fav]').forEach((btn) => {
+            if (btn.dataset.favWired) return;
+            btn.dataset.favWired = '1';
+            btn.addEventListener('click', (e) => {
+                // Never let the star bubble into the card's open-detail handler.
+                e.preventDefault();
+                e.stopPropagation();
+                const nowOn = toggleFav({
+                    id: btn.getAttribute('data-va-fav'),
+                    name: btn.getAttribute('data-va-fav-name') || '',
+                    slug: btn.getAttribute('data-va-fav-slug') || null,
+                    logo: btn.getAttribute('data-va-fav-logo') || '',
+                    callsign: btn.getAttribute('data-va-fav-code') || '',
+                });
+                btn.classList.toggle('is-on', nowOn);
+                btn.setAttribute('aria-pressed', String(nowOn));
+                const label = nowOn ? 'Remove from favourites' : 'Save to favourites';
+                btn.title = label;
+                btn.setAttribute('aria-label', label);
+                const icon = btn.querySelector('i');
+                if (icon) icon.className = `fa-${nowOn ? 'solid' : 'regular'} fa-star`;
+            });
+        });
+    }
+
+    /**
+     * "Crew Center" CTA — the sign-in door for a VA's own portal.
+     *
+     * Only rendered when the VA actually has a crew center configured; we never
+     * synthesise a slug from the callsign, because a VA with a custom slug would
+     * get a dead link. No account with us is required to use it.
+     */
+    function crewButtonHTML(ad, cls) {
+        if (!ad || !ad.slug) return '';
+        return `<a class="${cls}" data-va-link="crew" data-va-crew="${esc(ad.slug)}"
+                   data-va-ad-id="${esc(ad.id)}" href="/crew/${encodeURIComponent(ad.slug)}"
+                   rel="noopener"><i class="fa-solid fa-right-to-bracket"></i> Crew Center</a>`;
+    }
+
+    // Inside the app the crew center opens as an overlay over the map; on the
+    // landing/embed surfaces (where the overlay module isn't loaded) the anchor's
+    // own href takes over, so the link works either way.
+    function bindCrewButtons(root) {
+        root.querySelectorAll('[data-va-crew]').forEach((el) => {
+            if (el.dataset.crewWired) return;
+            el.dataset.crewWired = '1';
+            el.addEventListener('click', (e) => {
+                e.stopPropagation(); // don't also open the detail panel
+                const slug = el.getAttribute('data-va-crew');
+                const overlay = window.CrewCenterOverlay;
+                if (slug && overlay && typeof overlay.open === 'function' && overlay.open(slug)) {
+                    e.preventDefault();
+                    track(el.getAttribute('data-va-ad-id'), 'click');
+                }
+            });
+        });
+    }
+
     function bindCards(body) {
+        bindFavButtons(body);
+        bindCrewButtons(body);
         body.querySelectorAll('.va-ad-card[data-va-ad-id]').forEach((el) => {
             // The card is listed in the panel — an impression for that partner.
             track(el.getAttribute('data-va-ad-id'), 'impression');
@@ -1717,8 +1931,12 @@
             // be warm for callsign matching. Both fail soft to zero badges.
             await loadDirectory().catch(() => {});
             const counts = liveCountsByAd();
-            // Most-live first, then featured, otherwise keep server order.
+            // Favourites first — a pilot's own VA should never be buried behind
+            // whoever happens to be busiest — then most-live, then featured,
+            // otherwise keep server order.
+            const favs = new Set(favIds());
             ads.sort((a, b) =>
+                (favs.has(String(b.id)) ? 1 : 0) - (favs.has(String(a.id)) ? 1 : 0) ||
                 (counts.get(String(b.id)) || 0) - (counts.get(String(a.id)) || 0) ||
                 (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
             body.innerHTML = ads.map((ad) => cardHTML(ad, counts.get(String(ad.id)) || 0)).join('');
@@ -2030,6 +2248,10 @@
             // data-va-link tags each CTA so the delegated handler below can tell
             // the statistics which destination a visitor actually chose.
             const actions = [];
+            // Crew Center leads: for a pilot already in the VA it's the thing
+            // they came for, and it needs no account with us.
+            const crewCta = crewButtonHTML(ad, 'va-ad-crew');
+            if (crewCta) actions.push(crewCta);
             if (ad.website) actions.push(`<a class="va-ad-apply" data-va-link="apply" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-paper-plane"></i> Apply now</a>`);
             if (ad.website) actions.push(`<a class="va-ad-btn" data-va-link="website" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.website)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> Website</a>`);
             if (ad.discord) actions.push(`<a class="va-ad-btn" data-va-link="discord" data-va-ad-id="${esc(ad.id)}" href="${esc(ad.discord)}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>`);
@@ -2106,6 +2328,10 @@
 
             const back = body.querySelector('.va-ad-back');
             if (back) back.addEventListener('click', () => loadPartnersList(''));
+
+            // Crew Center CTA in the detail panel gets the same in-app overlay
+            // treatment as the list cards.
+            bindCrewButtons(body);
 
             // Wire fleet cards → open that flight on the map.
             body.querySelectorAll('[data-va-fleet-idx]').forEach((el) => {
@@ -2389,6 +2615,11 @@
         hydrateFlightBanner,
         openPartners,
         closePartners,
+        // Favourited VAs, for the profile's "Your Virtual Airlines" section.
+        // Anonymous and localStorage-backed, so it works for any account tier —
+        // and for a pilot who has never signed in at all.
+        getFavorites: favRecords,
+        isFavorite: isFav,
         matchCallsign,
         isCallsignMember,
         vaFilterMember,

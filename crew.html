@@ -14,6 +14,13 @@
         input,select,textarea{ max-width:100%; }
         :root { color-scheme: light dark; --accent:#4f46e5; }
         * { -webkit-tap-highlight-color: transparent; }
+        /* Embedded in the app's Crew Center overlay (?embed=1). The host shell
+           already supplies the rounded card, dimmed backdrop and close button,
+           so drop our own page chrome and let the look fill the frame. Mirrors
+           how crew-join.html handles ?embed=1. */
+        body.embed { background: transparent; min-height: 0; }
+        body.embed .look { min-height: 100%; }
+        body.embed #bootLoader { min-height: 100%; }
         body { font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; }
         .serif{ font-family:'Fraunces',Georgia,'Times New Roman',serif; }
         [data-lucide]{ width:1.15em; height:1.15em; }
@@ -256,13 +263,23 @@
                 const data=await res.json().catch(()=>({}));
                 if(!res.ok){ note.textContent=data.error||'Sign-in failed. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; return; }
                 try{ localStorage.setItem(sessionKey(), JSON.stringify({token:data.token,name:data.name,role:data.role,view:data.view,oversight:!!data.oversight,at:Date.now()})); }catch{}
-                location.href = (data.view==='pilot'?'crew-pilot.html':'crew-dashboard.html') + `?va=${encodeURIComponent(CREW_SLUG)}`;
+                // Carry ?embed=1 through the redirect so the dashboard knows it's
+                // inside the app's overlay. Harmless if that page doesn't read it
+                // yet — it just keeps the flag alive for when it does.
+                const embedQS = document.body.classList.contains('embed') ? '&embed=1' : '';
+                location.href = (data.view==='pilot'?'crew-pilot.html':'crew-dashboard.html') + `?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
             }catch{ note.textContent='Could not reach the server. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; }
         }
 
         // ---- Boot ----
         (async function(){
             CREW_SLUG = getSlug();
+            // Framed inside the app's Crew Center overlay: shed the standalone
+            // page chrome so the login sits flush in the host shell.
+            if(new URLSearchParams(location.search).get('embed')==='1'){
+                document.body.classList.add('embed');
+                document.documentElement.style.background='transparent';
+            }
             setAll('.authForm', f=>f.addEventListener('submit', handleLogin));
             const r = await resolveBranding();
             if(r.ok) applyBranding(r.b);

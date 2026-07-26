@@ -29,6 +29,8 @@ import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { AirportViewer3D } from './AirportViewer3D.js';
 import { FlightDispatchUI } from './FlightDispatchUI.js';
 import { WORLD_MAP } from './worldMapData.js';
+import { computeAchievements } from './pilotAchievements.js';
+import { CrewCenterOverlay } from './crewCenterOverlay.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -762,6 +764,11 @@ init(supabaseClient) {
         if (!this._injected) {
             this._inject();
             this._injected = true;
+            // Starring a VA in the Partners overlay should show up here without
+            // waiting for a reopen — both can be on screen at once.
+            window.addEventListener('va-favorites-changed', () => {
+                if (this._isOpen && this._activeTab === 'dashboard') this._renderContentOnly();
+            });
         }
 
         if (!this._airspaceNetwork) {
@@ -3080,6 +3087,99 @@ _generateAirspaceHTML() {
      * unique airports, continents, longest flight, busiest route, plus a
      * per-aircraft breakdown (hours / flights / landings / est. fuel / distance).
      */
+    /**
+     * "Career Milestones" — tiered achievements derived from the lifetime
+     * ledger. Available to every signed-in pilot, free or Pro: it's the pilot's
+     * own career data, and gating it would make a free dossier feel emptier
+     * than it needs to. Pro's moat stays the live tooling (fleet, traffic,
+     * dispatch, watchlist), not the pilot's own history.
+     *
+     * Sits on the dashboard directly under the Lifetime Ledger, which is where
+     * the data it derives from already lives. Renders nothing when there's no
+     * linked IF account — the same rule the ledger follows — and a quiet
+     * placeholder while the ledger is still building.
+     */
+    _getAchievementsHTML() {
+        if (!this._currentUser?.user_metadata?.if_username) return '';
+
+        const L = this._lifetime;
+        if (!L) {
+            return `
+                <section class="pui-card pui-ach-card">
+                    <div class="pui-card-eyebrow">Career Milestones</div>
+                    <div class="pui-empty-inline">Crunching your logbook…</div>
+                </section>`;
+        }
+
+        const esc = (s) => this._fleetEsc(String(s ?? ''));
+        const ach = computeAchievements({
+            lifetime: L,
+            stats: this._ifData?.stats || null,
+            totalFlights: this._ifData?.logbookTotal ?? L.total ?? null,
+        });
+
+        // Tier pips: one dot per tier, filled up to what's earned.
+        const pips = (t) => Array.from({ length: t.totalTiers }, (_, i) =>
+            `<span class="pui-ach-pip ${i < t.earnedCount ? 'is-on' : ''}"></span>`).join('');
+
+        const card = (t) => {
+            const done = t.complete;
+            const headline = t.currentLabel ? esc(t.currentLabel) : 'Not started';
+            const sub = done
+                ? 'All tiers complete'
+                : (t.known ? esc(t.nextBlurb) : 'Awaiting data');
+            const shown = t.known
+                ? `${this._fmtNum(t.value)}${t.unit ? `<em>${esc(t.unit)}</em>` : ''}`
+                : '—';
+            return `
+                <div class="pui-ach-item ${done ? 'is-complete' : ''} ${t.known ? '' : 'is-unknown'}">
+                    <div class="pui-ach-item-top">
+                        <span class="pui-ach-icon"><i class="fa-solid ${esc(t.icon)}"></i></span>
+                        <div class="pui-ach-item-meta">
+                            <span class="pui-ach-name">${esc(t.name)}</span>
+                            <span class="pui-ach-rank">${headline}</span>
+                        </div>
+                        <span class="pui-ach-value">${shown}</span>
+                    </div>
+                    <div class="pui-ach-pips">${pips(t)}</div>
+                    <div class="pui-ach-bar"><span class="pui-ach-bar-fill" style="width:${Math.round(t.progress * 100)}%;"></span></div>
+                    <div class="pui-ach-sub">${sub}</div>
+                </div>`;
+        };
+
+        const nextUpHTML = ach.nextUp.length
+            ? `<div class="pui-ach-next">
+                   <div class="pui-ach-next-head">Closest to unlocking</div>
+                   ${ach.nextUp.map(t => `
+                       <div class="pui-ach-next-row">
+                           <span class="pui-ach-next-label"><i class="fa-solid ${esc(t.icon)}"></i> ${esc(t.nextLabel)}</span>
+                           <span class="pui-ach-next-bar"><span style="width:${Math.round(t.progress * 100)}%;"></span></span>
+                           <span class="pui-ach-next-pct">${Math.round(t.progress * 100)}%</span>
+                       </div>`).join('')}
+               </div>`
+            : '';
+
+        const safetyHTML = ach.safety === null ? '' : `
+            <div class="pui-ach-safety" title="Share of landings without a violation">
+                <span class="pui-ach-safety-label">Safety index</span>
+                <span class="pui-ach-safety-value">${ach.safety.toFixed(1)}%</span>
+            </div>`;
+
+        return `
+            <section class="pui-card pui-ach-card pui-fade-in">
+                <div class="pui-ach-head">
+                    <div class="pui-card-eyebrow">Career Milestones</div>
+                    <div class="pui-ach-score">
+                        <span class="pui-ach-score-value">${ach.earnedTiers}<span class="pui-ach-score-total">/${ach.totalTiers}</span></span>
+                        <span class="pui-ach-score-label">tiers earned · ${ach.completedTracks} track${ach.completedTracks === 1 ? '' : 's'} maxed</span>
+                    </div>
+                    ${safetyHTML}
+                </div>
+                ${nextUpHTML}
+                <div class="pui-ach-grid">${ach.tracks.map(card).join('')}</div>
+            </section>`;
+    },
+
     _getLifetimeStatsHTML() {
         const L = this._lifetime;
         if (!L) {
@@ -3142,11 +3242,75 @@ _generateAirspaceHTML() {
     },
 
     /**
+     * Pull the VA slug out of a badge's href when — and only when — it points at
+     * a crew center on this origin. Returns null for a VA's own external site,
+     * for absolute URLs to anywhere else, and for anything that doesn't match
+     * the /crew/<slug> shape, so those keep their existing open-in-a-tab
+     * behaviour and nothing unexpected ends up framed inside the app.
+     */
+    _crewSlugFromHref(href) {
+        const raw = String(href || '').trim();
+        if (!raw) return null;
+        let path;
+        try {
+            // Resolve against this origin; an absolute URL elsewhere fails the
+            // origin check below rather than being parsed as a path.
+            const u = new URL(raw, window.location.origin);
+            if (u.origin !== window.location.origin) return null;
+            path = u.pathname;
+        } catch (_) { return null; }
+
+        const m = /^\/crew\/([^/]+)\/?$/.exec(path);
+        if (!m) return null;
+        try { return decodeURIComponent(m[1]); } catch (_) { return null; }
+    },
+
+    /**
      * "Your Virtual Airlines" — badge row of the VAs a Pro pilot flies for,
      * with each VA's logo, banner and their role/hours. Pro-only; free accounts
      * and pilots not in any VA render nothing.
      */
+    /**
+     * VAs a pilot has starred in the Partners tab, shaped like the membership
+     * records from /api/pilot/vas so both render through the same badge.
+     *
+     * Favourites are anonymous and localStorage-backed, so they show for any
+     * signed-in account regardless of tier — the point is that a pilot who
+     * starred their VA can reach its crew center login from their profile.
+     */
+    _favoriteVAs() {
+        try {
+            const api = window.InflightVaAds;
+            if (!api || typeof api.getFavorites !== 'function') return [];
+            return api.getFavorites().map(f => ({
+                id: f.id,
+                name: f.name || f.code || 'Virtual Airline',
+                slug: f.slug || null,
+                logo: f.logo || '',
+                code: f.code || '',
+                favorite: true,
+            }));
+        } catch (_) { return []; }
+    },
+
     _getVASectionHTML() {
+        // Membership badges stay Pro (they carry role/hours pulled from the
+        // VA), but a starred VA is the pilot's own bookmark — gating that would
+        // strand free pilots who are in a VA, since crew access never required
+        // an account with us in the first place.
+        const favorites = this._favoriteVAs();
+        const memberVAs = this._isPro && Array.isArray(this._userVAs) ? this._userVAs : [];
+
+        // Membership wins on collision: it carries role and hours.
+        const seen = new Set(memberVAs.map(v => String(v.id || v.slug || v.name)));
+        const merged = memberVAs.concat(
+            favorites.filter(f => !seen.has(String(f.id || f.slug || f.name)))
+        );
+
+        if (merged.length) return this._renderVABadges(merged);
+
+        // Nothing starred and no memberships: fall through to the Pro-only
+        // loading skeleton so the section doesn't flicker in for free accounts.
         if (!this._isPro) return '';
         const vas = Array.isArray(this._userVAs) ? this._userVAs : null;
         if (vas === null && this._ifData && this._currentUser?.user_metadata?.if_username) {
@@ -3161,7 +3325,14 @@ _generateAirspaceHTML() {
                 </section>`;
         }
         if (!vas || !vas.length) return '';
+        return this._renderVABadges(vas);
+    },
 
+    /**
+     * Badge row shared by VA memberships and starred favourites. A favourite
+     * carries no role/hours, so its meta line simply comes out empty.
+     */
+    _renderVABadges(vas) {
         const esc = (s) => this._fleetEsc(String(s ?? ''));
         const cards = vas.map(v => {
             const accent = /^#?[0-9a-fA-F]{3,8}$/.test(v.accent || '') ? (v.accent[0] === '#' ? v.accent : '#' + v.accent) : 'var(--pui-accent)';
@@ -3751,6 +3922,8 @@ _getTabContentHTML() {
                 ${this._getVASectionHTML()}
 
                 ${this._getLifetimeStatsHTML()}
+
+                ${this._getAchievementsHTML()}
 
                 <div class="pui-home-grid pui-fade-in" style="margin-top:16px;">
                     <section class="pui-card pui-home-recent">
@@ -4497,7 +4670,14 @@ const contentRoot = document.getElementById('pui-content');
                 if (vaTarget && contentRoot.contains(vaTarget)) {
                     e.stopPropagation();
                     const href = vaTarget.dataset.vaHref;
-                    if (href) { const w = window.open(href, '_blank', 'noopener'); if (!w) window.location.assign(href); }
+                    if (!href) return;
+                    // A crew center is same-origin, so it opens as an overlay
+                    // over the map instead of a new tab. Anything else (a VA's
+                    // own website) still leaves the app.
+                    const slug = this._crewSlugFromHref(href);
+                    if (slug && CrewCenterOverlay.open(slug)) return;
+                    const w = window.open(href, '_blank', 'noopener');
+                    if (!w) window.location.assign(href);
                     return;
                 }
 
@@ -7005,6 +7185,49 @@ const contentRoot = document.getElementById('pui-content');
             .pui-ledger-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--pui-accent); }
             .pui-ledger-cell { font-family: var(--pui-font-mono); font-size: 0.7rem; font-weight: 700; color: var(--pui-text-secondary); white-space: nowrap; text-align: right; }
             .pui-ledger-note { margin-top: 14px; font-size: 0.72rem; color: var(--pui-text-tertiary); line-height: 1.45; }
+
+            /* --- Career Milestones -------------------------------------- */
+            .pui-ach-card { padding: 20px var(--pui-pad-card); margin-bottom: var(--pui-gap-md); }
+            .pui-ach-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+            .pui-ach-head .pui-card-eyebrow { margin: 0; flex: 1 1 auto; }
+            .pui-ach-score { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+            .pui-ach-score-value { font-size: 1.35rem; font-weight: 800; color: var(--pui-text-primary); font-variant-numeric: tabular-nums; }
+            .pui-ach-score-total { font-size: 0.9rem; font-weight: 600; color: var(--pui-text-tertiary); }
+            .pui-ach-score-label { font-size: 0.68rem; color: var(--pui-text-tertiary); }
+            .pui-ach-safety { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; padding-left: 16px; border-left: 1px solid var(--pui-border); }
+            .pui-ach-safety-label { font-size: 0.68rem; color: var(--pui-text-tertiary); }
+            .pui-ach-safety-value { font-size: 1.05rem; font-weight: 700; color: var(--pui-pos); font-variant-numeric: tabular-nums; }
+
+            .pui-ach-next { margin-bottom: 16px; padding: 12px 14px; border-radius: var(--pui-radius-lg); background: var(--pui-bg-surface); }
+            .pui-ach-next-head { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--pui-text-tertiary); margin-bottom: 8px; }
+            .pui-ach-next-row { display: grid; grid-template-columns: minmax(120px, 1.4fr) 3fr auto; align-items: center; gap: 10px; padding: 4px 0; }
+            .pui-ach-next-label { font-size: 0.8rem; color: var(--pui-text-secondary); display: flex; align-items: center; gap: 7px; min-width: 0; }
+            .pui-ach-next-label i { opacity: 0.7; flex: none; }
+            .pui-ach-next-bar { height: 5px; border-radius: 3px; background: var(--pui-border); overflow: hidden; }
+            .pui-ach-next-bar > span { display: block; height: 100%; border-radius: 3px; background: var(--pui-accent); }
+            .pui-ach-next-pct { font-size: 0.72rem; color: var(--pui-text-tertiary); font-variant-numeric: tabular-nums; }
+
+            .pui-ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+            .pui-ach-item { padding: 13px 14px; border-radius: var(--pui-radius-lg); background: var(--pui-bg-surface); border: 1px solid var(--pui-border); }
+            .pui-ach-item.is-complete { border-color: var(--pui-accent); }
+            .pui-ach-item.is-unknown { opacity: 0.55; }
+            .pui-ach-item-top { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+            .pui-ach-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; flex: none;
+                            background: var(--pui-bg-card-elev); color: var(--pui-text-secondary); font-size: 0.82rem; }
+            .pui-ach-item.is-complete .pui-ach-icon { background: var(--pui-accent); color: #fff; }
+            .pui-ach-item-meta { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+            .pui-ach-name { font-size: 0.78rem; color: var(--pui-text-tertiary); }
+            .pui-ach-rank { font-size: 0.87rem; font-weight: 700; color: var(--pui-text-primary);
+                            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pui-ach-value { font-size: 0.9rem; font-weight: 700; color: var(--pui-text-primary); font-variant-numeric: tabular-nums; flex: none; }
+            .pui-ach-value em { font-style: normal; font-size: 0.68rem; color: var(--pui-text-tertiary); margin-left: 1px; }
+            .pui-ach-pips { display: flex; gap: 4px; margin-bottom: 7px; }
+            .pui-ach-pip { width: 100%; height: 3px; border-radius: 2px; background: var(--pui-border); }
+            .pui-ach-pip.is-on { background: var(--pui-accent); }
+            .pui-ach-bar { height: 4px; border-radius: 3px; background: var(--pui-border); overflow: hidden; margin-bottom: 7px; }
+            .pui-ach-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--pui-accent); }
+            .pui-ach-sub { font-size: 0.7rem; color: var(--pui-text-tertiary); line-height: 1.4; }
+
             @media (max-width: 640px) {
                 .pui-ledger-row { grid-template-columns: minmax(80px, 1fr) auto auto; }
                 .pui-ledger-bar, .pui-ledger-row .pui-ledger-cell:last-child { display: none; }
