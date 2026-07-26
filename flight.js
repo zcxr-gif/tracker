@@ -12386,8 +12386,17 @@ function initializeSectorOpsSocket() {
     console.log(`Socket: Connecting to ${ACARS_SOCKET_URL}...`);
     sectorOpsSocket = io(ACARS_SOCKET_URL, {
     reconnection: true,
-    reconnectionAttempts: 10, // Increase attempts
+    // Never stop trying. Ten attempts at 3-5s apart gave up after roughly 45
+    // seconds and then stayed dead — so a backend deploy, a container restart
+    // or any network blip longer than that left the map frozen until the user
+    // thought to reload, with nothing on screen explaining why.
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 3000,   // Wait longer between retries
+    // Back off to 30s rather than retrying every few seconds forever: a long
+    // outage shouldn't have every open tab hammering the backend, and the
+    // default 0.5 randomizationFactor spreads the retries so a restart doesn't
+    // bring every client back in the same instant.
+    reconnectionDelayMax: 30000,
     transports: ['websocket', 'polling'], // Allow fallback for 10mbps/unstable users
     timeout: 20000 // Increase connection timeout to 20 seconds
 });
