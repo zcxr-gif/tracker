@@ -162,6 +162,45 @@ function buildRunways() {
     write('runways-extra.json', JSON.stringify(extra), Object.keys(extra).length, 'airports');
 }
 
+// ── FIR boundaries ──────────────────────────────────────────────────────────
+
+// Boundary coordinates ship with up to 16 decimal places — sub-atomic
+// precision on polygons that span hundreds of kilometres and are drawn as
+// 0.8px lines. Six is already ~6 cm; four is ~5.6 m, which is far finer than
+// any pixel these ever occupy at map scale.
+const BOUNDARY_DECIMALS = 4;
+
+function buildBoundaries() {
+    const name = 'Boundaries.geojson';
+    if (!fs.existsSync(path.join(ROOT, name))) return; // optional input
+    const { raw, data } = readJson(name);
+
+    let points = 0;
+    const roundRing = (a) => {
+        if (typeof a[0] === 'number') {
+            points++;
+            return [round(a[0], BOUNDARY_DECIMALS), round(a[1], BOUNDARY_DECIMALS)];
+        }
+        return a.map(roundRing);
+    };
+
+    const out = {
+        type: data.type,
+        features: data.features.map(f => ({
+            type: f.type,
+            properties: f.properties,
+            geometry: { type: f.geometry.type, coordinates: roundRing(f.geometry.coordinates) },
+        })),
+    };
+
+    const json = JSON.stringify(out);
+    console.log(`${name}     ${String(data.features.length.toLocaleString()).padStart(7)} sectors   ${mb(raw).padStart(9)}  ${kbGz(raw).padStart(8)} gzipped`);
+
+    assert(out.features.length === data.features.length, 'boundary feature count changed');
+    fs.writeFileSync(path.join(ROOT, name), json);
+    console.log(`  -> ${name.padEnd(21)} ${String(points.toLocaleString()).padStart(7)} points    ${mb(json).padStart(9)}  ${kbGz(json).padStart(8)} gzipped   (in place)`);
+}
+
 function assert(condition, message) {
     if (!condition) {
         console.error(`\nERROR: ${message}`);
@@ -172,3 +211,6 @@ function assert(condition, message) {
 buildAirports();
 console.log('');
 buildRunways();
+
+console.log("");
+buildBoundaries();

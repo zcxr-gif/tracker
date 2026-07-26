@@ -7168,12 +7168,25 @@ async function trackPilotView(flight) {
 async function initializeMapBoundaries(map) {
     if (!map) return;
 
+    // The FIR network is ~1.2 MB of GeoJSON and the toggle that reveals it
+    // (showAtcBoundaries) defaults to OFF, so building these layers eagerly
+    // meant every session downloaded and parsed the whole thing during map
+    // init for something it was never going to draw. Adding the source is
+    // what triggers the fetch, so the only way not to pay for it is not to
+    // create it. applyAtcBoundaryVisibility() calls back in here the moment
+    // the user turns the toggle on.
+    //
+    // Nothing else depends on these layers existing: updateActiveSectors()
+    // opens with `if (!map.getLayer(layerId)) return`, so the staffed-sector
+    // highlighting simply no-ops until the boundaries are real.
+    if (!mapFilters.showAtcBoundaries) return;
+
     try {
         // 1. Switched to local GeoJSON
         if (!map.getSource('fir-boundaries')) {
             map.addSource('fir-boundaries', {
                 type: 'geojson',
-                data: './Boundaries.geojson' 
+                data: './Boundaries.geojson'
             });
         }
 
@@ -7228,7 +7241,13 @@ async function initializeMapBoundaries(map) {
     }
 
     // Honour the user's ATC-boundaries toggle for the freshly created layers.
-    applyAtcBoundaryVisibility(map);
+    // Set visibility directly rather than calling applyAtcBoundaryVisibility():
+    // that function now builds the layers on demand, so calling it from here
+    // would recurse forever if layer creation above had thrown.
+    const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
+    ['fir-fills', 'fir-borders'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    });
 }
 
 // Show or hide every FIR boundary layer based on the showAtcBoundaries toggle.
@@ -7238,6 +7257,16 @@ async function initializeMapBoundaries(map) {
 function applyAtcBoundaryVisibility(map) {
     const target = map || sectorOpsMap;
     if (!target) return;
+
+    // Turning the toggle on is what pays for the FIR network — build the
+    // source and layers on demand the first time it is enabled. Guarded
+    // against re-entry: initializeMapBoundaries() ends by calling back here,
+    // and by then the layers exist so this branch is skipped.
+    if (mapFilters.showAtcBoundaries && !target.getLayer('fir-fills')) {
+        initializeMapBoundaries(target);
+        return;
+    }
+
     const vis = mapFilters.showAtcBoundaries ? 'visible' : 'none';
     ['fir-fills', 'fir-borders'].forEach(id => {
         if (target.getLayer(id)) {
