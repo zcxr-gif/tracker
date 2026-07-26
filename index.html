@@ -109,9 +109,22 @@
     <link rel="dns-prefetch" href="https://unpkg.com">
 
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <!-- Both are `defer`, which is what lets the splash paint at all.
+         As blocking <head> scripts they had to be downloaded AND executed
+         before the parser could even reach <body> — and mapbox-gl.js is by far
+         the heaviest thing on the page. So on a slow connection the user got a
+         white page for the length of that download, then the splash.
+
+         Deferring is safe here because nothing touches either global at load
+         time: `mapboxgl` is first used inside initializeSectorOpsView() and
+         `io` inside initializeSectorOpsSocket(), both of which run from
+         flight.js — a module, and therefore ordered after every deferred
+         script. The classic scripts further down the body were checked too:
+         their only `mapboxgl` matches are CSS selector strings. -->
+    <script defer src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
+
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
 
     <link rel="stylesheet" href="panel-styles.css">
 
