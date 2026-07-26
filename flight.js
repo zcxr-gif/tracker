@@ -1167,6 +1167,10 @@ window.pinFlight = function(flightId) {
     });
     let activeAtcFacilities = []; // To store fetched ATC data
     let activeNotams = []; // To store fetched NOTAMs data
+    // When the socket last delivered ATC/NOTAMs. updateSectorOpsSecondaryData()
+    // uses this to skip its HTTP poll while the stream is healthy — the two
+    // carry identical data on identical cadences.
+    let lastSecondarySocketUpdateMs = 0;
     let atcPopup = null; // To manage a single, shared popup instance
     // State for the airport info window
     let airportInfoWindow = null;
@@ -1396,31 +1400,76 @@ let mapFilters = {
         { value: 'MD11', name: 'McDonnell Douglas MD-11' },
     ];
 
+// ── Shared /if-sessions accessor ────────────────────────────────────────────
+// Infinite Flight's session list only changes when IF restarts a server, but
+// it was being fetched from four independent places — including
+// updateLiveFlights(), which runs every 3 seconds. That is ~1200 identical
+// requests an hour from a single client, for a list the backend itself only
+// refreshes once a minute.
+//
+// One cache, one in-flight request, shared by every caller. The TTL matches
+// the backend's own SESSIONS_CACHE_TTL_MS, so nobody can end up with data
+// staler than a fresh request would have returned anyway.
+const SESSIONS_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions';
+const SESSIONS_TTL_MS = 60000;
+let sessionsCache = null;
+let sessionsCachedAt = 0;
+let sessionsInFlight = null;
+
+/**
+ * @returns {Promise<object|null>} the /if-sessions payload, or null if we have
+ *          never managed to fetch it. Callers must handle null.
+ */
+async function fetchSessionsData({ force = false } = {}) {
+    if (!force && sessionsCache && Date.now() - sessionsCachedAt < SESSIONS_TTL_MS) {
+        return sessionsCache;
+    }
+    // Callers arriving while a request is already open share its result
+    // instead of opening a second one.
+    if (sessionsInFlight) return sessionsInFlight;
+
+    sessionsInFlight = (async () => {
+        try {
+            const res = await fetch(SESSIONS_URL);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const data = await res.json();
+            sessionsCache = data;
+            sessionsCachedAt = Date.now();
+            return data;
+        } catch (error) {
+            console.warn('Failed to fetch sessions:', error.message);
+            // Session IDs are stable for hours, so a stale list still resolves
+            // the right one — far better than failing the caller outright.
+            return sessionsCache;
+        } finally {
+            sessionsInFlight = null;
+        }
+    })();
+
+    return sessionsInFlight;
+}
+
 let cachedSessionId = null;
     let lastSessionFetchTime = 0;
 
     async function getValidSessionId() {
         const now = Date.now();
-        // Cache the session ID for 5 minutes (300000 ms) to prevent API spam
+        // Cache the resolved ID for 5 minutes (300000 ms). This is separate
+        // from the sessions list cache above because the ID is specific to the
+        // server the user is looking at, and the list is not.
         if (cachedSessionId && (now - lastSessionFetchTime < 300000)) {
             return cachedSessionId;
         }
-        
-        try {
-            const res = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            const data = await res.json();
-            const sessionId = getCurrentSessionId(data);
-            if (sessionId) {
-                cachedSessionId = sessionId;
-                lastSessionFetchTime = now;
-                return sessionId;
-            }
-        } catch (error) {
-            console.error("Failed to fetch sessions:", error);
+
+        const data = await fetchSessionsData();
+        const sessionId = data ? getCurrentSessionId(data) : null;
+        if (sessionId) {
+            cachedSessionId = sessionId;
+            lastSessionFetchTime = now;
+            return sessionId;
         }
         return 'default';
-    }  
+    }
 
     let mapSourceUpdateTimeout = null;
 
@@ -7571,7 +7620,11 @@ function generateTrafficForecastHTML(congestion) {
 
         activeAtcFacilities = [];
         activeNotams = [];
-        
+        // The stamp belongs to the server we just left, so it says nothing
+        // about whether we have data for the new one. Clearing it lets the
+        // fetch below run instead of standing down on the old server's news.
+        lastSecondarySocketUpdateMs = 0;
+
         renderAirportMarkers();
 
         // 4. UI Updates
@@ -8857,9 +8910,7 @@ async function consumeShareLinkParam() {
         if (directInFlight || directHit || opened) return null;
         directInFlight = true;
         try {
-            const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
-            if (!sessionsRes.ok) return null;
-            const sessionsJson = await sessionsRes.json();
+            const sessionsJson = await fetchSessionsData();
             const sessions = Array.isArray(sessionsJson?.sessions) ? sessionsJson.sessions : [];
             if (!sessions.length) return null;
 
@@ -12377,7 +12428,14 @@ function initializeSectorOpsSocket() {
     sectorOpsSocket.on('secondary_data_update', (data) => {
         if (!data || data.server.toLowerCase() !== currentServerName.toLowerCase()) return;
 
+        // Tells updateSectorOpsSecondaryData() the stream is alive, so it can
+        // stand down instead of refetching what just arrived.
+        lastSecondarySocketUpdateMs = Date.now();
+
         activeAtcFacilities = data.atc || [];
+        // NOTAMs ride the same packet. Taking them here is what makes the HTTP
+        // poll genuinely redundant rather than merely mostly-redundant.
+        if (Array.isArray(data.notams)) activeNotams = data.notams;
         notifyActiveAtcUpdated();
 
         // Filter for Center controllers (Type 6)
@@ -14668,8 +14726,10 @@ async function updateLiveFlights() {
     if (!liveFlightsMap || !liveFlightsMap.isStyleLoaded()) return;
 
     try {
-        const sessionsRes = await fetch('https://site--acars-backend--6dmjph8ltlhv.code.run/if-sessions');
-        const expertSession = (await sessionsRes.json()).sessions.find(s => s.name.toLowerCase().includes('expert'));
+        // Shared cache — this runs every 3 seconds, and the session list does
+        // not change on anything like that timescale.
+        const sessionsData = await fetchSessionsData();
+        const expertSession = sessionsData?.sessions?.find(s => s.name.toLowerCase().includes('expert'));
         if (!expertSession) {
             console.warn('No Expert Server session found for live flights.');
             return;
@@ -26450,7 +26510,14 @@ function updateActiveAirportsGlanceLayer() {
 
 
 // --- [UPDATED] Fetches ATC & NOTAMs for the CURRENTLY SELECTED SERVER ---
-async function updateSectorOpsSecondaryData() {
+//
+// This is now a FALLBACK, not the primary path. The socket's
+// secondary_data_update carries the same ATC and NOTAM data on the same 50s
+// cadence, so while that stream is healthy this poll would be three HTTP
+// round-trips per client per cycle for bytes we already have. It still runs
+// when the socket is quiet — first paint before the socket connects, a dropped
+// connection, or a backend that predates the socket path.
+async function updateSectorOpsSecondaryData({ force = false } = {}) {
     // Deliberately no map/style guard here — this is a pure data fetch. The
     // map-dependent consumers below (FIR sectors, airport markers) each guard
     // themselves, and renderAirportMarkers() queues itself until the style is
@@ -26459,14 +26526,19 @@ async function updateSectorOpsSecondaryData() {
     // with no ATC until the next 50-second polling tick.
     const LIVE_FLIGHTS_BACKEND = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
+    // One cadence of grace: if the socket delivered within the last polling
+    // interval, it is doing the job and this fetch is pure duplication.
+    if (!force && Date.now() - lastSecondarySocketUpdateMs < DATA_REFRESH_INTERVAL_MS) {
+        return;
+    }
+
     try {
-        const sessionsRes = await fetch(`${LIVE_FLIGHTS_BACKEND}/if-sessions`);
-        if (!sessionsRes.ok) {
+        const sessionsData = await fetchSessionsData();
+        if (!sessionsData) {
             console.warn('Sector Ops Map: Could not fetch server sessions. Skipping secondary data update.');
             return;
         }
-        const sessionsData = await sessionsRes.json();
-        
+
         // [UPDATED] Use helper to get ID for currentServerName
         const targetSessionId = getCurrentSessionId(sessionsData);
 
