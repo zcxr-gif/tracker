@@ -418,14 +418,17 @@ function reportBootState(state, detail) {
     // 'map-ready', and a stray success must not mask a reported failure.
     const previous = window.__inflightBoot && window.__inflightBoot.state;
     if (previous === 'map-ready' || (previous === 'map-error' && state !== 'map-ready')) return;
+    if (state === 'map-painted') window.__inflightMapPainted = true;
 
     window.__inflightBoot = { state, detail: detail || '', at: Date.now() };
 
     // Retire the map container's loading placeholder (see index.html) as soon
     // as there is a real map behind it. Share-link arrivals skip the splash
     // entirely, so this is the only thing standing between them and a blank
-    // dark rectangle while tiles stream in.
-    if (state === 'map-ready') {
+    // dark rectangle while tiles stream in. Keyed on the map having painted,
+    // not on the full reveal — there is a real map to show well before the
+    // chrome and traffic are ready.
+    if (state === 'map-painted' || state === 'map-ready') {
         const container = document.getElementById('sector-ops-map-fullscreen');
         if (container) container.classList.add('map-painted');
     }
@@ -435,6 +438,73 @@ function reportBootState(state, detail) {
     } catch (_) { /* CustomEvent unavailable — the splash falls back to polling */ }
 }
 window.reportBootState = reportBootState;
+
+/**
+ * Resolves once live traffic is actually drawn on the map — or gives up.
+ *
+ * The socket is warmed in parallel with the map, so by the time the layers
+ * exist there is usually already a full packet sitting in currentMapFeatures.
+ * What was missing was any guarantee that it had been pushed and rendered
+ * before the splash lifted, which is why aircraft appeared a beat behind the
+ * map. This waits for data (if it has not landed yet), forces it out, and then
+ * waits for the map to go idle — Mapbox's "nothing left to draw" signal.
+ *
+ * Every stage is bounded. An empty server, a dead socket or a slow tile fetch
+ * must delay the reveal, never prevent it.
+ *
+ * @param {number} maxWaitMs Total budget across all stages.
+ */
+async function waitForFirstTrafficRender(maxWaitMs = 4000) {
+    if (!sectorOpsMap) return;
+    const deadline = Date.now() + maxWaitMs;
+    const remaining = () => Math.max(0, deadline - Date.now());
+
+    // 1. Wait for the first packet, if it hasn't arrived yet.
+    if (Object.keys(currentMapFeatures).length === 0) {
+        await new Promise(resolve => {
+            let settled = false;
+            let unsubscribe = null;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                if (unsubscribe) { try { unsubscribe(); } catch (_) {} }
+                resolve();
+            };
+            const timer = setTimeout(finish, remaining());
+            try {
+                unsubscribe = socketDataHub.subscribe('all_flights_update', finish);
+            } catch (_) { finish(); }
+        });
+    }
+
+    // Nothing to draw (empty server, or the socket never answered) — reveal.
+    if (Object.keys(currentMapFeatures).length === 0) return;
+
+    // 2. Push it now. Bypasses the camera gate deliberately: this is boot, the
+    //    user is not interacting, and the whole point is to have the aircraft
+    //    on screen before the splash lifts.
+    if (mapAnimator) {
+        mapAnimator.invalidateRoster();
+        mapAnimator._updateMapSource();
+    }
+
+    // 3. Wait for Mapbox to finish drawing them.
+    await new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try { sectorOpsMap.off('idle', finish); } catch (_) {}
+            resolve();
+        };
+        // Always allow a little time even if the budget is already spent —
+        // one idle frame is usually milliseconds away at this point.
+        const timer = setTimeout(finish, Math.max(300, remaining()));
+        sectorOpsMap.once('idle', finish);
+    });
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     window.loadingStartTime = Date.now();
@@ -19364,7 +19434,12 @@ function initializeSectorOpsMap(centerICAO) {
     // while tiles were still arriving. 'load' is Mapbox's "style parsed and
     // first frame rendered" signal, which is exactly the moment there is
     // something to look at.
-    sectorOpsMap.once('load', () => reportBootState('map-ready'));
+    // The map having painted is a milestone, not the reveal. Layers, the live
+    // traffic already buffered from the socket, and the desktop/mobile chrome
+    // are all built *after* this fires — revealing here is what made planes
+    // and UI pop in a second behind the map. initializeApp() reports
+    // 'map-ready' once all of that is actually on screen.
+    sectorOpsMap.once('load', () => reportBootState('map-painted'));
 
     // A map that never loads must say so rather than fading to black. Mapbox
     // reports a lot of non-fatal errors (a single tile 404, a missing sprite),
@@ -26389,6 +26464,21 @@ async function initializeApp() {
             flights: Object.keys(currentMapFeatures).length || 0,
             atc: activeAtcFacilities.length || 0
         });
+
+        // ── Reveal ──────────────────────────────────────────────────────────
+        // Everything above builds the desktop and mobile chrome; it is all in
+        // the DOM by this point, so the splash is guaranteed to lift onto a
+        // complete UI rather than onto a bare map that then populates.
+        reportBootState('ui-ready');
+
+        // Then make sure the aircraft are actually painted. The socket has been
+        // buffering since before the map existed, so this is usually just a
+        // flush plus one idle frame — but it is bounded, so an empty server or
+        // a dead socket delays the reveal rather than blocking it.
+        await waitForFirstTrafficRender();
+
+        // Map, chrome and traffic are all on screen — lift the splash.
+        reportBootState('map-ready');
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch, exclude } = e.detail;

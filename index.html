@@ -2452,6 +2452,12 @@
                 { at: 9000,  text: 'Still loading — this can take a moment on a slow connection.' },
                 { at: 18000, text: 'Taking longer than usual. Hang tight…' }
             ];
+            // Once the map itself is up the remaining wait is traffic, so say
+            // so rather than continuing to claim the map is loading.
+            var stageText = {
+                'map-painted': 'Loading live traffic…',
+                'ui-ready': 'Loading live traffic…'
+            };
             var timers = reassure.map(function (step) {
                 return setTimeout(function () {
                     if (!dismissed && !overlay.classList.contains('has-error')) setStatus(step.text);
@@ -2459,14 +2465,22 @@
             });
 
             function onBoot(state, detail) {
+                // Any state at all is proof boot is still moving.
+                if (typeof armStallTimer === 'function') armStallTimer();
+
                 if (state === 'map-ready') {
                     timers.forEach(clearTimeout);
+                    if (stallTimer) clearTimeout(stallTimer);
                     setStatus('');
                     dismiss();
                 } else if (state === 'map-error') {
                     timers.forEach(clearTimeout);
                     overlay.classList.add('has-error');
                     fail(detail);
+                } else if (stageText[state] && status && status.classList.contains('is-visible')) {
+                    // Only refine a message already on screen — a fast load
+                    // still shows nothing at all.
+                    setStatus(stageText[state]);
                 }
             }
 
@@ -2479,14 +2493,26 @@
             // listener attached, so reconcile with whatever is already there.
             if (window.__inflightBoot) onBoot(window.__inflightBoot.state, window.__inflightBoot.detail);
 
-            // Last-resort net: if the map never reports either way — a wedged
-            // GPU context, a blocked CDN, an exception before flight.js runs —
+            // Last-resort net: if boot never reports either way — a wedged GPU
+            // context, a blocked CDN, an exception before flight.js runs —
             // surface it rather than leaving a logo spinning forever.
-            setTimeout(function () {
-                if (!dismissed && (!window.__inflightBoot || window.__inflightBoot.state !== 'map-ready')) {
-                    fail('The map is not responding. Check your connection and try again.');
-                }
-            }, 30000);
+            //
+            // Keyed on lack of PROGRESS, not on total elapsed time. Boot walks
+            // through several states before the reveal (data, map init, first
+            // paint, chrome, traffic), and on a slow connection reaching the
+            // last one can legitimately take a while — what must not happen is
+            // going quiet. Each new state restarts the clock.
+            var STALL_MS = 30000;
+            var stallTimer = null;
+            function armStallTimer() {
+                if (stallTimer) clearTimeout(stallTimer);
+                stallTimer = setTimeout(function () {
+                    if (!dismissed) {
+                        fail('The map is not responding. Check your connection and try again.');
+                    }
+                }, STALL_MS);
+            }
+            armStallTimer();
 
             var retryBtn = document.getElementById('inflight-splash-retry');
             if (retryBtn) retryBtn.addEventListener('click', function () { window.location.reload(); });
