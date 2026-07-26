@@ -647,8 +647,25 @@ init(supabaseClient) {
 
                 const ifUsername = this._currentUser?.user_metadata?.if_username;
 
+                // One pass to index the packet by lowercased username, shared
+                // by the lookups below. They previously scanned all of
+                // payload.flights independently — the watchlist loop ran a
+                // full .find() per watched pilot — and each scan lowercased
+                // every username again, so a 40-entry watchlist against a busy
+                // server meant ~48,000 comparisons and as many throwaway
+                // strings on every packet.
+                const flightsByUser = new Map();
+                for (let i = 0; i < payload.flights.length; i++) {
+                    const f = payload.flights[i];
+                    const un = f.username && f.username.toLowerCase();
+                    if (!un) continue;
+                    const bucket = flightsByUser.get(un);
+                    if (bucket) bucket.push(f);
+                    else flightsByUser.set(un, [f]);
+                }
+
                 if (ifUsername) {
-                    const myFlights = payload.flights.filter(f => f.username?.toLowerCase() === ifUsername.toLowerCase());
+                    const myFlights = flightsByUser.get(ifUsername.toLowerCase()) || [];
                     const previouslyHadFlights = this._liveFlights.length > 0;
                     this._liveFlights = myFlights;
                     if (this._isOpen && this._activeTab === 'dashboard') {
@@ -671,8 +688,9 @@ init(supabaseClient) {
                     const newStatus = {};
                     for (const entry of this._watchlist) {
                         const un = entry.watched_username.toLowerCase();
-                        const flight = payload.flights.find(f => f.username?.toLowerCase() === un);
-                        newStatus[un] = { isLive: !!flight, flight: flight || null };
+                        // Keyed lookup into the per-packet index built above.
+                        const flight = (flightsByUser.get(un) || [])[0] || null;
+                        newStatus[un] = { isLive: !!flight, flight };
                     }
                     this._watchedPilotStatus = newStatus;
 
