@@ -75,9 +75,16 @@ export class FlightDeltaClient {
 
     /**
      * Apply a full-state packet.
-     * @returns {object} a snapshot in `all_flights_update` shape.
+     * @returns {object|null} a snapshot in `all_flights_update` shape, or null
+     *          if the packet was unusable — in which case existing state is
+     *          left untouched rather than wiped for a packet we can't trust.
      */
     applySync(packet) {
+        // Everything below this line came off the network. A malformed packet
+        // must not throw out of a socket handler, where it would take the rest
+        // of that event's processing with it.
+        if (!packet || typeof packet !== 'object') return null;
+
         this.bySlot.clear();
         this.server = packet.server;
         this.sessionId = packet.sessionId;
@@ -85,7 +92,8 @@ export class FlightDeltaClient {
         this.seq = packet.q;
         this.stats.syncs++;
 
-        for (const entry of (packet.f || [])) {
+        for (const entry of list(packet.f)) {
+            if (!Array.isArray(entry)) continue;
             this.bySlot.set(entry[0], hydrate(entry[1]));
         }
         return this._snapshot();
@@ -97,6 +105,8 @@ export class FlightDeltaClient {
      *          applied (a resync has been requested in that case).
      */
     applyDelta(packet) {
+        if (!packet || typeof packet !== 'object') return null; // see applySync
+
         // A packet for a server we aren't tracking is stale routing, not a gap;
         // dropping it silently is correct. Compared case-insensitively, as the
         // rest of the app does — server names round-trip through room names.
@@ -115,11 +125,12 @@ export class FlightDeltaClient {
         if (packet.sessionId) this.sessionId = packet.sessionId;
         this.stats.deltas++;
 
-        for (const slot of (packet.r || [])) {
+        for (const slot of list(packet.r)) {
             this.bySlot.delete(slot);
         }
 
-        for (const entry of (packet.a || [])) {
+        for (const entry of list(packet.a)) {
+            if (!Array.isArray(entry)) continue;
             this.bySlot.set(entry[0], hydrate(entry[1]));
         }
 
@@ -127,7 +138,8 @@ export class FlightDeltaClient {
         // it) is created rather than mutating in place: the full-snapshot
         // protocol handed consumers fresh objects every tick, and some of them
         // hold references across ticks.
-        for (const t of (packet.p || [])) {
+        for (const t of list(packet.p)) {
+            if (!Array.isArray(t)) continue;
             const prev = this.bySlot.get(t[P_SLOT]);
             if (!prev) continue;
             this.bySlot.set(t[P_SLOT], {
@@ -148,9 +160,11 @@ export class FlightDeltaClient {
         // Metadata (callsign edits, a flight plan filed mid-flight, the VA
         // roster poll landing). Rare, so a partial object is cheaper than a
         // tuple here.
-        for (const [slot, changed] of (packet.m || [])) {
+        for (const entry of list(packet.m)) {
+            if (!Array.isArray(entry)) continue;
+            const [slot, changed] = entry;
             const prev = this.bySlot.get(slot);
-            if (!prev) continue;
+            if (!prev || !changed) continue;
             const next = { ...prev, ...changed };
             if (changed.aircraft) next.aircraft = { ...prev.aircraft, ...changed.aircraft };
             this.bySlot.set(slot, next);
@@ -189,6 +203,15 @@ export class FlightDeltaClient {
     }
 }
 
+/**
+ * Coerce a wire field to an array. The encoder always sends these, but they
+ * arrive over a socket: a non-array here would throw out of the for-of and
+ * take the whole event handler with it.
+ */
+function list(v) {
+    return Array.isArray(v) ? v : [];
+}
+
 /** True unless both names are known and differ. */
 function sameServer(a, b) {
     if (!a || !b) return true;
@@ -200,7 +223,7 @@ function sameServer(a, b) {
  * putting back the `lastReport` field the backend leaves off.
  */
 function hydrate(wire) {
-    const p = wire.position || {};
+    const p = (wire && wire.position) || {};
     return {
         ...wire,
         position: { ...p, lastReport: p.lastReportMs ?? null },
