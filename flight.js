@@ -10918,38 +10918,76 @@ async function fetchAndDisplayGeocode(lat, lon) {
 }
 
 
-    // --- NEW: Fetch Runway Data ---
-    // runways.json is ~26 MB, so this is deliberately kept off the boot
-    // critical path: nothing on first paint needs it. Consumers that do
-    // (the airport panels) await ensureRunwaysData() instead.
-    let runwaysPromise = null;
+    // --- Runway data ---
+    // The source database is ~25 MB, so it is deliberately kept off the boot
+    // critical path: nothing on first paint needs it. It is also split in two
+    // (see tools/build-data.js) — the core tier holds every real ICAO field,
+    // which is all any lookup here resolves against, and the supplementary
+    // tier holds the local-identifier fields that are only reachable by
+    // picking one out of global search. That tier is fetched on demand rather
+    // than speculatively, so the overwhelming majority of sessions never pay
+    // for it.
+    let runwaysCorePromise = null;
+    let runwaysExtraPromise = null;
 
-function ensureRunwaysData() {
-    if (!runwaysPromise) runwaysPromise = fetchRunwaysData();
-    return runwaysPromise;
+const isIcaoIdent = (icao) => /^[A-Z]{4}$/.test(String(icao || '').toUpperCase());
+
+/**
+ * Guarantees runway data is loaded before the caller reads runwaysData.
+ * @param {string} [icao] The field about to be looked up. Pass it when known:
+ *   a non-ICAO identifier is the only thing that needs the supplementary tier,
+ *   so naming it keeps that download out of every other session.
+ */
+function ensureRunwaysData(icao) {
+    if (!runwaysCorePromise) {
+        runwaysCorePromise = fetchRunwayTier('runways-core.json', 'runways.json');
+    }
+    if (icao && !isIcaoIdent(icao) && !runwaysExtraPromise) {
+        runwaysExtraPromise = fetchRunwayTier('runways-extra.json', null);
+    }
+    return runwaysExtraPromise
+        ? Promise.all([runwaysCorePromise, runwaysExtraPromise])
+        : runwaysCorePromise;
 }
 window.ensureRunwaysData = ensureRunwaysData;
 
-async function fetchRunwaysData() {
+/**
+ * Loads one runway tier and folds it into runwaysData.
+ *
+ * The generated tiers ship pre-indexed by airport, which is the shape this
+ * used to build at runtime by reducing over all 47,161 records. The legacy
+ * array form is still accepted so the monolithic fallback keeps working.
+ *
+ * @param {string} url            Tier to load.
+ * @param {string|null} fallback  Legacy file to try if the tier is missing.
+ */
+async function fetchRunwayTier(url, fallback) {
     try {
-        // Make sure the path to your JSON file is correct
-        const response = await fetch('runways.json');
-        if (!response.ok) throw new Error('Could not load runway data.');
-        const rawRunways = await response.json();
+        let response = await fetch(url);
+        if (!response.ok && fallback) response = await fetch(fallback);
+        if (!response.ok) throw new Error(`Could not load runway data (${url}).`);
 
-        // Re-structure data for easier lookup by airport ICAO
-        runwaysData = rawRunways.reduce((acc, runway) => {
-            const ident = runway.airport_ident;
-            if (!acc[ident]) {
-                acc[ident] = [];
+        const raw = await response.json();
+
+        if (Array.isArray(raw)) {
+            // Legacy monolithic shape — index it the way the tiers already are.
+            for (const runway of raw) {
+                const ident = runway.airport_ident;
+                if (!ident) continue;
+                (runwaysData[ident] || (runwaysData[ident] = [])).push(runway);
             }
-            acc[ident].push(runway);
-            return acc;
-        }, {});
-        console.log(`Successfully loaded and indexed runway data for ${Object.keys(runwaysData).length} airports.`);
+        } else {
+            Object.assign(runwaysData, raw);
+        }
+
+        console.log(`Runway data: ${Object.keys(runwaysData).length.toLocaleString()} airports indexed (${url}).`);
     } catch (error) {
         console.error('Failed to fetch runway data:', error);
-        showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
+        // Only the core tier is worth interrupting the user over; a missing
+        // supplementary tier just means an obscure field lists no runways.
+        if (fallback) {
+            showNotification('Runway data not available; takeoff/landing detection may be limited.', 'error');
+        }
     }
 }
 
@@ -11010,7 +11048,7 @@ function invalidateAirportDerivedCaches() {
 
 /**
  * Loads the supplementary airport tier in the background and folds it into the
- * live object. See tools/build-airport-data.js for what lives in each tier:
+ * live object. See tools/build-data.js for what lives in each tier:
  * nothing here is addressed by key, it exists so global search can find US
  * local identifiers, heliports and private strips. Failure is silently
  * tolerated — the app is fully functional on the core tier alone.
@@ -11036,7 +11074,7 @@ async function loadSupplementaryAirports() {
  *
  * The database is ~82,700 fields / 11.6 MB, which boot used to download and
  * parse in full before the map could initialise. It is now split in two (see
- * tools/build-airport-data.js): the ~19,000 real ICAO fields, which is
+ * tools/build-data.js): the ~19,000 real ICAO fields, which is
  * everything any lookup actually resolves against, and the rest, which only
  * global search ever reads. Only the first is awaited — 430 KB over the wire
  * instead of 2 MB, and roughly a fifth of the parse.
@@ -11754,7 +11792,7 @@ function handleSocketFlightUpdate(data) {
         // The aircraft/livery/registration triple is stable for the life of a
         // flight, so re-serialising it every tick was pure waste. Reuse the
         // string we already built whenever the triple hasn't changed.
-        const acSignature = `${acName} ${livName} ${aircraftData?.registration || ''}`;
+        const acSignature = `${acName}\u0000${livName}\u0000${aircraftData?.registration || ''}`;
         const aircraftJson = (existingProps.__acSig === acSignature && existingProps.aircraft !== undefined)
             ? existingProps.aircraft
             : JSON.stringify(aircraftData);
@@ -13472,9 +13510,11 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             ? `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">3D</span>` 
             : '';
 
-        // Runways load lazily (26 MB), so make sure the DB has landed before
-        // reading it. Resolves instantly once warmed by the background fetch.
-        await ensureRunwaysData();
+        // Runways load lazily, so make sure the data has landed before reading
+        // it. Resolves instantly once warmed by the background fetch. Naming
+        // the field lets it pull the supplementary tier only if this is one of
+        // the local-identifier airports that needs it.
+        await ensureRunwaysData(icao);
         const airportRunways = runwaysData[icao] || [];
 
         // --- Weather & ATIS Logic ---
@@ -19715,7 +19755,7 @@ async function formatDataForEmbedAirport(icao) {
 
     // Runways — physical list plus wind-scored recommendations against the
     // METAR we just parsed (same physics the standard window's INFO tab uses).
-    try { await ensureRunwaysData(); } catch (_) {}
+    try { await ensureRunwaysData(icao); } catch (_) {}
     const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
     const runways = rawRunways
         .filter(r => !r.closed && (r.le_ident || r.he_ident))
@@ -19825,7 +19865,7 @@ async function formatAirportSummary(icao) {
     } catch (_) {}
 
     // Runway summary — open runways plus the longest hard length.
-    try { await ensureRunwaysData(); } catch (_) {}
+    try { await ensureRunwaysData(icao); } catch (_) {}
     const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
     const openRunways = rawRunways.filter(r => !r.closed && (r.le_ident || r.he_ident));
     const runwayCount = openRunways.length;

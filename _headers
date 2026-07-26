@@ -22,6 +22,12 @@
 /airports.json
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
+/runways-core.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/runways-extra.json
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
 /runways.json
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
