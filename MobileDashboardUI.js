@@ -92,6 +92,11 @@ export const MobileDashboardUI = {
         plan:        'Pro Access',
         nextPayment: 'Upcoming',
         price:       '$1.99 / month',
+        // See ProfileUI._buildSubscriptionView — a cancelled subscription's
+        // period end is the last day of access, not the next charge.
+        cancelAtPeriodEnd: false,
+        periodEndLabel: 'Next payment',
+        daysLeft: null,
     },
     _ifData: {
         loading:       false,
@@ -534,22 +539,60 @@ init(supabaseClient) {
     async _fetchSubscriptionData() {
         if (!this._currentUser || !this._supabase) return;
         try {
+            // select('*') so a database without the renewal columns yet still
+            // returns the row instead of failing the whole query.
             const { data, error } = await this._supabase
                 .from('subscriptions')
-                .select('status, plan_name, current_period_end, amount')
+                .select('*')
                 .eq('user_id', this._currentUser.id)
                 .single();
             if (data && !error) {
-                const nextDate = new Date(data.current_period_end);
-                this._subscription = {
-                    status:      data.status === 'active' ? 'Active' : 'Inactive',
-                    plan:        data.plan_name || 'Pro Access',
-                    nextPayment: isNaN(nextDate) ? 'Pending' : nextDate.toLocaleDateString(),
-                    price:       `$${(data.amount / 100).toFixed(2)} / month`,
-                };
+                this._subscription = this._buildSubscriptionView(data);
                 if (this._activeTab === 'settings' && this._isOpen) this._render();
             }
         } catch (_) { }
+    },
+
+    /**
+     * Shape a raw `subscriptions` row for the billing rows (mirrors
+     * ProfileUI._buildSubscriptionView). `current_period_end` is the next
+     * charge on a renewing subscription and the last day of access on a
+     * cancelled one — labelling both "Next payment" tells a pilot who just
+     * cancelled that they're about to be billed again.
+     */
+    _buildSubscriptionView(row) {
+        const periodEnd = row.current_period_end ? new Date(row.current_period_end) : null;
+        const validEnd = periodEnd && !isNaN(periodEnd.getTime()) ? periodEnd : null;
+        const cancelAtPeriodEnd = row.cancel_at_period_end === true;
+        const raw = String(row.status || '').toLowerCase();
+
+        let daysLeft = null;
+        if (validEnd) daysLeft = Math.max(0, Math.ceil((validEnd.getTime() - Date.now()) / 86400000));
+
+        let status;
+        if (cancelAtPeriodEnd && (raw === 'active' || raw === 'trialing')) status = 'Cancels';
+        else if (raw === 'trialing') status = 'Trial';
+        else if (raw === 'past_due') status = 'Past due';
+        else if (raw === 'active' || !raw) status = 'Active';
+        else status = 'Inactive';
+
+        // `Number(null)` is 0, which would advertise the plan as $0.00 / month.
+        const amount = row.amount == null ? NaN : Number(row.amount);
+
+        return {
+            status,
+            plan: row.plan_name || 'Pro Access',
+            price: Number.isFinite(amount) ? `$${(amount / 100).toFixed(2)} / month` : '$1.99 / month',
+            nextPayment: validEnd
+                ? validEnd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                : 'Pending',
+            cancelAtPeriodEnd,
+            periodEndLabel: cancelAtPeriodEnd ? 'Access ends'
+                : status === 'Inactive' ? 'Ended'          // already lapsed — the date is history, not a charge
+                : raw === 'trialing' ? 'Trial ends'
+                : 'Next payment',
+            daysLeft,
+        };
     },
 
     async _fetchFlightPlans() {
@@ -3146,12 +3189,26 @@ init(supabaseClient) {
                   <div class="mdui-section-title">Subscription</div>
                   <div class="mdui-rows">
                       <div class="mdui-row" data-static="true">
-                          <span class="mdui-row-glyph tone-blue"><i class="fa-solid fa-rocket"></i></span>
+                          <span class="mdui-row-glyph ${this._subscription.cancelAtPeriodEnd ? 'tone-orange' : 'tone-blue'}"><i class="fa-solid fa-rocket"></i></span>
                           <div class="mdui-row-main">
                               <span class="mdui-row-title">${this._subscription.plan}</span>
                               <span class="mdui-row-sub">${this._subscription.price} · ${this._subscription.status}</span>
                           </div>
                           <span class="mdui-row-value">${this._subscription.nextPayment || ''}</span>
+                      </div>
+                      <div class="mdui-row" data-static="true">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-calendar-day"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title">${this._subscription.periodEndLabel}</span>
+                              ${this._subscription.cancelAtPeriodEnd ? `
+                              <span class="mdui-row-sub">Won't renew${
+                                  this._subscription.daysLeft !== null
+                                      ? ` · ${this._subscription.daysLeft} ${this._subscription.daysLeft === 1 ? 'day' : 'days'} left`
+                                      : ''
+                              }</span>` : (this._subscription.status === 'Past due' ? `
+                              <span class="mdui-row-sub">Payment failed — update your card to keep Pro</span>` : '')}
+                          </div>
+                          <span class="mdui-row-value">${this._subscription.nextPayment || '—'}</span>
                       </div>
                       <button class="mdui-row" id="mdui-billing-update" type="button">
                           <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-credit-card"></i></span>
