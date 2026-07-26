@@ -1480,6 +1480,10 @@ if (type === 'flights') {
      */
     async _restoreProAccess(btn = null) {
         const restore = btn ? btn.innerHTML : null;
+        // Same call from both cards, but it reads very differently depending on
+        // where you started: a free-tier pilot is recovering lost access, a Pro
+        // pilot is just refilling a billing card that never got its row.
+        const wasPro = this._isPro === true;
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking…'; }
         this._showMessage('pui-billing-msg', 'Checking your subscription with Stripe…', 'success');
 
@@ -1493,7 +1497,9 @@ if (type === 'flights') {
             if (!data?.restored) {
                 this._showMessage(
                     'pui-billing-msg',
-                    'No active subscription found for this account. If you paid with a different email, contact support and we’ll move it across.',
+                    wasPro
+                        ? 'Stripe has no active subscription on this email, so there are no billing dates to show. If you paid with a different email, contact support.'
+                        : 'No active subscription found for this account. If you paid with a different email, contact support and we’ll move it across.',
                     'error'
                 );
                 if (btn) { btn.disabled = false; btn.innerHTML = restore; }
@@ -1502,7 +1508,11 @@ if (type === 'flights') {
 
             // Granted server-side — pull the new entitlement through so the
             // gated surfaces unlock without a reload.
-            this._showMessage('pui-billing-msg', 'Pro restored — welcome back. Unlocking your tools…', 'success');
+            this._showMessage(
+                'pui-billing-msg',
+                wasPro ? 'Billing details refreshed from Stripe.' : 'Pro restored — welcome back. Unlocking your tools…',
+                'success'
+            );
             try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the session we have */ }
             try {
                 if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
@@ -4359,6 +4369,12 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-ban"></i> Cancel subscription
                                     </button>
                                 </div>
+                                <p class="pui-help-text" style="margin-top: 12px; text-align: center;">
+                                    Dates look wrong or missing?
+                                    <button type="button" class="pui-btn-ghost pui-btn-sm" data-action="restore-pro" style="margin-left: 4px;">
+                                        <i class="fa-solid fa-rotate"></i> Refresh from Stripe
+                                    </button>
+                                </p>
                                 ` : `
                                 <div class="pui-plan-box pui-plan-box-free">
                                     <div class="pui-plan-header">

@@ -467,6 +467,8 @@ init(supabaseClient) {
      */
     async _restoreProAccess(btn = null) {
         const restore = btn ? btn.innerHTML : null;
+        // Same call from the free card and the Pro card — see ProfileUI.
+        const wasPro = this._isPro === true;
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking…'; }
         this._showMessage('mdui-billing-msg', 'Checking your subscription with Stripe…', 'success');
 
@@ -480,14 +482,20 @@ init(supabaseClient) {
             if (!data?.restored) {
                 this._showMessage(
                     'mdui-billing-msg',
-                    'No active subscription found for this account. If you paid with a different email, contact support.',
+                    wasPro
+                        ? 'Stripe has no active subscription on this email, so there are no billing dates to show.'
+                        : 'No active subscription found for this account. If you paid with a different email, contact support.',
                     'error'
                 );
                 if (btn) { btn.disabled = false; btn.innerHTML = restore; }
                 return;
             }
 
-            this._showMessage('mdui-billing-msg', 'Pro restored — unlocking your tools…', 'success');
+            this._showMessage(
+                'mdui-billing-msg',
+                wasPro ? 'Billing details refreshed from Stripe.' : 'Pro restored — unlocking your tools…',
+                'success'
+            );
             try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the session we have */ }
             try {
                 if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
@@ -3213,6 +3221,14 @@ init(supabaseClient) {
                       <button class="mdui-row" id="mdui-billing-update" type="button">
                           <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-credit-card"></i></span>
                           <div class="mdui-row-main"><span class="mdui-row-title">Update Payment Method</span></div>
+                          <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
+                      </button>
+                      <button class="mdui-row" data-action="restore-pro" type="button">
+                          <span class="mdui-row-glyph tone-gray"><i class="fa-solid fa-rotate"></i></span>
+                          <div class="mdui-row-main">
+                              <span class="mdui-row-title">Refresh From Stripe</span>
+                              <span class="mdui-row-sub">Re-check your subscription dates</span>
+                          </div>
                           <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
                       </button>
                       <button class="mdui-row destructive" id="mdui-billing-cancel" type="button">
