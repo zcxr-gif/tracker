@@ -24,6 +24,22 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.11',
+            date: 'July 2026',
+            title: 'Upgrades That Actually Land',
+            tagline: 'Upgrading to Pro from your profile now unlocks everything the moment you’re back — and if a payment ever went through without your Pro arriving, you can put it right yourself.',
+            entries: [
+                {
+                    tag: 'fixed', icon: 'fa-bolt',
+                    text: 'Upgrading to Pro from your profile now grants Pro. Payments that completed without unlocking anything are the bug we just closed — your tools unlock the moment you’re back from checkout, no reload needed.'
+                },
+                {
+                    tag: 'new', icon: 'fa-rotate',
+                    text: 'Restore Pro access — paid but still seeing the free tier? Settings → Billing has a button that re-checks your subscription and puts your Pro back straight away.'
+                },
+            ],
+        },
+        {
             id: '2026.07.10',
             date: 'July 2026',
             title: 'Free Accounts & a Profile Worth Showing Off',

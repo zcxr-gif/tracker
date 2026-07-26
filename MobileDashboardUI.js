@@ -455,6 +455,52 @@ init(supabaseClient) {
         }
     },
 
+    /**
+     * Re-apply Pro from a subscription already live at Stripe (mirrors
+     * ProfileUI._restoreProAccess). The grant happens server-side — this only
+     * asks, and reflects the answer.
+     */
+    async _restoreProAccess(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking…'; }
+        this._showMessage('mdui-billing-msg', 'Checking your subscription with Stripe…', 'success');
+
+        try {
+            if (!this._supabase || !this._currentUser) throw new Error('No active session.');
+
+            const { data, error } = await this._supabase.functions.invoke('restore-pro-access');
+            if (error) throw new Error(error.message || 'Could not reach the server.');
+            if (data?.error) throw new Error(data.error);
+
+            if (!data?.restored) {
+                this._showMessage(
+                    'mdui-billing-msg',
+                    'No active subscription found for this account. If you paid with a different email, contact support.',
+                    'error'
+                );
+                if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+                return;
+            }
+
+            this._showMessage('mdui-billing-msg', 'Pro restored — unlocking your tools…', 'success');
+            try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the session we have */ }
+            try {
+                if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
+                    await window.refreshProStatus();
+                }
+            } catch (_) { /* the reload path still picks it up */ }
+
+            this._isPro = true;
+            if (!this._userVAsLoaded) this._fetchUserVAs();
+            this._fetchSubscriptionData?.();
+            if (this._isOpen) this._render();
+
+        } catch (err) {
+            this._showMessage('mdui-billing-msg', `Could not restore Pro: ${err.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+        }
+    },
+
     async _fetchProStatus() {
         if (!this._currentUser || !this._supabase) return;
         try {
@@ -3135,6 +3181,10 @@ init(supabaseClient) {
                   <button class="mdui-btn-primary mdui-btn-block" data-action="upgrade-pro" style="margin-top:12px;">
                       <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
                   </button>
+                  <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin-top: 10px;"></div>
+                  <button class="mdui-btn-ghost mdui-btn-block" data-action="restore-pro" type="button" style="margin-top:10px;">
+                      <i class="fa-solid fa-rotate"></i> Already paid? Restore Pro access
+                  </button>
               </div>`)}
 
               <!-- Support -->
@@ -3630,6 +3680,14 @@ _attachListeners() {
                     icao: target.dataset.icao,
                     callsign: target.dataset.callsign
                 });
+                return;
+            }
+
+            // 3b. Restore Pro → re-check Stripe for a live subscription
+            const restoreBtn = e.target.closest('[data-action="restore-pro"]');
+            if (restoreBtn && contentRoot.contains(restoreBtn)) {
+                e.stopPropagation();
+                this._restoreProAccess(restoreBtn);
                 return;
             }
 

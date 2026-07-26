@@ -1458,6 +1458,60 @@ if (type === 'flights') {
     },
 
     /**
+     * Re-apply Pro from a subscription that is already live at Stripe.
+     *
+     * The upgrade only provisions when the pilot lands back on the success URL,
+     * so a dropped redirect, a closed tab or a failed verification leaves a
+     * paying pilot on the free tier with no way out but support. This asks the
+     * server to look their subscription up and re-grant — it never grants on
+     * the client's say-so, and does nothing if Stripe has no active
+     * subscription for the account.
+     */
+    async _restoreProAccess(btn = null) {
+        const restore = btn ? btn.innerHTML : null;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking…'; }
+        this._showMessage('pui-billing-msg', 'Checking your subscription with Stripe…', 'success');
+
+        try {
+            if (!this._supabase || !this._currentUser) throw new Error('No active session.');
+
+            const { data, error } = await this._supabase.functions.invoke('restore-pro-access');
+            if (error) throw new Error(error.message || 'Could not reach the server.');
+            if (data?.error) throw new Error(data.error);
+
+            if (!data?.restored) {
+                this._showMessage(
+                    'pui-billing-msg',
+                    'No active subscription found for this account. If you paid with a different email, contact support and we’ll move it across.',
+                    'error'
+                );
+                if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+                return;
+            }
+
+            // Granted server-side — pull the new entitlement through so the
+            // gated surfaces unlock without a reload.
+            this._showMessage('pui-billing-msg', 'Pro restored — welcome back. Unlocking your tools…', 'success');
+            try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the session we have */ }
+            try {
+                if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
+                    await window.refreshProStatus();
+                }
+            } catch (_) { /* the reload path still picks it up */ }
+
+            this._isPro = true;
+            if (!this._userVAsLoaded) this._fetchUserVAs();
+            this._fetchSubscriptionData?.();
+            if (this._isOpen) this._render();
+
+        } catch (err) {
+            console.warn('[ProfileUI] Restore Pro failed:', err.message);
+            this._showMessage('pui-billing-msg', `Could not restore Pro: ${err.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+        }
+    },
+
+    /**
      * Fetch the community aircraft catalog (/api/aircraft) once and cache it.
      * Each entry carries an imageUrl we can use as a profile banner.
      */
@@ -4243,6 +4297,13 @@ if (this._activeTab === 'flight-plan') {
                                         <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
                                     </button>
                                 </div>
+                                <div id="pui-billing-msg" class="pui-alert" style="display: none; margin-top: 14px;"></div>
+                                <p class="pui-help-text" style="margin-top: 12px; text-align: center;">
+                                    Already paid but still on the free tier?
+                                    <button type="button" class="pui-btn-ghost pui-btn-sm" data-action="restore-pro" style="margin-left: 4px;">
+                                        <i class="fa-solid fa-rotate"></i> Restore Pro access
+                                    </button>
+                                </p>
                                 `}
                             </div>
                         </div>
@@ -4743,6 +4804,16 @@ const contentRoot = document.getElementById('pui-content');
                 if (upgradeTarget && contentRoot.contains(upgradeTarget)) {
                     e.stopPropagation();
                     this._startProUpgrade(upgradeTarget);
+                    return;
+                }
+
+                // 4b. Restore Pro → re-check Stripe for a live subscription and
+                // re-apply the entitlement. For pilots who paid but never got
+                // provisioned (a dropped redirect, a closed tab).
+                const restoreTarget = e.target.closest('[data-action="restore-pro"]');
+                if (restoreTarget && contentRoot.contains(restoreTarget)) {
+                    e.stopPropagation();
+                    this._restoreProAccess(restoreTarget);
                     return;
                 }
             });
