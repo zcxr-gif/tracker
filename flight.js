@@ -7465,9 +7465,12 @@ function generateTrafficForecastHTML(congestion) {
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
         }
-        
+
         if (mapAnimator && typeof mapAnimator._updateMapSource === 'function') {
-            mapAnimator._updateMapSource(); 
+            // The roster was emptied behind the animator's back — drop its
+            // cached snapshot before forcing the flush.
+            mapAnimator.invalidateRoster();
+            mapAnimator._updateMapSource();
         }
         
         if (currentFlightInWindow) {
@@ -8597,6 +8600,9 @@ async function consumeShareLinkParam() {
             if (seedCache && typeof currentMapFeatures !== 'undefined' &&
                 !currentMapFeatures[effectiveFlightId]) {
                 currentMapFeatures[effectiveFlightId] = feature;
+                // Direct write to the shared cache — tell the animator its
+                // snapshot is stale so the seeded flight actually renders.
+                if (mapAnimator) mapAnimator.invalidateRoster();
             }
             const props = feature.properties;
             const flightProps = {
@@ -9653,8 +9659,25 @@ const AIRLINE_LIVERY_ICAO = {
  * Flight are free-form, so the livery is the only reliable airline signal.
  * Liveries without a match (GA, military, generic) return null = no logo.
  */
+// Livery → ICAO is a pure function of the livery string, and a live server
+// serves a few hundred distinct liveries across thousands of aircraft. Without
+// this cache the four regex passes below ran once per aircraft per socket tick.
+// Only the string→ICAO match is memoised; the blocklist is applied on every
+// call because it is refreshed asynchronously and may change after boot.
+const _airlineIcaoCache = new Map();
+
 function getAirlineIcaoFromLivery(liveryName) {
     if (!liveryName) return null;
+    let icao = _airlineIcaoCache.get(liveryName);
+    if (icao === undefined) {
+        icao = _resolveAirlineIcaoFromLivery(liveryName);
+        _airlineIcaoCache.set(liveryName, icao);
+    }
+    if (!icao) return null;
+    return airlineLogoBlocklist.has(icao) ? null : icao;
+}
+
+function _resolveAirlineIcaoFromLivery(liveryName) {
     const name = String(liveryName).toLowerCase()
         .replace(/\(.*?\)/g, ' ')        // drop variant suffixes: "(Retro)", "(Star Alliance)"
         .replace(/[^a-z0-9\s]/g, '')     // strip punctuation: "Jet2.com" -> "jet2com"
@@ -9665,7 +9688,7 @@ function getAirlineIcaoFromLivery(liveryName) {
     // Longest prefix wins so "air india express" beats "air india".
     for (let n = Math.min(words.length, 5); n >= 1; n--) {
         const icao = AIRLINE_LIVERY_ICAO[words.slice(0, n).join(' ')];
-        if (icao) return airlineLogoBlocklist.has(icao) ? null : icao;
+        if (icao) return icao;
     }
     return null;
 }
@@ -10511,15 +10534,14 @@ function retagAirportRadius() {
     const apt = (ar && ar.icao && typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
     const radiusKm = (ar && ar.radiusNm) ? ar.radiusNm * 1.852 : 0;
 
+    // Read the position off the feature geometry rather than JSON.parse-ing
+    // the serialised copy in properties — same numbers, no parse per aircraft.
     Object.values(currentMapFeatures).forEach(f => {
         if (!apt || !radiusKm) { f.properties.__inRadius = 1; return; }
-        try {
-            const pos = JSON.parse(f.properties.position);
-            const km = getDistanceKm(pos.lat, pos.lon, apt.lat, apt.lon);
-            f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
-        } catch (_) {
-            f.properties.__inRadius = 1;
-        }
+        const coords = f.geometry && f.geometry.coordinates;
+        if (!coords) { f.properties.__inRadius = 1; return; }
+        const km = getDistanceKm(coords[1], coords[0], apt.lat, apt.lon);
+        f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
     });
 
     if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
@@ -10893,10 +10915,21 @@ async function fetchAndDisplayGeocode(lat, lon) {
 
 
     // --- NEW: Fetch Runway Data ---
+    // runways.json is ~26 MB, so this is deliberately kept off the boot
+    // critical path: nothing on first paint needs it. Consumers that do
+    // (the airport panels) await ensureRunwaysData() instead.
+    let runwaysPromise = null;
+
+function ensureRunwaysData() {
+    if (!runwaysPromise) runwaysPromise = fetchRunwaysData();
+    return runwaysPromise;
+}
+window.ensureRunwaysData = ensureRunwaysData;
+
 async function fetchRunwaysData() {
     try {
         // Make sure the path to your JSON file is correct
-        const response = await fetch('runways.json'); 
+        const response = await fetch('runways.json');
         if (!response.ok) throw new Error('Could not load runway data.');
         const rawRunways = await response.json();
 
@@ -11051,8 +11084,23 @@ window.getAirportCoords = (icao) => {
 // 'icon-default' sprite, so those flights showed nothing.)
 const GENERIC_AIRCRAFT_CATEGORY = 'B777';
 
+// Aircraft name → sprite category is a pure lookup over a fixed table, but the
+// uncached path runs ~30 substring tests (plus four throwaway arrays) and used
+// to be evaluated once per aircraft per socket tick. Infinite Flight ships a
+// few dozen airframes, so the cache saturates immediately.
+const _aircraftCategoryCache = new Map();
+
 function getAircraftCategory(aircraftName) {
     if (!aircraftName) return GENERIC_AIRCRAFT_CATEGORY;
+    let cat = _aircraftCategoryCache.get(aircraftName);
+    if (cat === undefined) {
+        cat = _resolveAircraftCategory(aircraftName);
+        _aircraftCategoryCache.set(aircraftName, cat);
+    }
+    return cat;
+}
+
+function _resolveAircraftCategory(aircraftName) {
     const name = aircraftName.toUpperCase();
 
     // 1. Military / Fighters
@@ -11503,6 +11551,39 @@ function handleSocketFlightUpdate(data) {
     const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
     const flights = data.flights;
     const updatedFlightIds = new Set();
+    // Set when a flight joins or leaves, so the animator knows to rebuild its
+    // cached FeatureCollection snapshot rather than reuse it.
+    let rosterChanged = false;
+
+    // ── Per-tick constants ──────────────────────────────────────────────
+    // Everything below was previously recomputed inside the per-aircraft
+    // loop. On a busy server that is a few thousand redundant evaluations
+    // per packet — including, in the watchlist case, a fresh lowercased
+    // string per watched pilot per aircraft.
+    const packetTimeMs = lastSocketUpdateTimestamp;
+
+    // Airport traffic highlight: membership tested once per aircraft against
+    // a Set instead of scanning two arrays.
+    const highlightTraffic = isTrafficHighlightActive && !!window.currentAirportTraffic;
+    const inboundSet = highlightTraffic ? new Set(window.currentAirportTraffic.in) : null;
+    const outboundSet = highlightTraffic ? new Set(window.currentAirportTraffic.out) : null;
+
+    // Airport-radius filter: resolve the airport and radius once.
+    const radiusFilter = mapFilters.tactical && mapFilters.tactical.airportRadius;
+    const radiusApt = (radiusFilter && radiusFilter.icao && typeof airportsData !== 'undefined')
+        ? airportsData[radiusFilter.icao] : null;
+    const radiusKm = (radiusApt && radiusFilter.radiusNm) ? radiusFilter.radiusNm * 1.852 : 0;
+
+    // Pilot relations: the signed-in pilot's name and the watchlist as a Set
+    // of pre-lowercased usernames.
+    const myIfName = ProfileUI?._currentUser?.user_metadata?.if_username?.toLowerCase() || null;
+    const watchSet = new Set(
+        (ProfileUI?._watchlist || [])
+            .map(w => w?.watched_username?.toLowerCase())
+            .filter(Boolean)
+    );
+
+    const vaFocusActive = !!vaFilterAd;
 
     flights.forEach(flight => {
         if (!flight.position || !isFinite(flight.position.lat) || !isFinite(flight.position.lon)) {
@@ -11514,18 +11595,23 @@ function handleSocketFlightUpdate(data) {
         // --- [CRITICAL FIX] STALENESS CHECK ---
         // 1. Calculate the timestamp of the incoming data
         // We prefer the position report time, falling back to the packet time.
+        // The epoch value is cached alongside it (__lastUpdateMs) so the next
+        // tick compares numbers instead of re-parsing two date strings for
+        // every aircraft.
         const newTimestampRaw = flight.position.lastReport || data.timestamp;
-        const newTime = new Date(newTimestampRaw).getTime();
+        const newTime = (newTimestampRaw === data.timestamp)
+            ? packetTimeMs
+            : new Date(newTimestampRaw).getTime();
 
-        if (!window.flightNumericIdMap.has(flightId)) {
-            window.flightNumericIdMap.set(flightId, window.nextFlightNumericId++);
-        }
-        const numericId = window.flightNumericIdMap.get(flightId);
+        const cachedFeature = currentMapFeatures[flightId];
+        const existingProps = cachedFeature?.properties || {};
 
         // 2. Get the timestamp of the data we already have (if any)
-        let existingTime = 0;
-        if (currentMapFeatures[flightId] && currentMapFeatures[flightId].properties && currentMapFeatures[flightId].properties.last_update) {
-            existingTime = new Date(currentMapFeatures[flightId].properties.last_update).getTime();
+        let existingTime = existingProps.__lastUpdateMs;
+        if (existingTime === undefined) {
+            existingTime = existingProps.last_update
+                ? new Date(existingProps.last_update).getTime()
+                : 0;
         }
 
         // 3. If new data is OLDER than or EQUAL to existing data, ignore it.
@@ -11536,6 +11622,11 @@ function handleSocketFlightUpdate(data) {
         }
         // --- [END FIX] ---
 
+        if (!window.flightNumericIdMap.has(flightId)) {
+            window.flightNumericIdMap.set(flightId, window.nextFlightNumericId++);
+        }
+        const numericId = window.flightNumericIdMap.get(flightId);
+
         updatedFlightIds.add(flightId);
 
         const litePhase = getLiteFlightPhase(flight.position);
@@ -11544,8 +11635,13 @@ function handleSocketFlightUpdate(data) {
         const livName = aircraftData?.liveryName || '';
         const lookupKey = `${acName}/${livName}`;
 
-        let existingFeature = currentMapFeatures[flightId] || {};
-        let existingProps = existingFeature.properties || {};
+        // The aircraft/livery/registration triple is stable for the life of a
+        // flight, so re-serialising it every tick was pure waste. Reuse the
+        // string we already built whenever the triple hasn't changed.
+        const acSignature = `${acName} ${livName} ${aircraftData?.registration || ''}`;
+        const aircraftJson = (existingProps.__acSig === acSignature && existingProps.aircraft !== undefined)
+            ? existingProps.aircraft
+            : JSON.stringify(aircraftData);
 
         const newProperties = {
             flightId: flight.flightId,
@@ -11555,7 +11651,8 @@ function handleSocketFlightUpdate(data) {
             speed: flight.position.gs_kt || 0,
             verticalSpeed: flight.position.vs_fpm || 0,
             position: JSON.stringify(flight.position),
-            aircraft: JSON.stringify(aircraftData),
+            aircraft: aircraftJson,
+            __acSig: acSignature,
             aircraftName: acName, // ADD THIS: For direct filtering
             liveryName: livName, // ADD THIS: For direct filtering
             airlineIcao: getAirlineIcaoFromLivery(livName), // drives the label's airline-logo badge
@@ -11571,48 +11668,39 @@ function handleSocketFlightUpdate(data) {
             pilotState: flight.pilotState,
             last_update: newTimestampRaw, // Store the specific time used for the check
             
+            // Cached epoch form of last_update, so the next packet's staleness
+            // check is a number compare instead of a Date-string parse.
+            __lastUpdateMs: newTime,
+
             // Preserve existing cached data (Images + TAIL NUMBER)
-            trafficType: (() => {
-                if (isTrafficHighlightActive && window.currentAirportTraffic) {
-                    if (window.currentAirportTraffic.in.includes(flightId)) return 'inbound';
-                    if (window.currentAirportTraffic.out.includes(flightId)) return 'outbound';
-                }
-                return 'none';
-            })(),
+            trafficType: !highlightTraffic
+                ? 'none'
+                : (inboundSet.has(flightId) ? 'inbound'
+                    : outboundSet.has(flightId) ? 'outbound'
+                    : 'none'),
 
             // Airport-radius (proximity) filter tag. 1 = keep, 0 = outside the
             // chosen airport's radius. When the filter is inactive every plane
             // is tagged 1 so the Mapbox filter (added only while active) is a
             // no-op. Mirrored by retagAirportRadius() for instant updates.
-            __inRadius: (() => {
-                const ar = mapFilters.tactical && mapFilters.tactical.airportRadius;
-                if (!ar || !ar.icao || !ar.radiusNm) return 1;
-                const apt = (typeof airportsData !== 'undefined') ? airportsData[ar.icao] : null;
-                if (!apt) return 1;
-                const km = getDistanceKm(flight.position.lat, flight.position.lon, apt.lat, apt.lon);
-                return (km <= ar.radiusNm * 1.852) ? 1 : 0;
-            })(),
+            __inRadius: !radiusKm
+                ? 1
+                : (getDistanceKm(flight.position.lat, flight.position.lon, radiusApt.lat, radiusApt.lon) <= radiusKm ? 1 : 0),
 
             // Single-VA focus tag. 1 = show (or no VA focus); 0 = not the focused
             // VA. Mirrors __inRadius; retagVaFilter() recomputes it on a focus
             // change. See computeVaMatch().
-            __vaMatch: (typeof computeVaMatch === 'function')
+            __vaMatch: (vaFocusActive && typeof computeVaMatch === 'function')
                 ? computeVaMatch(flight.callsign, flight.username) : 1,
 
             // --- PREMIUM VISIBILITY FEATURE ---
-            // Tag relation (user vs friend) for Mapbox color masking
+            // Tag relation (user vs friend) for Mapbox color masking.
+            // Resolved against the per-tick watchlist Set built above.
             pilotRelation: (() => {
-                const myIfName = ProfileUI._currentUser?.user_metadata?.if_username?.toLowerCase();
                 const flightUser = flight.username?.toLowerCase();
-                
-                if (myIfName && flightUser === myIfName) {
-                    return 'user';
-                }
-                
-                if (ProfileUI._watchlist && ProfileUI._watchlist.some(w => w.watched_username.toLowerCase() === flightUser)) {
-                    return 'watchlist';
-                }
-                
+                if (!flightUser) return 'none';
+                if (myIfName && flightUser === myIfName) return 'user';
+                if (watchSet.has(flightUser)) return 'watchlist';
                 return 'none';
             })(),
 
@@ -11663,10 +11751,17 @@ function handleSocketFlightUpdate(data) {
                 },
                 properties: newProperties
             };
+            // A new flight joined the roster, so the animator's cached
+            // FeatureCollection snapshot has to be rebuilt on the next flush.
+            rosterChanged = true;
         } else {
-            currentMapFeatures[flightId].id = numericId;
-            currentMapFeatures[flightId].properties = newProperties;
-            currentMapFeatures[flightId].geometry.coordinates = [flight.position.lon, flight.position.lat];
+            const cached = currentMapFeatures[flightId];
+            cached.id = numericId;
+            cached.properties = newProperties;
+            // Write the coordinates in place instead of swapping in a fresh
+            // array — one less allocation per aircraft per tick.
+            cached.geometry.coordinates[0] = flight.position.lon;
+            cached.geometry.coordinates[1] = flight.position.lat;
         }
 
         // ================================================================
@@ -11822,20 +11917,31 @@ function handleSocketFlightUpdate(data) {
             }
         }
 
-        // Only update the Map Animation/Icons if the map is actually ready.
-        if (isMapReady) {
-            mapAnimator.updateFlight(flight.position, newProperties);
-        }
+        // The feature cache the animator renders from is the same object we
+        // just wrote above, so there is nothing further to hand it per
+        // aircraft — the tick is flushed once, after the loop.
     });
 
-    // Clean up old flights
+    // Clean up flights that stopped reporting. Keys are already strings, so
+    // the old String() coercion per key was dead work.
     for (const flightId in currentMapFeatures) {
-        if (!updatedFlightIds.has(String(flightId))) {
-            if (isMapReady) {
-                mapAnimator.removeFlight(flightId);
-            }
+        if (!updatedFlightIds.has(flightId)) {
             delete currentMapFeatures[flightId];
+            rosterChanged = true;
         }
+    }
+
+    // One flush for the whole tick. The animator coalesces onto the next
+    // animation frame, so this replaces what used to be one full
+    // FeatureCollection rebuild + setData() per aircraft.
+    //
+    // The roster flag is raised even when the map isn't ready (e.g. mid
+    // style-reload): joins and departures that happen during that window
+    // still have to invalidate the cached snapshot, or the first flush after
+    // the map comes back would render a stale set.
+    if (mapAnimator) {
+        if (rosterChanged) mapAnimator.invalidateRoster();
+        if (isMapReady) mapAnimator.scheduleUpdate();
     }
 
     // Push the new positions to the 3D dot field (no-op unless it's showing).
@@ -13250,6 +13356,9 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             ? `<span style="background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%); color: #0f172a; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 10px;">3D</span>` 
             : '';
 
+        // Runways load lazily (26 MB), so make sure the DB has landed before
+        // reading it. Resolves instantly once warmed by the background fetch.
+        await ensureRunwaysData();
         const airportRunways = runwaysData[icao] || [];
 
         // --- Weather & ATIS Logic ---
@@ -19490,6 +19599,7 @@ async function formatDataForEmbedAirport(icao) {
 
     // Runways — physical list plus wind-scored recommendations against the
     // METAR we just parsed (same physics the standard window's INFO tab uses).
+    try { await ensureRunwaysData(); } catch (_) {}
     const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
     const runways = rawRunways
         .filter(r => !r.closed && (r.le_ident || r.he_ident))
@@ -19599,6 +19709,7 @@ async function formatAirportSummary(icao) {
     } catch (_) {}
 
     // Runway summary — open runways plus the longest hard length.
+    try { await ensureRunwaysData(); } catch (_) {}
     const rawRunways = (typeof runwaysData !== 'undefined' && runwaysData[icao]) || [];
     const openRunways = rawRunways.filter(r => !r.closed && (r.le_ident || r.he_ident));
     const runwayCount = openRunways.length;
@@ -20326,6 +20437,11 @@ function closeAircraftWindow() {
 
 async function handleAircraftClick(flightProps, optionalSessionId = null, event = null) {
     if (!flightProps || !flightProps.flightId) return;
+
+    // Runway data is lazy (26 MB) and the phase readout in this window depends
+    // on it. Warming it here — rather than blocking boot — means it is ready
+    // by the time the window renders, without holding up first paint.
+    ensureRunwaysData();
 
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
@@ -25888,7 +26004,9 @@ async function initializeApp() {
         // Runways finish in the background while the map is rendering.
         const apiKeysPromise = fetchApiKeys();
         const airportsPromise = fetchAirportsData();
-        const runwaysPromise = fetchRunwaysData();
+        // Warm the runway DB in the background. Boot never waits on it — the
+        // airport panels that need it await ensureRunwaysData() themselves.
+        ensureRunwaysData();
 
         await Promise.all([apiKeysPromise, airportsPromise]);
 
@@ -25902,8 +26020,9 @@ async function initializeApp() {
         // block the rest of boot from finishing underneath the modal.
         runFirstRunExperience(sectorOpsMap);
 
-        // Make sure runways finished too before we move on to anything that needs them
-        await runwaysPromise;
+        // Runways keep loading in the background — the UI below does not read
+        // them, so blocking here just delayed first interaction by the length
+        // of a 26 MB download.
 
         await LandingUI.init();
         SettingsUI.init();

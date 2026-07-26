@@ -94,6 +94,20 @@
 
     <link rel="icon" type="image/x-icon" href="Images/inflightIcon.ico">
 
+    <!-- Open the TCP + TLS connections to the third-party origins while the
+         HTML is still parsing. Without these the browser only starts the
+         handshake when it reaches each tag, and the map, socket and icon
+         font all sit on separate hosts — a full round trip each. The tile
+         and glyph hosts are warmed too: the map requests them immediately
+         after mapbox-gl.js evaluates. -->
+    <link rel="preconnect" href="https://api.mapbox.com" crossorigin>
+    <link rel="preconnect" href="https://events.mapbox.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="dns-prefetch" href="https://api.mapbox.com">
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    <link rel="dns-prefetch" href="https://unpkg.com">
+
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.js"></script>
 
@@ -2398,9 +2412,13 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/three@0.126.0/build/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.126.0/examples/js/loaders/FontLoader.js"></script>
-    <script src="https://unpkg.com/three@0.126.0/examples/js/geometries/TextGeometry.js"></script>
+    <!-- Three.js is only touched from inside functions (via window.THREE) by
+         the 3D layers, never at load time, so it does not need to block the
+         parser. `defer` keeps these three in order relative to each other and
+         still runs them before the module scripts below. -->
+    <script defer src="https://unpkg.com/three@0.126.0/build/three.min.js"></script>
+    <script defer src="https://unpkg.com/three@0.126.0/examples/js/loaders/FontLoader.js"></script>
+    <script defer src="https://unpkg.com/three@0.126.0/examples/js/geometries/TextGeometry.js"></script>
     <script src="simbrief.apiv1.js"></script>
     <script src="colors.js"></script>
     <script src="sb.js"></script>
