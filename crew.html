@@ -211,7 +211,13 @@
                 const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),8000);
                 const res=await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(slug)}`,{headers:{Accept:'application/json'},signal:ctrl.signal});
                 clearTimeout(t);
-                if(res.status===404) return {ok:false,reason:'notfound',slug};
+                if(res.status===404){
+                    // The backend distinguishes "no VA answers to this address"
+                    // from "the VA is real but not approved yet" — the second is
+                    // a wait, not a typo, and the two used to read identically.
+                    const body=await res.json().catch(()=>({}));
+                    return {ok:false,reason:body.reason==='not-approved'?'notlive':'notfound',slug};
+                }
                 if(!res.ok) return {ok:false,reason:'error',slug};
                 return {ok:true,b:await res.json()};
             }catch{ return {ok:false,reason:'error',slug}; }
@@ -237,8 +243,10 @@
             }
         }
         function showState(reason, slug){
-            const msg = reason==='notfound'
-                ? (slug?`We couldn’t find a crew center at “${slug}”.`:'We couldn’t find that crew center.')
+            const msg = reason==='notlive'
+                ? `This VA’s crew center isn’t open yet — it goes live once Inflight approves the VA${slug?` at “${slug}”`:''}.`
+                : reason==='notfound'
+                ? (slug?`We couldn’t find a crew center at “${slug}”. Check the address with your VA — it’s the handle from their link, not the VA’s name.`:'We couldn’t find that crew center.')
                 : reason==='noslug' ? 'Open your VA’s crew center link to sign in.'
                 : 'We couldn’t load this crew center right now. Please try again shortly.';
             setAll('.authForm', f=>f.classList.add('hidden'));
