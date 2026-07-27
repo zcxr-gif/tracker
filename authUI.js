@@ -3,6 +3,8 @@
 const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TRhge6y7GsJq8x0sd1UDluQGEmHK1i32pEubTnbDMji6PvqKINhgK1CNkDj3drjUcHcu5fpfGw5MK24363yDmGL00OInUnl1t';
 // ──────────────────────────────────────────────────────────────────────────
 
+import { ProAccess } from './proAccess.js';
+
 export const AuthUI = {
     _isOpen: false,
     _mode: 'signin',
@@ -14,6 +16,30 @@ export const AuthUI = {
         this._supabase = supabaseClient;
         this.setupRecoveryListener();
         this.checkPaymentStatus();
+        // Finish any upgrade that was paid for but never provisioned — a
+        // dropped redirect, a tab closed on Stripe's receipt page, or a grant
+        // that failed server-side. Without this the pilot's only route back is
+        // finding the "Restore Pro access" button themselves.
+        this.retryPendingProActivation();
+    },
+
+    /** Best-effort recovery of an unresolved checkout; never blocks boot. */
+    async retryPendingProActivation() {
+        try {
+            if (!ProAccess.readPending()) return;
+            const result = await ProAccess.retryPending(this._supabase);
+            if (result.resolved && result.reason === 'restored') {
+                // The auth modal is closed here, so showSuccess() would write
+                // into hidden DOM — use the notification centre instead.
+                try {
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification('Pro unlocked — thanks for your patience.', 'success');
+                    }
+                } catch (_) { /* the unlock itself already happened */ }
+            }
+        } catch (e) {
+            console.warn('[AuthUI] Pending Pro activation retry failed:', e.message);
+        }
     },
 
     async checkPaymentStatus() {
@@ -74,12 +100,21 @@ export const AuthUI = {
                         //    session and entitlement cache. Pull the new Pro
                         //    flag through before opening anything, otherwise the
                         //    pilot lands back in the app still locked out.
-                        const unlocked = await this._activateProEntitlement();
+                        const outcome = await this._activateProEntitlement();
 
                         this.open();
-                        if (!unlocked) {
+                        if (!outcome.isPro) {
+                            // The payment went through but the entitlement did
+                            // not. Say so honestly — and leave the claim on
+                            // file so the next launch retries it — instead of
+                            // implying it is on its way when nothing is coming.
                             setTimeout(() => {
-                                this.showSuccess("Payment received — your Pro features are being activated. If they don't appear in a few minutes, please reload the page.");
+                                this.showError(
+                                    "Your payment went through, but we couldn't activate Pro on this account yet. "
+                                    + "We'll keep retrying automatically — reload in a minute, or use "
+                                    + "\u201CRestore Pro access\u201D in Settings. If it still won't unlock, "
+                                    + "contact support and quote: " + outcome.reason
+                                );
                             }, 50);
                         }
                         return;
@@ -109,7 +144,8 @@ export const AuthUI = {
                 const parsedData = pendingData ? JSON.parse(pendingData) : null;
                 
                 localStorage.removeItem('inflight_pending_signup');
-                
+                ProAccess.clearPending();
+
                 setTimeout(() => {
                     this.open(parsedData?.is_renew ? 'renew' : 'signup');
                     setTimeout(() => {
@@ -129,33 +165,21 @@ export const AuthUI = {
      * 'false'. Neither clears itself, so without this the pilot returns from a
      * successful checkout to the same locked app.
      *
-     * `profiles.is_pro` is stamped server-side while the checkout is being
-     * processed, so we poll it briefly rather than trusting the first read, then
-     * hand off to refreshProStatus() which repopulates window.InflightUser, the
-     * localStorage cache and fires `proStatusChanged` to unlock the UI.
+     * The entitlement itself is granted server-side. This confirms it landed
+     * and, when it didn't, rescues it through `restore-pro-access` rather than
+     * showing an optimistic message over a silent failure — see
+     * ProAccess.resolveAfterCheckout() for what each reason means.
      *
-     * @returns {Promise<boolean>} true once the account reads as Pro.
+     * @returns {Promise<{isPro: boolean, reason: string, hadRow: boolean}>}
      */
     async _activateProEntitlement() {
-        // Pick up any user_metadata the checkout stamped on the auth user.
-        try { await this._supabase.auth.refreshSession(); } catch (_) { /* keep the existing session */ }
+        const result = await ProAccess.resolveAfterCheckout(this._supabase);
 
-        let isPro = false;
-        for (const wait of [0, 800, 1600, 2500]) {
-            if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-            try {
-                const { data: sessionData } = await this._supabase.auth.getSession();
-                const user = sessionData?.session?.user;
-                if (!user) break;
-
-                const { data: profile } = await this._supabase
-                    .from('profiles')
-                    .select('is_pro')
-                    .eq('id', user.id)
-                    .single();
-
-                if (profile?.is_pro === true) { isPro = true; break; }
-            } catch (_) { /* retry until the attempts run out */ }
+        if (result.isPro) {
+            ProAccess.clearPending();
+        } else {
+            // Keep the claim on file so the next app load tries again.
+            console.error('[AuthUI] Pro entitlement did not activate after checkout:', result.reason);
         }
 
         // Repaint the gated surfaces from the authoritative flag either way — a
@@ -163,11 +187,11 @@ export const AuthUI = {
         try {
             if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
                 const resolved = await window.refreshProStatus();
-                if (resolved === true) isPro = true;
+                if (resolved === true) result.isPro = true;
             }
         } catch (_) { /* the reload path still picks it up */ }
 
-        return isPro;
+        return result;
     },
 
     setupRecoveryListener() {
@@ -713,6 +737,9 @@ export const AuthUI = {
                 password: this._tempSignUpData.password,
                 is_renew: this._tempSignUpData.is_renew || false
             }));
+            // Same claim the in-app upgrades record: if this checkout never
+            // makes it back to the success URL, a later load finishes it.
+            ProAccess.markPending({ email: this._tempSignUpData.email });
 
             const payload = {
                 email: this._tempSignUpData.email,
@@ -736,7 +763,8 @@ export const AuthUI = {
 
         } catch (err) {
             localStorage.removeItem('inflight_pending_signup');
-            
+            ProAccess.clearPending();
+
             if (loadingDiv) loadingDiv.style.display = 'none';
             if (checkoutSection) checkoutSection.style.display = 'block';
             if (backBtn) backBtn.style.display = 'block';

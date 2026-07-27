@@ -11630,9 +11630,38 @@ async function fetchAndDisplayWeather() {
     const lat = currentAircraftPositionForGeocode.lat;
     const lon = currentAircraftPositionForGeocode.lon;
 
+    const altFt = currentAircraftPositionForGeocode.alt_ft;
+
+    // Conditions at the aircraft's own altitude, when we can get them.
+    // `temperature_2m` and `wind_speed_10m` describe the air two and ten
+    // metres above the ground; handing those to an aeroplane at FL370 as its
+    // OAT and wind is wrong by about 75 °C and by the entire jet stream. The
+    // upper-air field (windsAloft.js) samples the pressure level the aircraft
+    // is actually flying at. Surface data remains the fallback, which is the
+    // right answer anyway for something in the circuit.
+    if (window.WindsAloft && typeof altFt === 'number' && altFt > 2000) {
+        try {
+            const field = await window.WindsAloft.get([{ lat, lon }], { spanHours: 0 });
+            const wx = field && field.sample(lat, lon, altFt, Date.now());
+            if (wx) {
+                currentAircraftPositionForGeocode.oat_c = Math.round(wx.oatC * 10) / 10;
+                currentAircraftPositionForGeocode.wind_dir = Math.round(wx.windDirDeg);
+                currentAircraftPositionForGeocode.wind_spd_kts = Math.round(wx.windSpdKt);
+                const navIframeUpper = document.getElementById('nav-display-frame');
+                if (navIframeUpper && navIframeUpper.contentWindow) {
+                    navIframeUpper.contentWindow.postMessage({
+                        windDir: currentAircraftPositionForGeocode.wind_dir,
+                        windSpd: currentAircraftPositionForGeocode.wind_spd_kts
+                    }, '*');
+                }
+                return;
+            }
+        } catch (e) { /* fall through to the surface request */ }
+    }
+
     // Use OpenMeteo API endpoint (No API key required for this data)
     const OPENMETEO_URL = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,wind_direction_10m&forecast_days=1`;
-    
+
     // Elements to update (optional, but good for debugging)
     const windDisplay = document.getElementById('wind-speed-display');
 
@@ -11640,17 +11669,16 @@ async function fetchAndDisplayWeather() {
         // 1. Fetch data
         const response = await fetch(OPENMETEO_URL);
         if (!response.ok) throw new Error('OpenMeteo fetch failed.');
-        
+
         const data = await response.json();
         const current = data.current;
 
         if (!current) throw new Error('Invalid OpenMeteo response.');
 
         // 2. Update the shared state object with new data
-        // We use temperature_2m as OAT approximation (simplification)
         currentAircraftPositionForGeocode.oat_c = current.temperature_2m;
         currentAircraftPositionForGeocode.wind_dir = current.wind_direction_10m;
-        
+
         // Convert m/s to knots (1 m/s ≈ 1.944 kts)
         currentAircraftPositionForGeocode.wind_spd_kts = Math.round(current.wind_speed_10m * 1.944);
 
@@ -11727,25 +11755,43 @@ function unwrapLineCoordinates(coords) {
  * @param {number} gs_kt - Ground Speed in knots (from flight data, used as a starting point).
  * @returns {number} Calculated TAS in knots.
  */
-function calculateTas(alt_ft, oat_c, gs_kt) {
-    // 1. Convert Altitude to Pressure Altitude in meters (approx)
-    const alt_m = alt_ft * 0.3048;
-
-    // 2. Calculate Standard Temperature at Altitude (ISA) in Kelvin (K)
-    // T_ISA = 288.15 - 0.0065 * alt_m (up to 11,000m)
-    const T_ISA_K = 288.15 - 0.0065 * alt_m; 
-    
-    // 3. Convert OAT (C) to Kelvin (K)
-    const T_OAT_K = oat_c + 273.15;
-    
-    // 4. TAS is proportional to IAS/CAS times the square root of (T_OAT / T_ISA)
-    // For simplicity and avoiding IAS conversion, we use GS as a base,
-    // which provides a reasonable wind-corrected approximation for display.
-    if (T_ISA_K <= 0) return gs_kt; // Safety check
-
-    const TAS_kt = gs_kt * Math.sqrt(T_OAT_K / T_ISA_K);
-
-    return Math.round(TAS_kt);
+/**
+ * True airspeed from ground speed.
+ *
+ * TAS and ground speed differ by the wind, not by the temperature: an aircraft
+ * with a 60 kt tailwind is doing 60 kt less through the air than over the
+ * ground, whatever the air happens to be doing thermally. This subtracts the
+ * wind vector from the ground-speed vector, which is the definition.
+ *
+ * (The previous version scaled ground speed by sqrt(OAT/ISA). That is the
+ * CAS→TAS density correction applied to the wrong quantity, and because it is
+ * a multiplication it always reported TAS *above* ground speed — even with a
+ * howling tailwind, where the truth is the opposite.)
+ *
+ * Falls back to ground speed when no wind is known: still air is the honest
+ * assumption, not a temperature fudge. `oat_c` is kept in the signature for
+ * call-site compatibility and is no longer used.
+ *
+ * @param {number} alt_ft    pressure altitude (unused; kept for callers)
+ * @param {number} oat_c     outside air temperature (unused; kept for callers)
+ * @param {number} gs_kt     ground speed, knots
+ * @param {number} [track_deg]  ground track (heading is a close enough stand-in)
+ * @param {number} [wind_dir]   direction the wind is coming FROM, degrees true
+ * @param {number} [wind_spd_kt] wind speed at the aircraft's level, knots
+ */
+function calculateTas(alt_ft, oat_c, gs_kt, track_deg, wind_dir, wind_spd_kt) {
+    const gs = Number(gs_kt) || 0;
+    const w = Number(wind_spd_kt);
+    if (!isFinite(w) || w <= 0 || !isFinite(Number(track_deg)) || !isFinite(Number(wind_dir))) {
+        return Math.round(gs);
+    }
+    const rad = Math.PI / 180;
+    const trk = Number(track_deg) * rad, dir = Number(wind_dir) * rad;
+    // East/north components. Meteorological wind direction is where it blows
+    // FROM, hence the negation.
+    const gsU = gs * Math.sin(trk), gsV = gs * Math.cos(trk);
+    const wU = -w * Math.sin(dir),  wV = -w * Math.cos(dir);
+    return Math.round(Math.hypot(gsU - wU, gsV - wV));
 }
 
 
@@ -12177,9 +12223,12 @@ function handleSocketFlightUpdate(data) {
             let calculatedTas = 0;
             if (flight.position.alt_ft != null) {
                 calculatedTas = calculateTas(
-                    flight.position.alt_ft, 
-                    cachedOat, 
-                    flight.position.gs_kt || 0
+                    flight.position.alt_ft,
+                    cachedOat,
+                    flight.position.gs_kt || 0,
+                    flight.position.heading_deg,
+                    currentAircraftPositionForGeocode.wind_dir,
+                    cachedWindSpd
                 );
             }
 
@@ -16187,6 +16236,236 @@ function triggerSimpleWindowReplay() {
     btn.click();
 }
 
+/**
+ * Build the hypothetical fuel picture for a flight (see fuelEstimator.js).
+ *
+ * Infinite Flight never reports fuel — not the load at pushback, not what's
+ * left — so this models it from the airframe's drag polar and engine deck
+ * against the profile the aircraft actually flew. Every flight-info window
+ * calls through here so the legacy, simple and card windows can never disagree
+ * about how much fuel a flight has burned.
+ *
+ * Returns null (and the windows hide the panel) when the estimator isn't
+ * loaded or the flight has nothing to work from.
+ */
+// Upper-air field for the flight currently in the window, plus the route it
+// was fetched for. Populated asynchronously by ensureWindsAloft(); the fuel
+// panel simply gets more accurate on the tick after it lands.
+let _fuelWindField = null;
+let _fuelWindKey = null;      // route the field in hand belongs to
+let _fuelWindPending = null;  // route currently being fetched
+let _fuelWindFailedAt = 0;    // backoff clock after a failed fetch
+const FUEL_WIND_RETRY_MS = 2 * 60 * 1000;
+
+/**
+ * Kick off (or reuse) the winds-aloft fetch for a route and return the field
+ * for *that* route, or null. Fire-and-forget by design: the fuel panel
+ * refreshes every few seconds anyway, so there is nothing to wait for.
+ *
+ * Returning null unless the cached field belongs to this exact route matters —
+ * opening a second flight must not have it modelled against the first one's
+ * weather, halfway around the world.
+ */
+function ensureWindsAloft(depIcao, arrIcao, pos, spanHours) {
+    if (typeof window === 'undefined' || !window.WindsAloft) return null;
+    const key = (depIcao || '?') + '>' + (arrIcao || '?');
+    const ready = (_fuelWindKey === key) ? _fuelWindField : null;
+    if (ready) return ready;
+    if (_fuelWindPending === key) return null;                       // in flight
+    if (Date.now() - _fuelWindFailedAt < FUEL_WIND_RETRY_MS) return null;  // backing off
+
+    const apt = (icao) => (icao && typeof airportsData !== 'undefined' && airportsData[icao]) || null;
+    const route = [];
+    const dep = apt(depIcao); if (dep) route.push({ lat: dep.lat, lon: dep.lon });
+    if (pos && isFinite(pos.lat) && isFinite(pos.lon)) route.push({ lat: pos.lat, lon: pos.lon });
+    const arr = apt(arrIcao); if (arr) route.push({ lat: arr.lat, lon: arr.lon });
+    if (!route.length) return null;
+
+    _fuelWindPending = key;
+    window.WindsAloft.get(route, { spanHours })
+        .then((field) => {
+            if (_fuelWindPending !== key) return;   // a different flight was opened
+            _fuelWindPending = null;
+            if (!field) {
+                // Don't hammer a failing endpoint; try again in a couple of
+                // minutes, by which time the flight has moved on anyway.
+                _fuelWindFailedAt = Date.now();
+                return;
+            }
+            _fuelWindField = field;
+            _fuelWindKey = key;
+            _fuelWindFailedAt = 0;
+            // Repaint the legacy card immediately rather than waiting for the
+            // next telemetry tick; the iframes get it on their next update.
+            const el = document.getElementById('ac-fuel-host');
+            if (el && el.__repaintFuel) el.__repaintFuel();
+        })
+        .catch(() => {
+            if (_fuelWindPending === key) _fuelWindPending = null;
+            _fuelWindFailedAt = Date.now();
+        });
+
+    return null;
+}
+
+/**
+ * Build the hypothetical fuel picture for a flight (see fuelEstimator.js).
+ *
+ * Infinite Flight never reports fuel — not the load at pushback, not what's
+ * left — so this models it from the airframe's drag polar and engine deck
+ * against the profile the aircraft actually flew. Every flight-info window
+ * calls through here so the legacy, simple and card windows can never disagree
+ * about how much fuel a flight has burned.
+ *
+ * Returns null (and the windows hide the panel) when the estimator isn't
+ * loaded or the flight has nothing to work from.
+ */
+function buildFuelEstimate(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
+    if (typeof window === 'undefined' || !window.FuelEstimator || !flightProps) return null;
+    try {
+        const pos = (typeof flightProps.position === 'string')
+            ? JSON.parse(flightProps.position) : (flightProps.position || {});
+        const aircraft = (typeof flightProps.aircraft === 'string')
+            ? JSON.parse(flightProps.aircraft) : (flightProps.aircraft || {});
+
+        // Route endpoints: the plan names them, the airport database places
+        // them, and the plan carries their field elevations. Elevation matters
+        // more than it looks — it is the difference between "taxiing at Bogotá"
+        // and "cruising at 8,000 ft".
+        const items = (plan && Array.isArray(plan.flightPlanItems)) ? plan.flightPlanItems : [];
+        const depIcao = (plan && plan.origin && plan.origin.icao)
+            || (items[0] && items[0].identifier) || null;
+        const arrIcao = (plan && plan.destination && plan.destination.icao)
+            || (items.length > 1 && items[items.length - 1].identifier) || null;
+        const apt = (icao) => (icao && typeof airportsData !== 'undefined' && airportsData[icao]) || null;
+        const depApt = apt(depIcao), arrApt = apt(arrIcao);
+
+        // How long the flight has been running, so the weather request covers
+        // the hours the trail actually spans.
+        let spanHours = 0;
+        if (routePoints && routePoints.length && routePoints[0] && routePoints[0].date) {
+            const t0 = Date.parse(routePoints[0].date);
+            if (!isNaN(t0)) spanHours = Math.max(0, (Date.now() - t0) / 3600000);
+        }
+        const windField = ensureWindsAloft(depIcao, arrIcao, pos, spanHours);
+
+        // Surface sample the map already keeps, used only as a fallback near
+        // the ground — see the weather section of fuelEstimator.estimate().
+        const geo = (typeof currentAircraftPositionForGeocode !== 'undefined')
+            ? currentAircraftPositionForGeocode : null;
+
+        return window.FuelEstimator.estimate({
+            aircraftName: aircraft.aircraftName || flightProps.aircraftName || '',
+            liveryName: aircraft.liveryName || '',
+            trail: routePoints || [],
+            position: pos,
+            distFlownNm, distRemainingNm,
+            windField,
+            depLat: depApt ? depApt.lat : undefined,
+            depLon: depApt ? depApt.lon : undefined,
+            destLat: arrApt ? arrApt.lat : undefined,
+            destLon: arrApt ? arrApt.lon : undefined,
+            depElevFt: plan && plan.origin && plan.origin.elevation_ft != null
+                ? Number(plan.origin.elevation_ft) : undefined,
+            arrElevFt: plan && plan.destination && plan.destination.elevation_ft != null
+                ? Number(plan.destination.elevation_ft) : undefined,
+            filedFuelKg: filedPlanData && filedPlanData.fuel_used != null
+                ? Number(filedPlanData.fuel_used) : undefined,
+            paxFiled: filedPlanData && filedPlanData.passengers != null
+                ? Number(filedPlanData.passengers) : undefined,
+            oatC: geo && geo.oat_c != null ? geo.oat_c : undefined,
+            windDirDeg: geo && geo.wind_dir != null ? geo.wind_dir
+                : (flightProps.wind_dir != null ? flightProps.wind_dir : undefined),
+            windSpdKt: geo && geo.wind_spd_kts != null ? geo.wind_spd_kts
+                : (flightProps.wind_spd_kts != null ? flightProps.wind_spd_kts : undefined)
+        });
+    } catch (e) {
+        // A fuel estimate is a nice-to-have; it must never take a window down.
+        return null;
+    }
+}
+
+/**
+ * Paint (or repaint) the legacy avionics window's fuel card.
+ *
+ * Called on first render and again on every live tick. `filedPlanData` is
+ * optional: the live-update path doesn't receive it, so we fall back to the
+ * copy populateAircraftInfoWindow stashed on the window element.
+ */
+function renderLegacyFuelCard(windowEl, baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filedPlanData) {
+    if (!windowEl || typeof window === 'undefined' || !window.FuelEstimator) return;
+    const host = windowEl.querySelector('#ac-fuel-host');
+    const sec = windowEl.querySelector('#ac-fuel-sec');
+    if (!host) return;
+
+    const filed = filedPlanData || ((windowEl.dataset.filedFuel || windowEl.dataset.filedPax) ? {
+        fuel_used: windowEl.dataset.filedFuel ? parseFloat(windowEl.dataset.filedFuel) : null,
+        passengers: windowEl.dataset.filedPax ? parseFloat(windowEl.dataset.filedPax) : null
+    } : null);
+
+    const est = buildFuelEstimate(baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filed);
+    const html = est ? window.FuelEstimator.renderHTML(est, { unit: window.FuelEstimator.readUnit() }) : '';
+    host.innerHTML = html;
+    if (sec) sec.style.display = html ? '' : 'none';
+
+    // Lets ensureWindsAloft() redraw the card the moment the upper-air data
+    // lands, instead of leaving a standard-atmosphere estimate on screen until
+    // the next telemetry tick.
+    host.__repaintFuel = () => renderLegacyFuelCard(
+        windowEl, baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filedPlanData);
+
+    // The cabin plan is built from the same estimate (its passenger count is
+    // the payload the fuel figures assume), so paint it from here.
+    renderLegacyCabinCard(windowEl, baseProps, est);
+
+    // Keep the last estimate so the kg/lb toggle can repaint immediately
+    // rather than waiting for the next three-second telemetry tick.
+    host.__lastFuelEstimate = est;
+    window.FuelEstimator.bindUnitToggle(document, (unit) => {
+        const h = document.getElementById('ac-fuel-host');
+        if (h && h.__lastFuelEstimate) {
+            h.innerHTML = window.FuelEstimator.renderHTML(h.__lastFuelEstimate, { unit });
+        }
+    });
+}
+
+/**
+ * Paint the legacy window's cabin card.
+ *
+ * A pure function of the aircraft type and the passenger count the fuel model
+ * settled on, so it only needs repainting when one of those changes — which in
+ * practice means once per flight, not once per telemetry tick.
+ */
+function renderLegacyCabinCard(windowEl, baseProps, fuelEstimate) {
+    if (!windowEl || typeof window === 'undefined' || !window.CabinMap) return;
+    const host = windowEl.querySelector('#ac-cabin-host');
+    const sec = windowEl.querySelector('#ac-cabin-sec');
+    if (!host) return;
+
+    let html = '';
+    try {
+        const aircraft = (typeof baseProps.aircraft === 'string')
+            ? JSON.parse(baseProps.aircraft) : (baseProps.aircraft || {});
+        const name = aircraft.aircraftName || baseProps.aircraftName || '';
+        // Skip the rebuild when nothing that shapes the cabin has moved.
+        const sig = name + '|' + (fuelEstimate && fuelEstimate.environment ? fuelEstimate.environment.paxCount : '')
+            + '|' + (fuelEstimate && fuelEstimate.mass ? fuelEstimate.mass.freighter : '');
+        if (host.dataset.cabinSig === sig) return;
+        host.dataset.cabinSig = sig;
+
+        if (name) {
+            html = window.CabinMap.renderHTML(window.CabinMap.layout(name, {
+                paxOnboard: fuelEstimate && fuelEstimate.environment ? fuelEstimate.environment.paxCount : undefined,
+                freighter: !!(fuelEstimate && fuelEstimate.mass && fuelEstimate.mass.freighter),
+                payloadKg: fuelEstimate && fuelEstimate.mass ? fuelEstimate.mass.payloadKg : undefined
+            }));
+        }
+    } catch (e) { html = ''; }
+
+    host.innerHTML = html;
+    if (sec) sec.style.display = html ? '' : 'none';
+}
+
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData, filedPlanData = null) {
     if (!flightProps) return null;
 
@@ -16386,7 +16665,8 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
     const windDir = (geo && geo.wind_dir != null) ? geo.wind_dir : (flightProps.wind_dir != null ? flightProps.wind_dir : null);
     const windSpd = (geo && geo.wind_spd_kts != null) ? geo.wind_spd_kts : (flightProps.wind_spd_kts != null ? flightProps.wind_spd_kts : null);
     const tas = (typeof calculateTas === 'function' && pos.alt_ft != null)
-        ? calculateTas(pos.alt_ft, oatC != null ? oatC : 15, pos.gs_kt || 0) : null;
+        ? calculateTas(pos.alt_ft, oatC != null ? oatC : 15, pos.gs_kt || 0,
+                       pos.heading_deg, windDir, windSpd) : null;
     const activeWp = structuredWaypoints.find(w => w.active);
 
     return {
@@ -16413,6 +16693,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
             ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
             : null,
+        // Hypothetical fuel burn, integrated over the flown profile. Computed
+        // here (the trail and the weather sample both live on this side) and
+        // rendered from the plain result inside the iframe.
+        fuel: buildFuelEstimate(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData),
         phase: detailedPhase.flightPhase || 'ENROUTE',
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
@@ -16511,11 +16795,12 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             position = JSON.parse(flightProps.position);
         } catch (e) { return; }
 
-        // 2. Calculate TAS using the helper and cached OAT
+        // 2. Calculate TAS from the cached wind at the aircraft's level
         const cachedOat = currentAircraftPositionForGeocode ? (currentAircraftPositionForGeocode.oat_c || 15) : 15;
-        const calculatedTas = calculateTas(position.alt_ft || 0, cachedOat, position.gs_kt || 0);
         const cachedWindDir = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.wind_dir) || 0;
         const cachedWindSpd = (currentAircraftPositionForGeocode && currentAircraftPositionForGeocode.wind_spd_kts) || 0;
+        const calculatedTas = calculateTas(position.alt_ft || 0, cachedOat, position.gs_kt || 0,
+                                           position.heading_deg, cachedWindDir, cachedWindSpd);
 
         // 3. Calculate Traffic
         const ndTraffic = [];
@@ -22135,6 +22420,19 @@ let totalDistanceNM = 0;
     }
     windowEl.dataset.depIcao = departureIcao || '';
     windowEl.dataset.arrIcao = arrivalIcao || '';
+    // Same idea for the dispatch plan's fuel and passenger figures: the fuel
+    // panel refreshes on every live tick and needs them to anchor block fuel
+    // and payload instead of falling back to modelled averages.
+    if (filedPlanData && filedPlanData.fuel_used != null) {
+        windowEl.dataset.filedFuel = String(filedPlanData.fuel_used);
+    } else {
+        delete windowEl.dataset.filedFuel;
+    }
+    if (filedPlanData && filedPlanData.passengers != null) {
+        windowEl.dataset.filedPax = String(filedPlanData.passengers);
+    } else {
+        delete windowEl.dataset.filedPax;
+    }
 
     // --- Derive a cruise altitude target from the highest waypoint altitude in the plan ---
     // Used by the redesigned VSD card to show CRZ TGT and ALT Δ readouts.
@@ -22672,6 +22970,16 @@ let totalDistanceNM = 0;
                     </div>
                 </div>
 
+                <!-- ════════════ FUEL (modelled — see fuelEstimator.js) ════════════ -->
+                <!-- Hidden until the estimator produces a result, so a flight
+                     it can't model adds no empty section. -->
+                <h2 class="acx-sec" id="ac-fuel-sec" style="display: none;">Fuel</h2>
+                <div id="ac-fuel-host"></div>
+
+                <!-- ════════════ CABIN (typical layout — see cabinMap.js) ════════════ -->
+                <h2 class="acx-sec" id="ac-cabin-sec" style="display: none;">Cabin</h2>
+                <div id="ac-cabin-host"></div>
+
                 <!-- ════════════ NAVIGATION ════════════ -->
                 <h2 class="acx-sec">Navigation</h2>
                 <div class="ac-info-card-bar acx-card nav-card">
@@ -22774,6 +23082,13 @@ let totalDistanceNM = 0;
             _set('ac-max-gs', `${_stats.maxGsKt}<span class="unit">kt</span>`);
             _set('ac-max-alt', `${Math.round(_stats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`);
         }
+        // Fuel card — first paint. Repainted by the live-update path as the
+        // trail grows, and again whenever the kg/lb toggle is used.
+        renderLegacyFuelCard(
+            windowEl, baseProps, plan, sortedRoutePoints,
+            _stats ? _stats.flownNm : (totalDistanceNM - distanceToDestNM),
+            distanceToDestNM, filedPlanData
+        );
     } catch (_) { /* best-effort */ }
 
     if(typeof createPfdDisplay === 'function') createPfdDisplay();
@@ -23728,7 +24043,12 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         const _oat_c = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
             ? (currentAircraftPositionForGeocode.oat_c ?? 15)
             : 15;
-        const _tas = (typeof calculateTas === 'function') ? calculateTas(_alt, _oat_c, _gs) : Math.round(_gs);
+        const _windDir = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
+            ? currentAircraftPositionForGeocode.wind_dir : null;
+        const _windSpd = (typeof currentAircraftPositionForGeocode !== 'undefined' && currentAircraftPositionForGeocode)
+            ? currentAircraftPositionForGeocode.wind_spd_kts : null;
+        const _tas = (typeof calculateTas === 'function')
+            ? calculateTas(_alt, _oat_c, _gs, _hdg, _windDir, _windSpd) : Math.round(_gs);
 
         if (_hdg != null && !isNaN(_hdg)) {
             updateAll('#ac-heading', `${String(Math.round(((_hdg % 360) + 360) % 360)).padStart(3, '0')}°`);
@@ -23771,6 +24091,12 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             updateAll('#ac-max-gs', `${trailStats.maxGsKt}<span class="unit">kt</span>`, true);
             updateAll('#ac-max-alt', `${Math.round(trailStats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`, true);
         }
+        // Fuel card — repainted from the grown trail on every tick.
+        renderLegacyFuelCard(
+            document.getElementById('aircraft-info-window'), baseProps, plan, sortedRoutePoints,
+            trailStats ? trailStats.flownNm : Math.max(0, totalDistanceNM - distanceToDestNM),
+            distanceToDestNM, null
+        );
     } catch (_) { /* stats are best-effort — never break live updates */ }
 
     const altitude = baseProps.position.alt_ft || 0;

@@ -24,6 +24,104 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.07.27',
+            date: 'July 2026',
+            title: 'Fuel, Tanks & Cabins',
+            tagline: 'Open any flight and you can now see how much fuel it has burned, what is left in each tank, and where everyone is sitting — plus the winds and temperature it is actually flying through, instead of the weather on the ground below it.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-gas-pump',
+                    text: 'Fuel tracking — open any flight and scroll to the new Fuel section. Infinite Flight never reports fuel, so we model it: the aircraft’s drag and engines are flown against the exact path it took, second by second, to work out what it has burned and what should be left. You get fuel remaining, live fuel flow, endurance, what it will land with, and how much of that is reserve.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b style="color:#fff; font-size:11px;"><i class="fa-solid fa-gas-pump" style="color:#38bdf8; margin-right:6px;"></i>FUEL</b>
+                                <span style="display:inline-flex; gap:2px; background:rgba(255,255,255,.07); border-radius:99px; padding:2px;">
+                                    <b style="background:#18181b; color:#38bdf8; border-radius:99px; padding:2px 9px; font-size:9px; letter-spacing:.06em;">KG</b>
+                                    <b style="color:#71717a; padding:2px 9px; font-size:9px; letter-spacing:.06em;">LB</b>
+                                </span>
+                            </div>
+                            <div class="row" style="flex-direction:column; align-items:flex-start; gap:3px;">
+                                <span class="cl-vis-dim" style="font-size:8.5px; font-weight:800; letter-spacing:.08em;">ESTIMATED FUEL REMAINING</span>
+                                <b class="cl-vis-mono" style="color:#38bdf8; font-size:22px; font-weight:500;">38,228<span style="color:#71717a; font-size:11px; margin-left:3px;">kg</span></b>
+                            </div>
+                            <div class="row cl-vis-dim" style="font-size:10px; flex-wrap:wrap; gap:4px 10px;">
+                                <span style="white-space:nowrap;">Flow <b style="color:#d4d4d8;">7,079 kg/h</b></span>
+                                <span style="white-space:nowrap;">Endurance <b style="color:#d4d4d8;">5:10</b></span>
+                                <span style="white-space:nowrap;">Lands with <b style="color:#d4d4d8;">10,925 kg</b></span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-oil-can',
+                    text: 'Tanks you can actually see — the Fuel section draws the aircraft’s real tanks, filled to what is in them. They also empty in the right order: the centre tank goes first and the wings hold on, so a 747 half-way through a flight shows its outboard tanks still brimming and the centre bone dry, exactly as it happens.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="gap:6px;">
+                                <span class="cl-vis-dim" style="font-size:8px; font-weight:800; letter-spacing:.08em;"><i class="fa-solid fa-plane-up"></i> TANKS</span>
+                                <span class="cl-vis-dim" style="margin-left:auto; font-size:8px;">kg remaining</span>
+                            </div>
+                            <div class="row" style="gap:4px; align-items:flex-end;">
+                                ${['L OUT:100', 'L INR:44', 'CTR:0', 'R INR:44', 'R OUT:100'].map(t => {
+                                    const [n, pc] = t.split(':');
+                                    return `<span style="flex:1; text-align:center;">
+                                        <span style="position:relative; display:block; height:26px; border:1px solid rgba(255,255,255,.14); border-radius:3px; background:rgba(128,128,128,.14); overflow:hidden;">
+                                            <span style="position:absolute; left:0; right:0; bottom:0; height:${pc}%; background:#38bdf8; opacity:.85;"></span>
+                                            <span class="cl-vis-mono" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:700; color:#fff;">${pc}%</span>
+                                        </span>
+                                        <span class="cl-vis-dim" style="display:block; font-size:7.5px; font-weight:800; margin-top:3px;">${n}</span>
+                                    </span>`;
+                                }).join('')}
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-chair',
+                    text: 'Cabin layouts — a new Cabin section under Fuel shows the aircraft in plan with its seats, drawn to the type’s own shape: the right seating abreast, the right nose and tail, the wing box and the doors. Filled seats are the passengers the fuel figures are carrying, so the load behind every number is something you can look at. It is a model of the type, not your airline’s exact cabin — the card says so.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b style="color:#fff; font-size:11px;"><i class="fa-solid fa-chair" style="color:#38bdf8; margin-right:6px;"></i>CABIN <span class="cl-vis-dim" style="font-weight:600; font-size:8.5px; border:1px solid rgba(255,255,255,.14); border-radius:99px; padding:1px 6px; margin-left:4px;">TYPICAL</span></b>
+                                <b class="cl-vis-mono" style="color:#fff; font-size:11px;">340 <span class="cl-vis-dim" style="font-weight:500;">/ 396</span></b>
+                            </div>
+                            <div class="row" style="padding:12px 11px;">
+                                <svg viewBox="0 0 300 62" style="width:100%; height:auto; display:block;">
+                                    <path d="M 4 31 C 4 15 26 6 40 6 L 236 6 Q 268 6 296 27 L 296 35 Q 268 56 236 56 L 40 56 C 26 56 4 47 4 31 Z"
+                                          fill="none" stroke="#71717a" stroke-width="1.3" opacity="0.6"/>
+                                    <rect x="112" y="6" width="42" height="50" fill="#71717a" opacity="0.10"/>
+                                    ${[0,1,2,3,4,5].map(r => [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].map(c => {
+                                        const y = 7.5 + r * 7 + (r > 2 ? 5 : 0);
+                                        const x = 44 + c * 11.5;
+                                        const filled = c < 11;
+                                        return `<rect x="${x}" y="${y}" width="6" height="6" rx="1.3" ${filled ? 'fill="#38bdf8" opacity="0.95"' : 'fill="none" stroke="#38bdf8" stroke-width="0.8" opacity="0.34"'}/>`;
+                                    }).join('')).join('')}
+                                </svg>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-scale-balanced',
+                    text: 'Switch between kilograms and pounds — the KG / LB control sits at the top right of the Fuel section. Whichever you pick sticks, and every fuel figure across every flight window follows it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-wind',
+                    text: 'Real winds and temperature aloft — the app used to read the weather two metres above the ground and hand it to your aircraft at 37,000 feet. It now reads the actual pressure level you are flying at, so the outside air temperature is the −57 °C it really is up there, and the wind is the jet stream rather than the eight knots on the field below.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-gauge-simple-high',
+                    text: 'True airspeed is finally true — TAS was being worked out from temperature, which meant it always read higher than your ground speed even with a howling tailwind. It now subtracts the actual wind, so a tailwind correctly shows TAS below ground speed and a headwind above it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-sliders',
+                    text: 'Both new sections are yours to arrange — in the Simple window, open Customize → Layout to switch Fuel and Cabin on or off, or drag them anywhere in the order. They appear in all three flight window styles (Legacy, Simple and Card), which you pick in Settings.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-crown',
+                    text: 'Pro upgrades that get stuck now unstick themselves — if a payment went through but Pro never switched on, the app notices, re-checks your subscription and applies it, retrying on later visits if it has to, instead of leaving you to find the Restore button.'
+                },
+            ],
+        },
+        {
             id: '2026.07.26',
             date: 'July 2026',
             title: 'Faster Everywhere',

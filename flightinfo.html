@@ -13,6 +13,8 @@
 
     <script src="flight-graph.js"></script>
     <script src="flight-legs.js"></script>
+    <script src="fuelEstimator.js"></script>
+    <script src="cabinMap.js"></script>
 
     <style>
     /* --- DESIGN TOKENS (Theme: Carbon & Titanium) --- */
@@ -652,6 +654,8 @@
     body.hide-navenv    .sw-block[data-block="navenv"],
     body.hide-graph     .sw-block[data-block="graph"],
     body.hide-destination .sw-block[data-block="destination"],
+    body.hide-fuel      .sw-block[data-block="fuel"],
+    body.hide-cabin     .sw-block[data-block="cabin"],
     body.hide-manifest  .sw-block[data-block="manifest"] { display: none; }
 
     /* --- Destination dropdown: collapsible info + image for the arrival field --- */
@@ -1275,6 +1279,22 @@
                 </div>
             </div>
 
+            <!-- Modelled fuel burn. Hidden until the host sends an estimate,
+                 so a flight the model can't handle adds no empty block. -->
+            <div class="sw-block" data-block="fuel" id="sec-fuel" style="display:none;">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Fuel</div>
+                <div class="grid-section-label">Fuel &amp; Efficiency</div>
+                <div id="fuel-host"></div>
+            </div>
+
+            <!-- Typical cabin layout, filled to the passengers the fuel model
+                 is carrying. Hidden until there is a cabin worth drawing. -->
+            <div class="sw-block" data-block="cabin" id="sec-cabin" style="display:none;">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Cabin</div>
+                <div class="grid-section-label">Cabin Layout</div>
+                <div id="cabin-host"></div>
+            </div>
+
             <div class="sw-block" data-block="legs" id="sec-legs" style="display:none;">
                 <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Previous Flights</div>
                 <div id="legs-host"></div>
@@ -1438,6 +1458,8 @@
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-compass"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Navigation &amp; environment</div></span><span class="cs-switch"><input type="checkbox" data-section="navenv"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-plane-arrival"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Destination airport</div></span><span class="cs-switch"><input type="checkbox" data-section="destination"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-chart-area"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Speed &amp; altitude graph</div></span><span class="cs-switch"><input type="checkbox" data-section="graph"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-gas-pump"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Fuel &amp; efficiency</div><div class="cs-toggle-sub">Modelled — the sim doesn't report fuel</div></span><span class="cs-switch"><input type="checkbox" data-section="fuel"><span class="cs-switch-track"></span></span></label>
+                        <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-chair"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Cabin layout</div><div class="cs-toggle-sub">Typical seating for the type</div></span><span class="cs-switch"><input type="checkbox" data-section="cabin"><span class="cs-switch-track"></span></span></label>
                         <label class="cs-toggle"><span class="cs-toggle-icon"><i class="fa-solid fa-user-astronaut"></i></span><span class="cs-toggle-text"><div class="cs-toggle-label">Pilot manifest</div></span><span class="cs-switch"><input type="checkbox" data-section="manifest"><span class="cs-switch-track"></span></span></label>
                     </div>
 
@@ -1697,15 +1719,15 @@
         // =========================================================
         const LAYOUT_KEY = 'inflightSimpleLayout';
         const PRESETS_KEY = 'inflightSimplePresets';
-        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'destination', 'graph', 'manifest'];
+        const SECTION_KEYS = ['hero', 'times', 'flightplan', 'telemetry', 'navenv', 'destination', 'graph', 'fuel', 'cabin', 'manifest'];
         const PEEK_HEIGHTS = { minimal: 150, standard: 250, rich: 392 };
         const METRICS = { telemetry: ['alt', 'spd', 'vs', 'hdg'], navenv: ['tas', 'oat', 'wind', 'dtg', 'nextwp', 'pos'] };
         const STATE_KEYS = ['climb', 'descend', 'cruise', 'ground', 'approach', 'pushback', 'enroute'];
 
         const DEFAULTS = {
             peek: 'standard',
-            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, destination: true, graph: true, manifest: true },
-            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'destination', 'graph', 'legs', 'manifest'],
+            sections: { hero: true, times: true, flightplan: true, telemetry: true, navenv: true, destination: true, graph: true, fuel: true, cabin: true, manifest: true },
+            order: ['hero', 'route', 'times', 'progress', 'flightplan', 'telemetry', 'navenv', 'destination', 'graph', 'fuel', 'cabin', 'legs', 'manifest'],
             metrics: { telemetry: { alt: true, spd: true, vs: true, hdg: true }, navenv: { tas: true, oat: true, wind: true, dtg: true, nextwp: true, pos: true } },
             cols: { telemetry: 2, navenv: 2 },
             style: {
@@ -2258,7 +2280,57 @@
 
             // Previous flights (multi-leg journey reconstructed from the trail)
             renderLegs();
+
+            // Modelled fuel burn
+            renderFuel();
+
+            // Typical cabin for the type
+            renderCabin();
         };
+
+        // Render the cabin plan. Derived here from the aircraft type and the
+        // passenger count the fuel model settled on, so the seats shown are
+        // exactly the payload the fuel figures assume.
+        function renderCabin() {
+            const block = document.getElementById('sec-cabin');
+            const host = document.getElementById('cabin-host');
+            if (!block || !host) return;
+            let html = '';
+            try {
+                const d = lastFlightData;
+                const ac = d && d.aircraft && d.aircraft.aircraftName;
+                if (window.CabinMap && ac) {
+                    const fuel = d.fuel;
+                    const lay = window.CabinMap.layout(ac, {
+                        paxOnboard: fuel && fuel.environment ? fuel.environment.paxCount : undefined,
+                        freighter: !!(fuel && fuel.mass && fuel.mass.freighter),
+                        payloadKg: fuel && fuel.mass ? fuel.mass.payloadKg : undefined
+                    });
+                    html = window.CabinMap.renderHTML(lay);
+                }
+            } catch (_) { html = ''; }
+            host.innerHTML = html;
+            block.style.display = html ? '' : 'none';
+        }
+
+        // Render the "Fuel & Efficiency" panel from the host's estimate. The
+        // host owns the modelling (it has the trail and the weather sample);
+        // here we only draw the plain result, so this window and the full
+        // avionics window always show the same numbers.
+        function renderFuel() {
+            const block = document.getElementById('sec-fuel');
+            const host = document.getElementById('fuel-host');
+            if (!block || !host) return;
+            const est = lastFlightData && lastFlightData.fuel;
+            const html = (window.FuelEstimator && est)
+                ? window.FuelEstimator.renderHTML(est, { unit: window.FuelEstimator.readUnit() })
+                : '';
+            host.innerHTML = html;
+            block.style.display = html ? '' : 'none';
+        }
+        // kg/lb is a shared preference, so switching it here repaints right
+        // away instead of waiting for the next telemetry tick.
+        if (window.FuelEstimator) window.FuelEstimator.bindUnitToggle(document, renderFuel);
 
         // Render the "Previous Flights" panel from the payload's detected legs.
         // The block hides itself when there are no completed legs to show.
