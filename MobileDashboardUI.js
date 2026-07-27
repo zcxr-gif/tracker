@@ -6,6 +6,7 @@
  * warm-neutral design language, dynamic accent colors, and component parity.
  */
 
+import { ProAccess } from './proAccess.js';
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
@@ -458,6 +459,21 @@ init(supabaseClient) {
                 }));
             } catch (_) { /* private mode: the signed-in fallback still claims it */ }
 
+            // Make sure there is a `profiles` row for the server-side grant to
+            // stamp. Free sign-up creates the auth user and nothing else, and
+            // an UPDATE against an account with no row updates nothing while
+            // reporting success — which is how an upgrade gets charged and
+            // still lands on the free tier. Best-effort; the checkout proceeds
+            // either way and the return path re-checks.
+            try { await ProAccess.ensureProfileRow(this._supabase, this._currentUser); } catch (_) {}
+
+            // Record the claim so that if the pilot never makes it back to the
+            // success URL, the next app load can still finish the upgrade.
+            ProAccess.markPending({
+                email: this._currentUser.email,
+                userId: this._currentUser.id
+            });
+
             const payload = {
                 email: this._currentUser.email,
                 // Resolve the account by id server-side (mirrors ProfileUI).
@@ -471,6 +487,7 @@ init(supabaseClient) {
             window.location.href = data.url;
         } catch (err) {
             try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
+            ProAccess.clearPending();
             if (btn) { btn.disabled = false; btn.innerHTML = restore; }
             if (this._activeTab !== 'settings') this.switchTab('settings');
         }
