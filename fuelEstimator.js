@@ -1104,6 +1104,103 @@
         return n ? sum / n : undefined;
     }
 
+    // ── Fuel tanks ────────────────────────────────────────────────────────
+    /**
+     * The tanks this airframe carries its fuel in, as fractions of total
+     * capacity, with the order they are drawn down in.
+     *
+     * `order` is the burn sequence, lowest first, and it is not decoration: a
+     * transport aircraft empties its centre tank before touching the wings
+     * (fuel in the wings relieves the bending moment the lift puts on the
+     * spar, so it is the last to go). Showing a half-full aeroplane with every
+     * tank at 50% would be a picture of something that never happens.
+     */
+    function tankLayout(m, key) {
+        const wing = (wingFrac, centreFrac) => ([
+            { id: 'L', label: 'LEFT',   frac: wingFrac,   order: 1 },
+            { id: 'C', label: 'CENTRE', frac: centreFrac, order: 0 },
+            { id: 'R', label: 'RIGHT',  frac: wingFrac,   order: 1 }
+        ]);
+
+        // Four-engine types carry outboard tanks that transfer inboard last.
+        if (/^(B74|A38|A34)/.test(key) || m.eng === 4) {
+            return [
+                { id: 'L2', label: 'L OUT', frac: 0.05, order: 2 },
+                { id: 'L1', label: 'L INR', frac: 0.22, order: 1 },
+                { id: 'C',  label: 'CTR',   frac: 0.46, order: 0 },
+                { id: 'R1', label: 'R INR', frac: 0.22, order: 1 },
+                { id: 'R2', label: 'R OUT', frac: 0.05, order: 2 }
+            ];
+        }
+        // Fast jets keep the bulk in the fuselage and burn that first.
+        if (m.military && m.kind === 'jet' && m.mtow < 60000) {
+            return [
+                { id: 'LW', label: 'L WING', frac: 0.22, order: 1 },
+                { id: 'F',  label: 'FUS',    frac: 0.56, order: 0 },
+                { id: 'RW', label: 'R WING', frac: 0.22, order: 1 }
+            ];
+        }
+        // Props, light aircraft and rotorcraft: wing (or fuselage) tanks only,
+        // fed together, no centre tank to drain first.
+        if (m.kind !== 'jet') {
+            const l = m.kind === 'heli' ? ['FWD', 'AFT'] : ['LEFT', 'RIGHT'];
+            return [
+                { id: 'L', label: l[0], frac: 0.5, order: 0 },
+                { id: 'R', label: l[1], frac: 0.5, order: 0 }
+            ];
+        }
+        // The 737's centre tank is unusually large next to its wing tanks;
+        // the A320 family splits far more evenly. Both are worth getting right
+        // because they are most of what flies.
+        if (/^B7(3|12)|^B38M/.test(key)) return wing(0.18, 0.64);
+        if (/^A3(18|19|20|21)|^A2[01]N/.test(key)) return wing(0.30, 0.40);
+        if (/^(CRJ|E17|E19|C750)/.test(key)) return wing(0.42, 0.16);
+        if (/^B75/.test(key)) return wing(0.35, 0.30);
+        // Widebodies: two big wing tanks and a centre tank roughly their equal.
+        return wing(0.26, 0.48);
+    }
+
+    /**
+     * Put a quantity of fuel into those tanks the way it would actually sit.
+     *
+     * Loading is the mirror of burning, so tanks are filled in reverse drain
+     * order: whatever empties last is whatever is still holding fuel now.
+     * Tanks that drain together share what reaches them in proportion to size.
+     */
+    function distributeFuel(tanks, kg) {
+        const byOrder = new Map();
+        for (const t of tanks) {
+            if (!byOrder.has(t.order)) byOrder.set(t.order, []);
+            byOrder.get(t.order).push(t);
+        }
+        let left = Math.max(0, kg || 0);
+        const out = {};
+        for (const order of [...byOrder.keys()].sort((a, b) => b - a)) {
+            const group = byOrder.get(order);
+            const cap = group.reduce((s, t) => s + t.capacityKg, 0);
+            const take = Math.min(left, cap);
+            for (const t of group) out[t.id] = cap > 0 ? take * (t.capacityKg / cap) : 0;
+            left -= take;
+        }
+        return out;
+    }
+
+    /** Tanks with their capacity, current contents and fill fraction. */
+    function buildTanks(m, key, onboardKg) {
+        const layout = tankLayout(m, key).map(t => Object.assign({}, t, {
+            capacityKg: m.maxFuel * t.frac
+        }));
+        const contents = distributeFuel(layout, onboardKg);
+        return layout.map(t => {
+            const kg = contents[t.id] || 0;
+            return {
+                id: t.id, label: t.label, order: t.order,
+                capacityKg: t.capacityKg, kg,
+                pct: t.capacityKg > 0 ? (kg / t.capacityKg) * 100 : 0
+            };
+        });
+    }
+
     // ── Public entry point ────────────────────────────────────────────────
     /**
      * Produce the full fuel picture for a flight.
@@ -1213,6 +1310,11 @@
             usedKg = journeyKg = plan.tripKg * (0.10 + 0.90 * frac);
             usedSource = 'route-scaled';
         }
+        // If the model burns more than the aeroplane left with, the block
+        // figure is wrong — a mistyped dispatch entry, or a route far longer
+        // than the fuel implies. Worth saying so rather than reporting dry
+        // tanks as though they were a fact.
+        const overBurn = usedKg > blockKg + 1;
         usedKg = Math.max(0, Math.min(usedKg, blockKg));
         journeyKg = Math.max(usedKg, journeyKg);
 
@@ -1296,6 +1398,10 @@
         if (payloadSource === 'filed') notes.push('Payload from the filed passenger count');
         else if (payloadSource === 'freighter') { score -= 6; notes.push('Freighter livery — payload modelled as cargo'); }
         else { score -= 8; notes.push('Payload assumed at a ' + Math.round(LOAD_FACTOR * 100) + '% load factor'); }
+        if (overBurn) {
+            score -= 30;
+            notes.push('Modelled burn exceeds the fuel loaded — the block figure looks too low for this route');
+        }
         if (usedSource === 'route-scaled') { score -= 25; notes.push('No position history yet — burn scaled from route progress'); }
         else if (trail.samples < 20) { score -= 15; notes.push('Short position history (' + trail.samples + ' points)'); }
         if (trail.gapMinutes > 5) { score -= Math.min(20, trail.gapMinutes / 3); notes.push(Math.round(trail.gapMinutes) + ' min of gaps in the tracked path'); }
@@ -1335,13 +1441,15 @@
             },
             block: { kg: blockKg, source: plan.source, tripKg: plan.tripKg, pctOfCapacity: (blockKg / m.maxFuel) * 100 },
             used: {
-                kg: usedKg, journeyKg, source: usedSource,
+                kg: usedKg, journeyKg, source: usedSource, exceededBlock: overBurn,
                 phases: trail.phases, legs: trail.legs, legStartMs: trail.legStartMs
             },
             onboard: {
                 kg: onboardKg,
                 pctOfBlock: blockKg > 0 ? (onboardKg / blockKg) * 100 : 0,
-                pctOfCapacity: (onboardKg / m.maxFuel) * 100
+                pctOfCapacity: (onboardKg / m.maxFuel) * 100,
+                // Where that fuel is sitting, tank by tank.
+                tanks: buildTanks(m, resolved.key, onboardKg)
             },
             flow: {
                 kgPerHr: flowKgH,
@@ -1406,6 +1514,13 @@
         if (min == null || !isFinite(min)) return '';
         return min >= 100 ? (min / 60).toFixed(1) + ' h hold' : Math.round(min) + ' min hold';
     }
+    /** Short form for the tank labels: 13,374 becomes 13.4k. */
+    function fmtMassShort(kg, unit) {
+        if (kg == null || !isFinite(kg)) return '—';
+        const v = unit === 'lb' ? kg * KG_TO_LB : kg;
+        if (v >= 10000) return (v / 1000).toFixed(1) + 'k';
+        return Math.round(v).toLocaleString();
+    }
     function fmtNum(v, dp) {
         if (v == null || !isFinite(v)) return '—';
         return v.toFixed(dp == null ? 0 : dp);
@@ -1419,6 +1534,49 @@
         ground: 'Parked', taxi: 'Taxi', climb: 'Climb',
         cruise: 'Cruise', descent: 'Descent', idle: 'Idle', hover: 'Hover'
     };
+
+    /**
+     * A plan-view of the aircraft's tanks, filled to what is actually in them.
+     *
+     * Laid out the way you would look down on the aeroplane — left wing on the
+     * left, centre tank at the fuselage — with each tank's width proportional
+     * to how much it holds, so the picture is a fair one and not just five
+     * equal boxes. Fuel fills from the bottom, and a tank below a tenth full
+     * is drawn in the warning colour.
+     */
+    function tanksHTML(tanks, unit, color) {
+        if (!Array.isArray(tanks) || !tanks.length) return '';
+        const total = tanks.reduce((s, t) => s + t.capacityKg, 0) || 1;
+
+        const cells = tanks.map((t) => {
+            const fill = Math.max(0, Math.min(100, t.pct));
+            const low = fill < 10;
+            const c = low && fill > 0 ? WARN_C : color;
+            return ''
+                + `<div style="flex:${(t.capacityKg / total).toFixed(4)} 1 0;min-width:34px;display:flex;flex-direction:column;align-items:center;gap:3px;">`
+                +   `<div title="${esc(t.label)} — ${fmtMass(t.kg, unit)} of ${fmtMass(t.capacityKg, unit)} ${unit}"`
+                +        ` style="position:relative;width:100%;height:34px;border:1px solid ${BORDER};border-radius:4px;background:${FILL};overflow:hidden;">`
+                +     `<div style="position:absolute;left:0;right:0;bottom:0;height:${fill.toFixed(1)}%;background:${c};opacity:.85;transition:height .4s ease;"></div>`
+                +     `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:${MONO};font-size:9px;font-weight:700;color:${TXT};text-shadow:0 1px 2px rgba(0,0,0,.45);">${Math.round(fill)}%</span>`
+                +   '</div>'
+                +   `<span style="font-size:8px;font-weight:800;letter-spacing:.3px;color:${FAINT};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">${esc(t.label)}</span>`
+                +   `<span style="font-family:${MONO};font-size:9.5px;font-weight:600;color:${DIM};white-space:nowrap;">${fmtMassShort(t.kg, unit)}</span>`
+                + '</div>';
+        }).join('');
+
+        // A faint silhouette so it reads as an aeroplane seen from above
+        // rather than as an anonymous row of bars.
+        return ''
+            + '<div style="margin-top:14px;">'
+            +   `<div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;">`
+            +     `<i class="fa-solid fa-plane-up" style="font-size:9px;color:${FAINT};"></i>`
+            +     `<span style="font-size:8.5px;letter-spacing:.7px;text-transform:uppercase;color:${FAINT};font-weight:800;">Tanks</span>`
+            +     `<span style="flex:1;height:1px;background:${HAIR};"></span>`
+            +     `<span style="font-size:8.5px;color:${FAINT};font-weight:600;">${unit} remaining</span>`
+            +   '</div>'
+            +   `<div style="display:flex;align-items:flex-end;gap:4px;">${cells}</div>`
+            + '</div>';
+    }
 
     /**
      * Render the fuel card.
@@ -1478,25 +1636,54 @@
         const unitTag = (u) => `<span style="font-size:9.5px;color:${DIM};font-weight:500;margin-left:3px;">${u}</span>`;
 
         // ── Header ──────────────────────────────────────────────────────
+        // The unit control is a two-option segmented switch rather than a
+        // single chip. A chip showing "KG" reads as a label telling you what
+        // the numbers are in; showing both units with one of them lit is the
+        // only way it reads as something you can press.
+        const unitBtn = (u) => {
+            const on = u === U;
+            return `<button type="button" data-fuel-unit="${u}" aria-pressed="${on}"`
+                + ` title="Show fuel in ${u === 'kg' ? 'kilograms' : 'pounds'}"`
+                + ` style="cursor:pointer;font-family:inherit;border:0;border-radius:999px;padding:3px 11px;`
+                + `font-size:10px;font-weight:800;letter-spacing:.6px;line-height:1.35;`
+                + `background:${on ? SURFACE : 'transparent'};color:${on ? ACCENT : DIM};`
+                + `box-shadow:${on ? '0 1px 4px rgba(0,0,0,.25)' : 'none'};transition:background .15s ease,color .15s ease;">`
+                + u.toUpperCase() + '</button>';
+        };
+
         let html = ''
             + `<div class="fuel-card" data-fuel-card style="background:${SURFACE};border:1px solid ${BORDER};border-radius:var(--radius-lg, 14px);padding:14px;overflow:hidden;">`
             + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
             +   `<i class="fa-solid fa-gas-pump" style="color:${ACCENT};font-size:12px;"></i>`
             +   `<span style="font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:${TXT};">${esc(opts.title || 'Fuel')}</span>`
             +   `<span style="font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:${FAINT};border:1px solid ${BORDER};border-radius:999px;padding:1px 6px;">Estimated</span>`
-            +   `<button type="button" data-fuel-unit="${U === 'kg' ? 'lb' : 'kg'}" title="Switch to ${U === 'kg' ? 'pounds' : 'kilograms'}" style="margin-left:auto;cursor:pointer;background:${FILL};border:1px solid ${BORDER};color:${DIM};border-radius:999px;padding:2px 8px;font-size:9px;font-weight:800;letter-spacing:.5px;font-family:inherit;">${U.toUpperCase()}</button>`
+            +   `<span role="group" aria-label="Fuel units" style="margin-left:auto;display:inline-flex;align-items:center;gap:2px;background:${TRACK};border:1px solid ${BORDER};border-radius:999px;padding:2px;">`
+            +     unitBtn('kg') + unitBtn('lb')
+            +   '</span>'
             + '</div>';
 
-        // ── Headline: burned this leg + tank state ──────────────────────
-        html += '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-top:12px;">'
-            +   '<div style="min-width:0;">'
-            +     `<div style="font-family:${MONO};font-size:26px;font-weight:400;color:${TXT};line-height:1;white-space:nowrap;">${fmtMass(res.used.kg, unit)}${unitTag(U)}</div>`
-            +     `<div style="font-size:11px;color:${DIM};margin-top:4px;">Burned${res.used.legs > 1 ? ' this leg' : ' so far'}</div>`
+        // ── Headline: what is left in the tanks ─────────────────────────
+        // Fuel remaining is the number a pilot actually wants, so it gets the
+        // whole width and the largest type. What has been burned is a fact
+        // about the past and sits in the detail rows.
+        html += '<div style="margin-top:13px;">'
+            +   `<div style="font-size:9px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:${FAINT};">Estimated fuel remaining</div>`
+            +   `<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-top:5px;">`
+            +     `<div style="font-family:${MONO};font-size:34px;font-weight:500;color:${barColor};line-height:1;white-space:nowrap;">`
+            +       fmtMass(res.onboard.kg, unit)
+            +       `<span style="font-size:14px;color:${DIM};font-weight:500;margin-left:4px;">${U}</span>`
+            +     '</div>'
+            +     `<div style="text-align:right;white-space:nowrap;">`
+            +       `<div style="font-family:${MONO};font-size:16px;font-weight:600;color:${TXT};line-height:1;">${Math.round(pct)}%</div>`
+            +       `<div style="font-size:9px;color:${FAINT};margin-top:3px;">of departure fuel</div>`
+            +     '</div>'
             +   '</div>'
-            +   '<div style="text-align:right;min-width:0;">'
-            +     `<div style="font-family:${MONO};font-size:18px;font-weight:400;color:${barColor};line-height:1;white-space:nowrap;">${fmtMass(res.onboard.kg, unit)}${unitTag(U)}</div>`
-            +     `<div style="font-size:11px;color:${DIM};margin-top:4px;">Remaining · ${Math.round(pct)}%</div>`
-            +   '</div>'
+            + (res.used.exceededBlock
+                ? `<div style="margin-top:8px;font-size:10px;line-height:1.45;color:${WARN_C};">`
+                  + '<i class="fa-solid fa-triangle-exclamation" style="margin-right:5px;"></i>'
+                  + 'The modelled burn is already more than the fuel this flight left with, so the loaded figure is too low for the route — treat the numbers below as the shape of the problem, not a reading.'
+                  + '</div>'
+                : '')
             + '</div>';
 
         // Tank bar with the "landing on final reserve" mark.
@@ -1507,9 +1694,12 @@
                 : '')
             + '</div>'
             + `<div style="display:flex;justify-content:space-between;font-size:9.5px;color:${FAINT};font-weight:600;">`
-            +   `<span>Block ${fmtMass(res.block.kg, unit)} ${U}${res.block.source === 'filed' ? ' · filed' : ''}</span>`
+            +   `<span>Loaded ${fmtMass(res.block.kg, unit)} ${U}${res.block.source === 'filed' ? ' · filed' : ''}</span>`
             +   `<span>Tanks ${Math.round(res.onboard.pctOfCapacity)}% full</span>`
             + '</div>';
+
+        // ── The tanks themselves ────────────────────────────────────────
+        html += tanksHTML(res.onboard.tanks, unit, barColor);
 
         // ── Live tiles ──────────────────────────────────────────────────
         html += '<div style="display:flex;gap:8px;margin-top:12px;">'
@@ -1525,11 +1715,13 @@
                             ? fmtNum(res.performance.specificRangeNmPerKg / KG_TO_LB, 3)
                             : fmtNum(res.performance.specificRangeNmPerKg, 3)) + unitTag('nm/' + U)
                        : '—',
-                   'Cruise, at this weight'))
+                   'At this weight'))
             + '</div>';
 
         // ── Detail rows ─────────────────────────────────────────────────
         html += '<div style="margin-top:12px;">';
+        html += row(res.used.legs > 1 ? 'Burned this leg' : 'Burned so far',
+            fmtMass(res.used.kg, unit) + unitTag(U));
         if (res.arrival.toDestKg != null) {
             const arrColor = st === 'critical' ? BAD_C : (st === 'tight' ? WARN_C : TXT);
             html += row('Fuel to destination', fmtMass(res.arrival.toDestKg, unit) + unitTag(U));
