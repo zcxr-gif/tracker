@@ -16414,6 +16414,10 @@ function renderLegacyFuelCard(windowEl, baseProps, plan, sortedRoutePoints, dist
     host.__repaintFuel = () => renderLegacyFuelCard(
         windowEl, baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filedPlanData);
 
+    // The cabin plan is built from the same estimate (its passenger count is
+    // the payload the fuel figures assume), so paint it from here.
+    renderLegacyCabinCard(windowEl, baseProps, est);
+
     // Keep the last estimate so the kg/lb toggle can repaint immediately
     // rather than waiting for the next three-second telemetry tick.
     host.__lastFuelEstimate = est;
@@ -16423,6 +16427,43 @@ function renderLegacyFuelCard(windowEl, baseProps, plan, sortedRoutePoints, dist
             h.innerHTML = window.FuelEstimator.renderHTML(h.__lastFuelEstimate, { unit });
         }
     });
+}
+
+/**
+ * Paint the legacy window's cabin card.
+ *
+ * A pure function of the aircraft type and the passenger count the fuel model
+ * settled on, so it only needs repainting when one of those changes — which in
+ * practice means once per flight, not once per telemetry tick.
+ */
+function renderLegacyCabinCard(windowEl, baseProps, fuelEstimate) {
+    if (!windowEl || typeof window === 'undefined' || !window.CabinMap) return;
+    const host = windowEl.querySelector('#ac-cabin-host');
+    const sec = windowEl.querySelector('#ac-cabin-sec');
+    if (!host) return;
+
+    let html = '';
+    try {
+        const aircraft = (typeof baseProps.aircraft === 'string')
+            ? JSON.parse(baseProps.aircraft) : (baseProps.aircraft || {});
+        const name = aircraft.aircraftName || baseProps.aircraftName || '';
+        // Skip the rebuild when nothing that shapes the cabin has moved.
+        const sig = name + '|' + (fuelEstimate && fuelEstimate.environment ? fuelEstimate.environment.paxCount : '')
+            + '|' + (fuelEstimate && fuelEstimate.mass ? fuelEstimate.mass.freighter : '');
+        if (host.dataset.cabinSig === sig) return;
+        host.dataset.cabinSig = sig;
+
+        if (name) {
+            html = window.CabinMap.renderHTML(window.CabinMap.layout(name, {
+                paxOnboard: fuelEstimate && fuelEstimate.environment ? fuelEstimate.environment.paxCount : undefined,
+                freighter: !!(fuelEstimate && fuelEstimate.mass && fuelEstimate.mass.freighter),
+                payloadKg: fuelEstimate && fuelEstimate.mass ? fuelEstimate.mass.payloadKg : undefined
+            }));
+        }
+    } catch (e) { html = ''; }
+
+    host.innerHTML = html;
+    if (sec) sec.style.display = html ? '' : 'none';
 }
 
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData, filedPlanData = null) {
@@ -22934,6 +22975,10 @@ let totalDistanceNM = 0;
                      it can't model adds no empty section. -->
                 <h2 class="acx-sec" id="ac-fuel-sec" style="display: none;">Fuel</h2>
                 <div id="ac-fuel-host"></div>
+
+                <!-- ════════════ CABIN (typical layout — see cabinMap.js) ════════════ -->
+                <h2 class="acx-sec" id="ac-cabin-sec" style="display: none;">Cabin</h2>
+                <div id="ac-cabin-host"></div>
 
                 <!-- ════════════ NAVIGATION ════════════ -->
                 <h2 class="acx-sec">Navigation</h2>

@@ -13,6 +13,7 @@
     <script src="flight-graph.js"></script>
     <script src="flight-legs.js"></script>
     <script src="fuelEstimator.js"></script>
+    <script src="cabinMap.js"></script>
     <script src="vaAds.js"></script>
 
     <style>
@@ -728,6 +729,9 @@
                 <h2 class="aw-sec" id="fuel-sec" style="display:none">Fuel &amp; Efficiency</h2>
                 <div id="fuel-card" style="display:none"></div>
 
+                <h2 class="aw-sec" id="cabin-sec" style="display:none">Cabin</h2>
+                <div id="cabin-card" style="display:none"></div>
+
                 <div class="panel-card" id="graph-card">
                     <div class="grid-section-label" style="margin:0 0 8px 2px">Speed &amp; Altitude</div>
                     <div id="graph-body"></div>
@@ -913,6 +917,31 @@
     }
     if (typeof FuelEstimator !== 'undefined') FuelEstimator.bindUnitToggle(document, renderFuel);
 
+    // Typical cabin for the type, seats filled to the payload the fuel model
+    // is carrying. Derived locally — it is a pure function of the aircraft
+    // type and the passenger count, both already in the payload.
+    function renderCabin() {
+        const card = document.getElementById('cabin-card');
+        const sec = document.getElementById('cabin-sec');
+        if (!card) return;
+        let html = '';
+        try {
+            const p = lastPayload;
+            const ac = p && p.aircraft && p.aircraft.aircraftName;
+            if (typeof CabinMap !== 'undefined' && ac) {
+                const fuel = p.fuel;
+                html = CabinMap.renderHTML(CabinMap.layout(ac, {
+                    paxOnboard: fuel && fuel.environment ? fuel.environment.paxCount : undefined,
+                    freighter: !!(fuel && fuel.mass && fuel.mass.freighter),
+                    payloadKg: fuel && fuel.mass ? fuel.mass.payloadKg : undefined
+                }));
+            }
+        } catch (_) { html = ''; }
+        card.innerHTML = html;
+        card.style.display = html ? '' : 'none';
+        if (sec) sec.style.display = html ? '' : 'none';
+    }
+
     function render(p) {
         if (!p) return;
         lastPayload = p;
@@ -941,6 +970,7 @@
         renderGraph();
         renderLegs(p);
         renderFuel();
+        renderCabin();
     }
 
     // VA-ads partner slots: vaAds.js runs inside this iframe and fills the
