@@ -16187,6 +16187,87 @@ function triggerSimpleWindowReplay() {
     btn.click();
 }
 
+/**
+ * Build the hypothetical fuel picture for a flight (see fuelEstimator.js).
+ *
+ * Infinite Flight never reports fuel — not the load at pushback, not what's
+ * left — so this models it from the airframe's drag polar and engine deck
+ * against the profile the aircraft actually flew. Every flight-info window
+ * calls through here so the legacy, simple and card windows can never disagree
+ * about how much fuel a flight has burned.
+ *
+ * Returns null (and the windows hide the panel) when the estimator isn't
+ * loaded or the flight has nothing to work from.
+ */
+function buildFuelEstimate(flightProps, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
+    if (typeof window === 'undefined' || !window.FuelEstimator || !flightProps) return null;
+    try {
+        const pos = (typeof flightProps.position === 'string')
+            ? JSON.parse(flightProps.position) : (flightProps.position || {});
+        const aircraft = (typeof flightProps.aircraft === 'string')
+            ? JSON.parse(flightProps.aircraft) : (flightProps.aircraft || {});
+
+        // The live OAT / wind sample the map already keeps for the selected
+        // flight. It lets the estimator work in true airspeed and real air
+        // density instead of assuming a standard, still day.
+        const geo = (typeof currentAircraftPositionForGeocode !== 'undefined')
+            ? currentAircraftPositionForGeocode : null;
+
+        return window.FuelEstimator.estimate({
+            aircraftName: aircraft.aircraftName || flightProps.aircraftName || '',
+            trail: routePoints || [],
+            position: pos,
+            distFlownNm, distRemainingNm,
+            filedFuelKg: filedPlanData && filedPlanData.fuel_used != null
+                ? Number(filedPlanData.fuel_used) : undefined,
+            paxFiled: filedPlanData && filedPlanData.passengers != null
+                ? Number(filedPlanData.passengers) : undefined,
+            oatC: geo && geo.oat_c != null ? geo.oat_c : undefined,
+            windDirDeg: geo && geo.wind_dir != null ? geo.wind_dir
+                : (flightProps.wind_dir != null ? flightProps.wind_dir : undefined),
+            windSpdKt: geo && geo.wind_spd_kts != null ? geo.wind_spd_kts
+                : (flightProps.wind_spd_kts != null ? flightProps.wind_spd_kts : undefined)
+        });
+    } catch (e) {
+        // A fuel estimate is a nice-to-have; it must never take a window down.
+        return null;
+    }
+}
+
+/**
+ * Paint (or repaint) the legacy avionics window's fuel card.
+ *
+ * Called on first render and again on every live tick. `filedPlanData` is
+ * optional: the live-update path doesn't receive it, so we fall back to the
+ * copy populateAircraftInfoWindow stashed on the window element.
+ */
+function renderLegacyFuelCard(windowEl, baseProps, sortedRoutePoints, distFlownNm, distRemainingNm, filedPlanData) {
+    if (!windowEl || typeof window === 'undefined' || !window.FuelEstimator) return;
+    const host = windowEl.querySelector('#ac-fuel-host');
+    const sec = windowEl.querySelector('#ac-fuel-sec');
+    if (!host) return;
+
+    const filed = filedPlanData || ((windowEl.dataset.filedFuel || windowEl.dataset.filedPax) ? {
+        fuel_used: windowEl.dataset.filedFuel ? parseFloat(windowEl.dataset.filedFuel) : null,
+        passengers: windowEl.dataset.filedPax ? parseFloat(windowEl.dataset.filedPax) : null
+    } : null);
+
+    const est = buildFuelEstimate(baseProps, sortedRoutePoints, distFlownNm, distRemainingNm, filed);
+    const html = est ? window.FuelEstimator.renderHTML(est, { unit: window.FuelEstimator.readUnit() }) : '';
+    host.innerHTML = html;
+    if (sec) sec.style.display = html ? '' : 'none';
+
+    // Keep the last estimate so the kg/lb toggle can repaint immediately
+    // rather than waiting for the next three-second telemetry tick.
+    host.__lastFuelEstimate = est;
+    window.FuelEstimator.bindUnitToggle(document, (unit) => {
+        const h = document.getElementById('ac-fuel-host');
+        if (h && h.__lastFuelEstimate) {
+            h.innerHTML = window.FuelEstimator.renderHTML(h.__lastFuelEstimate, { unit });
+        }
+    });
+}
+
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData, filedPlanData = null) {
     if (!flightProps) return null;
 
@@ -16413,6 +16494,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
             ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
             : null,
+        // Hypothetical fuel burn, integrated over the flown profile. Computed
+        // here (the trail and the weather sample both live on this side) and
+        // rendered from the plain result inside the iframe.
+        fuel: buildFuelEstimate(flightProps, routePoints, distFlownNm, distRemainingNm, filedPlanData),
         phase: detailedPhase.flightPhase || 'ENROUTE',
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
@@ -22135,6 +22220,19 @@ let totalDistanceNM = 0;
     }
     windowEl.dataset.depIcao = departureIcao || '';
     windowEl.dataset.arrIcao = arrivalIcao || '';
+    // Same idea for the dispatch plan's fuel and passenger figures: the fuel
+    // panel refreshes on every live tick and needs them to anchor block fuel
+    // and payload instead of falling back to modelled averages.
+    if (filedPlanData && filedPlanData.fuel_used != null) {
+        windowEl.dataset.filedFuel = String(filedPlanData.fuel_used);
+    } else {
+        delete windowEl.dataset.filedFuel;
+    }
+    if (filedPlanData && filedPlanData.passengers != null) {
+        windowEl.dataset.filedPax = String(filedPlanData.passengers);
+    } else {
+        delete windowEl.dataset.filedPax;
+    }
 
     // --- Derive a cruise altitude target from the highest waypoint altitude in the plan ---
     // Used by the redesigned VSD card to show CRZ TGT and ALT Δ readouts.
@@ -22672,6 +22770,12 @@ let totalDistanceNM = 0;
                     </div>
                 </div>
 
+                <!-- ════════════ FUEL (modelled — see fuelEstimator.js) ════════════ -->
+                <!-- Hidden until the estimator produces a result, so a flight
+                     it can't model adds no empty section. -->
+                <h2 class="acx-sec" id="ac-fuel-sec" style="display: none;">Fuel</h2>
+                <div id="ac-fuel-host"></div>
+
                 <!-- ════════════ NAVIGATION ════════════ -->
                 <h2 class="acx-sec">Navigation</h2>
                 <div class="ac-info-card-bar acx-card nav-card">
@@ -22774,6 +22878,13 @@ let totalDistanceNM = 0;
             _set('ac-max-gs', `${_stats.maxGsKt}<span class="unit">kt</span>`);
             _set('ac-max-alt', `${Math.round(_stats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`);
         }
+        // Fuel card — first paint. Repainted by the live-update path as the
+        // trail grows, and again whenever the kg/lb toggle is used.
+        renderLegacyFuelCard(
+            windowEl, baseProps, sortedRoutePoints,
+            _stats ? _stats.flownNm : (totalDistanceNM - distanceToDestNM),
+            distanceToDestNM, filedPlanData
+        );
     } catch (_) { /* best-effort */ }
 
     if(typeof createPfdDisplay === 'function') createPfdDisplay();
@@ -23771,6 +23882,12 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
             updateAll('#ac-max-gs', `${trailStats.maxGsKt}<span class="unit">kt</span>`, true);
             updateAll('#ac-max-alt', `${Math.round(trailStats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`, true);
         }
+        // Fuel card — repainted from the grown trail on every tick.
+        renderLegacyFuelCard(
+            document.getElementById('aircraft-info-window'), baseProps, sortedRoutePoints,
+            trailStats ? trailStats.flownNm : Math.max(0, totalDistanceNM - distanceToDestNM),
+            distanceToDestNM, null
+        );
     } catch (_) { /* stats are best-effort — never break live updates */ }
 
     const altitude = baseProps.position.alt_ft || 0;

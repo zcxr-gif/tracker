@@ -12,6 +12,7 @@
 
     <script src="flight-graph.js"></script>
     <script src="flight-legs.js"></script>
+    <script src="fuelEstimator.js"></script>
     <script src="vaAds.js"></script>
 
     <style>
@@ -724,6 +725,9 @@
 
                 <div id="ac-va-banner" class="va-ad-banner-slot" style="display:none"></div>
 
+                <h2 class="aw-sec" id="fuel-sec" style="display:none">Fuel &amp; Efficiency</h2>
+                <div id="fuel-card" style="display:none"></div>
+
                 <div class="panel-card" id="graph-card">
                     <div class="grid-section-label" style="margin:0 0 8px 2px">Speed &amp; Altitude</div>
                     <div id="graph-body"></div>
@@ -892,6 +896,23 @@
         else el.style.display = 'none';
     }
 
+    // Modelled fuel burn. The host owns the physics (it holds the trail and
+    // the weather sample); this window just draws the plain result, so it and
+    // the other two flight-info windows can never disagree on the numbers.
+    function renderFuel() {
+        const card = document.getElementById('fuel-card');
+        const sec = document.getElementById('fuel-sec');
+        if (!card) return;
+        const est = lastPayload && lastPayload.fuel;
+        const html = (typeof FuelEstimator !== 'undefined' && est)
+            ? FuelEstimator.renderHTML(est, { unit: FuelEstimator.readUnit(), compact: true })
+            : '';
+        card.innerHTML = html;
+        card.style.display = html ? '' : 'none';
+        if (sec) sec.style.display = html ? '' : 'none';
+    }
+    if (typeof FuelEstimator !== 'undefined') FuelEstimator.bindUnitToggle(document, renderFuel);
+
     function render(p) {
         if (!p) return;
         lastPayload = p;
@@ -919,6 +940,7 @@
         updateDynamic(p);
         renderGraph();
         renderLegs(p);
+        renderFuel();
     }
 
     // VA-ads partner slots: vaAds.js runs inside this iframe and fills the
