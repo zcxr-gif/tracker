@@ -262,6 +262,20 @@
         return { key: 'A320', model: AIRCRAFT.A320, source: 'generic', input: raw };
     }
 
+    // Operators and type suffixes that mean the aeroplane is carrying freight
+    // rather than people. Deliberately specific: mistaking a passenger flight
+    // for a freighter would add tens of tonnes to its zero-fuel weight, so a
+    // loose match costs more than a miss.
+    const FREIGHT_OPERATORS = /\b(CARGO|FREIGHT|FREIGHTER|SKYCARGO|FEDEX|FED\s?EX|UPS|DHL|CARGOLUX|ATLAS\s?AIR|KALITTA|POLAR\s?AIR|AEROLOGIC|SILK\s?WAY|NIPPON\s?CARGO|MASKARGO|PRIME\s?AIR|WESTERN\s?GLOBAL|VOLGA-?DNEPR|MARTINAIR|AEROUNION|ASTRAL)\b/;
+    const FREIGHT_TYPES = /\b(\d{3}(-\d+)?F|BCF|BDSF|SF|ERF|LCF)\b/;
+
+    /** True when the livery or type says this airframe is a freighter. */
+    function isFreighter(liveryName, typeName) {
+        const hay = ((liveryName || '') + ' ' + (typeName || '')).toUpperCase();
+        if (!hay.trim()) return false;
+        return FREIGHT_OPERATORS.test(hay) || FREIGHT_TYPES.test(hay);
+    }
+
     // ── Atmosphere ────────────────────────────────────────────────────────
     /**
      * ISA properties at a pressure altitude, optionally shifted by a measured
@@ -376,7 +390,7 @@
      * Mach, and a configuration penalty when it is slow and low enough to be
      * flying with flaps and gear extended.
      */
-    function dragCoefficient(m, cl, mach, altFt, tasKt) {
+    function dragCoefficient(m, cl, mach, altFt, tasKt, elevFt) {
         const ar = (m.b * m.b) / m.s;
         let cd = m.cd0 + (cl * cl) / (Math.PI * ar * m.e);
 
@@ -389,12 +403,15 @@
             cd += Math.min(0.08, 20 * Math.pow(mach - mdd, 4));
         }
 
-        // Approach / departure configuration. Without a radio altimeter the
-        // only proxy is speed, judged against this type's own approach speed.
-        if (altFt < 10000 && m.kind !== 'heli') {
+        // Approach / departure configuration. There is no radio altimeter in
+        // the feed, so this keys off speed judged against this type's own
+        // approach speed, and off height above the *field* — an aircraft
+        // levelling at 8,000 ft over Denver is 2,500 ft up, not 8,000.
+        const aglFt = altFt - (elevFt || 0);
+        if (aglFt < 10000 && m.kind !== 'heli') {
             const va = refSpeeds(m).vAppKt;
             if (tasKt < va * 1.80) cd += 0.020;                            // flaps
-            if (tasKt < va * 1.45 && altFt < 4000) cd += 0.015;            // gear
+            if (tasKt < va * 1.45 && aglFt < 4000) cd += 0.015;            // gear
         }
         return cd;
     }
@@ -421,6 +438,7 @@
         // at or near idle and the APU is typically running.
         if (st.onGround) {
             const idle = idleFlowKgH(m, atm) * (m.eng || 1);
+            // (elevFt is irrelevant here — the engines are at idle regardless.)
             const moving = tas > 3;
             const kgPerHr = idle * (moving ? 1.0 : 0.55) + apuFlowKgH(m);
             return { kgPerHr, thrustN: 0, dragN: 0, cl: 0, mach, throttle: 0.05, mode: moving ? 'taxi' : 'ground' };
@@ -433,12 +451,17 @@
         const vsMs  = (st.vsFpm || 0) * FT_TO_M / 60;
         const gamma = v > 5 ? Math.asin(Math.max(-1, Math.min(1, vsMs / v))) : 0;
 
-        // Lift balances the component of weight perpendicular to the path.
+        // Lift balances the component of weight perpendicular to the path,
+        // multiplied by the load factor when the aircraft is banked. A turn is
+        // not free: at 30° of bank the wing carries 15% more load and pays
+        // roughly 33% more induced drag for it, which is why a flight full of
+        // vectoring burns more than the great-circle distance suggests.
+        const loadFactor = Math.max(1, Math.min(1.25, st.loadFactor || 1));
         const q = 0.5 * atm.rho * v * v;
-        const cl = (q > 1 && m.s) ? (massKg * G0 * Math.cos(gamma)) / (q * m.s) : 0.5;
+        const cl = (q > 1 && m.s) ? (loadFactor * massKg * G0 * Math.cos(gamma)) / (q * m.s) : 0.5;
         const clSafe = Math.max(0, Math.min(2.2, cl));
 
-        const cd    = dragCoefficient(m, clSafe, mach, altFt, tas);
+        const cd    = dragCoefficient(m, clSafe, mach, altFt, tas, st.elevFt);
         const dragN = cd * q * m.s;
 
         // Thrust = drag + the weight component being climbed against + the
@@ -544,6 +567,14 @@
         };
     }
 
+    /** Shortest signed difference between two bearings, in degrees. */
+    function normalizeDeg(d) {
+        let x = d % 360;
+        if (x > 180) x -= 360;
+        if (x < -180) x += 360;
+        return x;
+    }
+
     function greatCircleNm(lat1, lon1, lat2, lon2) {
         const toRad = Math.PI / 180;
         const dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
@@ -572,12 +603,20 @@
         if (!wind || !isFinite(wind.dirDeg) || !isFinite(wind.spdKt) || wind.spdKt <= 0 || trackDeg == null) {
             return gsKt;
         }
-        const scale = altFt >= 10000 ? 1 : Math.sqrt(Math.max(0.15, altFt / 10000));
+        // A single surface sample has to be tapered with height, because the
+        // boundary layer slows the wind near the ground. Real upper-air data
+        // is already at the right level, so it is used as measured.
+        const scale = wind.measured ? 1
+            : (altFt >= 10000 ? 1 : Math.sqrt(Math.max(0.15, altFt / 10000)));
         const w = wind.spdKt * scale;
-        // Meteorological convention: wind *from* dirDeg. The component along
-        // the aircraft's track is a tailwind when it blows the way we're going.
-        const tail = -w * Math.cos((wind.dirDeg - trackDeg) * Math.PI / 180);
-        return Math.max(0, gsKt - tail);
+        // Subtract the wind vector from the ground-speed vector. Doing this in
+        // components rather than along-track alone matters in a crosswind,
+        // where the aircraft is crabbing and the scalar shortcut understates
+        // the airspeed.
+        const rad = Math.PI / 180;
+        const gsU = gsKt * Math.sin(trackDeg * rad), gsV = gsKt * Math.cos(trackDeg * rad);
+        const wU = -w * Math.sin(wind.dirDeg * rad), wV = -w * Math.cos(wind.dirDeg * rad);
+        return Math.sqrt((gsU - wU) ** 2 + (gsV - wV) ** 2);
     }
 
     // ── Trail integration ─────────────────────────────────────────────────
@@ -611,6 +650,16 @@
         let gapMs = 0, airborneMs = 0, legs = 1;
         let groundRunMs = 0, splitArmed = true;
         let mass = zfw + startFuel;
+        let prevTrack = null;
+        let wxSamples = 0;
+
+        // Height above the field, blended from the departure elevation to the
+        // arrival elevation across the trail. Ground operations only happen at
+        // the two ends, so a straight blend is exact where it matters and
+        // harmless in between.
+        const depElev = isFinite(opts.depElevFt) ? opts.depElevFt : pts[0].alt;
+        const arrElev = isFinite(opts.arrElevFt) ? opts.arrElevFt : depElev;
+        const tSpan = Math.max(1, pts[pts.length - 1].t - pts[0].t);
 
         for (let i = 1; i < pts.length; i++) {
             const a = pts[i - 1], b = pts[i];
@@ -625,6 +674,8 @@
 
             const altFt = (a.alt + b.alt) / 2;
             const gsKt  = (a.gs + b.gs) / 2;
+            const midT  = (a.t + b.t) / 2;
+            const elevFt = depElev + (arrElev - depElev) * ((midT - pts[0].t) / tSpan);
 
             // Prefer a vertical speed derived from the altitude the aircraft
             // actually gained: reported v/s is instantaneous and noisy, while
@@ -633,13 +684,39 @@
 
             let track = null;
             if (a.lat != null && b.lat != null) track = bearingDeg(a.lat, a.lon, b.lat, b.lon);
-            const tasKt = tasFromGs(gsKt, track, altFt, opts.wind);
+
+            // Weather at this exact point of the path, at the time the
+            // aircraft was there. Falls back to the single live sample, then
+            // to a standard day.
+            let segWind = opts.wind, segIsaDev = opts.isaDevC;
+            if (opts.windField && a.lat != null && a.lon != null) {
+                const wx = opts.windField.sample(a.lat, a.lon, altFt, midT);
+                if (wx) {
+                    segWind = { dirDeg: wx.windDirDeg, spdKt: wx.windSpdKt, measured: true };
+                    segIsaDev = wx.oatC - (atmosphere(altFt).tIsa - 273.15);
+                    wxSamples++;
+                }
+            }
+            const tasKt = tasFromGs(gsKt, track, altFt, segWind);
+
+            // Bank angle from how fast the track is turning. A steady-turn
+            // balance gives tan(bank) = omega * V / g, and the load factor
+            // 1/cos(bank) is what the wing actually has to carry.
+            let loadFactor = 1;
+            if (prevTrack != null && track != null && gsKt > 60) {
+                const dTrack = normalizeDeg(track - prevTrack);
+                const omega = Math.abs(dTrack) * (Math.PI / 180) / dtS;   // rad/s
+                const bank = Math.atan((omega * tasKt * KT_TO_MS) / G0);
+                loadFactor = 1 / Math.cos(Math.min(bank, 35 * Math.PI / 180));
+            }
+            if (track != null) prevTrack = track;
 
             // Longitudinal acceleration over the segment, m/s².
             const accelMs2 = ((b.gs - a.gs) * KT_TO_MS) / dtS;
 
-            // Ground detection without a radio altimeter: slow, level and low.
-            const onGround = gsKt < 45 && Math.abs(vsFpm) < 250 && altFt < 15000;
+            // Ground detection, judged against the field elevation rather than
+            // sea level: slow, level, and within circuit height of the ground.
+            const onGround = gsKt < 45 && Math.abs(vsFpm) < 250 && (altFt - elevFt) < 1000;
             if (onGround) {
                 groundRunMs += dtS * 1000;
                 // A long stop ends the leg: reset the leg accumulator so the
@@ -657,7 +734,7 @@
 
             const r = fuelFlowAt(m, {
                 altFt, tasKt, vsFpm, massKg: mass, accelMs2, onGround,
-                isaDevC: opts.isaDevC
+                isaDevC: segIsaDev, elevFt, loadFactor
             });
 
             const burn = r.kgPerHr * (dtS / 3600);
@@ -675,7 +752,10 @@
             spanMinutes: (pts[pts.length - 1].t - pts[0].t) / 60000,
             airborneMinutes: airborneMs / 60000,
             legs,
-            endMassKg: mass
+            endMassKg: mass,
+            // How much of the path was flown against real upper-air data
+            // rather than a standard day — feeds the confidence score.
+            wxCoverage: pts.length > 1 ? wxSamples / (pts.length - 1) : 0
         };
     }
 
@@ -689,8 +769,9 @@
      * normal rate to its optimum level (stepped down for short sectors), cruise
      * at Mcr, idle descent, taxi in.
      */
-    function simulateMission(m, distanceNm, zfwKg, blockFuelGuessKg) {
+    function simulateMission(m, distanceNm, zfwKg, blockFuelGuessKg, isaDevC, headwindKt) {
         const dist = Math.max(1, distanceNm);
+        const hw = isFinite(headwindKt) ? Math.max(-120, Math.min(120, headwindKt)) : 0;
         // Short sectors never reach the optimum level; a 150 nm hop tops out
         // around FL240 no matter what the aeroplane could do.
         const cruiseAlt = Math.min(m.optAlt, 8000 + dist * 95);
@@ -701,7 +782,7 @@
         const burnFor = (minutes, state) => {
             const steps = Math.max(1, Math.ceil(minutes / 3));
             for (let i = 0; i < steps; i++) {
-                const r = fuelFlowAt(m, Object.assign({ massKg: mass }, state));
+                const r = fuelFlowAt(m, Object.assign({ massKg: mass, isaDevC }, state));
                 const b = r.kgPerHr * (minutes / steps) / 60;
                 fuel += b; mass -= b;
             }
@@ -718,7 +799,7 @@
         while (alt < cruiseAlt) {
             const top = Math.min(cruiseAlt, alt + slice);
             const midAlt = (alt + top) / 2;
-            const atm = atmosphere(midAlt);
+            const atm = atmosphere(midAlt, undefined, isaDevC);
             // Climb TAS ramps from a 250 kt low-level restriction up to the
             // cruise Mach number.
             const machTarget = Math.min(cruiseMach, 0.42 + 0.45 * (midAlt / Math.max(1, cruiseAlt)));
@@ -727,23 +808,24 @@
             const roc = Math.max(300, (m.kind === 'jet' ? 2400 : 1500) * (1 - 0.75 * midAlt / Math.max(1, m.optAlt)));
             const min = (top - alt) / roc;
             burnFor(min, { altFt: midAlt, tasKt, vsFpm: roc, onGround: false });
-            climbNm += tasKt * (min / 60);
+            climbNm += Math.max(30, tasKt - hw) * (min / 60);
             climbMin += min;
             alt = top;
         }
 
         // Descent: idle from cruise, roughly a 3° path.
-        const descAtm = atmosphere(cruiseAlt * 0.6);
+        const descAtm = atmosphere(cruiseAlt * 0.6, undefined, isaDevC);
         const descTas = Math.max(200, (cruiseMach * 0.85 * descAtm.a) / KT_TO_MS);
         const descRate = m.kind === 'jet' ? -1800 : -1200;
         const descMin = cruiseAlt / Math.abs(descRate);
-        const descNm = descTas * (descMin / 60);
+        const descNm = Math.max(30, descTas - hw) * (descMin / 60);
 
-        // Cruise fills whatever distance climb and descent didn't cover.
-        const cruiseAtm = atmosphere(cruiseAlt);
+        // Cruise fills whatever distance climb and descent didn't cover. The
+        // engines see true airspeed; the distance goes by at ground speed.
+        const cruiseAtm = atmosphere(cruiseAlt, undefined, isaDevC);
         const cruiseTas = (cruiseMach * cruiseAtm.a) / KT_TO_MS;
         const cruiseNm = Math.max(0, dist - climbNm - descNm);
-        const cruiseMin = (cruiseNm / Math.max(50, cruiseTas)) * 60;
+        const cruiseMin = (cruiseNm / Math.max(50, cruiseTas - hw)) * 60;
         burnFor(cruiseMin, { altFt: cruiseAlt, tasKt: cruiseTas, vsFpm: 0, onGround: false });
 
         // Descent burn, stepped so the idle-flow floor is applied per altitude.
@@ -752,7 +834,7 @@
             const bot = Math.max(0, dAlt - slice);
             const midAlt = (dAlt + bot) / 2;
             const min = (dAlt - bot) / Math.abs(descRate);
-            const atm = atmosphere(midAlt);
+            const atm = atmosphere(midAlt, undefined, isaDevC);
             const tasKt = Math.max(180, Math.min(descTas, (cruiseMach * 0.85 * atm.a) / KT_TO_MS));
             burnFor(min, { altFt: midAlt, tasKt, vsFpm: descRate, onGround: false });
             dAlt = bot;
@@ -806,8 +888,12 @@
      * through it, so the aeroplane arrives lighter and cheaper exactly as it
      * would in the air.
      */
-    function fuelToGo(m, massKg, altFt, remainingNm, isaDevC) {
+    function fuelToGo(m, massKg, altFt, remainingNm, isaDevC, headwindKt) {
         if (!(remainingNm > 0)) return 0;
+        // A headwind does not change the fuel burned per hour, but it lengthens
+        // the hours: the same track costs more because the ground goes by more
+        // slowly. This is the difference between a 6-hour and a 7-hour crossing.
+        const hw = isFinite(headwindKt) ? Math.max(-120, Math.min(120, headwindKt)) : 0;
         let mass = Math.max(1, massKg), fuel = 0;
         const burn = (minutes, state) => {
             const r = fuelFlowAt(m, Object.assign({ massKg: mass, isaDevC }, state));
@@ -816,19 +902,24 @@
         };
 
         // Descent profile from wherever the aircraft is now down to 1500 ft.
+        // A nominal 3° path is about 318 ft per still-air nautical mile; into a
+        // headwind the same descent covers less ground.
+        const cruiseAlt = altFt > 12000 ? altFt : m.optAlt;
+        const cruiseAtm = atmosphere(cruiseAlt, undefined, isaDevC);
+        const cruiseTas = Math.max(60, (m.mcr * cruiseAtm.a) / KT_TO_MS);
+        const cruiseGs = Math.max(60, cruiseTas - hw);
+
         const descentFromFt = Math.max(0, altFt - 1500);
-        const descentNm = Math.min(remainingNm, descentFromFt / 318);
+        const descentNm = Math.min(remainingNm, (descentFromFt / 318) * (cruiseGs / cruiseTas));
         const levelNm = Math.max(0, remainingNm - descentNm);
 
         // Level portion at the present level (or the type's optimum when the
-        // aircraft hasn't climbed yet, e.g. still on the ground).
+        // aircraft hasn't climbed yet, e.g. still on the ground). The engines
+        // see true airspeed; the clock sees ground speed.
         if (levelNm > 0) {
-            const cruiseAlt = altFt > 12000 ? altFt : m.optAlt;
-            const atm = atmosphere(cruiseAlt, undefined, isaDevC);
-            const tas = Math.max(60, (m.mcr * atm.a) / KT_TO_MS);
             const stepNm = levelNm / 6;
             for (let i = 0; i < 6; i++) {
-                burn((stepNm / tas) * 60, { altFt: cruiseAlt, tasKt: tas, vsFpm: 0, onGround: false });
+                burn((stepNm / cruiseGs) * 60, { altFt: cruiseAlt, tasKt: cruiseTas, vsFpm: 0, onGround: false });
             }
         }
 
@@ -876,29 +967,32 @@
     // The trail integration is left uncached: it grows every tick and is the
     // part that actually has to be fresh.
     const _planCache = new Map();
-    function planBlockFuel(m, distanceNm, zfwKg, filedKg) {
+    function planBlockFuel(m, distanceNm, zfwKg, filedKg, isaDevC, headwindKt) {
         const key = m.label + '|' + Math.round(distanceNm / 25) + '|' + Math.round(zfwKg / 500)
-            + '|' + (filedKg == null ? '' : Math.round(filedKg));
+            + '|' + (filedKg == null ? '' : Math.round(filedKg))
+            + '|' + Math.round((isaDevC || 0) / 2) + '|' + Math.round((headwindKt || 0) / 5);
         const hit = _planCache.get(key);
         if (hit) return hit;
-        const out = computeBlockFuel(m, distanceNm, zfwKg, filedKg);
+        const out = computeBlockFuel(m, distanceNm, zfwKg, filedKg, isaDevC, headwindKt);
         // Bounded: a session only ever watches a handful of flights.
         if (_planCache.size > 60) _planCache.clear();
         _planCache.set(key, out);
         return out;
     }
 
-    function computeBlockFuel(m, distanceNm, zfwKg, filedKg) {
+    function computeBlockFuel(m, distanceNm, zfwKg, filedKg, isaDevC, headwindKt) {
         if (typeof filedKg === 'number' && isFinite(filedKg) && filedKg > 50 && filedKg <= m.maxFuel * 1.02) {
-            const sim = simulateMission(m, distanceNm, zfwKg, filedKg);
+            const sim = simulateMission(m, distanceNm, zfwKg, filedKg, isaDevC, headwindKt);
             return { blockKg: Math.min(filedKg, m.maxFuel), tripKg: sim.tripKg, source: 'filed', sim };
         }
         let guess = Math.min(m.maxFuel, 0.25 * m.maxFuel + distanceNm * (m.mtow / 30000));
         let sim = null;
         for (let i = 0; i < 3; i++) {
-            sim = simulateMission(m, distanceNm, zfwKg, guess);
+            sim = simulateMission(m, distanceNm, zfwKg, guess, isaDevC, headwindKt);
+            // The alternate and the hold are flown in the same airmass, but a
+            // diversion is not necessarily downwind, so it gets no wind credit.
             const reserves = sim.tripKg * CONTINGENCY_PCT
-                + simulateMission(m, ALTERNATE_NM, zfwKg, guess * 0.3).tripKg
+                + simulateMission(m, ALTERNATE_NM, zfwKg, guess * 0.3, isaDevC, 0).tripKg
                 + holdingFuelKg(m, zfwKg + guess * 0.15, FINAL_RESERVE_MIN);
             let next = sim.blockKg + reserves;
             // Never more than the tanks hold, and never so much that the
@@ -907,6 +1001,107 @@
             guess = next;
         }
         return { blockKg: guess, tripKg: sim ? sim.tripKg : guess * 0.8, source: 'modelled', sim };
+    }
+
+    /** Point a given fraction of the way along the great circle a→b. */
+    function interpGreatCircle(lat1, lon1, lat2, lon2, f) {
+        const rad = Math.PI / 180;
+        const φ1 = lat1 * rad, λ1 = lon1 * rad, φ2 = lat2 * rad, λ2 = lon2 * rad;
+        const dφ = φ2 - φ1, dλ = λ2 - λ1;
+        const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+        const δ = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        if (δ < 1e-9) return { lat: lat1, lon: lon1 };
+        const A = Math.sin((1 - f) * δ) / Math.sin(δ), B = Math.sin(f * δ) / Math.sin(δ);
+        const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
+        const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
+        const z = A * Math.sin(φ1) + B * Math.sin(φ2);
+        return {
+            lat: Math.atan2(z, Math.sqrt(x * x + y * y)) / rad,
+            lon: Math.atan2(y, x) / rad
+        };
+    }
+
+    /**
+     * Mean headwind component (kt, positive against) over the track still to
+     * be flown, sampled from the upper-air field at cruise level. Falls back
+     * to the component at the aircraft's own position when the destination
+     * isn't known, and to zero when there is no field at all.
+     */
+    function meanHeadwindAhead(field, pos, input, m, remainingNm) {
+        if (!field || !isFinite(pos.lat) || !isFinite(pos.lon)) return 0;
+        const alt = (Number(pos.alt_ft) > 12000) ? Number(pos.alt_ft) : m.optAlt;
+        const t = Date.now();
+
+        const component = (lat, lon, trackDeg) => {
+            const wx = field.sample(lat, lon, alt, t);
+            if (!wx) return null;
+            // Headwind is the component of the wind vector opposing the track.
+            return wx.windSpdKt * Math.cos((wx.windDirDeg - trackDeg) * Math.PI / 180);
+        };
+
+        const dLat = Number(input.destLat), dLon = Number(input.destLon);
+        if (!isFinite(dLat) || !isFinite(dLon) || !(remainingNm > 0)) {
+            const hdg = Number(pos.heading_deg);
+            if (!isFinite(hdg)) return 0;
+            return component(pos.lat, pos.lon, hdg) || 0;
+        }
+
+        let sum = 0, n = 0;
+        for (let i = 0; i <= 4; i++) {
+            const p = interpGreatCircle(pos.lat, pos.lon, dLat, dLon, i / 4);
+            // Local track: bearing toward the destination from this point.
+            const trk = (i < 4) ? bearingDeg(p.lat, p.lon, dLat, dLon)
+                                : bearingDeg(pos.lat, pos.lon, dLat, dLon);
+            const c = component(p.lat, p.lon, trk);
+            if (c != null) { sum += c; n++; }
+        }
+        return n ? sum / n : 0;
+    }
+
+    /**
+     * Mean headwind (kt, positive against) over the *whole* route at cruise
+     * level — origin to destination, not just the part still to fly. This is
+     * what a dispatcher's wind uplift is computed against, so it is what the
+     * block-fuel plan needs.
+     */
+    function meanRouteHeadwind(field, input, m) {
+        if (!field) return 0;
+        const oLat = Number(input.depLat), oLon = Number(input.depLon);
+        const dLat = Number(input.destLat), dLon = Number(input.destLon);
+        if (!isFinite(oLat) || !isFinite(oLon) || !isFinite(dLat) || !isFinite(dLon)) {
+            // Without both ends, the part still to be flown is the best proxy.
+            return meanHeadwindAhead(field, input.position || {}, input, m, Number(input.distRemainingNm));
+        }
+        const trk = bearingDeg(oLat, oLon, dLat, dLon);
+        const t = Date.now();
+        let sum = 0, n = 0;
+        for (let i = 0; i <= 4; i++) {
+            const p = interpGreatCircle(oLat, oLon, dLat, dLon, i / 4);
+            const wx = field.sample(p.lat, p.lon, m.optAlt, t);
+            if (!wx) continue;
+            sum += wx.windSpdKt * Math.cos((wx.windDirDeg - trk) * Math.PI / 180);
+            n++;
+        }
+        return n ? sum / n : 0;
+    }
+
+    /** Mean ISA temperature deviation at cruise level along the route. */
+    function routeIsaDev(field, input, m) {
+        if (!field) return undefined;
+        const pos = input.position || {};
+        const pts = [];
+        if (isFinite(input.depLat) && isFinite(input.depLon)) pts.push({ lat: +input.depLat, lon: +input.depLon });
+        if (isFinite(pos.lat) && isFinite(pos.lon)) pts.push({ lat: +pos.lat, lon: +pos.lon });
+        if (isFinite(input.destLat) && isFinite(input.destLon)) pts.push({ lat: +input.destLat, lon: +input.destLon });
+        if (!pts.length) return undefined;
+        const isaC = atmosphere(m.optAlt).tIsa - 273.15;
+        const t = Date.now();
+        let sum = 0, n = 0;
+        for (const p of pts) {
+            const wx = field.sample(p.lat, p.lon, m.optAlt, t);
+            if (wx) { sum += wx.oatC - isaC; n++; }
+        }
+        return n ? sum / n : undefined;
     }
 
     // ── Public entry point ────────────────────────────────────────────────
@@ -931,11 +1126,22 @@
 
         // ── Weights ──────────────────────────────────────────────────────
         // Payload from the filed passenger count when we have it, otherwise
-        // the type's typical revenue load.
+        // the type's typical revenue load — except for a freighter, which is
+        // a different aeroplane operationally: no cabin, and a revenue payload
+        // that can be double what the passenger version carries. A 777F leaves
+        // the gate 35 tonnes heavier than a 777-300ER and burns accordingly,
+        // so the livery is worth reading.
+        const freighter = isFreighter(input.liveryName, resolved.input);
         let payloadKg, payloadSource;
-        if (typeof input.paxFiled === 'number' && input.paxFiled > 0) {
+        if (typeof input.paxFiled === 'number' && input.paxFiled > 0 && !freighter) {
             payloadKg = input.paxFiled * PAX_PLUS_BAG_KG;
             payloadSource = 'filed';
+        } else if (freighter) {
+            // Maximum structural payload is roughly the maximum zero-fuel
+            // weight (about 76% of MTOW on a large jet) less the empty weight;
+            // freighters typically dispatch at a bit over half of it.
+            payloadKg = Math.max(m.payload, 0.55 * (0.76 * m.mtow - m.oew));
+            payloadSource = 'freighter';
         } else {
             payloadKg = m.payload; // table figures already sit at LOAD_FACTOR
             payloadSource = 'typical';
@@ -950,23 +1156,50 @@
             + (isFinite(remaining) ? Math.max(0, remaining) : 0);
         const haveRoute = routeNm > 20;
 
+        // ── Weather ──────────────────────────────────────────────────────
+        // Best case, the host supplies a real upper-air field (windsAloft.js)
+        // and every point of the path gets the wind and temperature that were
+        // actually there. Otherwise we fall back to the single live sample —
+        // but that sample is surface weather, so it is only trusted near the
+        // ground; believing a +18 °C surface reading at FL370 would be far
+        // worse than assuming a standard day.
+        const field = input.windField || null;
+        const nowAltFt = Number(pos.alt_ft) || 0;
+        const wxNow = (field && isFinite(pos.lat) && isFinite(pos.lon))
+            ? field.sample(pos.lat, pos.lon, nowAltFt, Date.now()) : null;
+
+        let wind = null, isaDevC, wxSource;
+        if (wxNow) {
+            wind = { dirDeg: wxNow.windDirDeg, spdKt: wxNow.windSpdKt, measured: true };
+            isaDevC = wxNow.oatC - (atmosphere(nowAltFt).tIsa - 273.15);
+            wxSource = 'aloft';
+        } else if (isFinite(input.windDirDeg) && isFinite(input.windSpdKt) && input.windSpdKt > 0
+                   && nowAltFt < 5000) {
+            wind = { dirDeg: Number(input.windDirDeg), spdKt: Number(input.windSpdKt) };
+            if (typeof input.oatC === 'number' && isFinite(input.oatC)) {
+                isaDevC = atmosphere(nowAltFt, input.oatC).deltaIsa;
+            }
+            wxSource = 'surface';
+        } else {
+            wxSource = 'standard';
+        }
+
         // ── Block fuel at pushback ───────────────────────────────────────
-        const plan = planBlockFuel(m, haveRoute ? routeNm : 400, zfwKg, input.filedFuelKg);
+        // Planned against the conditions the route actually has. A westbound
+        // North Atlantic crossing into a 60 kt jet stream is dispatched with
+        // noticeably more fuel than the same distance in still air, and if the
+        // plan ignored that while the fuel-to-destination calculation didn't,
+        // the panel would invent a reserve problem that no dispatcher would.
+        const routeHeadwindKt = meanRouteHeadwind(field, input, m);
+        const isaDevRoute = routeIsaDev(field, input, m);
+        const plan = planBlockFuel(m, haveRoute ? routeNm : 400, zfwKg, input.filedFuelKg,
+                                   isaDevRoute, routeHeadwindKt);
         const blockKg = Math.max(0, plan.blockKg);
 
         // ── Burn so far ──────────────────────────────────────────────────
-        const wind = (isFinite(input.windDirDeg) && isFinite(input.windSpdKt) && input.windSpdKt > 0)
-            ? { dirDeg: Number(input.windDirDeg), spdKt: Number(input.windSpdKt) } : null;
-
-        // Turn the single live OAT reading into an ISA deviation we can carry
-        // down the whole trail (see atmosphere()).
-        let isaDevC;
-        if (typeof input.oatC === 'number' && isFinite(input.oatC) && Number(pos.alt_ft) != null) {
-            isaDevC = atmosphere(Number(pos.alt_ft) || 0, input.oatC).deltaIsa;
-        }
-
         const trail = integrateTrail(m, input.trail, {
-            startFuelKg: blockKg, zfwKg, wind, isaDevC
+            startFuelKg: blockKg, zfwKg, wind, isaDevC, windField: field,
+            depElevFt: Number(input.depElevFt), arrElevFt: Number(input.arrElevFt)
         });
 
         let usedKg = trail.legKg;
@@ -990,21 +1223,41 @@
         const altFt = Number(pos.alt_ft) || 0;
         const gsKt = Number(pos.gs_kt) || 0;
         const vsFpm = Number(pos.vs_fpm) || 0;
+        // Height above the field the aircraft is nearest to.
+        const nearElevFt = (isFinite(remaining) && isFinite(flown) && remaining < flown
+                            && isFinite(input.arrElevFt)) ? Number(input.arrElevFt)
+                          : (isFinite(input.depElevFt) ? Number(input.depElevFt) : 0);
         const onGroundNow = (typeof input.onGround === 'boolean')
             ? input.onGround
-            : (gsKt < 45 && Math.abs(vsFpm) < 250 && altFt < 15000);
+            : (gsKt < 45 && Math.abs(vsFpm) < 250 && (altFt - nearElevFt) < 1000);
         const tasNow = tasFromGs(gsKt, Number(pos.heading_deg), altFt, wind);
         const now = fuelFlowAt(m, {
             altFt, tasKt: tasNow, vsFpm, massKg: massNowKg,
-            onGround: onGroundNow, oatC: input.oatC, isaDevC
+            onGround: onGroundNow, oatC: wxNow ? wxNow.oatC : undefined,
+            isaDevC, elevFt: nearElevFt
         });
 
         // ── Derived operational numbers ──────────────────────────────────
         // The instantaneous flow is what the engines are doing right now and
         // belongs on the live readout. Everything forward-looking is quoted
         // against the cruise condition instead — see cruisePerformance().
+        //
+        // The temperature deviation that matters for those is the one at
+        // cruise level, not the one where the aircraft happens to be: an
+        // aeroplane on a hot ramp is not flying through a hot stratosphere.
+        let isaDevCruise = isaDevC;
+        if (field && isFinite(pos.lat) && isFinite(pos.lon)) {
+            const wxCrz = field.sample(pos.lat, pos.lon, m.optAlt, Date.now());
+            if (wxCrz) isaDevCruise = wxCrz.oatC - (atmosphere(m.optAlt).tIsa - 273.15);
+        }
+        // Mean headwind over the track still to be flown. Sampled along the
+        // great circle to the destination rather than taken at the aircraft:
+        // a crossing can start with a 40 kt tailwind and finish fighting the
+        // other side of the same jet stream.
+        const headwindAheadKt = meanHeadwindAhead(field, pos, input, m, remaining);
+
         const flowKgH = now.kgPerHr;
-        const cruise = cruisePerformance(m, massNowKg, isaDevC);
+        const cruise = cruisePerformance(m, massNowKg, isaDevCruise);
         const enduranceHrs = cruise.flowKgH > 1 ? onboardKg / cruise.flowKgH : null;
         const rangeNm = (enduranceHrs != null) ? enduranceHrs * cruise.tasKt : null;
         // Specific range: how far the aeroplane travels per kilogram. This is
@@ -1016,7 +1269,7 @@
         // arrival — flown forward rather than extrapolated from a rate.
         let toDestKg = null, arrivalKg = null, reserveMin = null, status = null;
         if (isFinite(remaining) && remaining > 0) {
-            toDestKg = fuelToGo(m, massNowKg, altFt, remaining, isaDevC);
+            toDestKg = fuelToGo(m, massNowKg, altFt, remaining, isaDevCruise, headwindAheadKt);
             arrivalKg = onboardKg - toDestKg;
             const holdKgH = holdingFuelKg(m, zfwKg + Math.max(0, arrivalKg), 60);
             reserveMin = holdKgH > 1 ? (Math.max(0, arrivalKg) / holdKgH) * 60 : null;
@@ -1027,8 +1280,9 @@
         // ── Environmental figures ────────────────────────────────────────
         const co2Factor = m.fuelKgPerL === AVGAS_KG_PER_L ? CO2_PER_KG_AVGAS : CO2_PER_KG_JET;
         const co2Kg = usedKg * co2Factor;
-        const paxCount = (typeof input.paxFiled === 'number' && input.paxFiled > 0)
-            ? input.paxFiled : Math.round(m.pax * LOAD_FACTOR);
+        const paxCount = freighter ? 0
+            : ((typeof input.paxFiled === 'number' && input.paxFiled > 0)
+                ? input.paxFiled : Math.round(m.pax * LOAD_FACTOR));
         const flownNm = isFinite(flown) ? flown : 0;
         const perPaxPerKmG = (paxCount > 0 && flownNm > 1)
             ? (usedKg * 1000) / (paxCount * flownNm * 1.852) : null;
@@ -1040,11 +1294,21 @@
         if (plan.source === 'filed') notes.push('Block fuel from the filed dispatch plan');
         else { score -= 12; notes.push('Block fuel modelled from a standard mission profile'); }
         if (payloadSource === 'filed') notes.push('Payload from the filed passenger count');
+        else if (payloadSource === 'freighter') { score -= 6; notes.push('Freighter livery — payload modelled as cargo'); }
         else { score -= 8; notes.push('Payload assumed at a ' + Math.round(LOAD_FACTOR * 100) + '% load factor'); }
         if (usedSource === 'route-scaled') { score -= 25; notes.push('No position history yet — burn scaled from route progress'); }
         else if (trail.samples < 20) { score -= 15; notes.push('Short position history (' + trail.samples + ' points)'); }
         if (trail.gapMinutes > 5) { score -= Math.min(20, trail.gapMinutes / 3); notes.push(Math.round(trail.gapMinutes) + ' min of gaps in the tracked path'); }
-        if (!wind) { score -= 6; notes.push('No wind sample — true airspeed assumed equal to ground speed'); }
+        if (wxSource === 'aloft') {
+            const pct = Math.round(trail.wxCoverage * 100);
+            notes.push('Winds and temperatures aloft from the forecast model'
+                + (pct > 0 && pct < 99 ? ' (' + pct + '% of the path)' : ''));
+            if (trail.wxCoverage < 0.8) score -= 4;
+        } else if (wxSource === 'surface') {
+            score -= 8; notes.push('Only surface weather available — winds aloft unknown');
+        } else {
+            score -= 12; notes.push('No weather data — standard atmosphere and still air assumed');
+        }
         if (!haveRoute) { score -= 10; notes.push('No flight plan — route length assumed'); }
         if (trail.legs > 1) notes.push(trail.legs + ' legs detected; figures are for the current leg');
         score = Math.max(5, Math.min(99, Math.round(score)));
@@ -1058,7 +1322,17 @@
                 input: resolved.input, kind: m.kind, engines: m.eng,
                 capacityKg: m.maxFuel, mtowKg: m.mtow, oewKg: m.oew
             },
-            mass: { zfwKg, payloadKg, payloadSource, currentKg: massNowKg, mtowKg: m.mtow },
+            mass: { zfwKg, payloadKg, payloadSource, freighter, currentKg: massNowKg, mtowKg: m.mtow },
+            weather: {
+                source: wxSource,
+                pathCoverage: trail.wxCoverage,
+                oatC: wxNow ? wxNow.oatC : (isFinite(input.oatC) ? input.oatC : null),
+                windDirDeg: wind ? wind.dirDeg : null,
+                windSpdKt: wind ? wind.spdKt : null,
+                headwindAheadKt, routeHeadwindKt,
+                isaDevC: isaDevC != null ? isaDevC : null,
+                isaDevCruiseC: isaDevCruise != null ? isaDevCruise : null
+            },
             block: { kg: blockKg, source: plan.source, tripKg: plan.tripKg, pctOfCapacity: (blockKg / m.maxFuel) * 100 },
             used: {
                 kg: usedKg, journeyKg, source: usedSource,
@@ -1243,7 +1517,7 @@
                    res.aircraft.engines > 1 ? fmtMass(res.flow.kgPerHrPerEngine, unit) + ' per engine' : res.flow.mode)
             + tile('Endurance', fmtHrs(res.performance.enduranceHrs),
                    res.performance.rangeNm != null
-                       ? Math.round(res.performance.rangeNm).toLocaleString() + ' nm at cruise burn'
+                       ? Math.round(res.performance.rangeNm).toLocaleString() + ' nm at cruise'
                        : 'At cruise burn')
             + (compact ? '' : tile('Specific range',
                    res.performance.specificRangeNmPerKg != null
@@ -1266,9 +1540,25 @@
                     : ''),
                 arrColor);
         }
+        if (res.weather && res.weather.source === 'aloft' && res.arrival.toDestKg != null) {
+            const hw = res.weather.headwindAheadKt;
+            const mag = Math.abs(Math.round(hw));
+            html += row('Wind ahead',
+                mag < 3 ? 'calm'
+                    : `${mag}<span style="font-size:9.5px;color:${DIM};font-weight:500;margin-left:3px;">kt ${hw > 0 ? 'head' : 'tail'}</span>`,
+                mag < 3 ? TXT : (hw > 0 ? WARN_C : OK_C));
+        }
         html += row('Cruise burn per nautical mile',
             res.performance.burnPerNmKg != null ? fmtNum(unit === 'lb' ? res.performance.burnPerNmKg * KG_TO_LB : res.performance.burnPerNmKg, 1) + unitTag(U + '/nm') : '—');
         if (!compact) {
+            if (res.weather && res.weather.source === 'aloft' && res.weather.oatC != null) {
+                const dev = res.weather.isaDevC;
+                html += row('Outside air temperature',
+                    `${Math.round(res.weather.oatC)}<span style="font-size:9.5px;color:${DIM};font-weight:500;margin-left:3px;">°C</span>`
+                    + (dev != null && Math.abs(dev) >= 1
+                        ? `<span style="color:${DIM};font-size:10.5px;margin-left:6px;">ISA ${dev > 0 ? '+' : '−'}${Math.abs(Math.round(dev))}</span>`
+                        : ''));
+            }
             html += row('Zero-fuel weight', fmtMass(res.mass.zfwKg, unit) + unitTag(U));
             html += row('Current weight',
                 fmtMass(res.mass.currentKg, unit) + unitTag(U)
@@ -1279,6 +1569,8 @@
         if (res.environment.perPaxPerKmG != null && res.environment.paxCount > 0) {
             html += row(`Per passenger (${res.environment.paxCount})`,
                 fmtNum(res.environment.perPaxPerKmG, 1) + unitTag('g/pax·km'));
+        } else if (res.mass.freighter && !compact) {
+            html += row('Freight carried', fmtMass(res.mass.payloadKg, unit) + unitTag(U));
         }
         html += '</div>';
 
