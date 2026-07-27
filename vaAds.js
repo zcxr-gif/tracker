@@ -365,10 +365,18 @@
                 : []);
         return {
             id: ad.id || ad._id || '',
-            // The VA's crew center address (/crew/<slug>). Present on approved
-            // ads that have one configured; null otherwise, and we never guess
-            // one from the callsign — a VA with a custom slug would 404.
+            // The VA's crew center address (/crew/<slug>), or null when it has
+            // no crew center. We never guess one from the callsign — a VA with a
+            // custom slug would 404.
+            //
+            // A crew center is opt-in: a VA can hold an address without staff
+            // having opened one, so the handle alone no longer means it exists.
+            // VAs predating the flag are grandfathered on the old rule (a
+            // handle meant a live center), matching crewCenterOpen() server-side.
             slug: (() => {
+                const enabled = ad.crewCenterEnabled;
+                const open = (enabled === undefined || enabled === null) ? !!ad.slug : enabled === true;
+                if (!open) return null;
                 const s = String(ad.slug || '').trim().toLowerCase();
                 return /^[a-z0-9][a-z0-9._-]{0,80}$/.test(s) ? s : null;
             })(),
