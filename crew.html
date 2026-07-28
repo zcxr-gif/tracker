@@ -273,7 +273,16 @@
                 // inside the app's overlay. Harmless if that page doesn't read it
                 // yet — it just keeps the flag alive for when it does.
                 const embedQS = document.body.classList.contains('embed') ? '&embed=1' : '';
-                location.href = (data.view==='pilot'?'crew-pilot.html':'crew-dashboard.html') + `?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
+                // LEADING SLASH IS LOAD-BEARING. This document is served at
+                // /crew/<slug> (a 200 rewrite — the path stays), so a bare
+                // "crew-dashboard.html" resolves against the /crew/ directory
+                // and lands on /crew/crew-dashboard.html. That still matches
+                // the /crew/* rewrite, so the browser is handed THIS page back
+                // and getSlug() reads the slug as "crew-dashboard.html" —
+                // which the backend has no VA for. The pilot signs in
+                // successfully and is told the crew center doesn't exist.
+                const page = data.view==='pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+                location.href = `/${page}?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
             }catch{ note.textContent='Could not reach the server. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; }
         }
 
