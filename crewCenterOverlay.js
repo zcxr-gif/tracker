@@ -11,14 +11,35 @@
  * free to evolve on its own; individual screens can be ported later without
  * touching this shell.
  *
- * Same-origin matters. Because /crew/<slug> is served from this origin, the
- * framed page shares localStorage with the host — which is what will later let
- * the host hand it a session (`crew:session:<slug>`) instead of prompting for a
- * second login. This module deliberately does none of that yet; it is purely
- * presentational, so it can ship and be judged on feel before any auth work.
+ * Same-origin is what makes the rest of this work. Because /crew/<slug> is
+ * served from this origin, the framed page shares localStorage with the host,
+ * so the overlay can read `crew:session:<slug>` and open a pilot straight onto
+ * their dashboard instead of asking them to sign in a second time — and the two
+ * can talk over postMessage without a cross-origin handshake.
+ *
+ * ---------------------------------------------------------------------------
+ * The bridge
+ *
+ * Framed crew pages load crewBridge.js, which speaks this protocol. Everything
+ * is namespaced and both directions are checked against location.origin, so
+ * nothing but our own crew pages can drive the app.
+ *
+ *   frame → host    inflight:crew:ready              announce; host replies hello
+ *                   inflight:crew:close              close the overlay
+ *                   inflight:crew:flight  {callsign} find that flight, fly to it
+ *                   inflight:crew:airport {icao}     focus that airport
+ *                   inflight:crew:title   {title}    label the dialog
+ *
+ *   host  → frame   inflight:host:hello   {theme,app} initial state
+ *                   inflight:crew:theme   {theme}     host flipped light/dark
+ *
+ * A crew page that hasn't loaded the bridge simply never sends anything, and
+ * the overlay behaves exactly as it did before.
+ * ---------------------------------------------------------------------------
  *
  * Usage:
  *   CrewCenterOverlay.open('british-airways');
+ *   CrewCenterOverlay.open('aeromexico-virtual', { path: 'join' });
  *   CrewCenterOverlay.close();
  */
 
@@ -29,15 +50,174 @@ const STYLE_ID = 'crew-center-overlay-styles';
 // interpolated into a URL.
 const SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
 
+// Sub-pages the overlay can be pointed at directly, mapped to their route.
+// Anything not in here falls back to the crew center entry point.
+const PATHS = {
+    join: (slug) => `/crew/${encodeURIComponent(slug)}/join`,
+    status: (slug) => `/crew/${encodeURIComponent(slug)}/status`,
+};
+
+// How long a stored crew session is trusted for before we send the pilot back
+// through the login. The backend signs crew tokens for 7 days; staying a little
+// under that means a deep link doesn't land on a dashboard whose token expires
+// mid-session.
+const SESSION_MAX_AGE = 6 * 24 * 60 * 60 * 1000;
+
 export const CrewCenterOverlay = {
     _layer: null,
     _frame: null,
     _isOpen: false,
     _lastFocus: null,
     _onKeydown: null,
+    _onMessage: null,
     _prevBodyOverflow: '',
+    _slug: '',
 
     isOpen() { return this._isOpen; },
+
+    // ---- Session handoff --------------------------------------------------
+    /**
+     * The stored crew session for a slug, if it still looks usable.
+     *
+     * crew.html writes this on a successful login. Because the crew pages are
+     * same-origin with the app, we can read it here and skip a login the pilot
+     * has already done. A malformed or aged-out entry returns null and the
+     * pilot simply gets the login page — the failure mode is the old behaviour.
+     */
+    _session(slug) {
+        let raw = null;
+        try { raw = localStorage.getItem('crew:session:' + slug); } catch (_) { return null; }
+        if (!raw) return null;
+        let s;
+        try { s = JSON.parse(raw); } catch (_) { return null; }
+        if (!s || !s.token || !s.view) return null;
+        if (!s.at || Date.now() - s.at > SESSION_MAX_AGE) return null;
+        return s;
+    },
+
+    /**
+     * Where to point the frame. An explicit sub-page wins; otherwise a live
+     * session goes straight to the right dashboard and everything else lands on
+     * the login.
+     */
+    _entryUrl(slug, opts) {
+        const path = opts && opts.path;
+        if (path && PATHS[path]) return `${PATHS[path](slug)}?embed=1`;
+
+        const session = this._session(slug);
+        if (session) {
+            const page = session.view === 'pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+            return `/${page}?va=${encodeURIComponent(slug)}&embed=1`;
+        }
+        return `/crew/${encodeURIComponent(slug)}?embed=1`;
+    },
+
+    // ---- Theme ------------------------------------------------------------
+    // The app stores its light/dark choice under 'pui-theme' (see landingUI /
+    // MobileDashboardUI). Anything unrecognised falls back to the OS preference
+    // so the framed page is never left guessing.
+    _hostTheme() {
+        let stored = null;
+        try { stored = localStorage.getItem('pui-theme'); } catch (_) {}
+        if (stored === 'dark' || stored === 'light') return stored;
+        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+            ? 'dark' : 'light';
+    },
+
+    _send(message) {
+        if (!this._frame || !this._frame.contentWindow) return;
+        try { this._frame.contentWindow.postMessage(message, window.location.origin); } catch (_) {}
+    },
+
+    /** Push the host's current theme into the frame. */
+    syncTheme() {
+        this._send({ type: 'inflight:crew:theme', theme: this._hostTheme() });
+    },
+
+    // ---- Bridge -----------------------------------------------------------
+    _handleMessage(e) {
+        if (!this._isOpen) return;
+        // Same-origin only, and only from the frame we opened. Both checks
+        // matter: origin alone would let any same-origin frame drive the app.
+        if (e.origin !== window.location.origin) return;
+        if (!this._frame || e.source !== this._frame.contentWindow) return;
+
+        const msg = e.data;
+        if (!msg || typeof msg.type !== 'string' || !msg.type.startsWith('inflight:crew:')) return;
+
+        switch (msg.type) {
+            case 'inflight:crew:ready':
+                this._send({ type: 'inflight:host:hello', app: 'inflight-tracker', theme: this._hostTheme() });
+                break;
+
+            case 'inflight:crew:close':
+                this.close();
+                break;
+
+            case 'inflight:crew:title': {
+                const t = typeof msg.title === 'string' ? msg.title.slice(0, 120) : '';
+                if (t && this._layer) this._layer.setAttribute('aria-label', t);
+                break;
+            }
+
+            case 'inflight:crew:flight':
+                this._showFlight(msg.callsign);
+                break;
+
+            case 'inflight:crew:airport':
+                this._showAirport(msg.icao);
+                break;
+        }
+    },
+
+    /**
+     * Find a live flight by callsign and fly the map to it.
+     *
+     * The crew center only ever knows a callsign — the tracker's internal
+     * flight id is not something it can hold — so this resolves through the
+     * app's own search before handing off to the normal selection path.
+     */
+    _showFlight(callsign) {
+        const q = String(callsign || '').trim();
+        if (!q || typeof window.runGlobalSearch !== 'function') return;
+
+        let hit = null;
+        try {
+            const results = window.runGlobalSearch(q);
+            hit = results && Array.isArray(results.flights) ? results.flights[0] : null;
+        } catch (_) { return; }
+        if (!hit || !hit.feature) return;
+
+        const props = hit.feature.properties || {};
+        const coords = (hit.feature.geometry && hit.feature.geometry.coordinates) || [];
+        const lon = Number(coords[0]), lat = Number(coords[1]);
+        if (!props.flightId || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+        this.close();
+        // After the closing transition, so the map isn't animating behind a
+        // fading overlay.
+        setTimeout(() => {
+            if (typeof window.onSearchResultClick === 'function') {
+                window.onSearchResultClick(props.flightId, lat, lon);
+            }
+        }, 260);
+    },
+
+    _showAirport(icao) {
+        const code = String(icao || '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{3,4}$/.test(code)) return;
+        if (typeof window.getAirportCoords !== 'function') return;
+
+        const c = window.getAirportCoords(code);
+        if (!c) return;
+
+        this.close();
+        setTimeout(() => {
+            if (typeof window.onAirportSearchResultClick === 'function') {
+                window.onAirportSearchResultClick({ icao: code, lat: c.lat, lon: c.lon });
+            }
+        }, 260);
+    },
 
     _injectStyles() {
         if (document.getElementById(STYLE_ID)) return;
@@ -148,15 +328,26 @@ export const CrewCenterOverlay = {
             this._frame.classList.add('cco-loaded');
             const sp = this._layer.querySelector('.cco-spinner');
             if (sp) sp.classList.add('cco-hidden');
+            // Push the theme without waiting to be asked. A crew page running
+            // crewBridge.js also announces itself, but this covers the ordering
+            // where the frame is ready before its script has run.
+            this.syncTheme();
         });
+
+        // One listener for the life of the overlay; _handleMessage ignores
+        // anything that isn't from the current frame.
+        this._onMessage = (e) => this._handleMessage(e);
+        window.addEventListener('message', this._onMessage);
     },
 
     /**
      * Open the Crew Center for a VA slug.
-     * @param {string} slug  the VA slug from /crew/<slug>
+     * @param {string} slug          the VA slug from /crew/<slug>
+     * @param {object} [opts]
+     * @param {string} [opts.path]   'join' | 'status' — open a sub-page directly
      * @returns {boolean} whether the overlay opened
      */
-    open(slug) {
+    open(slug, opts) {
         const clean = String(slug || '').trim();
         if (!SLUG_RE.test(clean)) {
             console.warn('[CrewCenterOverlay] refusing to open an invalid slug:', slug);
@@ -164,13 +355,15 @@ export const CrewCenterOverlay = {
         }
 
         this._build();
+        this._slug = clean;
 
         // Reset the loading state on every open — the frame is reused, so a
         // second open would otherwise show the previous VA until it swaps.
         const sp = this._layer.querySelector('.cco-spinner');
         if (sp) sp.classList.remove('cco-hidden');
         this._frame.classList.remove('cco-loaded');
-        this._frame.src = `/crew/${encodeURIComponent(clean)}?embed=1`;
+        this._layer.setAttribute('aria-label', 'Crew Center');
+        this._frame.src = this._entryUrl(clean, opts);
 
         this._lastFocus = document.activeElement;
         this._prevBodyOverflow = document.body.style.overflow;

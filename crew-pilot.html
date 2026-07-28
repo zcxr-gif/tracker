@@ -7,6 +7,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
+         for a VA that hasn't configured a theme. -->
+    <script src="/crewBrand.js"></script>
+    <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
+    <script src="/crewBridge.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -366,11 +371,14 @@
         function applyBranding(b){
             if(!b) return;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            // The VA's full design system, when it has one.
+            if(window.CrewBrand) CrewBrand.apply(b);
             const name=b.name||b.code||'';
             if(name){
                 document.getElementById('navName').textContent=name;
                 document.getElementById('trustName').textContent=`${name}’s`;
                 document.title=`${name} · Crew Center — Inflight`;
+                if(window.CrewBridge) CrewBridge.setTitle(`${name} Crew Center`);
                 document.getElementById('navMonogram').textContent=initials(name,b.code);
             }
             if(b.code){ CREW_CODE=b.code; const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden'); }
@@ -404,6 +412,8 @@
             applyBranding(b);
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
             applyEmbeds();                   // hero map / banner per layout
+            // The hero map is themed by URL, so re-source it if a host flips us.
+            if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
         })();

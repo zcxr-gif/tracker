@@ -7,6 +7,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
+         for a VA that hasn't configured a theme. -->
+    <script src="/crewBrand.js"></script>
+    <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
+    <script src="/crewBridge.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         :root{
@@ -1451,6 +1456,17 @@
 
         // ---- Route network ----
         let ROUTES=[], ROUTE_EDITING=null, ROUTES_CANMANAGE=false;
+        // A route's airports are a handoff point: the crew center knows the ICAO,
+        // the app knows where it is. crewBridge picks these up by attribute and
+        // either asks the host to fly there (framed in the app) or opens the
+        // tracker on it (standalone tab). Plain text if the code looks wrong.
+        function airportChipHtml(icao){
+            const code=String(icao||'').trim().toUpperCase();
+            if(!/^[A-Z0-9]{3,4}$/.test(code)) return `<span class="font-semibold tracking-tight">—</span>`;
+            return `<button type="button" data-map-airport="${escapeHtml(code)}"
+                title="Show ${escapeHtml(code)} on the map"
+                class="font-semibold tracking-tight hover:accent-text hover:underline underline-offset-2 transition-colors">${escapeHtml(code)}</button>`;
+        }
         function routeCardHtml(r){
             const dist=r.distanceNm?`<span class="text-xs muted">${Math.round(r.distanceNm)} nm</span>`:'';
             const ac=r.aircraft?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(r.aircraft)}</span>`:'';
@@ -1458,9 +1474,9 @@
             return `<div class="surface rounded-xl p-3.5 flex items-center gap-3 ${r.active?'':'opacity-60'}" data-rid="${r.id||''}">
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="font-semibold tracking-tight">${escapeHtml(r.origin||'—')}</span>
+                        ${airportChipHtml(r.origin)}
                         <i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i>
-                        <span class="font-semibold tracking-tight">${escapeHtml(r.destination||'—')}</span>
+                        ${airportChipHtml(r.destination)}
                         ${r.flightNumber?`<span class="text-xs faint">${escapeHtml(r.flightNumber)}</span>`:''}${draft}
                     </div>
                     <div class="flex items-center gap-1.5 flex-wrap mt-1">${ac}${dist}${r.notes?`<span class="text-xs muted truncate">${escapeHtml(r.notes)}</span>`:''}</div>
@@ -2314,6 +2330,11 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
             if(!slug||!token) return;   // preview: can() already returns true for everything
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                // An expired or revoked token has to send you back to the login,
+                // not leave you on a dashboard whose every call quietly fails.
+                // Reachable now that the app deep-links straight here when a
+                // stored session looks fresh (see crewCenterOverlay).
+                if(res.status===401||res.status===403){ logout(); return; }
                 if(!res.ok) return;
                 const d=await res.json();
                 IS_OWNER = !!(d.role==='owner' || d.oversight);
@@ -2475,6 +2496,9 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
         function applyBranding(b){
             if(!b) return;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            // The VA's full design system, when it has one. Applied before the
+            // rest so the page paints in brand colours on first frame.
+            if(window.CrewBrand) CrewBrand.apply(b);
             if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
                 ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
                 if(!ALLOWED.length) ALLOWED=['editorial'];
@@ -2493,6 +2517,9 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
                 document.getElementById('idName').textContent=name;
                 document.getElementById('trustName').textContent=`${name}’s`;
                 document.title=`${name} · Crew Center — Inflight`;
+                // Framed in the app: label the host dialog with the VA, so screen
+                // readers announce "British Airways Virtual Crew Center", not "Crew Center".
+                if(window.CrewBridge) CrewBridge.setTitle(`${name} Crew Center`);
                 document.getElementById('navMonogram').textContent=mono;
                 document.getElementById('idMonogram').textContent=mono;
             }
@@ -2527,6 +2554,9 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
             applyBranding(b);
             applyLayout(resolveLayout(b));
             applyEmbeds();
+            // A host (the app's overlay, or a VA site framing us) can flip
+            // light/dark on us; the live map is themed by URL, so re-source it.
+            if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });
             await loadMe();                 // fresh capabilities + (owner) staff-role config
             applyOwnerState();
             renderSwatches(); syncAccentPicker();

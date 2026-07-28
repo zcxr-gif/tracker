@@ -7,6 +7,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
+         for a VA that hasn't configured a theme. -->
+    <script src="/crewBrand.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -383,6 +386,9 @@
         // ---- Branding + config ----
         function applyBranding(b){
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            // The VA's full design system, when it has one. Matters most here:
+            // this form is usually framed inside the VA's own website.
+            if(window.CrewBrand) CrewBrand.apply(b);
             VA={ name:b.name||b.code||'', code:b.code||'' };
             const mono=initials(VA.name, VA.code);
             document.getElementById('mono').textContent=mono;
@@ -407,6 +413,10 @@
             }
             buildSteps(); cur=0; renderStep();
             addEventListener('resize', postHeight);
+            // A brand typeface arrives after first paint and reflows the form,
+            // so re-post the height once it lands or the host frame stays short.
+            if(document.fonts && document.fonts.ready) document.fonts.ready.then(postHeight).catch(()=>{});
+            if(window.CrewBrand) CrewBrand.onMode(postHeight);
         })();
     </script>
 </body>
