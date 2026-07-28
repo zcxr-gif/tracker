@@ -174,9 +174,9 @@
             <span class="w-9 h-9 rounded-lg accent-bg text-white grid place-items-center shrink-0"><i data-lucide="database" class="w-5 h-5"></i></span>
             <div class="flex-1 min-w-0">
                 <div class="text-sm font-semibold">Finish setting up your crew center</div>
-                <div class="text-xs muted">Connect your VA’s own Supabase so your crew, flights and events have a home.</div>
+                <div class="text-xs muted">Your crew, flights and pilot logins need a home in your VA’s own database. Paste one Supabase token and we’ll set it up — about a minute.</div>
             </div>
-            <button onclick="openSettings()" class="accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition shrink-0">Connect data</button>
+            <button onclick="openSettings('data')" class="accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition shrink-0">Set it up</button>
         </div>
 
         <div id="grid" class="crew-grid fade-in">
@@ -512,35 +512,88 @@
                 <div id="dataSection">
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2 flex items-center gap-2">Your data · Supabase
                         <span id="supaStatus" class="normal-case tracking-normal"></span></h3>
-                    <p class="text-xs muted mb-3">Your crew data lives in <b>your</b> Supabase project, not ours — roster, hours, flight reports, applications and applicant emails. All Inflight stores is your staff logins and your crew center’s branding. Leave the platform and you keep everything, because we never held it.</p>
-                    <div class="space-y-2.5">
-                        <input id="supaUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"
-                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <input id="supaAnon" type="text" placeholder="anon public key (eyJ…)" autocomplete="off" spellcheck="false"
-                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <input id="supaService" type="password" placeholder="service_role key — optional, secret" autocomplete="off" spellcheck="false"
-                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <div class="flex gap-2">
-                            <button onclick="testSupabase()" class="flex-1 surface hair rounded-lg py-2.5 text-sm font-semibold hover:border-[var(--ink)] transition">Test</button>
-                            <button onclick="saveSupabase()" class="flex-1 accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                    <p class="text-xs muted mb-3">Your crew data lives in <b>your</b> Supabase project, not ours — roster, hours, flight reports, applications, applicant emails and <b>your pilots’ logins</b>. All Inflight stores is your own staff logins and your crew center’s branding. Leave the platform and you keep everything, because we never held it.</p>
+
+                    <!-- ---------------------------------------------------------
+                         GUIDED SETUP
+                         Paste one access token; we install the tables, read the
+                         keys back and connect it. The manual route below still
+                         exists for anyone who would rather do it by hand — but it
+                         is no longer the first thing anyone meets.
+                    ---------------------------------------------------------- -->
+                    <div id="wizard" class="rounded-xl hair surface p-4">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2"><i data-lucide="wand-sparkles" class="w-4 h-4 accent-text"></i> Set it up for me</div>
+                        <p class="text-xs muted mb-3">Paste a Supabase access token and we’ll do the rest — create or pick a project, install the tables, and connect it. Takes about a minute.</p>
+
+                        <!-- Step 1: the token -->
+                        <div id="wizStep1" class="space-y-2.5">
+                            <ol class="text-xs muted space-y-1 mb-1 list-decimal list-inside">
+                                <li>Sign in at <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" class="accent-text font-medium">supabase.com</a> (free plan is fine).</li>
+                                <li>Open <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener" class="accent-text font-medium">Account → Access tokens</a> and generate one.</li>
+                                <li>Paste it here.</li>
+                            </ol>
+                            <input id="wizToken" type="password" placeholder="sbp_…" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <p class="text-[11px] faint leading-relaxed">This token can manage your whole Supabase account, so we use it for this setup only — it is never saved, never logged, and never leaves this request. Delete it in Supabase once you’re done here.</p>
+                            <button id="wizFindBtn" onclick="wizardFindProjects()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="search" class="w-4 h-4"></i> Find my projects</button>
                         </div>
-                        <p id="supaNote" class="hidden text-sm"></p>
+
+                        <!-- Step 2: which project -->
+                        <div id="wizStep2" class="hidden space-y-2.5">
+                            <div class="text-xs font-semibold uppercase tracking-wider faint">Which project?</div>
+                            <div id="wizProjects" class="space-y-1.5 max-h-56 overflow-auto"></div>
+                            <div id="wizCreate" class="hidden space-y-2 pt-1">
+                                <input id="wizNewName" type="text" placeholder="Project name" maxlength="60"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2">
+                                    <select id="wizOrg" class="flex-1 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]"></select>
+                                    <select id="wizRegion" class="flex-1 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]"></select>
+                                </div>
+                                <p class="text-[11px] faint">Pick the region closest to most of your pilots.</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="wizardReset()" class="surface hair rounded-lg px-3 py-2.5 text-sm font-semibold hover:border-[var(--ink)] transition">Back</button>
+                                <button id="wizGoBtn" onclick="wizardProvision()" class="flex-1 accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="database-zap" class="w-4 h-4"></i> Set up my database</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: progress -->
+                        <div id="wizProgress" class="hidden">
+                            <div id="wizSteps" class="space-y-1.5 text-sm"></div>
+                            <button id="wizDoneBtn" onclick="wizardReset()" class="hidden mt-3 w-full surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Done</button>
+                        </div>
+                        <p id="wizNote" class="hidden text-sm mt-2"></p>
                     </div>
 
-                    <!-- One-click database setup -->
-                    <div class="mt-4 pt-4 border-t hair-soft">
-                        <div class="text-sm font-semibold mb-1">Set up your tables</div>
-                        <p class="text-xs muted mb-2.5">One time: copy the script, open your SQL editor, paste and Run. Safe to run again anytime.</p>
-                        <div class="flex flex-wrap gap-2">
-                            <button onclick="copySetupSql()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-4 h-4"></i> Copy setup SQL</button>
+                    <!-- Manual route -->
+                    <details id="manualSetup" class="mt-4 rounded-xl hair surface">
+                        <summary class="cursor-pointer text-sm font-semibold px-4 py-3 select-none">I’ll do it myself</summary>
+                        <div class="px-4 pb-4">
+                        <p class="text-xs muted mb-2.5">Create a project, run the SQL below in its SQL editor, then paste the three values from Settings → API.</p>
+                        <div class="flex flex-wrap gap-2 mb-3">
+                            <button onclick="copySetupSql()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-4 h-4"></i> Copy setup SQL</button>
                             <a id="supaSqlEditor" href="https://supabase.com/dashboard" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open SQL editor</a>
                         </div>
-                        <div class="flex items-center gap-2 mt-2">
+                        <div class="space-y-2.5">
+                            <input id="supaUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <input id="supaAnon" type="text" placeholder="anon public key (eyJ…)" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <input id="supaService" type="password" placeholder="service_role key — secret" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <div class="flex gap-2">
+                                <button onclick="testSupabase()" class="flex-1 surface hair rounded-lg py-2.5 text-sm font-semibold hover:border-[var(--ink)] transition">Test</button>
+                                <button onclick="saveSupabase()" class="flex-1 accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save</button>
+                            </div>
+                            <p id="supaNote" class="hidden text-sm"></p>
+                        </div>
+                        <div class="flex items-center gap-2 mt-3">
                             <button onclick="checkSetup()" class="text-xs muted hover:text-[var(--ink)] font-medium inline-flex items-center gap-1"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Check setup</button>
                             <span id="setupCheck" class="text-xs"></span>
                         </div>
                         <details class="mt-2"><summary class="text-xs muted cursor-pointer">View SQL</summary><pre id="sqlView" class="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap surface hair rounded-lg p-3 max-h-52 overflow-auto"></pre></details>
-                    </div>
+                        </div>
+                    </details>
 
                     <!-- Move data into Supabase -->
                     <div class="mt-4 pt-4 border-t hair-soft">
@@ -911,10 +964,13 @@
             document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
             document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
         }
-        function openSettings(){
+        // `cat` lands the panel on a specific tab — the onboarding nudge sends
+        // an owner straight to Data store, since that is the whole point of it.
+        function openSettings(cat){
             const s=document.getElementById('settings');
             s.classList.remove('hidden');
-            if(!document.querySelector('.settings-tab.active')) setCat('appearance');
+            if(cat) setCat(cat);
+            else if(!document.querySelector('.settings-tab.active')) setCat('appearance');
             requestAnimationFrame(()=>s.querySelector('.panel').classList.remove('translate-x-full'));
             if(window.lucide) lucide.createIcons();
         }
@@ -2147,9 +2203,14 @@
                     <label class="flex items-start gap-2 text-sm cursor-pointer">
                         <input data-mkacct type="checkbox" checked class="mt-0.5 accent-[var(--accent)]">
                         <span>Create a crew center login
-                            <span class="block text-xs muted">A temporary password is generated. ${a.email?'It is emailed to them, and shown here once.':'They gave no email, so it is shown here once — pass it on.'}</span>
+                            <span class="block text-xs muted">A one-time password is generated and they’re asked to replace it on first sign-in. ${a.email?'It is emailed to them with a sign-in link, and shown here once.':'They gave no email, so it is shown here once — or add an address below and we’ll send it.'}</span>
                         </span>
                     </label>
+                    ${a.email?'':`<div>
+                        <input data-email type="email" placeholder="Their email — optional, so we can send the sign-in details"
+                            class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <div class="text-xs muted mt-1">Left blank, the password appears here once and you pass it on yourself.</div>
+                    </div>`}
                     <div>
                         <input data-invite type="url" value="${escapeHtml(JOIN.discordInvite||'')}" placeholder="https://discord.gg/…"
                             class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
@@ -2173,11 +2234,17 @@
                 : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
             if(window.lucide) lucide.createIcons();
         }
+        // The VA's name as the page is currently showing it, for text a staff
+        // member is about to send a pilot.
+        function vaDisplayName(){
+            const n=(document.getElementById('idName')||{}).textContent||'';
+            return n.trim()||'crew center';
+        }
         // Replace a reviewed card with the handover panel. Shown INSTEAD of
         // fading the card out, because the password below is the only copy that
-        // will ever exist — nothing stores it (see provisionPilotAccount), so
-        // dismissing this is the point of no return. The staff member has to
-        // close it themselves.
+        // will ever exist — nothing stores it, here or in the VA's own project
+        // (see crewAccounts.provisionPilotAccount) — so dismissing this is the
+        // point of no return. The staff member has to close it themselves.
         function renderHandover(card, name, d){
             const acct=d.account||null;
             const rows=[];
@@ -2186,8 +2253,15 @@
                     <div class="text-[11px] uppercase tracking-wide faint">Crew center login</div>
                     <div class="font-mono text-sm mt-1 select-all">${escapeHtml(acct.username)}</div>
                     <div class="font-mono text-sm select-all">${escapeHtml(acct.password)}</div>
-                    <button data-copy-cred class="mt-2 surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy</button>
-                    <div class="text-xs mt-2 text-amber-600 dark:text-amber-400">This password is shown once and is not stored anywhere. ${d.emailed?'It has also been emailed to them.':'Send it to the pilot now.'}</div>
+                    ${d.signInUrl?`<div class="text-xs muted mt-1 break-all">Sign in at <span class="font-mono">${escapeHtml(d.signInUrl)}</span></div>`:''}
+                    <button data-copy-cred data-cred="${escapeHtml([
+                        `Your ${vaDisplayName()} sign-in`,
+                        d.signInUrl?`Sign in: ${d.signInUrl}`:'',
+                        `Username: ${acct.username}`,
+                        `One-time password: ${acct.password}`,
+                        'You’ll be asked to choose your own password when you first sign in.',
+                    ].filter(Boolean).join('\n'))}" class="mt-2 surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy for the pilot</button>
+                    <div class="text-xs mt-2 text-amber-600 dark:text-amber-400">This password is shown once, is not stored anywhere, and they’ll be asked to replace it when they first sign in. ${d.emailed?`It has also been emailed to ${escapeHtml(d.email||'them')} with a sign-in link.`:'Send it to the pilot now.'}</div>
                 </div>`);
             } else if(acct && acct.error){
                 rows.push(`<div class="mt-2 text-sm text-amber-600 dark:text-amber-400">${escapeHtml(acct.error)}</div>`);
@@ -2218,6 +2292,10 @@
             if(action==='accept'){
                 body.createAccount = !!(card.querySelector('[data-mkacct]')||{}).checked;
                 body.discordInvite = ((card.querySelector('[data-invite]')||{}).value||'').trim();
+                // Only present when the applicant left no address; the backend
+                // refuses to overwrite one they gave themselves.
+                const typed=((card.querySelector('[data-email]')||{}).value||'').trim();
+                if(typed) body.email = typed;
             }
             const fail=(msg)=>{
                 if(note){ note.textContent=msg; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); }
@@ -2248,11 +2326,12 @@
             else if(e.target.closest('[data-decline]')) reviewApp(card.getAttribute('data-app'),'decline',card);
             else if(e.target.closest('[data-dismiss]')) renderApps();
             else if(e.target.closest('[data-copy-cred]')){
-                // Copy both lines together — a username without its password is
-                // no use to whoever is being sent it.
-                const lines=[...card.querySelectorAll('.font-mono.select-all')].map(n=>n.textContent.trim());
+                // Copy a message the staff member can paste straight into a DM,
+                // not just the two values: where to sign in and the fact that
+                // the password is about to be replaced are part of what the
+                // pilot needs, and a username on its own is no use to anyone.
                 const btn=e.target.closest('[data-copy-cred]');
-                navigator.clipboard.writeText(lines.join('\n')).then(
+                navigator.clipboard.writeText(btn.getAttribute('data-cred')||'').then(
                     ()=>{ btn.innerHTML='<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied'; if(window.lucide) lucide.createIcons(); },
                     ()=>{ btn.innerHTML='<i data-lucide="x" class="w-3.5 h-3.5"></i> Select it manually'; if(window.lucide) lucide.createIcons(); });
             }
@@ -2364,6 +2443,190 @@
             say('✓ Tables found and writable — you’re set up.','ok');
         }
 
+        // ---- Guided setup ------------------------------------------------
+        //
+        // The manual route asks a volunteer airline manager to create a project,
+        // find the SQL editor, paste four hundred lines of DDL, then copy three
+        // values — one of them secret — into a different site without mixing up
+        // which is which. Two of those steps fail quietly: paste the anon key
+        // into the service_role box, or run the SQL against last year's project,
+        // and you get a crew center that looks connected and dies on the first
+        // write.
+        //
+        // So: the VA pastes one Supabase access token, picks a project, and the
+        // backend does all of it (POST /store/provision) — install the schema,
+        // read the keys back, store the connection, verify it end to end.
+        //
+        // THE TOKEN NEVER LEAVES THIS PAGE except in the two requests that need
+        // it, and the backend does not store it. It is held in a module-scoped
+        // variable rather than anywhere persistent, and wizardReset() clears it,
+        // so navigating away is enough to be rid of it.
+        let WIZ = { token:'', projects:[], orgs:[], regions:[], choice:'', polls:0 };
+
+        function wizNote(msg,kind){
+            const n=document.getElementById('wizNote');
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',error:'text-red-500',warn:'text-amber-600 dark:text-amber-400'}[kind]||'muted');
+            n.classList.toggle('hidden', !msg);
+        }
+        function wizShow(step){
+            document.getElementById('wizStep1').classList.toggle('hidden', step!==1);
+            document.getElementById('wizStep2').classList.toggle('hidden', step!==2);
+            document.getElementById('wizProgress').classList.toggle('hidden', step!==3);
+        }
+        function wizardReset(){
+            WIZ={ token:'', projects:[], orgs:[], regions:[], choice:'', polls:0 };
+            document.getElementById('wizToken').value='';
+            document.getElementById('wizProjects').innerHTML='';
+            document.getElementById('wizSteps').innerHTML='';
+            document.getElementById('wizDoneBtn').classList.add('hidden');
+            document.getElementById('wizCreate').classList.add('hidden');
+            wizNote('');
+            wizShow(1);
+        }
+        // A running checklist rather than a spinner: setting up a database is
+        // several distinct things and, when one of them fails, which one it was
+        // is the whole answer.
+        function wizStep(key,label,state){
+            const wrap=document.getElementById('wizSteps');
+            let row=wrap.querySelector(`[data-step="${key}"]`);
+            if(!row){ row=document.createElement('div'); row.dataset.step=key; row.className='flex items-center gap-2'; wrap.appendChild(row); }
+            const icon={ run:'<i data-lucide="loader-circle" class="w-4 h-4 animate-spin muted"></i>',
+                         ok:'<i data-lucide="check" class="w-4 h-4 text-emerald-500"></i>',
+                         bad:'<i data-lucide="x" class="w-4 h-4 text-red-500"></i>',
+                         wait:'<i data-lucide="circle" class="w-4 h-4 faint"></i>' }[state]||'';
+            row.innerHTML=`${icon}<span class="${state==='wait'?'faint':state==='bad'?'text-red-500':''}">${label}</span>`;
+            if(window.lucide) lucide.createIcons();
+        }
+        function wizBusy(id,busy,label){
+            const b=document.getElementById(id);
+            if(!b) return;
+            b.disabled=busy;
+            b.style.opacity=busy?'0.6':'';
+            if(busy) b.innerHTML=`<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> ${label}`;
+            if(window.lucide) lucide.createIcons();
+        }
+
+        async function wizardFindProjects(){
+            const token=document.getElementById('wizToken').value.trim();
+            const sess=sessionToken(), slug=getSlug();
+            if(!token){ wizNote('Paste your Supabase access token first.','warn'); return; }
+            if(!slug||!sess){ wizNote('Sign in as the VA owner to set this up.','warn'); return; }
+            wizNote('Looking at your Supabase account…');
+            const prev=document.getElementById('wizFindBtn').innerHTML;
+            wizBusy('wizFindBtn',true,'Looking…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/projects`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sess},
+                    body:JSON.stringify({ accessToken:token }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ wizNote(d.error||'Supabase wouldn’t answer for that token.','error'); return; }
+                WIZ.token=token; WIZ.projects=d.projects||[]; WIZ.orgs=d.organizations||[]; WIZ.regions=d.regions||[];
+                renderWizardProjects();
+                wizNote('');
+                wizShow(2);
+            }catch{ wizNote('Couldn’t reach Inflight. Try again in a moment.','error'); }
+            finally{ wizBusy('wizFindBtn',false); document.getElementById('wizFindBtn').innerHTML=prev; if(window.lucide) lucide.createIcons(); }
+        }
+
+        function renderWizardProjects(){
+            const wrap=document.getElementById('wizProjects');
+            const slug=getSlug()||'crew';
+            // Project names and regions come back from the VA's own Supabase
+            // account, so they are text we did not write — escaped on the way
+            // into innerHTML like every other value on this page.
+            const row=(value,title,sub,checked)=>`
+                <label class="flex items-start gap-2.5 p-2.5 rounded-lg hair surface cursor-pointer hover:border-[var(--ink)] transition">
+                    <input type="radio" name="wizPick" value="${escapeHtml(value)}" ${checked?'checked':''} onchange="wizardPick(this.value)" class="mt-0.5 accent-[var(--accent)]">
+                    <span class="min-w-0">
+                        <span class="block text-sm font-semibold truncate">${escapeHtml(title)}</span>
+                        <span class="block text-xs muted">${escapeHtml(sub)}</span>
+                    </span>
+                </label>`;
+            // Creating a fresh one is offered first, and pre-selected when the
+            // account has no projects — a VA that has just signed up for
+            // Supabase should not have to work out that the empty list means
+            // "make one".
+            const none=!WIZ.projects.length;
+            let html=row('__new__','Create a new project','We’ll make one just for this crew center', none);
+            for(const p of WIZ.projects){
+                html+=row(p.ref, p.name||p.ref, `${p.region||''}${p.ready?'':' · still starting up'}`.trim()||'—', false);
+            }
+            wrap.innerHTML=html;
+            document.getElementById('wizNewName').value=`${slug}-crew-center`.slice(0,60);
+            document.getElementById('wizOrg').innerHTML=WIZ.orgs.map(o=>`<option value="${escapeHtml(o.id)}">${escapeHtml(o.name||o.id)}</option>`).join('')
+                || '<option value="">No organization found</option>';
+            document.getElementById('wizRegion').innerHTML=WIZ.regions.map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.label)}</option>`).join('');
+            WIZ.choice = none ? '__new__' : '';
+            document.getElementById('wizCreate').classList.toggle('hidden', WIZ.choice!=='__new__');
+        }
+        function wizardPick(value){
+            WIZ.choice=value;
+            document.getElementById('wizCreate').classList.toggle('hidden', value!=='__new__');
+        }
+
+        async function wizardProvision(){
+            const sess=sessionToken(), slug=getSlug();
+            if(!WIZ.choice){ wizNote('Pick a project, or choose to create one.','warn'); return; }
+            wizShow(3);
+            wizNote('');
+            document.getElementById('wizSteps').innerHTML='';
+            wizStep('project', WIZ.choice==='__new__'?'Creating your project':'Opening your project','run');
+            wizStep('schema','Installing the crew center tables','wait');
+            wizStep('keys','Reading your project keys','wait');
+            wizStep('verify','Checking we can write to it','wait');
+
+            const body={ accessToken:WIZ.token };
+            if(WIZ.choice==='__new__'){
+                body.create={ name:document.getElementById('wizNewName').value.trim(),
+                              organizationId:document.getElementById('wizOrg').value,
+                              region:document.getElementById('wizRegion').value };
+            } else body.projectRef=WIZ.choice;
+
+            const fail=(msg)=>{ wizStep('project','Setup stopped','bad'); wizNote(msg,'error');
+                document.getElementById('wizDoneBtn').classList.remove('hidden'); };
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/provision`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sess},
+                    body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ fail(d.error||'Setup could not be completed.'); return; }
+
+                // Not up yet. A project Supabase has only just created takes a
+                // minute or two to boot, so keep the same token and ref and ask
+                // again rather than making the VA press anything.
+                if(!d.ready){
+                    WIZ.choice=d.projectRef||WIZ.choice;
+                    WIZ.polls++;
+                    if(WIZ.polls>40){ fail('Your project is taking unusually long to start. Open Settings → Data store again in a few minutes and we’ll pick up where we left off.'); return; }
+                    wizStep('project', d.message||'Waiting for Supabase to finish building your project','run');
+                    setTimeout(wizardProvision, 5000);
+                    return;
+                }
+
+                wizStep('project', d.created?'Project created':'Project opened','ok');
+                wizStep('schema','Crew center tables installed','ok');
+                wizStep('keys','Project keys read and stored','ok');
+                const h=d.health||{};
+                if(h.ok && h.provisioned){
+                    wizStep('verify','Verified — Inflight can read and write your project','ok');
+                    wizNote('You’re connected. Your crew, flights and pilot logins now live in your own database.','ok');
+                } else {
+                    wizStep('verify','Connected, but the check came back unhappy','bad');
+                    wizNote('The tables installed and the connection saved, but our write check didn’t pass. Try “Check setup” under “I’ll do it myself”.','warn');
+                }
+                document.getElementById('wizDoneBtn').classList.remove('hidden');
+
+                // The rest of the screen should now agree with reality.
+                SUPA={ ...SUPA, connected:true, url:d.url||SUPA.url, hasServiceKey:true, store:'supabase', health:h };
+                updateSupaStatus(); updateSqlEditorLink();
+                document.getElementById('onboard').classList.add('hidden');
+                refreshStoreState();
+                // Nothing needs the token from here on.
+                WIZ.token=''; document.getElementById('wizToken').value='';
+            }catch{ fail('Couldn’t reach Inflight. Try again in a moment.'); }
+        }
+
         // ---- Onboarding / Supabase (owner) ----
         function supaMsg(msg,kind){
             const n=document.getElementById('supaNote');
@@ -2426,7 +2689,13 @@
                 SUPA.store='supabase';
                 const m=d.moved||{};
                 let msg=`✓ Moved ${m.members||0} pilots, ${m.pireps||0} flights, ${m.routes||0} routes and ${m.applications||0} applications into your Supabase.`;
+                // Logins move as bcrypt hashes, so pilots keep signing in with
+                // the passwords they already have — worth saying, because "we
+                // moved your accounts" otherwise reads like everyone is about to
+                // be locked out.
+                if(m.accounts) msg+=` ${m.accounts} pilot login${m.accounts===1?'':'s'} came across too — their passwords still work.`;
                 if(m.skipped) msg+=` ${m.skipped} were already there.`;
+                if(d.accountsNote){ done(msg+' '+d.accountsNote,'warn'); await refreshStoreState(); return; }
 
                 if(purge){
                     const rel=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/legacy`,{ method:'DELETE', headers:auth });

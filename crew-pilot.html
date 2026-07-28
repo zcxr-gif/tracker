@@ -65,6 +65,39 @@
 </head>
 <body class="min-h-screen antialiased">
 
+    <!-- ============ FIRST SIGN-IN: CHOOSE YOUR OWN PASSWORD ============
+      The password a new pilot signs in with was generated for them and has been
+      handed over in the clear — in an email, or read out by the staff member who
+      accepted them. So the first thing this page does is take it out of
+      circulation.
+
+      Deliberately modal and not dismissible: there is no "later" that anyone
+      comes back from, and the account is only as private as the weakest copy of
+      that password. Signing out is the only way past it.
+
+      The change is written to the VA's OWN database (POST
+      /api/crew/<slug>/account/password) — like every other thing about a pilot,
+      their credentials are the VA's data and Inflight holds no copy.
+    -->
+    <div id="pwGate" class="hidden fixed inset-0 z-[60] grid place-items-center p-5" style="background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(6px);">
+        <div class="w-full max-w-sm surface rounded-2xl p-6 fade-in">
+            <div class="w-10 h-10 rounded-xl accent-bg text-white grid place-items-center mb-3"><i data-lucide="key-round" class="w-5 h-5"></i></div>
+            <h2 class="text-lg font-bold tracking-tight">Choose your password</h2>
+            <p class="text-sm muted mt-1 mb-4">You signed in with a one-time password. Pick your own now — the old one stops working the moment you do.</p>
+            <form id="pwForm" class="space-y-2.5" autocomplete="off">
+                <input id="pwCurrent" type="password" required autocomplete="current-password" placeholder="The password you were given"
+                    class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input id="pwNew" type="password" required autocomplete="new-password" minlength="8" placeholder="Your new password (8+ characters)"
+                    class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input id="pwConfirm" type="password" required autocomplete="new-password" minlength="8" placeholder="Type it again"
+                    class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <button id="pwSubmit" type="submit" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save and continue</button>
+                <p id="pwNote" class="hidden text-sm"></p>
+            </form>
+            <button onclick="logout()" class="w-full mt-2 text-xs muted hover:text-[var(--ink)] py-1">Sign out instead</button>
+        </div>
+    </div>
+
     <!--
       Crew Center — PILOT home LOOK-MOCK (the generic member view).
       Static + placeholder. What a regular crew member sees after sign-in: their
@@ -406,8 +439,73 @@
             const s=getSlug(); location.href = s ? `/crew/${encodeURIComponent(s)}` : '/crew';
         }
 
+        // ---- First sign-in: replace the one-time password ----
+        //
+        // The session's flag is only a hint for the first paint; the authority
+        // is the VA's own database, which /me reads on every load. That is what
+        // makes this survive a reload — a pilot cannot skip it by refreshing,
+        // and equally cannot be nagged forever by a stale local flag once they
+        // have actually changed it.
+        function storedSession(){
+            try{ return JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{ return null; }
+        }
+        function patchSession(patch){
+            const s=storedSession(); if(!s) return;
+            try{ localStorage.setItem('crew:session:'+getSlug(), JSON.stringify({...s,...patch})); }catch{}
+        }
+        function showPasswordGate(show){
+            document.getElementById('pwGate').classList.toggle('hidden', !show);
+            if(show){
+                document.body.style.overflow='hidden';
+                document.getElementById('pwCurrent').focus();
+                if(window.lucide) lucide.createIcons();
+            } else document.body.style.overflow='';
+        }
+        async function checkPasswordGate(){
+            const s=storedSession();
+            if(!s||!s.token) return;
+            if(s.mustChangePassword) showPasswordGate(true);   // paint it before the round trip
+            const slug=getSlug(); if(!slug) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+s.token} });
+                if(!res.ok) return;                     // an expired session is the login page's problem
+                const d=await res.json();
+                patchSession({ mustChangePassword:!!d.mustChangePassword, canChangePassword:!!d.canChangePassword });
+                showPasswordGate(!!d.mustChangePassword);
+            }catch{ /* offline: leave whatever the session said */ }
+        }
+        async function submitNewPassword(e){
+            e.preventDefault();
+            const note=document.getElementById('pwNote'), btn=document.getElementById('pwSubmit');
+            const say=(msg,tone)=>{
+                note.textContent=msg;
+                note.className='text-sm '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500'}[tone]||'muted');
+                note.classList.remove('hidden');
+            };
+            const current=document.getElementById('pwCurrent').value;
+            const next=document.getElementById('pwNew').value;
+            if(next!==document.getElementById('pwConfirm').value){ say('Those two don’t match.','bad'); return; }
+            const s=storedSession(), slug=getSlug();
+            if(!s||!s.token||!slug){ say('Your session has expired — sign in again.','bad'); return; }
+            const prev=btn.textContent; btn.disabled=true; btn.textContent='Saving…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/account/password`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+s.token},
+                    body:JSON.stringify({ currentPassword:current, newPassword:next }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ say(d.error||'That didn’t work.','bad'); return; }
+                patchSession({ mustChangePassword:false });
+                say('Saved — that’s your password from now on.','ok');
+                setTimeout(()=>showPasswordGate(false), 900);
+            }catch{ say('Couldn’t reach the server. Try again in a moment.','bad'); }
+            finally{ btn.disabled=false; btn.textContent=prev; }
+        }
+
         (async function(){
             renderActions(); renderFlights(); renderEvents(); renderNotices(); readSession();
+            document.getElementById('pwForm').addEventListener('submit', submitNewPassword);
+            checkPasswordGate();
             const b = await resolveBranding();
             applyBranding(b);
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
