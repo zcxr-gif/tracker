@@ -268,7 +268,11 @@
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify({username,password}) });
                 const data=await res.json().catch(()=>({}));
                 if(!res.ok){ note.textContent=data.error||'Sign-in failed. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; return; }
-                try{ localStorage.setItem(sessionKey(), JSON.stringify({token:data.token,name:data.name,role:data.role,view:data.view,oversight:!!data.oversight,at:Date.now()})); }catch{}
+                // mustChangePassword rides along so the page we land on can put
+                // the change in front of them immediately. It is a hint for the
+                // UI only — the backend re-reads the real flag from the VA's
+                // store on every /me, so editing it here buys nothing.
+                try{ localStorage.setItem(sessionKey(), JSON.stringify({token:data.token,name:data.name,username:data.username||username,role:data.role,view:data.view,oversight:!!data.oversight,mustChangePassword:!!data.mustChangePassword,canChangePassword:!!data.canChangePassword,at:Date.now()})); }catch{}
                 // Carry ?embed=1 through the redirect so the dashboard knows it's
                 // inside the app's overlay. Harmless if that page doesn't read it
                 // yet — it just keeps the flag alive for when it does.
