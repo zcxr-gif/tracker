@@ -7,6 +7,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
+         for a VA that hasn't configured a theme. -->
+    <script src="/crewBrand.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -218,6 +221,9 @@
         }
         function applyBranding(b){
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            // The VA's full design system, when it has one — sign-in then looks
+            // like a page of the VA's own site rather than a detour.
+            if(window.CrewBrand) CrewBrand.apply(b);
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             setAll('.brand-mono', el=>el.textContent=mono);
