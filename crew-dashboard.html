@@ -198,12 +198,20 @@
                 </div>
             </section>
 
-            <!-- STATS -->
-            <section class="r-stats surface rounded-xl grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 hair overflow-hidden">
-                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Active pilots</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">128</div><div class="text-xs muted mt-1">+6 this week</div></div>
-                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">1,402</div><div class="text-xs muted mt-1">312 this week</div></div>
-                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours flown</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">3,984</div><div class="text-xs muted mt-1">Season</div></div>
-                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Upcoming</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num">3</div><div class="text-xs accent-text font-medium mt-1">Next in 2 days</div></div>
+            <!-- STATS
+                 The four figures that answer "how is the airline doing?", read
+                 from GET /api/crew/<slug>/stats — aggregated inside the VA's own
+                 database in one statement. These were four hardcoded numbers
+                 (128 / 1,402 / 3,984 / 3) that every VA saw as their own.
+
+                 Each cell starts at an em dash, never 0: until the fetch lands
+                 we do not know the figure, and a 0 would be a claim. See
+                 renderCrewStats(). -->
+            <section id="crewStats" class="r-stats surface rounded-xl grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 hair overflow-hidden">
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Pilots</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num" data-stat="pilots">—</div><div class="text-xs muted mt-1" data-stat-sub="pilots">&nbsp;</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Flights · 30d</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num" data-stat="flights30d">—</div><div class="text-xs muted mt-1" data-stat-sub="flights30d">&nbsp;</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Hours logged</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num" data-stat="hours">—</div><div class="text-xs muted mt-1" data-stat-sub="hours">&nbsp;</div></div>
+                <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Flight reports</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num" data-stat="pireps">—</div><div class="text-xs muted mt-1" data-stat-sub="pireps">&nbsp;</div></div>
             </section>
 
             <!-- LIVE MAP (moved here from behind the hero) -->
@@ -492,7 +500,7 @@
                 <div id="dataSection">
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2 flex items-center gap-2">Your data · Supabase
                         <span id="supaStatus" class="normal-case tracking-normal"></span></h3>
-                    <p class="text-xs muted mb-3">Connect your VA’s own Supabase project. Your crew data lives there and stays yours; Inflight keeps an owner-level key to help run it.</p>
+                    <p class="text-xs muted mb-3">Your crew data lives in <b>your</b> Supabase project, not ours — roster, hours, flight reports, applications and applicant emails. All Inflight stores is your staff logins and your crew center’s branding. Leave the platform and you keep everything, because we never held it.</p>
                     <div class="space-y-2.5">
                         <input id="supaUrl" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"
                             class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
@@ -526,8 +534,8 @@
                     <div class="mt-4 pt-4 border-t hair-soft">
                         <div class="text-sm font-semibold mb-1 flex items-center gap-2">Move your crew data over
                             <span id="migrateBadge" class="text-[10px] normal-case tracking-normal font-semibold px-1.5 py-0.5 rounded"></span></div>
-                        <p class="text-xs muted mb-2.5">Copies your roster &amp; flight log into the tables above, then serves them from <b>your</b> project so they no longer sit in Inflight’s database. Needs a saved <b>service_role</b> key. Your data stays intact either way.</p>
-                        <label class="flex items-center gap-2 text-xs muted mb-2.5 cursor-pointer"><input id="migratePurge" type="checkbox" class="accent-[var(--accent)]"> Also free the central copy once it’s moved</label>
+                        <p class="text-xs muted mb-2.5">Copies your roster, route network, flight log and applications into the tables above and serves them from <b>your</b> project from then on. Needs a saved <b>service_role</b> key. Safe to run more than once — anything already there is skipped, never duplicated.</p>
+                        <label class="flex items-center gap-2 text-xs muted mb-2.5 cursor-pointer"><input id="migratePurge" type="checkbox" class="accent-[var(--accent)]"> Delete Inflight’s copy afterwards <span class="faint">(refused unless yours came out complete)</span></label>
                         <button id="migrateBtn" onclick="migrateToSupabase()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="database-zap" class="w-4 h-4"></i> Move to my Supabase</button>
                         <p id="migrateNote" class="hidden text-sm mt-2"></p>
                     </div>
@@ -2083,10 +2091,15 @@
             if(showApps){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
-        function refreshAppsBadge(){
-            const n=appBadgeCount(), b=document.getElementById('appsBadge');
-            if(!b) return; b.textContent=n; b.classList.toggle('hidden', n===0);
+        // Split out so the figures panel can raise the badge on load. The
+        // applications list itself is only fetched when the roster is opened,
+        // which meant nobody knew there were people waiting until they went
+        // looking — the count now arrives with the dashboard.
+        function setAppsBadge(n){
+            const b=document.getElementById('appsBadge');
+            if(!b) return; b.textContent=n; b.classList.toggle('hidden', !n);
         }
+        function refreshAppsBadge(){ setAppsBadge(appBadgeCount()); }
         async function fetchApps(){
             const slug=getSlug(), token=sessionToken();
             if(!slug||!token){ APPS=[]; return; }
@@ -2183,93 +2196,81 @@
         }
 
         // ---- Supabase one-click setup ----
-        const SETUP_SQL = `-- Inflight Crew Center — database setup for your VA's Supabase.
--- Paste this into Supabase → SQL editor → Run. Safe to run more than once.
--- These tables are owned by Inflight's backend (via your service_role key), so
--- your roster and flights live in YOUR project instead of Inflight's database.
--- ids are text so your existing crew data keeps the same ids when it moves over.
-
--- CREW_PILOTS: one row per roster member.
-create table if not exists public.crew_pilots (
-  id text primary key default gen_random_uuid()::text,
-  va_ad_id text not null,
-  name text not null default '',
-  callsign text default '',
-  hours numeric not null default 0,
-  role text default '',
-  aircraft text[] not null default '{}',
-  status text not null default 'active',
-  if_user_id text default '',
-  ifc_name text default '',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-create index if not exists crew_pilots_va on public.crew_pilots(va_ad_id);
-
--- CREW_PIREPS: filed + auto-captured flights (the logbook). The big one.
-create table if not exists public.crew_pireps (
-  id text primary key default gen_random_uuid()::text,
-  va_ad_id text not null,
-  member_id text,
-  route_id text,
-  pilot_name text default '',
-  callsign text default '',
-  flight_number text default '',
-  if_user_id text default '',
-  flight_id text default '',
-  origin text default '',
-  destination text default '',
-  aircraft_name text default '',
-  livery_name text default '',
-  duration_min integer not null default 0,
-  landings integer not null default 0,
-  xp integer not null default 0,
-  violations integer not null default 0,
-  distance_nm integer not null default 0,
-  server text default '',
-  in_fleet boolean not null default false,
-  source text not null default 'auto',
-  status text not null default 'pending',
-  hours_applied boolean not null default false,
-  flown_at timestamptz,
-  reviewed_at timestamptz,
-  created_at timestamptz not null default now()
-);
-create index if not exists crew_pireps_va on public.crew_pireps(va_ad_id);
-create index if not exists crew_pireps_flight on public.crew_pireps(va_ad_id, flight_id);
-
--- Row-level security: the backend uses your service_role key, which bypasses
--- RLS, so it can always read/write. We still enable RLS and grant READ to any
--- signed-in user, so you can safely build your own dashboards against this data.
-alter table public.crew_pilots enable row level security;
-alter table public.crew_pireps enable row level security;
-
-drop policy if exists "crew read pilots" on public.crew_pilots;
-create policy "crew read pilots" on public.crew_pilots for select using (auth.role() = 'authenticated');
-drop policy if exists "crew read pireps" on public.crew_pireps;
-create policy "crew read pireps" on public.crew_pireps for select using (auth.role() = 'authenticated');
-`;
+        // ---- The setup script ----
+        // Served by the backend from the single copy that lives beside the code
+        // reading these tables (GET /api/crew/setup-sql). It used to be inlined
+        // here: two copies of a schema in two repos drift, and the failure mode
+        // is a VA whose tables are subtly the wrong shape — which nobody finds
+        // out about until a write fails months later.
+        //
+        // Fetched lazily and cached. On failure the buttons say so rather than
+        // handing over a stale or empty script; copying the wrong SQL is worse
+        // than copying none.
+        let SETUP_SQL = '';
+        let _setupSqlReq = null;
+        function loadSetupSql(){
+            if(_setupSqlReq) return _setupSqlReq;
+            _setupSqlReq = fetch(`${BACKEND}/api/crew/setup-sql`, { headers:{ Accept:'text/plain' } })
+                .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP '+r.status)))
+                .then(sql => {
+                    SETUP_SQL = sql;
+                    const v = document.getElementById('sqlView');
+                    if(v) v.textContent = sql;
+                    return sql;
+                })
+                .catch(err => { _setupSqlReq = null; throw err; });   // let a retry re-request
+            return _setupSqlReq;
+        }
         function projectRef(url){ try{ const m=new URL(url).host.match(/^([a-z0-9]+)\.supabase\.co$/i); return m?m[1]:''; }catch{ return ''; } }
         function updateSqlEditorLink(){
             const ref=projectRef(SUPA.url);
             document.getElementById('supaSqlEditor').href = ref ? `https://supabase.com/dashboard/project/${ref}/sql/new` : 'https://supabase.com/dashboard';
         }
         async function copySetupSql(){
-            try{ await navigator.clipboard.writeText(SETUP_SQL); supaMsg('SQL copied — paste it into your Supabase SQL editor and Run.','ok'); }
-            catch{ supaMsg('Couldn’t copy automatically — use “View SQL” to copy it manually.','warn'); }
+            let sql;
+            try{ sql = SETUP_SQL || await loadSetupSql(); }
+            catch{ supaMsg('Couldn’t fetch the setup script just now. Try again in a moment.','error'); return; }
+            try{ await navigator.clipboard.writeText(sql); supaMsg('SQL copied — paste it into your Supabase SQL editor and Run.','ok'); }
+            catch{ supaMsg('Couldn’t copy automatically — open “View SQL” below and copy it manually.','warn'); }
+        }
+        // Ask the backend, not the project directly. It checks with the
+        // service_role key over the same path every real write takes, so a
+        // green tick here means writes will actually work — a browser probe
+        // with the anon key could pass while the service key is wrong, which is
+        // the failure this screen exists to catch. It also reports the schema
+        // version and how much is still in Inflight's database, which drives
+        // the migrate panel below.
+        async function refreshStoreState(){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return null;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(!res.ok) return null;
+                const d=await res.json();
+                SUPA={ ...SUPA, connected:!!d.connected, url:d.url||SUPA.url, hasServiceKey:!!d.hasServiceKey,
+                       store:d.kind, health:d.health||null, legacyRows:d.legacyRows||null, legacyTotal:d.legacyTotal||0 };
+                updateMigrateUI();
+                return d;
+            }catch{ return null; }
         }
         async function checkSetup(){
             const out=document.getElementById('setupCheck');
-            const url=(document.getElementById('supaUrl').value||SUPA.url||'').trim().replace(/\/+$/,'');
-            const key=(document.getElementById('supaAnon').value||SUPA.anonKey||'').trim();
-            if(!url||!key){ out.textContent='Connect Supabase first.'; out.className='text-xs text-amber-600 dark:text-amber-400'; return; }
             out.textContent='Checking…'; out.className='text-xs muted';
-            try{
-                const res=await fetch(`${url}/rest/v1/crew_pilots?select=id&limit=1`,{ headers:{ apikey:key, Authorization:'Bearer '+key } });
-                if(res.ok){ out.textContent='✓ Tables found — you’re set up.'; out.className='text-xs text-emerald-600 dark:text-emerald-400'; }
-                else if(res.status===404 || res.status===400){ out.textContent='Not set up yet — run the SQL above.'; out.className='text-xs text-amber-600 dark:text-amber-400'; }
-                else { out.textContent='Couldn’t verify ('+res.status+').'; out.className='text-xs muted'; }
-            }catch{ out.textContent='Couldn’t reach your project.'; out.className='text-xs text-red-500'; }
+            const say=(msg,tone)=>{ out.textContent=msg; out.className='text-xs '+({ok:'text-emerald-600 dark:text-emerald-400',warn:'text-amber-600 dark:text-amber-400',bad:'text-red-500'}[tone]||'muted'); };
+            const d=await refreshStoreState();
+            if(!d){ say('Couldn’t reach Inflight to check. Try again in a moment.','bad'); return; }
+            if(!d.connected){ say('Connect your project above first.','warn'); return; }
+            if(!d.hasServiceKey){ say('Add a service_role key — without it we can’t write to your project.','warn'); return; }
+            const h=d.health||{};
+            if(!h.ok){
+                say(h.code==='store_schema_missing' ? 'Reachable, but the tables aren’t there yet — run the SQL above.'
+                  : h.code==='store_unauthorized'  ? 'Your project rejected our key. Re-copy the service_role key.'
+                  : 'Couldn’t reach your project from Inflight.', 'bad');
+                return;
+            }
+            if(!h.provisioned){ say('Not set up yet — run the SQL above.','warn'); return; }
+            if(h.outdated){ say(`Set up, but on an older version (v${h.version} of v${h.expectedVersion}) — re-run the SQL to update.`,'warn'); return; }
+            say('✓ Tables found and writable — you’re set up.','ok');
         }
 
         // ---- Onboarding / Supabase (owner) ----
@@ -2290,7 +2291,10 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
             const badge=document.getElementById('migrateBadge'), btn=document.getElementById('migrateBtn'), note=document.getElementById('migrateNote');
             if(!badge||!btn) return;
             const onSupa = SUPA.store==='supabase';
-            badge.textContent = onSupa ? 'On your Supabase' : 'On Inflight’s database';
+            const left = Number(SUPA.legacyTotal||0);
+            badge.textContent = onSupa
+                ? (left ? `On your Supabase · ${left.toLocaleString()} rows still with us` : 'On your Supabase')
+                : 'On Inflight’s database';
             badge.className = 'text-[10px] normal-case tracking-normal font-semibold px-1.5 py-0.5 rounded '
                 + (onSupa ? 'text-emerald-700 dark:text-emerald-400' : 'muted') + ' surface hair';
             // A move needs a saved service_role key. Already-moved VAs can re-run
@@ -2313,17 +2317,90 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
             const purge=document.getElementById('migratePurge').checked;
             note.textContent='Moving your crew data… this can take a moment.'; note.className='text-sm muted mt-2'; note.classList.remove('hidden');
             const prev=btn.innerHTML; btn.disabled=true; btn.innerHTML='<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> Moving…'; if(window.lucide) lucide.createIcons();
+            const done=(msg,tone)=>{
+                note.textContent=msg;
+                note.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500',warn:'text-amber-600 dark:text-amber-400'}[tone]||'muted');
+                note.classList.remove('hidden');
+                btn.disabled=false; btn.innerHTML=prev; if(window.lucide) lucide.createIcons();
+            };
+            const auth={'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token};
             try{
-                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/supabase/migrate${purge?'?purge=1':''}`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token} });
+                // Copying is safe and repeatable; deleting is neither. They are
+                // two calls so a failure to release never leaves the copy
+                // half-done, and so the backend can refuse the delete if the
+                // VA's project came out holding fewer records than we hold.
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/migrate`,{ method:'POST', headers:auth });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ note.textContent=d.error||'Could not move your data.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); btn.disabled=false; btn.innerHTML=prev; if(window.lucide) lucide.createIcons(); return; }
+                if(!res.ok){ done(d.error||'Could not move your data.','bad'); return; }
                 SUPA.store='supabase';
-                const c=d.copied||{}; const freed=d.purged?` Freed ${(d.purged.pilots||0)+(d.purged.flights||0)} rows centrally.`:'';
-                note.textContent=`✓ Moved ${c.pilots||0} pilots and ${c.flights||0} flights to your Supabase.${freed}`;
-                note.className='text-sm text-emerald-600 dark:text-emerald-400 mt-2'; note.classList.remove('hidden');
-                updateMigrateUI();
-            }catch{ note.textContent='Server unreachable — nothing was moved.'; note.className='text-sm text-red-500 mt-2'; note.classList.remove('hidden'); btn.disabled=false; btn.innerHTML=prev; if(window.lucide) lucide.createIcons(); }
+                const m=d.moved||{};
+                let msg=`✓ Moved ${m.members||0} pilots, ${m.pireps||0} flights, ${m.routes||0} routes and ${m.applications||0} applications into your Supabase.`;
+                if(m.skipped) msg+=` ${m.skipped} were already there.`;
+
+                if(purge){
+                    const rel=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/legacy`,{ method:'DELETE', headers:auth });
+                    const r=await rel.json().catch(()=>({}));
+                    if(rel.ok){
+                        const freed=Object.values(r.deleted||{}).reduce((a,b)=>a+(Number(b)||0),0);
+                        msg+=` Released ${freed.toLocaleString()} rows from Inflight’s database.`;
+                    }else{
+                        // The copy succeeded; only the release did not. Say
+                        // exactly that — the data is safe in both places.
+                        done(msg+` Your data is in your project, but the central copy was kept: ${r.error||'the release was refused.'}`,'warn');
+                        await refreshStoreState(); return;
+                    }
+                }
+                done(msg,'ok');
+                await refreshStoreState();
+            }catch{ done('Server unreachable — nothing was moved.','bad'); }
         }
+        // ---- The airline's figures ----
+        // One call to GET /api/crew/<slug>/stats, aggregated inside the VA's own
+        // database. Public, so it works in the unauthenticated preview too.
+        //
+        // The contract matches the public site's: a field we did not get stays
+        // an em dash rather than becoming 0. On this screen that matters more
+        // than on a marketing page — staff make decisions off these, and
+        // "0 pending applications" when the truth is "we could not ask" is the
+        // one wrong answer that looks like good news.
+        async function renderCrewStats(){
+            const host=document.getElementById('crewStats');
+            if(!host) return;
+            const slug=getSlug();
+            if(!slug) return;
+            let s=null;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/stats`,{ headers:{Accept:'application/json'} });
+                if(res.ok){ const d=await res.json(); s=d && d.stats; }
+            }catch{ /* leave the dashes */ }
+            if(!s) return;
+
+            const has=(v)=>v!=null && Number.isFinite(Number(v));
+            const n=(v)=>has(v)?Number(v).toLocaleString():'';
+            // Hours come back to one decimal. That precision is right for a
+            // pilot's own total against a rank threshold and wrong for a
+            // headline: "3,984.4" reads as a measurement, "3,984" as a figure.
+            const hrs=(v)=>has(v)?Math.round(Number(v)).toLocaleString():'';
+            const put=(key,value,sub,fmt)=>{
+                const el=host.querySelector(`[data-stat="${key}"]`);
+                const subEl=host.querySelector(`[data-stat-sub="${key}"]`);
+                if(el && has(value)) el.textContent=(fmt||n)(value);
+                if(subEl && sub) subEl.textContent=sub;
+            };
+
+            put('pilots', s.pilots, has(s.pilotsActive) ? `${n(s.pilotsActive)} active` : '');
+            put('flights30d', s.flights30d, has(s.flightHours30d) ? `${hrs(s.flightHours30d)} hours` : '');
+            put('hours', s.hours, has(s.flightHours) ? `${hrs(s.flightHours)} from flight reports` : '', hrs);
+            // The one figure here that is a to-do rather than an achievement, so
+            // it says so — this is the number staff act on.
+            put('pireps', s.pirepsApproved, has(s.pirepsPending) && Number(s.pirepsPending) > 0
+                ? `${n(s.pirepsPending)} awaiting review` : 'all reviewed');
+
+            // Applications waiting on staff are the other actionable number; it
+            // already has a home on the Roster → Applications tab badge.
+            if(has(s.applicationsPending)) setAppsBadge(Number(s.applicationsPending));
+        }
+
         // ---- Capabilities / staff permissions ----
         async function loadMe(){
             const token=sessionToken(), slug=getSlug();
@@ -2443,8 +2520,15 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
             if(SUPA.url) document.getElementById('supaUrl').value=SUPA.url;
             if(SUPA.anonKey) document.getElementById('supaAnon').value=SUPA.anonKey;
             updateSupaStatus();
-            document.getElementById('sqlView').textContent=SETUP_SQL;
+            // Populates #sqlView when it lands; the <details> is collapsed until
+            // the owner opens it, so there is nothing to wait for here.
+            const sqlView=document.getElementById('sqlView');
+            sqlView.textContent='Loading the setup script…';
+            loadSetupSql().catch(()=>{ sqlView.textContent='-- Could not load the setup script. Reopen this panel to retry.'; });
             updateSqlEditorLink();
+            // Fills in where the data actually lives and how much is still with
+            // us, so the migrate panel is accurate before anyone presses it.
+            refreshStoreState();
             document.getElementById('onboard').classList.toggle('hidden', !(show && !SUPA.connected));
         }
         async function testSupabase(){
@@ -2559,6 +2643,7 @@ create policy "crew read pireps" on public.crew_pireps for select using (auth.ro
             if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });
             await loadMe();                 // fresh capabilities + (owner) staff-role config
             applyOwnerState();
+            renderCrewStats();              // the airline's real figures (public; no await, it can land late)
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
