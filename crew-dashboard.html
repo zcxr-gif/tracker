@@ -2532,12 +2532,15 @@
         function renderWizardProjects(){
             const wrap=document.getElementById('wizProjects');
             const slug=getSlug()||'crew';
+            // Project names and regions come back from the VA's own Supabase
+            // account, so they are text we did not write — escaped on the way
+            // into innerHTML like every other value on this page.
             const row=(value,title,sub,checked)=>`
                 <label class="flex items-start gap-2.5 p-2.5 rounded-lg hair surface cursor-pointer hover:border-[var(--ink)] transition">
-                    <input type="radio" name="wizPick" value="${value}" ${checked?'checked':''} onchange="wizardPick(this.value)" class="mt-0.5 accent-[var(--accent)]">
+                    <input type="radio" name="wizPick" value="${escapeHtml(value)}" ${checked?'checked':''} onchange="wizardPick(this.value)" class="mt-0.5 accent-[var(--accent)]">
                     <span class="min-w-0">
-                        <span class="block text-sm font-semibold truncate">${title}</span>
-                        <span class="block text-xs muted">${sub}</span>
+                        <span class="block text-sm font-semibold truncate">${escapeHtml(title)}</span>
+                        <span class="block text-xs muted">${escapeHtml(sub)}</span>
                     </span>
                 </label>`;
             // Creating a fresh one is offered first, and pre-selected when the
@@ -2551,9 +2554,9 @@
             }
             wrap.innerHTML=html;
             document.getElementById('wizNewName').value=`${slug}-crew-center`.slice(0,60);
-            document.getElementById('wizOrg').innerHTML=WIZ.orgs.map(o=>`<option value="${o.id}">${o.name||o.id}</option>`).join('')
+            document.getElementById('wizOrg').innerHTML=WIZ.orgs.map(o=>`<option value="${escapeHtml(o.id)}">${escapeHtml(o.name||o.id)}</option>`).join('')
                 || '<option value="">No organization found</option>';
-            document.getElementById('wizRegion').innerHTML=WIZ.regions.map(r=>`<option value="${r.id}">${r.label}</option>`).join('');
+            document.getElementById('wizRegion').innerHTML=WIZ.regions.map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.label)}</option>`).join('');
             WIZ.choice = none ? '__new__' : '';
             document.getElementById('wizCreate').classList.toggle('hidden', WIZ.choice!=='__new__');
         }
