@@ -88,6 +88,20 @@
                 </div>` : '';
             const meta = `<div class="text-xs faint mt-4">${d.submittedAt?('Applied '+fmtDate(d.submittedAt)):''}${d.reviewedAt?(' · Reviewed '+fmtDate(d.reviewedAt)):''}</div>`;
 
+            // The VA's Discord, when they sent one with the acceptance. This page
+            // is the durable copy: the invite also goes out by email, but an
+            // applicant who gave no address has only this link. The href is only
+            // ever a Discord invite — the backend rejects anything else before it
+            // is stored (see isDiscordInviteUrl), so this cannot become an open
+            // redirect for whatever a VA typed.
+            function discordInvite(d){
+                const url=String(d.discordInvite||'');
+                if(!/^https:\/\/(discord\.gg|(canary\.|ptb\.)?discord(app)?\.com\/invite)\//i.test(url)) return '';
+                return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 surface hair text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:border-[var(--ink)] transition">
+                    <i data-lucide="message-circle" class="w-4 h-4"></i> Join the crew on Discord</a>`;
+            }
+
             if(d.status==='accepted'){
                 body.innerHTML = `<div class="text-center">
                     <div class="w-14 h-14 rounded-full bg-emerald-500 text-white grid place-items-center mx-auto mb-4"><i data-lucide="party-popper" class="w-7 h-7"></i></div>
@@ -95,6 +109,7 @@
                     <p class="text-sm muted mt-2">Welcome to <b>${escapeHtml(VA.name||'the crew')}</b>${d.callsign?', flying as':''}</p>
                     ${d.callsign?`<div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign)}</div>`:''}
                     ${msg}
+                    ${discordInvite(d)}
                     <a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
                     ${meta}
                 </div>`;
