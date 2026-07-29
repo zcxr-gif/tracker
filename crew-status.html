@@ -70,6 +70,22 @@
         function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1]&&m[1].toLowerCase()!=='status')return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
         function getToken(){ return (new URLSearchParams(location.search).get('id')||'').trim(); }
         function fmtDate(d){ try{ return new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }catch{ return ''; } }
+        // Clipboard with a fallback — this page is opened on phones and inside
+        // in-app browsers, where navigator.clipboard is frequently unavailable,
+        // and a pilot who cannot copy their password is stuck.
+        async function copyText(text){
+            try{ await navigator.clipboard.writeText(text); return true; }catch{}
+            try{
+                const ta=document.createElement('textarea');
+                ta.value=text; ta.setAttribute('readonly','');
+                ta.style.position='fixed'; ta.style.top='-1000px'; ta.style.opacity='0';
+                document.body.appendChild(ta);
+                ta.select(); ta.setSelectionRange(0, ta.value.length);
+                const ok=document.execCommand('copy');
+                ta.remove();
+                return ok;
+            }catch{ return false; }
+        }
 
         function applyBranding(b){
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
@@ -102,17 +118,56 @@
                     <i data-lucide="message-circle" class="w-4 h-4"></i> Join the crew on Discord</a>`;
             }
 
+            // The login they were issued, if it is still waiting to be used.
+            //
+            // This page is the one channel that reliably reaches an applicant:
+            // they were handed this link at submit time and they hold it whether
+            // or not they gave an email address. So the credentials live here
+            // until they are used, rather than existing only in an email that
+            // may never have been sent. The backend stops returning them the
+            // moment the pilot signs in, staff discard the invitation, or it
+            // lapses — this page simply draws whatever it is given.
+            function credentials(d){
+                const c=d.credentials;
+                if(!c || !c.username || !c.password) return '';
+                const lapses=c.expiresAt?`<div class="text-xs faint mt-2">This password lapses on ${escapeHtml(fmtDate(c.expiresAt))}. Ask the ${escapeHtml(VA.name||'VA')} team for a new one if you miss it.</div>`:'';
+                return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                    <div class="text-xs uppercase tracking-wider faint mb-2 flex items-center gap-1.5"><i data-lucide="key-round" class="w-3.5 h-3.5"></i> Your crew center login</div>
+                    <div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 items-baseline">
+                        <span class="text-xs muted">Username</span>
+                        <span class="font-mono text-sm select-all break-all">${escapeHtml(c.username)}</span>
+                        <span class="text-xs muted">Password</span>
+                        <span class="font-mono text-sm select-all break-all">${escapeHtml(c.password)}</span>
+                    </div>
+                    <button id="copyCreds" class="w-full accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-lg mt-3 hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-4 h-4"></i> Copy my sign-in details</button>
+                    <div class="text-xs muted mt-2">This is a temporary password — you’ll be asked to pick your own the first time you sign in, and this one stops working then.</div>
+                    ${lapses}
+                </div>`;
+            }
+
             if(d.status==='accepted'){
+                const creds=credentials(d);
                 body.innerHTML = `<div class="text-center">
                     <div class="w-14 h-14 rounded-full bg-emerald-500 text-white grid place-items-center mx-auto mb-4"><i data-lucide="party-popper" class="w-7 h-7"></i></div>
                     <h2 class="text-xl font-bold tracking-tight">You’re in!</h2>
                     <p class="text-sm muted mt-2">Welcome to <b>${escapeHtml(VA.name||'the crew')}</b>${d.callsign?', flying as':''}</p>
                     ${d.callsign?`<div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign)}</div>`:''}
                     ${msg}
+                    ${creds}
                     ${discordInvite(d)}
-                    <a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">Go to the crew center <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
+                    <a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">${creds?'Sign in to the crew center':'Go to the crew center'} <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
                     ${meta}
                 </div>`;
+                if(creds){
+                    const btn=document.getElementById('copyCreds');
+                    if(btn) btn.addEventListener('click', async ()=>{
+                        const ok=await copyText(d.credentials.message||'');
+                        btn.innerHTML = ok
+                            ? '<i data-lucide="check" class="w-4 h-4"></i> Copied'
+                            : '<i data-lucide="alert-circle" class="w-4 h-4"></i> Select the text above instead';
+                        if(window.lucide) lucide.createIcons();
+                    });
+                }
             } else if(d.status==='declined'){
                 body.innerHTML = `<div class="text-center">
                     <div class="w-14 h-14 rounded-full bg-[color-mix(in_srgb,var(--muted)_22%,transparent)] text-[var(--muted)] grid place-items-center mx-auto mb-4"><i data-lucide="x" class="w-7 h-7"></i></div>

@@ -621,8 +621,10 @@
                     <div id="rosterViewTabs" class="inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
                         <button data-view="roster" onclick="switchRosterView('roster')" class="px-3 py-1.5 rounded-md transition">Roster<span id="rosterCount" class="text-xs muted"></span></button>
                         <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                        <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Invitations<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
                     </div>
                     <div class="flex items-center gap-2">
+                        <button id="rosterCsvBtn" onclick="openCsv('roster')" title="Export or import the roster as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
                         <button id="addPilotBtn" onclick="openPilotForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
                         <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
                     </div>
@@ -648,6 +650,9 @@
             </div>
             <div id="rosterList" class="p-5 space-y-2.5"></div>
             <div id="appsList" class="hidden p-5 space-y-3"></div>
+            <!-- Invitations issued but not yet used. Stays put until the pilot
+                 signs in or a staff member throws it away. -->
+            <div id="invitesList" class="hidden p-5 space-y-3"></div>
         </div>
     </div>
 
@@ -659,6 +664,7 @@
                 <div class="flex items-center gap-2"><i data-lucide="route" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Route network</span><span id="routeCount" class="text-xs muted"></span></div>
                 <div class="flex items-center gap-2">
                     <button id="viewMapBtn" onclick="openRouteMap()" title="View the network on a map" class="surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="map" class="w-4 h-4"></i> Map</button>
+                    <button id="routesCsvBtn" onclick="openCsv('routes')" title="Export or import the network as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
                     <button id="addRouteBtn" onclick="openRouteForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
                     <button onclick="closeRoutes()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
@@ -681,6 +687,42 @@
                 <p id="routeNote" class="hidden text-sm mt-2"></p>
             </div>
             <div id="routeList" class="p-5 space-y-2.5"></div>
+        </div>
+    </div>
+
+    <!-- ============ CSV IMPORT / EXPORT ============
+         Serves the roster and the route network from one dialog: the two flows
+         are identical and only the wording differs. Import is deliberately two
+         steps — upload, see exactly what it would do, then confirm — because an
+         import that quietly rewrites a live roster is not something anyone
+         should set off blind. Nothing is written until the second button. -->
+    <div id="csvModal" class="hidden fixed inset-0 z-[60]">
+        <div class="absolute inset-0 bg-black/50" onclick="closeCsv()"></div>
+        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-lg max-h-[86vh] overflow-y-auto surface hair rounded-2xl p-5">
+            <div class="flex items-start justify-between gap-3 mb-1">
+                <div class="font-semibold tracking-tight" id="csvTitle">Roster · CSV</div>
+                <button onclick="closeCsv()" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <p class="text-xs muted mb-4" id="csvBlurb"></p>
+
+            <div class="rounded-xl hair p-3.5 mb-3">
+                <div class="text-sm font-semibold mb-1">Take it out</div>
+                <p class="text-xs muted mb-2.5">Every column, including the ones the editor doesn’t show. Opens in Excel, Numbers or Sheets.</p>
+                <button id="csvExportBtn" onclick="exportCsv()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-4 h-4"></i> Download CSV</button>
+            </div>
+
+            <div class="rounded-xl hair p-3.5">
+                <div class="text-sm font-semibold mb-1">Bring it back</div>
+                <p class="text-xs muted mb-2.5">Upload a file with the same columns. Rows that carry an <span class="font-mono">id</span> update that row; the rest are matched on <span id="csvMatchHint" class="font-semibold"></span>, and anything new is added. <b>Nothing is ever deleted</b> — a row missing from your file is left exactly as it is.</p>
+                <input id="csvFile" type="file" accept=".csv,text/csv,text/plain" onchange="csvPicked(this)"
+                    class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[var(--accent)] file:text-white hover:file:opacity-90 file:cursor-pointer">
+                <div id="csvPreview" class="hidden mt-3"></div>
+                <div id="csvActions" class="hidden flex gap-2 mt-3">
+                    <button onclick="csvReset()" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Cancel</button>
+                    <button id="csvCommitBtn" onclick="commitCsv()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="upload" class="w-4 h-4"></i> Apply</button>
+                </div>
+                <p id="csvNote" class="hidden text-sm mt-2"></p>
+            </div>
         </div>
     </div>
 
@@ -1458,14 +1500,23 @@
             // Only surface the Applications tab to those who can review them.
             const appsTab=document.querySelector('#rosterViewTabs [data-view=\"apps\"]');
             if(appsTab) appsTab.classList.toggle('hidden', !can('applications.review'));
+            // Invitations are the tail end of reviewing an application, so they
+            // are gated on the same capability.
+            const invTab=document.querySelector('#rosterViewTabs [data-view=\"invites\"]');
+            if(invTab) invTab.classList.toggle('hidden', !can('applications.review'));
             ROSTER_VIEW='roster';
             document.getElementById('rosterList').classList.remove('hidden');
             document.getElementById('appsList').classList.add('hidden');
+            document.getElementById('invitesList').classList.add('hidden');
+            document.getElementById('rosterCsvBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
             renderRoster(); updateRosterTabs();
             requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
             fetchRoster().then(renderRoster);
             // Load pending applications in the background so the tab badge is live.
             fetchApps().then(()=>{ refreshAppsBadge(); if(ROSTER_VIEW==='apps') renderApps(); });
+            // Same for invitations still waiting to be handed over — that badge
+            // is the reminder that somebody is sitting on an unused login.
+            if(can('applications.review')) fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length); });
             if(window.lucide) lucide.createIcons();
         }
         function closeRoster(){ const r=document.getElementById('roster'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
@@ -1589,8 +1640,171 @@
             const r=document.getElementById('routes'); r.classList.remove('hidden');
             renderRoutes();
             requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
-            fetchRoutes().then(renderRoutes);
+            fetchRoutes().then(()=>{
+                renderRoutes();
+                document.getElementById('routesCsvBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
+            });
+            document.getElementById('routesCsvBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
             if(window.lucide) lucide.createIcons();
+        }
+
+        // ---- CSV in and out ----
+        //
+        // One dialog for both the roster and the route network: the flows are
+        // identical and only the nouns change. Import is two steps on purpose —
+        // the first upload only asks the backend what WOULD happen, and nothing
+        // is written until the second button. A VA about to overwrite a live
+        // roster from a spreadsheet deserves to see the number first.
+        const CSV_KINDS={
+            roster:{
+                title:'Roster · CSV',
+                blurb:'Your pilots, as a spreadsheet. The file you download is the file import accepts — send it out, edit it, bring it back.',
+                match:'callsign, then name',
+                noun:'pilot',
+            },
+            routes:{
+                title:'Route network · CSV',
+                blurb:'Your route network, as a spreadsheet. The file you download is the file import accepts, so a network can be built in Excel and pasted in whole.',
+                match:'flight number, then the airport pair',
+                noun:'route',
+            },
+        };
+        let CSV_KIND='roster', CSV_TEXT='', CSV_PLAN=null;
+        function openCsv(kind){
+            CSV_KIND = CSV_KINDS[kind] ? kind : 'roster';
+            const k=CSV_KINDS[CSV_KIND];
+            document.getElementById('csvTitle').textContent=k.title;
+            document.getElementById('csvBlurb').textContent=k.blurb;
+            document.getElementById('csvMatchHint').textContent=k.match;
+            csvReset();
+            document.getElementById('csvModal').classList.remove('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeCsv(){ document.getElementById('csvModal').classList.add('hidden'); }
+        function csvReset(){
+            CSV_TEXT=''; CSV_PLAN=null;
+            const f=document.getElementById('csvFile'); if(f) f.value='';
+            document.getElementById('csvPreview').classList.add('hidden');
+            document.getElementById('csvActions').classList.add('hidden');
+            document.getElementById('csvNote').classList.add('hidden');
+        }
+        function csvMsg(msg, kind){
+            const n=document.getElementById('csvNote');
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='warn'?'text-amber-600 dark:text-amber-400':'muted');
+            n.classList.remove('hidden');
+        }
+        // The export is a straight authenticated GET, so it cannot be a plain
+        // <a download> — the session token has to travel in a header. Fetch it,
+        // then hand the browser a blob under the filename the server chose.
+        async function exportCsv(){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ csvMsg('Sign in as owner or staff to export.','warn'); return; }
+            const btn=document.getElementById('csvExportBtn');
+            btn.disabled=true; csvMsg('Preparing your file…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}.csv`,{ headers:{Authorization:'Bearer '+token} });
+                if(!res.ok){
+                    const d=await res.json().catch(()=>({}));
+                    csvMsg(d.error||'Could not export.','error'); return;
+                }
+                const blob=await res.blob();
+                const name=(res.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/);
+                const url=URL.createObjectURL(blob);
+                const a=document.createElement('a');
+                a.href=url; a.download=(name&&name[1])||`${CSV_KIND}.csv`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(()=>URL.revokeObjectURL(url), 2000);
+                csvMsg('Downloaded.','ok');
+            }catch{ csvMsg('Server unreachable.','error'); }
+            finally{ btn.disabled=false; }
+        }
+        function csvPicked(input){
+            const file=input.files && input.files[0];
+            if(!file) return;
+            const reader=new FileReader();
+            reader.onload=()=>{ CSV_TEXT=String(reader.result||''); previewCsv(); };
+            reader.onerror=()=>csvMsg('Could not read that file.','error');
+            // Read as text with an explicit encoding so an exported file's BOM
+            // and any non-ASCII names come back the way they went out.
+            reader.readAsText(file,'utf-8');
+        }
+        // Ask the backend what this file would do. Writes nothing.
+        async function previewCsv(){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ csvMsg('Sign in as owner or staff to import.','warn'); return; }
+            csvMsg('Checking the file…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}/import`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ csv:CSV_TEXT, dryRun:true }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ csvMsg(d.error||'We couldn’t read that file.','error'); return; }
+                CSV_PLAN=d;
+                renderCsvPlan(d);
+                document.getElementById('csvNote').classList.add('hidden');
+            }catch{ csvMsg('Server unreachable.','error'); }
+        }
+        function renderCsvPlan(d){
+            const noun=CSV_KINDS[CSV_KIND].noun;
+            const box=document.getElementById('csvPreview');
+            const n=(v,one,many)=>`${v} ${v===1?one:many}`;
+            const bits=[];
+            if(d.create) bits.push(`<div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><i data-lucide="plus-circle" class="w-4 h-4"></i> ${escapeHtml(n(d.create,`new ${noun}`,`new ${noun}s`))}</div>`);
+            if(d.update) bits.push(`<div class="flex items-center gap-2 accent-text"><i data-lucide="pencil" class="w-4 h-4"></i> ${escapeHtml(n(d.update,`${noun} updated`,`${noun}s updated`))}</div>`);
+            if(d.unchanged) bits.push(`<div class="flex items-center gap-2 muted"><i data-lucide="equal" class="w-4 h-4"></i> ${escapeHtml(n(d.unchanged,'row unchanged','rows unchanged'))}</div>`);
+            if(!bits.length) bits.push('<div class="muted">Nothing in this file differs from what you already have.</div>');
+
+            const errs=(d.errors||[]).length ? `<div class="mt-2.5 rounded-lg p-2.5" style="background:color-mix(in srgb, #ef4444 12%, transparent);">
+                <div class="text-xs font-semibold text-red-500 mb-1">${escapeHtml(n(d.errorCount,'row we couldn’t read','rows we couldn’t read'))} — fix these and re-upload; nothing will be applied until you do</div>
+                <ul class="text-xs muted space-y-0.5">${d.errors.slice(0,8).map(e=>`<li>Line ${escapeHtml(String(e.line))}: ${escapeHtml(e.message)}</li>`).join('')}</ul>
+                ${d.errorCount>8?`<div class="text-xs faint mt-1">…and ${escapeHtml(String(d.errorCount-8))} more.</div>`:''}
+            </div>` : '';
+
+            const missing=(d.missing||[]).length
+                ? `<div class="text-[11px] faint mt-2">Columns not in your file, so they’re left as they are: ${escapeHtml(d.missing.join(', '))}.</div>` : '';
+
+            box.innerHTML=`<div class="rounded-lg surface hair p-3">
+                <div class="text-xs font-semibold uppercase tracking-wider faint mb-2">What this would do</div>
+                <div class="text-sm space-y-1">${bits.join('')}</div>
+                ${missing}
+                <div class="text-[11px] faint mt-2">Nothing is deleted. ${escapeHtml(noun[0].toUpperCase()+noun.slice(1))}s you already have that aren’t in the file are untouched.</div>
+                ${errs}
+            </div>`;
+            box.classList.remove('hidden');
+            const canApply=!d.errorCount && (d.create||d.update);
+            const actions=document.getElementById('csvActions');
+            actions.classList.remove('hidden');
+            const commit=document.getElementById('csvCommitBtn');
+            commit.disabled=!canApply;
+            commit.style.opacity=canApply?'1':'.5';
+            commit.innerHTML=canApply
+                ? `<i data-lucide="upload" class="w-4 h-4"></i> Apply ${escapeHtml(String((d.create||0)+(d.update||0)))} change${(d.create||0)+(d.update||0)===1?'':'s'}`
+                : `<i data-lucide="upload" class="w-4 h-4"></i> Nothing to apply`;
+            if(window.lucide) lucide.createIcons();
+        }
+        async function commitCsv(){
+            if(!CSV_PLAN || !CSV_TEXT) return;
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            const btn=document.getElementById('csvCommitBtn');
+            btn.disabled=true; csvMsg('Applying…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}/import`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ csv:CSV_TEXT, dryRun:false }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ csvMsg(d.error||'Could not import.','error'); btn.disabled=false; return; }
+                const failed=(d.failures||[]).length;
+                csvMsg(`${d.created||0} added, ${d.updated||0} updated.${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}`, failed?'warn':'ok');
+                document.getElementById('csvPreview').classList.add('hidden');
+                document.getElementById('csvActions').classList.add('hidden');
+                CSV_PLAN=null; CSV_TEXT='';
+                const f=document.getElementById('csvFile'); if(f) f.value='';
+                // Redraw whichever list this changed.
+                if(CSV_KIND==='roster') fetchRoster().then(renderRoster);
+                else fetchRoutes().then(renderRoutes);
+            }catch{ csvMsg('Server unreachable.','error'); btn.disabled=false; }
         }
         function closeRoutes(){ const r=document.getElementById('routes'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
         function openRouteForm(route){
@@ -2153,12 +2367,15 @@
         }
         function switchRosterView(v){
             ROSTER_VIEW=v; updateRosterTabs();
-            const showApps=v==='apps';
-            document.getElementById('rosterList').classList.toggle('hidden', showApps);
-            document.getElementById('appsList').classList.toggle('hidden', !showApps);
-            // Add-pilot only makes sense on the roster tab.
-            document.getElementById('addPilotBtn').classList.toggle('hidden', showApps || !ROSTER_CANMANAGE);
-            if(showApps){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
+            const onRoster=v==='roster';
+            document.getElementById('rosterList').classList.toggle('hidden', !onRoster);
+            document.getElementById('appsList').classList.toggle('hidden', v!=='apps');
+            document.getElementById('invitesList').classList.toggle('hidden', v!=='invites');
+            // Add-pilot and the CSV tools only make sense on the roster tab.
+            document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
+            document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
+            if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
+            if(v==='invites'){ closePilotForm(); renderInvites(); fetchInvites().then(renderInvites); }
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
         // Split out so the figures panel can raise the badge on load. The
@@ -2178,6 +2395,175 @@
                 if(res.ok){ const d=await res.json(); APPS=Array.isArray(d.applications)?d.applications:[]; }
             }catch{}
         }
+
+        // ---- Invitations ----
+        //
+        // Accepting a pilot mints a login somebody still has to hand over, and
+        // that rarely happens in the same sitting — it is an IFC message or a
+        // Discord DM, written later, often by a different staff member. So the
+        // invitation lives here until it is used rather than vanishing with the
+        // dialog that created it. The backend decides what "live" means and
+        // sends the password only while it is; this list just draws what it is
+        // given (see crewInvite.js).
+        // Clipboard with a fallback. This dashboard is often open inside the
+        // app's webview, where navigator.clipboard is either missing or refused
+        // outright — and "copy the message" failing silently is the one thing
+        // this whole panel exists to prevent.
+        async function copyText(text){
+            try{ await navigator.clipboard.writeText(text); return true; }
+            catch{}
+            try{
+                const ta=document.createElement('textarea');
+                ta.value=text; ta.setAttribute('readonly','');
+                ta.style.position='fixed'; ta.style.top='-1000px'; ta.style.opacity='0';
+                document.body.appendChild(ta);
+                ta.select(); ta.setSelectionRange(0, ta.value.length);
+                const ok=document.execCommand('copy');
+                ta.remove();
+                return ok;
+            }catch{ return false; }
+        }
+
+        let INVITES=[];
+        function setInvitesBadge(n){
+            const b=document.getElementById('invitesBadge');
+            if(!b) return; b.textContent=n; b.classList.toggle('hidden', !n);
+        }
+        async function fetchInvites(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token){ INVITES=[]; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications?status=accepted`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(!res.ok) return;
+                const d=await res.json();
+                // Everything still waiting, plus anything settled recently — so
+                // a staff member sees "signed in on the 4th" instead of a card
+                // that vanished, without the tab silting up with every pilot the
+                // VA has ever accepted.
+                const SETTLED_WINDOW_MS=14*24*60*60*1000, now=Date.now();
+                const recent=(t)=>{ const v=t?Date.parse(t):NaN; return Number.isFinite(v) && (now-v)<SETTLED_WINDOW_MS; };
+                INVITES=(Array.isArray(d.applications)?d.applications:[]).filter(a=>{
+                    const i=a.invite; if(!i||!i.state||i.state==='none') return false;
+                    if(i.state==='live') return true;
+                    return recent(i.claimedAt||i.revokedAt||i.expiresAt||i.issuedAt);
+                });
+            }catch{}
+        }
+        const inviteBadge=(s)=>({
+            live:   ['Waiting to be used','bg-amber-500'],
+            claimed:['Signed in','bg-emerald-600'],
+            revoked:['Discarded','bg-[var(--muted)]'],
+            expired:['Expired','bg-[var(--muted)]'],
+        }[s]||['','']);
+        function inviteCardHtml(a){
+            const id=a._id||a.id, inv=a.invite||{}, live=inv.state==='live';
+            const [label,colour]=inviteBadge(inv.state);
+            const when=(d)=>{ try{ return new Date(d).toLocaleDateString(undefined,{day:'numeric',month:'short'}); }catch{ return ''; } };
+            const trail = inv.state==='claimed' ? `Signed in ${when(inv.claimedAt)} — nothing left to hand over.`
+                : inv.state==='revoked' ? `Discarded ${when(inv.revokedAt)}. Their login still works; reissue below if they need a new password.`
+                : inv.state==='expired' ? `Issued ${when(inv.issuedAt)} and never used, so it has lapsed. Reissue to give them a fresh one.`
+                : `Issued ${when(inv.issuedAt)}${inv.expiresAt?`, lapses ${when(inv.expiresAt)}`:''}.`;
+            return `<div class="surface rounded-xl p-4" data-invite-app="${escapeHtml(String(id))}">
+                <div class="flex items-start gap-3">
+                    <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(a.ifcName||'?',''))}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold truncate">${escapeHtml(a.ifcName||'Unnamed')}</span>
+                            ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5">${escapeHtml(label)}</span>`:''}
+                        </div>
+                        <div class="text-xs muted mt-1">${escapeHtml(trail)}</div>
+                    </div>
+                    <button data-invite-trash title="Throw this invitation away" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                ${live?`<div class="mt-3 rounded-lg border hair p-3">
+                    <div class="text-[11px] uppercase tracking-wide faint">Their login</div>
+                    <div class="font-mono text-sm mt-1 select-all">${escapeHtml(inv.username||'')}</div>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="font-mono text-sm select-all" data-pw data-shown="0">${'•'.repeat(Math.max(8,(inv.password||'').length))}</span>
+                        <button data-invite-reveal class="text-xs accent-text font-semibold hover:underline">Show</button>
+                    </div>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <button data-invite-copy class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                        <button data-invite-regen class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> New password</button>
+                    </div>
+                    <div class="text-[11px] faint mt-2">Copy the message and send it however you reach them — IFC, Discord, anywhere. It disappears from here the moment they sign in.</div>
+                </div>`:`<div class="mt-3">
+                    <button data-invite-regen class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Issue a new password</button>
+                </div>`}
+                <p data-invite-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        function renderInvites(){
+            const live=INVITES.filter(a=>a.invite&&a.invite.state==='live').length;
+            setInvitesBadge(live);
+            const list=document.getElementById('invitesList');
+            if(!list) return;
+            if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to see invitations.</p>'; return; }
+            // Waiting first — those are the ones with something still to do.
+            const order={live:0,expired:1,revoked:2,claimed:3};
+            const sorted=[...INVITES].sort((x,y)=>(order[x.invite.state]??9)-(order[y.invite.state]??9));
+            list.innerHTML = sorted.length ? sorted.map(inviteCardHtml).join('')
+                : '<p class="text-sm faint text-center py-10">No invitations yet. Accepting an application with a login creates one, and it waits here until the pilot signs in.</p>';
+            if(window.lucide) lucide.createIcons();
+        }
+        function inviteNote(card,msg,kind){
+            const n=card.querySelector('[data-invite-note]'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
+            n.classList.remove('hidden');
+        }
+        // One helper for all three invitation actions: they differ only in verb,
+        // URL and confirmation, and all three replace the card with whatever the
+        // backend says the invitation now is.
+        async function inviteAction(id, card, {method, path, confirm: ask, working}){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            if(ask && !confirm(ask)) return;
+            card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            inviteNote(card, working, 'muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications/${encodeURIComponent(id)}/invite${path||''}`,{
+                    method, headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ inviteNote(card, d.error||'That didn’t work.', 'error'); card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
+                const i=INVITES.findIndex(a=>String(a._id||a.id)===String(id));
+                if(i>=0) INVITES[i]={...INVITES[i], invite:d.invite};
+                renderInvites();
+            }catch{
+                inviteNote(card,'Server unreachable.','error');
+                card.querySelectorAll('button').forEach(b=>b.disabled=false);
+            }
+        }
+        document.addEventListener('click', e=>{
+            const card=e.target.closest('[data-invite-app]');
+            if(!card) return;
+            const id=card.getAttribute('data-invite-app');
+            const a=INVITES.find(x=>String(x._id||x.id)===String(id));
+            if(e.target.closest('[data-invite-reveal]')){
+                const pw=card.querySelector('[data-pw]'), btn=e.target.closest('[data-invite-reveal]');
+                const shown=pw.getAttribute('data-shown')==='1';
+                const real=(a&&a.invite&&a.invite.password)||'';
+                pw.textContent = shown ? '•'.repeat(Math.max(8,real.length)) : real;
+                pw.setAttribute('data-shown', shown?'0':'1');
+                btn.textContent = shown ? 'Show' : 'Hide';
+                return;
+            }
+            if(e.target.closest('[data-invite-copy]')){
+                const msg=(a&&a.invite&&a.invite.message)||'';
+                if(!msg) return;
+                copyText(msg).then(ok=>inviteNote(card, ok?'Copied — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error'));
+                return;
+            }
+            if(e.target.closest('[data-invite-regen]')){
+                inviteAction(id, card, { method:'POST', path:'/regenerate', working:'Issuing…',
+                    confirm:'Issue a new temporary password?\n\nThis replaces their current one — anything you have already sent them will stop working.' });
+                return;
+            }
+            if(e.target.closest('[data-invite-trash]')){
+                inviteAction(id, card, { method:'DELETE', working:'Discarding…',
+                    confirm:'Throw this invitation away?\n\nThe password stops being shown here. Their account is not touched — they keep it, and you can issue a new password later.' });
+            }
+        });
         function appCardHtml(a){
             const id=a._id||a.id;
             const verified=a.ifVerified
@@ -2203,13 +2589,13 @@
                     <label class="flex items-start gap-2 text-sm cursor-pointer">
                         <input data-mkacct type="checkbox" checked class="mt-0.5 accent-[var(--accent)]">
                         <span>Create a crew center login
-                            <span class="block text-xs muted">A one-time password is generated and they’re asked to replace it on first sign-in. ${a.email?'It is emailed to them with a sign-in link, and shown here once.':'They gave no email, so it is shown here once — or add an address below and we’ll send it.'}</span>
+                            <span class="block text-xs muted">A temporary password is generated and they’re asked to replace it on first sign-in. ${a.email?'It is emailed to them with a sign-in link.':'They gave no email — add an address below and we’ll send it, or hand it over yourself.'} It also waits under <b>Invitations</b>, and on their own status link, until they sign in.</span>
                         </span>
                     </label>
                     ${a.email?'':`<div>
                         <input data-email type="email" placeholder="Their email — optional, so we can send the sign-in details"
                             class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <div class="text-xs muted mt-1">Left blank, the password appears here once and you pass it on yourself.</div>
+                        <div class="text-xs muted mt-1">Left blank, you pass it on yourself — copy it from Invitations whenever you get round to them.</div>
                     </div>`}
                     <div>
                         <input data-invite type="url" value="${escapeHtml(JOIN.discordInvite||'')}" placeholder="https://discord.gg/…"
@@ -2240,28 +2626,36 @@
             const n=(document.getElementById('idName')||{}).textContent||'';
             return n.trim()||'crew center';
         }
-        // Replace a reviewed card with the handover panel. Shown INSTEAD of
-        // fading the card out, because the password below is the only copy that
-        // will ever exist — nothing stores it, here or in the VA's own project
-        // (see crewAccounts.provisionPilotAccount) — so dismissing this is the
-        // point of no return. The staff member has to close it themselves.
+        // Replace a reviewed card with the handover panel.
+        //
+        // This used to be the point of no return: the password existed only in
+        // the response that drew this panel, so dismissing it lost it for good.
+        // It no longer is — the same credentials are waiting under Invitations
+        // until the pilot signs in — which means this panel can stop shouting
+        // and simply say where to find it again.
         function renderHandover(card, name, d){
             const acct=d.account||null;
+            const inv=d.invite||null;
             const rows=[];
             if(acct && acct.password){
+                // Prefer the server-built message: it is the same text the
+                // applicant's status page shows and the same one the
+                // Invitations tab copies, so a pilot cannot be told two
+                // different stories about their own login.
+                const message=(inv&&inv.message) || [
+                    `Your ${vaDisplayName()} sign-in`,
+                    d.signInUrl?`Sign in: ${d.signInUrl}`:'',
+                    `Username: ${acct.username}`,
+                    `Temporary password: ${acct.password}`,
+                    'You’ll be asked to choose your own password when you first sign in.',
+                ].filter(Boolean).join('\n');
                 rows.push(`<div class="mt-2">
                     <div class="text-[11px] uppercase tracking-wide faint">Crew center login</div>
                     <div class="font-mono text-sm mt-1 select-all">${escapeHtml(acct.username)}</div>
                     <div class="font-mono text-sm select-all">${escapeHtml(acct.password)}</div>
                     ${d.signInUrl?`<div class="text-xs muted mt-1 break-all">Sign in at <span class="font-mono">${escapeHtml(d.signInUrl)}</span></div>`:''}
-                    <button data-copy-cred data-cred="${escapeHtml([
-                        `Your ${vaDisplayName()} sign-in`,
-                        d.signInUrl?`Sign in: ${d.signInUrl}`:'',
-                        `Username: ${acct.username}`,
-                        `One-time password: ${acct.password}`,
-                        'You’ll be asked to choose your own password when you first sign in.',
-                    ].filter(Boolean).join('\n'))}" class="mt-2 surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy for the pilot</button>
-                    <div class="text-xs mt-2 text-amber-600 dark:text-amber-400">This password is shown once, is not stored anywhere, and they’ll be asked to replace it when they first sign in. ${d.emailed?`It has also been emailed to ${escapeHtml(d.email||'them')} with a sign-in link.`:'Send it to the pilot now.'}</div>
+                    <button data-copy-cred data-cred="${escapeHtml(message)}" class="mt-2 surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                    <div class="text-xs mt-2 muted">They’ll be asked to replace this password when they first sign in. ${d.emailed?`It has been emailed to ${escapeHtml(d.email||'them')} with a sign-in link, and it’s`:'It’s'} on their status link and under <b>Invitations</b> until they use it — so you can close this.</div>
                 </div>`);
             } else if(acct && acct.error){
                 rows.push(`<div class="mt-2 text-sm text-amber-600 dark:text-amber-400">${escapeHtml(acct.error)}</div>`);
@@ -2314,6 +2708,9 @@
                     refreshAppsBadge();
                     // Accepting adds a pilot — refresh the roster so it shows up.
                     fetchRoster().then(()=>{ if(ROSTER_VIEW==='roster') renderRoster(); });
+                    // …and mints an invitation, so the tab that holds it until
+                    // the pilot signs in should say so straight away.
+                    fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length); });
                 }else{
                     card.style.transition='opacity .25s'; card.style.opacity='0';
                     setTimeout(()=>{ renderApps(); }, 250);
