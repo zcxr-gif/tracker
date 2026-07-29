@@ -314,7 +314,19 @@
         .cpt-listing{ margin:.3rem 0; }
         .cpt-links{ display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.6rem; }
         .cpt-portal{ background:color-mix(in srgb, var(--accent,#1C1A16) 5%, var(--surface,#fff)); }
-        .cp-card-title i{ width:1em; height:1em; vertical-align:-.1em; margin-right:.3rem; }`);
+        .cp-card-title i{ width:1em; height:1em; vertical-align:-.1em; margin-right:.3rem; }
+
+        /* Mobile. The hero stacks so the standing chip is not competing with
+           the airline's name for the same line, and every link becomes a full
+           target — these all leave for another product, which is not something
+           to mis-tap. */
+        @media (max-width:40rem){
+            .cpt-hero-top{ flex-wrap:wrap; }
+            .cpt-hero-top .cp-chip{ order:3; width:100%; justify-content:center; padding:.35rem; }
+            .cpt-links{ flex-direction:column; align-items:stretch; }
+            .cpt-links .cp-btn{ justify-content:center; }
+            .cpt-warning-head{ gap:.4rem; }
+        }`);
     }
 
     /* =====================================================================

@@ -48,6 +48,22 @@
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
         .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
         .tile{ transition:border-color .2s, transform .2s; }
+        /* Schedule settings: the picked booking mode reads as picked, and the
+           label takes the focus ring because the radio inside it is sr-only. */
+        .sch-opt{ transition:border-color .15s, background .15s; }
+        .sch-opt-on{ border-color:var(--accent); background:color-mix(in srgb, var(--accent) 8%, transparent); }
+        .sch-opt:focus-within{ outline:2px solid var(--accent); outline-offset:2px; }
+        /* Mobile. The hero's two actions are the primary things on the page for
+           a phone-sized visitor, so they get the full width rather than sitting
+           as two small chips beside a heading that already wrapped. */
+        @media (max-width:640px){
+            .r-identity .relative{ padding:1.25rem; }
+            .r-identity h1{ font-size:1.5rem; }
+            .r-identity .flex.sm\:flex-col{ width:100%; }
+            .r-identity .flex.sm\:flex-col > button{ flex:1 1 0; justify-content:center; min-height:2.75rem; }
+            #toolGrid a{ padding:1rem; }
+            .settings-tab{ font-size:12px; padding:.4rem .2rem; }
+        }
         .tile:hover{ border-color:var(--ink); transform:translateY(-2px); }
         .fade-in{ animation:fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
         @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
@@ -218,7 +234,7 @@
                         <!-- Wired now. This shipped as a button that did
                              nothing at all — the one control on the hero that
                              did not respond to being pressed. -->
-                        <button onclick="openSchedule()" class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
+                        <button id="heroScheduleBtn" onclick="openSchedule()" class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
                     </div>
                 </div>
             </section>
@@ -395,6 +411,69 @@
                         <button onclick="saveStructure('fleet')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
                         <p id="fleetNote" class="hidden text-sm mt-2"></p>
                     </div>
+                </div>
+
+                <!-- ============ THE SCHEDULE ============
+                     How this airline runs its bidding. Every field here is
+                     enforced by the backend (see crewSchedules.bookingRefusal);
+                     these controls set the rules, they are not the rules. -->
+                <div class="pt-5 border-t hair">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Schedule &amp; bookings</h3>
+                    <p class="text-xs muted mb-3">Publish a week of flying and let your pilots take a leg off it —
+                        or assign every departure by hand. Your call.</p>
+
+                    <label class="flex items-center gap-3 surface hair rounded-lg px-3.5 py-3 cursor-pointer">
+                        <input type="checkbox" id="sch_enabled" class="accent-[var(--accent)] w-4 h-4">
+                        <span class="min-w-0">
+                            <span class="block text-sm font-semibold">Use the schedule</span>
+                            <span class="block text-xs muted">Off hides it everywhere — the tile, the Schedule button and the pilot view.</span>
+                        </span>
+                    </label>
+
+                    <div id="sch_fields" class="space-y-3 mt-3">
+                        <div>
+                            <span class="block text-xs muted mb-1.5">Who books</span>
+                            <div class="grid grid-cols-2 gap-2">
+                                <label class="sch-opt surface hair rounded-lg px-3 py-2.5 cursor-pointer">
+                                    <input type="radio" name="sch_booking" value="pilots" class="sr-only">
+                                    <span class="block text-sm font-semibold">Pilots</span>
+                                    <span class="block text-xs muted">They take what they want</span>
+                                </label>
+                                <label class="sch-opt surface hair rounded-lg px-3 py-2.5 cursor-pointer">
+                                    <input type="radio" name="sch_booking" value="staff" class="sr-only">
+                                    <span class="block text-sm font-semibold">Staff only</span>
+                                    <span class="block text-xs muted">You assign every leg</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <label class="block text-xs muted">Opens at rank
+                            <select id="sch_minRank" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]"></select>
+                            <span class="block mt-1">A departure can ask for a higher rank than this — never a lower one.</span>
+                        </label>
+
+                        <div class="grid grid-cols-2 gap-2.5">
+                            <label class="text-xs muted">Legs per pilot
+                                <input id="sch_maxPerPilot" type="number" min="0" max="50" placeholder="0"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                <span class="block mt-1">0 = no limit</span>
+                            </label>
+                            <label class="text-xs muted">Booking opens
+                                <input id="sch_openDaysAhead" type="number" min="0" max="365" placeholder="0"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                <span class="block mt-1">days before departure · 0 = straight away</span>
+                            </label>
+                        </div>
+
+                        <label class="block text-xs muted">Give-back cutoff
+                            <input id="sch_cancelHoursBefore" type="number" min="0" max="336" placeholder="0"
+                                class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                            <span class="block mt-1">Hours before departure a pilot can still hand a leg back. 0 = right up to the moment.</span>
+                        </label>
+                    </div>
+
+                    <button onclick="saveSchedulePrefs()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save schedule settings</button>
+                    <p id="sch_note" class="hidden text-sm mt-2"></p>
                 </div>
 
               </div><!-- /crew -->
@@ -1097,13 +1176,17 @@
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         function renderTiles(){
-            document.getElementById('toolGrid').innerHTML=TOOLS.map((t,i)=>`
+            // A VA that has switched the schedule off gets no Schedules tile.
+            // Hiding a control is kinder than a tile that opens onto "this crew
+            // center doesn't use the schedule".
+            const tools=TOOLS.filter(t=>t.action!=='schedule' || SCHEDULE_PREFS.enabled!==false);
+            document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
                     <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
                 </a>`).join('');
             document.querySelectorAll('#toolGrid [data-i]').forEach(el=>{
-                const t=TOOLS[+el.getAttribute('data-i')];
+                const t=tools[+el.getAttribute('data-i')];
                 if(t.action==='settings') el.addEventListener('click', openSettings);
                 if(t.action==='roster') el.addEventListener('click', openRoster);
                 if(t.action==='routes') el.addEventListener('click', openRoutes);
@@ -1153,9 +1236,93 @@
         // the hero's Schedule button and the Schedules tile land here.
         function mountSchedule(){
             if(!window.CrewSchedule) return;
+            // Branding gave us a first answer about whether the schedule is on,
+            // but that response is cached for five minutes — so an owner who
+            // just switched it off would keep seeing the button. The panel's
+            // own fetch is uncached, so it is the one to believe: adopt its
+            // rules whenever they land, and repaint.
+            CrewSchedule.onRules(r=>{
+                SCHEDULE_PREFS={ ...SCHEDULE_PREFS, ...r };
+                applyScheduleVisibility();
+                renderSchedulePrefs();
+            });
             CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken });
         }
         function openSchedule(){ if(window.CrewSchedule) CrewSchedule.open(); }
+
+        // ---- Schedule settings ----
+        //
+        // How this airline runs its bidding. These controls SET the rules; the
+        // backend is what applies them (crewSchedules.bookingRefusal), so a
+        // pilot who bypassed this page entirely meets the identical check.
+        //
+        // Held here rather than read back from the panel because the settings
+        // screen opens before the schedule ever does — branding carries them,
+        // and a VA who has never touched them gets the defaults.
+        let SCHEDULE_PREFS={ enabled:true, booking:'pilots', minRank:'', maxPerPilot:0, openDaysAhead:0, cancelHoursBefore:0 };
+
+        function renderSchedulePrefs(){
+            const p=SCHEDULE_PREFS;
+            const on=document.getElementById('sch_enabled'); if(!on) return;
+            on.checked = p.enabled !== false;
+            document.querySelectorAll('input[name="sch_booking"]').forEach(r=>{ r.checked = r.value===(p.booking||'pilots'); });
+            // The gate is offered from the VA's OWN ladder, so it can never name
+            // a rung that does not exist — the backend drops an unknown rung to
+            // "everyone" rather than locking the schedule for the whole airline,
+            // and this stops that ever being reachable from the UI.
+            const rank=document.getElementById('sch_minRank');
+            rank.innerHTML='<option value="">Everyone</option>'+(RANKS||[]).map(r=>
+                `<option value="${escapeHtml(r.name)}"${p.minRank===r.name?' selected':''}>${escapeHtml(r.name)}</option>`).join('');
+            document.getElementById('sch_maxPerPilot').value = p.maxPerPilot||0;
+            document.getElementById('sch_openDaysAhead').value = p.openDaysAhead||0;
+            document.getElementById('sch_cancelHoursBefore').value = p.cancelHoursBefore||0;
+            syncScheduleOpts();
+        }
+        // The rules only mean anything when the feature is on, so they dim with
+        // it rather than sitting there looking editable.
+        function syncScheduleOpts(){
+            const on=document.getElementById('sch_enabled');
+            const fields=document.getElementById('sch_fields');
+            if(!on||!fields) return;
+            fields.style.opacity = on.checked ? '1' : '.45';
+            fields.querySelectorAll('input,select').forEach(el=>{ el.disabled = !on.checked; });
+            document.querySelectorAll('.sch-opt').forEach(l=>{
+                const r=l.querySelector('input'); l.classList.toggle('sch-opt-on', !!(r&&r.checked));
+            });
+        }
+        async function saveSchedulePrefs(){
+            const note=document.getElementById('sch_note');
+            const num=(id,lo,hi)=>Math.max(lo,Math.min(hi,Math.round(Number(document.getElementById(id).value)||0)));
+            const picked=document.querySelector('input[name="sch_booking"]:checked');
+            SCHEDULE_PREFS={
+                enabled: document.getElementById('sch_enabled').checked,
+                booking: picked ? picked.value : 'pilots',
+                minRank: document.getElementById('sch_minRank').value,
+                maxPerPilot: num('sch_maxPerPilot',0,50),
+                openDaysAhead: num('sch_openDaysAhead',0,365),
+                cancelHoursBefore: num('sch_cancelHoursBefore',0,336),
+            };
+            applyScheduleVisibility();
+            await saveSettings({ schedule: SCHEDULE_PREFS });
+            // The panel holds its own copy for greying buttons out; re-read so a
+            // rule that has just changed is the rule it shows.
+            if(window.CrewSchedule) CrewSchedule.reload();
+            note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+        }
+        // A VA that does not use the schedule should not be shown a Schedule
+        // button or a Schedules tile. Applied on load and whenever it changes,
+        // so turning it off does not need a refresh to take effect.
+        function applyScheduleVisibility(){
+            const on = SCHEDULE_PREFS.enabled !== false;
+            const btn=document.getElementById('heroScheduleBtn');
+            // cp-hidden, not Tailwind's `hidden`: it comes from crewPanels.js's
+            // own injected stylesheet, so this keeps working if the Tailwind CDN
+            // is slow, blocked or down. A hero button that stays visible on a VA
+            // who switched the schedule off would open a panel telling them they
+            // do not use the schedule.
+            if(btn) btn.classList.toggle('cp-hidden', !on);
+            renderTiles();
+        }
 
         // ---- Embeds & partnership ----
         // Both are self-contained panels; neither needs anything from this page
@@ -1437,6 +1604,14 @@
         }
         // Live-edit via delegation (no re-render, so inputs keep focus).
         function wireStructure(){
+            // The schedule's own controls. Attached here, once, with the rest
+            // of the settings wiring — the markup is static, so nothing stacks.
+            const schOn=document.getElementById('sch_enabled');
+            if(schOn) schOn.addEventListener('change', syncScheduleOpts);
+            document.querySelectorAll('input[name="sch_booking"]').forEach(r=>{
+                r.addEventListener('change', syncScheduleOpts);
+            });
+
             ['rankRows','roleRows','fleetRows'].forEach(id=>{
                 const host=document.getElementById(id); if(!host) return;
                 host.addEventListener('input', e=>{
@@ -4059,6 +4234,9 @@
                 document.getElementById('navMonogram').textContent=mono;
                 document.getElementById('idMonogram').textContent=mono;
             }
+            if(b.schedule && typeof b.schedule==='object'){ SCHEDULE_PREFS={ ...SCHEDULE_PREFS, ...b.schedule }; }
+            applyScheduleVisibility();
+            renderSchedulePrefs();
             if(b.tagline) document.getElementById('idTagline').textContent=b.tagline;
             if(b.code){ CREW_CODE=b.code; const c=document.getElementById('idCode'); c.textContent=b.code; c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
@@ -4122,6 +4300,7 @@
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
+            renderSchedulePrefs();          // the rank picker needs the ladder, which renderStructure has now
             renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
             wireTeam(); applyCapState();     // render team editors + gate tabs by caps
             const emP=document.getElementById('emProvider'); if(emP) emP.addEventListener('change', emToggleFields);

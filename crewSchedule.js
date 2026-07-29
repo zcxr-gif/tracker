@@ -54,6 +54,12 @@
         slug: '',
         schedules: [],
         mine: [],           // this pilot's bookings, by departure
+        // How this VA has chosen to run its schedule — whether it is on at all,
+        // whether pilots book for themselves, the rank it opens at, the caps.
+        // Read for PRESENTATION only: every one of these is enforced by the
+        // backend, and each row arrives carrying its own `refusal` when the
+        // pilot cannot take it. See the note on rowActions.
+        rules: { enabled: true, booking: 'pilots', minRank: '', maxPerPilot: 0, openDaysAhead: 0, cancelHoursBefore: 0 },
         ranks: [],
         routes: [],         // the VA's network, for the editor's route picker
         routesLoaded: false,
@@ -61,6 +67,7 @@
         loaded: false,
         error: null,
         view: 'upcoming',   // 'upcoming' | 'all' | 'mine'
+        fetchedAll: false,  // has a fetch without ?upcoming=1 landed yet?
         busy: '',           // id of the departure a request is in flight for
     };
 
@@ -69,17 +76,51 @@
 
     const myBooking = (id) => S.mine.find((m) => String(m.scheduleId) === String(id)) || null;
 
+    /* ---------------------------------------------------------------------
+     * Whose copy of the rules is the real one
+     *
+     * The host page also learns whether the schedule is switched on — its
+     * branding fetch carries the same object, and it needs it early to decide
+     * whether to draw a Schedule button at all. But that response is cached for
+     * five minutes, so an owner who has just turned the feature off would keep
+     * seeing the button until the cache expired.
+     *
+     * This module's copy comes from /schedules, uncached, and is therefore the
+     * one to believe. Rather than have the host poll or guess, it is told: any
+     * page that cares registers a listener and repaints when the truth arrives.
+     * ------------------------------------------------------------------- */
+    const ruleListeners = [];
+
+    function setRules(next) {
+        const before = JSON.stringify(S.rules);
+        S.rules = { ...S.rules, ...next };
+        if (JSON.stringify(S.rules) === before) return;
+        ruleListeners.forEach((fn) => { try { fn({ ...S.rules }); } catch { /* a host's own bug is not ours to throw */ } });
+    }
+
     /* =====================================================================
      * DATA
      * =================================================================== */
 
+    /**
+     * Read the schedule.
+     *
+     * Asks for UPCOMING departures unless the "Everything" tab is open. A VA a
+     * year into running a schedule has hundreds of flown legs, and pulling the
+     * lot to render the fortnight a pilot came to look at is a payload nobody
+     * asked for — the server's twelve-hour grace means the departure somebody
+     * is airborne on is still in the upcoming set.
+     */
     async function load() {
+        const all = S.view === 'all';
         try {
-            const d = await S.api('/schedules');
+            const d = await S.api(`/schedules${all ? '' : '?upcoming=1'}`);
             S.schedules = Array.isArray(d.schedules) ? d.schedules : [];
             S.mine = Array.isArray(d.mine) ? d.mine : [];
             S.ranks = Array.isArray(d.ranks) ? d.ranks : [];
+            if (d.rules) setRules(d.rules);
             S.canManage = !!d.canManage;
+            S.fetchedAll = all;
             S.error = null;
         } catch (err) {
             S.error = err;
@@ -165,20 +206,48 @@
         </article>`;
     }
 
-    /** The buttons on a row, which are entirely about who is asking. */
+    /**
+     * The buttons on a row, which are entirely about who is asking.
+     *
+     * WHERE THE ANSWER COMES FROM. `s.refusal` is computed by the server and
+     * sent with the row — the airline's rules (is the feature on, do pilots
+     * book for themselves, has the bidding window opened, is this pilot at
+     * their cap) plus the rank ladder, all decided in the one place that also
+     * enforces them at POST time. This function renders that sentence; it does
+     * not work it out. Two implementations of one rule is how a UI ends up
+     * promising something the server refuses.
+     */
     function rowActions(s, mine) {
         const busy = S.busy === s.id;
         const out = [];
 
         if (s.status === 'published' && !s.locked) {
             if (mine) {
-                out.push(`<button class="cp-btn cp-btn-sm" data-cancel="${esc(s.id)}"${busy ? ' disabled' : ''}>
-                    <i data-lucide="x"></i> Give back</button>`);
-                // Filing is the events panel's job — it already knows how to
+                const flown = mine.status === 'flown';
+                const late = withinCancelCutoff(s);
+                // A leg already flown is a record of what happened; the server
+                // refuses to delete it, so the button is not offered. Inside
+                // the VA's cutoff it is offered greyed, with the reason —
+                // hiding it entirely would read as a missing feature.
+                if (!flown) {
+                    out.push(`<button class="cp-btn cp-btn-sm" data-cancel="${esc(s.id)}"
+                        ${busy || late ? 'disabled' : ''}
+                        ${late ? `title="Within ${S.rules.cancelHoursBefore}h of departure — talk to your staff"` : ''}>
+                        <i data-lucide="x"></i> Give back</button>`);
+                }
+                // Filing is the flights panel's job — it already knows how to
                 // turn a brief into a flight report, and a second copy of that
                 // form here would be a second place for it to drift.
-                out.push(`<button class="cp-btn cp-btn-sm" data-file="${esc(s.id)}"${busy ? ' disabled' : ''}>
-                    <i data-lucide="clipboard-check"></i> File flight</button>`);
+                if (!flown) {
+                    out.push(`<button class="cp-btn cp-btn-sm" data-file="${esc(s.id)}"${busy ? ' disabled' : ''}>
+                        <i data-lucide="clipboard-check"></i> File flight</button>`);
+                }
+            } else if (s.refusal) {
+                // Greyed with the reason, rather than hidden. A pilot who
+                // cannot see WHY a leg is closed to them asks staff instead.
+                out.push(`<button class="cp-btn cp-btn-sm" disabled title="${esc(s.refusal.message)}">
+                    <i data-lucide="${s.refusal.code === 'not_open_yet' ? 'clock' : 'lock'}"></i>
+                    ${esc(refusalChip(s.refusal))}</button>`);
             } else if (!s.full) {
                 out.push(`<button class="cp-btn cp-btn-sm cp-btn-primary" data-book="${esc(s.id)}"${busy ? ' disabled' : ''}>
                     <i data-lucide="hand"></i> Book</button>`);
@@ -189,11 +258,35 @@
                 ? `${Math.ceil(s.hoursUntilUnlock)}h to go` : 'Rank locked'}</span>`);
         }
         if (S.canManage) {
-            out.push(`<button class="cp-btn cp-btn-sm" data-edit="${esc(s.id)}"><i data-lucide="pencil"></i></button>`);
-            out.push(`<button class="cp-btn cp-btn-sm" data-crew="${esc(s.id)}" title="Who is flying it"><i data-lucide="users"></i></button>`);
-            out.push(`<button class="cp-btn cp-btn-sm cp-btn-bad" data-del="${esc(s.id)}"><i data-lucide="trash-2"></i></button>`);
+            out.push(`<button class="cp-btn cp-btn-sm cs-tool" data-edit="${esc(s.id)}" title="Edit" aria-label="Edit departure"><i data-lucide="pencil"></i></button>`);
+            out.push(`<button class="cp-btn cp-btn-sm cs-tool" data-crew="${esc(s.id)}" title="Who is flying it" aria-label="Who is flying it"><i data-lucide="users"></i></button>`);
+            out.push(`<button class="cp-btn cp-btn-sm cp-btn-bad cs-tool" data-del="${esc(s.id)}" title="Remove" aria-label="Remove departure"><i data-lucide="trash-2"></i></button>`);
         }
         return out.join('');
+    }
+
+    /** The refusal, short enough to sit on a button. Full text is the title. */
+    function refusalChip(r) {
+        if (r.code === 'not_open_yet') return 'Opens later';
+        if (r.code === 'max_bookings') return 'At your limit';
+        if (r.code === 'staff_assigned') return 'Staff assigned';
+        if (r.code === 'rank_locked') return 'Rank locked';
+        return 'Closed';
+    }
+
+    /**
+     * Is this departure inside the VA's give-back cutoff?
+     *
+     * The one rule mirrored in the browser, because it is a clock comparison
+     * rather than a policy decision and greying the button needs an answer now.
+     * The server refuses regardless — this only decides whether the pilot is
+     * told before or after they press.
+     */
+    function withinCancelCutoff(s) {
+        const hrs = Number(S.rules.cancelHoursBefore) || 0;
+        if (!hrs || !s.departsAt) return false;
+        const dep = new Date(s.departsAt).getTime();
+        return Number.isFinite(dep) && dep - Date.now() < hrs * 3600 * 1000;
     }
 
     /** Rows grouped into days, because that is how a schedule is read. */
@@ -226,11 +319,43 @@
             return;
         }
 
+        // The VA has turned the schedule off. Staff are told where the switch
+        // is; a pilot is simply told, because "nothing is scheduled" would send
+        // them back tomorrow to check again.
+        if (!S.rules.enabled) {
+            body.innerHTML = `<div class="cp-empty">
+                <i data-lucide="calendar-off"></i>
+                This crew center doesn’t use the schedule.
+                ${S.canManage ? `<div style="margin-top:.9rem">
+                    <button class="cp-btn cp-btn-primary" data-cs-settings>Turn it on</button>
+                </div>` : ''}
+            </div>`;
+            icons();
+            const on = body.querySelector('[data-cs-settings]');
+            if (on) on.addEventListener('click', () => {
+                panel.close();
+                if (typeof window.openSettings === 'function') window.openSettings('crew');
+            });
+            return;
+        }
+
         const list = visible();
         const tabs = `<div class="cs-tabs">
             ${['upcoming', 'all', 'mine'].map((v) => `<button class="cs-tab${S.view === v ? ' cs-tab-on' : ''}" data-view="${v}">
                 ${v === 'upcoming' ? 'Upcoming' : v === 'all' ? 'Everything' : 'Mine'}</button>`).join('')}
         </div>`;
+
+        // How this airline runs its bidding, stated once at the top rather than
+        // discovered one greyed button at a time.
+        const notes = [];
+        if (S.rules.booking === 'staff') notes.push('Staff assign the flying on this schedule.');
+        if (S.rules.minRank) notes.push(`Opens at ${S.rules.minRank}.`);
+        if (S.rules.openDaysAhead) notes.push(`Booking opens ${S.rules.openDaysAhead} day${S.rules.openDaysAhead === 1 ? '' : 's'} before departure.`);
+        if (S.rules.maxPerPilot) notes.push(`Up to ${S.rules.maxPerPilot} at a time per pilot.`);
+        if (S.rules.cancelHoursBefore) notes.push(`Give a leg back at least ${S.rules.cancelHoursBefore}h before departure.`);
+        const rulesBar = notes.length
+            ? `<p class="cs-rules"><i data-lucide="info"></i> ${esc(notes.join(' '))}</p>`
+            : '';
 
         const content = list.length
             ? grouped(list).map((day) => `
@@ -247,15 +372,38 @@
                         ? 'Nothing on the schedule yet. Add a departure — or a whole week of them — above.'
                         : 'Nothing scheduled yet. Your staff will publish the week here.'}</div>`;
 
-        body.innerHTML = tabs + content;
+        body.innerHTML = tabs + rulesBar + content;
         icons();
         wireList(body);
     }
 
+    /**
+     * One delegated click handler for the whole list, attached ONCE.
+     *
+     * The guard is not tidiness. `panel.body` survives every render — only its
+     * innerHTML is replaced — so attaching here on each render stacked handlers:
+     * open the panel (one render) and let the fetch land (a second), and a
+     * single tap on Book fired POST /book twice. The second request lost the
+     * race against its own twin and came back "you are already booked", so a
+     * pilot whose booking had in fact succeeded was shown an error.
+     *
+     * Delegation is what makes the single listener correct — the rows it
+     * matches on are replaced under it, and it keeps working.
+     */
     function wireList(body) {
+        if (body.dataset.csWired) return;
+        body.dataset.csWired = '1';
+
         body.addEventListener('click', async (ev) => {
             const tab = ev.target.closest('[data-view]');
-            if (tab) { S.view = tab.getAttribute('data-view'); render(); return; }
+            if (tab) {
+                S.view = tab.getAttribute('data-view');
+                render();
+                // "Everything" is the only view that needs rows the upcoming
+                // fetch left behind, so it is the only one that refetches.
+                if (S.view === 'all' && !S.fetchedAll) load();
+                return;
+            }
 
             const el = ev.target.closest('[data-book],[data-cancel],[data-edit],[data-del],[data-crew],[data-file]');
             if (!el) return;
@@ -578,12 +726,17 @@
                 <div class="cs-dialog-body">${html}</div>
             </div>`;
         document.body.appendChild(el);
+        P.lockScroll();
         icons();
 
+        let closed = false;
         const close = () => {
+            if (closed) return;            // the lock is counted; releasing twice unlocks the panel underneath
+            closed = true;
             el.dispatchEvent(new CustomEvent('close-dialog'));
             el.remove();
             document.removeEventListener('keydown', onKey);
+            P.unlockScroll();
         };
         function onKey(ev) { if (ev.key === 'Escape') close(); }
         document.addEventListener('keydown', onKey);
@@ -661,9 +814,70 @@
             color:var(--accent,#1C1A16); font-size:.75rem; font-weight:800; }
         .cs-assign{ display:grid; gap:.6rem; padding-top:.9rem; border-top:1px solid var(--line,#e5e5e5); }
 
-        @media (max-width:38rem){
-            .cs-row{ flex-direction:column; }
-            .cs-row-side{ max-width:none; width:100%; justify-content:flex-start; }
+        .cs-rules{ display:flex; align-items:flex-start; gap:.4rem; margin:0; font-size:.78rem;
+            color:var(--muted,#736E64); padding:.5rem .65rem; border-radius:.5rem;
+            background:color-mix(in srgb, var(--accent,#1C1A16) 7%, transparent); }
+        .cs-rules i{ flex-shrink:0; width:.9rem; height:.9rem; margin-top:.1rem; }
+
+        /* ===================================================================
+         * MOBILE
+         *
+         * A schedule row on a phone is not the desktop row wrapped. On the
+         * desktop the eye goes left-to-right — leg, times, who has it, buttons.
+         * On a phone that becomes four stacked fragments in a column, and the
+         * thing a pilot actually scans for (where is it going, when) ends up
+         * the same size as the aircraft type.
+         *
+         * So: the leg gets its own line at a size worth scanning, the facts
+         * become one quiet line under it, and the actions become a full-width
+         * row of real targets at the bottom — the order a thumb reads in.
+         * ================================================================= */
+        @media (max-width:40rem){
+            .cs-tab{ padding:.55rem .5rem; min-height:2.5rem; }
+            .cs-day-title{ position:sticky; top:0; z-index:1; margin:0; padding:.5rem .1rem;
+                background:var(--surface,#fff); }
+            .cs-row{ flex-direction:column; gap:.6rem; padding:.85rem .9rem; }
+            .cs-ports{ font-size:1.05rem; }
+            .cs-row-side{
+                max-width:none; width:100%; justify-content:stretch;
+                padding-top:.6rem; border-top:1px solid var(--line-soft,#F0ECE4);
+            }
+            /* The text buttons share the row; the icon-only staff controls keep
+               a square footprint so they read as tools, not as choices. */
+            .cs-row-side .cp-btn{ flex:1 1 0; justify-content:center; min-height:2.6rem; }
+            .cs-row-side .cs-tool{ flex:0 0 2.75rem; padding:.5rem; }
+            .cs-locked{ flex:1 1 100%; }
+
+            .cs-dialog-card{
+                left:0; right:0; bottom:0; top:auto; transform:none;
+                width:100%; max-width:none; max-height:92vh; max-height:92dvh;
+                border-radius:1.1rem 1.1rem 0 0;
+                padding-bottom:env(safe-area-inset-bottom,0px);
+            }
+            .cs-dialog-card .cp-head{ padding-top:.75rem; }
+            .cs-dialog-card .cp-head::before{
+                content:''; position:absolute; top:.4rem; left:50%; transform:translateX(-50%);
+                width:2.25rem; height:.25rem; border-radius:999px; background:var(--line,#e5e5e5);
+            }
+            .cs-dialog-body{ padding:.85rem; }
+            /* Save stays reachable. The editor is a dozen fields tall on a
+               phone, and a submit button at the bottom of it is a scroll away
+               from every field you just filled in. */
+            .cs-form-foot{
+                position:sticky; bottom:0; z-index:2;
+                margin:.25rem -.85rem 0; padding:.7rem .85rem;
+                padding-bottom:calc(.7rem + env(safe-area-inset-bottom,0px));
+                background:var(--surface,#fff); border-top:1px solid var(--line,#e5e5e5);
+            }
+            .cs-form-foot .cp-btn{ min-height:2.75rem; }
+            .cs-crew-row{ flex-wrap:wrap; }
+            .cs-crew-name{ flex:1 1 60%; }
+        }
+
+        /* Between a phone and a desktop the row still works, but the action
+           column must not squeeze the leg into two characters a line. */
+        @media (min-width:40.0625rem) and (max-width:60rem){
+            .cs-row-side{ max-width:11rem; }
         }`);
     }
 
@@ -707,6 +921,17 @@
         close: () => panel && panel.close(),
         reload: () => load(),
         newDeparture: () => { open(); openEditor(null); },
+        /**
+         * Be told when the VA's schedule rules land, and again whenever they
+         * change. Called immediately with what is known so a host does not have
+         * to handle "before the first fetch" separately.
+         */
+        onRules(fn) {
+            if (typeof fn !== 'function') return;
+            ruleListeners.push(fn);
+            fn({ ...S.rules });
+        },
+        get rules() { return { ...S.rules }; },
         get canManage() { return S.canManage; },
         get schedules() { return S.schedules.slice(); },
     };

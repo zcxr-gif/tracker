@@ -234,8 +234,17 @@
     }
 
     function wirePanel(body) {
+        // The composer is rebuilt by every render, so its listener goes on the
+        // fresh element each time.
         const form = body.querySelector('#cnCompose');
         if (form) form.addEventListener('submit', onPost);
+
+        // The delegated handler is not: `body` survives renders, so attaching
+        // it again stacked it. Two handlers meant one tap on the bin asking
+        // "remove this?" twice and sending two DELETEs. See crewSchedule's
+        // wireList for the version of this that reached a booking.
+        if (body.dataset.cnWired) return;
+        body.dataset.cnWired = '1';
 
         body.addEventListener('click', async (ev) => {
             const pin = ev.target.closest('[data-pin]');
@@ -342,7 +351,21 @@
         .cn-card-head{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
         .cn-card-tools{ margin-left:auto; display:flex; gap:.35rem; }
         .cn-card-body{ margin:0; font-size:.85rem; color:var(--muted,#736E64); white-space:pre-wrap; }
-        .cn-card-foot{ font-size:.72rem; }`);
+        .cn-card-foot{ font-size:.72rem; }
+
+        /* Mobile. The card's tools drop below the meta rather than squeezing it
+           to nothing, and the composer's actions become a full-width row —
+           "Post" is the reason the panel was opened, so it gets the width. */
+        @media (max-width:40rem){
+            .cn-card-head{ gap:.4rem; }
+            .cn-card-tools{ margin-left:0; width:100%; }
+            .cn-card-tools .cp-btn{ flex:1 1 0; justify-content:center; }
+            .cn-composer-foot{ flex-direction:column; align-items:stretch; gap:.6rem; }
+            .cn-composer-foot .cp-btn{ justify-content:center; }
+            .cn-composer-foot label{ order:2; justify-content:center; }
+            .cn-row{ padding:.8rem 0; }
+            .cn-row-body{ white-space:normal; }
+        }`);
     }
 
     /* =====================================================================

@@ -230,7 +230,107 @@
         .cp-note{ font-size:.8rem; color:var(--muted,#736E64); }
         .cp-note-bad{ color:#DC2626; }
         .cp-note-warn{ color:#D97706; }
-        @media (prefers-reduced-motion:reduce){ .cp-card,.cp-toast{ transition:none; } }`);
+        @media (prefers-reduced-motion:reduce){ .cp-card,.cp-toast{ transition:none; } }
+
+        /* ===================================================================
+         * MOBILE
+         *
+         * Not the desktop panel made narrow — a different shape.
+         *
+         * A slide-over is a desktop idea: it comes from the right because there
+         * is somewhere for it to come from. On a phone it is the whole screen,
+         * so the sideways animation says nothing, the close button sits in the
+         * furthest corner from a thumb, and the sheet covers the page with no
+         * hint that the page is still there.
+         *
+         * So below 40rem these become BOTTOM SHEETS: they rise from the edge
+         * the thumb is nearest, stop short of the top so the page behind stays
+         * visible (which is what makes "tap outside to close" discoverable),
+         * and carry a grab handle in a sticky header that does not scroll away.
+         *
+         * Three details that matter more on a phone than they look:
+         *
+         *   · dvh, not vh. Mobile Safari's vh is the height WITHOUT the address
+         *     bar, so a 92vh sheet is taller than the screen until you scroll,
+         *     and the bottom of it — where the buttons are — sits under the
+         *     chrome. dvh tracks the real viewport. vh is kept as a fallback
+         *     first, so a browser without dvh gets something sane.
+         *   · env(safe-area-inset-bottom). Without it the last button sits
+         *     under the home indicator on every notched phone.
+         *   · 44px minimum on anything tappable. Below that, a control is a
+         *     coin toss.
+         * ================================================================= */
+        @media (max-width:40rem){
+            .cp-sheet{
+                right:0; left:0; top:auto; bottom:0;
+                width:100%; max-width:none;
+                height:auto; max-height:92vh; max-height:92dvh;
+                border-left:0; border-top:1px solid var(--line,#e5e5e5);
+                border-radius:1.1rem 1.1rem 0 0;
+                padding-bottom:env(safe-area-inset-bottom,0px);
+            }
+            .cp-head{
+                position:sticky; padding-top:.75rem; height:auto; min-height:3.5rem;
+                border-radius:1.1rem 1.1rem 0 0;
+            }
+            /* The grab handle. On the sticky header, not the scrolling body, so
+               it is still there after the sheet has been scrolled. */
+            .cp-head::before{
+                content:''; position:absolute; top:.4rem; left:50%; transform:translateX(-50%);
+                width:2.25rem; height:.25rem; border-radius:999px;
+                background:var(--line,#e5e5e5);
+            }
+            .cp-body{ padding:.85rem .85rem 1.5rem; }
+            .cp-icon-btn{ width:2.75rem; height:2.75rem; }
+            .cp-btn{ min-height:2.75rem; }
+            .cp-btn-sm{ min-height:2.5rem; padding:.5rem .75rem; font-size:.82rem; }
+            /* 16px, so iOS does not zoom the page when a field takes focus —
+               which it does silently below 16 and never undoes. */
+            .cp-input,.cp-select,.cp-textarea{ font-size:1rem; padding:.6rem .75rem; }
+            .cp-grid2{ grid-template-columns:1fr; }
+            #cp-toasts{ bottom:calc(1rem + env(safe-area-inset-bottom,0px)); width:100%; padding:0 1rem; }
+            .cp-toast{ max-width:none; }
+        }`);
+    }
+
+    /* ---------------------------------------------------------------------
+     * Scroll locking
+     *
+     * With a sheet open, the PAGE behind it still scrolls under a touch that
+     * misses the sheet — and on iOS the scroll chains through to the body even
+     * when it does not, so flicking a list to its end starts dragging the
+     * dashboard around behind it.
+     *
+     * Counted rather than boolean: the schedule opens a dialog on top of its
+     * own panel, and the dialog closing must not unlock the page while the
+     * panel is still up.
+     * ------------------------------------------------------------------- */
+    let lockCount = 0;
+    let lockedScrollY = 0;
+
+    function lockScroll() {
+        if (lockCount++ > 0) return;
+        lockedScrollY = window.scrollY || 0;
+        const b = document.body;
+        b.style.position = 'fixed';
+        b.style.top = `-${lockedScrollY}px`;
+        b.style.left = '0';
+        b.style.right = '0';
+        b.style.width = '100%';
+    }
+
+    function unlockScroll() {
+        if (lockCount === 0) return;
+        if (--lockCount > 0) return;
+        const b = document.body;
+        b.style.position = '';
+        b.style.top = '';
+        b.style.left = '';
+        b.style.right = '';
+        b.style.width = '';
+        // position:fixed dropped the page to the top; put it back where the
+        // reader was, or opening a panel becomes a way to lose your place.
+        window.scrollTo(0, lockedScrollY);
     }
 
     /* ---------------------------------------------------------------------
@@ -290,16 +390,26 @@
             });
         }
 
+        let isOpen = false;
         const open = () => {
+            // Guarded, because open() is called on every tile press and the
+            // scroll lock is counted — an unguarded second call would take a
+            // second lock that nothing ever releases.
+            if (isOpen) return;
+            isOpen = true;
             el.classList.remove('cp-hidden');
             // One listener while open, removed on close. A panel that leaves an
             // Escape handler behind starts closing panels it does not own.
             document.addEventListener('keydown', onKey);
+            lockScroll();
             icons();
         };
         const close = () => {
+            if (!isOpen) return;
+            isOpen = false;
             el.classList.add('cp-hidden');
             document.removeEventListener('keydown', onKey);
+            unlockScroll();
         };
         function onKey(ev) { if (ev.key === 'Escape') close(); }
 
@@ -309,7 +419,7 @@
             head: el.querySelector('.cp-head'),
             open,
             close,
-            isOpen: () => !el.classList.contains('cp-hidden'),
+            isOpen: () => isOpen,
             setTitle: (t) => { el.querySelector('.cp-head-title span').textContent = t; },
         };
     }
@@ -378,6 +488,7 @@
         esc, safeUrl, icons,
         whenText, timeText, dayKey, dayLabel, relativeText, durationText,
         style, baseStyles, toast, sheet, api,
+        lockScroll, unlockScroll,
         isSchemaGap, schemaGapHtml,
     };
 })();

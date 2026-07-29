@@ -143,6 +143,21 @@
     text-decoration: none;
   }
   .powered:hover { color: var(--muted); }
+
+  /* Mobile. This widget is pasted into somebody else's page, so it cannot
+     assume a viewport — it may be 320px wide in a sidebar on a phone. The row
+     stops being a flex line (title and timestamp fighting over the same
+     inches) and becomes two stacked lines. */
+  @media (max-width: 30rem) {
+    .wrap { padding: 8px; }
+    .head { padding: 10px 12px; }
+    .head h1 { font-size: 14px; }
+    .row { padding: 10px 12px; flex-wrap: wrap; gap: 6px; }
+    .row-when { width: 100%; order: 3; }
+    .ports { font-size: 14px; }
+    .day { padding: 7px 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
@@ -319,7 +334,7 @@
     var head = '<div class="head">' +
       (logo ? '<img src="' + esc(logo) + '" alt="">' : "") +
       "<h1>" + esc(title) + "</h1>" +
-      (rows.length ? '<span class="count">' + rows.length + "</span>" : "") +
+      (rows.length ? '<span class="count">' + Math.min(rows.length, LIMIT) + "</span>" : "") +
       "</div>";
 
     var body = rows.length

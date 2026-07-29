@@ -53,8 +53,10 @@ let schedules = [
         booked: 0, seatsLeft: 1, full: false, flown: false, canManage: true, routeId: null,
     },
 ];
+let scheduleRules = { enabled: true, booking: 'pilots', minRank: '', maxPerPilot: 0, openDaysAhead: 0, cancelHoursBefore: 0 };
 let posted = null;
 let booked = null;
+let bookCalls = 0;
 let createdSchedule = null;
 
 function api(route, over = {}) {
@@ -75,7 +77,10 @@ function api(route, over = {}) {
     if (/\/announcements\/\w+$/.test(p)) return json({ ok: true });
 
     if (p.endsWith('/schedules') && method === 'GET') {
-        return json({ schedules, mine: [], canManage: true, ranks: [{ name: 'Cadet', minHours: 0 }, { name: 'Captain', minHours: 300 }] });
+        return json({
+            schedules, mine: [], canManage: true, rules: scheduleRules,
+            ranks: [{ name: 'Cadet', minHours: 0 }, { name: 'Captain', minHours: 300 }],
+        });
     }
     if (p.endsWith('/schedules') && method === 'POST') {
         createdSchedule = route.request().postDataJSON();
@@ -83,6 +88,7 @@ function api(route, over = {}) {
     }
     if (/\/schedules\/\w+\/book$/.test(p) && method === 'POST') {
         booked = p;
+        bookCalls += 1;
         return json({ booking: { id: 'bk1', seat: 2, pilotName: 'Owner', callsign: '', note: '', status: 'booked' } }, 201);
     }
     if (/\/schedules\/\w+$/.test(p) && method === 'GET') {
@@ -208,6 +214,17 @@ function api(route, over = {}) {
     check('the departure time is sent as an instant, not a bare wall clock',
         new Date(createdSchedule.departsAt).getTime() === new Date('2026-09-26T18:40').getTime(),
         createdSchedule && createdSchedule.departsAt);
+    // REGRESSION. `panel.body` survives every render — only its innerHTML is
+    // replaced — so the delegated click handler used to be attached again on
+    // each one. Opening the panel renders twice (once on open, once when the
+    // fetch lands), so a single tap on Book fired POST /book TWICE: the second
+    // request lost the race against its own twin and came back "you are already
+    // booked", showing an error to a pilot whose booking had just succeeded.
+    bookCalls = 0;
+    await page.click('#csPanel [data-book="sc1"]');
+    await page.waitForTimeout(800);
+    check('one tap on Book sends exactly one booking', bookCalls === 1, `sent ${bookCalls}`);
+
     await page.click('#csPanel .cp-head [data-cp-close]');
 
     // ---- 4. Embeds ---------------------------------------------------------
@@ -304,6 +321,107 @@ function api(route, over = {}) {
         check('a refusal is explained, not reported as a fault',
             /Only the VA owner/.test(body) && !/went wrong/.test(body), body.trim().slice(0, 120));
         await p3.close();
+    }
+
+    // ---- 8. The rules a VA sets ------------------------------------------
+    // The panel must SAY why a leg is closed, not just fail to offer it. A
+    // greyed button with no reason is what sends a pilot to ask staff.
+    console.log('\nThe VA\u2019s own booking rules');
+    {
+        scheduleRules = { enabled: true, booking: 'staff', minRank: '', maxPerPilot: 0, openDaysAhead: 0, cancelHoursBefore: 0 };
+        schedules = schedules.map((s) => ({
+            ...s,
+            refusal: { code: 'staff_assigned', message: 'Your staff assign the flying on this schedule — ask them for a leg.', opensAt: null },
+        }));
+        const { page: p4 } = await openDash();
+        await p4.click('button:has-text("Schedule")');
+        await p4.waitForTimeout(900);
+        const body = await p4.textContent('#csPanel');
+        check('the rules are stated once at the top', /Staff assign the flying/.test(body), body.trim().slice(0, 110));
+        check('a refused leg offers no Book button', (await p4.$$('#csPanel [data-book]')).length === 0);
+        check('…and says why instead', /Staff assigned/.test(body));
+        await p4.close();
+
+        // Off entirely: the tile and the hero button go with it.
+        scheduleRules = { ...scheduleRules, enabled: false };
+        const { page: p5 } = await openDash();
+        await p5.waitForTimeout(400);
+        check('a VA that turned the schedule off gets no hero button',
+            await p5.isHidden('#heroScheduleBtn'));
+        const tiles = await p5.textContent('#toolGrid');
+        check('…and no Schedules tile', !/Schedules/.test(tiles));
+        await p5.close();
+
+        scheduleRules = { enabled: true, booking: 'pilots', minRank: '', maxPerPilot: 0, openDaysAhead: 0, cancelHoursBefore: 0 };
+        schedules = schedules.map(({ refusal, ...s }) => s);
+    }
+
+    // ---- 9. On a phone ----------------------------------------------------
+    // Not "does it fit" — does it become the right SHAPE. A slide-over squeezed
+    // to 390px is not a mobile layout, it is a desktop one with less room.
+    console.log('\nOn a phone');
+    {
+        const phone = await browser.newPage({
+            viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+            deviceScaleFactor: 3,
+        });
+        await phone.route('**/api/**', (r) => api(r));
+        await phone.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' })));
+        await phone.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
+        await phone.waitForTimeout(1800);
+
+        const noHScroll = await phone.evaluate(() =>
+            document.documentElement.scrollWidth <= window.innerWidth + 1);
+        check('the dashboard does not scroll sideways', noHScroll);
+
+        await phone.click('button:has-text("Schedule")');
+        await phone.waitForSelector('#csPanel:not(.cp-hidden)');
+        await phone.waitForTimeout(600);
+
+        const sheet = await phone.evaluate(() => {
+            const el = document.querySelector('#csPanel .cp-sheet');
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            return {
+                full: Math.abs(r.width - window.innerWidth) < 2,
+                onBottom: Math.abs(r.bottom - window.innerHeight) < 2,
+                leavesTop: r.top > 0,
+                rounded: parseFloat(cs.borderTopLeftRadius) > 4,
+            };
+        });
+        check('the panel is a bottom sheet, not a squeezed slide-over',
+            sheet.full && sheet.onBottom && sheet.leavesTop, JSON.stringify(sheet));
+        check('…with a rounded top edge', sheet.rounded);
+
+        // The page behind must not scroll under the sheet.
+        check('the page behind is locked while it is open',
+            await phone.evaluate(() => getComputedStyle(document.body).position === 'fixed'));
+
+        // Every control has to be reachable by a thumb.
+        const small = await phone.evaluate(() => {
+            const bad = [];
+            document.querySelectorAll('#csPanel button').forEach((b) => {
+                const r = b.getBoundingClientRect();
+                if (r.width && r.height && r.height < 40) bad.push((b.textContent || b.ariaLabel || '?').trim().slice(0, 20));
+            });
+            return bad;
+        });
+        check('every control in the panel is a real tap target', small.length === 0, small.join(', '));
+
+        const rowShape = await phone.evaluate(() => {
+            const row = document.querySelector('#csPanel .cs-row');
+            if (!row) return null;
+            return getComputedStyle(row).flexDirection;
+        });
+        check('schedule rows stack rather than wrapping a desktop row', rowShape === 'column', String(rowShape));
+
+        await phone.click('#csPanel .cp-head [data-cp-close]');
+        await phone.waitForTimeout(300);
+        check('closing it gives the page back',
+            await phone.evaluate(() => getComputedStyle(document.body).position !== 'fixed'));
+
+        await phone.screenshot({ path: path.join(__dirname, 'crew-center-mobile.png') });
+        await phone.close();
     }
 
     await browser.close();

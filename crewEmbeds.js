@@ -270,7 +270,7 @@
                         <i data-lucide="external-link"></i> Open
                     </a>
                 </div>
-                <iframe id="cePreview" src="${esc(src)}" style="height:${w.height}px"
+                <iframe id="cePreview" src="${esc(src)}" style="--ce-h:${w.height}px"
                     loading="lazy" title="Preview"></iframe>
             </section>
 
@@ -397,12 +397,30 @@
 
         .ce-preview{ display:grid; gap:.4rem; }
         .ce-preview-head{ display:flex; align-items:center; justify-content:space-between; }
-        .ce-preview iframe{ width:100%; border:1px solid var(--line,#e5e5e5); border-radius:.75rem;
+        .ce-preview iframe{ width:100%; height:var(--ce-h,480px);
+            border:1px solid var(--line,#e5e5e5); border-radius:.75rem;
             background:var(--bg,#f6f3ed); display:block; }
 
         .ce-snippet{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.75rem;
             line-height:1.5; }
-        .ce-copy-row{ display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap; }`);
+        .ce-copy-row{ display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap; }
+
+        /* Mobile. The widget picker becomes a scrolling rail with the edge
+           faded, so it reads as "there is more" rather than as a clipped row.
+           The preview is capped at a share of the viewport: a 560px iframe on a
+           phone is the whole screen, and the snippet — the thing the panel
+           exists to hand over — would be below the fold every time. */
+        @media (max-width:40rem){
+            .ce-picker{ margin:0 -.85rem; padding:0 .85rem .25rem;
+                scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch;
+                mask-image:linear-gradient(90deg,#000 calc(100% - 2rem),transparent);
+                -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 2rem),transparent); }
+            .ce-pick{ scroll-snap-align:start; min-height:2.75rem; }
+            .ce-opts{ grid-template-columns:1fr; }
+            .ce-preview iframe{ height:min(var(--ce-h,480px), 52vh); height:min(var(--ce-h,480px), 52dvh); }
+            .ce-copy-row .cp-btn{ flex:1 1 100%; justify-content:center; }
+            .ce-snippet{ font-size:.72rem; }
+        }`);
     }
 
     /* =====================================================================
