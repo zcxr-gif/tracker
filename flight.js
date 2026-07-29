@@ -1741,6 +1741,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
                 // replace the defaults wholesale above — backfill missing keys
                 // so the map, previews and settings toggles all agree.
                 mapFilters.labelConfig = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
+                applyFreeMapConstraints();
                 applyMapStyleMapping();
             } catch (e) {
                 console.warn("Local storage parse failed.", e);
@@ -1770,6 +1771,7 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
                         
                         // Re-sync local storage to match the authoritative cloud state
                         localStorage.setItem('mapFilters', cloudJson);
+                        applyFreeMapConstraints();
                         applyMapStyleMapping();
                         
                         // Force Mapbox and UI to visually update seamlessly
@@ -1857,6 +1859,13 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
         }
     }
     window.refreshProStatus = refreshProStatus;
+
+    // Saved (and cloud-synced) filters are restored after free-map mode has
+    // already been decided, so a persisted `useFlatMap: false` would otherwise
+    // put the free engine back on a globe projection it does not have.
+    function applyFreeMapConstraints() {
+        if (isFreeMap()) mapFilters.useFlatMap = true;
+    }
 
     // Helper function to extract repetitive style mapping logic
     function applyMapStyleMapping() {
@@ -19781,7 +19790,9 @@ function initializeSectorOpsMap(centerICAO) {
         zoom: 1.3,
         minZoom: 0,
         interactive: true,
-        projection: mapFilters.useFlatMap ? 'mercator' : 'globe',
+        // Globe is Mapbox-only — MapLibre has no globe projection, so free mode
+        // is always flat regardless of the saved preference.
+        projection: (isFreeMap() || mapFilters.useFlatMap) ? 'mercator' : 'globe',
         // --- SMOOTH ZOOM/RENDER CONFIG ---
         // fadeDuration intentionally omitted — Mapbox's default 300 ms crossfade
         // is what makes tiles dissolve in/out instead of popping. The previous
@@ -19881,6 +19892,11 @@ function initializeSectorOpsMap(centerICAO) {
     // only while it still hasn't painted.
     sectorOpsMap.on('error', (e) => {
         if (window.__inflightBoot && window.__inflightBoot.state === 'map-ready') return;
+        // Source/tile-level failures carry a sourceId and are survivable: one
+        // 404 tile, or one flaky third-party tile CDN, is not a dead map. This
+        // matters most in free-map mode, where tiles come from hosts outside
+        // our control and a single network blip surfaces as "Failed to fetch".
+        if (e && e.sourceId) return;
         const status = e && e.error && e.error.status;
         const message = String((e && e.error && e.error.message) || '');
         const fatal = status === 401 || status === 403 ||
@@ -19890,13 +19906,21 @@ function initializeSectorOpsMap(centerICAO) {
 
     return new Promise(resolve => {
         sectorOpsMap.on('load', async () => {
-            GroupFlightManager.init(sectorOpsMap);
-            setupResetNorthButton();
-            await setupMapLayersAndFog();
-            // [PERF FIX] Removed two redundant initializeMapBoundaries calls
-            // here — setupMapLayersAndFog() already invokes it internally,
-            // so previously the boundaries were being computed 3× on cold start.
-            resolve();
+            // Boot awaits this promise, so it has to settle even if one of the
+            // layer builders throws — otherwise a single failure below leaves
+            // the splash spinning on a map that has actually painted.
+            try {
+                GroupFlightManager.init(sectorOpsMap);
+                setupResetNorthButton();
+                await setupMapLayersAndFog();
+                // [PERF FIX] Removed two redundant initializeMapBoundaries calls
+                // here — setupMapLayersAndFog() already invokes it internally,
+                // so previously the boundaries were being computed 3× on cold start.
+            } catch (err) {
+                console.error('Map layer setup failed:', err);
+            } finally {
+                resolve();
+            }
         });
     });
 }
@@ -27025,7 +27049,12 @@ async function initializeApp() {
             throw err;
         }
 
-        if (!MAPBOX_ACCESS_TOKEN) {
+        // A missing Mapbox token is only fatal when we are actually rendering
+        // with Mapbox. In free-map mode (kill switch or quota guard) the map is
+        // MapLibre + OpenFreeMap and no token is ever fetched — bailing here is
+        // what left the splash sitting on "The map could not be configured"
+        // forever the moment the free map was switched on.
+        if (!MAPBOX_ACCESS_TOKEN && !isFreeMap()) {
             reportBootState('map-error', 'The map could not be configured.');
             return;
         }
