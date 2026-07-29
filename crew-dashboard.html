@@ -434,7 +434,7 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Notifications</h3>
                     <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
                         <span id="hookStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
-                    <p class="text-xs muted mb-2.5">Paste a Discord webhook and we’ll post new applications and every accept / decline decision (with your message) straight to your server.</p>
+                    <p class="text-xs muted mb-2.5">Paste one Discord webhook and everything the crew center does — applications, flight reports, route changes — posts to that channel. That is all most VAs need.</p>
                     <input id="hookUrl" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
                         class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <div class="flex gap-2 mt-2">
@@ -444,6 +444,53 @@
                     </div>
                     <p class="text-[11px] faint mt-2">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
                     <p id="hookNote" class="hidden text-sm mt-2"></p>
+
+                    <!-- Split the feeds up. Collapsed, because it is the
+                         minority case: a VA is only here if one channel for
+                         everything has become too noisy. Each box left empty
+                         means "use the main channel above" — never "off". -->
+                    <details id="feedHooks" class="mt-3 rounded-xl hair surface">
+                        <summary class="cursor-pointer text-sm font-semibold px-4 py-3 select-none">Send some of it somewhere else</summary>
+                        <div class="px-4 pb-4 space-y-4">
+                            <p class="text-xs muted">Point a feed at its own channel — recruitment in one, flight reports in another. Leave a box empty and that feed keeps going to the main webhook above.</p>
+                            <div data-feed="recruitment">
+                                <div class="text-sm font-semibold flex items-center gap-2">Recruitment <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">New applications, and accept / decline decisions.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="pireps" class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Flight reports <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Filed, approved and rejected — one feed — plus pilot promotions.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="routes" class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Route network <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Routes added, edited, removed or imported.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                        </div>
+                    </details>
 
                     <div class="mt-4 pt-4 border-t hair-soft">
                         <div class="text-sm font-semibold mb-1 flex items-center gap-2">Email applicants
@@ -679,12 +726,49 @@
                     <input id="nr_dist" type="number" min="0" placeholder="Distance (nm, optional)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <input id="nr_notes" placeholder="Notes (optional)" class="surface hair rounded-lg px-3 py-2 text-sm col-span-2 focus:outline-none focus:border-[var(--ink)]">
                     <label class="flex items-center gap-2 text-sm muted col-span-2 cursor-pointer"><input id="nr_active" type="checkbox" checked class="accent-[var(--accent)]"> Active (visible to pilots)</label>
+
+                    <!-- Who flies it, and who may. Kept below the fold of the
+                         basic fields: most routes are the airline's own metal
+                         open to everyone, and that should stay a two-field
+                         job. -->
+                    <div class="col-span-2 border-t hair-soft pt-3 mt-1 space-y-2.5">
+                        <div>
+                            <div class="text-[11px] font-semibold uppercase tracking-wider faint mb-1.5">Operated by</div>
+                            <div class="inline-flex p-1 rounded-lg surface hair text-sm font-semibold w-full">
+                                <button type="button" id="nr_kind_own" onclick="setRouteKind('own')" class="flex-1 px-3 py-1.5 rounded-md transition">Our own metal</button>
+                                <button type="button" id="nr_kind_cs" onclick="setRouteKind('codeshare')" class="flex-1 px-3 py-1.5 rounded-md transition">Codeshare</button>
+                            </div>
+                        </div>
+                        <div id="nr_partnerWrap" class="hidden space-y-2.5">
+                            <input id="nr_partner" placeholder="Partner airline (e.g. Iberia)" maxlength="60" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <div>
+                                <input id="nr_partnerLogo" type="url" placeholder="Partner logo URL — optional (https://…)" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="text-[11px] faint mt-1">Shown beside the route. Must be an https image URL.</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] font-semibold uppercase tracking-wider faint mb-1.5">Opens at</div>
+                            <select id="nr_minRank" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                            <div id="nr_rankHint" class="text-[11px] faint mt-1">Everyone on the roster can fly this.</div>
+                        </div>
+                    </div>
                 </div>
                 <div class="flex gap-2 mt-3">
                     <button id="routeSubmitBtn" onclick="submitRoute()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add route</button>
                     <button onclick="closeRouteForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
                 </div>
                 <p id="routeNote" class="hidden text-sm mt-2"></p>
+            </div>
+            <!-- Own metal vs codeshare. Only drawn when there is actually a
+                 codeshare to separate — a VA that flies everything itself
+                 should not be given a filter for a distinction it doesn't
+                 make. -->
+            <div id="routeKindTabs" class="hidden px-5 pt-4">
+                <div class="inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold w-full">
+                    <button data-kindview="all" onclick="setRouteKindView('all')" class="flex-1 px-3 py-1.5 rounded-md transition">All<span id="rkAll" class="text-xs muted"></span></button>
+                    <button data-kindview="own" onclick="setRouteKindView('own')" class="flex-1 px-3 py-1.5 rounded-md transition">Own<span id="rkOwn" class="text-xs muted"></span></button>
+                    <button data-kindview="codeshare" onclick="setRouteKindView('codeshare')" class="flex-1 px-3 py-1.5 rounded-md transition">Codeshare<span id="rkCs" class="text-xs muted"></span></button>
+                </div>
             </div>
             <div id="routeList" class="p-5 space-y-2.5"></div>
         </div>
@@ -757,12 +841,19 @@
             </div>
             <select id="rmAircraft" onchange="rmApplyFilters()" class="surface hair rounded-lg px-2.5 py-1.5 text-sm shadow-sm"><option value="">All aircraft</option></select>
             <button id="rmActiveToggle" onclick="rmToggleActive()" class="surface hair rounded-lg px-3 py-1.5 text-sm shadow-sm inline-flex items-center gap-1.5"><span id="rmActiveDot" class="w-2 h-2 rounded-full accent-bg"></span> Active only</button>
+            <!-- Only rendered once the VA actually has a codeshare — see rmSyncKindFilter. -->
+            <select id="rmKind" onchange="rmApplyFilters()" class="hidden surface hair rounded-lg px-2.5 py-1.5 text-sm shadow-sm">
+                <option value="">Whole network</option>
+                <option value="own">Our own metal</option>
+                <option value="codeshare">Codeshares</option>
+            </select>
             <button onclick="rmFitAll()" title="Fit whole network" class="surface hair rounded-lg w-9 h-9 grid place-items-center shadow-sm muted hover:text-[var(--ink)]"><i data-lucide="maximize" class="w-4 h-4"></i></button>
         </div>
 
         <!-- Legend (bottom-left) -->
         <div class="absolute left-4 sm:left-5 bottom-4 z-10 surface hair rounded-lg px-3 py-2.5 text-xs shadow-sm hidden sm:block">
-            <div class="flex items-center gap-2 mb-1.5"><span class="inline-block w-6 h-0.5 rounded" style="background:var(--rm-accent,#3b82f6);"></span><span class="muted">Route</span></div>
+            <div class="flex items-center gap-2 mb-1.5"><span class="inline-block w-6 h-0.5 rounded" style="background:var(--rm-accent,#3b82f6);"></span><span class="muted">Our own metal</span></div>
+            <div id="rmLegendCs" class="hidden flex items-center gap-2 mb-1.5"><span class="inline-block w-6 h-0 rounded" style="border-top:2px dashed var(--muted);"></span><span class="muted">Codeshare</span></div>
             <div class="flex items-center gap-2 mb-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full" style="background:var(--rm-accent,#3b82f6);"></span><span class="muted">Airport</span></div>
             <div class="flex items-center gap-2"><span class="inline-block w-4 h-4 rounded-full border-2" style="border-color:var(--rm-accent,#3b82f6);"></span><span class="muted">Hub (busier)</span></div>
         </div>
@@ -1361,7 +1452,7 @@
         async function loadWebhook(){
             const token=sessionToken(), slug=getSlug(); if(!slug||!token) return;
             try{ const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
-                if(res.ok){ const d=await res.json(); renderHookStatus(d); const inp=document.getElementById('hookUrl'); if(inp&&d.configured&&d.hint) inp.placeholder=d.hint; } }catch{}
+                if(res.ok){ const d=await res.json(); renderHookStatus(d); renderFeedHooks(d); const inp=document.getElementById('hookUrl'); if(inp&&d.configured&&d.hint) inp.placeholder=d.hint; } }catch{}
         }
         async function postWebhook(body, okMsg){
             const token=sessionToken(), slug=getSlug();
@@ -1370,12 +1461,70 @@
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ setHookNote(d.error||'Could not save.','err'); return; }
-                renderHookStatus(d); setHookNote(okMsg,'ok');
+                renderHookStatus(d); renderFeedHooks(d); setHookNote(okMsg,'ok');
             }catch{ setHookNote('Server unreachable. Try again.','err'); }
         }
         function saveWebhook(){ const v=document.getElementById('hookUrl').value.trim(); if(!v){ setHookNote('Paste a webhook URL first.','muted'); return; } postWebhook({webhookUrl:v}, 'Webhook saved — new activity will post to Discord.'); }
         function testWebhook(){ const v=document.getElementById('hookUrl').value.trim(); postWebhook(v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check your Discord channel.'); }
         function clearWebhook(){ document.getElementById('hookUrl').value=''; postWebhook({webhookUrl:''}, 'Webhook removed.'); }
+
+        // ---- Per-feed webhooks ----
+        //
+        // Each feed is an override, not a switch. An empty box means "this feed
+        // goes to the main channel", which is why clearing one says "back to the
+        // main channel" rather than "removed" — a VA tidying up here must not
+        // accidentally silence their own notifications.
+        function renderFeedHooks(d){
+            const feeds=(d&&d.feeds)||{};
+            document.querySelectorAll('#feedHooks [data-feed]').forEach(row=>{
+                const name=row.getAttribute('data-feed'), f=feeds[name]||{};
+                const status=row.querySelector('[data-feed-status]');
+                const input=row.querySelector('[data-feed-url]');
+                if(status){
+                    status.innerHTML = f.configured
+                        ? '<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> own channel</span>'
+                        : f.usingDefault ? '<span class="faint">→ main channel</span>' : '<span class="faint">not set</span>';
+                }
+                if(input) input.placeholder = f.configured && f.hint ? f.hint : 'https://discord.com/api/webhooks/…';
+            });
+            if(window.lucide) lucide.createIcons();
+        }
+        function setFeedNote(row, msg, kind){
+            const n=row.querySelector('[data-feed-note]'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-xs mt-1.5 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted');
+            n.classList.remove('hidden');
+        }
+        async function postFeedHook(row, body, okMsg){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ setFeedNote(row,'Sign in as owner or staff to manage notifications.','muted'); return; }
+            setFeedNote(row,'Saving…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/webhook`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body:JSON.stringify({ ...body, feed:row.getAttribute('data-feed') }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ setFeedNote(row, d.error||'Could not save.','err'); return; }
+                renderHookStatus(d); renderFeedHooks(d);
+                const input=row.querySelector('[data-feed-url]'); if(input) input.value='';
+                setFeedNote(row, okMsg,'ok');
+            }catch{ setFeedNote(row,'Server unreachable. Try again.','err'); }
+        }
+        document.addEventListener('click', e=>{
+            const row=e.target.closest('#feedHooks [data-feed]'); if(!row) return;
+            const input=row.querySelector('[data-feed-url]');
+            const v=input?input.value.trim():'';
+            if(e.target.closest('[data-feed-save]')){
+                if(!v){ setFeedNote(row,'Paste a webhook URL, or use the arrow to send this feed back to the main channel.','muted'); return; }
+                postFeedHook(row,{webhookUrl:v},'Saved — this feed now posts to its own channel.');
+            } else if(e.target.closest('[data-feed-test]')){
+                // Tests what the feed would ACTUALLY use, fallback included —
+                // "will my messages arrive" is the real question.
+                postFeedHook(row, v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check that channel.');
+            } else if(e.target.closest('[data-feed-clear]')){
+                postFeedHook(row,{webhookUrl:''},'Back to the main channel.');
+            }
+        });
 
         // ---- Email provider (bring-your-own; no platform default) ----
         function setEmailNote(msg, kind){ const n=document.getElementById('emailNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
@@ -1448,14 +1597,24 @@
         }
 
         // ---- Roster (rank computed from hours) ----
+        // The server now resolves rank and sends it on the member (see
+        // crewRanks.js), so this is the fallback for anything drawn before a
+        // roster fetch lands — and for the preview mode, which has no backend.
+        //
+        // It differs from the server in one way on purpose: the server floors
+        // the lowest rung so a brand-new pilot at zero hours still holds the
+        // entry rank even when the ladder starts at 25h. Matched here so the two
+        // never disagree about somebody's first day.
         function rankForHours(h){
             const sorted=[...RANKS].sort((a,b)=>(a.minHours||0)-(b.minHours||0));
-            let r=null; for(const x of sorted){ if((Number(h)||0) >= (x.minHours||0)) r=x; }
+            if(!sorted.length) return null;
+            let r=sorted[0];
+            for(const x of sorted){ if((Number(h)||0) >= (x.minHours||0)) r=x; }
             return r;
         }
         function roleByName(name){ return ROLES.find(r=>r.name===name); }
         function memberCardHtml(m){
-            const rank=rankForHours(m.hours); const role=roleByName(m.role);
+            const rank=m.rank||rankForHours(m.hours); const role=roleByName(m.role);
             const rankBadge=rank?badgeHtml({name:rank.name,color:rank.color,icon:rank.icon,image:rank.image}):'';
             const roleBadge=(role&&role.name)?badgeHtml({name:role.name,color:role.color,icon:role.icon,image:role.image}):'';
             const ac=(m.aircraft||[]).map(a=>`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(a)}</span>`).join(' ');
@@ -1600,7 +1759,24 @@
             const dist=r.distanceNm?`<span class="text-xs muted">${Math.round(r.distanceNm)} nm</span>`:'';
             const ac=r.aircraft?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(r.aircraft)}</span>`:'';
             const draft=!r.active?`<span class="text-[10px] uppercase tracking-wide faint">draft</span>`:'';
-            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3 ${r.active?'':'opacity-60'}" data-rid="${r.id||''}">
+            // A codeshare is someone else's aeroplane. Marked plainly so a
+            // network map or a route list can't be read as more metal than the
+            // airline actually operates.
+            const cs = r.kind==='codeshare';
+            const partnerLogo = cs && /^https:\/\//i.test(r.partnerLogo||'')
+                ? `<img src="${escapeHtml(r.partnerLogo)}" alt="" loading="lazy" class="h-4 w-auto max-w-[64px] object-contain rounded-sm">` : '';
+            const csBadge = cs
+                ? `<span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5" style="background:color-mix(in srgb, var(--accent) 16%, transparent); color:var(--accent);">${partnerLogo}Codeshare${r.partnerName?` · ${escapeHtml(r.partnerName)}`:''}</span>` : '';
+            // The gate, from the point of view of whoever is looking. Staff see
+            // what it is set to; a pilot below the bar sees how far off they are,
+            // because a route you can see and are working toward is the entire
+            // point of a rank ladder.
+            const gate = r.minRank
+                ? (r.locked
+                    ? `<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400"><i data-lucide="lock" class="w-3 h-3"></i>${escapeHtml(r.minRank)}${r.hoursUntilUnlock?` · ${Math.ceil(r.hoursUntilUnlock)}h to go`:''}</span>`
+                    : `<span class="inline-flex items-center gap-1 text-[11px] muted"><i data-lucide="lock-open" class="w-3 h-3"></i>${escapeHtml(r.minRank)}</span>`)
+                : '';
+            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3 ${r.active?'':'opacity-60'} ${r.locked?'opacity-75':''}" data-rid="${r.id||''}">
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                         ${airportChipHtml(r.origin)}
@@ -1608,7 +1784,7 @@
                         ${airportChipHtml(r.destination)}
                         ${r.flightNumber?`<span class="text-xs faint">${escapeHtml(r.flightNumber)}</span>`:''}${draft}
                     </div>
-                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${ac}${dist}${r.notes?`<span class="text-xs muted truncate">${escapeHtml(r.notes)}</span>`:''}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${csBadge}${gate}${ac}${dist}${r.notes?`<span class="text-xs muted truncate">${escapeHtml(r.notes)}</span>`:''}</div>
                 </div>
                 ${ROUTES_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
                     <button data-redit title="Edit route" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
@@ -1616,24 +1792,57 @@
                 </div>`:''}
             </div>`;
         }
+        // Which slice of the network is on screen: all, own metal, or codeshares.
+        let ROUTE_KIND_VIEW='all';
+        function setRouteKindView(v){ ROUTE_KIND_VIEW=v; renderRoutes(); }
         function renderRoutes(){
             ROUTES_CANMANAGE = can('routes.manage');
             document.getElementById('addRouteBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
             // Pilots see only active routes; managers see drafts too.
-            const list = ROUTES_CANMANAGE ? ROUTES : ROUTES.filter(r=>r.active);
-            document.getElementById('routeCount').textContent = list.length?`· ${list.length}`:'';
-            document.getElementById('routeList').innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes yet.</p>';
+            const visible = ROUTES_CANMANAGE ? ROUTES : ROUTES.filter(r=>r.active);
+            const own=visible.filter(r=>r.kind!=='codeshare'), cs=visible.filter(r=>r.kind==='codeshare');
+
+            // The split only earns screen space once there is something to
+            // split. A VA flying everything itself never sees this.
+            const tabs=document.getElementById('routeKindTabs');
+            tabs.classList.toggle('hidden', !cs.length);
+            if(cs.length){
+                document.getElementById('rkAll').textContent=` ${visible.length}`;
+                document.getElementById('rkOwn').textContent=` ${own.length}`;
+                document.getElementById('rkCs').textContent=` ${cs.length}`;
+                tabs.querySelectorAll('[data-kindview]').forEach(b=>{
+                    const on=b.getAttribute('data-kindview')===ROUTE_KIND_VIEW;
+                    b.classList.toggle('accent-bg',on); b.classList.toggle('text-white',on);
+                    b.style.opacity=on?'1':'.7';
+                });
+            } else if(ROUTE_KIND_VIEW!=='all') ROUTE_KIND_VIEW='all';
+
+            const list = ROUTE_KIND_VIEW==='own' ? own : ROUTE_KIND_VIEW==='codeshare' ? cs : visible;
+            document.getElementById('routeCount').textContent = visible.length
+                ? `· ${visible.length}${cs.length?` (${own.length} own)`:''}` : '';
+            document.getElementById('routeList').innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes here yet.</p>';
             if(window.lucide) lucide.createIcons();
         }
+        // The VA's ladder, as the routes endpoint reports it — used to fill the
+        // "opens at" picker with the VA's own rank names rather than hours.
+        let ROUTE_RANKS=[];
         async function fetchRoutes(){
-            const slug=getSlug();
+            const slug=getSlug(), token=sessionToken();
             try{
-                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes`,{ headers:{Accept:'application/json'} });
-                if(res.ok){ const d=await res.json(); ROUTES=Array.isArray(d.routes)?d.routes:[]; return; }
+                // Sent authenticated when we can: the reply marks routes a
+                // PILOT has not yet unlocked, which needs to know who is asking.
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes`,{
+                    headers: token ? {Accept:'application/json',Authorization:'Bearer '+token} : {Accept:'application/json'} });
+                if(res.ok){
+                    const d=await res.json();
+                    ROUTES=Array.isArray(d.routes)?d.routes:[];
+                    if(Array.isArray(d.ranks)) ROUTE_RANKS=d.ranks;
+                    return;
+                }
             }catch{}
             ROUTES=[
-                {id:'r1',flightNumber:'ACA123',origin:'CYYZ',destination:'EGLL',aircraft:'B789',distanceNm:3050,notes:'Daily flagship',active:true},
-                {id:'r2',flightNumber:'ACA88',origin:'CYVR',destination:'RJTT',aircraft:'B77W',distanceNm:4180,notes:'',active:true},
+                {id:'r1',flightNumber:'ACA123',origin:'CYYZ',destination:'EGLL',aircraft:'B789',distanceNm:3050,notes:'Daily flagship',active:true,kind:'own'},
+                {id:'r2',flightNumber:'ACA88',origin:'CYVR',destination:'RJTT',aircraft:'B77W',distanceNm:4180,notes:'',active:true,kind:'own'},
             ];
         }
         function openRoutes(){
@@ -1819,16 +2028,63 @@
             document.getElementById('nr_dist').value = route && route.distanceNm ? route.distanceNm : '';
             document.getElementById('nr_notes').value = route ? (route.notes||'') : '';
             document.getElementById('nr_active').checked = route ? !!route.active : true;
+            document.getElementById('nr_partner').value = route ? (route.partnerName||'') : '';
+            document.getElementById('nr_partnerLogo').value = route ? (route.partnerLogo||'') : '';
+            setRouteKind(route && route.kind==='codeshare' ? 'codeshare' : 'own');
+            // The ladder comes from the routes endpoint, so the picker offers
+            // the VA's own rank names. Falls back to the ranks the settings
+            // panel is holding when the endpoint hasn't answered yet.
+            const ladder = ROUTE_RANKS.length ? ROUTE_RANKS : (RANKS||[]).map(r=>({name:r.name,minHours:r.minHours}));
+            const sel=document.getElementById('nr_minRank');
+            sel.innerHTML='<option value="">Open to everyone</option>'+ladder
+                .filter(r=>r.name)
+                .map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}${r.minHours?` · ${r.minHours}h+`:''}</option>`).join('');
+            const want = route ? (route.minRank||'') : '';
+            // A gate naming a rank that has since been renamed would otherwise
+            // silently reset to "open" on the next save. Keep it as an option so
+            // the staff member can see it and decide.
+            if(want && ![...sel.options].some(o=>o.value===want)){
+                const o=document.createElement('option'); o.value=want; o.textContent=`${want} (no longer on your ladder)`; sel.appendChild(o);
+            }
+            sel.value=want;
+            updateRankHint();
             document.getElementById('routeFormTitle').textContent = route ? 'Edit route' : 'Add route';
             document.getElementById('routeSubmitBtn').textContent = route ? 'Save changes' : 'Add route';
             const note=document.getElementById('routeNote'); if(note) note.classList.add('hidden');
             document.getElementById('addRouteForm').classList.remove('hidden');
+            if(window.lucide) lucide.createIcons();
         }
+        let NR_KIND='own';
+        function setRouteKind(kind){
+            NR_KIND = kind==='codeshare' ? 'codeshare' : 'own';
+            const own=document.getElementById('nr_kind_own'), cs=document.getElementById('nr_kind_cs');
+            [[own,NR_KIND==='own'],[cs,NR_KIND==='codeshare']].forEach(([b,on])=>{
+                b.classList.toggle('accent-bg',on); b.classList.toggle('text-white',on);
+                b.style.opacity=on?'1':'.7';
+            });
+            document.getElementById('nr_partnerWrap').classList.toggle('hidden', NR_KIND!=='codeshare');
+        }
+        function updateRankHint(){
+            const sel=document.getElementById('nr_minRank');
+            const hint=document.getElementById('nr_rankHint');
+            if(!sel||!hint) return;
+            const name=sel.value;
+            if(!name){ hint.textContent='Everyone on the roster can fly this.'; return; }
+            const ladder = ROUTE_RANKS.length ? ROUTE_RANKS : (RANKS||[]);
+            const rung=ladder.find(r=>r.name===name);
+            hint.textContent = rung
+                ? `Pilots see it locked until they reach ${name}${rung.minHours?` (${rung.minHours}h)`:''}. Change the hours on the rank itself in Settings → Crew.`
+                : `“${name}” is not on your ladder any more, so this gate is doing nothing. Pick another, or set it back to open.`;
+        }
+        document.addEventListener('change', e=>{ if(e.target && e.target.id==='nr_minRank') updateRankHint(); });
         function closeRouteForm(){ ROUTE_EDITING=null; document.getElementById('addRouteForm').classList.add('hidden'); }
         async function submitRoute(){
             const note=document.getElementById('routeNote');
-            const body={ flightNumber:document.getElementById('nr_flight').value.trim(), origin:document.getElementById('nr_from').value.trim().toUpperCase(), destination:document.getElementById('nr_to').value.trim().toUpperCase(), aircraft:document.getElementById('nr_aircraft').value, distanceNm:Number(document.getElementById('nr_dist').value)||0, notes:document.getElementById('nr_notes').value.trim(), active:document.getElementById('nr_active').checked };
+            const body={ flightNumber:document.getElementById('nr_flight').value.trim(), origin:document.getElementById('nr_from').value.trim().toUpperCase(), destination:document.getElementById('nr_to').value.trim().toUpperCase(), aircraft:document.getElementById('nr_aircraft').value, distanceNm:Number(document.getElementById('nr_dist').value)||0, notes:document.getElementById('nr_notes').value.trim(), active:document.getElementById('nr_active').checked,
+                kind:NR_KIND, partnerName:document.getElementById('nr_partner').value.trim(), partnerLogo:document.getElementById('nr_partnerLogo').value.trim(), minRank:document.getElementById('nr_minRank').value };
             if(!body.origin||!body.destination){ note.textContent='Enter a from and to airport.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            if(body.kind==='codeshare' && !body.partnerName){ note.textContent='Name the partner airline for a codeshare.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            if(body.partnerLogo && !/^https:\/\//i.test(body.partnerLogo)){ note.textContent='A partner logo has to be an https URL.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Sign in with route permissions to manage routes.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             const editing=ROUTE_EDITING;
@@ -1924,7 +2180,7 @@
             }catch{ RM.data=rmFallbackFromRoutes(); }
             RM.aptCoords={}; (RM.data.airports||[]).forEach(a=>{ if(a.lat!=null) RM.aptCoords[a.icao]=[a.lat,a.lon]; });
             RM.dataHadRoutes=(RM.data.routes||[]).some(r=>r.mapped);
-            rmComputeFeatures(); rmPopulateAircraft();
+            rmComputeFeatures(); rmPopulateAircraft(); rmSyncKindFilter();
         }
         function rmFallbackFromRoutes(){
             const C=RM_FALLBACK_COORDS;
@@ -1938,9 +2194,24 @@
         function rmComputeFeatures(){
             RM.routeFeat=(RM.data.routes||[]).filter(r=>r.mapped&&r.o&&r.d).map(r=>({
                 type:'Feature',
-                properties:{ id:String(r.id), origin:r.origin, destination:r.destination, flightNumber:r.flightNumber||'', aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, active:!!r.active },
+                properties:{ id:String(r.id), origin:r.origin, destination:r.destination, flightNumber:r.flightNumber||'', aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, active:!!r.active,
+                    // Codeshares are drawn dashed and in a muted colour. A
+                    // network map that renders someone else's metal identically
+                    // to your own overstates the airline — which is the one
+                    // thing a network map is for.
+                    codeshare: r.kind==='codeshare', partnerName: r.partnerName||'' },
                 geometry:{ type:'LineString', coordinates:rmArc(r.o,r.d) }
             }));
+        }
+        // Show the own/codeshare filter only once there is a codeshare to
+        // filter. A VA that flies everything itself gets no extra control.
+        function rmSyncKindFilter(){
+            const sel=document.getElementById('rmKind'); if(!sel) return;
+            const any=(RM.routeFeat||[]).some(f=>f.properties.codeshare);
+            sel.classList.toggle('hidden', !any);
+            if(!any) sel.value='';
+            const legend=document.getElementById('rmLegendCs');
+            if(legend){ legend.classList.toggle('hidden', !any); legend.classList.toggle('flex', any); }
         }
         function rmPopulateAircraft(){
             const set=[...new Set((RM.data.routes||[]).map(r=>r.aircraft).filter(Boolean))].sort();
@@ -2001,13 +2272,25 @@
             const empty={type:'FeatureCollection',features:[]};
             map.addSource('rm-routes',{type:'geojson',data:empty});
             map.addSource('rm-airports',{type:'geojson',data:empty});
+            // The glow is the airline's own metal only — a codeshare should not
+            // light up the map like a route the VA actually operates.
             map.addLayer({ id:'rm-routes-glow', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
+                filter:['!',['get','codeshare']],
                 paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2.5,6,7],'line-blur':3,
                     'line-opacity':['case',['get','active'],0.22,0.08]} });
             map.addLayer({ id:'rm-routes-line', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
-                paint:{'line-color':['case',['get','active'],accent,gray],
+                paint:{'line-color':['case',
+                        ['!',['get','active']], gray,
+                        ['get','codeshare'], gray,
+                        accent],
                     'line-width':['interpolate',['linear'],['zoom'],1,0.8,6,2.4],
-                    'line-opacity':['case',['get','active'],0.82,0.3]} });
+                    // Dashed, so the two read apart at a glance and in print,
+                    // rather than relying on a colour difference alone.
+                    'line-dasharray':['case',['get','codeshare'],['literal',[2,2]],['literal',[1,0]]],
+                    'line-opacity':['case',
+                        ['!',['get','active']], 0.3,
+                        ['get','codeshare'], 0.55,
+                        0.82]} });
             map.addLayer({ id:'rm-routes-hi', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
                 filter:['==',['get','id'],'__none__'],
                 paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2,6,4.5],'line-opacity':0.95} });
@@ -2030,8 +2313,12 @@
             const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'';
             const ac=p.aircraft?` · ${escapeHtml(p.aircraft)}`:'';
             const draft=(p.active===false||p.active==='false')?' · draft':'';
+            // MapLibre flattens feature properties to strings, so the boolean
+            // has to be read as either.
+            const isCs=(p.codeshare===true||p.codeshare==='true');
+            const cs=isCs?` · codeshare${p.partnerName?` (${escapeHtml(p.partnerName)})`:''}`:'';
             const fn=p.flightNumber?`<span class="faint">${escapeHtml(p.flightNumber)}</span> `:'';
-            t.innerHTML=`${fn}<span class="font-semibold">${escapeHtml(p.origin)} → ${escapeHtml(p.destination)}</span><div class="muted mt-0.5">${dist}${ac}${draft}</div>`;
+            t.innerHTML=`${fn}<span class="font-semibold">${escapeHtml(p.origin)} → ${escapeHtml(p.destination)}</span><div class="muted mt-0.5">${dist}${ac}${cs}${draft}</div>`;
             t.classList.remove('hidden');
             const r=document.getElementById('routeMap').getBoundingClientRect();
             let x=e.point.x+14,y=e.point.y+14; if(x+210>r.width)x=e.point.x-196; if(y+64>r.height)y=e.point.y-64;
@@ -2042,8 +2329,11 @@
             const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
             const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
             const dot=document.getElementById('rmActiveDot'); if(dot) dot.style.opacity=RM.activeOnly?'1':'0.25';
+            const kindSel=document.getElementById('rmKind'); const kind=kindSel?kindSel.value:'';
             let routes=RM.routeFeat.slice();
             if(RM.activeOnly) routes=routes.filter(f=>f.properties.active);
+            if(kind==='own') routes=routes.filter(f=>!f.properties.codeshare);
+            else if(kind==='codeshare') routes=routes.filter(f=>f.properties.codeshare);
             if(aircraft) routes=routes.filter(f=>f.properties.aircraft===aircraft);
             if(search) routes=routes.filter(f=>f.properties.origin.includes(search)||f.properties.destination.includes(search));
             const deg={}; routes.forEach(f=>{ deg[f.properties.origin]=(deg[f.properties.origin]||0)+1; deg[f.properties.destination]=(deg[f.properties.destination]||0)+1; });
@@ -2081,7 +2371,11 @@
             let longest=null,total=0;
             routes.forEach(f=>{ const d=f.properties.distanceNm||0; total+=d; if(!longest||d>longest.d) longest={d,o:f.properties.origin,dd:f.properties.destination}; });
             const chip=(icon,label)=>`<span class="surface hair rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5"><i data-lucide="${icon}" class="w-3.5 h-3.5 faint"></i>${label}</span>`;
+            const cs=routes.filter(f=>f.properties.codeshare).length;
             const chips=[ chip('route',`${routes.length} route${routes.length===1?'':'s'}`), chip('map-pin',`${apts.length} airport${apts.length===1?'':'s'}`) ];
+            // Called out separately so "our network is 120 routes" can't quietly
+            // mean "40 of ours and 80 of somebody else's".
+            if(cs) chips.push(chip('handshake',`${cs} codeshare${cs===1?'':'s'}`));
             if(longest&&longest.d) chips.push(chip('move-right',`${longest.o}–${longest.dd} · ${Number(longest.d).toLocaleString()} nm`));
             if(total) chips.push(chip('gauge',`${Number(total).toLocaleString()} nm`));
             const un=RM.data&&RM.data.stats&&RM.data.stats.unmapped; if(un) chips.push(`<span class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5" style="background:color-mix(in srgb,#f59e0b 16%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 30%,var(--line));"><i data-lucide="triangle-alert" class="w-3.5 h-3.5" style="color:#f59e0b"></i>${un} unmapped</span>`);
