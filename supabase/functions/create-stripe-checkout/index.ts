@@ -175,7 +175,21 @@ serve(async (req) => {
     // already there instead of stamping the one that is.
     if (!isRenewal) putIfPresent(sharedMetadata, "temp_password", password);
 
+    // The subscription carries everything, including the credentials.
+    // process-stripe-payment blanks `temp_password` here once it has used it,
+    // so the plaintext lives only for the few minutes between paying and
+    // landing back on the site.
     const subscriptionData: Record<string, unknown> = { metadata: { ...sharedMetadata } };
+
+    // The session carries everything EXCEPT the credentials. It exists so the
+    // processor can resolve the account straight from the session it already
+    // retrieved, without depending on the subscription expanding — resolving an
+    // account needs `user_id`/`user_email`/`flow`, never a password. Copying
+    // `temp_password` here as well would leave it in the Stripe dashboard
+    // permanently: a completed Checkout Session cannot be edited, so there is
+    // no scrub to match the one on the subscription.
+    const sessionMetadata = { ...sharedMetadata };
+    delete sessionMetadata.temp_password;
 
     // 4. Apply Trial ONLY if the user is verified as eligible. Never on an
     //    upgrade: a trialing subscription is `status: "trialing"`, not
@@ -192,11 +206,12 @@ serve(async (req) => {
       // session's own reference so the payment processor never has to guess
       // from an email.
       client_reference_id: user_id || undefined,
-      // The same metadata on the session itself, so the processor can resolve
-      // the account straight from the session it already retrieved — without
-      // depending on the subscription expanding, which is the one place this
-      // information used to live.
-      metadata: { ...sharedMetadata },
+      // The account-resolution metadata on the session itself, so the processor
+      // can resolve the account straight from the session it already retrieved
+      // — without depending on the subscription expanding, which is the one
+      // place this information used to live. Credentials are deliberately not
+      // included; see where sessionMetadata is built.
+      metadata: sessionMetadata,
       line_items: [
         {
           price: PRICE_ID,

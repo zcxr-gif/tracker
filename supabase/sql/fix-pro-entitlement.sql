@@ -7,8 +7,9 @@
 --  report so you can see what it found and what it changed.
 --
 --  What it does
---    1. Creates public.profiles if it isn't there at all, and adds any column
---       the app needs that is missing. THIS is the failure behind
+--    1. Creates public.profiles and public.subscriptions if they aren't there
+--       at all, and adds any column the app needs that is missing. THIS is the
+--       failure behind
 --         [process-stripe-payment] Could not apply the Pro entitlement:
 --         Could not find the table 'public.profiles' in the schema cache
 --       The table was never created in this project, so the grant had nothing
@@ -52,9 +53,31 @@ alter table public.profiles
   add column if not exists created_at  timestamptz not null default now(),
   add column if not exists updated_at  timestamptz not null default now();
 
+-- `subscriptions` has the same problem and the same cause — nothing creates it
+-- — but it only powers the billing card, so process-stripe-payment logs a
+-- warning and grants Pro anyway rather than failing the payment. Created here
+-- so the card fills in instead of staying permanently blank.
+--
+-- The client reads this with `select('*')` precisely because the last three
+-- columns arrived in a later migration; they are all defined here, so a project
+-- built from this file has the full set.
+create table if not exists public.subscriptions (
+  user_id uuid primary key references auth.users (id) on delete cascade
+);
+
+alter table public.subscriptions
+  add column if not exists status                 text,
+  add column if not exists plan_name              text,
+  add column if not exists current_period_end     timestamptz,
+  add column if not exists amount                 integer,
+  add column if not exists cancel_at_period_end   boolean not null default false,
+  add column if not exists canceled_at            timestamptz,
+  add column if not exists stripe_subscription_id text,
+  add column if not exists updated_at             timestamptz not null default now();
+
 do $$
 begin
-  raise notice 'public.profiles is present with the columns the app needs.';
+  raise notice 'public.profiles and public.subscriptions are present with the columns the app needs.';
 end $$;
 
 
@@ -173,11 +196,29 @@ begin
   end if;
 end $$;
 
+-- Billing rows are read-only to the browser: the card displays them, and only
+-- process-stripe-payment (service role) ever writes one. Without RLS the
+-- default grants would let any signed-in pilot read every other pilot's
+-- subscription.
+alter table public.subscriptions enable row level security;
 
--- ── 7. Tell the API the table exists ─────────────────────────────────────────
+do $$
+begin
+  if not exists (select 1 from pg_policies
+                  where schemaname='public' and tablename='subscriptions' and cmd='SELECT') then
+    create policy "inflight_subscriptions_select_own" on public.subscriptions
+      for select to authenticated using (auth.uid() = user_id);
+    raise notice 'added subscriptions SELECT policy';
+  end if;
+end $$;
+
+revoke insert, update, delete on public.subscriptions from authenticated, anon;
+
+
+-- ── 7. Tell the API the tables exist ─────────────────────────────────────────
 -- PostgREST answers from a cached copy of the schema, which is what the
 -- "Could not find the table 'public.profiles' in the schema cache" error is
--- reporting. It reloads on its own, but not instantly — this makes the table
+-- reporting. It reloads on its own, but not instantly — this makes the tables
 -- visible to the edge functions and the browser client right away instead of
 -- leaving a window where the fix is applied but upgrades still fail.
 notify pgrst, 'reload schema';
@@ -188,6 +229,11 @@ select 'profiles table'                  as check,
        case when to_regclass('public.profiles') is null
             then 'MISSING' else 'present' end as value,
        'the entitlement grant writes here'    as note
+union all
+select 'subscriptions table',
+       case when to_regclass('public.subscriptions') is null
+            then 'MISSING' else 'present' end,
+       'the billing card reads here'
 union all
 select 'accounts',
        count(*)::text,
