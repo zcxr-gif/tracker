@@ -474,7 +474,16 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
     // This entirely wipes the Pro state and reverts the client to the free tier visually.
     try {
         supabase.auth.onAuthStateChange((event, session) => {
-            if (event === 'SIGNED_OUT' || !session?.user) {
+            // Only a real sign-out downgrades anything. This used to also fire
+            // on `!session?.user`, which is true for the INITIAL_SESSION event
+            // supabase-js emits on *every* page load when nobody is signed in —
+            // so each refresh reverted a signed-out pilot's map style to dark
+            // (Satellite is free to pick but on the revert list) and wrote the
+            // downgraded filters straight back to localStorage. That is what
+            // made map style, window theme and the Pro map toggles reset on
+            // reload; when the event landed before the saved filters were read,
+            // it persisted the defaults over the whole saved set.
+            if (event === 'SIGNED_OUT') {
 
                 // 0. Forget the cached Pro entitlement so the next launch's
                 //    splash flashes the neutral logo instead of carrying the
@@ -492,7 +501,12 @@ window.currentAirportTraffic = { in: [], out: [] }; // Stores IDs for the curren
                 }
 
                 // 2. Revert Pro Map Styles back to Default Dark
-                const proStyles = ['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day', 'satellite'];
+                // Mirrors the Pro-gated styles in the pickers (MAP_STYLE_DEFS
+                // `pro: true`, and proModes in the desktop style handler).
+                // Satellite is deliberately not on this list: every account can
+                // pick it, so downgrading it on sign-out took a style away that
+                // the user was still entitled to.
+                const proStyles = ['outdoors', 'nav-dark', 'nav-light', 'traffic-night', 'traffic-day'];
                 if (proStyles.includes(mapFilters.mapStyle)) {
                     mapFilters.mapStyle = 'dark';
                 }
@@ -10728,7 +10742,19 @@ function updateMapFilters() {
 
     if (currentMapStyle !== targetStyle) {
         currentMapStyle = targetStyle;
-        sectorOpsMap.setStyle(targetStyle);
+        // `diff: false` is required, not an optimisation. Every custom layer on
+        // this map — aircraft, labels, FIR boundaries, NAT tracks, weather — is
+        // rebuilt from the 'style.load' event. A diff-based style change never
+        // fires it: the engine keeps the same Style object and simply applies
+        // the delta, which *removes* every layer and source that isn't in the
+        // incoming style (i.e. all of ours) with nothing left to put them back.
+        //
+        // Mapbox GL hid this because it can't diff a sprite/glyphs change — it
+        // throws 'Unimplemented: setSprite' and falls back to a full reload. In
+        // free-map mode MapLibre implements both, so the diff succeeds and the
+        // planes vanish for good on the first style change. Forcing the full
+        // reload makes both engines take the path the rebuild depends on.
+        sectorOpsMap.setStyle(targetStyle, { diff: false });
     }
 
     if (window.globalNatTracks) {
@@ -15900,9 +15926,17 @@ function setupAircraftWindowEvents() {
         aircraftInfoWindow.dataset.eventsAttached = 'true';
     }
 
+// Map-level click/hover listeners for the aircraft layers are bound once per
+// map, while the layers themselves are rebuilt on every style change — see
+// initializeAircraftLayer().
+let aircraftLayerListenersBound = false;
+
 function initializeAircraftLayer() {
         if (!sectorOpsMap) return;
 
+        // Re-created empty after a style change, since the style swap takes the
+        // old source with it. The cached traffic is pushed back in at the end
+        // of this function.
         if (!sectorOpsMap.getSource('sector-ops-live-flights-source')) {
             sectorOpsMap.addSource('sector-ops-live-flights-source', {
                 type: 'geojson',
@@ -15997,13 +16031,6 @@ function initializeAircraftLayer() {
             // covers the opposite race direction.
             refreshPilotRelations();
 
-            sectorOpsMap.on('click', (e) => {
-                console.log("📍 Raw map tap at:", e.point);
-                const features = sectorOpsMap.queryRenderedFeatures(e.point);
-                const layerNames = features.map(f => f.layer.id);
-                console.log("🔍 Layers under this tap:", layerNames);
-            });
-
             if (activeAtcFacilities && activeAtcFacilities.length > 0) {
                 const centerControllers = activeAtcFacilities.filter(f => f.type === 6);
                 if (typeof updateActiveSectors === 'function') {
@@ -16013,44 +16040,61 @@ function initializeAircraftLayer() {
 
             // Aircraft now render across two layers (SDF + natural), so bind
             // the click/hover handlers to both so every plane stays interactive.
-            const onLiveFlightClick = async (e) => {
-                console.log("✈️ Plane click listener fired!", e.features[0].properties.callsign);
-                const props = e.features[0].properties;
-                const flightProps = {
-                    ...props,
-                    position: JSON.parse(props.position),
-                    aircraft: JSON.parse(props.aircraft)
+            //
+            // Bound once for the life of the map, not once per layer rebuild.
+            // A style change wipes the layers and brings us back through here,
+            // but map listeners keyed on a layer id survive it — re-binding
+            // stacked a second copy on every style switch, so a plane tapped
+            // after two switches opened its window three times.
+            if (!aircraftLayerListenersBound) {
+                aircraftLayerListenersBound = true;
+
+                sectorOpsMap.on('click', (e) => {
+                    console.log("📍 Raw map tap at:", e.point);
+                    const features = sectorOpsMap.queryRenderedFeatures(e.point);
+                    const layerNames = features.map(f => f.layer.id);
+                    console.log("🔍 Layers under this tap:", layerNames);
+                });
+
+                const onLiveFlightClick = async (e) => {
+                    console.log("✈️ Plane click listener fired!", e.features[0].properties.callsign);
+                    const props = e.features[0].properties;
+                    const flightProps = {
+                        ...props,
+                        position: JSON.parse(props.position),
+                        aircraft: JSON.parse(props.aircraft)
+                    };
+
+                    const sessionId = await getValidSessionId();
+                    handleAircraftClick(flightProps, sessionId, e);
                 };
+                sectorOpsMap.on('click', 'sector-ops-live-flights-layer', onLiveFlightClick);
+                sectorOpsMap.on('click', 'sector-ops-live-flights-natural-layer', onLiveFlightClick);
 
-                const sessionId = await getValidSessionId();
-                handleAircraftClick(flightProps, sessionId, e);
-            };
-            sectorOpsMap.on('click', 'sector-ops-live-flights-layer', onLiveFlightClick);
-            sectorOpsMap.on('click', 'sector-ops-live-flights-natural-layer', onLiveFlightClick);
+                const hoverPopup = new mapboxgl.Popup({
+                    closeButton: false,
+                    closeOnClick: false,
+                    offset: 20
+                });
 
-            const hoverPopup = new mapboxgl.Popup({
-                closeButton: false,
-                closeOnClick: false,
-                offset: 20
-            });
+                const onLiveFlightEnter = (e) => {
+                    if (window.isMouseOverAirportTag) return;
+                    sectorOpsMap.getCanvas().style.cursor = 'pointer';
+                    const feature = e.features[0];
+                    if (typeof generateHoverCardHTML !== 'undefined') {
+                        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
+                    }
+                };
+                sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onLiveFlightEnter);
+                sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-natural-layer', onLiveFlightEnter);
 
-            const onLiveFlightEnter = (e) => {
-                if (window.isMouseOverAirportTag) return;
-                sectorOpsMap.getCanvas().style.cursor = 'pointer';
-                const feature = e.features[0];
-                if (typeof generateHoverCardHTML !== 'undefined') {
-                    hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
-                }
-            };
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onLiveFlightEnter);
-            sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-natural-layer', onLiveFlightEnter);
-
-            const onLiveFlightLeave = () => {
-                sectorOpsMap.getCanvas().style.cursor = '';
-                hoverPopup.remove();
-            };
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', onLiveFlightLeave);
-            sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-natural-layer', onLiveFlightLeave);
+                const onLiveFlightLeave = () => {
+                    sectorOpsMap.getCanvas().style.cursor = '';
+                    hoverPopup.remove();
+                };
+                sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-layer', onLiveFlightLeave);
+                sectorOpsMap.on('mouseleave', 'sector-ops-live-flights-natural-layer', onLiveFlightLeave);
+            }
         }
 
         if (!sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
@@ -16089,6 +16133,20 @@ function initializeAircraftLayer() {
                 }
             });
             registerAirlineLogoLoader(sectorOpsMap);
+        }
+
+        // Paint the traffic we already hold. On a style change the source comes
+        // back empty, and the animator only pushes when a packet lands — which
+        // left the map bare for a few seconds after every style switch, looking
+        // exactly like the planes had been lost. The same reason
+        // startSectorOpsLiveLoop() flushes once after boot.
+        // Queued rather than pushed straight away: at this point the new style
+        // is parsed but its sources typically are not, and the animator only
+        // pushes once the map reports itself ready — it retries per frame until
+        // then (see _updateMapSource).
+        if (mapAnimator) {
+            mapAnimator.invalidateRoster();
+            mapAnimator.scheduleUpdate();
         }
     }
 
@@ -19779,6 +19837,9 @@ function initializeSectorOpsMap(centerICAO) {
         sectorOpsMap.remove();
         sectorOpsMap = null;
     }
+    // Listeners belong to the map instance that just went away, so the next
+    // layer build has to bind them again on the new one.
+    aircraftLayerListenersBound = false;
 
     const centerCoords = airportsData[centerICAO] ? [airportsData[centerICAO].lon, airportsData[centerICAO].lat] : [77.2, 28.6];
 
@@ -25635,8 +25696,10 @@ if (flatMapToggle) {
 
             if (currentMapStyle !== newStyleUrl) {
                 currentMapStyle = newStyleUrl;
-                // Switch style and rebuild layers on load
-                sectorOpsMap.setStyle(newStyleUrl);
+                // Switch style and rebuild layers on load. `diff: false` forces
+                // the full reload that 'style.load' (and therefore the whole
+                // layer rebuild) depends on — see updateMapFilters().
+                sectorOpsMap.setStyle(newStyleUrl, { diff: false });
                 sectorOpsMap.once('style.load', () => {
                     rebuildDynamicLayers();
                 });

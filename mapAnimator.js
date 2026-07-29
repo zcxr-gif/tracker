@@ -37,6 +37,10 @@ export class MapAnimator {
     // held mid-gesture, or a slow flyTo, must not stall live traffic forever.
     static MAX_DEFER_MS = 2000;
 
+    // Longest a pending flush keeps retrying while the map reports it isn't
+    // ready (style swapping, sources still loading). See _updateMapSource().
+    static MAX_RETRY_MS = 10000;
+
     /**
      * @param {mapboxgl.Map} map - The Mapbox map instance.
      * @param {string} sourceName - The name of the GeoJSON source to update.
@@ -53,6 +57,7 @@ export class MapAnimator {
         this._rosterDirty = true;   // the *set* of flight ids changed
         this._featureList = [];     // cached Object.values() snapshot
         this._stopped = false;
+        this._retryingSince = 0;    // when the current not-ready retry began
 
         // Camera-interaction gating (see bindInteraction).
         this._interacting = false;
@@ -236,11 +241,25 @@ export class MapAnimator {
     _updateMapSource() {
         const source = this.map.getSource(this.sourceName);
         if (!source || !this.map.isStyleLoaded()) {
-            // If source/style isn't ready, it's fine.
-            // The next update will catch it.
+            // Not ready yet — most often mid style-change, where the source has
+            // just been re-created empty and the style's own tiles are still
+            // arriving. Dropping the flush here left the map bare until the
+            // next socket packet happened to land (seconds, or far longer on a
+            // quiet server), which read as "the planes never came back after
+            // switching the map". Retry on the following frame instead, bounded
+            // so a removed or permanently wedged map can't spin forever.
+            if (this._stopped || !this._dirty) return;
+            const now = Date.now();
+            if (!this._retryingSince) this._retryingSince = now;
+            if (now - this._retryingSince < MapAnimator.MAX_RETRY_MS) {
+                this.scheduleUpdate();
+            } else {
+                this._retryingSince = 0; // give up; the next packet tries again
+            }
             return;
         }
 
+        this._retryingSince = 0;
         this._dirty = false;
 
         // This single call pushes all changes to the map at once. The wrapper
