@@ -54,6 +54,26 @@ let schedules = [
     },
 ];
 let scheduleRules = { enabled: true, booking: 'pilots', minRank: '', maxPerPilot: 0, openDaysAhead: 0, cancelHoursBefore: 0 };
+const CAPABILITIES = [
+    { id: 'roster.manage', group: 'Roster', label: 'Add, edit & remove pilots' },
+    { id: 'flights.review', group: 'Operations', label: 'Review flights (PIREPs) & auto-tracking' },
+    { id: 'schedules.manage', group: 'Operations', label: 'Build the schedule & assign bookings' },
+    { id: 'announcements.manage', group: 'Communications', label: 'Post & pin notices on the noticeboard' },
+    { id: 'partnership.view', group: 'Partnership', label: 'See the Inflight partnership & warnings' },
+];
+const PRESETS = [
+    { id: 'pirep-manager', name: 'PIREP manager', color: '#0EA5E9', description: 'Reviews flight reports.', permissions: ['flights.review'] },
+    { id: 'comms', name: 'Communications', color: '#0891B2', description: 'Writes to the crew.', permissions: ['announcements.manage'] },
+    { id: 'observer', name: 'Observer', color: '#6B7280', description: 'Sees everything, changes nothing.', permissions: [] },
+];
+const roster = [
+    { id: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 412, rank: { name: 'Captain' }, status: 'active', aircraft: [] },
+    { id: 'm2', name: 'Jo Adeyemi', callsign: 'BAW71', hours: 88, rank: { name: 'First Officer' }, status: 'active', aircraft: [] },
+];
+let meRole = 'owner';
+let meCaps = CAPABILITIES.map((c) => c.id);
+let linkedTo = '';
+let mePilot = { linkable: true, linked: false, pilot: null };
 let posted = null;
 let booked = null;
 let bookCalls = 0;
@@ -114,7 +134,21 @@ function api(route, over = {}) {
     if (p.endsWith('/routes')) return json({ routes: [{ id: 'rt1', flightNumber: 'BA117', origin: 'EGLL', destination: 'KJFK', aircraft: 'Boeing 787-9', active: true, kind: 'own' }], counts: {}, partners: [], ranks: [] });
     if (p.endsWith('/events')) return json({ events: [], mine: [], canManage: true, ranks: [] });
     if (p.includes('/api/va-ads/by-slug/')) return json({ name: 'Test VA', code: 'TST' });
-    if (p.endsWith('/me')) return json({ role: 'owner', caps: [], capabilities: [], staffRoles: [], staffAssignments: [] });
+    if (p.endsWith('/me/pilot') && method === 'GET') return json(mePilot);
+    if (p.endsWith('/me/pilot') && method === 'POST') {
+        const want = route.request().postDataJSON() || {};
+        linkedTo = want.memberId || '';
+        const m = roster.find((x) => String(x.id) === String(linkedTo));
+        mePilot = m
+            ? { linkable: true, linked: true, pilot: { memberId: m.id, name: m.name, callsign: m.callsign, hours: m.hours } }
+            : { linkable: true, linked: false, pilot: null };
+        return json({ linked: !!m, pilot: mePilot.pilot });
+    }
+    if (p.endsWith('/roster')) return json({ roster });
+    if (p.endsWith('/me')) return json({
+        role: meRole, caps: meCaps, capabilities: CAPABILITIES, rolePresets: PRESETS,
+        staffRoles: [], staffAssignments: [],
+    });
     if (p.endsWith('/stats')) return json({ ok: true, connected: true, stats: { pilots: 12, hours: 400, flights30d: 3, pireps: 9 } });
     return json({});
 }
@@ -422,6 +456,126 @@ function api(route, over = {}) {
 
         await phone.screenshot({ path: path.join(__dirname, 'crew-center-mobile.png') });
         await phone.close();
+    }
+
+    // ---- 10. Staff fly too -------------------------------------------------
+    // A VA's staff fly, and the dashboard showed them the whole airline's
+    // operation and none of their own. Worse, a VA-portal staff login had no
+    // roster identity at all — it could publish a schedule and not book off it.
+    console.log('\nStaff who fly');
+    {
+        linkedTo = '';
+        mePilot = { linkable: true, linked: false, pilot: null };
+        const { page: p6 } = await openDash();
+
+        check('an unlinked staff account is offered its own pilot record',
+            /Do you fly for this airline too/.test(await p6.textContent('#myFlyingCard')));
+
+        await p6.click('[data-mf-pick]');
+        await p6.waitForSelector('#mfRoster', { timeout: 5000 });
+        const rosterText = await p6.textContent('#mfRoster');
+        check('the picker offers the VA\u2019s own roster', /Rae Okafor/.test(rosterText) && /Jo Adeyemi/.test(rosterText));
+
+        // Searching, because a roster of three is not the case that matters.
+        await p6.fill('#mfSearch', 'jo');
+        await p6.waitForTimeout(200);
+        const filtered = await p6.textContent('#mfRoster');
+        check('…and can be searched', /Jo Adeyemi/.test(filtered) && !/Rae Okafor/.test(filtered));
+
+        await p6.click('[data-member="m2"]');
+        await p6.waitForTimeout(700);
+        check('picking a pilot links the account', linkedTo === 'm2', String(linkedTo));
+        const card = await p6.textContent('#myFlyingCard');
+        check('…and the card becomes their own flying', /Jo Adeyemi/.test(card), card.trim().slice(0, 90));
+        check('…showing the legs they hold', /BA117/.test(card) || /Nothing booked/.test(card));
+        check('the card offers a way to file a flight', await p6.isVisible('[data-mf-file=""]'));
+        await p6.close();
+
+        // An account that neither flies nor can say which pilot it is gets no
+        // card at all — a VA whose staff are all pure managers sees no empty box.
+        mePilot = { linkable: false, linked: false, pilot: null };
+        const { page: p7 } = await openDash();
+        check('an account that cannot fly gets no card at all',
+            await p7.isHidden('#myFlyingCard'));
+        await p7.close();
+        mePilot = { linkable: true, linked: false, pilot: null };
+    }
+
+    // ---- 11. Roles ---------------------------------------------------------
+    // The permission system existed and almost nobody used it, because it asked
+    // an airline manager to work out which of eleven capability ids add up to
+    // "the person who does the PIREPs".
+    console.log('\nRoles');
+    {
+        const { page: p8 } = await openDash();
+        await p8.click('button[onclick="openSettings()"]');
+        await p8.waitForTimeout(400);
+        await p8.click('.settings-tab[data-cat="team"]');
+        await p8.waitForTimeout(300);
+
+        const presets = await p8.textContent('#rolePresetRow');
+        check('the owner is offered ready-made jobs, not capability ids',
+            /PIREP manager/.test(presets) && /Observer/.test(presets), presets.trim().slice(0, 80));
+
+        await p8.click('[data-preset="pirep-manager"]');
+        await p8.waitForTimeout(300);
+        const roleName = await p8.inputValue('#staffRoleRows [data-rf="name"]');
+        check('picking one adds a named role', roleName === 'PIREP manager', roleName);
+        const ticked = await p8.$$eval('#staffRoleRows input[data-perm]:checked', (els) => els.map((e) => e.dataset.perm));
+        check('…with its capabilities already worked out',
+            JSON.stringify(ticked) === JSON.stringify(['flights.review']), ticked.join(','));
+        check('…and a line saying what it can do',
+            /Review flights/.test(await p8.textContent('#staffRoleRows [data-rolesummary]')));
+
+        // A preset is an ordinary role the moment it lands.
+        await p8.fill('#staffRoleRows [data-rf="name"]', 'Flight desk');
+        await p8.click('#staffRoleRows input[data-perm="announcements.manage"]');
+        await p8.waitForTimeout(200);
+        check('a preset is an ordinary role once added — rename and re-tick',
+            /Post & pin notices/.test(await p8.textContent('#staffRoleRows [data-rolesummary]')));
+
+        // Adding the same preset twice must not produce two roles with one name.
+        await p8.click('[data-preset="pirep-manager"]');
+        await p8.waitForTimeout(300);
+        const names = await p8.$$eval('#staffRoleRows [data-rf="name"]', (els) => els.map((e) => e.value));
+        check('adding the same job twice does not collide',
+            new Set(names).size === names.length, names.join(' | '));
+        await p8.close();
+    }
+
+    // ---- 12. What a restricted staff member sees --------------------------
+    console.log('\nA staff member with one job');
+    {
+        meRole = 'staff';
+        meCaps = ['flights.review'];
+        const { page: p9 } = await openDash();
+        const tiles = await p9.textContent('#toolGrid');
+        // The partnership endpoint answers 403 without the capability, so
+        // offering the tile would be offering a door that does not open.
+        check('no Partnership tile without the capability for it', !/Partnership/.test(tiles));
+        await p9.click('button[onclick="openSettings()"]');
+        await p9.waitForTimeout(400);
+        check('no Team tab for somebody who is not the owner',
+            await p9.$eval('.settings-tab[data-cat="team"]', (el) => el.classList.contains('hidden')));
+        await p9.close();
+
+        // A schedule manager who cannot rebrand still has to reach the
+        // schedule's own rules, which live in the same tab.
+        meCaps = ['schedules.manage'];
+        const { page: p10 } = await openDash();
+        await p10.click('button[onclick="openSettings()"]');
+        await p10.waitForTimeout(400);
+        check('a schedule manager can still reach the schedule settings',
+            await p10.isVisible('.settings-tab[data-cat="crew"]'));
+        await p10.click('.settings-tab[data-cat="crew"]');
+        await p10.waitForTimeout(300);
+        check('…and sees the schedule rules', await p10.isVisible('#crewScheduleBlock'));
+        check('…but not the rank ladder they may not touch',
+            await p10.isHidden('#crewStructureBlock'));
+        await p10.close();
+
+        meRole = 'owner';
+        meCaps = CAPABILITIES.map((c) => c.id);
     }
 
     await browser.close();

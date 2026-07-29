@@ -28,6 +28,9 @@
     <script src="/crewEmbeds.js"></script>
     <!-- Their standing with us, read-only, linking into the partnership portal. -->
     <script src="/crewPartnership.js"></script>
+    <!-- A staff member's OWN flying. Staff fly too, and this dashboard used to
+         show them everyone else's operation and none of their own. -->
+    <script src="/crewMyFlying.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         :root{
@@ -83,12 +86,12 @@
            always collapses to a single stacked column.
            ===================================================================== */
         .crew-grid{ display:grid; gap:1rem; grid-template-columns:1fr;
-            grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+            grid-template-areas:"identity" "stats" "live" "tools" "myflying" "activity" "event" "trust"; }
         /* Mobile-first: each layout keeps a distinct ORDER so they're recognisably
            different on phones too (desktop overrides below rearrange columns). */
-        :root[data-layout="console"] .crew-grid{ grid-template-areas:"identity" "tools" "stats" "live" "activity" "event" "trust"; }
-        :root[data-layout="split"]   .crew-grid{ grid-template-areas:"identity" "live" "stats" "tools" "activity" "event" "trust"; }
-        :root[data-layout="classic"] .crew-grid{ grid-template-areas:"identity" "stats" "activity" "event" "tools" "live" "trust"; }
+        :root[data-layout="console"] .crew-grid{ grid-template-areas:"identity" "tools" "stats" "live" "myflying" "activity" "event" "trust"; }
+        :root[data-layout="split"]   .crew-grid{ grid-template-areas:"identity" "live" "stats" "tools" "myflying" "activity" "event" "trust"; }
+        :root[data-layout="classic"] .crew-grid{ grid-template-areas:"identity" "stats" "myflying" "activity" "event" "tools" "live" "trust"; }
         @media (max-width:1023px){
             /* Console reads as a rail even on mobile: tools become a swipe row. */
             :root[data-layout="console"] #toolGrid{ display:flex; gap:.75rem; overflow-x:auto; padding-bottom:.25rem; scroll-snap-type:x mandatory; }
@@ -97,6 +100,7 @@
             :root[data-layout="split"] .r-live{ min-height:360px; }
         }
         .r-identity{ grid-area:identity; } .r-stats{ grid-area:stats; } .r-live{ grid-area:live; }
+        .r-myflying{ grid-area:myflying; }
         .r-tools{ grid-area:tools; } .r-activity{ grid-area:activity; } .r-event{ grid-area:event; } .r-trust{ grid-area:trust; }
         .r-live{ min-height:320px; } .r-live iframe{ width:100%; height:100%; min-height:320px; border:0; display:block; }
 
@@ -104,7 +108,7 @@
             /* Editorial — a calm, single-column editorial flow. */
             :root[data-layout="editorial"] .crew-grid{
                 grid-template-columns:minmax(0,1fr);
-                grid-template-areas:"identity" "stats" "live" "tools" "activity" "event" "trust"; }
+                grid-template-areas:"identity" "stats" "live" "tools" "myflying" "activity" "event" "trust"; }
             :root[data-layout="editorial"] #toolGrid{ grid-template-columns:repeat(4,minmax(0,1fr)); }
 
             /* Console — left tool rail + a bento of widgets. An ops console. */
@@ -114,6 +118,7 @@
                     "identity identity identity"
                     "tools    stats    stats"
                     "tools    live     live"
+                    "tools    myflying myflying"
                     "tools    activity event"
                     "trust    trust    trust"; }
             :root[data-layout="console"] #toolGrid{ grid-template-columns:1fr; }   /* vertical rail */
@@ -126,6 +131,7 @@
                     "identity identity"
                     "live     stats"
                     "live     tools"
+                    "live     myflying"
                     "activity event"
                     "trust    trust"; }
             :root[data-layout="split"] #toolGrid{ grid-template-columns:1fr; }
@@ -138,6 +144,7 @@
                     "identity identity"
                     "tools    stats"
                     "activity stats"
+                    "activity myflying"
                     "activity event"
                     "live     live"
                     "trust    trust"; }
@@ -282,6 +289,18 @@
                 <ul id="activity"></ul>
             </section>
 
+            <!-- MY FLYING
+                 The signed-in staff member's own pilot record and booked legs.
+                 crewMyFlying.js paints it and removes itself entirely for an
+                 account that neither flies nor can say which pilot it is — so a
+                 VA whose staff are all pure managers sees no empty card. -->
+            <section id="myFlyingCard" class="r-myflying surface rounded-xl p-6 cp-hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold tracking-tight">My flying</h2>
+                </div>
+                <div id="myFlying"></div>
+            </section>
+
             <!-- EVENT
                  The VA's own next event, read from GET /api/crew/<slug>/events
                  — their database, their calendar. This used to be a hardcoded
@@ -369,7 +388,7 @@
 
               <div data-panel="crew" class="space-y-6 hidden">
                 <!-- Crew structure — ranks + roles (owner / staff) -->
-                <div>
+                <div id="crewStructureBlock">
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Crew structure</h3>
                     <p class="text-xs muted mb-1">Pick an icon or upload your own badge art (a transparent PNG looks best). Need to cut out a background? <a href="https://www.remove.bg/upload" target="_blank" rel="noopener" class="accent-text font-medium underline">remove.bg</a></p>
                     <p class="text-xs muted mb-3 inline-flex items-start gap-1.5"><i data-lucide="hard-drive-upload" class="w-3.5 h-3.5 mt-0.5 shrink-0"></i> <span>Inflight hosts your badge art for you — it won’t use your own storage.</span></p>
@@ -417,7 +436,7 @@
                      How this airline runs its bidding. Every field here is
                      enforced by the backend (see crewSchedules.bookingRefusal);
                      these controls set the rules, they are not the rules. -->
-                <div class="pt-5 border-t hair">
+                <div id="crewScheduleBlock" class="pt-5 border-t hair">
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Schedule &amp; bookings</h3>
                     <p class="text-xs muted mb-3">Publish a week of flying and let your pilots take a leg off it —
                         or assign every departure by hand. Your call.</p>
@@ -651,6 +670,18 @@
                         <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
                     <p class="text-xs muted mb-3">Name a role and tick exactly what it can do. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
+
+                    <!-- Presets. The permission system worked before this and
+                         almost nobody used it, because it asked a volunteer
+                         airline manager to read eleven capability ids and work
+                         out which combination adds up to "the person who does
+                         the PIREPs". VAs think in jobs, not capabilities. -->
+                    <div class="mb-3">
+                        <div class="text-[11px] uppercase tracking-wide faint mb-1.5">Start from a job</div>
+                        <div id="rolePresetRow" class="flex flex-wrap gap-1.5"></div>
+                        <p class="text-xs muted mt-1.5">Adds a role you can rename and re-tick. Nothing about it stays “a preset” afterwards.</p>
+                    </div>
+
                     <div id="staffRoleRows" class="space-y-3"></div>
                 </div>
 
@@ -1176,10 +1207,15 @@
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         function renderTiles(){
-            // A VA that has switched the schedule off gets no Schedules tile.
-            // Hiding a control is kinder than a tile that opens onto "this crew
-            // center doesn't use the schedule".
-            const tools=TOOLS.filter(t=>t.action!=='schedule' || SCHEDULE_PREFS.enabled!==false);
+            const tools=TOOLS.filter(t=>{
+                // A VA that has switched the schedule off gets no Schedules tile.
+                if(t.action==='schedule' && SCHEDULE_PREFS.enabled===false) return false;
+                // The partnership is the owner's business unless they have given
+                // a role access to it. Offering a tile that answers 403 is worse
+                // than not offering it.
+                if(t.action==='partnership' && !can('partnership.view')) return false;
+                return true;
+            });
             document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
@@ -1249,6 +1285,29 @@
             CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken });
         }
         function openSchedule(){ if(window.CrewSchedule) CrewSchedule.open(); }
+
+        // ---- My flying ----
+        //
+        // Staff fly. This dashboard showed them the whole airline's operation
+        // and none of their own — and a VA-portal staff login could not even be
+        // resolved to a pilot, so it could publish a schedule and not book off
+        // it. crewMyFlying.js owns the card; this page only says where to paint
+        // and hides the section when there is nothing to say (an account that
+        // neither flies nor can say which pilot it is, so a VA whose staff are
+        // all pure managers sees no empty box).
+        function mountMyFlying(){
+            if(!window.CrewMyFlying) return;
+            const card=document.getElementById('myFlyingCard');
+            const host=document.getElementById('myFlying');
+            if(!card||!host) return;
+            CrewMyFlying.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken })
+                .then(()=>{
+                    CrewMyFlying.render(host);
+                    // `render` paints synchronously, so an empty host here means
+                    // the module decided there is nothing to show.
+                    card.classList.toggle('cp-hidden', !host.innerHTML.trim());
+                });
+        }
 
         // ---- Schedule settings ----
         //
@@ -3061,6 +3120,9 @@
             ['pf_from','pf_to','pf_flight','pf_land','pf_h','pf_m'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
             const p=prefill||{};
             PIREP_SCHEDULE_ID=p.scheduleId||'';
+            // A staff member filing their OWN flight should not have to find
+            // themselves in a dropdown of the whole roster.
+            if(p.memberId) pilotSel.value=p.memberId;
             if(p.origin) document.getElementById('pf_from').value=p.origin;
             if(p.destination) document.getElementById('pf_to').value=p.destination;
             if(p.flightNumber) document.getElementById('pf_flight').value=p.flightNumber;
@@ -4040,6 +4102,7 @@
                 IS_OWNER = !!(d.role==='owner' || d.oversight);
                 CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
                 CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
+                ROLE_PRESETS = Array.isArray(d.rolePresets)?d.rolePresets:[];
                 STAFF_ROLES = Array.isArray(d.staffRoles)?d.staffRoles:[];
                 STAFF_ASSIGN = Array.isArray(d.staffAssignments)?d.staffAssignments:[];
                 // /me is the authoritative identity — it corrects a session
@@ -4050,7 +4113,11 @@
         }
         function applyCapState(){
             // Gate settings tabs by what the caller can do (owner/preview see all).
-            const vis={ appearance:can('settings.branding'), crew:can('settings.branding'),
+            const vis={ appearance:can('settings.branding'),
+                // The Crew tab carries the rank ladder AND the schedule's rules,
+                // which are separate powers — a schedule manager who cannot
+                // rebrand the crew center still has to reach their own settings.
+                crew:can('settings.branding')||can('schedules.manage'),
                 recruit:can('settings.recruitment')||can('settings.notifications'),
                 team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()) };
             document.querySelectorAll('.settings-tab').forEach(t=>{
@@ -4062,10 +4129,50 @@
                 const first=document.querySelector('.settings-tab:not(.hidden)');
                 if(first) setCat(first.getAttribute('data-cat'));
             }
-            if(ME_LOADED){ renderStaffRoles(); renderAssignments(); }
+            // Within the Crew tab, show only the parts this person may change.
+            const structure=document.getElementById('crewStructureBlock');
+            const schedule=document.getElementById('crewScheduleBlock');
+            if(structure) structure.classList.toggle('cp-hidden', !can('settings.branding'));
+            if(schedule) schedule.classList.toggle('cp-hidden', !can('schedules.manage'));
+            if(ME_LOADED){ renderRolePresets(); renderStaffRoles(); renderAssignments(); }
         }
 
         // Owner-only editors for staff roles + assignments.
+        let ROLE_PRESETS=[];
+        function renderRolePresets(){
+            const host=document.getElementById('rolePresetRow'); if(!host) return;
+            host.innerHTML = ROLE_PRESETS.map(pr=>`
+                <button type="button" data-preset="${escapeHtml(pr.id)}" title="${escapeHtml(pr.description||'')}"
+                    class="inline-flex items-center gap-1.5 surface hair rounded-full pl-1.5 pr-3 py-1 text-xs font-semibold hover:border-[var(--ink)] transition">
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${isHex(pr.color)?pr.color:'#4f46e5'}"></span>
+                    ${escapeHtml(pr.name)}
+                </button>`).join('') || '<span class="text-xs faint">No presets available.</span>';
+        }
+        // A preset becomes an ORDINARY role the moment it lands: it gets a fresh
+        // id, and nothing downstream knows where it came from. That is what
+        // makes "rename it and re-tick it" work rather than being a special
+        // case somebody has to remember.
+        function addPresetRole(id){
+            const pr=ROLE_PRESETS.find(x=>x.id===id); if(!pr) return;
+            let name=pr.name, n=2;
+            while(STAFF_ROLES.some(r=>String(r.name||'').toLowerCase()===name.toLowerCase())) name=`${pr.name} ${n++}`;
+            STAFF_ROLES.push({
+                id:'role-'+Math.random().toString(36).slice(2,9),
+                name, color:pr.color||'#4f46e5',
+                permissions:(pr.permissions||[]).filter(c=>CAP_CATALOG.some(x=>x.id===c)),
+            });
+            renderStaffRoles(); renderAssignments();
+            const note=document.getElementById('teamNote');
+            note.textContent='Added — check the ticks, then Save team.'; note.className='text-sm muted'; note.classList.remove('hidden');
+        }
+        // What a role can do, in one line, so an owner can read a list of roles
+        // without expanding each one and counting checkboxes.
+        function roleSummary(r){
+            const perms=(r.permissions||[]).filter(c=>CAP_CATALOG.some(x=>x.id===c));
+            if(!perms.length) return 'Can see the crew center and change nothing.';
+            if(perms.length===CAP_CATALOG.length) return 'Everything an owner can do, apart from the team and the data store.';
+            return perms.map(id=>(CAP_CATALOG.find(c=>c.id===id)||{}).label||id).join(' · ');
+        }
         function staffRoleRowHtml(r,i){
             const groups={};
             CAP_CATALOG.forEach(c=>{ (groups[c.group]=groups[c.group]||[]).push(c); });
@@ -4083,6 +4190,7 @@
                     <input data-rf="name" value="${escapeHtml(r.name||'')}" placeholder="Role name (e.g. Recruiter)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <button data-roledel title="Delete role" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
+                <p class="text-xs muted mt-1.5" data-rolesummary>${escapeHtml(roleSummary(r))}</p>
                 ${groupHtml}
             </div>`;
         }
@@ -4109,12 +4217,25 @@
         }
         function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); }
         function wireTeam(){
+            const presetHost=document.getElementById('rolePresetRow');
+            if(presetHost) presetHost.addEventListener('click', e=>{
+                const b=e.target.closest('[data-preset]'); if(b) addPresetRole(b.getAttribute('data-preset'));
+            });
             const rolesHost=document.getElementById('staffRoleRows');
             if(rolesHost){
                 rolesHost.addEventListener('input', e=>{ const row=e.target.closest('[data-role]'); if(!row) return; const i=+row.getAttribute('data-role'); const f=e.target.getAttribute('data-rf'); if(f){ STAFF_ROLES[i][f]=e.target.value; } });
                 rolesHost.addEventListener('change', e=>{ const row=e.target.closest('[data-role]'); if(!row) return; const i=+row.getAttribute('data-role');
                     const perm=e.target.getAttribute('data-perm');
-                    if(perm){ const set=new Set(STAFF_ROLES[i].permissions||[]); e.target.checked?set.add(perm):set.delete(perm); STAFF_ROLES[i].permissions=[...set]; } });
+                    if(perm){
+                        const set=new Set(STAFF_ROLES[i].permissions||[]);
+                        e.target.checked?set.add(perm):set.delete(perm);
+                        STAFF_ROLES[i].permissions=[...set];
+                        // Repaint the one line, not the whole editor — a full
+                        // re-render here would take the focus out from under
+                        // somebody working down a column of checkboxes.
+                        const sum=row.querySelector('[data-rolesummary]');
+                        if(sum) sum.textContent=roleSummary(STAFF_ROLES[i]);
+                    } });
                 rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAssignments(); });
             }
             const asnHost=document.getElementById('assignRows');
@@ -4297,6 +4418,7 @@
             mountEvents();                  // the calendar + gate board (also late; the card fills itself in)
             mountNotices();                 // the noticeboard, and with it the real recent-activity feed
             mountSchedule();                // the week's departures (the panel fills itself in)
+            mountMyFlying();                // this staff member's own flying, if they fly
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
