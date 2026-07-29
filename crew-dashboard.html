@@ -612,6 +612,36 @@
                         <p id="wizNote" class="hidden text-sm mt-2"></p>
                     </div>
 
+                    <!-- ---------------------------------------------------------
+                         KEEPING IT UP TO DATE
+
+                         A VA sets their database up once and never thinks about
+                         it again — but the crew center keeps gaining things that
+                         need a column to live in (codeshare routes, rank gates,
+                         saved invitations). A project that hasn't caught up
+                         can't store them, and until this panel existed the first
+                         anyone heard of it was a save that didn't take.
+
+                         Shown only when there is actually something to do:
+                         either the health check says the project is behind, or a
+                         write has just come back saying it had to leave a field
+                         out. Never in the way otherwise.
+                    ---------------------------------------------------------- -->
+                    <div id="dbUpgrade" class="hidden mt-4 rounded-xl p-4 border border-amber-400/60 bg-amber-500/[0.06]">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2"><i data-lucide="database-backup" class="w-4 h-4 text-amber-500"></i> Your database needs an update</div>
+                        <p id="dbUpgradeWhy" class="text-xs muted mb-3"></p>
+                        <div id="dbUpgradeForm" class="space-y-2.5">
+                            <input id="dbUpgradeToken" type="password" placeholder="sbp_…" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <p class="text-[11px] faint leading-relaxed">The same kind of <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener" class="accent-text font-medium">access token</a> you used to set this up. We run the current setup script against the project you're already connected to — it only ever adds, so your crew, flights and logins are untouched, and your keys don't change. The token isn't saved.</p>
+                            <button id="dbUpgradeBtn" onclick="upgradeDatabase()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="database-zap" class="w-4 h-4"></i> Update my database</button>
+                            <details class="pt-0.5"><summary class="text-[11px] faint cursor-pointer">Rather do it by hand?</summary>
+                                <p class="text-[11px] faint mt-1.5">Open “I’ll do it myself” below, copy the setup SQL and run it in your project’s SQL editor. It’s the same script and it’s safe to re-run — that is the upgrade.</p>
+                            </details>
+                        </div>
+                        <p id="dbUpgradeNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
                     <!-- Manual route -->
                     <details id="manualSetup" class="mt-4 rounded-xl hair surface">
                         <summary class="cursor-pointer text-sm font-semibold px-4 py-3 select-none">I’ll do it myself</summary>
@@ -768,6 +798,19 @@
                     <button data-kindview="all" onclick="setRouteKindView('all')" class="flex-1 px-3 py-1.5 rounded-md transition">All<span id="rkAll" class="text-xs muted"></span></button>
                     <button data-kindview="own" onclick="setRouteKindView('own')" class="flex-1 px-3 py-1.5 rounded-md transition">Own<span id="rkOwn" class="text-xs muted"></span></button>
                     <button data-kindview="codeshare" onclick="setRouteKindView('codeshare')" class="flex-1 px-3 py-1.5 rounded-md transition">Codeshare<span id="rkCs" class="text-xs muted"></span></button>
+                </div>
+            </div>
+            <!-- "Saved, but your database couldn't hold all of it." Shown here
+                 rather than in the form because the save DID work — the route is
+                 in the list below it — and the thing that needs doing is one
+                 screen away, not in this dialog. -->
+            <div id="routeDrift" class="hidden mx-5 mt-4 rounded-lg border border-amber-400/60 bg-amber-500/[0.06] px-3.5 py-2.5">
+                <div class="flex items-start gap-2">
+                    <i data-lucide="triangle-alert" class="w-4 h-4 mt-0.5 shrink-0 text-amber-500"></i>
+                    <div class="min-w-0">
+                        <p id="routeDriftMsg" class="text-xs"></p>
+                        <button onclick="openDbUpgrade()" class="mt-1.5 text-xs font-semibold accent-text hover:underline">Update my database →</button>
+                    </div>
                 </div>
             </div>
             <div id="routeList" class="p-5 space-y-2.5"></div>
@@ -2005,7 +2048,11 @@
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ csvMsg(d.error||'Could not import.','error'); btn.disabled=false; return; }
                 const failed=(d.failures||[]).length;
-                csvMsg(`${d.created||0} added, ${d.updated||0} updated.${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}`, failed?'warn':'ok');
+                // An import of a network with codeshares into a project that has
+                // no column for them lands the routes and loses the flag, which
+                // is worth saying out loud rather than reporting "42 added".
+                const drift=checkResponseDrift(d);
+                csvMsg(`${d.created||0} added, ${d.updated||0} updated.${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`, (failed||drift)?'warn':'ok');
                 document.getElementById('csvPreview').classList.add('hidden');
                 document.getElementById('csvActions').classList.add('hidden');
                 CSV_PLAN=null; CSV_TEXT='';
@@ -2092,8 +2139,22 @@
             try{
                 const res=await fetch(url,{ method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                if(!res.ok){
+                    // A database that is behind is not a failed save in the way
+                    // a typo is — it is one button away from working, so say so
+                    // rather than leaving them staring at "Could not save".
+                    if(d.code==='store_schema_outdated'){
+                        noteStoreDrift(d.error||'');
+                        note.innerHTML=escapeHtml(d.error||'Your database is on an older version.')+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>';
+                        note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return;
+                    }
+                    note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return;
+                }
                 if(editing){ ROUTES=ROUTES.map(x=>String(x.id)===String(editing)?d.route:x); } else { ROUTES.unshift(d.route); }
+                // Saved — but possibly without the codeshare or the rank gate,
+                // if the project has no column for them. The strip above the
+                // list says which, and stays up until it is fixed.
+                checkResponseDrift(d);
                 closeRouteForm(); renderRoutes();
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
         }
@@ -3111,8 +3172,120 @@
                 SUPA={ ...SUPA, connected:!!d.connected, url:d.url||SUPA.url, hasServiceKey:!!d.hasServiceKey,
                        store:d.kind, health:d.health||null, legacyRows:d.legacyRows||null, legacyTotal:d.legacyTotal||0 };
                 updateMigrateUI();
+                const h=d.health||{};
+                if(d.connected && h.ok && h.provisioned && h.outdated){
+                    showDbUpgrade(`Your project is on v${h.version}; this crew center is written against v${h.expectedVersion}. Anything added since v${h.version} — codeshare routes, rank-gated routes, saved pilot invitations — has nowhere to go until you update.`);
+                } else if(d.connected && h.ok && h.provisioned){
+                    hideDbUpgrade();
+                }
                 return d;
             }catch{ return null; }
+        }
+
+        /* ---------------------------------------------------------------------
+           Pushing a schema update to the VA's own project
+
+           The crew center gains columns; a database that was set up a year ago
+           has not got them, and PostgREST refuses the whole write rather than
+           the field — which is why "add a route" used to come back as a bare
+           502. The backend now degrades those writes instead of failing them and
+           says what it had to leave out; this is the other half, which is
+           actually fixing it.
+
+           Two ways in: the health check spots it on the settings screen, or a
+           save comes back with `code: 'store_schema_outdated'` and calls
+           noteStoreDrift() from wherever the VA happened to be working.
+        --------------------------------------------------------------------- */
+        function showDbUpgrade(why){
+            const box=document.getElementById('dbUpgrade');
+            if(!box) return;
+            document.getElementById('dbUpgradeWhy').textContent=why||'Some of what this crew center can do needs columns your project hasn’t got yet.';
+            box.classList.remove('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+        function hideDbUpgrade(){
+            const box=document.getElementById('dbUpgrade');
+            if(box) box.classList.add('hidden');
+        }
+        // A write told us it had to drop something. Remember it so the settings
+        // screen explains itself when they get there, and say so where they are.
+        let DB_DRIFT='';
+        function noteStoreDrift(message){
+            DB_DRIFT=String(message||'');
+            showDbUpgrade(DB_DRIFT || undefined);
+            const strip=document.getElementById('routeDrift');
+            if(strip && DB_DRIFT){
+                document.getElementById('routeDriftMsg').textContent=DB_DRIFT;
+                strip.classList.remove('hidden');
+                if(window.lucide) lucide.createIcons();
+            }
+        }
+        // Take them from wherever they noticed to the thing that fixes it.
+        function openDbUpgrade(){
+            closeRoutes(); closeRoster();
+            openSettings('data');
+            setTimeout(()=>{
+                const box=document.getElementById('dbUpgrade');
+                if(box && !box.classList.contains('hidden')) box.scrollIntoView({behavior:'smooth',block:'center'});
+                const field=document.getElementById('dbUpgradeToken');
+                if(field) field.focus();
+            }, 400);
+        }
+        // Every crew write goes through here: it surfaces the "saved, but…"
+        // warning the backend attaches when the project could not hold a field,
+        // so no single form has to remember to look for it.
+        function checkResponseDrift(d){
+            if(!d || d.code!=='store_schema_outdated'){
+                // A write that carried every column and came back clean is proof
+                // the project has them, so stop nagging about it.
+                DB_DRIFT='';
+                document.getElementById('routeDrift')?.classList.add('hidden');
+                return '';
+            }
+            const msg=d.warning || d.error || '';
+            noteStoreDrift(msg);
+            return msg;
+        }
+
+        async function upgradeDatabase(){
+            const note=document.getElementById('dbUpgradeNote');
+            const say=(msg,tone)=>{ note.textContent=msg; note.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',warn:'text-amber-600 dark:text-amber-400',bad:'text-red-500'}[tone]||'muted'); note.classList.remove('hidden'); };
+            const accessToken=document.getElementById('dbUpgradeToken').value.trim();
+            const sess=sessionToken(), slug=getSlug();
+            if(!accessToken){ say('Paste a Supabase access token first.','warn'); return; }
+            if(!slug||!sess){ say('Sign in as the VA owner to update the database.','warn'); return; }
+            const btn=document.getElementById('dbUpgradeBtn'), prev=btn.innerHTML;
+            btn.disabled=true; btn.style.opacity='0.6';
+            btn.innerHTML='<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> Updating…';
+            if(window.lucide) lucide.createIcons();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/upgrade`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sess},
+                    body:JSON.stringify({ accessToken }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ say(d.error||'The update could not be run.','bad'); return; }
+                const h=d.health||{};
+                // The token has done its job — don't leave it sitting in a field.
+                document.getElementById('dbUpgradeToken').value='';
+                if(h.ok && h.provisioned && !h.outdated){
+                    DB_DRIFT='';
+                    document.getElementById('routeDrift')?.classList.add('hidden');
+                    say(`Updated — your database is on v${h.version}. Everything this crew center does is available again.`,'ok');
+                    document.getElementById('dbUpgradeForm').classList.add('hidden');
+                    // Leave the good news up for a moment before the panel packs
+                    // itself away — refreshing first would hide the box, and the
+                    // message with it, the instant it appeared.
+                    setTimeout(()=>{
+                        document.getElementById('dbUpgradeForm').classList.remove('hidden');
+                        note.classList.add('hidden');
+                        refreshStoreState();
+                    }, 4000);
+                } else {
+                    say('The script ran, but your project still reports an older version. Try “Check setup” below, or run the SQL by hand.','warn');
+                    refreshStoreState();
+                }
+            }catch{ say('Couldn’t reach Inflight. Try again in a moment.','bad'); }
+            finally{ btn.disabled=false; btn.style.opacity=''; btn.innerHTML=prev; if(window.lucide) lucide.createIcons(); }
         }
         async function checkSetup(){
             const out=document.getElementById('setupCheck');
