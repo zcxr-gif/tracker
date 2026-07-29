@@ -12,6 +12,9 @@
     <script src="/crewBrand.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
+    <!-- Events + the gate board. Brings its own panel, styles and map; the page
+         only has to say where the backend is and hand it the session. -->
+    <script src="/crewEvents.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         :root{
@@ -245,16 +248,18 @@
                 <ul id="activity"></ul>
             </section>
 
-            <!-- EVENT -->
+            <!-- EVENT
+                 The VA's own next event, read from GET /api/crew/<slug>/events
+                 — their database, their calendar. This used to be a hardcoded
+                 "Transcon Group Flight · 34 signed up" that every VA saw as
+                 their own; crewEvents.js paints it now, and paints nothing
+                 rather than a placeholder when there is nothing scheduled. -->
             <section class="r-event surface rounded-xl p-6">
-                <h2 class="text-lg font-bold tracking-tight mb-3">Next event</h2>
-                <div class="text-base font-semibold">Transcon Group Flight</div>
-                <div class="mt-3 space-y-2">
-                    <div class="flex items-center gap-2 text-sm muted"><i data-lucide="map-pin" class="w-4 h-4"></i> CYYZ → KLAX</div>
-                    <div class="flex items-center gap-2 text-sm muted"><i data-lucide="calendar-clock" class="w-4 h-4"></i> Sat, 24 Jul · 22:00Z</div>
-                    <div class="flex items-center gap-2 text-sm muted"><i data-lucide="users" class="w-4 h-4"></i> 34 signed up</div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold tracking-tight">Next event</h2>
+                    <button onclick="openEvents()" class="text-sm accent-text font-semibold hover:opacity-80">All events</button>
                 </div>
-                <button class="mt-5 w-full accent-bg text-white text-sm font-semibold py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition">Manage event</button>
+                <div id="nextEvent"></div>
             </section>
 
             <!-- TRUST -->
@@ -1049,7 +1054,7 @@
             {icon:'users',label:'Roster',desc:'Pilots & ranks',action:'roster'},
             {icon:'route',label:'Routes',desc:'Network & fleet',action:'routes'},
             {icon:'calendar-clock',label:'Schedules',desc:'Rosters & bookings'},
-            {icon:'calendar-days',label:'Events',desc:'Group flights'},
+            {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets'},
@@ -1068,13 +1073,31 @@
                 if(t.action==='roster') el.addEventListener('click', openRoster);
                 if(t.action==='routes') el.addEventListener('click', openRoutes);
                 if(t.action==='pireps') el.addEventListener('click', openPireps);
+                if(t.action==='events') el.addEventListener('click', openEvents);
             });
         }
+
+        // ---- Events ----
+        // The panel, the gate board and the editor all live in crewEvents.js.
+        // What is left here is where the backend is and how to prove who is
+        // asking — the module reads the caller's permissions off the server
+        // rather than being told, so this cannot hand out a staff control.
+        function openEvents(){ if(window.CrewEvents) CrewEvents.open(); }
+        function mountEvents(){
+            if(!window.CrewEvents) return;
+            CrewEvents.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken })
+                .then(()=>{ const host=document.getElementById('nextEvent'); if(host) CrewEvents.renderSummary(host); });
+        }
+        // Still placeholder, and still to be replaced by the VA's own feed.
+        //
+        // The invented EVENT row that used to sit here has gone, though: events
+        // are real now, so "New event Transcon Group Flight" sat directly above
+        // a panel showing the VA's actual calendar and contradicted it. The
+        // remaining rows belong to features that have not been made real yet.
         const ACTIVITY=[
             {icon:'user-plus',text:'<b>Jordan Lee</b> joined as First Officer',when:'2h ago'},
             {icon:'plane-landing',text:'<b>ACA412</b> landed at EGLL · 8h 12m',when:'5h ago'},
             {icon:'badge-check',text:'<b>Sam Park</b> promoted to Captain',when:'Yesterday'},
-            {icon:'calendar-plus',text:'New event <b>Transcon Group Flight</b>',when:'Yesterday'},
         ];
         function renderActivity(){
             document.getElementById('activity').innerHTML=ACTIVITY.map((a,i)=>`
@@ -3891,6 +3914,7 @@
             await loadMe();                 // fresh capabilities + (owner) staff-role config
             applyOwnerState();
             renderCrewStats();              // the airline's real figures (public; no await, it can land late)
+            mountEvents();                  // the calendar + gate board (also late; the card fills itself in)
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();

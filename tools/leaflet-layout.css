@@ -1,0 +1,13 @@
+/* The containment rules from leaflet.css that matter for layout. Without them
+   the tile pane spills out of its container and covers the page — which is a
+   property of leaflet.css being absent, not of the code under test. */
+.leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,
+.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{
+  position:absolute; left:0; top:0; }
+.leaflet-container{ overflow:hidden; position:relative; }
+.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow{ user-select:none; }
+.leaflet-tile-pane{ z-index:200; } .leaflet-marker-pane{ z-index:600; }
+.leaflet-tooltip-pane{ z-index:650; } .leaflet-popup-pane{ z-index:700; }
+.leaflet-control-container{ position:relative; z-index:800; }
+.leaflet-tooltip{ position:absolute; padding:4px 8px; background:#fff; border:1px solid #ccc;
+  border-radius:3px; white-space:nowrap; pointer-events:none; }
