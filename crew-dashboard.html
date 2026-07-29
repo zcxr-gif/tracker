@@ -816,6 +816,11 @@
                     <button data-kindview="own" onclick="setRouteKindView('own')" class="flex-1 px-3 py-1.5 rounded-md transition">Own<span id="rkOwn" class="text-xs muted"></span></button>
                     <button data-kindview="codeshare" onclick="setRouteKindView('codeshare')" class="flex-1 px-3 py-1.5 rounded-md transition">Codeshare<span id="rkCs" class="text-xs muted"></span></button>
                 </div>
+                <!-- The partners themselves, logo first. A flat list of legs
+                     does not answer "what can I fly on Delta's metal?"; a row
+                     of airlines you can tap does. Hidden entirely for a VA with
+                     no codeshares, like the tabs above it. -->
+                <div id="routePartners" class="hidden flex gap-2 overflow-x-auto mt-2 pb-1"></div>
             </div>
             <!-- "Saved, but your database couldn't hold all of it." Shown here
                  rather than in the form because the save DID work — the route is
@@ -1344,13 +1349,30 @@
             const fp=document.getElementById('fleetPreview'); if(fp) fp.innerHTML = FLEET.length?FLEET.map(fleetChip).join(''):'<span class="text-xs faint">No aircraft yet.</span>';
             if(window.lucide) lucide.createIcons();
         }
+        // A rung, plus the one thing hours cannot decide.
+        //
+        // The check-ride toggle is per rung and off by default, which is the
+        // whole point: most VAs gate none, some gate one (the step up to
+        // Captain). Turning it on makes the hours a doorway rather than a
+        // promotion — the pilot waits at the rung below and staff sign them
+        // off from the roster. The note is what the pilot is told to go and do,
+        // so it is worth writing.
         function rankRowHtml(r,i){
-            return `<div class="flex items-center gap-2" data-kind="ranks" data-idx="${i}">
-                <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
-                ${badgeControl(r)}
-                <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Rank name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <input data-f="minHours" type="number" min="0" value="${r.minHours!=null?r.minHours:0}" placeholder="hrs" class="w-14 surface hair rounded-md px-2 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            return `<div class="space-y-1.5" data-kind="ranks" data-idx="${i}">
+                <div class="flex items-center gap-2">
+                    <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
+                    ${badgeControl(r)}
+                    <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Rank name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input data-f="minHours" type="number" min="0" value="${r.minHours!=null?r.minHours:0}" placeholder="hrs" class="w-14 surface hair rounded-md px-2 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                <div class="flex items-center gap-2 pl-10">
+                    <label class="flex items-center gap-1.5 text-[11px] muted cursor-pointer shrink-0" title="Hours alone won't grant this rank — a staff member signs the pilot off.">
+                        <input data-f="requiresCheck" type="checkbox" ${r.requiresCheck?'checked':''}> Needs a check-ride
+                    </label>
+                    <input data-f="checkNote" value="${escapeHtml(r.checkNote||'')}" placeholder="What the check-ride is — e.g. one long-haul sector with a training captain"
+                        class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-[var(--ink)] ${r.requiresCheck?'':'hidden'}">
+                </div>
             </div>`;
         }
         function roleRowHtml(r,i){
@@ -1378,7 +1400,15 @@
                     const row=e.target.closest('[data-idx]'); if(!row) return;
                     const arr=arrForKind(row.getAttribute('data-kind'));
                     const idx=+row.getAttribute('data-idx'); const f=e.target.getAttribute('data-f'); if(!f||f==='imagefile') return;
-                    arr[idx][f] = f==='staff'? e.target.checked : (f==='minHours'? (Number(e.target.value)||0) : e.target.value);
+                    arr[idx][f] = (f==='staff'||f==='requiresCheck') ? e.target.checked
+                        : (f==='minHours' ? (Number(e.target.value)||0) : e.target.value);
+                    // Reveal the "what is the check-ride" box the moment the
+                    // toggle is ticked, without a re-render that would take the
+                    // focus out of whatever is being typed.
+                    if(f==='requiresCheck'){
+                        const note=row.querySelector('[data-f="checkNote"]');
+                        if(note) note.classList.toggle('hidden', !e.target.checked);
+                    }
                     // Fleet rows: keep the livery suggestions + match warning in sync
                     // with the aircraft the VA just picked, without a focus-losing re-render.
                     if(row.getAttribute('data-kind')==='fleet') refreshFleetRow(row);
@@ -1418,7 +1448,7 @@
                 });
             });
         }
-        function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star'}); renderStructure(); }
+        function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star',requiresCheck:false,checkNote:''}); renderStructure(); }
         function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false}); renderStructure(); }
         function starterRanks(){
             RANKS=[{name:'Cadet',minHours:0,color:'#64748b',icon:'star'},{name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},{name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},{name:'Captain',minHours:300,color:'#d97706',icon:'medal'},{name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'}];
@@ -1697,14 +1727,25 @@
             const roleBadge=(role&&role.name)?badgeHtml({name:role.name,color:role.color,icon:role.icon,image:role.image}):'';
             const ac=(m.aircraft||[]).map(a=>`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(a)}</span>`).join(' ');
             const st=m.status&&m.status!=='active'?`<span class="text-[10px] uppercase tracking-wide faint">${escapeHtml(m.status)}</span>`:'';
+            // A pilot whose hours have carried them to a rung somebody has to
+            // sign off. Shown as a state on the roster rather than left silent:
+            // otherwise this pilot simply stops being promoted and nobody —
+            // them or staff — ever finds out why.
+            const waiting = rank && rank.awaitingCheck;
+            const waitBadge = waiting
+                ? `<span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                     style="background:color-mix(in srgb,#7C3AED 15%,transparent);color:#7C3AED"
+                     title="${escapeHtml(waiting.checkNote||'They have the hours — the rank is waiting on a sign-off.')}">Ready for ${escapeHtml(waiting.name)}</span>`
+                : '';
             return `<div class="surface rounded-xl p-3.5 flex items-center gap-3" data-id="${m.id||''}">
                 <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(m.name||m.callsign||'?',''))}</div>
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(m.name||'Unnamed')}</span>${m.callsign?`<span class="text-xs faint">${escapeHtml(m.callsign)}</span>`:''}${st}</div>
-                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${rankBadge}${roleBadge}<span class="text-xs muted">${Math.round(Number(m.hours)||0)}h</span></div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${rankBadge}${roleBadge}<span class="text-xs muted">${Math.round(Number(m.hours)||0)}h</span>${waitBadge}</div>
                     ${ac?`<div class="flex items-center gap-1 flex-wrap mt-1.5">${ac}</div>`:''}
                 </div>
                 ${ROSTER_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
+                    ${waiting?`<button data-checkride="${escapeHtml(waiting.name)}" title="Pass their ${escapeHtml(waiting.name)} check-ride" class="w-8 h-8 grid place-items-center rounded-md hover:opacity-80" style="color:#7C3AED"><i data-lucide="badge-check" class="w-4 h-4"></i></button>`:''}
                     <button data-edit title="Edit pilot" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
                     <button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="user-minus" class="w-4 h-4"></i></button>
                 </div>`:''}
@@ -1813,9 +1854,33 @@
                 if(res.ok){ ROSTER=ROSTER.filter(m=>String(m.id)!==String(id)); if(String(EDITING)===String(id)) closePilotForm(); renderRoster(); }
             }catch{}
         }
+        // Pass a pilot's check-ride. The promotion this causes is announced by
+        // the server, exactly as an hours-driven one is — from the pilot's side
+        // they are the same event, so they read the same in the crew channel.
+        async function passCheckRide(id, rank, card){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            const who=(ROSTER.find(x=>String(x.id)===String(id))||{}).name||'this pilot';
+            if(!confirm(`Sign ${who} off for ${rank}? They're promoted straight away, and the crew is told.`)) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}/checkride`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body:JSON.stringify({ rank }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ alert(d.error||'Could not record the check-ride.'); return; }
+                // Swap the one row rather than refetching the roster: the reply
+                // carries the pilot exactly as the server now sees them.
+                if(d.member) ROSTER=ROSTER.map(m=>String(m.id)===String(id)?d.member:m);
+                renderRoster();
+            }catch{ alert('Server unreachable. Try again.'); }
+        }
         document.addEventListener('click', e=>{
+            const pt=e.target.closest('#routePartners [data-partner]');
+            if(pt){ setRoutePartner(pt.getAttribute('data-partner')); return; }
             const ed=e.target.closest('#rosterList [data-edit]');
             if(ed){ const card=ed.closest('[data-id]'); const id=card&&card.getAttribute('data-id'); const m=ROSTER.find(x=>String(x.id)===String(id)); if(m) openPilotForm(m); return; }
+            const cr=e.target.closest('#rosterList [data-checkride]');
+            if(cr){ const card=cr.closest('[data-id]'); if(card) passCheckRide(card.getAttribute('data-id'), cr.getAttribute('data-checkride'), card); return; }
             const rm=e.target.closest('#rosterList [data-remove]'); if(!rm) return;
             const card=rm.closest('[data-id]'); if(card) removePilot(card.getAttribute('data-id'), card);
         });
@@ -1872,7 +1937,55 @@
         }
         // Which slice of the network is on screen: all, own metal, or codeshares.
         let ROUTE_KIND_VIEW='all';
-        function setRouteKindView(v){ ROUTE_KIND_VIEW=v; renderRoutes(); }
+        // Which partner's metal the list is narrowed to, '' for the whole network.
+        let ROUTE_PARTNER='';
+        // The partner summary the routes endpoint groups for us — one entry per
+        // codeshare airline, so the tiles and the network map cannot disagree
+        // about how many legs a partner has.
+        let ROUTE_PARTNERS=[];
+        function setRouteKindView(v){ ROUTE_KIND_VIEW=v; if(v==='own') ROUTE_PARTNER=''; renderRoutes(); }
+        function setRoutePartner(name){
+            // Tapping the airline you are already looking at takes the filter
+            // off, which is what a pressed-looking tile should do.
+            ROUTE_PARTNER = (ROUTE_PARTNER===name) ? '' : name;
+            if(ROUTE_PARTNER) ROUTE_KIND_VIEW='codeshare';
+            renderRoutes();
+        }
+
+        /**
+         * The partner strip: one tile per codeshare airline, logo first.
+         *
+         * This is the answer to "what can I fly on somebody else's metal?" — a
+         * question a flat list of two hundred routes does not answer. The logo
+         * is the target because it is what a pilot recognises; the name is
+         * there for the airlines that have not uploaded one.
+         */
+        function renderPartnerStrip(cs){
+            const host=document.getElementById('routePartners');
+            if(!host) return;
+            const partners = ROUTE_PARTNERS.length ? ROUTE_PARTNERS : [];
+            host.classList.toggle('hidden', !cs.length || !partners.length);
+            if(!cs.length || !partners.length) return;
+            host.innerHTML = partners.map(p=>{
+                const on = ROUTE_PARTNER.toLowerCase()===String(p.name).toLowerCase();
+                const logo = (p.logo && isSafeImageUrl(p.logo))
+                    ? `<img src="${escapeHtml(p.logo)}" alt="" class="h-6 w-auto max-w-[74px] object-contain">`
+                    : `<span class="text-xs font-bold">${escapeHtml(initials(p.name,''))}</span>`;
+                // "3 of 8 locked" only means something to a pilot; staff are
+                // never marked locked, so the clause simply does not appear.
+                const sub = `${p.routes} leg${p.routes===1?'':'s'}`
+                    + (p.destinations?` · ${p.destinations} port${p.destinations===1?'':'s'}`:'')
+                    + (p.lockedRoutes?` · ${p.lockedRoutes} locked`:'');
+                return `<button type="button" data-partner="${escapeHtml(p.name)}"
+                    class="shrink-0 surface hair rounded-lg px-3 py-2 text-left hover:border-[var(--ink)] transition ${on?'border-[var(--ink)]':''}"
+                    style="${on?'box-shadow:inset 0 0 0 1px var(--ink)':''}"
+                    title="${escapeHtml(p.name)} — show only these legs">
+                    <span class="flex items-center gap-2 h-6">${logo}</span>
+                    <span class="block text-[11px] font-semibold truncate max-w-[130px] mt-1">${escapeHtml(p.name)}</span>
+                    <span class="block text-[10px] faint">${escapeHtml(sub)}</span>
+                </button>`;
+            }).join('');
+        }
         function renderRoutes(){
             ROUTES_CANMANAGE = can('routes.manage');
             document.getElementById('addRouteBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
@@ -1895,7 +2008,13 @@
                 });
             } else if(ROUTE_KIND_VIEW!=='all') ROUTE_KIND_VIEW='all';
 
-            const list = ROUTE_KIND_VIEW==='own' ? own : ROUTE_KIND_VIEW==='codeshare' ? cs : visible;
+            let list = ROUTE_KIND_VIEW==='own' ? own : ROUTE_KIND_VIEW==='codeshare' ? cs : visible;
+            // A partner filter narrows whatever the kind tabs already chose.
+            if(ROUTE_PARTNER){
+                list = list.filter(r=>r.kind==='codeshare'
+                    && String(r.partnerName||'').toLowerCase()===ROUTE_PARTNER.toLowerCase());
+            }
+            renderPartnerStrip(cs);
             document.getElementById('routeCount').textContent = visible.length
                 ? `· ${visible.length}${cs.length?` (${own.length} own)`:''}` : '';
             document.getElementById('routeList').innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes here yet.</p>';
@@ -1915,6 +2034,14 @@
                     const d=await res.json();
                     ROUTES=Array.isArray(d.routes)?d.routes:[];
                     if(Array.isArray(d.ranks)) ROUTE_RANKS=d.ranks;
+                    // Grouped by the server so the strip, the panel counts and
+                    // the network map all quote the same figures.
+                    ROUTE_PARTNERS=Array.isArray(d.partners)?d.partners:[];
+                    // A partner that has just lost its last leg must not leave
+                    // the list filtered to an airline that is no longer there.
+                    if(ROUTE_PARTNER && !ROUTE_PARTNERS.some(p=>String(p.name).toLowerCase()===ROUTE_PARTNER.toLowerCase())){
+                        ROUTE_PARTNER='';
+                    }
                     return;
                 }
             }catch{}

@@ -69,6 +69,8 @@
         mine: [],           // this pilot's signups, by event
         ranks: [],
         canManage: false,
+        routes: [],        // the VA's network, for the editor's route picker
+        routesLoaded: false,
         loaded: false,
         error: null,       // why the calendar could not be read, when it could not
         openEventId: '',
@@ -114,6 +116,56 @@
         if (hours < 1) return `In ${Math.max(1, Math.round(ms / 60e3))} min`;
         if (hours < 48) return `In ${Math.round(hours)} h`;
         return `In ${Math.round(hours / 24)} days`;
+    }
+
+    /**
+     * The countdown to push, as a clock rather than a phrase.
+     *
+     * Ticks live because that is the whole point of it: "2d 04:11:36" on an
+     * event you are signed up for is the difference between a date you have
+     * read and a departure you are aware of. It degrades sensibly at both
+     * ends — days are dropped once inside 24 hours (nobody needs "0d"), and it
+     * stops counting once the event is under way rather than running a
+     * meaningless negative.
+     */
+    function countdownParts(iso) {
+        const target = new Date(iso).getTime();
+        if (!iso || Number.isNaN(target)) return null;
+        const ms = target - Date.now();
+        if (ms <= 0) return { text: ms > -6 * 3600e3 ? 'Under way' : 'Flown', done: true };
+        const s = Math.floor(ms / 1000);
+        const d = Math.floor(s / 86400);
+        const h = Math.floor((s % 86400) / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        return {
+            text: d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(h)}:${pad(m)}:${pad(sec)}`,
+            done: false,
+        };
+    }
+
+    // One timer for every clock on the page, rather than one per clock. A
+    // calendar can hold a dozen of them and a dozen intervals firing a second
+    // apart is a page that never idles — this ticks once and paints them all,
+    // and stops itself entirely when there is nothing left to count.
+    let clockTimer = null;
+    function tickClocks() {
+        const els = document.querySelectorAll('[data-cev-until]');
+        if (!els.length) {
+            if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+            return;
+        }
+        els.forEach((el) => {
+            const c = countdownParts(el.dataset.cevUntil);
+            if (!c) { el.textContent = ''; return; }
+            el.textContent = c.text;
+            el.classList.toggle('cev-clock-done', c.done);
+        });
+    }
+    function startClocks() {
+        tickClocks();
+        if (!clockTimer) clockTimer = setInterval(tickClocks, 1000);
     }
 
     const legText = (e) => [e.origin, e.destination].filter(Boolean).join(' → ') || 'Route to be confirmed';
@@ -229,7 +281,7 @@
                     <div class="cev-facts">${facts}</div>
                     <div class="cev-card-foot">
                         <span class="cev-going">${esc(going)}</span>
-                        <span class="cev-rel">${esc(relativeText(e.startsAt))}</span>
+                        <span class="cev-rel cev-clock" data-cev-until="${esc(e.startsAt || '')}">${esc(relativeText(e.startsAt))}</span>
                     </div>
                 </div>
             </article>`;
@@ -269,6 +321,7 @@
         }
         host.innerHTML = S.events.map(eventCard).join('');
         icons();
+        startClocks();
     }
 
     /* =====================================================================
@@ -292,6 +345,7 @@
 
         const e = d.event;
         const attending = d.attending || [];
+        const flights = d.flights || [];
         const mine = d.mine;
         const going = attending.filter((a) => a.status === 'going');
         const waiting = attending.filter((a) => a.status === 'waitlist');
@@ -300,6 +354,15 @@
 
         const banner = e.bannerUrl && safeImg(e.bannerUrl)
             ? `<img src="${esc(e.bannerUrl)}" alt="" class="cev-hero">` : '';
+
+        // The clock, given the room it deserves. On the brief this is the
+        // thing a pilot came to check.
+        const clock = e.startsAt ? `
+            <div class="cev-countdown">
+                <span class="cev-countdown-label">${new Date(e.startsAt) > new Date() ? 'Doors in' : ''}</span>
+                <span class="cev-countdown-num cev-clock" data-cev-until="${esc(e.startsAt)}"></span>
+                <span class="cev-countdown-when">${esc(whenText(e.startsAt))}</span>
+            </div>` : '';
 
         // What the pilot can do about it, in one row. A cancelled event offers
         // nothing — there is nothing to join — and a locked one says what it is
@@ -311,6 +374,11 @@
             actions = `<p class="cev-note">This event opens at <strong>${esc(e.minRank)}</strong>${
                 e.hoursUntilUnlock ? ` — ${Math.round(e.hoursUntilUnlock)} more hours to go` : ''}.</p>`;
         } else if (mine) {
+            // Filing opens once the event has started. Before that there is
+            // nothing to file — an event you have not flown yet is a plan, and
+            // a "file this flight" button on it invites a report about a
+            // flight that has not happened.
+            const started = e.startsAt && new Date(e.startsAt) <= new Date();
             actions = `
                 <div class="cev-actions">
                     ${e.gatesOpen && !e.gatesLocked && mine.status === 'going'
@@ -318,6 +386,10 @@
                                <i data-lucide="map-pinned"></i> ${mine.gate ? 'Change my stand' : 'Pick my stand'}
                            </button>`
                         : ''}
+                    ${started && !d.myFlightFiled
+                        ? '<button class="cev-btn cev-btn-primary" data-act="file"><i data-lucide="clipboard-pen"></i> File this flight</button>'
+                        : ''}
+                    ${d.myFlightFiled ? '<span class="cev-chip cev-chip-in">Your flight is filed</span>' : ''}
                     <button class="cev-btn" data-act="withdraw"><i data-lucide="user-minus"></i> Withdraw</button>
                 </div>`;
         } else if (S.getToken()) {
@@ -364,12 +436,14 @@
 
         body.innerHTML = `
             ${banner}
+            ${clock}
             <div class="cev-detail-facts">
                 <span class="cev-fact"><i data-lucide="map-pin"></i> ${esc(legText(e))}</span>
                 <span class="cev-fact"><i data-lucide="calendar-clock"></i> ${esc(whenText(e.startsAt))}</span>
                 ${e.aircraft ? `<span class="cev-fact"><i data-lucide="plane"></i> ${esc(e.aircraft)}</span>` : ''}
                 ${e.server ? `<span class="cev-fact"><i data-lucide="signal"></i> ${esc(e.server)}</span>` : ''}
                 ${e.flightNumber ? `<span class="cev-fact"><i data-lucide="hash"></i> ${esc(e.flightNumber)}</span>` : ''}
+                ${e.routeId ? '<span class="cev-fact"><i data-lucide="route"></i> On the network</span>' : ''}
             </div>
             ${e.description ? `<p class="cev-desc">${esc(e.description)}</p>` : ''}
             ${actions}
@@ -386,9 +460,23 @@
                 ${waiting.length ? `
                     <h4 class="cev-h4 cev-h4-sub">Waitlist <span class="cev-count">${waiting.length}</span></h4>
                     <ul class="cev-atts cev-atts-wait">${waiting.map(row).join('')}</ul>` : ''}
-            </section>`;
+            </section>
+
+            ${flights.length ? `
+                <section class="cev-section">
+                    <h4 class="cev-h4">Flown <span class="cev-count">${flights.length}</span></h4>
+                    <ul class="cev-atts">${flights.map((f) => `
+                        <li class="cev-att">
+                            <span class="cev-att-name">${esc(f.pilotName || 'A pilot')}</span>
+                            <span class="cev-att-cs">${esc([f.origin, f.destination].filter(Boolean).join(' → '))}</span>
+                            ${f.aircraftName ? `<span class="cev-att-ac">${esc(f.aircraftName)}</span>` : ''}
+                            <span class="cev-att-dur">${Math.round((Number(f.durationMin) || 0) / 6) / 10}h</span>
+                            <span class="cev-flight-status cev-fs-${esc(f.status)}">${esc(f.status)}</span>
+                        </li>`).join('')}</ul>
+                </section>` : ''}`;
 
         icons();
+        startClocks();
         wireDetail(e, mine);
     }
 
@@ -414,6 +502,7 @@
         try {
             if (act === 'gates') { await openGateBoard(e); return; }
             if (act === 'edit') { openEditor(e); return; }
+            if (act === 'file') { openFileFlight(e, mine); return; }
 
             if (act === 'join') {
                 busy(true);
@@ -771,8 +860,108 @@
     }
 
     /* =====================================================================
+     * FILING THE EVENT FLIGHT
+     *
+     * The same endpoint every other manual report goes through, with the
+     * event's id attached. An event flight is an ordinary flight that happens
+     * to know why it was flown, and it is reviewed and credited by exactly the
+     * same code as any other — so this form asks only for what the event does
+     * not already know.
+     * =================================================================== */
+
+    function openFileFlight(e, mine) {
+        const modal = document.getElementById('cevEdit');
+        modal.classList.remove('cev-hidden');
+        document.getElementById('cevEditTitle').textContent = 'File this flight';
+
+        document.getElementById('cevEditBody').innerHTML = `
+            <p class="cev-note">
+                ${esc([e.origin, e.destination].filter(Boolean).join(' → ') || 'This event')}
+                — the leg, the aircraft and the flight number come from the event.
+                Tell us how long it took.
+            </p>
+            <div class="cev-grid2">
+                <label class="cev-label">Hours
+                    <input id="cevfHours" type="number" min="0" max="24" class="cev-input" placeholder="4">
+                </label>
+                <label class="cev-label">Minutes
+                    <input id="cevfMins" type="number" min="0" max="59" class="cev-input" placeholder="35">
+                </label>
+            </div>
+            <div class="cev-grid2">
+                <label class="cev-label">Landings
+                    <input id="cevfLandings" type="number" min="0" max="100" class="cev-input" value="1">
+                </label>
+                <label class="cev-label">Aircraft <span class="cev-hint">if you flew something else</span>
+                    <input id="cevfAc" class="cev-input" maxlength="60" value="${esc((mine && mine.aircraft) || e.aircraft || '')}">
+                </label>
+            </div>
+            <div class="cev-edit-foot">
+                <button class="cev-btn cev-btn-primary" id="cevFileBtn">
+                    <i data-lucide="clipboard-pen"></i> File it
+                </button>
+                <span id="cevEditNote" class="cev-note"></span>
+            </div>`;
+        icons();
+
+        document.getElementById('cevFileBtn').onclick = async (ev) => {
+            const btn = ev.currentTarget;
+            const note = document.getElementById('cevEditNote');
+            const num = (id) => Number(document.getElementById(id).value) || 0;
+            const hours = num('cevfHours');
+            const mins = num('cevfMins');
+            if (!hours && !mins) { note.textContent = 'How long was the flight?'; return; }
+            btn.disabled = true;
+            try {
+                const out = await api('/pireps', {
+                    method: 'POST',
+                    body: {
+                        eventId: e.id,
+                        hours,
+                        minutes: mins,
+                        landings: num('cevfLandings'),
+                        aircraftName: (document.getElementById('cevfAc').value || '').trim(),
+                    },
+                });
+                toast(out.routeMatched
+                    ? 'Filed — it matched a route on the network.'
+                    : 'Filed. Staff will review it.', 'ok');
+                modal.classList.add('cev-hidden');
+                await refreshAll(e.id);
+            } catch (err) {
+                note.textContent = err.message;
+                btn.disabled = false;
+            }
+        };
+    }
+
+    /* =====================================================================
      * THE EDITOR (staff)
      * =================================================================== */
+
+    /**
+     * The VA's own network, for building an event on a leg they already fly.
+     *
+     * Loaded on demand rather than with the calendar: it is only ever needed by
+     * a staff member opening the editor, and a route list is the largest thing
+     * a crew center hands out.
+     */
+    async function ensureRoutes() {
+        if (S.routesLoaded) return S.routes;
+        try {
+            const d = await api('/routes');
+            S.routes = Array.isArray(d.routes) ? d.routes : [];
+        } catch { S.routes = []; }
+        S.routesLoaded = true;
+        return S.routes;
+    }
+
+    const routeLabel = (r) => [
+        r.flightNumber,
+        [r.origin, r.destination].filter(Boolean).join(' → '),
+        r.aircraft,
+        r.kind === 'codeshare' && r.partnerName ? `(${r.partnerName})` : '',
+    ].filter(Boolean).join(' · ');
 
     function openEditor(e) {
         const isNew = !e;
@@ -796,6 +985,20 @@
             <label class="cev-label">Title
                 <input id="cevfTitle" class="cev-input" maxlength="120" placeholder="Transcon Group Flight" value="${esc(v.title || '')}">
             </label>
+
+            <!-- Build it on a leg the airline already flies, or type one.
+                 Picking a route fills the fields below in and ties the two
+                 together, so a report filed for the event credits against the
+                 route like any other flight. Leaving it on "a one-off" is the
+                 right answer for a fly-in from anywhere or a charter to a field
+                 the network does not serve. -->
+            <label class="cev-label">Flight
+                <select id="cevfRoute" class="cev-input">
+                    <option value="">A one-off — I’ll type the leg</option>
+                </select>
+                <span class="cev-hint">Pick one of your routes to fill the rest in.</span>
+            </label>
+
             <div class="cev-grid2">
                 <label class="cev-label">From
                     <input id="cevfOrigin" class="cev-input cev-icao" maxlength="4" placeholder="CYYZ" value="${esc(v.origin || '')}">
@@ -876,6 +1079,7 @@
                 aircraft: val('cevfAircraft'),
                 server: val('cevfServer'),
                 description: val('cevfDesc'),
+                routeId: (document.getElementById('cevfRoute') || {}).value || '',
                 gatesOpen: document.getElementById('cevfGates').checked,
                 gateIcao: val('cevfGateIcao'),
                 minRank: val('cevfRank'),
@@ -910,6 +1114,30 @@
         document.getElementById('cevSaveBtn').onclick = (ev) => save(isNew ? 'draft' : null, ev.currentTarget);
         const pub = document.getElementById('cevSavePubBtn');
         if (pub) pub.onclick = (ev) => save('published', ev.currentTarget);
+
+        // The route picker fills in, it does not lock. Staff routinely run an
+        // event on a published leg with one thing changed — a different
+        // aircraft, a Friday-night departure — and a picker that overwrote the
+        // fields on every render would undo that edit each time.
+        ensureRoutes().then((routes) => {
+            const sel = document.getElementById('cevfRoute');
+            if (!sel) return;    // the editor was closed while this was loading
+            const active = routes.filter((r) => r.active !== false);
+            sel.innerHTML = '<option value="">A one-off — I’ll type the leg</option>'
+                + active.map((r) => `<option value="${esc(r.id)}" ${v.routeId === r.id ? 'selected' : ''}>${esc(routeLabel(r))}</option>`).join('');
+            sel.addEventListener('change', () => {
+                const r = active.find((x) => x.id === sel.value);
+                if (!r) return;
+                const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+                set('cevfOrigin', r.origin);
+                set('cevfDest', r.destination);
+                set('cevfAircraft', r.aircraft);
+                // The board follows the departure field unless staff have
+                // already pointed it somewhere else (a fly-in).
+                const gate = document.getElementById('cevfGateIcao');
+                if (gate && !gate.value) gate.placeholder = `defaults to ${r.origin}`;
+            });
+        });
         icons();
     }
 
@@ -946,6 +1174,10 @@
         const mine = mySignup(next.id);
         el.innerHTML = `
             <div class="cev-sum-title">${esc(next.title || 'Untitled event')}</div>
+            <!-- The clock, on the card people actually look at. "Sat 22:00" is
+                 a date you read; "2d 04:11:36" is a departure you are aware
+                 of, and this card exists to make somebody aware of one. -->
+            <div class="cev-sum-clock cev-clock" data-cev-until="${esc(next.startsAt || '')}"></div>
             <div class="cev-sum-facts">
                 <span class="cev-fact"><i data-lucide="map-pin"></i> ${esc(legText(next))}</span>
                 <span class="cev-fact"><i data-lucide="calendar-clock"></i> ${esc(whenText(next.startsAt))}</span>
@@ -961,6 +1193,7 @@
             openEvent(b.dataset.cevOpen);
         }));
         icons();
+        startClocks();
     }
 
     // Hosts that want the whole calendar rather than just the next thing — the
@@ -996,6 +1229,7 @@
             card.addEventListener('click', () => { open(); openEvent(card.dataset.event); });
         });
         icons();
+        startClocks();
     }
 
     function paintSummaries() {
@@ -1198,6 +1432,27 @@
         .cev-note{ font-size:.82rem; color:var(--muted,#736E64); margin:0; }
         .cev-note-off{ color:#DC2626; font-weight:600; }
 
+        /* The countdown. Tabular figures so the digits do not jitter as they
+           tick — a clock that shifts sideways every second is a clock nobody
+           can read. */
+        .cev-countdown{ display:flex; flex-direction:column; gap:.15rem; margin-bottom:1rem;
+            padding:.85rem 1rem; border-radius:.6rem;
+            background:color-mix(in srgb, var(--accent,#1C1A16) 8%, transparent); }
+        .cev-countdown-label{ font-size:.68rem; font-weight:700; text-transform:uppercase;
+            letter-spacing:.09em; color:var(--muted,#736E64); }
+        .cev-countdown-num{ font-size:clamp(1.5rem,5vw,2.1rem); font-weight:800; line-height:1;
+            font-variant-numeric:tabular-nums; letter-spacing:-.01em; color:var(--ink,#1C1A16); }
+        .cev-countdown-when{ font-size:.8rem; color:var(--muted,#736E64); }
+        .cev-clock{ font-variant-numeric:tabular-nums; }
+        .cev-clock-done{ color:var(--muted,#736E64); }
+
+        .cev-att-dur{ font-size:.8rem; color:var(--muted,#736E64); font-variant-numeric:tabular-nums; }
+        .cev-flight-status{ margin-left:auto; font-size:.68rem; font-weight:700; text-transform:uppercase;
+            letter-spacing:.03em; padding:.1rem .45rem; border-radius:.3rem;
+            border:1px solid var(--line,#e5e5e5); color:var(--muted,#736E64); }
+        .cev-fs-approved{ background:#16A34A; color:#fff; border-color:transparent; }
+        .cev-fs-rejected{ background:#DC2626; color:#fff; border-color:transparent; }
+
         .cev-section{ margin-top:1.25rem; }
         .cev-h4{ display:flex; align-items:center; gap:.5rem; font-size:.95rem; font-weight:700;
             margin:0 0 .5rem; color:var(--ink,#1C1A16); }
@@ -1276,7 +1531,10 @@
         .cev-check{ display:flex; align-items:center; gap:.5rem; font-size:.85rem;
             color:var(--ink,#1C1A16); font-weight:500; }
         .cev-edit-foot{ display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:.4rem; }
-        .cev-sum-title{ font-weight:700; font-size:1rem; margin-bottom:.5rem; color:var(--ink,#1C1A16); }
+        .cev-sum-title{ font-weight:700; font-size:1rem; margin-bottom:.35rem; color:var(--ink,#1C1A16); }
+        .cev-sum-clock{ font-size:1.4rem; font-weight:800; line-height:1.1; letter-spacing:-.01em;
+            color:var(--accent,#1C1A16); margin-bottom:.6rem; }
+        .cev-sum-clock:empty{ display:none; }
         .cev-sum-facts{ flex-direction:column; gap:.4rem; }
 
         @media (prefers-reduced-motion:reduce){ .cev-card,.cev-toast{ transition:none; } }`;
