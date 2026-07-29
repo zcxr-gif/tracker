@@ -347,6 +347,7 @@
                     <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
                     <button id="teamTab" data-cat="team" onclick="setCat('team')" class="settings-tab hidden flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Team</button>
                     <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
+                    <button id="storageTab" data-cat="storage" onclick="setCat('storage')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Storage</button>
                 </div>
             </div>
             <div class="p-5">
@@ -726,7 +727,18 @@
                             </ol>
                             <input id="wizToken" type="password" placeholder="sbp_…" autocomplete="off" spellcheck="false"
                                 class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                            <p class="text-[11px] faint leading-relaxed">This token can manage your whole Supabase account, so we use it for this setup only — it is never saved, never logged, and never leaves this request. Delete it in Supabase once you’re done here.</p>
+                            <p class="text-[11px] faint leading-relaxed">This token can manage your whole Supabase account, so by default we use it for this setup only — never logged, never leaving this request.</p>
+                            <!-- The offer, and the reason for it, in the VA's terms. Off
+                                 unless they tick it; hidden entirely on a backend with no
+                                 encryption key, because a tick that silently does nothing
+                                 is worse than no tick. -->
+                            <label id="wizRememberRow" class="hidden flex items-start gap-2 p-2.5 rounded-lg hair surface cursor-pointer">
+                                <input id="wizRemember" type="checkbox" class="mt-0.5 accent-[var(--accent)]">
+                                <span class="min-w-0">
+                                    <span class="block text-xs font-semibold">Keep this token so updates are one click</span>
+                                    <span class="block text-[11px] faint leading-relaxed">We store it encrypted and use it for one thing: adding new tables and columns to <b>this</b> project when the crew center gains a feature. Without it, every future update asks you to make a fresh token. You can withdraw it here at any time.</span>
+                                </span>
+                            </label>
                             <button id="wizFindBtn" onclick="wizardFindProjects()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="search" class="w-4 h-4"></i> Find my projects</button>
                         </div>
 
@@ -776,15 +788,68 @@
                         <div class="text-sm font-semibold mb-1 flex items-center gap-2"><i data-lucide="database-backup" class="w-4 h-4 text-amber-500"></i> Your database needs an update</div>
                         <p id="dbUpgradeWhy" class="text-xs muted mb-3"></p>
                         <div id="dbUpgradeForm" class="space-y-2.5">
-                            <input id="dbUpgradeToken" type="password" placeholder="sbp_…" autocomplete="off" spellcheck="false"
-                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                            <p class="text-[11px] faint leading-relaxed">The same kind of <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener" class="accent-text font-medium">access token</a> you used to set this up. We run the current setup script against the project you're already connected to — it only ever adds, so your crew, flights and logins are untouched, and your keys don't change. The token isn't saved.</p>
+                            <!-- Hidden once a token is kept: there is nothing to
+                                 paste, and a field asking for one anyway is how a
+                                 VA concludes the keeping never worked. -->
+                            <div id="dbUpgradePaste" class="space-y-2.5">
+                                <input id="dbUpgradeToken" type="password" placeholder="sbp_…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <p class="text-[11px] faint leading-relaxed">The same kind of <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener" class="accent-text font-medium">access token</a> you used to set this up. We run the current setup script against the project you're already connected to — it only ever adds, so your crew, flights and logins are untouched, and your keys don't change.</p>
+                                <label id="dbUpgradeRememberRow" class="hidden flex items-center gap-2 text-[11px] faint cursor-pointer">
+                                    <input id="dbUpgradeRemember" type="checkbox" class="accent-[var(--accent)]"> Keep this token so the next update needs no pasting
+                                </label>
+                            </div>
+                            <p id="dbUpgradeSaved" class="hidden text-[11px] faint leading-relaxed"></p>
                             <button id="dbUpgradeBtn" onclick="upgradeDatabase()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="database-zap" class="w-4 h-4"></i> Update my database</button>
                             <details class="pt-0.5"><summary class="text-[11px] faint cursor-pointer">Rather do it by hand?</summary>
                                 <p class="text-[11px] faint mt-1.5">Open “I’ll do it myself” below, copy the setup SQL and run it in your project’s SQL editor. It’s the same script and it’s safe to re-run — that is the upgrade.</p>
                             </details>
                         </div>
                         <p id="dbUpgradeNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
+                    <!-- ---------------------------------------------------------
+                         THE KEPT TOKEN
+
+                         Its own block rather than a line in the wizard, because
+                         it outlives the setup: it is the thing that decides
+                         whether the next twelve releases reach this VA's
+                         database on their own or wait for someone to notice.
+
+                         Shown once a project is connected. What is on it is
+                         deliberately everything a VA needs to change their mind
+                         — which token, since when, whether it still works, a
+                         switch for the automatic part, and a way to throw it
+                         away that admits what throwing it away does and does
+                         not do.
+                    ---------------------------------------------------------- -->
+                    <div id="tokenBlock" class="hidden mt-4 rounded-xl hair surface p-4">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2"><i data-lucide="key-round" class="w-4 h-4 accent-text"></i> Updates to your database</div>
+                        <p id="tokenSummary" class="text-xs muted mb-3"></p>
+
+                        <!-- No token kept: offer to keep one. -->
+                        <div id="tokenSaveForm" class="hidden space-y-2.5">
+                            <input id="tokenInput" type="password" placeholder="sbp_…" autocomplete="off" spellcheck="false"
+                                class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <p class="text-[11px] faint leading-relaxed">Make one at <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener" class="accent-text font-medium">Account → Access tokens</a>. We check it opens your project before we keep it, store it encrypted, and use it only to add new tables and columns to <b>this</b> project.</p>
+                            <button id="tokenSaveBtn" onclick="saveStoreToken()" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="shield-check" class="w-4 h-4"></i> Keep this token</button>
+                        </div>
+
+                        <!-- A token is kept. -->
+                        <div id="tokenSavedForm" class="hidden space-y-3">
+                            <label class="flex items-start gap-2 cursor-pointer">
+                                <input id="tokenAuto" type="checkbox" onchange="setStoreAutoUpdate(this.checked)" class="mt-0.5 accent-[var(--accent)]">
+                                <span class="min-w-0">
+                                    <span class="block text-xs font-semibold">Keep my database up to date on its own</span>
+                                    <span class="block text-[11px] faint leading-relaxed">When the crew center gains something that needs a new table or column, we add it to your project without asking. Only ever adds — nothing existing is changed or removed.</span>
+                                </span>
+                            </label>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="showTokenReplace()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Replace token</button>
+                                <button onclick="forgetStoreToken()" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Forget it</button>
+                            </div>
+                        </div>
+                        <p id="tokenNote" class="hidden text-sm mt-2"></p>
                     </div>
 
                     <!-- Manual route -->
@@ -828,6 +893,77 @@
                     </div>
                 </div>
               </div><!-- /data -->
+
+              <!-- ===========================================================
+                   STORAGE
+
+                   Supabase's free plan stops at half a gigabyte of database, and
+                   a project that hits the ceiling goes READ-ONLY: applications
+                   stop saving, flights stop filing, and the crew center looks
+                   broken for a reason nothing in it explains. The number was
+                   only ever on Supabase's own dashboard — which is somewhere VA
+                   staff have no account for once the owner finished the setup.
+
+                   So it is here, for staff rather than the owner alone: this is
+                   a thing to watch, and the person watching it is whoever runs
+                   the airline day to day.
+              ============================================================ -->
+              <div data-panel="storage" class="space-y-6 hidden">
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Database storage</h3>
+                    <p class="text-xs muted mb-3">How much room your crew center is using inside your own Supabase project. Everything here is measured by the project itself.</p>
+
+                    <div id="storageBody" class="space-y-4">
+                        <p id="storageLoading" class="text-sm muted">Reading your database…</p>
+
+                        <!-- The headline: used, against the plan's ceiling. -->
+                        <div id="storageMain" class="hidden">
+                            <div class="flex items-end justify-between gap-3 mb-1.5">
+                                <div>
+                                    <div id="storageUsed" class="text-2xl font-bold tracking-tight">—</div>
+                                    <div id="storageOf" class="text-xs muted"></div>
+                                </div>
+                                <div id="storagePct" class="text-sm font-semibold"></div>
+                            </div>
+                            <div class="h-2.5 w-full rounded-full overflow-hidden surface hair">
+                                <div id="storageBar" class="h-full rounded-full transition-all" style="width:0%;background:var(--accent)"></div>
+                            </div>
+                            <p id="storageVerdict" class="text-xs mt-2"></p>
+                        </div>
+
+                        <!-- What is taking the room. -->
+                        <div id="storageBreakdown" class="hidden">
+                            <div class="text-xs font-semibold uppercase tracking-wider faint mb-1.5">What’s in it</div>
+                            <div id="storageTables" class="space-y-1"></div>
+                            <p id="storageOther" class="hidden text-xs muted mt-2"></p>
+                        </div>
+
+                        <!-- A project too old to answer, or not connected at all. -->
+                        <div id="storageEmpty" class="hidden rounded-xl hair surface p-4">
+                            <p id="storageEmptyMsg" class="text-xs muted"></p>
+                            <button id="storageEmptyBtn" onclick="openDbUpgrade()" class="hidden mt-3 w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Update my database</button>
+                        </div>
+
+                        <div class="flex items-center gap-3 pt-1">
+                            <button onclick="refreshStorage(true)" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh</button>
+                            <a id="storageSupabaseLink" href="https://supabase.com/dashboard" target="_blank" rel="noopener" class="text-xs muted hover:text-[var(--ink)] font-medium inline-flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open in Supabase</a>
+                        </div>
+                        <p id="storageAsOf" class="text-[11px] faint"></p>
+                    </div>
+                </div>
+
+                <!-- What to do about it, written once, here, rather than left to
+                     a support conversation each time somebody fills up. -->
+                <details class="rounded-xl hair surface">
+                    <summary class="cursor-pointer text-sm font-semibold px-4 py-3 select-none">Running out of room?</summary>
+                    <div class="px-4 pb-4 space-y-2 text-xs muted">
+                        <p><b>Flight reports are almost always the biggest thing</b>, and they grow forever. Old ones you have already credited can be exported to CSV from the flight log and removed from the database — the hours stay on the roster, because credited hours live on the pilot, not on the report.</p>
+                        <p><b>Event artwork and pilot photos</b> count against a separate Storage allowance rather than the database. If files are what is full, they are in your Supabase project under Storage.</p>
+                        <p><b>Upgrading the plan is Supabase’s side, not ours.</b> Your project is yours — the plan, the bill and the limit are between you and Supabase, and nothing here changes when you move up.</p>
+                        <p class="faint">The ceiling shown above assumes Supabase’s free plan. We can’t see which plan your project is on, so if you have upgraded, treat the bar as a rough guide and trust your Supabase dashboard.</p>
+                    </div>
+                </details>
+              </div><!-- /storage -->
 
                 <p id="settingsNote" class="hidden text-sm mt-4"></p>
             </div>
@@ -1448,6 +1584,11 @@
             }
             document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
             document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
+            // Storage is read from the VA's project, so it is fetched when the
+            // tab is opened rather than on every dashboard load — nobody should
+            // pay a round trip to somebody else's database for a screen they
+            // are not looking at.
+            if(cat==='storage') refreshStorage();
         }
         // `cat` lands the panel on a specific tab — the onboarding nudge sends
         // an owner straight to Data store, since that is the whole point of it.
@@ -3631,9 +3772,20 @@
                 if(!res.ok) return null;
                 const d=await res.json();
                 SUPA={ ...SUPA, connected:!!d.connected, url:d.url||SUPA.url, hasServiceKey:!!d.hasServiceKey,
-                       store:d.kind, health:d.health||null, legacyRows:d.legacyRows||null, legacyTotal:d.legacyTotal||0 };
+                       store:d.kind, health:d.health||null, legacyRows:d.legacyRows||null, legacyTotal:d.legacyTotal||0,
+                       token:d.token||null };
                 updateMigrateUI();
+                renderTokenState();
                 const h=d.health||{};
+                // The backend may have just updated the project itself, using the
+                // token this VA chose to leave with us. Say so — an update that
+                // happens silently teaches nobody that it is happening, and this
+                // is the one screen where that fact belongs.
+                if(d.autoUpdated){
+                    const n=document.getElementById('tokenNote');
+                    if(n){ n.textContent=`Your database was behind and we brought it up to v${(d.health||{}).version||d.schemaVersion} just now, using the token you saved.`;
+                           n.className='text-sm mt-2 text-emerald-600 dark:text-emerald-400'; n.classList.remove('hidden'); }
+                }
                 if(d.connected && h.ok && h.provisioned && h.outdated){
                     showDbUpgrade(`Your project is on v${h.version}; this crew center is written against v${h.expectedVersion}. Anything added since v${h.version} — codeshare routes, rank-gated routes, saved pilot invitations — has nowhere to go until you update.`);
                 } else if(d.connected && h.ok && h.provisioned){
@@ -3708,12 +3860,148 @@
             return msg;
         }
 
+        /* ---------------------------------------------------------------------
+           The kept access token
+
+           A VA's Supabase access token, held by us because they said so, for one
+           purpose: adding what a new release needs to THEIR project without
+           sending them back to supabase.com for a fresh token every time.
+
+           Everything on this screen is written on the assumption the VA may want
+           to change their mind — which token, since when, whether it still
+           works, a switch for the automatic part, and a way to throw it away
+           that is honest about the fact that we can only forget it, not revoke
+           it.
+        --------------------------------------------------------------------- */
+        function tokenMsg(msg,kind){
+            const n=document.getElementById('tokenNote');
+            if(!n) return;
+            n.textContent=msg||'';
+            n.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',error:'text-red-500',warn:'text-amber-600 dark:text-amber-400'}[kind]||'muted');
+            n.classList.toggle('hidden', !msg);
+        }
+        const fmtDate=(v)=>{ try{ return v? new Date(v).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : ''; }catch{ return ''; } };
+
+        // Draws both this block and the paste field inside the update box, since
+        // whether there is a token decides what the update box should ask for.
+        let TOKEN_REPLACING=false;
+        function renderTokenState(){
+            const t=(SUPA.token)||{};
+            const block=document.getElementById('tokenBlock');
+            if(!block) return;
+            // Only meaningful once there is a project to act on, and only to an
+            // owner — the same rule as everything else on this tab.
+            block.classList.toggle('hidden', !SUPA.connected);
+
+            const saved=!!t.saved && !TOKEN_REPLACING;
+            document.getElementById('tokenSavedForm').classList.toggle('hidden', !saved);
+            const auto=document.getElementById('tokenAuto');
+            if(auto) auto.checked=!!t.autoUpdate;
+
+            const summary=document.getElementById('tokenSummary');
+            if(summary){
+                if(!t.canSave && !t.saved){
+                    summary.textContent='This crew center can’t store access tokens (its backend has no encryption key set), so each update will ask you for a fresh one.';
+                } else if(t.saved && t.failed){
+                    summary.innerHTML=`The token you saved (<b>${escapeHtml(t.hint||'')}</b>) has stopped working — Supabase says: ${escapeHtml(t.error||'it was rejected')}. Replace it and updates go back to being one click.`;
+                } else if(t.saved){
+                    const when=fmtDate(t.savedAt);
+                    const last=t.autoUpdatedAt ? ` We last updated your database on its own on ${escapeHtml(fmtDate(t.autoUpdatedAt))}.` : '';
+                    summary.innerHTML=`Saved${when?` on ${escapeHtml(when)}`:''} · <b>${escapeHtml(t.hint||'')}</b>. Updates to your database need nothing pasted.${last}`;
+                } else {
+                    summary.textContent='Your database gains tables and columns as the crew center gains features. Save an access token and those updates take one click — or none at all.';
+                }
+            }
+            // A backend that cannot seal must not offer to — a tick that
+            // silently does nothing is worse than no tick.
+            document.getElementById('tokenSaveForm').classList.toggle('hidden', saved || !t.canSave);
+            const wizRow=document.getElementById('wizRememberRow');
+            if(wizRow) wizRow.classList.toggle('hidden', !t.canSave);
+            const upRow=document.getElementById('dbUpgradeRememberRow');
+            if(upRow) upRow.classList.toggle('hidden', !t.canSave || !!t.saved);
+
+            // The update box: with a working token there is nothing to paste.
+            const usable=!!t.saved && !t.failed;
+            document.getElementById('dbUpgradePaste')?.classList.toggle('hidden', usable);
+            const savedLine=document.getElementById('dbUpgradeSaved');
+            if(savedLine){
+                savedLine.textContent = usable
+                    ? `We’ll use the access token you saved (${t.hint||''}). It runs the current setup script against the project you’re already connected to — it only ever adds, so your crew, flights and logins are untouched.`
+                    : '';
+                savedLine.classList.toggle('hidden', !usable);
+            }
+        }
+        function showTokenReplace(){ TOKEN_REPLACING=true; renderTokenState(); tokenMsg(''); document.getElementById('tokenInput')?.focus(); }
+
+        async function saveStoreToken(){
+            const accessToken=document.getElementById('tokenInput').value.trim();
+            const sess=sessionToken(), slug=getSlug();
+            if(!accessToken){ tokenMsg('Paste a Supabase access token first.','warn'); return; }
+            if(!slug||!sess){ tokenMsg('Sign in as the VA owner to save a token.','warn'); return; }
+            const btn=document.getElementById('tokenSaveBtn'), prev=btn.innerHTML;
+            btn.disabled=true; btn.style.opacity='0.6';
+            btn.innerHTML='<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> Checking it…';
+            if(window.lucide) lucide.createIcons();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/token`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sess},
+                    body:JSON.stringify({ accessToken, autoUpdate:true }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ tokenMsg(d.error||'That token couldn’t be saved.','error'); return; }
+                document.getElementById('tokenInput').value='';
+                TOKEN_REPLACING=false;
+                SUPA.token=d.token||SUPA.token;
+                renderTokenState();
+                tokenMsg('Saved. Updates to your database won’t ask you for a token again.','ok');
+            }catch{ tokenMsg('Couldn’t reach Inflight. Try again in a moment.','error'); }
+            finally{ btn.disabled=false; btn.style.opacity=''; btn.innerHTML=prev; if(window.lucide) lucide.createIcons(); }
+        }
+
+        async function setStoreAutoUpdate(on){
+            const sess=sessionToken(), slug=getSlug();
+            if(!slug||!sess) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/token`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sess},
+                    body:JSON.stringify({ autoUpdate:!!on }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ tokenMsg(d.error||'Couldn’t change that.','error'); renderTokenState(); return; }
+                SUPA.token=d.token||SUPA.token;
+                renderTokenState();
+                tokenMsg(on ? 'We’ll keep your database up to date on its own.'
+                            : 'Left as it is — you’ll get a button here when your database needs an update.','ok');
+            }catch{ tokenMsg('Couldn’t reach Inflight. Try again in a moment.','error'); }
+        }
+
+        async function forgetStoreToken(){
+            const sess=sessionToken(), slug=getSlug();
+            if(!slug||!sess) return;
+            // Worth a confirm: the cost is not immediate, it is the next update
+            // going quiet, which is exactly the failure this whole thing exists
+            // to prevent.
+            if(!confirm('Forget the saved token?\n\nFuture database updates will ask you to paste a new one. This does not revoke the token — do that in your Supabase account.')) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/token`,{
+                    method:'DELETE', headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ tokenMsg(d.error||'Couldn’t forget it.','error'); return; }
+                TOKEN_REPLACING=false;
+                SUPA.token=d.token||{saved:false,canSave:true};
+                renderTokenState();
+                tokenMsg('Forgotten. It still exists in your Supabase account — revoke it at supabase.com/dashboard/account/tokens if you want it gone for good.','ok');
+            }catch{ tokenMsg('Couldn’t reach Inflight. Try again in a moment.','error'); }
+        }
+
         async function upgradeDatabase(){
             const note=document.getElementById('dbUpgradeNote');
             const say=(msg,tone)=>{ note.textContent=msg; note.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',warn:'text-amber-600 dark:text-amber-400',bad:'text-red-500'}[tone]||'muted'); note.classList.remove('hidden'); };
             const accessToken=document.getElementById('dbUpgradeToken').value.trim();
+            // With a working token kept, the button carries no token at all and
+            // the backend uses the saved one. That is the whole point of it.
+            const haveSaved=!!(SUPA.token && SUPA.token.saved && !SUPA.token.failed);
+            const remember=!!document.getElementById('dbUpgradeRemember')?.checked;
             const sess=sessionToken(), slug=getSlug();
-            if(!accessToken){ say('Paste a Supabase access token first.','warn'); return; }
+            if(!accessToken && !haveSaved){ say('Paste a Supabase access token first.','warn'); return; }
             if(!slug||!sess){ say('Sign in as the VA owner to update the database.','warn'); return; }
             const btn=document.getElementById('dbUpgradeBtn'), prev=btn.innerHTML;
             btn.disabled=true; btn.style.opacity='0.6';
@@ -3722,12 +4010,20 @@
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/upgrade`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sess},
-                    body:JSON.stringify({ accessToken }) });
+                    body:JSON.stringify(accessToken ? { accessToken, remember } : {}) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ say(d.error||'The update could not be run.','bad'); return; }
+                if(!res.ok){
+                    say(d.error||'The update could not be run.','bad');
+                    // A saved token Supabase has just refused: the backend has
+                    // marked it, so re-read the state and the paste field comes
+                    // back rather than the button looking simply broken.
+                    if(d.code==='bad_token'||d.code==='project_not_found') refreshStoreState();
+                    return;
+                }
                 const h=d.health||{};
                 // The token has done its job — don't leave it sitting in a field.
                 document.getElementById('dbUpgradeToken').value='';
+                if(d.token){ SUPA.token=d.token; renderTokenState(); }
                 if(h.ok && h.provisioned && !h.outdated){
                     DB_DRIFT='';
                     document.getElementById('routeDrift')?.classList.add('hidden');
@@ -3783,10 +4079,16 @@
         // read the keys back, store the connection, verify it end to end.
         //
         // THE TOKEN NEVER LEAVES THIS PAGE except in the two requests that need
-        // it, and the backend does not store it. It is held in a module-scoped
-        // variable rather than anywhere persistent, and wizardReset() clears it,
-        // so navigating away is enough to be rid of it.
-        let WIZ = { token:'', projects:[], orgs:[], regions:[], choice:'', polls:0 };
+        // it. It is held in a module-scoped variable rather than anywhere
+        // persistent, and wizardReset() clears it, so navigating away is enough
+        // to be rid of it here.
+        //
+        // What the BACKEND does with it is now the VA's choice: by default the
+        // same as before (used for the request, then dropped), or — if they tick
+        // "keep this token" — sealed and kept for one purpose, running the
+        // schema against this project when a release needs a new column. The
+        // tick rides along on `remember`; nothing else about the flow changes.
+        let WIZ = { token:'', projects:[], orgs:[], regions:[], choice:'', polls:0, remember:false };
 
         function wizNote(msg,kind){
             const n=document.getElementById('wizNote');
@@ -3800,8 +4102,9 @@
             document.getElementById('wizProgress').classList.toggle('hidden', step!==3);
         }
         function wizardReset(){
-            WIZ={ token:'', projects:[], orgs:[], regions:[], choice:'', polls:0 };
+            WIZ={ token:'', projects:[], orgs:[], regions:[], choice:'', polls:0, remember:false };
             document.getElementById('wizToken').value='';
+            const rem=document.getElementById('wizRemember'); if(rem) rem.checked=false;
             document.getElementById('wizProjects').innerHTML='';
             document.getElementById('wizSteps').innerHTML='';
             document.getElementById('wizDoneBtn').classList.add('hidden');
@@ -3847,6 +4150,10 @@
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ wizNote(d.error||'Supabase wouldn’t answer for that token.','error'); return; }
                 WIZ.token=token; WIZ.projects=d.projects||[]; WIZ.orgs=d.organizations||[]; WIZ.regions=d.regions||[];
+                // Read once, here, and carried through the polling loop: the
+                // tick is on step 1 and the request that acts on it is several
+                // screens later.
+                WIZ.remember=!!document.getElementById('wizRemember')?.checked;
                 renderWizardProjects();
                 wizNote('');
                 wizShow(2);
@@ -3901,7 +4208,7 @@
             wizStep('keys','Reading your project keys','wait');
             wizStep('verify','Checking we can write to it','wait');
 
-            const body={ accessToken:WIZ.token };
+            const body={ accessToken:WIZ.token, remember:!!WIZ.remember };
             if(WIZ.choice==='__new__'){
                 body.create={ name:document.getElementById('wizNewName').value.trim(),
                               organizationId:document.getElementById('wizOrg').value,
@@ -3935,7 +4242,13 @@
                 const h=d.health||{};
                 if(h.ok && h.provisioned){
                     wizStep('verify','Verified — Inflight can read and write your project','ok');
-                    wizNote('You’re connected. Your crew, flights and pilot logins now live in your own database.','ok');
+                    // Whether the tick took effect is part of "you're connected":
+                    // a VA who ticked it and was quietly refused would go on
+                    // believing future updates are handled.
+                    const kept = d.tokenSaved ? ' We’ve kept your access token, so future updates to your database take one click.'
+                        : (WIZ.remember && d.tokenSaveError) ? ' We couldn’t keep your access token, so updates will ask for a fresh one — tell whoever runs this Inflight backend.'
+                        : ' Delete the access token in Supabase — it has done its job.';
+                    wizNote('You’re connected. Your crew, flights and pilot logins now live in your own database.'+kept,'ok');
                 } else {
                     wizStep('verify','Connected, but the check came back unhappy','bad');
                     wizNote('The tables installed and the connection saved, but our write check didn’t pass. Try “Check setup” under “I’ll do it myself”.','warn');
@@ -3950,6 +4263,141 @@
                 // Nothing needs the token from here on.
                 WIZ.token=''; document.getElementById('wizToken').value='';
             }catch{ fail('Couldn’t reach Inflight. Try again in a moment.'); }
+        }
+
+        /* ---------------------------------------------------------------------
+           Storage
+
+           Supabase's free plan stops at half a gigabyte of database and a
+           project that reaches it goes READ-ONLY — applications stop saving,
+           flights stop filing, and nothing in the crew center explains why. The
+           figure lives on Supabase's dashboard, which VA staff have no account
+           for. So the project reports its own size and this draws it.
+
+           Read from the project on every open rather than cached: a number
+           whose entire job is to warn must not be a stale one.
+        --------------------------------------------------------------------- */
+        let STORAGE_LOADED=false;
+        // Binary units, because that is what Supabase quotes and a VA comparing
+        // the two screens must not find two different numbers.
+        function fmtBytes(n){
+            const v=Number(n)||0;
+            if(v<1024) return `${v} B`;
+            const units=['KB','MB','GB','TB'];
+            let i=-1, x=v;
+            do { x/=1024; i++; } while(x>=1024 && i<units.length-1);
+            return `${x<10?x.toFixed(1):Math.round(x)} ${units[i]}`;
+        }
+        // The crew tables in the VA's language. A screen that says "crew_pireps"
+        // is asking staff to learn our schema to find out what is full.
+        const STORAGE_LABELS={
+            crew_pireps:'Flight reports', crew_members:'Roster', crew_routes:'Route network',
+            crew_applications:'Applications', crew_accounts:'Pilot logins', crew_events:'Events',
+            crew_event_signups:'Event signups', crew_announcements:'Noticeboard',
+            crew_schedules:'Schedule', crew_bookings:'Bookings', crew_schema_info:'Version marker',
+        };
+        function storageShow(which){
+            for(const id of ['storageLoading','storageMain','storageBreakdown','storageEmpty']){
+                document.getElementById(id)?.classList.toggle('hidden', !which.includes(id));
+            }
+        }
+        function storageBlank(msg,offerUpgrade){
+            storageShow(['storageEmpty']);
+            document.getElementById('storageEmptyMsg').textContent=msg;
+            document.getElementById('storageEmptyBtn').classList.toggle('hidden', !offerUpgrade);
+        }
+
+        async function refreshStorage(force){
+            const host=document.getElementById('storageBody'); if(!host) return;
+            if(STORAGE_LOADED && !force) return;
+            const sess=sessionToken(), slug=getSlug();
+            if(!slug||!sess){ storageBlank('Sign in to see how much room your database is using.',false); return; }
+            storageShow(['storageLoading']);
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/usage`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    // The two failures worth telling apart: a project too old to
+                    // answer (fixable from the next tab, one button) and one not
+                    // connected at all (a different job entirely).
+                    //
+                    // The button is offered only to someone who can actually
+                    // press it — the Data tab is the owner's. Staff get told who
+                    // to ask rather than a button that opens a tab they cannot
+                    // see.
+                    const behind = d.code==='store_storage_unsupported';
+                    const mayFix = IS_OWNER || !sessionToken();
+                    storageBlank(
+                        (d.error||'Couldn’t read your database size.') + (behind && !mayFix ? ' Ask your VA owner to run the update in Settings → Data.' : ''),
+                        behind && mayFix);
+                    return;
+                }
+                STORAGE_LOADED=true;
+                renderStorage(d);
+            }catch{ storageBlank('Couldn’t reach Inflight to read your database size.',false); }
+        }
+
+        function renderStorage(d){
+            storageShow(['storageMain','storageBreakdown']);
+            const used=Number(d.databaseBytes||0), limit=Number(d.limitBytes||0);
+            const pct=Number(d.percentUsed||0);
+            document.getElementById('storageUsed').textContent=fmtBytes(used);
+            document.getElementById('storageOf').textContent=limit?`of ${d.limitLabel||fmtBytes(limit)} database`:'database';
+            document.getElementById('storagePct').textContent=limit?`${pct}%`:'';
+            const bar=document.getElementById('storageBar');
+            bar.style.width=Math.max(1.5,Math.min(100,pct))+'%';
+            // Three bands, and the colour is the warning: a VA who is fine
+            // should not be looking at an amber bar, and one at 92% should not
+            // have to read a sentence to find that out.
+            bar.style.background = pct>=90 ? '#ef4444' : pct>=70 ? '#f59e0b' : 'var(--accent)';
+            const verdict=document.getElementById('storageVerdict');
+            if(verdict){
+                verdict.textContent = pct>=90
+                    ? 'Nearly full. A Supabase project that fills up goes read-only — applications and flight reports stop saving. Clear some room or move up a plan.'
+                    : pct>=70 ? 'Getting full. Worth a look at what’s growing below.'
+                    : 'Plenty of room.';
+                verdict.className='text-xs mt-2 '+(pct>=90?'text-red-500':pct>=70?'text-amber-600 dark:text-amber-400':'muted');
+            }
+
+            const rows=(d.tables||[]).slice().sort((a,b)=>Number(b.bytes||0)-Number(a.bytes||0));
+            const biggest=rows.length?Number(rows[0].bytes||0):0;
+            document.getElementById('storageTables').innerHTML = rows.map(t=>{
+                const label=STORAGE_LABELS[t.table]||t.table;
+                const share=biggest?Math.max(2,Math.round((Number(t.bytes||0)/biggest)*100)):0;
+                // Both counts, where the project backs more than one brand: the
+                // rows in the table and the rows that are this crew center's.
+                const mine=(t.vaRows!=null && Number(t.vaRows)!==Number(t.rows))
+                    ? `${Number(t.vaRows).toLocaleString()} of ${Number(t.rows||0).toLocaleString()} rows`
+                    : `${Number(t.rows||0).toLocaleString()} rows`;
+                return `<div class="flex items-center gap-2.5">
+                    <span class="w-28 shrink-0 text-xs font-semibold truncate">${escapeHtml(label)}</span>
+                    <span class="flex-1 h-1.5 rounded-full overflow-hidden surface hair"><span class="block h-full rounded-full" style="width:${share}%;background:var(--accent);opacity:.7"></span></span>
+                    <span class="w-16 shrink-0 text-right text-xs font-semibold">${escapeHtml(fmtBytes(t.bytes))}</span>
+                    <span class="w-28 shrink-0 text-right text-[11px] faint truncate">${escapeHtml(mine)}</span>
+                </div>`;
+            }).join('') || '<p class="text-xs faint">No crew tables found in this project.</p>';
+
+            // What ELSE is in there. Named, because "something is using 300 MB"
+            // is only actionable if you can see what it is — and on a project a
+            // VA also uses for their own site, that is most of the answer.
+            const other=document.getElementById('storageOther');
+            const otherBytes=Number(d.otherBytes||0);
+            const files=Number(d.storageFiles||0);
+            const bits=[];
+            if(otherBytes>0){
+                const names=(d.otherTables||[]).slice(0,3).map(x=>x.table).filter(Boolean);
+                bits.push(`${fmtBytes(otherBytes)} in other tables in this project${names.length?` (${names.map(escapeHtml).join(', ')}…)`:''}`);
+            }
+            if(files>0) bits.push(`${files.toLocaleString()} file${files===1?'':'s'} using ${fmtBytes(d.storageBytes)} in Supabase Storage — a separate allowance from the database above`);
+            other.innerHTML=bits.join(' · ');
+            other.classList.toggle('hidden', !bits.length);
+
+            const link=document.getElementById('storageSupabaseLink');
+            if(link) link.href = d.projectRef ? `https://supabase.com/dashboard/project/${encodeURIComponent(d.projectRef)}/settings/usage` : 'https://supabase.com/dashboard';
+            const asOf=document.getElementById('storageAsOf');
+            if(asOf) asOf.textContent = d.generatedAt ? `Measured by your project at ${new Date(d.generatedAt).toLocaleTimeString()}.` : '';
+            if(window.lucide) lucide.createIcons();
         }
 
         // ---- Onboarding / Supabase (owner) ----
@@ -4119,7 +4567,12 @@
                 // rebrand the crew center still has to reach their own settings.
                 crew:can('settings.branding')||can('schedules.manage'),
                 recruit:can('settings.recruitment')||can('settings.notifications'),
-                team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()) };
+                team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()),
+                // Storage is deliberately wider than Data: connecting a database
+                // is the owner's business, but noticing it is nearly full is
+                // whoever runs the airline day to day. It shows sizes and row
+                // counts — nothing that is in a row.
+                storage:(IS_OWNER||can('settings.notifications')||!sessionToken()) };
             document.querySelectorAll('.settings-tab').forEach(t=>{
                 const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
             });
