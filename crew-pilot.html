@@ -15,6 +15,10 @@
     <!-- Events + the gate board: the calendar, who's attending, and the map a
          pilot picks their stand off. Brings its own panel and styles. -->
     <script src="/crewEvents.js"></script>
+    <!-- Shared panel chrome, then the schedule: the same module the owner
+         dashboard uses, showing this pilot the legs they can take. -->
+    <script src="/crewPanels.js"></script>
+    <script src="/crewSchedule.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -327,7 +331,7 @@
         // ---- Pilot quick actions ----
         const ACTIONS=[
             {icon:'clipboard-pen',label:'File a PIREP',desc:'Log a flight'},
-            {icon:'route',label:'Book a flight',desc:'Pick a route'},
+            {icon:'route',label:'Book a flight',desc:'Take a leg off the schedule',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Join group flights',action:'events'},
             {icon:'notebook-tabs',label:'My logbook',desc:'Your flight history'},
         ];
@@ -341,7 +345,9 @@
                     </div>
                 </a>`).join('');
             document.querySelectorAll('#quickGrid [data-i]').forEach(el=>{
-                if(ACTIONS[+el.getAttribute('data-i')].action==='events') el.addEventListener('click', openEvents);
+                const act=ACTIONS[+el.getAttribute('data-i')].action;
+                if(act==='events') el.addEventListener('click', openEvents);
+                if(act==='schedule') el.addEventListener('click', openSchedule);
             });
         }
         // ---- Recent flights ----
@@ -380,6 +386,18 @@
                     if(host) CrewEvents.renderCards(host, { limit: 3 });
                 });
         }
+        // ---- The schedule ----
+        //
+        // The same module the owner dashboard mounts. What a pilot may do with
+        // it — book a leg, give it back — is decided by the backend and comes
+        // back as `canManage`, so this page does not have to ask who is looking
+        // and cannot be talked into showing a staff control.
+        function openSchedule(){ if(window.CrewSchedule) CrewSchedule.open(); }
+        function mountSchedule(){
+            if(!window.CrewSchedule) return;
+            CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: ()=> (storedSession()||{}).token || '' });
+        }
+
         // ---- Announcements ----
         //
         // The VA's real noticeboard. Two kinds of row arrive on it and they are
@@ -551,6 +569,7 @@
             document.getElementById('pwForm').addEventListener('submit', submitNewPassword);
             checkPasswordGate();
             mountEvents();
+            mountSchedule();
             loadNotices();
             const b = await resolveBranding();
             applyBranding(b);

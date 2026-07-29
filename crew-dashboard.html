@@ -15,6 +15,19 @@
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
          only has to say where the backend is and hand it the session. -->
     <script src="/crewEvents.js"></script>
+    <!-- The shared panel chrome the four modules below are built from: the
+         slide-over shell, the toast, the API helper and the date formatting.
+         Must load before them. -->
+    <script src="/crewPanels.js"></script>
+    <!-- The noticeboard — and, from the same feed, the dashboard's recent
+         activity list. -->
+    <script src="/crewNotices.js"></script>
+    <!-- The schedule: staff build the week, pilots book a leg off it. -->
+    <script src="/crewSchedule.js"></script>
+    <!-- The widgets a VA can put on their own website, pre-filled with theirs. -->
+    <script src="/crewEmbeds.js"></script>
+    <!-- Their standing with us, read-only, linking into the partnership portal. -->
+    <script src="/crewPartnership.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         :root{
@@ -202,7 +215,10 @@
                     </div>
                     <div class="flex sm:flex-col gap-2 shrink-0">
                         <button onclick="openRoster()" class="accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2 justify-center"><i data-lucide="users" class="w-4 h-4"></i> Roster</button>
-                        <button class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
+                        <!-- Wired now. This shipped as a button that did
+                             nothing at all — the one control on the hero that
+                             did not respond to being pressed. -->
+                        <button onclick="openSchedule()" class="surface hair text-sm font-semibold px-4 py-2.5 rounded-md hover:border-[var(--ink)] transition">Schedule</button>
                     </div>
                 </div>
             </section>
@@ -244,7 +260,9 @@
 
             <!-- ACTIVITY -->
             <section class="r-activity surface rounded-xl p-6">
-                <div class="flex items-center justify-between mb-3"><h2 class="text-lg font-bold tracking-tight">Recent activity</h2><a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">View all</a></div>
+                <div class="flex items-center justify-between mb-3"><h2 class="text-lg font-bold tracking-tight">Recent activity</h2><a onclick="openNotices()" class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">View all</a></div>
+                <!-- Painted by crewNotices.js from the VA's own noticeboard, and
+                     deliberately left empty until that fetch lands. -->
                 <ul id="activity"></ul>
             </section>
 
@@ -996,7 +1014,7 @@
 
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-        let CREW_CODE='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
+        let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
         // Canonical Infinite Flight aircraft + liveries (from the ACARS API, via
         // the crew backend). The fleet editor offers these so a VA's fleet uses the
@@ -1070,12 +1088,12 @@
         const TOOLS=[
             {icon:'users',label:'Roster',desc:'Pilots & ranks',action:'roster'},
             {icon:'route',label:'Routes',desc:'Network & fleet',action:'routes'},
-            {icon:'calendar-clock',label:'Schedules',desc:'Rosters & bookings'},
+            {icon:'calendar-clock',label:'Schedules',desc:'Departures & bookings',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
-            {icon:'megaphone',label:'Announcements',desc:'Notices to crew'},
-            {icon:'code-xml',label:'Embeds',desc:'Site widgets'},
-            {icon:'handshake',label:'Partnership',desc:'Inflight partnership'},
+            {icon:'megaphone',label:'Announcements',desc:'Notices to crew',action:'notices'},
+            {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
+            {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         function renderTiles(){
@@ -1091,6 +1109,10 @@
                 if(t.action==='routes') el.addEventListener('click', openRoutes);
                 if(t.action==='pireps') el.addEventListener('click', openPireps);
                 if(t.action==='events') el.addEventListener('click', openEvents);
+                if(t.action==='schedule') el.addEventListener('click', openSchedule);
+                if(t.action==='notices') el.addEventListener('click', openNotices);
+                if(t.action==='embeds') el.addEventListener('click', openEmbeds);
+                if(t.action==='partnership') el.addEventListener('click', openPartnership);
             });
         }
 
@@ -1105,23 +1127,44 @@
             CrewEvents.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken })
                 .then(()=>{ const host=document.getElementById('nextEvent'); if(host) CrewEvents.renderSummary(host); });
         }
-        // Still placeholder, and still to be replaced by the VA's own feed.
+        // ---- Recent activity ----
         //
-        // The invented EVENT row that used to sit here has gone, though: events
-        // are real now, so "New event Transcon Group Flight" sat directly above
-        // a panel showing the VA's actual calendar and contradicted it. The
-        // remaining rows belong to features that have not been made real yet.
-        const ACTIVITY=[
-            {icon:'user-plus',text:'<b>Jordan Lee</b> joined as First Officer',when:'2h ago'},
-            {icon:'plane-landing',text:'<b>ACA412</b> landed at EGLL · 8h 12m',when:'5h ago'},
-            {icon:'badge-check',text:'<b>Sam Park</b> promoted to Captain',when:'Yesterday'},
-        ];
-        function renderActivity(){
-            document.getElementById('activity').innerHTML=ACTIVITY.map((a,i)=>`
-                <li class="flex items-center gap-3 py-3 ${i?'border-t hair-soft':''}">
-                    <span class="muted shrink-0"><i data-lucide="${a.icon}" class="w-[18px] h-[18px]"></i></span>
-                    <span class="text-sm flex-1">${a.text}</span><span class="text-xs faint shrink-0">${a.when}</span>
-                </li>`).join('');
+        // The VA's own noticeboard, read short. This was three invented rows —
+        // "Jordan Lee joined as First Officer", "ACA412 landed at EGLL", "Sam
+        // Park promoted to Captain" — shown to every VA as their own week, over
+        // a roster containing none of those people.
+        //
+        // The real versions were already being recorded: crewNotices.js reads
+        // GET /api/crew/<slug>/announcements, where the backend writes a row
+        // every time a pilot joins, a promotion lands, a check-ride comes due,
+        // an event is published or a schedule goes up. The module paints
+        // nothing at all until that fetch answers — an empty week is a fact we
+        // do not have yet, and a plausible one is read as true.
+        function mountNotices(){
+            if(!window.CrewNotices) return;
+            CrewNotices.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken });
+            const host=document.getElementById('activity');
+            if(host) CrewNotices.renderActivity(host, { limit: 6 });
+        }
+        function openNotices(){ if(window.CrewNotices) CrewNotices.open(); }
+
+        // ---- The schedule ----
+        // Staff build the week off the route network, pilots book a leg. Both
+        // the hero's Schedule button and the Schedules tile land here.
+        function mountSchedule(){
+            if(!window.CrewSchedule) return;
+            CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken });
+        }
+        function openSchedule(){ if(window.CrewSchedule) CrewSchedule.open(); }
+
+        // ---- Embeds & partnership ----
+        // Both are self-contained panels; neither needs anything from this page
+        // beyond where the backend is and who is asking.
+        function openEmbeds(){
+            if(window.CrewEmbeds) CrewEmbeds.open({ backend: BACKEND, slug: getSlug(), token: sessionToken, code: CREW_CODE, name: CREW_NAME });
+        }
+        function openPartnership(){
+            if(window.CrewPartnership) CrewPartnership.open({ backend: BACKEND, slug: getSlug(), token: sessionToken });
         }
 
         // ---- Live map (in content; theme-synced; no Mapbox token/billing) ----
@@ -2830,12 +2873,23 @@
             }
             if(window.lucide) lucide.createIcons();
         }
-        function openPirepForm(){
+        // `prefill` comes from the schedule panel: a pilot filing the leg they
+        // booked should not retype what the departure already says. It carries
+        // scheduleId too, which is what lets the backend mark that booking
+        // flown — see PIREP_SCHEDULE_ID below.
+        let PIREP_SCHEDULE_ID='';
+        function openPirepForm(prefill){
             const pilotSel=document.getElementById('pf_pilot');
             pilotSel.innerHTML='<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${m.id}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('');
             const acSel=document.getElementById('pf_aircraft');
             acSel.innerHTML='<option value="">Aircraft (optional)</option>'+FLEET.map(a=>{ const v=a.type||a.name; return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`; }).join('');
             ['pf_from','pf_to','pf_flight','pf_land','pf_h','pf_m'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+            const p=prefill||{};
+            PIREP_SCHEDULE_ID=p.scheduleId||'';
+            if(p.origin) document.getElementById('pf_from').value=p.origin;
+            if(p.destination) document.getElementById('pf_to').value=p.destination;
+            if(p.flightNumber) document.getElementById('pf_flight').value=p.flightNumber;
+            if(p.aircraft) acSel.value=p.aircraft;
             document.getElementById('pf_routecheck').innerHTML='';
             const note=document.getElementById('pirepFormNote'); if(note) note.classList.add('hidden');
             document.getElementById('addPirepForm').classList.remove('hidden');
@@ -2849,6 +2903,10 @@
             if(!slug||!token){ note.textContent='Sign in to file a flight.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             const body={
                 memberId: document.getElementById('pf_pilot').value || undefined,
+                // Set when the form was opened off a scheduled departure. The
+                // backend uses it to fill in what wasn't typed and to mark the
+                // booking flown; a hand-filed flight simply doesn't carry one.
+                scheduleId: PIREP_SCHEDULE_ID || undefined,
                 origin: document.getElementById('pf_from').value.trim().toUpperCase(),
                 destination: document.getElementById('pf_to').value.trim().toUpperCase(),
                 aircraftName: document.getElementById('pf_aircraft').value,
@@ -2865,6 +2923,10 @@
                 const verdict = d.routeMatched ? (d.flightNumberMismatch ? 'Filed — route matched, but the flight number differs from the network.' : 'Filed — route confirmed on your network.') : 'Filed off-network — no matching route. Pending review.';
                 note.textContent=verdict; note.className=`text-sm ${d.routeMatched && !d.flightNumberMismatch ?'text-emerald-600 dark:text-emerald-400':'text-amber-600 dark:text-amber-400'}`; note.classList.remove('hidden');
                 closePirepForm();
+                PIREP_SCHEDULE_ID='';
+                // The booking is now flown, so the schedule row that said
+                // "yours" should say so too.
+                if(window.CrewSchedule) CrewSchedule.reload();
                 PIREP_TAB='pending'; await fetchPireps(); renderPireps();
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
         }
@@ -3984,6 +4046,7 @@
             PIREP_AUTO = !!b.pirepAutoApprove;
             if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
+            CREW_NAME=name;
             const mono=initials(name,b.code);
             if(name){
                 document.getElementById('navName').textContent=name;
@@ -4042,7 +4105,7 @@
         // ---- Boot ----
         document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeSettings(); closeRoster(); closeRoutes(); } });
         (async function(){
-            renderTiles(); renderActivity(); readSession();
+            renderTiles(); readSession();
             const b = await resolveBranding();
             applyBranding(b);
             applyLayout(resolveLayout(b));
@@ -4054,6 +4117,8 @@
             applyOwnerState();
             renderCrewStats();              // the airline's real figures (public; no await, it can land late)
             mountEvents();                  // the calendar + gate board (also late; the card fills itself in)
+            mountNotices();                 // the noticeboard, and with it the real recent-activity feed
+            mountSchedule();                // the week's departures (the panel fills itself in)
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();

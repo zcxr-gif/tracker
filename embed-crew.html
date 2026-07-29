@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crew Center — Inflight embed</title>
+<!--
+  Inflight — Crew Center widget.
+
+  A self-contained, dependency-free embed a VA drops on their own website to
+  show what their crew center already holds: the noticeboard, the published
+  events, or the week's schedule. One file, three views, because they are the
+  same shape — a heading, a list of rows, a footer — and three near-identical
+  pages would drift apart by the second change.
+
+    /embed-crew.html?va=<slug>&view=notices
+    /embed-crew.html?va=<slug>&view=events
+    /embed-crew.html?va=<slug>&view=schedule
+
+  WHY IT NEEDS NO TOKEN
+
+  Unlike embed.html, this reads nothing that costs anybody money and nothing
+  that is not already public. The three endpoints it calls are the same ones a
+  visitor to the crew center reads:
+
+    GET /api/crew/<slug>/announcements    the noticeboard
+    GET /api/crew/<slug>/events           published + cancelled events
+    GET /api/crew/<slug>/schedules        published + cancelled departures
+
+  Drafts never appear in any of them for an unauthenticated caller — that is
+  enforced by row-level security in the VA's own database, not by this page —
+  and no session is sent, so this widget cannot see more than the public can.
+  A VA's slug is already in the URL of their crew center; there is nothing to
+  protect by making them carry a token to show their own noticeboard.
+
+  WHAT IT WILL NOT DO
+
+  Invent a figure, or fill a gap with a plausible row. A view whose fetch fails
+  says so. A VA with nothing published shows an empty state that says nothing is
+  published — not a sample event, not a placeholder notice. This widget sits on
+  a real airline's homepage; a fabricated row there is read by their pilots as
+  a fact about their airline.
+
+  Every colour is themeable from the URL so it can be made to match the site it
+  is pasted into, and it renders light or dark on request. It never loads a
+  font, a framework or an image from anywhere — the only network call it makes
+  is the one to the API above.
+-->
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  :root {
+    --accent: #2563eb;
+    --radius: 14px;
+    --bg: #0b0f19;
+    --surface: #131a2a;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --faint: #64748b;
+    --border: rgba(255,255,255,.10);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  body[data-theme="light"] {
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --faint: #94a3b8;
+    --border: rgba(15,23,42,.10);
+  }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.45;
+    font-size: 14px;
+  }
+  .wrap { max-width: var(--maxw, 720px); margin: 0 auto; padding: 12px; }
+
+  .head {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--accent); color: #fff;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 12px 14px;
+  }
+  .head h1 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
+  .head .count { margin-left: auto; font-size: 12px; font-weight: 600; opacity: .85; }
+  .head img { height: 22px; width: auto; border-radius: 4px; }
+  body[data-header="off"] .head { display: none; }
+  body[data-header="off"] .panel { border-radius: var(--radius); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 var(--radius) var(--radius);
+    overflow: hidden;
+  }
+  body[data-header="off"] .panel { border-top: 1px solid var(--border); }
+
+  .row { display: flex; gap: 12px; padding: 12px 14px; align-items: flex-start; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { font-weight: 700; font-size: 14px; margin: 0 0 2px; }
+  .row-sub { color: var(--muted); font-size: 12.5px; margin: 0; white-space: pre-wrap; }
+  .row-when { color: var(--faint); font-size: 11.5px; white-space: nowrap; flex-shrink: 0; }
+
+  .ports { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 15px; }
+  .arrow { color: var(--faint); font-weight: 400; }
+  .fno {
+    font-size: 11px; font-weight: 800; letter-spacing: .05em;
+    padding: 1px 5px; border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+  }
+  body[data-theme="dark"] .fno { color: #fff; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px; }
+  .meta span { color: var(--muted); font-size: 12px; }
+  .tag {
+    display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .04em;
+    text-transform: uppercase; padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--border); color: var(--muted); margin-right: 4px;
+  }
+  .tag-ok   { background: #16a34a; color: #fff; border-color: transparent; }
+  .tag-warn { background: #d97706; color: #fff; border-color: transparent; }
+  .tag-bad  { background: #dc2626; color: #fff; border-color: transparent; }
+  .tag-pin  { background: var(--accent); color: #fff; border-color: transparent; }
+
+  .day {
+    padding: 8px 14px; font-size: 11px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--faint);
+    background: color-mix(in srgb, var(--text) 4%, transparent);
+    border-top: 1px solid var(--border);
+  }
+  .panel > .day:first-child { border-top: 0; }
+
+  .state { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .powered {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 0 2px; color: var(--faint); font-size: 11px;
+    text-decoration: none;
+  }
+  .powered:hover { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"><div class="state">Loading…</div></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var qs = new URLSearchParams(location.search);
+
+  // The backend that answers for crew centers. Overridable only so this page
+  // can be pointed at a staging API during development — never at a value that
+  // came from a VA's own site, because whatever it names gets to decide what
+  // this widget displays under their brand.
+  var BACKEND = qs.get("backend") || "https://site--indgo-backend--6dmjph8ltlhv.code.run";
+
+  var SLUG = (qs.get("va") || qs.get("slug") || "").trim().toLowerCase();
+  var VIEW = (qs.get("view") || "notices").trim().toLowerCase();
+  var LIMIT = Math.max(1, Math.min(50, parseInt(qs.get("limit"), 10) || 8));
+
+  var VIEWS = {
+    notices:  { path: "/announcements", key: "announcements", title: "Noticeboard" },
+    events:   { path: "/events",        key: "events",        title: "Events" },
+    schedule: { path: "/schedules",     key: "schedules",     title: "Schedule" }
+  };
+  if (!VIEWS[VIEW]) VIEW = "notices";
+
+  var wrap = document.getElementById("wrap");
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // An https image, or nothing. A logo is the one field here that renders as
+  // something other than text.
+  function safeImg(u) {
+    try { return new URL(u, location.href).protocol === "https:" ? u : ""; } catch (e) { return ""; }
+  }
+
+  function clampHex(c) {
+    return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(c || "").trim()) ? String(c).trim() : "";
+  }
+
+  // Dates are always rendered in the VIEWER's timezone. A VA's website is read
+  // from everywhere, and a departure time in someone else's zone is the single
+  // most misread thing an airline publishes.
+  function dateTime(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString(undefined, {
+      weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
+    });
+  }
+  function clock(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+  function dayName(iso) {
+    if (!iso) return "No date yet";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "No date yet";
+    return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  }
+  function dayKey(iso) {
+    if (!iso) return "none";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "none";
+    return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+  }
+  function ago(iso) {
+    if (!iso) return "";
+    var diff = Date.now() - new Date(iso).getTime();
+    if (isNaN(diff)) return "";
+    var mins = Math.round(Math.abs(diff) / 60000);
+    var ahead = diff < 0;
+    if (mins < 60) return ahead ? "in " + mins + " min" : mins + " min ago";
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return ahead ? "in " + hrs + "h" : hrs + "h ago";
+    var days = Math.round(hrs / 24);
+    if (days < 30) return ahead ? "in " + days + "d" : days + "d ago";
+    return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+
+  // ==== Renderers, one per view ====
+
+  function renderNotices(rows) {
+    return rows.slice(0, LIMIT).map(function (n) {
+      return '<div class="row"><div class="row-main">' +
+        (n.pinned ? '<span class="tag tag-pin">Pinned</span>' : "") +
+        '<p class="row-title">' + esc(n.title) + "</p>" +
+        (n.body ? '<p class="row-sub">' + esc(n.body) + "</p>" : "") +
+        "</div>" +
+        '<span class="row-when">' + esc(ago(n.createdAt)) + "</span></div>";
+    }).join("");
+  }
+
+  function renderEvents(rows) {
+    // Cancelled events stay on the board — a pilot who signed up for something
+    // that has been called off is owed the notice, which is why the API returns
+    // them at all.
+    return rows.slice(0, LIMIT).map(function (e) {
+      var leg = [e.origin, e.destination].filter(Boolean).join(" → ");
+      var tags = [];
+      if (e.status === "cancelled") tags.push('<span class="tag tag-bad">Cancelled</span>');
+      if (e.going != null) tags.push('<span class="tag">' + e.going + " going</span>");
+      if (e.minRank) tags.push('<span class="tag">' + esc(e.minRank) + "+</span>");
+      return '<div class="row"><div class="row-main">' +
+        (tags.length ? "<div>" + tags.join("") + "</div>" : "") +
+        '<p class="row-title">' + esc(e.title || leg || "Event") + "</p>" +
+        '<div class="meta">' +
+          (e.startsAt ? "<span>🕑 " + esc(dateTime(e.startsAt)) + "</span>" : "") +
+          (leg ? "<span>" + esc(leg) + "</span>" : "") +
+          (e.aircraft ? "<span>" + esc(e.aircraft) + "</span>" : "") +
+        "</div>" +
+        (e.description ? '<p class="row-sub">' + esc(e.description) + "</p>" : "") +
+        "</div></div>";
+    }).join("");
+  }
+
+  function renderSchedule(rows) {
+    // Grouped into days, because that is how a schedule is read. Undated
+    // departures fall into their own group rather than being dropped — staff
+    // sketching next month still published them.
+    var out = "";
+    var lastDay = null;
+    rows.slice(0, LIMIT).forEach(function (s) {
+      var key = dayKey(s.departsAt);
+      if (key !== lastDay) {
+        out += '<div class="day">' + esc(dayName(s.departsAt)) + "</div>";
+        lastDay = key;
+      }
+      var tags = [];
+      if (s.status === "cancelled") tags.push('<span class="tag tag-bad">Cancelled</span>');
+      else if (s.full) tags.push('<span class="tag tag-warn">Full</span>');
+      else if (s.seatsLeft != null) tags.push('<span class="tag tag-ok">' + s.seatsLeft + " open</span>");
+      if (s.minRank) tags.push('<span class="tag">' + esc(s.minRank) + "+</span>");
+
+      out += '<div class="row"><div class="row-main">' +
+        '<div class="ports">' +
+          (s.flightNumber ? '<span class="fno">' + esc(s.flightNumber) + "</span>" : "") +
+          esc(s.origin || "???") + ' <span class="arrow">→</span> ' + esc(s.destination || "???") +
+        "</div>" +
+        '<div class="meta">' +
+          (s.departsAt ? "<span>🕑 " + esc(clock(s.departsAt)) +
+            (s.arrivesAt ? " → " + esc(clock(s.arrivesAt)) : "") + "</span>" : "") +
+          (s.aircraft ? "<span>" + esc(s.aircraft) + "</span>" : "") +
+        "</div>" +
+        (tags.length ? "<div>" + tags.join("") + "</div>" : "") +
+        "</div></div>";
+    });
+    return out;
+  }
+
+  var RENDER = { notices: renderNotices, events: renderEvents, schedule: renderSchedule };
+
+  var EMPTY = {
+    notices: "Nothing on the noticeboard yet.",
+    events: "No events published yet.",
+    schedule: "Nothing scheduled yet."
+  };
+
+  function paint(rows) {
+    var cfg = VIEWS[VIEW];
+    var name = qs.get("name") || "";
+    var logo = safeImg(qs.get("logo") || "");
+    var title = qs.get("title") || (name ? name + " · " + cfg.title : cfg.title);
+
+    var head = '<div class="head">' +
+      (logo ? '<img src="' + esc(logo) + '" alt="">' : "") +
+      "<h1>" + esc(title) + "</h1>" +
+      (rows.length ? '<span class="count">' + rows.length + "</span>" : "") +
+      "</div>";
+
+    var body = rows.length
+      ? RENDER[VIEW](rows)
+      : '<div class="state">' + esc(EMPTY[VIEW]) + "</div>";
+
+    var powered = qs.get("powered") === "off" ? "" :
+      '<a class="powered" href="https://inflight.info" target="_blank" rel="noopener">Powered by Inflight</a>';
+
+    wrap.innerHTML = head + '<div class="panel">' + body + "</div>" + powered;
+  }
+
+  function fail(msg) {
+    wrap.innerHTML = '<div class="state">' + esc(msg) + "</div>";
+  }
+
+  function applyAppearance() {
+    var body = document.body;
+    body.setAttribute("data-theme", qs.get("theme") === "light" ? "light" : "dark");
+    body.setAttribute("data-header", qs.get("header") === "off" ? "off" : "on");
+
+    var root = document.documentElement.style;
+    var accent = clampHex(qs.get("accent") || qs.get("color"));
+    if (accent) root.setProperty("--accent", accent);
+    var radius = parseInt(qs.get("radius"), 10);
+    if (isFinite(radius)) root.setProperty("--radius", Math.max(0, Math.min(32, radius)) + "px");
+    var maxw = parseInt(qs.get("width"), 10);
+    if (isFinite(maxw)) root.setProperty("--maxw", Math.max(240, Math.min(1600, maxw)) + "px");
+  }
+
+  function boot() {
+    applyAppearance();
+    if (!SLUG) return fail("Add ?va=<your crew center slug> to this embed’s URL.");
+
+    var cfg = VIEWS[VIEW];
+    fetch(BACKEND + "/api/crew/" + encodeURIComponent(SLUG) + cfg.path, { credentials: "omit" })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status === 404
+          ? "That crew center could not be found."
+          : "This crew center isn’t sharing that yet.");
+        return r.json();
+      })
+      .then(function (d) {
+        var rows = Array.isArray(d[cfg.key]) ? d[cfg.key] : [];
+        // The API returns drafts only to a signed-in manager, and this page
+        // sends no session — but filtering here too means a future change to
+        // that endpoint cannot quietly publish somebody's working copy onto
+        // their own homepage.
+        rows = rows.filter(function (r) { return r.status !== "draft"; });
+        paint(rows);
+      })
+      .catch(function (err) {
+        fail(err && err.message ? err.message : "Could not load this crew center.");
+      });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
