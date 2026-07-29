@@ -122,6 +122,44 @@ async function api(route) {
     check('no page errors of our own', ours.length === 0, ours.join(' | '));
 
     await page.screenshot({ path: path.join(__dirname, 'staff-events.png') });
+    await page.close();
+
+    // 4. A VA whose database has no events tables yet. "No events" and "your
+    //    database can't hold events" look identical on screen and only one of
+    //    them is something the VA can act on, so the panel must not flatten
+    //    the second into the first.
+    {
+        const p2 = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+        await p2.route('**/api/**', (route) => {
+            const u = new URL(route.request().url()).pathname;
+            if (u.endsWith('/events')) {
+                return route.fulfill({
+                    status: 409,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        error: 'This crew center’s project does not have the events tables yet. Re-run the setup SQL (Settings → Data store) to add them.',
+                        code: 'store_events_missing',
+                    }),
+                });
+            }
+            return api(route);
+        });
+        await p2.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' })));
+        await p2.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
+        await p2.waitForTimeout(1500);
+
+        const card = await p2.textContent('#nextEvent');
+        check('an unusable store says what is wrong, not "nothing scheduled"',
+            /events tables yet/.test(card) && !/Nothing scheduled/.test(card), card.trim());
+
+        await p2.click('#toolGrid a:has-text("Events")');
+        await p2.waitForTimeout(700);
+        const list = await p2.textContent('#cevList');
+        check('…and the panel says the same rather than "No events yet"',
+            /events tables yet/.test(list) && !/No events yet/.test(list), list.trim().slice(0, 120));
+        await p2.close();
+    }
+
     await browser.close();
     server.close();
     console.log(failures ? `\n${failures} check(s) failed` : '\nAll staff checks passed ✅');

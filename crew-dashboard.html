@@ -494,6 +494,18 @@
                                 </div>
                                 <p data-feed-note class="hidden text-xs mt-1.5"></p>
                             </div>
+                            <div data-feed="events" class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Events <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Published, changed and cancelled. Signups don’t post — a busy event would fire forty of them in an evening.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
                         </div>
                     </details>
 

@@ -70,6 +70,7 @@
         ranks: [],
         canManage: false,
         loaded: false,
+        error: null,       // why the calendar could not be read, when it could not
         openEventId: '',
         leafletReady: false,
     };
@@ -167,9 +168,14 @@
             S.mine = Array.isArray(d.mine) ? d.mine : [];
             S.ranks = Array.isArray(d.ranks) ? d.ranks : [];
             S.canManage = !!d.canManage;
+            S.error = null;
             S.loaded = true;
             return null;
         } catch (err) {
+            // Kept, because "no events yet" and "your database has no events
+            // tables yet" look identical on screen and only one of them is
+            // something the VA can do anything about.
+            S.error = err;
             S.loaded = true;
             if (!quiet) toast(err.message, 'bad');
             return err;
@@ -235,6 +241,18 @@
 
         if (!S.loaded) {
             host.innerHTML = '<div class="cev-empty">Loading the calendar…</div>';
+            return;
+        }
+        // A store that could not answer is not an empty calendar. The two
+        // messages that matter here — "connect a database" and "your database
+        // is missing the events tables" — both come back from the server
+        // already written for a VA to act on, so they are shown as sent.
+        if (S.error && !S.events.length) {
+            host.innerHTML = `
+                <div class="cev-empty">
+                    <p class="cev-empty-title">Events aren’t available yet</p>
+                    <p>${esc(S.error.message)}</p>
+                </div>`;
             return;
         }
         if (!S.events.length) {
@@ -914,6 +932,7 @@
             .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0];
 
         if (!S.loaded) { el.innerHTML = '<p class="cev-quiet">Loading…</p>'; return; }
+        if (S.error) { el.innerHTML = `<p class="cev-quiet">${esc(S.error.message)}</p>`; return; }
         if (!next) {
             el.innerHTML = S.canManage
                 ? `<p class="cev-quiet">Nothing scheduled.</p>
@@ -965,7 +984,11 @@
 
         if (!S.loaded) { el.innerHTML = '<p class="cev-quiet">Loading the calendar…</p>'; return; }
         if (!upcoming.length) {
-            el.innerHTML = '<p class="cev-quiet">Nothing scheduled yet — check back soon.</p>';
+            // Same distinction as the panel: a calendar we could not read is
+            // not a calendar with nothing in it.
+            el.innerHTML = `<p class="cev-quiet">${S.error
+                ? esc(S.error.message)
+                : 'Nothing scheduled yet — check back soon.'}</p>`;
             return;
         }
         el.innerHTML = upcoming.map(eventCard).join('');
