@@ -7,32 +7,63 @@
 --  report so you can see what it found and what it changed.
 --
 --  What it does
---    1. Reports the current state of public.profiles.
---    2. Creates the profiles rows that were never created, for every existing
---       account. This is the suspected cause of paid upgrades not sticking:
---       `UPDATE profiles SET is_pro = true WHERE id = …` against an account
---       with no row updates nothing and reports success, so Stripe takes the
---       payment and the pilot stays on the free tier.
---    3. Installs a trigger so every future sign-up gets its row automatically.
---    4. Locks `is_pro` down to server-side writes only, while leaving the
+--    1. Creates public.profiles if it isn't there at all, and adds any column
+--       the app needs that is missing. THIS is the failure behind
+--         [process-stripe-payment] Could not apply the Pro entitlement:
+--         Could not find the table 'public.profiles' in the schema cache
+--       The table was never created in this project, so the grant had nothing
+--       to write to — Stripe took the payment and the pilot stayed free.
+--    2. Reports the current state of public.profiles.
+--    3. Creates the profiles rows that were never created, for every existing
+--       account. `UPDATE profiles SET is_pro = true WHERE id = …` against an
+--       account with no row updates nothing and reports success, which is the
+--       same symptom one layer up.
+--    4. Installs a trigger so every future sign-up gets its row automatically.
+--    5. Locks `is_pro` down to server-side writes only, while leaving the
 --       columns the app legitimately writes (map_filters, etc.) alone.
---    5. Makes sure the row-level security policies the app needs exist.
+--    6. Makes sure the row-level security policies the app needs exist.
+--    7. Reloads PostgREST's schema cache, so the API sees the table without
+--       waiting for the next automatic reload.
 --
 --  What it does NOT do: grant Pro to anyone. Who has paid lives in Stripe, not
 --  in Postgres. See the two optional blocks at the bottom for that.
 -- ============================================================================
 
 
--- ── 1. Before ────────────────────────────────────────────────────────────────
+-- ── 1. The table itself ──────────────────────────────────────────────────────
+-- Nothing in the codebase has ever created this table: the client and the edge
+-- functions only ever SELECT and UPDATE it. If the project was set up without
+-- it, every entitlement write fails with PGRST205 ("Could not find the table
+-- 'public.profiles' in the schema cache") and the upgrade silently does
+-- nothing.
+--
+-- `id` is the auth user id, so the row is deleted with the account. Only the
+-- columns the app actually reads and writes are defined here — `is_pro` (the
+-- entitlement the Stripe functions stamp) and `map_filters` (the Pro cloud
+-- settings sync in flight.js). Adding the columns separately means this also
+-- repairs a half-built table rather than only a missing one.
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade
+);
+
+alter table public.profiles
+  add column if not exists is_pro      boolean     not null default false,
+  add column if not exists map_filters jsonb,
+  add column if not exists created_at  timestamptz not null default now(),
+  add column if not exists updated_at  timestamptz not null default now();
+
+do $$
+begin
+  raise notice 'public.profiles is present with the columns the app needs.';
+end $$;
+
+
+-- ── 2. Before ────────────────────────────────────────────────────────────────
 do $$
 declare
   v_missing bigint;
   v_users   bigint;
 begin
-  if to_regclass('public.profiles') is null then
-    raise exception 'public.profiles does not exist — stop here and check the table name.';
-  end if;
-
   select count(*) into v_users from auth.users;
   select count(*) into v_missing
     from auth.users u
@@ -45,7 +76,7 @@ begin
 end $$;
 
 
--- ── 2. Backfill the missing rows ─────────────────────────────────────────────
+-- ── 3. Backfill the missing rows ─────────────────────────────────────────────
 -- Only the primary key is written, so this cannot disturb any existing data.
 -- If profiles has other NOT NULL columns without defaults this will fail loudly
 -- — add them to the insert list and re-run.
@@ -57,7 +88,7 @@ select u.id
 on conflict do nothing;
 
 
--- ── 3. Keep it from happening again ──────────────────────────────────────────
+-- ── 4. Keep it from happening again ──────────────────────────────────────────
 -- Every new account gets its profiles row at sign-up, whichever route it came
 -- in by (the app's free sign-up function, a paid checkout, or the dashboard).
 create or replace function public.handle_new_user()
@@ -83,7 +114,7 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 
--- ── 4. Make is_pro server-write-only ─────────────────────────────────────────
+-- ── 5. Make is_pro server-write-only ─────────────────────────────────────────
 -- The app updates profiles from the browser (map_filters), so we can't simply
 -- revoke UPDATE. Instead we drop the table-wide grant and hand back every
 -- column except is_pro. Edge functions use the service_role key, which bypasses
@@ -110,7 +141,7 @@ begin
 end $$;
 
 
--- ── 5. Row-level security ────────────────────────────────────────────────────
+-- ── 6. Row-level security ────────────────────────────────────────────────────
 -- Adds only what's missing, and only under names of its own, so any policies
 -- you already have are left exactly as they are.
 alter table public.profiles enable row level security;
@@ -143,10 +174,24 @@ begin
 end $$;
 
 
--- ── 6. Report ────────────────────────────────────────────────────────────────
-select 'accounts'                        as check,
-       count(*)::text                    as value,
-       'total auth.users'                as note
+-- ── 7. Tell the API the table exists ─────────────────────────────────────────
+-- PostgREST answers from a cached copy of the schema, which is what the
+-- "Could not find the table 'public.profiles' in the schema cache" error is
+-- reporting. It reloads on its own, but not instantly — this makes the table
+-- visible to the edge functions and the browser client right away instead of
+-- leaving a window where the fix is applied but upgrades still fail.
+notify pgrst, 'reload schema';
+
+
+-- ── 8. Report ────────────────────────────────────────────────────────────────
+select 'profiles table'                  as check,
+       case when to_regclass('public.profiles') is null
+            then 'MISSING' else 'present' end as value,
+       'the entitlement grant writes here'    as note
+union all
+select 'accounts',
+       count(*)::text,
+       'total auth.users'
   from auth.users
 union all
 select 'profiles rows',

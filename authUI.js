@@ -121,6 +121,33 @@ export const AuthUI = {
 
                     } catch (e) {
                         console.error("Stripe auto-processing failed:", e);
+
+                        // An upgrade fails here too — process-stripe-payment
+                        // throws when it can't write the entitlement — and that
+                        // pilot is already signed in. Sending them to the
+                        // sign-in modal implies the account is the problem, and
+                        // showError() would paint into a modal that open()
+                        // never rendered because it routed to ProfileUI
+                        // instead. Report through the notification centre and
+                        // leave the session alone; the claim stays on file, so
+                        // a later load still finishes the upgrade.
+                        if (signedIn) {
+                            this.open();
+                            const message = `We couldn't finish activating Pro: ${e.message}. `
+                                + `Your payment is safe and we'll keep retrying — if it doesn't unlock, `
+                                + `contact support and quote that message.`;
+                            setTimeout(() => {
+                                try {
+                                    if (typeof window.showNotification === 'function') {
+                                        window.showNotification(message, 'error');
+                                        return;
+                                    }
+                                } catch (_) { /* fall through to the modal */ }
+                                this.showError(message);
+                            }, 50);
+                            return;
+                        }
+
                         setTimeout(() => {
                             this.open('signin');
                             setTimeout(() => {

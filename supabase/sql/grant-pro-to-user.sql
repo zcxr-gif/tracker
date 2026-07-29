@@ -24,6 +24,14 @@ declare
   v_id    uuid;
   v_done  int := 0;
 begin
+  -- Without the table there is nowhere to record the entitlement, and this is
+  -- the same missing piece behind "Could not find the table 'public.profiles'
+  -- in the schema cache" during checkout. Say so plainly rather than failing
+  -- on the first insert with a bare "relation does not exist".
+  if to_regclass('public.profiles') is null then
+    raise exception 'public.profiles does not exist — run supabase/sql/fix-pro-entitlement.sql first, then re-run this file.';
+  end if;
+
   foreach v_email in array v_emails loop
     select id into v_id from auth.users where lower(email) = lower(trim(v_email));
 
