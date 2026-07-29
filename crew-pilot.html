@@ -12,6 +12,9 @@
     <script src="/crewBrand.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
+    <!-- Events + the gate board: the calendar, who's attending, and the map a
+         pilot picks their stand off. Brings its own panel and styles. -->
+    <script src="/crewEvents.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -227,11 +230,14 @@
             </div>
         </section>
 
-        <!-- ============ UPCOMING EVENTS ============ -->
+        <!-- ============ UPCOMING EVENTS ============
+             The VA's real calendar, from GET /api/crew/<slug>/events. Signing
+             up and picking a stand happen in the panel crewEvents.js opens —
+             the cards here are the way in. -->
         <section id="eventsSec" class="mt-10">
             <div class="flex items-end justify-between mb-4">
                 <h2 class="text-lg font-bold tracking-tight">Upcoming events</h2>
-                <a class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">All events</a>
+                <a onclick="openEvents()" class="text-sm accent-text font-semibold hover:opacity-80 cursor-pointer">All events</a>
             </div>
             <div id="events" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"></div>
         </section>
@@ -322,18 +328,21 @@
         const ACTIONS=[
             {icon:'clipboard-pen',label:'File a PIREP',desc:'Log a flight'},
             {icon:'route',label:'Book a flight',desc:'Pick a route'},
-            {icon:'calendar-days',label:'Events',desc:'Join group flights'},
+            {icon:'calendar-days',label:'Events',desc:'Join group flights',action:'events'},
             {icon:'notebook-tabs',label:'My logbook',desc:'Your flight history'},
         ];
         function renderActions(){
-            document.getElementById('quickGrid').innerHTML=ACTIONS.map(t=>`
-                <a class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
+            document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
+                <a data-i="${i}" class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
                     <div>
                         <div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div>
                         <div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div>
                     </div>
                 </a>`).join('');
+            document.querySelectorAll('#quickGrid [data-i]').forEach(el=>{
+                if(ACTIONS[+el.getAttribute('data-i')].action==='events') el.addEventListener('click', openEvents);
+            });
         }
         // ---- Recent flights ----
         const FLIGHTS=[
@@ -356,37 +365,72 @@
                 </li>`).join('');
         }
         // ---- Events ----
-        const EVENTS=[
-            {name:'Transcon Group Flight', route:'CYYZ → KLAX', when:'Sat · 22:00Z', going:34},
-            {name:'Maple Milk Run', route:'CYUL → CYYZ', when:'Sun · 18:00Z', going:21},
-            {name:'Pacific Overnighter', route:'CYVR → PHNL', when:'Wed · 06:00Z', going:12},
-        ];
-        function renderEvents(){
-            document.getElementById('events').innerHTML=EVENTS.map(e=>`
-                <div class="surface rounded-lg overflow-hidden flex flex-col">
-                    <div class="h-20 accent-bg opacity-90 flex items-end p-3"><span class="text-white text-sm font-semibold">${escapeHtml(e.name)}</span></div>
-                    <div class="p-4 flex-1 flex flex-col">
-                        <div class="flex items-center gap-2 text-sm muted"><i data-lucide="map-pin" class="w-4 h-4"></i> ${escapeHtml(e.route)}</div>
-                        <div class="flex items-center gap-2 text-sm muted mt-1.5"><i data-lucide="calendar-clock" class="w-4 h-4"></i> ${escapeHtml(e.when)}</div>
-                        <div class="flex items-center justify-between mt-4">
-                            <span class="text-xs faint">${e.going} going</span>
-                            <button class="accent-bg text-white text-xs font-semibold px-3.5 py-1.5 rounded-md hover:opacity-90 transition">Sign up</button>
-                        </div>
-                    </div>
-                </div>`).join('');
+        //
+        // The calendar, the attendee list and the gate board all live in
+        // crewEvents.js — this page hands it the backend and the session and
+        // says where to paint. What used to be here was three invented events
+        // ("Transcon Group Flight · 34 going") that every VA's pilots saw as
+        // their own airline's schedule.
+        function openEvents(){ if(window.CrewEvents) CrewEvents.open(); }
+        function mountEvents(){
+            if(!window.CrewEvents) return;
+            CrewEvents.mount({ backend: BACKEND, slug: getSlug(), token: ()=> (storedSession()||{}).token || '' })
+                .then(()=>{
+                    const host=document.getElementById('events');
+                    if(host) CrewEvents.renderCards(host, { limit: 3 });
+                });
         }
         // ---- Announcements ----
-        const NOTICES=[
-            {text:'<b>July schedule</b> is live — new CYYZ overnight rotations.', when:'2d ago'},
-            {text:'Reminder: log PIREPs within <b>48 hours</b> of landing.', when:'5d ago'},
-        ];
-        function renderNotices(){
-            document.getElementById('notices').innerHTML=NOTICES.map((n,i)=>`
+        //
+        // The VA's real noticeboard. Two kinds of row arrive on it and they are
+        // deliberately drawn the same: what staff wrote, and what the crew
+        // center wrote for them when something happened — a promotion, a pilot
+        // joining, someone ready for a check-ride. The second kind is why this
+        // is worth having: those already happen inside the crew center and used
+        // to leave no trace but a Discord line that scrolls away by Thursday.
+        //
+        // What was here before was two invented notices about a July schedule
+        // that no VA had published.
+        const NOTICE_ICON={ promotion:'medal', join:'user-plus', event:'calendar-plus', checkride:'badge-check', notice:'megaphone' };
+        function noticeAge(iso){
+            const ms=Date.now()-new Date(iso).getTime();
+            if(!iso||Number.isNaN(ms)) return '';
+            const d=Math.floor(ms/86400000), h=Math.floor(ms/3600000), m=Math.floor(ms/60000);
+            if(d>0) return d===1?'Yesterday':`${d}d ago`;
+            if(h>0) return `${h}h ago`;
+            return m>0?`${m}m ago`:'Just now';
+        }
+        function renderNotices(list){
+            const host=document.getElementById('notices');
+            if(!host) return;
+            if(!list || !list.length){
+                // Nothing to say is a real answer, and better than a made-up
+                // notice. The section stays so staff know where theirs will go.
+                host.innerHTML='<li class="text-sm muted py-2">Nothing from your crew yet.</li>';
+                return;
+            }
+            host.innerHTML=list.slice(0,8).map((n,i)=>`
                 <li class="flex items-start gap-3 py-3 ${i?'border-t hair-soft':''}">
-                    <span class="muted shrink-0 mt-0.5"><i data-lucide="megaphone" class="w-[18px] h-[18px]"></i></span>
-                    <span class="text-sm flex-1">${n.text}</span>
-                    <span class="text-xs faint shrink-0">${n.when}</span>
+                    <span class="muted shrink-0 mt-0.5"><i data-lucide="${NOTICE_ICON[n.kind]||'megaphone'}" class="w-[18px] h-[18px]"></i></span>
+                    <span class="text-sm flex-1 min-w-0">
+                        <span class="font-medium">${escapeHtml(n.title||'')}</span>
+                        ${n.pinned?'<span class="text-[10px] uppercase tracking-wide faint ml-1">pinned</span>':''}
+                        ${n.body?`<span class="block muted text-[13px] mt-0.5">${escapeHtml(n.body)}</span>`:''}
+                    </span>
+                    <span class="text-xs faint shrink-0">${escapeHtml(noticeAge(n.createdAt))}</span>
                 </li>`).join('');
+            if(window.lucide) lucide.createIcons();
+        }
+        async function loadNotices(){
+            const slug=getSlug(); if(!slug){ renderNotices([]); return; }
+            try{
+                const s=storedSession();
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/announcements`,{
+                    headers: s&&s.token ? {Accept:'application/json',Authorization:'Bearer '+s.token} : {Accept:'application/json'} });
+                if(!res.ok){ renderNotices([]); return; }
+                const d=await res.json();
+                renderNotices(Array.isArray(d.announcements)?d.announcements:[]);
+            }catch{ renderNotices([]); }
         }
 
         // ---- Branding (same source as the owner dashboard) ----
@@ -503,9 +547,11 @@
         }
 
         (async function(){
-            renderActions(); renderFlights(); renderEvents(); renderNotices(); readSession();
+            renderActions(); renderFlights(); renderNotices([]); readSession();
             document.getElementById('pwForm').addEventListener('submit', submitNewPassword);
             checkPasswordGate();
+            mountEvents();
+            loadNotices();
             const b = await resolveBranding();
             applyBranding(b);
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
