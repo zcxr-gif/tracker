@@ -8341,8 +8341,34 @@ function iwShouldAnimate(windowEl) {
     return true;
 }
 
-function iwClearMorph(windowEl) {
+/**
+ * Is this window's size owned by applySimpleWindowPhase?
+ *
+ * The simple/embed flight windows are a single iframe sized at height:100%,
+ * which has no intrinsic height — the explicit height the phase writes onto the
+ * host IS the window's height, and clearing it drops the iframe to the
+ * browser's 150px default. So the morph helpers below, which exist to let
+ * ordinary content measure itself, must leave these alone.
+ */
+function iwPhaseManaged(windowEl) {
+    return !!windowEl && (windowEl.classList.contains('simple-collapsed')
+        || windowEl.classList.contains('simple-expanded'));
+}
+
+/**
+ * Give the window its size back: the phase no longer owns it, because what is
+ * about to go in sizes itself (the legacy panel, an error, a spinner).
+ */
+function iwReleasePhaseSize(windowEl) {
+    if (!iwPhaseManaged(windowEl)) return;
+    windowEl.classList.remove('simple-collapsed', 'simple-expanded');
+    windowEl.style.width = '';
     windowEl.style.height = '';
+    windowEl.style.maxHeight = '';
+}
+
+function iwClearMorph(windowEl) {
+    if (!iwPhaseManaged(windowEl)) windowEl.style.height = '';
     windowEl.classList.remove('iw-morphing', 'iw-swapping', 'iw-loading');
     if (windowEl._iwMorphTimer) {
         clearTimeout(windowEl._iwMorphTimer);
@@ -8376,8 +8402,13 @@ function setInfoWindowLoading(windowEl, html) {
  */
 function setInfoWindowContent(windowEl, html) {
     if (!windowEl) return;
+    // Content that is not the simple/embed iframe sizes itself, so swapping to
+    // it also hands back the box applySimpleWindowPhase pinned on the window.
+    const keepsPhaseSize = /<iframe/i.test(html);
+
     if (!iwShouldAnimate(windowEl)) {
-        if (windowEl.style.height) windowEl.style.height = '';
+        if (!keepsPhaseSize) iwReleasePhaseSize(windowEl);
+        if (windowEl.style.height && !iwPhaseManaged(windowEl)) windowEl.style.height = '';
         windowEl.classList.remove('iw-loading');
         windowEl.innerHTML = html;
         return;
@@ -8387,14 +8418,19 @@ function setInfoWindowContent(windowEl, html) {
     windowEl.innerHTML = html;
     windowEl.classList.remove('iw-loading');
 
-    // An iframe sized at 100% has no natural height to measure against, so
-    // simple/embed mode just drops the lock and lets its own rules size it.
+    // An iframe sized at 100% has no natural height to measure against — there
+    // is nothing to morph towards, so this just drops the loading lock. The
+    // phase's height stays: it is the only thing giving the iframe a height,
+    // and clearing it here collapsed the desktop card to the browser's 150px
+    // iframe default, which showed the hero photo and nothing under it.
     if (windowEl.querySelector('iframe')) {
         iwClearMorph(windowEl);
         windowEl.classList.add('iw-swapping');
         windowEl._iwMorphTimer = setTimeout(() => iwClearMorph(windowEl), IW_MORPH_MS);
         return;
     }
+
+    iwReleasePhaseSize(windowEl);
 
     // Measure what the new content actually wants. max-height still applies,
     // so an over-tall panel measures at its clamped height and the window
