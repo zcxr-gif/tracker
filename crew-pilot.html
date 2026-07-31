@@ -23,6 +23,11 @@
     <script src="/crewSchedule.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
+           slow, blocked or down, every element this page hides by adding that
+           class stops being hidden, including the password gate. See the same
+           rule and reasoning in crew-dashboard.html. */
+        .hidden{ display:none; }
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
@@ -166,13 +171,15 @@
                 </span>
                 <span id="heroVA" class="hidden text-[11px] font-semibold uppercase tracking-[.14em] text-white/70"></span>
             </div>
-            <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-[1.05]">Welcome back, Jordan</h1>
-            <p class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg">You’re 36 hours from Captain. Log a flight to keep it moving.</p>
+            <h1 id="heroName" class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-[1.05]">Welcome back</h1>
+            <!-- Was "You're 36 hours from Captain" for everybody, including
+                 pilots who were already Captains and pilots with no hours. -->
+            <p id="heroLine" class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg"></p>
             <div class="flex flex-wrap items-center gap-2.5 mt-6">
-                <button class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
+                <button onclick="openFilePirep()" class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
                     <i data-lucide="clipboard-pen" class="w-4 h-4"></i> File a PIREP
                 </button>
-                <button class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">Book a flight</button>
+                <button onclick="openSchedule()" class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">Book a flight</button>
             </div>
         </div>
     </section>
@@ -182,25 +189,33 @@
         <!-- ============ MY NUMBERS ============ -->
         <section class="mt-8">
             <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
+                <!-- Every number here is this pilot's own, from
+                     GET /api/crew/<slug>/me/flying. They were hardcoded — 214
+                     hours, 96 flights, F/O, 98% — and every pilot at every VA
+                     read the same four. A plausible number is taken as true,
+                     which is what made these worse than empty.
+
+                     Blank until the fetch lands, never a zero: "0 flights" is a
+                     claim about this pilot, and we do not have it yet. -->
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">My hours</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">214<span class="text-lg faint font-bold">h</span></div>
-                    <div class="text-xs muted mt-1">+12h this month</div>
+                    <div id="statHours" class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">—</div>
+                    <div id="statHoursSub" class="text-xs muted mt-1"></div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">My flights</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">96</div>
-                    <div class="text-xs muted mt-1">4 this month</div>
+                    <div id="statFlights" class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">—</div>
+                    <div id="statFlightsSub" class="text-xs muted mt-1"></div>
                 </div>
                 <div class="p-5 sm:p-6">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Rank</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">F/O</div>
-                    <div class="text-xs muted mt-1">Since Mar 2026</div>
+                    <div id="statRank" class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">—</div>
+                    <div id="statRankSub" class="text-xs muted mt-1"></div>
                 </div>
                 <div class="p-5 sm:p-6">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">On-time rate</div>
-                    <div class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">98%</div>
-                    <div class="text-xs muted mt-1">Last 30 flights</div>
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Awaiting review</div>
+                    <div id="statPending" class="mt-1.5 text-2xl sm:text-3xl font-extrabold tracking-tight stat-num">—</div>
+                    <div id="statPendingSub" class="text-xs muted mt-1"></div>
                 </div>
             </div>
         </section>
@@ -216,23 +231,19 @@
             <div class="surface rounded-lg p-6 lg:col-span-2">
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-lg font-bold tracking-tight">My recent flights</h2>
-                    <a class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">Logbook</a>
+                    <a onclick="openLogbook()" class="text-sm muted font-medium hover:text-[var(--ink)] cursor-pointer">Logbook</a>
                 </div>
                 <ul id="flights"></ul>
             </div>
             <!-- Rank progress -->
+            <!-- The real ladder, from this VA's own ranks. The page draws the
+                 bar; the server decides what "next rank" means — including the
+                 pilot who has the hours and is waiting on a check-ride, which
+                 is a different sentence from "keep flying" and the one that
+                 stops somebody thinking their promotion has stalled. -->
             <div class="surface rounded-lg p-6">
                 <h2 class="text-lg font-bold tracking-tight mb-1">Next rank</h2>
-                <p class="text-sm muted">First Officer → <span class="font-semibold text-[var(--ink)]">Captain</span></p>
-                <div class="mt-4 flex items-end justify-between text-sm">
-                    <span class="font-bold text-xl">214h</span>
-                    <span class="muted">of 250h</span>
-                </div>
-                <div class="mt-2 h-2 rounded-full bg-[var(--line)] overflow-hidden">
-                    <div class="h-full accent-bg rounded-full" style="width:85%"></div>
-                </div>
-                <p class="text-xs muted mt-3">36 hours to go — about 8 more flights at your average.</p>
-                <button class="mt-5 w-full surface hair rounded-md text-sm font-semibold py-2.5 hover:border-[var(--ink)] transition">View requirements</button>
+                <div id="rankBody"><p class="text-sm muted">Loading your rank…</p></div>
             </div>
         </section>
 
@@ -332,10 +343,10 @@
 
         // ---- Pilot quick actions ----
         const ACTIONS=[
-            {icon:'clipboard-pen',label:'File a PIREP',desc:'Log a flight'},
+            {icon:'clipboard-pen',label:'File a PIREP',desc:'Log a flight',action:'file'},
             {icon:'route',label:'Book a flight',desc:'Take a leg off the schedule',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Join group flights',action:'events'},
-            {icon:'notebook-tabs',label:'My logbook',desc:'Your flight history'},
+            {icon:'notebook-tabs',label:'My logbook',desc:'Your flight history',action:'logbook'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -350,27 +361,307 @@
                 const act=ACTIONS[+el.getAttribute('data-i')].action;
                 if(act==='events') el.addEventListener('click', openEvents);
                 if(act==='schedule') el.addEventListener('click', openSchedule);
+                // Both of these rendered, took a click and did nothing at all.
+                if(act==='logbook') el.addEventListener('click', openLogbook);
+                if(act==='file') el.addEventListener('click', openFilePirep);
             });
         }
+        /* ================================================================
+           MY FLYING
+
+           This page used to hold four invented Air Canada legs in a const —
+           CYYZ→CYVR, CYYZ→EGLL, CYUL→KLGA, CYVR→RJTT — and a rank card
+           reading "214h of 250h". Every pilot at every VA saw the same four
+           flights and the same hours, over a logbook containing none of it.
+           The owner dashboard had exactly this bug in its activity feed and it
+           was fixed there (see crewNotices.js); this is the other half.
+
+           One fetch feeds the stat row, the rank card, the recent list and the
+           logbook panel, because they are four views of one answer and a page
+           that fetched them separately would show them disagreeing.
+           ================================================================ */
+
+        let MY={ pilot:null, rank:null, flights:[], totals:null, loaded:false, error:null };
+
+        // The bearer token for this crew center, from the session the login
+        // stored. Named to match the dashboard's helper so the two pages read
+        // the same way; storedSession() is defined further down.
+        function sessionToken(){ const s=storedSession(); return (s&&s.token)||''; }
+
+        async function loadMyFlying(){
+            const slug=getSlug(), sess=sessionToken();
+            if(!slug||!sess){ MY.loaded=true; paintMyFlying(); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me/flying`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ MY.error=d.error||'Could not load your flying.'; }
+                else { MY={ ...MY, ...d, error:null }; }
+            }catch{ MY.error='Could not reach the server.'; }
+            MY.loaded=true;
+            paintMyFlying();
+        }
+
+        const hoursText=(min)=>{ const m=Math.round(Number(min)||0); const h=Math.floor(m/60);
+            return h?`${h}h`:`${m}m`; };
+        const durText=(min)=>{ const m=Math.round(Number(min)||0); if(m<=0) return '—';
+            const h=Math.floor(m/60); return h?`${h}h ${String(m%60).padStart(2,'0')}m`:`${m}m`; };
+        const STATUS_LABEL={approved:'Approved',pending:'Pending',rejected:'Rejected'};
+
+        function paintMyFlying(){
+            paintStats();
+            paintRank();
+            renderFlights();
+            paintHero();
+            if(logbookPanel&&logbookPanel.isOpen()) renderLogbook();
+        }
+
+        function paintHero(){
+            if(!MY.loaded) return;
+            const name=document.getElementById('heroName');
+            const line=document.getElementById('heroLine');
+            const cs=document.getElementById('heroCallsign');
+            if(MY.pilot){
+                // First name only — "Welcome back, Rae Okafor" reads like a form.
+                const first=String(MY.pilot.name||'').trim().split(/\s+/)[0]||'';
+                if(name) name.textContent=first?`Welcome back, ${first}`:'Welcome back';
+                if(cs&&MY.pilot.callsign) cs.textContent=MY.pilot.callsign;
+                else if(cs) cs.closest('span').classList.add('hidden');
+            }else if(name){ name.textContent='Welcome back'; }
+            if(!line) return;
+            // Says something true about THIS pilot, or says nothing.
+            const r=MY.rank;
+            if(MY.pilot&&r&&r.awaitingCheck) line.textContent='You have the hours for your next rank — it needs a check-ride signed off.';
+            else if(MY.pilot&&r&&r.next&&Number(r.next.hoursAway)>0) line.textContent=`You’re ${Math.round(Number(r.next.hoursAway)*10)/10} hours from ${r.next.name}. Log a flight to keep it moving.`;
+            else if(MY.pilot&&r&&!r.next) line.textContent=`You hold ${r.name} — the top of this airline’s ladder.`;
+            else if(MY.pilot&&MY.totals&&!MY.totals.flights) line.textContent='Nothing logged yet. File your first flight and it lands here.';
+            else line.textContent='';
+        }
+
+        function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
+
+        function paintStats(){
+            // Nothing at all until the answer lands. A zero here is a claim
+            // about this pilot's flying, and an invented one is the bug above.
+            if(!MY.loaded) return;
+            if(!MY.pilot||!MY.totals){
+                ['statHours','statFlights','statRank','statPending'].forEach(i=>setText(i,'—'));
+                setText('statHoursSub', MY.error?'Could not load':'Not linked to a pilot record');
+                return;
+            }
+            const t=MY.totals;
+            setText('statHours', hoursText(t.minutes));
+            setText('statHoursSub', t.minutes30d>0?`+${hoursText(t.minutes30d)} in the last 30 days`:'Nothing in the last 30 days');
+            setText('statFlights', String(t.flights));
+            setText('statFlightsSub', t.flights30d>0?`${t.flights30d} in the last 30 days`:'None in the last 30 days');
+            setText('statRank', (MY.rank&&MY.rank.name)||'—');
+            setText('statRankSub', MY.rank&&MY.rank.awaitingCheck?'Awaiting a check-ride':'');
+            setText('statPending', String(t.pending));
+            setText('statPendingSub', t.pending===0?'Nothing waiting':(t.pending===1?'report with staff':'reports with staff'));
+        }
+
+        function paintRank(){
+            const host=document.getElementById('rankBody');
+            if(!host||!MY.loaded) return;
+            if(!MY.pilot){ host.innerHTML='<p class="text-sm muted">Sign in to see your rank.</p>'; return; }
+            const r=MY.rank;
+            if(!r){ host.innerHTML='<p class="text-sm muted">This airline has not set up ranks yet.</p>'; return; }
+
+            // Top of the ladder is an achievement, not an empty progress bar.
+            if(!r.next){
+                host.innerHTML=`<p class="text-sm muted">You hold <span class="font-semibold text-[var(--ink)]">${escapeHtml(r.name)}</span> — the top of this airline's ladder.</p>`;
+                return;
+            }
+            const held=Number(r.minHours)||0;
+            const need=Number(r.next.minHours)||0;
+            const have=Number(MY.pilot.hours)||0;
+            const span=Math.max(1,need-held);
+            const pct=Math.max(0,Math.min(100,Math.round(((have-held)/span)*100)));
+            const away=Math.max(0,Number(r.next.hoursAway)||0);
+
+            // A pilot with the hours who is waiting on a person must be told
+            // that, or they read a full bar as a broken promotion.
+            const waiting=r.awaitingCheck;
+            host.innerHTML=`
+                <p class="text-sm muted">${escapeHtml(r.name)} → <span class="font-semibold text-[var(--ink)]">${escapeHtml(r.next.name)}</span></p>
+                <div class="mt-4 flex items-end justify-between text-sm">
+                    <span class="font-bold text-xl">${Math.round(have*10)/10}h</span>
+                    <span class="muted">of ${need}h</span>
+                </div>
+                <div class="mt-2 h-2 rounded-full bg-[var(--line)] overflow-hidden">
+                    <div class="h-full accent-bg rounded-full" style="width:${waiting?100:pct}%"></div>
+                </div>
+                <p class="text-xs muted mt-3">${waiting
+                    ? 'You have the hours. Your next rank needs a check-ride signed off by staff.'
+                    : (away>0
+                        ? `${Math.round(away*10)/10} hours to go.`
+                        : (r.next.requiresCheck?'Ready — this rank needs a check-ride.':'Ready for your next rank.'))}</p>`;
+        }
+
         // ---- Recent flights ----
-        const FLIGHTS=[
-            {cs:'ACA1174', route:'CYYZ → CYVR', ac:'A333', dur:'4h 51m', status:'Approved'},
-            {cs:'ACA085',  route:'CYYZ → EGLL', ac:'B789', dur:'7h 02m', status:'Approved'},
-            {cs:'ACA1102', route:'CYUL → KLGA', ac:'A220', dur:'1h 18m', status:'Pending'},
-            {cs:'ACA872',  route:'CYVR → RJTT', ac:'B789', dur:'10h 24m', status:'Approved'},
-        ];
         function renderFlights(){
-            document.getElementById('flights').innerHTML=FLIGHTS.map((f,i)=>`
-                <li class="flex items-center gap-3 py-3 ${i?'border-t hair-soft':''}">
-                    <span class="muted shrink-0"><i data-lucide="plane" class="w-[18px] h-[18px]"></i></span>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium truncate">${escapeHtml(f.route)}</div>
-                        <div class="text-xs faint">${escapeHtml(f.cs)} · ${escapeHtml(f.ac)}</div>
+            const host=document.getElementById('flights');
+            if(!host) return;
+            if(!MY.loaded){ host.innerHTML=''; return; }
+            if(!MY.pilot){
+                host.innerHTML='<li class="text-sm muted py-3">Sign in to see your flights.</li>';
+                return;
+            }
+            if(MY.error){
+                host.innerHTML=`<li class="text-sm muted py-3">${escapeHtml(MY.error)}</li>`;
+                return;
+            }
+            if(!MY.flights.length){
+                host.innerHTML='<li class="text-sm muted py-3">No flights yet. File one and it lands here.</li>';
+                return;
+            }
+            host.innerHTML=MY.flights.slice(0,5).map((f,i)=>flightRow(f,i)).join('');
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function flightRow(f,i){
+            const ok=f.status==='approved';
+            const label=STATUS_LABEL[f.status]||f.status||'';
+            return `<li class="flex items-center gap-3 py-3 ${i?'border-t hair-soft':''}">
+                <span class="muted shrink-0"><i data-lucide="plane" class="w-[18px] h-[18px]"></i></span>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium truncate">${escapeHtml(f.origin||'???')} → ${escapeHtml(f.destination||'???')}</div>
+                    <div class="text-xs faint truncate">${escapeHtml([f.flightNumber||f.callsign,f.aircraftName].filter(Boolean).join(' · '))||'&nbsp;'}</div>
+                </div>
+                <span class="text-sm muted tabular-nums shrink-0">${escapeHtml(durText(f.durationMin))}</span>
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded shrink-0 ${ok?'':'border hair'}"
+                      style="${ok?'color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)':'color:var(--muted)'}">${escapeHtml(label)}</span>
+            </li>`;
+        }
+
+        /* ---- Filing a flight ----
+           The hero button and the tile both said "File a PIREP" and neither
+           did anything. The endpoint has always been there; there was simply
+           no form on the page most pilots use.
+
+           Deliberately short. Everything the server can work out for itself —
+           which route this was, whether the aircraft is in the fleet, the
+           flight number — it works out from the airports, so asking the pilot
+           for it would be asking them to do the matching by hand. */
+        let filePanel=null;
+        function openFilePirep(){
+            if(!window.CrewPanels) return;
+            if(!sessionToken()){ CrewPanels.toast('Sign in to file a flight.','bad'); return; }
+            if(!filePanel){ filePanel=CrewPanels.sheet({ id:'pilotFile', title:'File a flight', icon:'clipboard-pen' }); }
+            filePanel.open();
+            filePanel.body.innerHTML=`
+                <form class="cp-card" id="pfForm" style="display:grid;gap:.7rem">
+                    <div class="cp-grid2">
+                        <div><label class="cp-label" for="pfFrom">From</label>
+                            <input id="pfFrom" class="cp-input" maxlength="4" required placeholder="EGLL" autocomplete="off" style="text-transform:uppercase"></div>
+                        <div><label class="cp-label" for="pfTo">To</label>
+                            <input id="pfTo" class="cp-input" maxlength="4" required placeholder="KJFK" autocomplete="off" style="text-transform:uppercase"></div>
                     </div>
-                    <span class="text-sm muted tabular-nums">${escapeHtml(f.dur)}</span>
-                    <span class="text-[11px] font-semibold px-2 py-0.5 rounded ${f.status==='Approved'?'':'border hair'}"
-                          style="${f.status==='Approved'?'color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)':'color:var(--muted)'}">${escapeHtml(f.status)}</span>
-                </li>`).join('');
+                    <div><label class="cp-label" for="pfAircraft">Aircraft</label>
+                        <input id="pfAircraft" class="cp-input" maxlength="60" placeholder="Boeing 787-9" autocomplete="off"></div>
+                    <div class="cp-grid2">
+                        <div><label class="cp-label" for="pfHours">Hours</label>
+                            <input id="pfHours" class="cp-input" type="number" min="0" max="24" placeholder="7"></div>
+                        <div><label class="cp-label" for="pfMinutes">Minutes</label>
+                            <input id="pfMinutes" class="cp-input" type="number" min="0" max="59" placeholder="30"></div>
+                    </div>
+                    <div class="cp-grid2">
+                        <div><label class="cp-label" for="pfFlightNo">Flight number <span class="cp-faint">(optional)</span></label>
+                            <input id="pfFlightNo" class="cp-input" maxlength="12" placeholder="BA117" autocomplete="off"></div>
+                        <div><label class="cp-label" for="pfLandings">Landings</label>
+                            <input id="pfLandings" class="cp-input" type="number" min="0" max="100" value="1"></div>
+                    </div>
+                    <p class="cp-note">Filed reports go to your airline's staff for review. Your hours update once one is approved.</p>
+                    <button type="submit" class="cp-btn cp-btn-primary" id="pfSubmit"><i data-lucide="send"></i> File this flight</button>
+                    <p class="cp-note cp-hidden" id="pfNote"></p>
+                </form>`;
+            CrewPanels.icons();
+            document.getElementById('pfForm').addEventListener('submit', submitPirep);
+        }
+
+        async function submitPirep(ev){
+            ev.preventDefault();
+            const btn=document.getElementById('pfSubmit');
+            const note=document.getElementById('pfNote');
+            const val=(id)=>document.getElementById(id).value.trim();
+            const origin=val('pfFrom').toUpperCase(), destination=val('pfTo').toUpperCase();
+            if(!origin||!destination){ note.textContent='Enter both airports.'; note.className='cp-note cp-note-bad'; return; }
+
+            btn.disabled=true;
+            note.classList.add('cp-hidden');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/pireps`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sessionToken()},
+                    body:JSON.stringify({
+                        origin, destination,
+                        aircraftName: val('pfAircraft'),
+                        hours: Number(val('pfHours'))||0,
+                        minutes: Number(val('pfMinutes'))||0,
+                        flightNumber: val('pfFlightNo'),
+                        landings: Number(val('pfLandings'))||0,
+                        memberId: MY.pilot?MY.pilot.memberId:undefined,
+                    }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    note.textContent=d.error||'Could not file that.';
+                    note.className='cp-note cp-note-bad';
+                    btn.disabled=false;
+                    return;
+                }
+                filePanel.close();
+                // Whether the leg matched a published route is worth saying: it
+                // is the difference between a flight that counts toward the
+                // network and one staff will ask about.
+                CrewPanels.toast(d.routeMatched===false
+                    ? 'Filed — staff will review it. It didn’t match a published route.'
+                    : 'Filed. Staff will review it.','ok');
+                loadMyFlying();
+            }catch{
+                note.textContent='Could not reach the server.';
+                note.className='cp-note cp-note-bad';
+                btn.disabled=false;
+            }
+        }
+
+        /* ---- The logbook ----
+           The whole history, where the recent list shows five. Both the
+           "Logbook" link and the "My logbook" tile were markup with no handler
+           at all — the tile rendered, took a click and did nothing. */
+        let logbookPanel=null;
+        function openLogbook(){
+            if(!window.CrewPanels){ return; }
+            if(!logbookPanel){
+                logbookPanel=CrewPanels.sheet({ id:'pilotLogbook', title:'My logbook', icon:'notebook-tabs', wide:true });
+            }
+            logbookPanel.open();
+            renderLogbook();
+            // Re-read on open: staff may have approved something since the page
+            // loaded, and a logbook is exactly the thing that changes elsewhere.
+            loadMyFlying().then(()=>{ if(logbookPanel.isOpen()) renderLogbook(); });
+        }
+
+        function renderLogbook(){
+            const body=logbookPanel.body;
+            if(!MY.loaded){ body.innerHTML='<div class="cp-empty">Reading your logbook…</div>'; return; }
+            if(!MY.pilot){ body.innerHTML='<div class="cp-empty">Sign in to see your logbook.</div>'; return; }
+            if(MY.error){ body.innerHTML=`<div class="cp-empty">${escapeHtml(MY.error)}</div>`; return; }
+            if(!MY.flights.length){
+                body.innerHTML='<div class="cp-empty">Nothing logged yet. Every flight you file lands here.</div>';
+                return;
+            }
+            const t=MY.totals||{};
+            body.innerHTML=`
+                <div class="cp-card">
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${t.flights||0}</b>&nbsp;flights</span>
+                        <span class="cp-fact"><b>${hoursText(t.minutes)}</b>&nbsp;logged</span>
+                        ${t.pending?`<span class="cp-fact">${t.pending} awaiting review</span>`:''}
+                        ${t.rejected?`<span class="cp-fact">${t.rejected} rejected</span>`:''}
+                    </div>
+                </div>
+                <ul style="list-style:none;margin:0;padding:0">${MY.flights.map((f,i)=>flightRow(f,i)).join('')}</ul>`;
+            if(window.lucide) lucide.createIcons();
         }
         // ---- Events ----
         //
@@ -568,6 +859,9 @@
 
         (async function(){
             renderActions(); renderFlights(); renderNotices([]); readSession();
+            // The pilot's own flying — hours, rank, flights, logbook. Everything
+            // this page used to invent.
+            loadMyFlying();
             document.getElementById('pwForm').addEventListener('submit', submitNewPassword);
             checkPasswordGate();
             mountEvents();
