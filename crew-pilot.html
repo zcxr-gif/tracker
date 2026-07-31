@@ -6,7 +6,9 @@
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Guarded: see crew-dashboard.html. Without the CDN, `tailwind` is
+         undefined and this throws on every load. -->
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>

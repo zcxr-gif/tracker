@@ -402,7 +402,12 @@
             // Escape handler behind starts closing panels it does not own.
             document.addEventListener('keydown', onKey);
             lockScroll();
-            icons();
+            // Guarded, because it is the last thing between the lock and the
+            // caller. lucide throws on an icon name it does not know, and an
+            // exception escaping here would leave the page locked behind a
+            // panel that never finished opening — the white screen this file's
+            // safety net exists to catch. A missing icon is not worth that.
+            try { icons(); } catch (err) { console.warn('crewPanels: icons failed', err); }
         };
         const close = () => {
             if (!isOpen) return;
@@ -484,11 +489,77 @@
         </div>`;
     }
 
+    /* ---------------------------------------------------------------------
+     * THE SAFETY NET
+     *
+     * Reported as "the window doesn't load, the whole page just goes white".
+     *
+     * That symptom is not a panel that rendered nothing — an empty panel still
+     * leaves the dashboard behind it. It is the SCROLL LOCK left on. lockScroll
+     * takes the body out of flow (`position:fixed; top:-<scrollY>px`), which
+     * collapses the document to nothing; if whatever was going to render then
+     * throws, the lock is never released and what is left on screen is the page
+     * background. White. No content, no error, nothing to click.
+     *
+     * Every path through this file releases the lock properly, so this is not a
+     * fix for a known leak — it is the floor under all of them, including the
+     * ones in modules that call lockScroll directly and the ones a future panel
+     * will introduce. An uncaught error is exactly the moment nobody's `finally`
+     * ran, so it is exactly the moment to check.
+     *
+     * Deliberately narrow: it only unlocks when NOTHING is actually open. A
+     * panel that threw while rendering its body is still a panel the reader is
+     * looking at, and yanking the page back out from under it would be a second
+     * bug wearing the first one's clothes.
+     * ------------------------------------------------------------------- */
+
+    /** Is any panel, sheet or dialog currently on screen? */
+    function anythingOpen() {
+        return !!document.querySelector('.cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden), .cev-modal:not(.cev-hidden)');
+    }
+
+    /**
+     * Give the page back if it was locked for a panel that is not there.
+     *
+     * Returns true when it actually recovered something, so the caller can say
+     * so rather than leaving the reader wondering what just happened.
+     */
+    function recoverScroll() {
+        if (lockCount === 0 && document.body.style.position !== 'fixed') return false;
+        if (anythingOpen()) return false;
+        // Force it, whatever the counter thinks. The counter is the thing that
+        // got out of step; the body is the thing the reader is stuck behind.
+        lockCount = 1;
+        unlockScroll();
+        return true;
+    }
+
+    function onUncaught(what, err) {
+        // The console always gets the real error — this never swallows one.
+        console.error('crew center:', what, err);
+        // Only speak up when there was something to give back. Plenty of pages
+        // throw something harmless on load (a CDN that did not arrive, an
+        // extension), and a toast on every visit saying "something went wrong"
+        // would be noise that teaches people to ignore it — including the one
+        // time it is telling them why the screen went blank.
+        if (!recoverScroll()) return;
+        toast('Something went wrong opening that. The page has been given back — please try again.', 'bad');
+    }
+
+    window.addEventListener('error', (ev) => onUncaught('error', ev.error || ev.message));
+    window.addEventListener('unhandledrejection', (ev) => onUncaught('unhandled rejection', ev.reason));
+
+    // A last resort the reader can reach without the console: if the page is
+    // somehow still locked with nothing open, Escape gives it back.
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') recoverScroll();
+    });
+
     window.CrewPanels = {
         esc, safeUrl, icons,
         whenText, timeText, dayKey, dayLabel, relativeText, durationText,
         style, baseStyles, toast, sheet, api,
-        lockScroll, unlockScroll,
+        lockScroll, unlockScroll, recoverScroll,
         isSchemaGap, schemaGapHtml,
     };
 })();

@@ -6,7 +6,10 @@
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Guarded: if the Tailwind CDN did not arrive, `tailwind` is undefined and
+         this line throws on every page load — a real uncaught error that buries
+         the genuine ones underneath it in the console. -->
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
@@ -156,6 +159,18 @@
         #settings{ transition:opacity .25s; }
         #settings .panel{ transition:transform .3s cubic-bezier(.2,.8,.2,1); }
         #settings.hidden{ display:none; }
+        /* `hidden` is Tailwind's, and Tailwind is a CDN script. When it is
+           slow, blocked by a network or an ad blocker, or simply down, every
+           element this page hides by adding that class stops being hidden —
+           which means all eight settings panels render stacked on top of each
+           other, tabs that were gated by role appear, and the drawer becomes an
+           unreadable column. The page's own structure must not depend on a
+           third-party script arriving.
+
+           This is the same reasoning crewPanels.js applies with its `cp-hidden`
+           class, generalised: one rule, identical to Tailwind's own, so the
+           dashboard is laid out correctly before (or without) the CDN. */
+        .hidden{ display:none; }
         .lyt-opt{ transition:border-color .2s, background .2s; }
         .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
@@ -345,9 +360,9 @@
                     <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
                     <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
                     <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
+                    <button id="alertsTab" data-cat="alerts" onclick="setCat('alerts')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Alerts</button>
                     <button id="teamTab" data-cat="team" onclick="setCat('team')" class="settings-tab hidden flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Team</button>
                     <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
-                    <button id="storageTab" data-cat="storage" onclick="setCat('storage')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Storage</button>
                 </div>
             </div>
             <div class="p-5">
@@ -551,7 +566,15 @@
                     <p id="embedNote" class="hidden text-sm mt-2"></p>
                 </div>
 
-                <!-- Notifications: how you + applicants hear about decisions -->
+              </div><!-- /recruit -->
+
+              <!-- Alerts.
+                   These were filed under Recruit, which is where they were
+                   added rather than where they belong: one Discord webhook
+                   carries applications AND flight reports AND route changes,
+                   so an owner looking for "where do I change the flight-report
+                   channel" had no reason to open a tab about joining. -->
+              <div data-panel="alerts" class="space-y-6 hidden">
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Notifications</h3>
                     <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
@@ -661,7 +684,7 @@
                         <p id="emailNote" class="hidden text-sm mt-2"></p>
                     </div>
                 </div>
-              </div><!-- /recruit -->
+              </div><!-- /alerts -->
 
               <div data-panel="team" class="space-y-6 hidden">
                 <!-- Staff roles: owner names them and picks what they can do -->
@@ -964,6 +987,49 @@
                     </div>
                 </details>
               </div><!-- /storage -->
+
+              <!-- ===============================================================
+                   MANAGE & DELETE
+                   The other half of the storage advice. "Old flight reports are
+                   almost always the biggest thing, export them and remove them"
+                   has been sitting in the panel above with no way to remove
+                   them except one bin at a time, four years deep.
+
+                   Owner only, and the server enforces that rather than trusting
+                   this markup. Every number shown here is counted by the VA's
+                   own project before anything is deleted, so nobody is asked to
+                   approve a purge without being told its size first.
+              ================================================================ -->
+              <div data-panel="datamanage" class="space-y-6 hidden">
+                <div id="dataManageBlock">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Manage &amp; delete</h3>
+                    <p class="text-xs muted mb-3">What is in your database, and how to clear out what you no longer need. This deletes from <b>your</b> Supabase project and cannot be undone — export anything you want to keep first.</p>
+
+                    <!-- The age filter drives every row's "would delete" count,
+                         so the choice is made once and its effect is visible on
+                         everything at the same time. -->
+                    <div class="rounded-xl hair surface p-4 mb-3">
+                        <label for="purgeAge" class="block text-xs font-semibold uppercase tracking-wider faint mb-2">Older than</label>
+                        <div class="flex items-center gap-2">
+                            <select id="purgeAge" onchange="refreshDataSummary()" class="flex-1 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <option value="90">3 months</option>
+                                <option value="180">6 months</option>
+                                <option value="365" selected>1 year</option>
+                                <option value="730">2 years</option>
+                                <option value="1095">3 years</option>
+                            </select>
+                            <button onclick="refreshDataSummary()" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh</button>
+                        </div>
+                        <p class="text-[11px] faint mt-2">Rows with no date of their own — a report never given a flight date, an undated event — are included, or nothing would ever reach them.</p>
+                    </div>
+
+                    <p id="dataManageLoading" class="text-sm muted">Counting what is in your database…</p>
+                    <div id="dataManageList" class="space-y-2"></div>
+                    <p id="dataManageNote" class="hidden text-sm mt-3"></p>
+
+                    <p class="text-[11px] faint mt-3">The roster, your route network and pilot logins are deliberately not here. Removing those is not housekeeping, and each has its own screen where the consequences are visible.</p>
+                </div>
+              </div><!-- /datamanage -->
 
                 <p id="settingsNote" class="hidden text-sm mt-4"></p>
             </div>
@@ -1575,6 +1641,16 @@
         }
 
         // ---- Settings panel ----
+        //
+        // Which panels a tab shows. Everything is one-to-one except Data, which
+        // is three sections of the same subject that used to be two tabs (and
+        // one missing feature): the Supabase connection, how much room it is
+        // using, and getting rid of what is no longer wanted.
+        const TAB_PANELS={
+            appearance:['appearance'], crew:['crew'], recruit:['recruit'],
+            alerts:['alerts'], team:['team'],
+            data:['data','storage','datamanage'],
+        };
         function setCat(cat){
             let tab=document.querySelector(`.settings-tab[data-cat="${cat}"]`);
             // Don't land on a hidden/absent tab — fall back to the first visible one.
@@ -1583,12 +1659,18 @@
                 if(first) cat=first.getAttribute('data-cat');
             }
             document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
-            document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
-            // Storage is read from the VA's project, so it is fetched when the
-            // tab is opened rather than on every dashboard load — nobody should
-            // pay a round trip to somebody else's database for a screen they
-            // are not looking at.
-            if(cat==='storage') refreshStorage();
+            // One tab can hold several panels. Data does: connecting a project,
+            // how full it is, and clearing things out of it are three sections
+            // of one subject, and splitting them across two tabs was the thing
+            // that made "where do I do X to my data" a guess.
+            const show=new Set(TAB_PANELS[cat]||[cat]);
+            document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', !show.has(p.getAttribute('data-panel'))));
+            // Both of these read from the VA's own project, so they are fetched
+            // when the tab is opened rather than on every dashboard load —
+            // nobody should pay a round trip to somebody else's database for a
+            // screen they are not looking at.
+            if(show.has('storage')) refreshStorage();
+            if(show.has('datamanage')) refreshDataSummary();
         }
         // `cat` lands the panel on a specific tab — the onboarding nudge sends
         // an owner straight to Data store, since that is the whole point of it.
@@ -4307,6 +4389,137 @@
             document.getElementById('storageEmptyBtn').classList.toggle('hidden', !offerUpgrade);
         }
 
+        /* ================================================================
+           MANAGE & DELETE
+
+           Counting first, always. Every row here says how much a purge would
+           take BEFORE it is run, because "delete flight reports older than a
+           year" means nothing until you know whether that is nine rows or
+           nine thousand — and by the time it is a surprise it is a restore
+           from backup, not an undo.
+           ================================================================ */
+
+        let DATA_SUMMARY_LOADED=false;
+
+        const purgeAgeDays=()=>parseInt(document.getElementById('purgeAge').value,10)||365;
+
+        async function refreshDataSummary(){
+            const list=document.getElementById('dataManageList');
+            const loading=document.getElementById('dataManageLoading');
+            if(!list) return;
+            const sess=sessionToken(), slug=getSlug();
+            if(!slug||!sess){ loading.textContent='Sign in to manage your data.'; list.innerHTML=''; return; }
+
+            loading.classList.remove('hidden');
+            loading.textContent='Counting what is in your database…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/data?olderThanDays=${purgeAgeDays()}`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ loading.textContent=d.error||'Could not read what is in your data.'; list.innerHTML=''; return; }
+                DATA_SUMMARY_LOADED=true;
+                loading.classList.add('hidden');
+                renderDataSummary(d);
+            }catch{
+                loading.textContent='Could not reach the server.';
+                list.innerHTML='';
+            }
+        }
+
+        function renderDataSummary(d){
+            const list=document.getElementById('dataManageList');
+            const days=d.olderThanDays||purgeAgeDays();
+            list.innerHTML=(d.datasets||[]).map(s=>{
+                // A dataset this project does not have is shown, greyed, rather
+                // than hidden — "where did my events go" is a worse question
+                // than "this database has no events table".
+                if(s.unsupported||s.unavailable){
+                    return `<div class="rounded-xl hair surface p-3.5 opacity-60">
+                        <div class="text-sm font-semibold">${escapeHtml(s.label)}</div>
+                        <div class="text-xs muted mt-0.5">${escapeHtml(s.unsupported?'Not stored in this database.':(s.reason||'Could not read this.'))}</div>
+                    </div>`;
+                }
+                const n=s.matching||0, total=s.total||0;
+                const cap=s.totalCapped?'+':'';
+                return `<div class="rounded-xl hair surface p-3.5">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold">${escapeHtml(s.label)}</div>
+                            <div class="text-xs muted mt-0.5">${total}${cap} in total · <b>${n}${s.matchingCapped?'+':''}</b> older than ${days} days</div>
+                        </div>
+                        <div class="flex gap-1.5 shrink-0">
+                            <button data-purge="${escapeHtml(s.id)}" ${n?'':'disabled'}
+                                class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${n?'hover:border-red-500 hover:text-red-500':'opacity-40 cursor-default'}">Delete ${n||'none'}</button>
+                            <button data-wipe="${escapeHtml(s.id)}" ${total?'':'disabled'}
+                                title="Delete every one of these"
+                                class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${total?'hover:border-red-500 hover:text-red-500':'opacity-40 cursor-default'}">All</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')||'<p class="text-sm muted">Nothing to manage yet.</p>';
+
+            list.querySelectorAll('[data-purge]').forEach(b=>b.addEventListener('click',()=>purgeData(b.getAttribute('data-purge'),false)));
+            list.querySelectorAll('[data-wipe]').forEach(b=>b.addEventListener('click',()=>purgeData(b.getAttribute('data-wipe'),true)));
+            if(window.lucide) lucide.createIcons();
+        }
+
+        async function purgeData(dataset,all){
+            const d=(await currentDataSummary())||{};
+            const set=(d.datasets||[]).find(s=>s.id===dataset);
+            const label=set?set.label.toLowerCase():dataset;
+            const days=purgeAgeDays();
+            const n=set?(all?set.total:set.matching):0;
+
+            // A wipe types the dataset name back. The by-age path and the wipe
+            // path differ by one field, so the confirmation is what makes them
+            // feel like the different decisions they are — and the server asks
+            // for the same word, so a client bug cannot skip it.
+            let body;
+            if(all){
+                const typed=window.prompt(`Delete ALL ${n} ${label}? This cannot be undone.\n\nType “${dataset}” to confirm.`);
+                if(typed===null) return;
+                if(typed.trim()!==dataset){ dataNote('That didn’t match — nothing was deleted.',false); return; }
+                body={ all:true, confirm:dataset };
+            }else{
+                if(!window.confirm(`Delete ${n} ${label} older than ${days} days?\n\nThis removes them from your Supabase project and cannot be undone.`)) return;
+                body={ olderThanDays:days };
+            }
+
+            dataNote('Deleting…',null);
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/data/${encodeURIComponent(dataset)}/purge`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sessionToken()},
+                    body:JSON.stringify(body) });
+                const out=await res.json().catch(()=>({}));
+                if(!res.ok){ dataNote(out.error||'Could not delete that.',false); return; }
+                dataNote(`Deleted ${out.deleted} ${label}.`,true);
+                DATA_SUMMARY_LOADED=false;
+                refreshDataSummary();
+                // The bar next door is now wrong — a purge is the one thing that
+                // moves it, and leaving it stale would make the deletion look
+                // like it did nothing.
+                refreshStorage(true);
+            }catch{ dataNote('Could not reach the server.',false); }
+        }
+
+        /** The counts as last rendered, re-read so a confirmation names a live number. */
+        async function currentDataSummary(){
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/data?olderThanDays=${purgeAgeDays()}`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sessionToken()} });
+                return res.ok?await res.json():null;
+            }catch{ return null; }
+        }
+
+        function dataNote(msg,ok){
+            const n=document.getElementById('dataManageNote');
+            if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-3 '+(ok===true?'text-emerald-600 dark:text-emerald-400':ok===false?'text-red-500':'muted');
+            n.classList.remove('hidden');
+        }
+
         async function refreshStorage(force){
             const host=document.getElementById('storageBody'); if(!host) return;
             if(STORAGE_LOADED && !force) return;
@@ -4566,13 +4779,17 @@
                 // which are separate powers — a schedule manager who cannot
                 // rebrand the crew center still has to reach their own settings.
                 crew:can('settings.branding')||can('schedules.manage'),
-                recruit:can('settings.recruitment')||can('settings.notifications'),
-                team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()),
-                // Storage is deliberately wider than Data: connecting a database
-                // is the owner's business, but noticing it is nearly full is
-                // whoever runs the airline day to day. It shows sizes and row
-                // counts — nothing that is in a row.
-                storage:(IS_OWNER||can('settings.notifications')||!sessionToken()) };
+                // Recruit is now only about joining — the Discord webhook moved
+                // to Alerts, so this no longer needs the notifications power.
+                recruit:can('settings.recruitment'),
+                alerts:can('settings.notifications'),
+                team:(IS_OWNER||!sessionToken()),
+                // Data now carries the connection, the storage report AND bulk
+                // deletion. The storage report used to be its own, wider tab —
+                // it shows sizes and row counts, nothing that is in a row — so
+                // that audience is kept, and the two owner-only blocks inside
+                // hide themselves for anybody else (see applyDataSectionState).
+                data:(IS_OWNER||can('settings.notifications')||!sessionToken()) };
             document.querySelectorAll('.settings-tab').forEach(t=>{
                 const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
             });
@@ -4582,6 +4799,17 @@
                 const first=document.querySelector('.settings-tab:not(.hidden)');
                 if(first) setCat(first.getAttribute('data-cat'));
             }
+            // Within the Data tab, the connection and the bulk-delete blocks are
+            // the owner's alone — a schedule manager who can see how full the
+            // database is has no business connecting it elsewhere or emptying
+            // it. The storage report between them stays visible to both, which
+            // is the whole reason the tab is wider than its owner-only parts.
+            const owns=IS_OWNER||!sessionToken();
+            const dataConn=document.getElementById('dataSection');
+            const dataManage=document.getElementById('dataManageBlock');
+            if(dataConn) dataConn.classList.toggle('cp-hidden', !owns);
+            if(dataManage) dataManage.classList.toggle('cp-hidden', !owns);
+
             // Within the Crew tab, show only the parts this person may change.
             const structure=document.getElementById('crewStructureBlock');
             const schedule=document.getElementById('crewScheduleBlock');
