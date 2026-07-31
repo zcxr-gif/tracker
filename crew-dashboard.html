@@ -693,7 +693,8 @@
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
                         <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
-                    <p class="text-xs muted mb-3">Name a role and tick exactly what it can do. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
+                    <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. Roles belong to this crew center only; another VA’s roles are its own.</p>
+                    <p class="text-xs muted mb-3">Only you, the owner, can see or change this. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
 
                     <!-- Presets. The permission system worked before this and
                          almost nobody used it, because it asked a volunteer
@@ -1408,16 +1409,62 @@
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
+        // What each tool tile needs before it is worth offering. Keyed by the
+        // tile's action; the ids are crewAuth.js's CREW_CAPABILITIES.
+        const TILE_CAP={
+            roster:'roster.manage',
+            routes:'routes.manage',
+            schedule:'schedules.manage',
+            notices:'announcements.manage',
+            embeds:'settings.branding',
+            partnership:'partnership.view',
+            // events / pireps: readable by any crew member, staff controls
+            // inside are gated by the server's own canManage.
+        };
+        // Settings is worth opening if ANY of its tabs is reachable. Kept in
+        // step with applyCapState's `vis` map — both answer the same question.
+        // The tile set as last drawn, so a repeat render can be skipped.
+        let TILES_DRAWN='';
+        function canReachAnySettings(){
+            return IS_OWNER || !sessionToken()
+                || can('settings.branding') || can('schedules.manage')
+                || can('settings.recruitment') || can('settings.notifications');
+        }
         function renderTiles(){
             const tools=TOOLS.filter(t=>{
                 // A VA that has switched the schedule off gets no Schedules tile.
                 if(t.action==='schedule' && SCHEDULE_PREFS.enabled===false) return false;
-                // The partnership is the owner's business unless they have given
-                // a role access to it. Offering a tile that answers 403 is worse
-                // than not offering it.
-                if(t.action==='partnership' && !can('partnership.view')) return false;
+                // Every tile is gated on the capability its panel actually
+                // needs. Only Partnership was, which meant a staff member hired
+                // to review flight reports still saw Roster, Routes, Embeds and
+                // Settings — tiles that open, load somebody else's job, and
+                // answer 403 on the first button pressed. Offering a control
+                // that cannot work is worse than not offering it.
+                //
+                // TILE_CAP lists what each one needs; a tile with no entry
+                // (Events, Flights) is readable by any signed-in crew member,
+                // because seeing the calendar and the flight log is not a staff
+                // power — the panels get `canManage` from the server and hide
+                // their own staff controls.
+                const need=TILE_CAP[t.action];
+                if(need && !can(need)) return false;
+                // Settings is not one capability but several. Anybody with at
+                // least one settings tab gets the tile; somebody with none
+                // would otherwise open an empty drawer.
+                if(t.action==='settings' && !canReachAnySettings()) return false;
                 return true;
             });
+
+            // Redraw only when the set actually changed. This runs once at boot
+            // and again when /me lands, and rewriting innerHTML the second time
+            // replaces every tile node — which flashes the grid and drops any
+            // click that was mid-flight against the old nodes. For the common
+            // case (an owner, where both passes agree) the second call now does
+            // nothing at all.
+            const key=tools.map(t=>t.action).join(',');
+            if(key===TILES_DRAWN) return;
+            TILES_DRAWN=key;
+
             document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
@@ -4760,6 +4807,27 @@
                 if(res.status===401||res.status===403){ logout(); return; }
                 if(!res.ok) return;
                 const d=await res.json();
+
+                // A pilot does not belong on the staff dashboard.
+                //
+                // crew.html routes by view at sign-in, but that is the only
+                // thing that was stopping a pilot getting here — a bookmark, a
+                // shared link, the back button or a deep link from the app all
+                // land on this page with a perfectly valid pilot session. The
+                // tabs were gated by capability, but the tool tiles were not,
+                // so a pilot saw Roster, Routes, Flights, Embeds and Settings
+                // and every one of them opened.
+                //
+                // The server refuses the writes behind them, so this was never
+                // a way to CHANGE anything. It is still the airline's staff
+                // room, and a pilot should be in their own crew center.
+                if(d.view==='pilot'){
+                    const qs=new URLSearchParams(location.search);
+                    const va=qs.get('va')||getSlug();
+                    location.replace(`/crew-pilot.html?va=${encodeURIComponent(va)}`);
+                    return;
+                }
+
                 IS_OWNER = !!(d.role==='owner' || d.oversight);
                 CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
                 CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
@@ -4816,6 +4884,10 @@
             if(structure) structure.classList.toggle('cp-hidden', !can('settings.branding'));
             if(schedule) schedule.classList.toggle('cp-hidden', !can('schedules.manage'));
             if(ME_LOADED){ renderRolePresets(); renderStaffRoles(); renderAssignments(); }
+            // The tiles are gated on the same capabilities, and they are drawn
+            // once before /me answers — when CAPS is still empty and everything
+            // would be hidden. Redraw now that we know who this is.
+            renderTiles();
         }
 
         // Owner-only editors for staff roles + assignments.
@@ -4858,13 +4930,21 @@
             const groups={};
             CAP_CATALOG.forEach(c=>{ (groups[c.group]=groups[c.group]||[]).push(c); });
             const perms=new Set(r.permissions||[]);
-            const groupHtml=Object.entries(groups).map(([g,caps])=>`
+            // No catalogue, no tick boxes — and until now, no explanation
+            // either: the role card drew its name and colour and simply had
+            // nothing underneath, which reads as "this VA has no permissions"
+            // rather than "the list did not arrive". /me carries the catalogue
+            // on every response, so an empty one means that call failed or the
+            // backend predates it.
+            const groupHtml=CAP_CATALOG.length ? Object.entries(groups).map(([g,caps])=>`
                 <div class="mt-2">
                     <div class="text-[11px] uppercase tracking-wide faint mb-1">${escapeHtml(g)}</div>
                     ${caps.map(c=>`<label class="flex items-start gap-2 text-sm py-0.5 cursor-pointer">
                         <input type="checkbox" data-perm="${escapeHtml(c.id)}" ${perms.has(c.id)?'checked':''} class="mt-0.5 accent-[var(--accent)]">
                         <span>${escapeHtml(c.label)}</span></label>`).join('')}
-                </div>`).join('');
+                </div>`).join('')
+                : `<p class="text-xs mt-2 text-red-500">Couldn’t load the permission list, so there is nothing to tick.
+                    Reload the page; if it stays empty your crew center backend may be out of date.</p>`;
             return `<div class="surface hair rounded-xl p-3.5" data-role="${i}">
                 <div class="flex items-center gap-2">
                     <input type="color" data-rf="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair shrink-0 bg-transparent cursor-pointer" title="Role colour">
