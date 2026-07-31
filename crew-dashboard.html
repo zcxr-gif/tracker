@@ -1404,6 +1404,7 @@
             {icon:'calendar-clock',label:'Schedules',desc:'Departures & bookings',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
+            {icon:'chart-column',label:'Statistics',desc:'Routes, pilots & activity',action:'insights'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew',action:'notices'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
@@ -1418,6 +1419,9 @@
             notices:'announcements.manage',
             embeds:'settings.branding',
             partnership:'partnership.view',
+            // Statistics name individual pilots and rank them, which is roster
+            // business — the same gate the endpoint enforces.
+            insights:'flights.review',
             // events / pireps: readable by any crew member, staff controls
             // inside are gated by the server's own canManage.
         };
@@ -1481,6 +1485,7 @@
                 if(t.action==='notices') el.addEventListener('click', openNotices);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
+                if(t.action==='insights') el.addEventListener('click', openInsights);
             });
         }
 
@@ -1630,6 +1635,160 @@
             // do not use the schedule.
             if(btn) btn.classList.toggle('cp-hidden', !on);
             renderTiles();
+        }
+
+        /* ================================================================
+           STATISTICS
+
+           What this airline's flying actually looks like, from
+           GET /api/crew/<slug>/insights.
+
+           Separate from the /stats figures on the public page: those answer
+           "how big is this VA". These answer the questions a VA asks about
+           its own operation — which routes people really fly, who is carrying
+           the airline this month, and which published routes nobody has ever
+           touched.
+
+           Only approved reports are counted, and the panel says so. A
+           leaderboard built on unreviewed filings would reward filing.
+           ================================================================ */
+        let insightsPanel=null, INSIGHT_DAYS=90, INSIGHTS=null;
+
+        function openInsights(){
+            if(!window.CrewPanels) return;
+            if(!insightsPanel){
+                insightsPanel=CrewPanels.sheet({ id:'insPanel', title:'Statistics', icon:'chart-column', wide:true });
+            }
+            insightsPanel.open();
+            renderInsights();
+            loadInsights();
+        }
+
+        async function loadInsights(){
+            const slug=getSlug(), sess=sessionToken();
+            if(!slug||!sess) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/insights?days=${INSIGHT_DAYS}`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                INSIGHTS = res.ok ? d : { error: d.error||'Could not work out your statistics.' };
+            }catch{ INSIGHTS={ error:'Could not reach the server.' }; }
+            renderInsights();
+        }
+
+        function setInsightDays(d){ INSIGHT_DAYS=d; INSIGHTS=null; renderInsights(); loadInsights(); }
+
+        const insHours=(h)=>`${Math.round((Number(h)||0)*10)/10}h`;
+        function insTable(rows,cols,empty){
+            if(!rows||!rows.length) return `<p class="text-sm muted py-2">${escapeHtml(empty)}</p>`;
+            return `<div class="overflow-x-auto"><table class="w-full text-sm" style="border-collapse:collapse">
+                <thead><tr>${cols.map(c=>`<th class="text-left text-[11px] uppercase tracking-wider faint font-semibold pb-1.5 ${c.num?'text-right':''}">${escapeHtml(c.label)}</th>`).join('')}</tr></thead>
+                <tbody>${rows.map((r,i)=>`<tr class="${i?'border-t hair-soft':''}">${cols.map(c=>
+                    `<td class="py-1.5 ${c.num?'text-right tabular-nums':''}">${c.cell(r)}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
+        function renderInsights(){
+            const body=insightsPanel.body;
+            const chips=[[30,'30 days'],[90,'90 days'],[365,'1 year'],[0,'All time']].map(([d,l])=>
+                `<button data-insdays="${d}" class="px-2.5 py-1 rounded-md text-xs font-semibold ${d===INSIGHT_DAYS?'accent-bg text-white':'surface hair'}">${l}</button>`).join('');
+            const header=`<div class="flex flex-wrap items-center gap-1.5 mb-3">${chips}</div>`;
+
+            if(!INSIGHTS){ body.innerHTML=header+'<div class="cp-empty">Working out your statistics…</div>'; wireInsights(body); return; }
+            if(INSIGHTS.error){ body.innerHTML=header+`<div class="cp-empty">${escapeHtml(INSIGHTS.error)}</div>`; wireInsights(body); return; }
+
+            const d=INSIGHTS, t=d.totals||{}, cov=d.coverage||{}, crew=d.crew||{};
+            const period=INSIGHT_DAYS?`the last ${INSIGHT_DAYS} days`:'all time';
+
+            // The monthly bars. Plain divs rather than a chart library — twelve
+            // numbers do not need 60KB of JavaScript, and this keeps working
+            // when a CDN does not.
+            const months=d.monthly||[];
+            const peak=Math.max(1,...months.map(m=>m.flights));
+            const chart=`<div class="flex items-end gap-1 h-24 mt-2">${months.map(m=>`
+                <div class="flex-1 flex flex-col justify-end items-center gap-1" title="${escapeHtml(m.month)}: ${m.flights} flights, ${insHours(m.hours)}">
+                    <div class="w-full rounded-t accent-bg" style="height:${Math.round((m.flights/peak)*100)}%;min-height:${m.flights?'2px':'0'}"></div>
+                    <span class="text-[9px] faint">${escapeHtml(m.month.slice(5))}</span>
+                </div>`).join('')}</div>`;
+
+            body.innerHTML=header+`
+                <div class="cp-card">
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${t.flights||0}</b>&nbsp;flights</span>
+                        <span class="cp-fact"><b>${insHours(t.hours)}</b>&nbsp;flown</span>
+                        <span class="cp-fact"><b>${t.pilotsFlying||0}</b>&nbsp;pilots flying</span>
+                        <span class="cp-fact"><b>${(t.distanceNm||0).toLocaleString()}</b>&nbsp;nm</span>
+                        <span class="cp-fact"><b>${t.landings||0}</b>&nbsp;landings</span>
+                    </div>
+                    <p class="cp-note">Approved flight reports over ${escapeHtml(period)}${d.counted?` — ${d.counted.approved} of ${d.counted.reports} reports have been approved`:''}. Pending and rejected reports are not counted.</p>
+                </div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Flights by month</h3>${chart}
+                    <p class="cp-note">All time, so a quiet stretch is visible rather than cropped out.</p></div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Most flown routes</h3>
+                    ${insTable(d.topRoutes,[
+                        {label:'Route',cell:r=>`<b>${escapeHtml(r.origin)} → ${escapeHtml(r.destination)}</b>`},
+                        {label:'Flights',num:true,cell:r=>r.flights},
+                        {label:'Hours',num:true,cell:r=>insHours(r.hours)},
+                        {label:'Pilots',num:true,cell:r=>r.pilots},
+                    ],'Nothing flown in this period.')}</div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Most active pilots</h3>
+                    ${insTable(d.topPilots,[
+                        {label:'Pilot',cell:p=>`${escapeHtml(p.name)}${p.callsign?` <span class="cp-faint">${escapeHtml(p.callsign)}</span>`:''}${p.onRoster?'':' <span class="cp-faint">(left)</span>'}`},
+                        {label:'Flights',num:true,cell:p=>p.flights},
+                        {label:'Hours',num:true,cell:p=>insHours(p.hours)},
+                        {label:'Landings',num:true,cell:p=>p.landings},
+                    ],'Nobody has flown in this period.')}
+                    <p class="cp-note">Ranked by flights in this period — not by career hours, which never go down.</p></div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Busiest airports</h3>
+                    ${insTable(d.topAirports,[
+                        {label:'Airport',cell:a=>`<b>${escapeHtml(a.icao)}</b>`},
+                        {label:'Departures',num:true,cell:a=>a.departures},
+                        {label:'Arrivals',num:true,cell:a=>a.arrivals},
+                        {label:'Movements',num:true,cell:a=>a.movements},
+                    ],'No movements in this period.')}</div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Most flown aircraft</h3>
+                    ${insTable(d.topAircraft,[
+                        {label:'Aircraft',cell:a=>escapeHtml(a.aircraft)},
+                        {label:'Flights',num:true,cell:a=>a.flights},
+                        {label:'Hours',num:true,cell:a=>insHours(a.hours)},
+                    ],'No aircraft recorded in this period.')}</div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Your network</h3>
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${cov.routes||0}</b>&nbsp;active routes</span>
+                        <span class="cp-fact"><b>${cov.flown||0}</b>&nbsp;flown at least once</span>
+                        <span class="cp-fact"><b>${cov.neverFlown||0}</b>&nbsp;never flown</span>
+                    </div>
+                    ${(cov.examples&&cov.examples.length)?`<p class="cp-note">Never flown by anybody: ${
+                        cov.examples.map(r=>escapeHtml(`${r.origin}→${r.destination}`)).join(', ')}${cov.neverFlown>cov.examples.length?`, and ${cov.neverFlown-cov.examples.length} more`:''}.</p>`
+                        :'<p class="cp-note">Every active route has been flown at least once.</p>'}
+                    <p class="cp-note">All time, not this period — a route nobody flew last month is normal; one nobody has <i>ever</i> flown is the finding.</p></div>
+
+                <div class="cp-card"><h3 class="cp-card-title">The crew, last 30 days</h3>
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${crew.joins||0}</b>&nbsp;joined</span>
+                        <span class="cp-fact"><b>${crew.promotions||0}</b>&nbsp;promoted</span>
+                        <span class="cp-fact"><b>${crew.checkrides||0}</b>&nbsp;check-rides</span>
+                        <span class="cp-fact"><b>${crew.eventsPublished||0}</b>&nbsp;events published</span>
+                        <span class="cp-fact"><b>${crew.schedulesPublished||0}</b>&nbsp;schedules published</span>
+                    </div>
+                    <p class="cp-note">From the noticeboard's own record — the same events your Discord webhook announces. The webhook posts and forgets; these rows are the durable copy.</p></div>`;
+            CrewPanels.icons();
+            wireInsights(body);
+        }
+
+        function wireInsights(body){
+            if(body.dataset.insWired) return;
+            body.dataset.insWired='1';
+            body.addEventListener('click',e=>{
+                const b=e.target.closest('[data-insdays]');
+                if(b) setInsightDays(parseInt(b.getAttribute('data-insdays'),10));
+            });
         }
 
         // ---- Embeds & partnership ----
