@@ -131,12 +131,13 @@ global.localStorage = {
     getItem: (k) => (k in store ? store[k] : null),
     setItem: (k, v) => { store[k] = String(v); },
 };
-const filterSrc = slice("const VA_EVENT_FILTER_KEY", 'function renderVaEventVaPicker');
+const filterSrc = slice('var vaEventVaFilterSet = null;', 'function renderVaEventVaPicker');
 const sandbox = {};
 // eslint-disable-next-line no-new-func
-new Function('localStorage', `${filterSrc}; this.loadVaEventVaFilter = loadVaEventVaFilter;
-    this.get = () => vaEventVaFilter; this.set = (s) => { vaEventVaFilter = s; };
-    this.save = saveVaEventVaFilter; this.passes = vaEventPassesFilter;`).call(sandbox, global.localStorage);
+new Function('localStorage', `${filterSrc};
+    this.load = () => { vaEventVaFilterSet = null; return getVaEventVaFilter(); };
+    this.set = setVaEventVaFilter;
+    this.passes = vaEventPassesFilter;`).call(sandbox, global.localStorage);
 
 const evOf = (id) => ({ va: { id } });
 
@@ -154,14 +155,13 @@ ok('a chosen set hides the others', () => {
 
 ok('the choice persists', () => {
     sandbox.set(new Set(['a', 'c']));
-    sandbox.save();
-    const reloaded = sandbox.loadVaEventVaFilter();
+    const reloaded = sandbox.load();
     assert.deepStrictEqual([...reloaded].sort(), ['a', 'c']);
 });
 
 ok('a corrupt stored value falls back to "all" rather than throwing', () => {
     store['inflight:vaEventVaFilter'] = 'not json';
-    assert.strictEqual(sandbox.loadVaEventVaFilter().size, 0);
+    assert.strictEqual(sandbox.load().size, 0);
 });
 
 ok('"None" is a real choice, not the same as unset', () => {

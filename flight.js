@@ -18520,12 +18520,22 @@ renderCategory(catId) {
         // so it refreshes itself rather than going through updateMapFilters.
         // The airline picker. Painted from whatever the feed last returned, and
         // repainted once it lands if the panel was opened before that.
+        // Deferred and guarded, on purpose. This runs while flight.js is still
+        // evaluating top-to-bottom, and everything it touches is defined ~8,000
+        // lines further down. A microtask puts it after evaluation finishes, and
+        // the try/catch means a mistake here can never again escape into the
+        // init chain and stop the map from loading.
         const vaEventPickerHost = document.getElementById('va-event-va-picker');
-        if (vaEventPickerHost && typeof renderVaEventVaPicker === 'function') {
-            renderVaEventVaPicker(vaEventPickerHost);
-            if (!(vaEventCache.vas || []).length && typeof fetchUpcomingVaEvents === 'function') {
-                fetchUpcomingVaEvents().then(() => renderVaEventVaPicker(vaEventPickerHost)).catch(() => {});
-            }
+        if (vaEventPickerHost) {
+            Promise.resolve().then(() => {
+                if (typeof renderVaEventVaPicker !== 'function') return;
+                renderVaEventVaPicker(vaEventPickerHost);
+                if (typeof fetchUpcomingVaEvents === 'function') {
+                    fetchUpcomingVaEvents()
+                        .then(() => renderVaEventVaPicker(vaEventPickerHost))
+                        .catch(() => {});
+                }
+            }).catch((err) => console.warn('VA event picker:', err));
         }
 
         const vaEventToggle = document.getElementById('set-va-event-markers');
@@ -26166,7 +26176,9 @@ window.renderVaHubMarkers = renderVaHubMarkers;
 
 let vaEventMarkers = [];
 let vaEventStylesInjected = false;
-let vaEventCache = { at: 0, events: [], vas: [] };
+// `var`, not `let`: the settings panel reads this while flight.js is still
+// evaluating, which is above this line. See the note on vaEventVaFilterSet.
+var vaEventCache = { at: 0, events: [], vas: [] };
 let vaEventRefreshTimer = null;
 const VA_EVENT_CACHE_MS = 5 * 60 * 1000;
 
@@ -26488,23 +26500,42 @@ window.openVaEventWindow = openVaEventWindow;
  * set means "all" — so somebody who has never opened this picker keeps the
  * behaviour they had, and it does not silently hide everything on first run.
  * ------------------------------------------------------------------------- */
-const VA_EVENT_FILTER_KEY = 'inflight:vaEventVaFilter';
+// `var` and function declarations, deliberately, not const/let.
+//
+// This block sits ~8,000 lines below the settings panel that reads it, and the
+// panel is wired while flight.js is still evaluating top-to-bottom. A `const`
+// or `let` here is in its temporal dead zone at that moment, so touching it
+// from up there throws ReferenceError — which happens inside the init chain and
+// takes the whole map down with it. That is exactly why the surrounding code
+// reaches for everything in this section through `typeof x === 'function'`
+// guards on hoisted declarations.
+//
+// var hoists to `undefined` rather than trapping, and the accessor below fills
+// it in on first use, so this is safe to call from anywhere at any time.
+var vaEventVaFilterSet = null;
 
-function loadVaEventVaFilter() {
+function vaEventFilterKey() { return 'inflight:vaEventVaFilter'; }
+
+/** The chosen airlines, read from storage once and then cached. */
+function getVaEventVaFilter() {
+    if (vaEventVaFilterSet) return vaEventVaFilterSet;
     try {
-        const raw = JSON.parse(localStorage.getItem(VA_EVENT_FILTER_KEY) || '[]');
-        return new Set(Array.isArray(raw) ? raw.map(String) : []);
-    } catch (_) { return new Set(); }
+        const raw = JSON.parse(localStorage.getItem(vaEventFilterKey()) || '[]');
+        vaEventVaFilterSet = new Set(Array.isArray(raw) ? raw.map(String) : []);
+    } catch (_) { vaEventVaFilterSet = new Set(); }
+    return vaEventVaFilterSet;
 }
-let vaEventVaFilter = loadVaEventVaFilter();
 
-function saveVaEventVaFilter() {
-    try { localStorage.setItem(VA_EVENT_FILTER_KEY, JSON.stringify([...vaEventVaFilter])); } catch (_) {}
+function setVaEventVaFilter(next) {
+    vaEventVaFilterSet = next;
+    try { localStorage.setItem(vaEventFilterKey(), JSON.stringify([...next])); } catch (_) {}
 }
 
 /** Empty = every airline. Used by the map and the picker alike. */
-const vaEventPassesFilter = (ev) =>
-    vaEventVaFilter.size === 0 || vaEventVaFilter.has(String(ev.va && ev.va.id));
+function vaEventPassesFilter(ev) {
+    const f = getVaEventVaFilter();
+    return f.size === 0 || f.has(String(ev && ev.va && ev.va.id));
+}
 
 /**
  * The picker. Rendered into whatever container the caller gives it, so the
@@ -26539,20 +26570,19 @@ function renderVaEventVaPicker(host) {
         const id = String(cb.getAttribute('data-vaef'));
         // The first deliberate choice turns "empty means all" into an explicit
         // set, so unticking one airline does not read as unticking every one.
-        if (vaEventVaFilter.size === 0) vaEventVaFilter = new Set(vas.map(v => String(v.id)));
-        if (cb.checked) vaEventVaFilter.add(id); else vaEventVaFilter.delete(id);
-        saveVaEventVaFilter();
+        let next = getVaEventVaFilter();
+        if (next.size === 0) next = new Set(vas.map(v => String(v.id)));
+        if (cb.checked) next.add(id); else next.delete(id);
+        setVaEventVaFilter(next);
         if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
     }));
     host.querySelector('[data-vaef-all]')?.addEventListener('click', () => {
-        vaEventVaFilter = new Set();          // empty = all
-        saveVaEventVaFilter();
+        setVaEventVaFilter(new Set());          // empty = all
         renderVaEventVaPicker(host);
         if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
     });
     host.querySelector('[data-vaef-none]')?.addEventListener('click', () => {
-        vaEventVaFilter = new Set(['__none__']);
-        saveVaEventVaFilter();
+        setVaEventVaFilter(new Set(['__none__']));
         renderVaEventVaPicker(host);
         if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
     });
