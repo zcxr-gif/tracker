@@ -1,0 +1,199 @@
+// test-crew-pilot-flying.js
+// Drives the REAL crew-pilot.html — the page ordinary pilots use — to prove it
+// shows THIS pilot's flying rather than the four invented Air Canada legs and
+// the "214h of 250h" rank card that were hardcoded into it.
+//
+//   * the stat row, the rank card, the recent list and the hero all come from
+//     GET /me/flying, and none of the old fake values survive
+//   * a pilot with no flights is told so, rather than shown somebody else's
+//   * the logbook opens from both the link and the tile (neither had a handler)
+//     and shows pending and rejected reports, not just the approved ones
+//   * filing a flight sends what was typed, and the form is reachable at all
+//   * a pilot at the top of the ladder is not shown an empty progress bar
+//
+// Run:  node tools/test-crew-pilot-flying.js
+const { chromium } = require('playwright-core');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const server = http.createServer((req, res) => {
+    const p = decodeURIComponent(req.url.split('?')[0]);
+    const file = path.join(ROOT, p === '/' ? '/crew-pilot.html' : p);
+    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end(''); }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    fs.createReadStream(file).pipe(res);
+});
+
+const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+
+const FLIGHTS = [
+    { id: 'p1', origin: 'EGLL', destination: 'LFPG', aircraftName: 'Airbus A320', flightNumber: 'BA304', durationMin: 75, status: 'approved', flownAt: ago(30) },
+    { id: 'p2', origin: 'LFPG', destination: 'EGLL', aircraftName: 'Airbus A320', flightNumber: 'BA305', durationMin: 80, status: 'pending', flownAt: ago(10) },
+    { id: 'p3', origin: 'EGLL', destination: 'EDDF', aircraftName: 'Boeing 737', flightNumber: '', durationMin: 95, status: 'rejected', flownAt: ago(200) },
+    { id: 'p4', origin: 'EGKK', destination: 'LEBL', aircraftName: 'Airbus A321', flightNumber: 'BA490', durationMin: 130, status: 'approved', flownAt: ago(900) },
+];
+
+let filed = null;
+let flyingBody = {
+    pilot: { memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 214.5, status: 'active' },
+    rank: { name: 'First Officer', minHours: 100, next: { name: 'Captain', minHours: 250, hoursAway: 35.5, requiresCheck: false }, awaitingCheck: null },
+    flights: FLIGHTS,
+    totals: { flights: 2, pending: 1, rejected: 1, minutes: 205, minutes30d: 75, flights30d: 1, lastFlightAt: ago(30) },
+};
+
+function api(route) {
+    const p = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
+
+    if (p.endsWith('/me/flying')) return json(flyingBody);
+    if (p.endsWith('/pireps') && method === 'POST') { filed = route.request().postDataJSON(); return json({ pirep: { id: 'new' }, routeMatched: true }, 201); }
+    if (p.endsWith('/announcements')) return json({ announcements: [], canManage: false });
+    if (p.endsWith('/events')) return json({ events: [], canManage: false, mine: [], ranks: [] });
+    if (p.endsWith('/schedules')) return json({ schedules: [], mine: [], canManage: false, rules: { enabled: true }, ranks: [] });
+    if (p.endsWith('/me')) return json({ role: 'pilot', name: 'Rae Okafor', mustChangePassword: false });
+    if (p.endsWith('/branding')) return json({ name: 'Test VA', code: 'TVA' });
+    return json({});
+}
+
+let pass = 0; let fail = 0;
+const ok = (name, cond, extra) => {
+    if (cond) { console.log(`  ✓ ${name}`); pass++; }
+    else { console.log(`  ✗ ${name}${extra ? `  (${extra})` : ''}`); fail++; }
+};
+const head = (s) => console.log(`\n${s}`);
+
+(async () => {
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+    const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM || '/opt/pw-browsers/chromium' });
+
+    const open = async () => {
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+        const page = await ctx.newPage();
+        await page.route('**/api/**', api);
+        await page.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Rae Okafor', role: 'pilot' })));
+        await page.goto(`http://127.0.0.1:${port}/crew-pilot.html?va=testva`);
+        await page.waitForTimeout(1000);
+        return { ctx, page };
+    };
+
+    const { ctx, page } = await open();
+
+    // ------------------------------------------------------------------
+    head('The invented pilot is gone');
+
+    const bodyText = await page.innerText('body');
+    for (const ghost of ['CYYZ → CYVR', 'CYYZ → EGLL', 'CYUL → KLGA', 'CYVR → RJTT', 'ACA1174', 'ACA085']) {
+        ok(`no trace of "${ghost}"`, !bodyText.includes(ghost));
+    }
+    ok('"Welcome back, Jordan" is gone', !bodyText.includes('Jordan'), bodyText.slice(0, 60));
+
+    // ------------------------------------------------------------------
+    head('The numbers are this pilot\'s own');
+
+    ok('hours come from their own approved reports', (await page.textContent('#statHours')).trim() === '3h', await page.textContent('#statHours'));
+    ok('…with the last 30 days beside it', /1h/.test(await page.textContent('#statHoursSub')), await page.textContent('#statHoursSub'));
+    ok('flights count approved only', (await page.textContent('#statFlights')).trim() === '2', await page.textContent('#statFlights'));
+    ok('the rank is the one they hold', (await page.textContent('#statRank')).trim() === 'First Officer', await page.textContent('#statRank'));
+    ok('a report awaiting review is surfaced', (await page.textContent('#statPending')).trim() === '1', await page.textContent('#statPending'));
+
+    const rank = await page.innerText('#rankBody');
+    ok('the rank card names the real next rung', /First Officer → Captain/.test(rank), rank);
+    ok('…against this VA\'s own threshold', /of 250h/.test(rank), rank);
+    ok('…and their real hours', /214\.5h/.test(rank), rank);
+    ok('the hero says something true about them', /35\.5 hours from Captain/.test(await page.innerText('#heroLine')), await page.innerText('#heroLine'));
+    ok('the callsign is theirs', (await page.textContent('#heroCallsign')).trim() === 'BAW22');
+
+    // ------------------------------------------------------------------
+    head('Recent flights');
+
+    const flights = await page.innerText('#flights');
+    ok('their real legs are listed', /EGLL → LFPG/.test(flights), flights.slice(0, 80));
+    ok('a pending report is visible to the pilot who filed it', /Pending/.test(flights), flights);
+    ok('…and a rejected one is not silently hidden', /Rejected/.test(flights), flights);
+
+    // ------------------------------------------------------------------
+    head('The logbook (both controls were dead)');
+
+    await page.click('text=Logbook');
+    await page.waitForTimeout(600);
+    let log = await page.innerText('#pilotLogbook');
+    ok('the Logbook link opens it', /My logbook/.test(log));
+    ok('…showing the whole history', /EGKK → LEBL/.test(log), log.slice(0, 120));
+    ok('…with the totals on top', /2 flights/.test(log.replace(/\s+/g, ' ')), log.slice(0, 160));
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.click('#quickGrid [data-i="3"]');
+    await page.waitForTimeout(600);
+    ok('the "My logbook" tile opens it too', await page.isVisible('#pilotLogbook .cp-body'));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+
+    // ------------------------------------------------------------------
+    head('Filing a flight');
+
+    await page.click('#quickGrid [data-i="0"]');
+    await page.waitForTimeout(500);
+    ok('the File a PIREP tile opens a form', await page.isVisible('#pfForm'));
+
+    await page.fill('#pfFrom', 'egll');
+    await page.fill('#pfTo', 'ksfo');
+    await page.fill('#pfAircraft', 'Boeing 777-300ER');
+    await page.fill('#pfHours', '10');
+    await page.fill('#pfMinutes', '45');
+    await page.click('#pfSubmit');
+    await page.waitForTimeout(600);
+
+    ok('it sends the airports, upper-cased', filed && filed.origin === 'EGLL' && filed.destination === 'KSFO', JSON.stringify(filed));
+    ok('…the aircraft', filed && filed.aircraftName === 'Boeing 777-300ER');
+    ok('…and the duration as hours + minutes', filed && filed.hours === 10 && filed.minutes === 45, JSON.stringify(filed));
+    ok('…attributed to this pilot', filed && filed.memberId === 'm1');
+
+    await ctx.close();
+
+    // ------------------------------------------------------------------
+    head('Pilots the old page could not describe');
+
+    // Top of the ladder — the hardcoded card always showed a bar to Captain.
+    flyingBody = {
+        pilot: { memberId: 'm2', name: 'Sam Park', callsign: 'BAW01', hours: 900, status: 'active' },
+        rank: { name: 'Captain', minHours: 250, next: null, awaitingCheck: null },
+        flights: [], totals: { flights: 0, pending: 0, rejected: 0, minutes: 0, minutes30d: 0, flights30d: 0, lastFlightAt: null },
+    };
+    const { ctx: c2, page: p2 } = await open();
+    const topRank = await p2.innerText('#rankBody');
+    ok('the top of the ladder is an achievement, not an empty bar', /top of this airline/.test(topRank), topRank);
+    ok('…and no progress bar is drawn', !(await p2.isVisible('#rankBody .accent-bg')));
+    ok('a pilot with no flights is told so', /No flights yet/.test(await p2.innerText('#flights')), await p2.innerText('#flights'));
+    ok('…and their hours read zero rather than 214', (await p2.textContent('#statHours')).trim() === '0m', await p2.textContent('#statHours'));
+    await c2.close();
+
+    // A pilot who has the hours but is waiting on a person.
+    flyingBody = {
+        pilot: { memberId: 'm3', name: 'Jo Adeyemi', callsign: 'BAW71', hours: 260, status: 'active' },
+        rank: { name: 'First Officer', minHours: 100, next: { name: 'Captain', minHours: 250, hoursAway: 0, requiresCheck: true }, awaitingCheck: { name: 'Captain' } },
+        flights: [], totals: { flights: 0, pending: 0, rejected: 0, minutes: 0, minutes30d: 0, flights30d: 0, lastFlightAt: null },
+    };
+    const { ctx: c3, page: p3 } = await open();
+    const waiting = await p3.innerText('#rankBody');
+    ok('a stalled promotion says it needs a check-ride', /check-ride/.test(waiting), waiting);
+    ok('…rather than telling them to keep flying', !/hours to go/.test(waiting), waiting);
+    await c3.close();
+
+    // Not linked to a roster row at all.
+    flyingBody = { pilot: null, rank: null, flights: [], totals: null };
+    const { ctx: c4, page: p4 } = await open();
+    ok('an unlinked account is not given invented hours', (await p4.textContent('#statHours')).trim() === '—', await p4.textContent('#statHours'));
+    await c4.close();
+
+    await browser.close();
+    server.close();
+
+    console.log(`\n${fail ? `${fail} failed, ` : ''}${pass} passed.`);
+    process.exit(fail ? 1 : 0);
+})();

@@ -465,9 +465,15 @@ export const MobileSettingsUI = {
                                 ${this.renderToggle('showVaEventMarkers', 'VA Events on Map', 'fa-calendar-day')}
                             </div>
                             <p class="m-settings-note">
-                                Pin partner VA events on their departure airport with a countdown. Tap a pin
-                                for details — and once the group has taken off, to watch the whole formation.
+                                Pin partner VA events on their departure airport with the event's banner and a
+                                countdown. Includes events run from a VA's crew centre, with its gate board.
+                                Tap a pin for details — and once the group has taken off, to watch the whole
+                                formation.
                             </p>
+                            <!-- Which airlines' events to show. Painted by flight.js's
+                                 renderVaEventVaPicker into this container, so mobile and
+                                 desktop share one implementation instead of drifting. -->
+                            <div id="m-va-event-va-picker" style="padding: 0 4px;"></div>
 
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">
@@ -1806,7 +1812,15 @@ export const MobileSettingsUI = {
         this.attachAtcTagHandlers(sheet);
 
         // Checkbox Listener (skips label-field and ATC-tag rows, handled separately)
-        sheet.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input):not(.m-atc-input)').forEach(input => {
+        // Paint it now too, so somebody who already had the pins on sees the
+        // list the moment they open settings rather than after a toggle.
+        if (window.mapFilters && window.mapFilters.showVaEventMarkers) this.paintVaEventPicker(sheet);
+
+        // .vaef-check is excluded because the VA-event airline picker owns its
+        // own checkboxes and its own handler (flight.js, renderVaEventVaPicker).
+        // They carry no data-setting, so letting this generic handler see them
+        // would write window.mapFilters[undefined].
+        sheet.querySelectorAll('input[type="checkbox"]:not(.m-label-field-input):not(.m-atc-input):not(.vaef-check)').forEach(input => {
             input.addEventListener('change', (e) => {
                 if (e.target.closest('.locked')) return; // Extra layer of protection
 
@@ -1838,6 +1852,10 @@ export const MobileSettingsUI = {
                 // Same for the VA event pins — its own DOM marker layer, so it
                 // refreshes itself rather than going through updateMapFilters.
                 if (setting === 'showVaEventMarkers' && window.renderVaEventMarkers) window.renderVaEventMarkers();
+                // Turning the pins on is when somebody wants to choose whose
+                // events they see, so fill the picker then rather than paying
+                // for the airline list on every settings open.
+                if (setting === 'showVaEventMarkers' && e.target.checked) this.paintVaEventPicker(sheet);
                 if (window.updateMapFilters) window.updateMapFilters();
                 // Persist the change so it survives a reload (desktop toggles
                 // already do this; updateMapFilters() itself does not save).
@@ -2090,6 +2108,28 @@ export const MobileSettingsUI = {
                     window.showNotification('Time zone updated — reopen a flight to apply.', 'info');
                 }
             });
+        }
+    },
+
+    /**
+     * The "whose events do I want to see" list, inside the mobile settings
+     * sheet. flight.js owns the rendering and the filter state; this only says
+     * where to put it, so the phone and the desktop panel cannot drift apart.
+     *
+     * NOTE the trailing comma. MobileSettingsUI is an object literal, not a
+     * class — every member here needs one, and omitting it is a syntax error
+     * that takes the whole file (and therefore the map) with it.
+     */
+    paintVaEventPicker(sheet) {
+        const host = (sheet || document).querySelector('#m-va-event-va-picker');
+        if (!host || typeof window.renderVaEventVaPicker !== 'function') return;
+        window.renderVaEventVaPicker(host);
+        // The airline list rides along with the events feed; if it has not been
+        // fetched yet, fill in once it lands.
+        if (typeof window.fetchUpcomingVaEvents === 'function') {
+            window.fetchUpcomingVaEvents()
+                .then(() => window.renderVaEventVaPicker(host))
+                .catch(() => {});
         }
     },
 

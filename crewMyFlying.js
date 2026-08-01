@@ -325,7 +325,10 @@
             </div>`;
         document.body.appendChild(el);
         P.lockScroll();
-        icons();
+        // Guarded for the same reason crewPanels guards it in sheet.open(): this
+        // runs after the page has been locked, and an icon name lucide dislikes
+        // must not strand the reader behind a dialog that never finished.
+        try { icons(); } catch (err) { console.warn('crewMyFlying: icons failed', err); }
 
         let closed = false;
         const close = () => {

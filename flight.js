@@ -18276,10 +18276,15 @@ renderCategory(catId) {
                                 <label class="toggle-switch"><input type="checkbox" id="set-va-event-markers" ${mapFilters.showVaEventMarkers ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                             <p style="margin: 8px 2px 0; font-size: 0.78rem; line-height: 1.5; color: #71717a;">
-                                Pin partner VA events on their departure airport, with a countdown. Tap a pin
-                                for the details — and once the group has taken off, to watch the whole
+                                Pin partner VA events on their departure airport, with the event's banner and a
+                                countdown. Includes events run from a VA's crew centre, with its gate board.
+                                Tap a pin for the details — and once the group has taken off, to watch the whole
                                 formation live. Off by default.
                             </p>
+                            <!-- Which airlines. Rendered by renderVaEventVaPicker so the
+                                 mobile settings sheet can call the same function into its
+                                 own container rather than growing a second copy. -->
+                            <div id="va-event-va-picker" style="margin: 10px 2px 0;"></div>
                         </div>
 
                         <div class="settings-section">
@@ -18513,6 +18518,26 @@ renderCategory(catId) {
 
         // VA event pins — same story as the hub markers: its own marker layer,
         // so it refreshes itself rather than going through updateMapFilters.
+        // The airline picker. Painted from whatever the feed last returned, and
+        // repainted once it lands if the panel was opened before that.
+        // Deferred and guarded, on purpose. This runs while flight.js is still
+        // evaluating top-to-bottom, and everything it touches is defined ~8,000
+        // lines further down. A microtask puts it after evaluation finishes, and
+        // the try/catch means a mistake here can never again escape into the
+        // init chain and stop the map from loading.
+        const vaEventPickerHost = document.getElementById('va-event-va-picker');
+        if (vaEventPickerHost) {
+            Promise.resolve().then(() => {
+                if (typeof renderVaEventVaPicker !== 'function') return;
+                renderVaEventVaPicker(vaEventPickerHost);
+                if (typeof fetchUpcomingVaEvents === 'function') {
+                    fetchUpcomingVaEvents()
+                        .then(() => renderVaEventVaPicker(vaEventPickerHost))
+                        .catch(() => {});
+                }
+            }).catch((err) => console.warn('VA event picker:', err));
+        }
+
         const vaEventToggle = document.getElementById('set-va-event-markers');
         if (vaEventToggle) {
             vaEventToggle.addEventListener('change', (e) => {
@@ -26151,7 +26176,9 @@ window.renderVaHubMarkers = renderVaHubMarkers;
 
 let vaEventMarkers = [];
 let vaEventStylesInjected = false;
-let vaEventCache = { at: 0, events: [] };
+// `var`, not `let`: the settings panel reads this while flight.js is still
+// evaluating, which is above this line. See the note on vaEventVaFilterSet.
+var vaEventCache = { at: 0, events: [], vas: [] };
 let vaEventRefreshTimer = null;
 const VA_EVENT_CACHE_MS = 5 * 60 * 1000;
 
@@ -26162,22 +26189,47 @@ function injectVaEventMarkerStyles() {
     style.id = 'va-event-marker-styles';
     style.textContent = `
         /* Same rule as the hub markers: the root's transform belongs to Mapbox,
-           so it carries no size, transition or transform of its own. */
+           so it carries no size, transition or transform of its own.
+
+           SIZE IS LOCKED. Every dimension below is in px and none of it is
+           derived from zoom, so the pin is the same size at z3 as at z12 — it
+           does not grow as you zoom out and swallow the map. Mapbox HTML
+           markers are screen-space already; what made these feel like they
+           grew was that there is nothing else on screen when zoomed out, so
+           the cap on the banner matters more than the scaling does. */
         .va-event-marker { cursor: pointer; will-change: transform; }
-        .va-event-marker-inner {
-            display: flex; align-items: center; gap: 6px;
-            padding: 4px 9px 4px 5px; border-radius: 999px;
-            background: rgba(12,16,24,0.86); border: 1.5px solid rgba(56,189,248,0.75);
-            box-shadow: 0 3px 12px rgba(0,0,0,0.55); white-space: nowrap;
-            font: 800 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif; color: #e2e8f0;
+        .va-event-marker-card {
+            width: 132px;                 /* hard cap — see above */
+            border-radius: 10px; overflow: hidden;
+            background: rgba(12,16,24,0.9); border: 1.5px solid rgba(56,189,248,0.75);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.55);
             transition: transform .15s ease, border-color .15s ease;
         }
-        .va-event-marker:hover .va-event-marker-inner {
-            transform: scale(1.08); border-color: #7dd3fc;
+        .va-event-marker:hover .va-event-marker-card {
+            transform: scale(1.06); border-color: #7dd3fc;
         }
+        /* The banner, above the pill. Fixed height so a tall or a wide image
+           both crop to the same block and one VA's artwork cannot make its pin
+           twice the size of everybody else's. */
+        .va-event-marker-banner {
+            display: block; width: 100%; height: 46px; object-fit: cover;
+            background: rgba(255,255,255,0.06);
+        }
+        .va-event-marker-inner {
+            display: flex; align-items: center; gap: 5px;
+            padding: 4px 7px; white-space: nowrap;
+            font: 800 10px/1 system-ui,-apple-system,"Segoe UI",sans-serif; color: #e2e8f0;
+        }
+        .va-event-marker-icao { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         .va-event-marker-logo {
-            width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+            width: 16px; height: 16px; border-radius: 50%; object-fit: cover;
             background: rgba(255,255,255,0.10); flex-shrink: 0;
+        }
+        /* A crew-centre event with an open gate board is worth marking: it is
+           the one you can actually pick a stand on. */
+        .va-event-marker-gates {
+            font-size: 9px; padding: 1px 4px; border-radius: 4px;
+            background: rgba(52,211,153,0.22); color: #6ee7b7; flex-shrink: 0;
         }
         .va-event-marker-when { opacity: 0.68; font-weight: 700; }
         /* An event under way reads differently from one that is merely soon. */
@@ -26226,7 +26278,68 @@ function injectVaEventMarkerStyles() {
         }
         .va-event-pop button:hover, .va-event-pop a.vep-btn:hover { background: rgba(255,255,255,0.2); }
         .va-event-pop .vep-watch { background: rgba(52,211,153,0.22); color: #6ee7b7; }
-        .va-event-pop .vep-watch:hover { background: rgba(52,211,153,0.34); }`;
+        .va-event-pop .vep-watch:hover { background: rgba(52,211,153,0.34); }
+
+        /* ---- The event window ----
+           Not a map popup. Clicking a pin used to open a mapbox bubble that
+           floated over the map, moved with the pan and fought the aircraft
+           underneath it. This is the same #...-info-window chrome the flight
+           window uses, so it docks where that docks, looks like that looks,
+           and becomes a full-width sheet on a phone through the existing
+           .info-window media query rather than a second set of rules. */
+        #va-event-window .vew-banner {
+            display: block; width: 100%; height: 150px; object-fit: cover;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        }
+        #va-event-window .vew-body { padding: 14px 16px 16px; }
+        #va-event-window .vew-title {
+            margin: 0 0 2px; font-size: 1.02rem; font-weight: 800; line-height: 1.25;
+        }
+        #va-event-window .vew-va {
+            display: flex; align-items: center; gap: 7px;
+            font-size: .78rem; opacity: .72; margin-bottom: 10px;
+        }
+        #va-event-window .vew-va img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+        #va-event-window .vew-facts {
+            display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+        }
+        #va-event-window .vew-fact {
+            font-size: .72rem; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+            background: rgba(255,255,255,0.08);
+        }
+        #va-event-window .vew-fact.is-live { background: rgba(52,211,153,0.2); color: #6ee7b7; }
+        #va-event-window .vew-fact.is-gates { background: rgba(56,189,248,0.18); color: #7dd3fc; }
+        #va-event-window .vew-desc {
+            font-size: .8rem; line-height: 1.5; opacity: .8; margin: 0 0 12px;
+            max-height: 8.5em; overflow-y: auto; white-space: pre-wrap;
+        }
+        #va-event-window .vew-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+        #va-event-window .vew-actions button,
+        #va-event-window .vew-actions a {
+            flex: 1 1 auto; min-width: 104px; text-align: center; text-decoration: none;
+            padding: 8px 12px; border-radius: 9px; border: 0; cursor: pointer;
+            background: rgba(255,255,255,0.12); color: var(--text-primary, #e8ebf2);
+            font-size: .76rem; font-weight: 700; font-family: inherit;
+        }
+        #va-event-window .vew-actions button:hover,
+        #va-event-window .vew-actions a:hover { background: rgba(255,255,255,0.2); }
+        #va-event-window .vew-actions .vew-primary { background: rgba(52,211,153,0.22); color: #6ee7b7; }
+        #va-event-window .vew-actions .vew-primary:hover { background: rgba(52,211,153,0.34); }
+
+        /* ---- Which airlines' events to show ---- */
+        .vaef-list { max-height: 240px; overflow-y: auto; margin: 6px 0 0; }
+        .vaef-row {
+            display: flex; align-items: center; gap: 8px; padding: 5px 2px;
+            font-size: .8rem; cursor: pointer;
+        }
+        .vaef-row img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+        .vaef-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vaef-actions { display: flex; gap: 6px; margin-top: 8px; }
+        .vaef-actions button {
+            flex: 1; padding: 5px; border-radius: 7px; border: 0; cursor: pointer;
+            background: rgba(255,255,255,0.1); color: var(--text-primary, #e8ebf2);
+            font-size: .72rem; font-weight: 700; font-family: inherit;
+        }`;
     document.head.appendChild(style);
 }
 
@@ -26245,15 +26358,26 @@ async function fetchUpcomingVaEvents() {
             headers: { Accept: 'application/json' },
         });
         const data = await res.json();
-        vaEventCache = { at: Date.now(), events: Array.isArray(data.events) ? data.events : [] };
+        vaEventCache = {
+            at: Date.now(),
+            events: Array.isArray(data.events) ? data.events : [],
+            // The airlines with events, for the picker — served alongside so
+            // the list can be shown without a second request, and stays
+            // complete even when the filter is hiding most of them.
+            vas: Array.isArray(data.vas) ? data.vas : [],
+        };
     } catch (_) {
-        vaEventCache = { at: Date.now(), events: [] };
+        vaEventCache = { at: Date.now(), events: [], vas: [] };
     }
     return vaEventCache.events;
 }
 
+// Exposed so the mobile settings sheet can fill its airline picker from the
+// same cache the map uses, rather than fetching the feed a second time.
+window.fetchUpcomingVaEvents = fetchUpcomingVaEvents;
+
 // "in 3h 20m" / "starting now" / "under way". The pin has room for a few
-// characters, so this stays terse; the popup carries the exact time.
+// characters, so this stays terse; the window carries the exact time.
 function vaEventCountdown(startsAt) {
     const t = new Date(startsAt).getTime();
     if (!Number.isFinite(t)) return '';
@@ -26272,6 +26396,199 @@ const isVaEventLive = (startsAt) => {
     return Number.isFinite(t) && Date.now() >= t - 15 * 60 * 1000 && Date.now() <= t + 3 * 60 * 60 * 1000;
 };
 
+/* ---------------------------------------------------------------------------
+ * The event window
+ *
+ * Deliberately the same #...-info-window furniture the flight window uses.
+ * Clicking a pin used to open a mapbox popup: a bubble anchored to the map that
+ * panned with it, sat over the aircraft, and had to fight the global popup
+ * reset to be clickable at all. An event is a thing you read, not a tooltip, so
+ * it gets the window — which also means it inherits the existing mobile rule
+ * that turns .info-window into a near-full-width sheet, rather than needing a
+ * second mobile implementation.
+ * ------------------------------------------------------------------------- */
+function ensureVaEventWindow() {
+    let win = document.getElementById('va-event-window');
+    if (win) return win;
+    const host = document.getElementById('map') || document.querySelector('.map-container') || document.body;
+    win = document.createElement('div');
+    win.id = 'va-event-window';
+    win.className = 'info-window';
+    host.appendChild(win);
+    return win;
+}
+
+function closeVaEventWindow() {
+    const win = document.getElementById('va-event-window');
+    if (win) win.classList.remove('visible');
+}
+window.closeVaEventWindow = closeVaEventWindow;
+
+function openVaEventWindow(ev, icao) {
+    const win = ensureVaEventWindow();
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    const when = new Date(ev.startsAt);
+    const live = isVaEventLive(ev.startsAt);
+    const whenText = Number.isNaN(when.getTime()) ? '' : when.toLocaleString([], {
+        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+
+    const facts = [
+        live ? '<span class="vew-fact is-live">Under way</span>'
+             : `<span class="vew-fact">${esc(vaEventCountdown(ev.startsAt))}</span>`,
+        whenText ? `<span class="vew-fact">${esc(whenText)}</span>` : '',
+        `<span class="vew-fact">${esc(icao)}${ev.arrivalIcao ? ` → ${esc(ev.arrivalIcao)}` : ''}</span>`,
+        ev.flightNumber ? `<span class="vew-fact">${esc(ev.flightNumber)}</span>` : '',
+        ev.aircraft ? `<span class="vew-fact">${esc(ev.aircraft)}</span>` : '',
+        // The gate board is the thing a crew-centre event has that a listing
+        // does not, so it is called out rather than buried in the description.
+        ev.gates && ev.gates.open && !ev.gates.locked
+            ? '<span class="vew-fact is-gates">Stands open</span>'
+            : (ev.gates && ev.gates.locked ? '<span class="vew-fact">Stands locked</span>' : ''),
+    ].filter(Boolean).join('');
+
+    setInfoWindowContent(win, `
+        ${ev.bannerUrl ? `<img class="vew-banner" src="${esc(ev.bannerUrl)}" alt="" onerror="this.remove()">` : ''}
+        <div class="info-window-header">
+            <h3><i class="fa-solid fa-calendar-day" style="margin-right:10px"></i> Event</h3>
+            <div class="info-window-actions">
+                <button class="vew-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+        <div class="vew-body">
+            <h4 class="vew-title">${esc(ev.title)}</h4>
+            <div class="vew-va">
+                ${ev.va && ev.va.logo ? `<img src="${esc(ev.va.logo)}" alt="" onerror="this.remove()">` : ''}
+                <span>${esc((ev.va && ev.va.name) || 'Partner VA')}</span>
+            </div>
+            <div class="vew-facts">${facts}</div>
+            ${ev.description ? `<p class="vew-desc">${esc(ev.description)}</p>` : ''}
+            <div class="vew-actions">
+                ${ev.groupCode ? '<button type="button" class="vew-primary vew-watch">Watch live</button>' : ''}
+                ${ev.va && ev.va.id ? '<button type="button" class="vew-openva">View VA</button>' : ''}
+                ${ev.link ? `<a href="${esc(ev.link)}" target="_blank" rel="noopener noreferrer">${
+                    ev.source === 'crew' ? 'Open in crew centre' : 'Details'}</a>` : ''}
+            </div>
+        </div>`);
+    win.classList.add('visible');
+
+    win.querySelector('.vew-close')?.addEventListener('click', closeVaEventWindow);
+    win.querySelector('.vew-openva')?.addEventListener('click', () => {
+        if (window.InflightVaAds?.openPartners) window.InflightVaAds.openPartners(ev.va.id);
+    });
+    // "Watch live" reuses the group-watch view the share links open, so an
+    // event pin and a pasted link land in exactly the same place.
+    win.querySelector('.vew-watch')?.addEventListener('click', async () => {
+        try {
+            const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+            const res = await fetch(`${base}/api/group-flights/${encodeURIComponent(ev.groupCode)}`);
+            const data = await res.json();
+            if (data && data.ok) { closeVaEventWindow(); enterGroupWatch(data); }
+        } catch (_) { /* a dead link just does nothing */ }
+    });
+}
+window.openVaEventWindow = openVaEventWindow;
+
+/* ---------------------------------------------------------------------------
+ * Which airlines' events to show
+ *
+ * The toggle was all-or-nothing, which on a busy map means most people turn the
+ * whole thing off rather than see forty airlines they do not fly for. An empty
+ * set means "all" — so somebody who has never opened this picker keeps the
+ * behaviour they had, and it does not silently hide everything on first run.
+ * ------------------------------------------------------------------------- */
+// `var` and function declarations, deliberately, not const/let.
+//
+// This block sits ~8,000 lines below the settings panel that reads it, and the
+// panel is wired while flight.js is still evaluating top-to-bottom. A `const`
+// or `let` here is in its temporal dead zone at that moment, so touching it
+// from up there throws ReferenceError — which happens inside the init chain and
+// takes the whole map down with it. That is exactly why the surrounding code
+// reaches for everything in this section through `typeof x === 'function'`
+// guards on hoisted declarations.
+//
+// var hoists to `undefined` rather than trapping, and the accessor below fills
+// it in on first use, so this is safe to call from anywhere at any time.
+var vaEventVaFilterSet = null;
+
+function vaEventFilterKey() { return 'inflight:vaEventVaFilter'; }
+
+/** The chosen airlines, read from storage once and then cached. */
+function getVaEventVaFilter() {
+    if (vaEventVaFilterSet) return vaEventVaFilterSet;
+    try {
+        const raw = JSON.parse(localStorage.getItem(vaEventFilterKey()) || '[]');
+        vaEventVaFilterSet = new Set(Array.isArray(raw) ? raw.map(String) : []);
+    } catch (_) { vaEventVaFilterSet = new Set(); }
+    return vaEventVaFilterSet;
+}
+
+function setVaEventVaFilter(next) {
+    vaEventVaFilterSet = next;
+    try { localStorage.setItem(vaEventFilterKey(), JSON.stringify([...next])); } catch (_) {}
+}
+
+/** Empty = every airline. Used by the map and the picker alike. */
+function vaEventPassesFilter(ev) {
+    const f = getVaEventVaFilter();
+    return f.size === 0 || f.has(String(ev && ev.va && ev.va.id));
+}
+
+/**
+ * The picker. Rendered into whatever container the caller gives it, so the
+ * desktop settings panel and the mobile settings sheet share one implementation
+ * rather than drifting apart.
+ */
+function renderVaEventVaPicker(host) {
+    if (!host) return;
+    const vas = vaEventCache.vas || [];
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    if (!vas.length) {
+        host.innerHTML = '<p style="font-size:.78rem;opacity:.6;margin:6px 0 0">No airlines have events coming up.</p>';
+        return;
+    }
+    host.innerHTML = `
+        <div class="vaef-list">
+            ${vas.map(va => `
+                <label class="vaef-row">
+                    <input type="checkbox" class="vaef-check" data-vaef="${esc(va.id)}" ${vaEventPassesFilter({ va }) ? 'checked' : ''}>
+                    ${va.logo ? `<img src="${esc(va.logo)}" alt="" onerror="this.remove()">` : ''}
+                    <span>${esc(va.name)}</span>
+                </label>`).join('')}
+        </div>
+        <div class="vaef-actions">
+            <button type="button" data-vaef-all>All</button>
+            <button type="button" data-vaef-none>None</button>
+        </div>`;
+
+    host.querySelectorAll('[data-vaef]').forEach(cb => cb.addEventListener('change', () => {
+        const id = String(cb.getAttribute('data-vaef'));
+        // The first deliberate choice turns "empty means all" into an explicit
+        // set, so unticking one airline does not read as unticking every one.
+        let next = getVaEventVaFilter();
+        if (next.size === 0) next = new Set(vas.map(v => String(v.id)));
+        if (cb.checked) next.add(id); else next.delete(id);
+        setVaEventVaFilter(next);
+        if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
+    }));
+    host.querySelector('[data-vaef-all]')?.addEventListener('click', () => {
+        setVaEventVaFilter(new Set());          // empty = all
+        renderVaEventVaPicker(host);
+        if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
+    });
+    host.querySelector('[data-vaef-none]')?.addEventListener('click', () => {
+        setVaEventVaFilter(new Set(['__none__']));
+        renderVaEventVaPicker(host);
+        if (typeof renderVaEventMarkers === 'function') renderVaEventMarkers();
+    });
+}
+window.renderVaEventVaPicker = renderVaEventVaPicker;
+
 function renderVaEventMarkers() {
     if (!sectorOpsMap) return;
     clearVaEventMarkers();
@@ -26288,6 +26605,8 @@ function renderVaEventMarkers() {
         // hub shows a single marker rather than a stack of overlapping pills.
         const byAirport = new Map();
         for (const ev of events) {
+            // Only the airlines this user wants to see.
+            if (!vaEventPassesFilter(ev)) continue;
             const icao = String(ev.departureIcao || '').toUpperCase();
             if (!icao) continue;
             const prev = byAirport.get(icao);
@@ -26306,56 +26625,32 @@ function renderVaEventMarkers() {
             const el = document.createElement('div');
             el.className = `va-event-marker${live ? ' is-live' : ''}`;
             el.title = `${ev.va?.name || 'VA'} — ${ev.title}`;
+            // The banner sits ON TOP of the pill, cropped to a fixed box so one
+            // VA's tall artwork cannot make its pin twice everybody else's size.
+            // onerror removes only the image, leaving the pill intact — a dead
+            // banner URL must not blank the marker.
             el.innerHTML = `
-                <div class="va-event-marker-inner">
-                    ${ev.va?.logo
-                        ? `<img class="va-event-marker-logo" src="${esc(ev.va.logo)}" alt="" onerror="this.remove()">`
+                <div class="va-event-marker-card">
+                    ${ev.bannerUrl
+                        ? `<img class="va-event-marker-banner" src="${esc(ev.bannerUrl)}" alt="" onerror="this.remove()">`
                         : ''}
-                    <span>${esc(icao)}</span>
-                    <span class="va-event-marker-when">${esc(vaEventCountdown(ev.startsAt))}</span>
-                </div>`;
-
-            const when = new Date(ev.startsAt);
-            const popupHtml = `
-                <div class="va-event-pop">
-                    <h4>${esc(ev.title)}</h4>
-                    <p class="vep-va">${esc(ev.va?.name || 'Partner VA')} · departs ${esc(icao)}</p>
-                    <p class="vep-when">${esc(when.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }))}
-                        · ${esc(vaEventCountdown(ev.startsAt))}</p>
-                    ${ev.description ? `<p class="vep-desc">${esc(ev.description)}</p>` : ''}
-                    <div class="vep-actions">
-                        ${ev.groupCode ? `<button type="button" class="vep-watch" data-group-code="${esc(ev.groupCode)}">Watch live</button>` : ''}
-                        <button type="button" class="vep-open" data-va-id="${esc(ev.va?.id || '')}">View VA</button>
-                        ${ev.link ? `<a class="vep-btn" href="${esc(ev.link)}" target="_blank" rel="noopener noreferrer">Details</a>` : ''}
+                    <div class="va-event-marker-inner">
+                        ${ev.va?.logo
+                            ? `<img class="va-event-marker-logo" src="${esc(ev.va.logo)}" alt="" onerror="this.remove()">`
+                            : ''}
+                        <span class="va-event-marker-icao">${esc(icao)}</span>
+                        ${ev.gates && ev.gates.open && !ev.gates.locked
+                            ? '<span class="va-event-marker-gates">stands</span>' : ''}
+                        <span class="va-event-marker-when">${esc(vaEventCountdown(ev.startsAt))}</span>
                     </div>
                 </div>`;
 
-            // className is what re-enables interaction and the dark card look
-            // (see the .va-event-popup rules) — without it the global popup
-            // reset would leave these buttons unclickable and unreadable.
-            const popup = new mapboxgl.Popup({
-                offset: 18, closeButton: true, maxWidth: '280px', className: 'va-event-popup',
-            }).setHTML(popupHtml);
-
-            // Wire the popup's buttons once it is actually in the DOM — the
-            // markup above is a string until Mapbox mounts it.
-            popup.on('open', () => {
-                const root = popup.getElement();
-                if (!root) return;
-                root.querySelector('.vep-open')?.addEventListener('click', () => {
-                    const id = ev.va?.id;
-                    if (id && window.InflightVaAds?.openPartners) window.InflightVaAds.openPartners(id);
-                });
-                // "Watch live" reuses the group-watch view the share links open,
-                // so an event pin and a pasted link land in exactly the same place.
-                root.querySelector('.vep-watch')?.addEventListener('click', async () => {
-                    try {
-                        const base = window.APP_CONFIG?.communityBackendUrl || 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
-                        const res = await fetch(`${base}/api/group-flights/${encodeURIComponent(ev.groupCode)}`);
-                        const data = await res.json();
-                        if (data && data.ok) { popup.remove(); enterGroupWatch(data); }
-                    } catch (_) { /* a dead link just does nothing */ }
-                });
+            // No mapbox Popup. Clicking opens the event window — the same
+            // chrome the flight-info window uses — so the map is not covered by
+            // a bubble that pans with it.
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openVaEventWindow(ev, icao);
             });
 
             const marker = new mapboxgl.Marker({
@@ -26365,7 +26660,6 @@ function renderVaEventMarkers() {
                 pitchAlignment: 'viewport',
             })
                 .setLngLat([airport.lon, airport.lat])
-                .setPopup(popup)
                 .addTo(sectorOpsMap);
             vaEventMarkers.push(marker);
         });

@@ -6,7 +6,10 @@
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Guarded: if the Tailwind CDN did not arrive, `tailwind` is undefined and
+         this line throws on every page load — a real uncaught error that buries
+         the genuine ones underneath it in the console. -->
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
@@ -156,6 +159,18 @@
         #settings{ transition:opacity .25s; }
         #settings .panel{ transition:transform .3s cubic-bezier(.2,.8,.2,1); }
         #settings.hidden{ display:none; }
+        /* `hidden` is Tailwind's, and Tailwind is a CDN script. When it is
+           slow, blocked by a network or an ad blocker, or simply down, every
+           element this page hides by adding that class stops being hidden —
+           which means all eight settings panels render stacked on top of each
+           other, tabs that were gated by role appear, and the drawer becomes an
+           unreadable column. The page's own structure must not depend on a
+           third-party script arriving.
+
+           This is the same reasoning crewPanels.js applies with its `cp-hidden`
+           class, generalised: one rule, identical to Tailwind's own, so the
+           dashboard is laid out correctly before (or without) the CDN. */
+        .hidden{ display:none; }
         .lyt-opt{ transition:border-color .2s, background .2s; }
         .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
@@ -345,9 +360,9 @@
                     <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
                     <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
                     <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
+                    <button id="alertsTab" data-cat="alerts" onclick="setCat('alerts')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Alerts</button>
                     <button id="teamTab" data-cat="team" onclick="setCat('team')" class="settings-tab hidden flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Team</button>
                     <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
-                    <button id="storageTab" data-cat="storage" onclick="setCat('storage')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Storage</button>
                 </div>
             </div>
             <div class="p-5">
@@ -551,7 +566,15 @@
                     <p id="embedNote" class="hidden text-sm mt-2"></p>
                 </div>
 
-                <!-- Notifications: how you + applicants hear about decisions -->
+              </div><!-- /recruit -->
+
+              <!-- Alerts.
+                   These were filed under Recruit, which is where they were
+                   added rather than where they belong: one Discord webhook
+                   carries applications AND flight reports AND route changes,
+                   so an owner looking for "where do I change the flight-report
+                   channel" had no reason to open a tab about joining. -->
+              <div data-panel="alerts" class="space-y-6 hidden">
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Notifications</h3>
                     <div class="text-sm font-semibold mb-1 flex items-center gap-2">Notify your Discord
@@ -661,7 +684,7 @@
                         <p id="emailNote" class="hidden text-sm mt-2"></p>
                     </div>
                 </div>
-              </div><!-- /recruit -->
+              </div><!-- /alerts -->
 
               <div data-panel="team" class="space-y-6 hidden">
                 <!-- Staff roles: owner names them and picks what they can do -->
@@ -670,7 +693,8 @@
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
                         <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
-                    <p class="text-xs muted mb-3">Name a role and tick exactly what it can do. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
+                    <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. Roles belong to this crew center only; another VA’s roles are its own.</p>
+                    <p class="text-xs muted mb-3">Only you, the owner, can see or change this. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
 
                     <!-- Presets. The permission system worked before this and
                          almost nobody used it, because it asked a volunteer
@@ -964,6 +988,49 @@
                     </div>
                 </details>
               </div><!-- /storage -->
+
+              <!-- ===============================================================
+                   MANAGE & DELETE
+                   The other half of the storage advice. "Old flight reports are
+                   almost always the biggest thing, export them and remove them"
+                   has been sitting in the panel above with no way to remove
+                   them except one bin at a time, four years deep.
+
+                   Owner only, and the server enforces that rather than trusting
+                   this markup. Every number shown here is counted by the VA's
+                   own project before anything is deleted, so nobody is asked to
+                   approve a purge without being told its size first.
+              ================================================================ -->
+              <div data-panel="datamanage" class="space-y-6 hidden">
+                <div id="dataManageBlock">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Manage &amp; delete</h3>
+                    <p class="text-xs muted mb-3">What is in your database, and how to clear out what you no longer need. This deletes from <b>your</b> Supabase project and cannot be undone — export anything you want to keep first.</p>
+
+                    <!-- The age filter drives every row's "would delete" count,
+                         so the choice is made once and its effect is visible on
+                         everything at the same time. -->
+                    <div class="rounded-xl hair surface p-4 mb-3">
+                        <label for="purgeAge" class="block text-xs font-semibold uppercase tracking-wider faint mb-2">Older than</label>
+                        <div class="flex items-center gap-2">
+                            <select id="purgeAge" onchange="refreshDataSummary()" class="flex-1 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <option value="90">3 months</option>
+                                <option value="180">6 months</option>
+                                <option value="365" selected>1 year</option>
+                                <option value="730">2 years</option>
+                                <option value="1095">3 years</option>
+                            </select>
+                            <button onclick="refreshDataSummary()" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh</button>
+                        </div>
+                        <p class="text-[11px] faint mt-2">Rows with no date of their own — a report never given a flight date, an undated event — are included, or nothing would ever reach them.</p>
+                    </div>
+
+                    <p id="dataManageLoading" class="text-sm muted">Counting what is in your database…</p>
+                    <div id="dataManageList" class="space-y-2"></div>
+                    <p id="dataManageNote" class="hidden text-sm mt-3"></p>
+
+                    <p class="text-[11px] faint mt-3">The roster, your route network and pilot logins are deliberately not here. Removing those is not housekeeping, and each has its own screen where the consequences are visible.</p>
+                </div>
+              </div><!-- /datamanage -->
 
                 <p id="settingsNote" class="hidden text-sm mt-4"></p>
             </div>
@@ -1337,21 +1404,71 @@
             {icon:'calendar-clock',label:'Schedules',desc:'Departures & bookings',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
+            {icon:'chart-column',label:'Statistics',desc:'Routes, pilots & activity',action:'insights'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew',action:'notices'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
+        // What each tool tile needs before it is worth offering. Keyed by the
+        // tile's action; the ids are crewAuth.js's CREW_CAPABILITIES.
+        const TILE_CAP={
+            roster:'roster.manage',
+            routes:'routes.manage',
+            schedule:'schedules.manage',
+            notices:'announcements.manage',
+            embeds:'settings.branding',
+            partnership:'partnership.view',
+            // Statistics name individual pilots and rank them, which is roster
+            // business — the same gate the endpoint enforces.
+            insights:'flights.review',
+            // events / pireps: readable by any crew member, staff controls
+            // inside are gated by the server's own canManage.
+        };
+        // Settings is worth opening if ANY of its tabs is reachable. Kept in
+        // step with applyCapState's `vis` map — both answer the same question.
+        // The tile set as last drawn, so a repeat render can be skipped.
+        let TILES_DRAWN='';
+        function canReachAnySettings(){
+            return IS_OWNER || !sessionToken()
+                || can('settings.branding') || can('schedules.manage')
+                || can('settings.recruitment') || can('settings.notifications');
+        }
         function renderTiles(){
             const tools=TOOLS.filter(t=>{
                 // A VA that has switched the schedule off gets no Schedules tile.
                 if(t.action==='schedule' && SCHEDULE_PREFS.enabled===false) return false;
-                // The partnership is the owner's business unless they have given
-                // a role access to it. Offering a tile that answers 403 is worse
-                // than not offering it.
-                if(t.action==='partnership' && !can('partnership.view')) return false;
+                // Every tile is gated on the capability its panel actually
+                // needs. Only Partnership was, which meant a staff member hired
+                // to review flight reports still saw Roster, Routes, Embeds and
+                // Settings — tiles that open, load somebody else's job, and
+                // answer 403 on the first button pressed. Offering a control
+                // that cannot work is worse than not offering it.
+                //
+                // TILE_CAP lists what each one needs; a tile with no entry
+                // (Events, Flights) is readable by any signed-in crew member,
+                // because seeing the calendar and the flight log is not a staff
+                // power — the panels get `canManage` from the server and hide
+                // their own staff controls.
+                const need=TILE_CAP[t.action];
+                if(need && !can(need)) return false;
+                // Settings is not one capability but several. Anybody with at
+                // least one settings tab gets the tile; somebody with none
+                // would otherwise open an empty drawer.
+                if(t.action==='settings' && !canReachAnySettings()) return false;
                 return true;
             });
+
+            // Redraw only when the set actually changed. This runs once at boot
+            // and again when /me lands, and rewriting innerHTML the second time
+            // replaces every tile node — which flashes the grid and drops any
+            // click that was mid-flight against the old nodes. For the common
+            // case (an owner, where both passes agree) the second call now does
+            // nothing at all.
+            const key=tools.map(t=>t.action).join(',');
+            if(key===TILES_DRAWN) return;
+            TILES_DRAWN=key;
+
             document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
@@ -1368,6 +1485,7 @@
                 if(t.action==='notices') el.addEventListener('click', openNotices);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
+                if(t.action==='insights') el.addEventListener('click', openInsights);
             });
         }
 
@@ -1519,6 +1637,160 @@
             renderTiles();
         }
 
+        /* ================================================================
+           STATISTICS
+
+           What this airline's flying actually looks like, from
+           GET /api/crew/<slug>/insights.
+
+           Separate from the /stats figures on the public page: those answer
+           "how big is this VA". These answer the questions a VA asks about
+           its own operation — which routes people really fly, who is carrying
+           the airline this month, and which published routes nobody has ever
+           touched.
+
+           Only approved reports are counted, and the panel says so. A
+           leaderboard built on unreviewed filings would reward filing.
+           ================================================================ */
+        let insightsPanel=null, INSIGHT_DAYS=90, INSIGHTS=null;
+
+        function openInsights(){
+            if(!window.CrewPanels) return;
+            if(!insightsPanel){
+                insightsPanel=CrewPanels.sheet({ id:'insPanel', title:'Statistics', icon:'chart-column', wide:true });
+            }
+            insightsPanel.open();
+            renderInsights();
+            loadInsights();
+        }
+
+        async function loadInsights(){
+            const slug=getSlug(), sess=sessionToken();
+            if(!slug||!sess) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/insights?days=${INSIGHT_DAYS}`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                INSIGHTS = res.ok ? d : { error: d.error||'Could not work out your statistics.' };
+            }catch{ INSIGHTS={ error:'Could not reach the server.' }; }
+            renderInsights();
+        }
+
+        function setInsightDays(d){ INSIGHT_DAYS=d; INSIGHTS=null; renderInsights(); loadInsights(); }
+
+        const insHours=(h)=>`${Math.round((Number(h)||0)*10)/10}h`;
+        function insTable(rows,cols,empty){
+            if(!rows||!rows.length) return `<p class="text-sm muted py-2">${escapeHtml(empty)}</p>`;
+            return `<div class="overflow-x-auto"><table class="w-full text-sm" style="border-collapse:collapse">
+                <thead><tr>${cols.map(c=>`<th class="text-left text-[11px] uppercase tracking-wider faint font-semibold pb-1.5 ${c.num?'text-right':''}">${escapeHtml(c.label)}</th>`).join('')}</tr></thead>
+                <tbody>${rows.map((r,i)=>`<tr class="${i?'border-t hair-soft':''}">${cols.map(c=>
+                    `<td class="py-1.5 ${c.num?'text-right tabular-nums':''}">${c.cell(r)}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
+        function renderInsights(){
+            const body=insightsPanel.body;
+            const chips=[[30,'30 days'],[90,'90 days'],[365,'1 year'],[0,'All time']].map(([d,l])=>
+                `<button data-insdays="${d}" class="px-2.5 py-1 rounded-md text-xs font-semibold ${d===INSIGHT_DAYS?'accent-bg text-white':'surface hair'}">${l}</button>`).join('');
+            const header=`<div class="flex flex-wrap items-center gap-1.5 mb-3">${chips}</div>`;
+
+            if(!INSIGHTS){ body.innerHTML=header+'<div class="cp-empty">Working out your statistics…</div>'; wireInsights(body); return; }
+            if(INSIGHTS.error){ body.innerHTML=header+`<div class="cp-empty">${escapeHtml(INSIGHTS.error)}</div>`; wireInsights(body); return; }
+
+            const d=INSIGHTS, t=d.totals||{}, cov=d.coverage||{}, crew=d.crew||{};
+            const period=INSIGHT_DAYS?`the last ${INSIGHT_DAYS} days`:'all time';
+
+            // The monthly bars. Plain divs rather than a chart library — twelve
+            // numbers do not need 60KB of JavaScript, and this keeps working
+            // when a CDN does not.
+            const months=d.monthly||[];
+            const peak=Math.max(1,...months.map(m=>m.flights));
+            const chart=`<div class="flex items-end gap-1 h-24 mt-2">${months.map(m=>`
+                <div class="flex-1 flex flex-col justify-end items-center gap-1" title="${escapeHtml(m.month)}: ${m.flights} flights, ${insHours(m.hours)}">
+                    <div class="w-full rounded-t accent-bg" style="height:${Math.round((m.flights/peak)*100)}%;min-height:${m.flights?'2px':'0'}"></div>
+                    <span class="text-[9px] faint">${escapeHtml(m.month.slice(5))}</span>
+                </div>`).join('')}</div>`;
+
+            body.innerHTML=header+`
+                <div class="cp-card">
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${t.flights||0}</b>&nbsp;flights</span>
+                        <span class="cp-fact"><b>${insHours(t.hours)}</b>&nbsp;flown</span>
+                        <span class="cp-fact"><b>${t.pilotsFlying||0}</b>&nbsp;pilots flying</span>
+                        <span class="cp-fact"><b>${(t.distanceNm||0).toLocaleString()}</b>&nbsp;nm</span>
+                        <span class="cp-fact"><b>${t.landings||0}</b>&nbsp;landings</span>
+                    </div>
+                    <p class="cp-note">Approved flight reports over ${escapeHtml(period)}${d.counted?` — ${d.counted.approved} of ${d.counted.reports} reports have been approved`:''}. Pending and rejected reports are not counted.</p>
+                </div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Flights by month</h3>${chart}
+                    <p class="cp-note">All time, so a quiet stretch is visible rather than cropped out.</p></div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Most flown routes</h3>
+                    ${insTable(d.topRoutes,[
+                        {label:'Route',cell:r=>`<b>${escapeHtml(r.origin)} → ${escapeHtml(r.destination)}</b>`},
+                        {label:'Flights',num:true,cell:r=>r.flights},
+                        {label:'Hours',num:true,cell:r=>insHours(r.hours)},
+                        {label:'Pilots',num:true,cell:r=>r.pilots},
+                    ],'Nothing flown in this period.')}</div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Most active pilots</h3>
+                    ${insTable(d.topPilots,[
+                        {label:'Pilot',cell:p=>`${escapeHtml(p.name)}${p.callsign?` <span class="cp-faint">${escapeHtml(p.callsign)}</span>`:''}${p.onRoster?'':' <span class="cp-faint">(left)</span>'}`},
+                        {label:'Flights',num:true,cell:p=>p.flights},
+                        {label:'Hours',num:true,cell:p=>insHours(p.hours)},
+                        {label:'Landings',num:true,cell:p=>p.landings},
+                    ],'Nobody has flown in this period.')}
+                    <p class="cp-note">Ranked by flights in this period — not by career hours, which never go down.</p></div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Busiest airports</h3>
+                    ${insTable(d.topAirports,[
+                        {label:'Airport',cell:a=>`<b>${escapeHtml(a.icao)}</b>`},
+                        {label:'Departures',num:true,cell:a=>a.departures},
+                        {label:'Arrivals',num:true,cell:a=>a.arrivals},
+                        {label:'Movements',num:true,cell:a=>a.movements},
+                    ],'No movements in this period.')}</div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Most flown aircraft</h3>
+                    ${insTable(d.topAircraft,[
+                        {label:'Aircraft',cell:a=>escapeHtml(a.aircraft)},
+                        {label:'Flights',num:true,cell:a=>a.flights},
+                        {label:'Hours',num:true,cell:a=>insHours(a.hours)},
+                    ],'No aircraft recorded in this period.')}</div>
+
+                <div class="cp-card"><h3 class="cp-card-title">Your network</h3>
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${cov.routes||0}</b>&nbsp;active routes</span>
+                        <span class="cp-fact"><b>${cov.flown||0}</b>&nbsp;flown at least once</span>
+                        <span class="cp-fact"><b>${cov.neverFlown||0}</b>&nbsp;never flown</span>
+                    </div>
+                    ${(cov.examples&&cov.examples.length)?`<p class="cp-note">Never flown by anybody: ${
+                        cov.examples.map(r=>escapeHtml(`${r.origin}→${r.destination}`)).join(', ')}${cov.neverFlown>cov.examples.length?`, and ${cov.neverFlown-cov.examples.length} more`:''}.</p>`
+                        :'<p class="cp-note">Every active route has been flown at least once.</p>'}
+                    <p class="cp-note">All time, not this period — a route nobody flew last month is normal; one nobody has <i>ever</i> flown is the finding.</p></div>
+
+                <div class="cp-card"><h3 class="cp-card-title">The crew, last 30 days</h3>
+                    <div class="cp-facts">
+                        <span class="cp-fact"><b>${crew.joins||0}</b>&nbsp;joined</span>
+                        <span class="cp-fact"><b>${crew.promotions||0}</b>&nbsp;promoted</span>
+                        <span class="cp-fact"><b>${crew.checkrides||0}</b>&nbsp;check-rides</span>
+                        <span class="cp-fact"><b>${crew.eventsPublished||0}</b>&nbsp;events published</span>
+                        <span class="cp-fact"><b>${crew.schedulesPublished||0}</b>&nbsp;schedules published</span>
+                    </div>
+                    <p class="cp-note">From the noticeboard's own record — the same events your Discord webhook announces. The webhook posts and forgets; these rows are the durable copy.</p></div>`;
+            CrewPanels.icons();
+            wireInsights(body);
+        }
+
+        function wireInsights(body){
+            if(body.dataset.insWired) return;
+            body.dataset.insWired='1';
+            body.addEventListener('click',e=>{
+                const b=e.target.closest('[data-insdays]');
+                if(b) setInsightDays(parseInt(b.getAttribute('data-insdays'),10));
+            });
+        }
+
         // ---- Embeds & partnership ----
         // Both are self-contained panels; neither needs anything from this page
         // beyond where the backend is and who is asking.
@@ -1575,6 +1847,16 @@
         }
 
         // ---- Settings panel ----
+        //
+        // Which panels a tab shows. Everything is one-to-one except Data, which
+        // is three sections of the same subject that used to be two tabs (and
+        // one missing feature): the Supabase connection, how much room it is
+        // using, and getting rid of what is no longer wanted.
+        const TAB_PANELS={
+            appearance:['appearance'], crew:['crew'], recruit:['recruit'],
+            alerts:['alerts'], team:['team'],
+            data:['data','storage','datamanage'],
+        };
         function setCat(cat){
             let tab=document.querySelector(`.settings-tab[data-cat="${cat}"]`);
             // Don't land on a hidden/absent tab — fall back to the first visible one.
@@ -1583,12 +1865,18 @@
                 if(first) cat=first.getAttribute('data-cat');
             }
             document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-cat')===cat));
-            document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-panel')!==cat));
-            // Storage is read from the VA's project, so it is fetched when the
-            // tab is opened rather than on every dashboard load — nobody should
-            // pay a round trip to somebody else's database for a screen they
-            // are not looking at.
-            if(cat==='storage') refreshStorage();
+            // One tab can hold several panels. Data does: connecting a project,
+            // how full it is, and clearing things out of it are three sections
+            // of one subject, and splitting them across two tabs was the thing
+            // that made "where do I do X to my data" a guess.
+            const show=new Set(TAB_PANELS[cat]||[cat]);
+            document.querySelectorAll('[data-panel]').forEach(p=>p.classList.toggle('hidden', !show.has(p.getAttribute('data-panel'))));
+            // Both of these read from the VA's own project, so they are fetched
+            // when the tab is opened rather than on every dashboard load —
+            // nobody should pay a round trip to somebody else's database for a
+            // screen they are not looking at.
+            if(show.has('storage')) refreshStorage();
+            if(show.has('datamanage')) refreshDataSummary();
         }
         // `cat` lands the panel on a specific tab — the onboarding nudge sends
         // an owner straight to Data store, since that is the whole point of it.
@@ -4307,6 +4595,137 @@
             document.getElementById('storageEmptyBtn').classList.toggle('hidden', !offerUpgrade);
         }
 
+        /* ================================================================
+           MANAGE & DELETE
+
+           Counting first, always. Every row here says how much a purge would
+           take BEFORE it is run, because "delete flight reports older than a
+           year" means nothing until you know whether that is nine rows or
+           nine thousand — and by the time it is a surprise it is a restore
+           from backup, not an undo.
+           ================================================================ */
+
+        let DATA_SUMMARY_LOADED=false;
+
+        const purgeAgeDays=()=>parseInt(document.getElementById('purgeAge').value,10)||365;
+
+        async function refreshDataSummary(){
+            const list=document.getElementById('dataManageList');
+            const loading=document.getElementById('dataManageLoading');
+            if(!list) return;
+            const sess=sessionToken(), slug=getSlug();
+            if(!slug||!sess){ loading.textContent='Sign in to manage your data.'; list.innerHTML=''; return; }
+
+            loading.classList.remove('hidden');
+            loading.textContent='Counting what is in your database…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/data?olderThanDays=${purgeAgeDays()}`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ loading.textContent=d.error||'Could not read what is in your data.'; list.innerHTML=''; return; }
+                DATA_SUMMARY_LOADED=true;
+                loading.classList.add('hidden');
+                renderDataSummary(d);
+            }catch{
+                loading.textContent='Could not reach the server.';
+                list.innerHTML='';
+            }
+        }
+
+        function renderDataSummary(d){
+            const list=document.getElementById('dataManageList');
+            const days=d.olderThanDays||purgeAgeDays();
+            list.innerHTML=(d.datasets||[]).map(s=>{
+                // A dataset this project does not have is shown, greyed, rather
+                // than hidden — "where did my events go" is a worse question
+                // than "this database has no events table".
+                if(s.unsupported||s.unavailable){
+                    return `<div class="rounded-xl hair surface p-3.5 opacity-60">
+                        <div class="text-sm font-semibold">${escapeHtml(s.label)}</div>
+                        <div class="text-xs muted mt-0.5">${escapeHtml(s.unsupported?'Not stored in this database.':(s.reason||'Could not read this.'))}</div>
+                    </div>`;
+                }
+                const n=s.matching||0, total=s.total||0;
+                const cap=s.totalCapped?'+':'';
+                return `<div class="rounded-xl hair surface p-3.5">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold">${escapeHtml(s.label)}</div>
+                            <div class="text-xs muted mt-0.5">${total}${cap} in total · <b>${n}${s.matchingCapped?'+':''}</b> older than ${days} days</div>
+                        </div>
+                        <div class="flex gap-1.5 shrink-0">
+                            <button data-purge="${escapeHtml(s.id)}" ${n?'':'disabled'}
+                                class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${n?'hover:border-red-500 hover:text-red-500':'opacity-40 cursor-default'}">Delete ${n||'none'}</button>
+                            <button data-wipe="${escapeHtml(s.id)}" ${total?'':'disabled'}
+                                title="Delete every one of these"
+                                class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${total?'hover:border-red-500 hover:text-red-500':'opacity-40 cursor-default'}">All</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')||'<p class="text-sm muted">Nothing to manage yet.</p>';
+
+            list.querySelectorAll('[data-purge]').forEach(b=>b.addEventListener('click',()=>purgeData(b.getAttribute('data-purge'),false)));
+            list.querySelectorAll('[data-wipe]').forEach(b=>b.addEventListener('click',()=>purgeData(b.getAttribute('data-wipe'),true)));
+            if(window.lucide) lucide.createIcons();
+        }
+
+        async function purgeData(dataset,all){
+            const d=(await currentDataSummary())||{};
+            const set=(d.datasets||[]).find(s=>s.id===dataset);
+            const label=set?set.label.toLowerCase():dataset;
+            const days=purgeAgeDays();
+            const n=set?(all?set.total:set.matching):0;
+
+            // A wipe types the dataset name back. The by-age path and the wipe
+            // path differ by one field, so the confirmation is what makes them
+            // feel like the different decisions they are — and the server asks
+            // for the same word, so a client bug cannot skip it.
+            let body;
+            if(all){
+                const typed=window.prompt(`Delete ALL ${n} ${label}? This cannot be undone.\n\nType “${dataset}” to confirm.`);
+                if(typed===null) return;
+                if(typed.trim()!==dataset){ dataNote('That didn’t match — nothing was deleted.',false); return; }
+                body={ all:true, confirm:dataset };
+            }else{
+                if(!window.confirm(`Delete ${n} ${label} older than ${days} days?\n\nThis removes them from your Supabase project and cannot be undone.`)) return;
+                body={ olderThanDays:days };
+            }
+
+            dataNote('Deleting…',null);
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/data/${encodeURIComponent(dataset)}/purge`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+sessionToken()},
+                    body:JSON.stringify(body) });
+                const out=await res.json().catch(()=>({}));
+                if(!res.ok){ dataNote(out.error||'Could not delete that.',false); return; }
+                dataNote(`Deleted ${out.deleted} ${label}.`,true);
+                DATA_SUMMARY_LOADED=false;
+                refreshDataSummary();
+                // The bar next door is now wrong — a purge is the one thing that
+                // moves it, and leaving it stale would make the deletion look
+                // like it did nothing.
+                refreshStorage(true);
+            }catch{ dataNote('Could not reach the server.',false); }
+        }
+
+        /** The counts as last rendered, re-read so a confirmation names a live number. */
+        async function currentDataSummary(){
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/data?olderThanDays=${purgeAgeDays()}`,{
+                    headers:{Accept:'application/json',Authorization:'Bearer '+sessionToken()} });
+                return res.ok?await res.json():null;
+            }catch{ return null; }
+        }
+
+        function dataNote(msg,ok){
+            const n=document.getElementById('dataManageNote');
+            if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-3 '+(ok===true?'text-emerald-600 dark:text-emerald-400':ok===false?'text-red-500':'muted');
+            n.classList.remove('hidden');
+        }
+
         async function refreshStorage(force){
             const host=document.getElementById('storageBody'); if(!host) return;
             if(STORAGE_LOADED && !force) return;
@@ -4547,6 +4966,27 @@
                 if(res.status===401||res.status===403){ logout(); return; }
                 if(!res.ok) return;
                 const d=await res.json();
+
+                // A pilot does not belong on the staff dashboard.
+                //
+                // crew.html routes by view at sign-in, but that is the only
+                // thing that was stopping a pilot getting here — a bookmark, a
+                // shared link, the back button or a deep link from the app all
+                // land on this page with a perfectly valid pilot session. The
+                // tabs were gated by capability, but the tool tiles were not,
+                // so a pilot saw Roster, Routes, Flights, Embeds and Settings
+                // and every one of them opened.
+                //
+                // The server refuses the writes behind them, so this was never
+                // a way to CHANGE anything. It is still the airline's staff
+                // room, and a pilot should be in their own crew center.
+                if(d.view==='pilot'){
+                    const qs=new URLSearchParams(location.search);
+                    const va=qs.get('va')||getSlug();
+                    location.replace(`/crew-pilot.html?va=${encodeURIComponent(va)}`);
+                    return;
+                }
+
                 IS_OWNER = !!(d.role==='owner' || d.oversight);
                 CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
                 CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
@@ -4566,13 +5006,17 @@
                 // which are separate powers — a schedule manager who cannot
                 // rebrand the crew center still has to reach their own settings.
                 crew:can('settings.branding')||can('schedules.manage'),
-                recruit:can('settings.recruitment')||can('settings.notifications'),
-                team:(IS_OWNER||!sessionToken()), data:(IS_OWNER||!sessionToken()),
-                // Storage is deliberately wider than Data: connecting a database
-                // is the owner's business, but noticing it is nearly full is
-                // whoever runs the airline day to day. It shows sizes and row
-                // counts — nothing that is in a row.
-                storage:(IS_OWNER||can('settings.notifications')||!sessionToken()) };
+                // Recruit is now only about joining — the Discord webhook moved
+                // to Alerts, so this no longer needs the notifications power.
+                recruit:can('settings.recruitment'),
+                alerts:can('settings.notifications'),
+                team:(IS_OWNER||!sessionToken()),
+                // Data now carries the connection, the storage report AND bulk
+                // deletion. The storage report used to be its own, wider tab —
+                // it shows sizes and row counts, nothing that is in a row — so
+                // that audience is kept, and the two owner-only blocks inside
+                // hide themselves for anybody else (see applyDataSectionState).
+                data:(IS_OWNER||can('settings.notifications')||!sessionToken()) };
             document.querySelectorAll('.settings-tab').forEach(t=>{
                 const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
             });
@@ -4582,12 +5026,27 @@
                 const first=document.querySelector('.settings-tab:not(.hidden)');
                 if(first) setCat(first.getAttribute('data-cat'));
             }
+            // Within the Data tab, the connection and the bulk-delete blocks are
+            // the owner's alone — a schedule manager who can see how full the
+            // database is has no business connecting it elsewhere or emptying
+            // it. The storage report between them stays visible to both, which
+            // is the whole reason the tab is wider than its owner-only parts.
+            const owns=IS_OWNER||!sessionToken();
+            const dataConn=document.getElementById('dataSection');
+            const dataManage=document.getElementById('dataManageBlock');
+            if(dataConn) dataConn.classList.toggle('cp-hidden', !owns);
+            if(dataManage) dataManage.classList.toggle('cp-hidden', !owns);
+
             // Within the Crew tab, show only the parts this person may change.
             const structure=document.getElementById('crewStructureBlock');
             const schedule=document.getElementById('crewScheduleBlock');
             if(structure) structure.classList.toggle('cp-hidden', !can('settings.branding'));
             if(schedule) schedule.classList.toggle('cp-hidden', !can('schedules.manage'));
             if(ME_LOADED){ renderRolePresets(); renderStaffRoles(); renderAssignments(); }
+            // The tiles are gated on the same capabilities, and they are drawn
+            // once before /me answers — when CAPS is still empty and everything
+            // would be hidden. Redraw now that we know who this is.
+            renderTiles();
         }
 
         // Owner-only editors for staff roles + assignments.
@@ -4630,13 +5089,21 @@
             const groups={};
             CAP_CATALOG.forEach(c=>{ (groups[c.group]=groups[c.group]||[]).push(c); });
             const perms=new Set(r.permissions||[]);
-            const groupHtml=Object.entries(groups).map(([g,caps])=>`
+            // No catalogue, no tick boxes — and until now, no explanation
+            // either: the role card drew its name and colour and simply had
+            // nothing underneath, which reads as "this VA has no permissions"
+            // rather than "the list did not arrive". /me carries the catalogue
+            // on every response, so an empty one means that call failed or the
+            // backend predates it.
+            const groupHtml=CAP_CATALOG.length ? Object.entries(groups).map(([g,caps])=>`
                 <div class="mt-2">
                     <div class="text-[11px] uppercase tracking-wide faint mb-1">${escapeHtml(g)}</div>
                     ${caps.map(c=>`<label class="flex items-start gap-2 text-sm py-0.5 cursor-pointer">
                         <input type="checkbox" data-perm="${escapeHtml(c.id)}" ${perms.has(c.id)?'checked':''} class="mt-0.5 accent-[var(--accent)]">
                         <span>${escapeHtml(c.label)}</span></label>`).join('')}
-                </div>`).join('');
+                </div>`).join('')
+                : `<p class="text-xs mt-2 text-red-500">Couldn’t load the permission list, so there is nothing to tick.
+                    Reload the page; if it stays empty your crew center backend may be out of date.</p>`;
             return `<div class="surface hair rounded-xl p-3.5" data-role="${i}">
                 <div class="flex items-center gap-2">
                     <input type="color" data-rf="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair shrink-0 bg-transparent cursor-pointer" title="Role colour">
