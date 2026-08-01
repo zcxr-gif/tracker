@@ -2111,12 +2111,14 @@ export const MobileSettingsUI = {
         }
     },
 
-    // Re-renders the live label preview from the current mapFilters config so
-    // it always matches what the map will draw.
     /**
      * The "whose events do I want to see" list, inside the mobile settings
      * sheet. flight.js owns the rendering and the filter state; this only says
      * where to put it, so the phone and the desktop panel cannot drift apart.
+     *
+     * NOTE the trailing comma. MobileSettingsUI is an object literal, not a
+     * class — every member here needs one, and omitting it is a syntax error
+     * that takes the whole file (and therefore the map) with it.
      */
     paintVaEventPicker(sheet) {
         const host = (sheet || document).querySelector('#m-va-event-va-picker');
@@ -2129,8 +2131,10 @@ export const MobileSettingsUI = {
                 .then(() => window.renderVaEventVaPicker(host))
                 .catch(() => {});
         }
-    }
+    },
 
+    // Re-renders the live label preview from the current mapFilters config so
+    // it always matches what the map will draw.
     updateLabelPreview() {
         const preview = document.getElementById('m-label-preview');
         if (!preview) return;
