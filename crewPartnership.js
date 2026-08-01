@@ -45,8 +45,59 @@
     if (!P) { console.warn('crewPartnership: crewPanels.js must load first'); return; }
     const { esc, icons, whenText, relativeText } = P;
 
-    const S = { api: null, data: null, loading: false, error: null };
+    const S = { api: null, backend: '', data: null, loading: false, error: null };
     let panel = null;
+
+    /* =====================================================================
+     * LINKS OUT
+     *
+     * Reported as "the partnership tab just goes blank".
+     *
+     * It was the links. Everything this panel points at — the portal, the
+     * Terms — is served by the BACKEND, and the crew center is a static site on
+     * a different origin. The backend sent those locations as bare paths
+     * ("/va-portal.html"), which a browser resolves against the page it is on:
+     * the crew center. Nothing lives there under that name, so every one of the
+     * five buttons in here opened a blank tab.
+     *
+     * The server now sends absolute URLs. This is the other half, and it is not
+     * redundant: a crew center is a static page a reader may have had open for
+     * a week, and it talks to whatever backend is deployed — including one from
+     * before that change. Rebasing here means the old, relative form still
+     * arrives somewhere real instead of nowhere.
+     * =================================================================== */
+
+    /**
+     * A link to something the backend serves. Relative or absolute in, absolute
+     * out; '' when there is nothing usable, so the caller can drop the button
+     * rather than render one that goes nowhere.
+     */
+    function backendUrl(u, fallbackPath) {
+        const base = (S.backend || location.origin).replace(/\/+$/, '') + '/';
+        for (const cand of [u, fallbackPath]) {
+            if (!cand) continue;
+            try {
+                const url = new URL(String(cand), base);
+                if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
+            } catch { /* fall through to the fallback */ }
+        }
+        return '';
+    }
+
+    /**
+     * A link the VA typed into their own listing.
+     *
+     * Never rebased — someone who typed "example.com" meant a website, not a
+     * page on our backend, and resolving it against a base would invent one.
+     * Absolute http(s) or nothing, which also keeps a javascript: URL in a
+     * listing field from becoming a link in the owner's own dashboard.
+     */
+    function externalUrl(u) {
+        try {
+            const url = new URL(String(u || ''));
+            return (url.protocol === 'https:' || url.protocol === 'http:') ? url.href : '';
+        } catch { return ''; }
+    }
 
     /* =====================================================================
      * DATA
@@ -167,7 +218,7 @@
                     </div>
                     <p class="cpt-warning-reason">${esc(w.reason)}</p>
                 </article>`).join('')}
-            <a class="cp-btn" href="${esc(portal.warningsUrl || '/va-portal.html')}" target="_blank" rel="noopener">
+            <a class="cp-btn" href="${esc(backendUrl(portal.warningsUrl, '/va-portal#warnings'))}" target="_blank" rel="noopener">
                 <i data-lucide="external-link"></i> Acknowledge in the portal
             </a>
         </section>`;
@@ -175,9 +226,11 @@
 
     function listingCard(d) {
         const p = d.partnership || {};
+        const site = externalUrl(p.websiteUrl);
+        const discord = externalUrl(p.discordUrl);
         const links = [
-            p.websiteUrl ? ['globe', 'Website', p.websiteUrl] : null,
-            p.discordUrl ? ['message-circle', 'Discord', p.discordUrl] : null,
+            site ? ['globe', 'Website', site] : null,
+            discord ? ['message-circle', 'Discord', discord] : null,
         ].filter(Boolean);
 
         return `<section class="cp-card">
@@ -200,6 +253,7 @@
     function termsCard(d, portal) {
         const t = d.terms || {};
         const ok = !!t.acknowledged;
+        const termsPage = backendUrl(t.pageUrl, '/terms');
         return `<section class="cp-card">
             <h3 class="cp-card-title">Partnership terms</h3>
             <div class="cpt-terms">
@@ -212,9 +266,9 @@
                 ? esc(`Accepted${t.acknowledgedBy ? ` by ${t.acknowledgedBy}` : ''}${t.acknowledgedAt ? ` · ${whenText(t.acknowledgedAt)}` : ''}.`)
                 : 'Nobody on your VA has accepted the current version yet. It is accepted from the partnership portal.'}</p>
             <div class="cpt-links">
-                ${t.pageUrl ? `<a class="cp-btn cp-btn-sm" href="${esc(t.pageUrl)}" target="_blank" rel="noopener">
+                ${termsPage ? `<a class="cp-btn cp-btn-sm" href="${esc(termsPage)}" target="_blank" rel="noopener">
                     <i data-lucide="file-text"></i> Read the terms</a>` : ''}
-                ${!ok ? `<a class="cp-btn cp-btn-sm cp-btn-primary" href="${esc(portal.termsUrl || '/va-portal.html')}" target="_blank" rel="noopener">
+                ${!ok ? `<a class="cp-btn cp-btn-sm cp-btn-primary" href="${esc(backendUrl(portal.termsUrl, '/va-portal#terms'))}" target="_blank" rel="noopener">
                     <i data-lucide="external-link"></i> Accept in the portal</a>` : ''}
             </div>
         </section>`;
@@ -250,7 +304,7 @@
             <div class="cpt-terms">${chip}</div>
             <p class="cp-note">${note}</p>
             <div class="cpt-links">
-                <a class="cp-btn cp-btn-sm" href="${esc(portal.url || '/va-portal.html')}" target="_blank" rel="noopener">
+                <a class="cp-btn cp-btn-sm" href="${esc(backendUrl(portal.url, '/va-portal'))}" target="_blank" rel="noopener">
                     <i data-lucide="external-link"></i> ${f.requested || f.approved ? 'Manage it' : 'Request it'}
                 </a>
             </div>
@@ -264,10 +318,10 @@
                 above are managed there. It is a separate sign-in from your crew center — on purpose,
                 because it is a different set of powers.</p>
             <div class="cpt-links">
-                <a class="cp-btn cp-btn-primary" href="${esc(portal.url || '/va-portal.html')}" target="_blank" rel="noopener">
+                <a class="cp-btn cp-btn-primary" href="${esc(backendUrl(portal.url, '/va-portal'))}" target="_blank" rel="noopener">
                     <i data-lucide="external-link"></i> Open the portal
                 </a>
-                <a class="cp-btn cp-btn-sm" href="${esc(portal.submissionsUrl || '/va-portal.html')}" target="_blank" rel="noopener">
+                <a class="cp-btn cp-btn-sm" href="${esc(backendUrl(portal.submissionsUrl, '/va-portal#submissions'))}" target="_blank" rel="noopener">
                     <i data-lucide="inbox"></i> Send us something
                 </a>
             </div>
@@ -342,6 +396,9 @@
             });
         }
         S.api = P.api({ backend, slug, token });
+        // Kept because every link in this panel points at something the backend
+        // serves, not at the crew center's own origin. See backendUrl().
+        S.backend = String(backend || '').replace(/\/+$/, '');
         panel.open();
         load();
     }
