@@ -193,7 +193,8 @@
         ].filter(Boolean).join('');
 
         return `<article class="cs-row${mine ? ' cs-row-mine' : ''}${cancelled ? ' cs-row-off' : ''}" data-id="${esc(s.id)}">
-            <div class="cs-row-main">
+            <div class="cs-row-main" data-detail="${esc(s.id)}" role="button" tabindex="0"
+                aria-label="Details for ${esc(legText(s))}">
                 <div class="cs-leg">
                     ${s.flightNumber ? `<span class="cs-flightno">${esc(s.flightNumber)}</span>` : ''}
                     <span class="cs-ports">${esc(s.origin || '???')} <i data-lucide="arrow-right"></i> ${esc(s.destination || '???')}</span>
@@ -394,7 +395,7 @@
         if (body.dataset.csWired) return;
         body.dataset.csWired = '1';
 
-        body.addEventListener('click', async (ev) => {
+        body.addEventListener('click', (ev) => {
             const tab = ev.target.closest('[data-view]');
             if (tab) {
                 S.view = tab.getAttribute('data-view');
@@ -404,55 +405,202 @@
                 if (S.view === 'all' && !S.fetchedAll) load();
                 return;
             }
-
-            const el = ev.target.closest('[data-book],[data-cancel],[data-edit],[data-del],[data-crew],[data-file]');
-            if (!el) return;
-
-            const id = el.getAttribute('data-book') || el.getAttribute('data-cancel')
-                || el.getAttribute('data-edit') || el.getAttribute('data-del')
-                || el.getAttribute('data-crew') || el.getAttribute('data-file');
-            const s = S.schedules.find((x) => String(x.id) === String(id));
-            if (!s) return;
-
-            if (el.hasAttribute('data-edit')) return openEditor(s);
-            if (el.hasAttribute('data-crew')) return openCrewList(s);
-            if (el.hasAttribute('data-file')) return fileFlight(s);
-
-            if (el.hasAttribute('data-del')) {
-                if (!window.confirm(`Remove ${legText(s)} from the schedule? Anyone booked on it loses the leg.`)) return;
-                try {
-                    await S.api(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                    P.toast('Removed from the schedule.', 'ok');
-                    await load();
-                } catch (err) { P.toast(err.message || 'Could not remove that.', 'bad'); }
-                return;
-            }
-
-            S.busy = id;
-            render();
-            try {
-                if (el.hasAttribute('data-book')) {
-                    await S.api(`/schedules/${encodeURIComponent(id)}/book`, { method: 'POST', body: {} });
-                    P.toast('Booked. See you at the gate.', 'ok');
-                } else {
-                    await S.api(`/schedules/${encodeURIComponent(id)}/book`, { method: 'DELETE' });
-                    P.toast('Given back.', 'ok');
-                }
-            } catch (err) {
-                // 'seat_taken' and 'full' are not failures of this browser —
-                // they are the schedule having moved underneath it. Say what
-                // happened and re-read, so the row the pilot is looking at is
-                // the row the database has.
-                P.toast(err.message || 'That didn’t work.', 'bad');
-            } finally {
-                S.busy = '';
-                await load();
-            }
+            const el = ev.target.closest(ACTION_SELECTOR);
+            if (el) runRowAction(el);
         });
+
+        // A row is role="button", so it has to answer the keyboard like one.
+        // Without this it takes focus, announces itself as pressable, and then
+        // does nothing when pressed — which is worse than not being focusable.
+        body.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Enter' && ev.key !== ' ') return;
+            const el = ev.target.closest('[data-detail]');
+            if (!el) return;
+            ev.preventDefault();
+            runRowAction(el);
+        });
+    }
+
+    /** Everything on a row (or in its detail) that does something when pressed. */
+    const ACTION_SELECTOR = '[data-book],[data-cancel],[data-edit],[data-del],[data-crew],[data-file],[data-detail]';
+
+    /**
+     * Service one press.
+     *
+     * Lifted out of the list's delegated handler because the detail dialog
+     * carries the same buttons and is appended to <body>, not into panel.body —
+     * so the delegation that covers the list cannot reach it. One function, two
+     * callers, and the rules stay in one place.
+     */
+    async function runRowAction(el) {
+        const id = el.getAttribute('data-book') || el.getAttribute('data-cancel')
+            || el.getAttribute('data-edit') || el.getAttribute('data-del')
+            || el.getAttribute('data-crew') || el.getAttribute('data-file')
+            || el.getAttribute('data-detail');
+        const s = S.schedules.find((x) => String(x.id) === String(id));
+        if (!s) return;
+
+        if (el.hasAttribute('data-detail')) return openDetail(s);
+        if (el.hasAttribute('data-edit')) return openEditor(s);
+        if (el.hasAttribute('data-crew')) return openCrewList(s);
+        if (el.hasAttribute('data-file')) return fileFlight(s);
+
+        if (el.hasAttribute('data-del')) {
+            if (!window.confirm(`Remove ${legText(s)} from the schedule? Anyone booked on it loses the leg.`)) return;
+            try {
+                await S.api(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                P.toast('Removed from the schedule.', 'ok');
+                await load();
+            } catch (err) { P.toast(err.message || 'Could not remove that.', 'bad'); }
+            return;
+        }
+
+        S.busy = id;
+        render();
+        try {
+            if (el.hasAttribute('data-book')) {
+                await S.api(`/schedules/${encodeURIComponent(id)}/book`, { method: 'POST', body: {} });
+                P.toast('Booked. See you at the gate.', 'ok');
+            } else {
+                await S.api(`/schedules/${encodeURIComponent(id)}/book`, { method: 'DELETE' });
+                P.toast('Given back.', 'ok');
+            }
+        } catch (err) {
+            // 'seat_taken' and 'full' are not failures of this browser —
+            // they are the schedule having moved underneath it. Say what
+            // happened and re-read, so the row the pilot is looking at is
+            // the row the database has.
+            P.toast(err.message || 'That didn’t work.', 'bad');
+        } finally {
+            S.busy = '';
+            await load();
+        }
     }
 
     const legText = (s) => [s.flightNumber, [s.origin, s.destination].filter(Boolean).join(' → ')]
         .filter(Boolean).join(' · ') || 'this departure';
+
+    /* =====================================================================
+     * THE DEPARTURE, IN FULL
+     *
+     * A row is a scanning shape: it has to stay one line tall so a week of
+     * flying reads as a week. That makes it the wrong place to answer the
+     * questions a pilot asks about ONE leg — what time do I land, is that the
+     * same day, how long am I in the air, what am I flying.
+     *
+     * So a row opens this, and it is a TIMELINE rather than a second list of
+     * facts. The reason is the arrival day. A schedule row shows "23:40 → 07:20"
+     * and every reader has to work out for themselves that the second number is
+     * tomorrow; a timeline puts the weekday against both ends and the question
+     * stops being asked. Long-haul VAs are where the schedule gets used hardest
+     * and where that ambiguity bites, which is what makes this worth a view.
+     *
+     * Presentation only. Every value here is already on the row — nothing new is
+     * fetched, nothing new is stored, and a departure with no arrival time still
+     * renders honestly rather than inventing one.
+     * =================================================================== */
+
+    /** "Wed" — the weekday alone, for pinning a clock time to its day. */
+    function weekdayText(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleDateString(undefined, { weekday: 'short' });
+    }
+
+    /** "Wed 11 Nov 2026" — the heading a departure is filed under. */
+    function fullDateText(iso) {
+        if (!iso) return 'Date to be confirmed';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return 'Date to be confirmed';
+        return d.toLocaleDateString(undefined, {
+            weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+        });
+    }
+
+    /**
+     * One end of the leg: the mark on the spine, the clock, and the airport.
+     *
+     * `time` is empty when the VA published only a push-back time. That is a
+     * real state — plenty of schedules carry no arrival — and it prints as a
+     * dash rather than a guess computed from a block time nobody entered.
+     */
+    function timelineStop(kind, iso, place) {
+        const clock = timeText(iso);
+        const day = weekdayText(iso);
+        return `<li class="cs-tl-row cs-tl-stop">
+            <span class="cs-tl-mark" aria-hidden="true"><i data-lucide="plane-${kind === 'dep' ? 'takeoff' : 'landing'}"></i></span>
+            <div class="cs-tl-text">
+                <p class="cs-tl-time">${clock ? esc(clock) : '<span class="cp-faint">—</span>'}
+                    ${day ? `<span class="cs-tl-day">${esc(day)}</span>` : ''}</p>
+                <p class="cs-tl-place">${esc(place || '???')}</p>
+            </div>
+        </li>`;
+    }
+
+    function timelineHtml(s) {
+        const block = durationText(s.blockMinutes);
+        const mid = [
+            s.flightNumber ? `<p class="cs-tl-flightno">${esc(s.flightNumber)}</p>` : '',
+            s.aircraft ? `<p class="cs-tl-fact">${esc(s.aircraft)}</p>` : '',
+            block ? `<p class="cs-tl-fact">${esc(block)}</p>` : '',
+            s.seats > 1 ? `<p class="cs-tl-fact">${s.seats} crew</p>` : '',
+        ].filter(Boolean).join('');
+
+        return `<ol class="cs-tl">
+            ${timelineStop('dep', s.departsAt, s.origin)}
+            <li class="cs-tl-row cs-tl-seg">
+                <span class="cs-tl-mark" aria-hidden="true"></span>
+                <div class="cs-tl-text">${mid || '<p class="cs-tl-fact cp-faint">No details published.</p>'}</div>
+            </li>
+            ${timelineStop('arr', s.arrivesAt, s.destination)}
+        </ol>`;
+    }
+
+    /**
+     * Open the detail for one departure.
+     *
+     * Carries the row's own actions at the foot rather than being read-only: a
+     * pilot who opened this to check the arrival day is exactly the pilot about
+     * to decide whether to take the leg, and sending them back to the row to
+     * press Book would be a dead end. The markup is rowActions' own, so the
+     * rules it encodes — refusals, cutoffs, staff tools — cannot drift from the
+     * list's copy.
+     */
+    function openDetail(s) {
+        const mine = myBooking(s.id);
+        const block = durationText(s.blockMinutes);
+        const chips = [];
+        if (s.status === 'draft') chips.push('<span class="cp-chip cp-chip-mute">Draft</span>');
+        if (s.status === 'cancelled') chips.push('<span class="cp-chip cp-chip-bad">Cancelled</span>');
+        if (mine) chips.push(`<span class="cp-chip cp-chip-ok">${mine.status === 'flown' ? 'Flown' : 'Yours'}</span>`);
+        if (s.booked != null && s.status !== 'cancelled') {
+            chips.push(s.full
+                ? '<span class="cp-chip cp-chip-mute">Full</span>'
+                : `<span class="cp-chip">${s.seatsLeft} of ${s.seats} open</span>`);
+        }
+        if (s.minRank) chips.push(`<span class="cp-chip${s.locked ? ' cp-chip-warn' : ''}">${esc(s.minRank)}${s.locked ? '' : '+'}</span>`);
+
+        const modal = dialog(`Departure ${fullDateText(s.departsAt)}`, `
+            <p class="cs-tl-route">${esc([s.origin, s.destination].filter(Boolean).join(' – ') || 'Route to be confirmed')}</p>
+            ${block ? `<p class="cs-tl-total">Total duration ${esc(block)}</p>` : ''}
+            ${timelineHtml(s)}
+            ${s.notes ? `<p class="cs-tl-notes">${esc(s.notes)}</p>` : ''}
+            ${chips.length ? `<div class="cs-tl-chips">${chips.join('')}</div>` : ''}
+            <div class="cs-tl-actions">${rowActions(s, mine)}</div>`);
+
+        // Closed before the action runs, not after. Every one of these either
+        // changes the leg (book, give back, remove) or opens a view of its own
+        // (edit, crew, file) — so leaving this dialog up would either show a
+        // state the server has already moved past, or stack a second sheet on a
+        // first that has nothing left to say.
+        modal.el.addEventListener('click', (ev) => {
+            const el = ev.target.closest(ACTION_SELECTOR);
+            if (!el) return;
+            modal.close();
+            runRowAction(el);
+        });
+    }
 
     /* =====================================================================
      * WHO IS FLYING IT — staff only
@@ -795,6 +943,52 @@
         .cs-chips:empty{ display:none; }
         .cs-locked{ font-size:.75rem; }
 
+        /* The row is pressable now — it opens the departure's detail. It has to
+           look it, or the affordance is a secret. The cursor and the hover are
+           on the main column only, because the action column beside it belongs
+           to its own buttons. */
+        .cs-row-main{ cursor:pointer; border-radius:.4rem; }
+        .cs-row-main:hover .cs-ports{ text-decoration:underline; text-underline-offset:.15em; }
+        .cs-row-main:focus-visible{ outline:2px solid var(--accent,#1C1A16); outline-offset:3px; }
+
+        /* ===================================================================
+         * THE DEPARTURE TIMELINE
+         *
+         * Two stops and the sector between them, down a spine. The spine is a
+         * border on the mark column rather than a drawn line, so it grows with
+         * the middle block's content and never needs a measured height.
+         *
+         * The weekday next to each clock is the whole point of the shape: an
+         * overnight leg's arrival is a different day, and a row that reads
+         * "23:40 → 07:20" makes every pilot work that out for themselves.
+         * ================================================================= */
+        .cs-tl-route{ margin:0; font-size:.9rem; font-weight:600; color:var(--muted,#736E64); }
+        .cs-tl-total{ margin:.15rem 0 0; font-size:.82rem; color:var(--muted,#736E64); }
+        .cs-tl{ list-style:none; margin:1rem 0 0; padding:0; }
+        .cs-tl-row{ display:grid; grid-template-columns:1.5rem 1fr; gap:.75rem; }
+        .cs-tl-mark{ position:relative; display:grid; justify-items:center; }
+        /* The spine. Drawn on the mark column of every row, then stopped short
+           at the two ends so it runs BETWEEN the stops and not past them. */
+        .cs-tl-mark::before{ content:''; position:absolute; top:0; bottom:0; left:50%;
+            width:2px; margin-left:-1px; border-radius:1px;
+            background:color-mix(in srgb, var(--accent,#1C1A16) 35%, transparent); }
+        .cs-tl-row:first-child .cs-tl-mark::before{ top:1.1rem; }
+        .cs-tl-row:last-child .cs-tl-mark::before{ bottom:calc(100% - 1.1rem); }
+        .cs-tl-stop .cs-tl-mark i{ position:relative; width:1.1rem; height:1.1rem; margin-top:.15rem;
+            color:var(--accent,#1C1A16); background:var(--surface,#fff); }
+        .cs-tl-text{ min-width:0; padding-bottom:1.1rem; }
+        .cs-tl-seg .cs-tl-text{ padding-bottom:1.4rem; }
+        .cs-tl-time{ margin:0; font-size:.95rem; font-weight:700; color:var(--ink,#1C1A16); }
+        .cs-tl-day{ font-size:.8rem; font-weight:600; color:var(--muted,#736E64); margin-left:.3rem; }
+        .cs-tl-place{ margin:.1rem 0 0; font-size:.85rem; color:var(--muted,#736E64); }
+        .cs-tl-flightno{ margin:0; font-size:.85rem; font-weight:700; color:var(--ink,#1C1A16); }
+        .cs-tl-fact{ margin:.1rem 0 0; font-size:.82rem; color:var(--muted,#736E64); }
+        .cs-tl-notes{ margin:.4rem 0 0; font-size:.82rem; color:var(--muted,#736E64); white-space:pre-wrap; }
+        .cs-tl-chips{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.8rem; }
+        .cs-tl-actions{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1rem;
+            padding-top:.9rem; border-top:1px solid var(--line,#e5e5e5); }
+        .cs-tl-actions:empty{ display:none; }
+
         .cs-dialog{ z-index:90; }
         .cs-dialog-card{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
             width:min(94vw,34rem); max-height:88vh; overflow-y:auto; border-radius:.9rem;
@@ -870,6 +1064,11 @@
                 background:var(--surface,#fff); border-top:1px solid var(--line,#e5e5e5);
             }
             .cs-form-foot .cp-btn{ min-height:2.75rem; }
+            /* The detail's actions get the same treatment as a row's on a
+               phone: real targets, and the icon-only staff tools kept square so
+               they stay tools rather than competing with Book. */
+            .cs-tl-actions .cp-btn{ flex:1 1 0; justify-content:center; min-height:2.75rem; }
+            .cs-tl-actions .cs-tool{ flex:0 0 2.75rem; padding:.5rem; }
             .cs-crew-row{ flex-wrap:wrap; }
             .cs-crew-name{ flex:1 1 60%; }
         }
