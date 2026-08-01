@@ -353,6 +353,28 @@
     }
 
     /* ---------------------------------------------------------------------
+     * Who owns the Escape key
+     *
+     * A sheet and a dialog stacked on it BOTH listen on `document`, and the
+     * sheet listens first because it opened first. So one Escape ran both
+     * handlers: the dialog closed, and the schedule behind it closed with it.
+     * Dismissing a departure's detail threw away the schedule the reader was
+     * looking at, and the editor and the crew list did the same.
+     *
+     * stopPropagation cannot fix that — the two listeners are on the same node,
+     * and the sheet's has already run by the time the dialog's is reached. So
+     * the sheet asks instead: is there a layer above me? If there is, the
+     * Escape is not mine.
+     *
+     * Selector rather than a registry because the dialogs are built by modules
+     * that do not otherwise talk to this one, which is the same reason
+     * anythingOpen() below matches on classes.
+     * ------------------------------------------------------------------- */
+
+    const TOP_LAYER = '.cp-dialog, .cs-dialog, .cev-modal:not(.cev-hidden)';
+    const somethingOnTop = () => !!document.querySelector(TOP_LAYER);
+
+    /* ---------------------------------------------------------------------
      * The slide-over shell
      * ------------------------------------------------------------------- */
 
@@ -416,7 +438,7 @@
             document.removeEventListener('keydown', onKey);
             unlockScroll();
         };
-        function onKey(ev) { if (ev.key === 'Escape') close(); }
+        function onKey(ev) { if (ev.key === 'Escape' && !somethingOnTop()) close(); }
 
         return {
             el,

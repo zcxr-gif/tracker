@@ -11513,6 +11513,15 @@ window.getAirportCoords = (icao) => {
     return (apt && apt.lat != null) ? { lat: apt.lat, lon: apt.lon } : null;
 };
 
+// The airport's own name, for anything that wants to show a place rather than
+// a code. Same accessor shape as getAirportCoords above, and for the same
+// reason: airportsData is scoped to this file, and the weather widget is a
+// separate script that must not reach into it.
+window.getAirportName = (icao) => {
+    const apt = airportsData?.[String(icao || '').toUpperCase()];
+    return (apt && apt.name) ? String(apt.name) : '';
+};
+
     /// --- Helper Functions ---
 
 /**

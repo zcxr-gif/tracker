@@ -55,6 +55,7 @@
         hazardsHere: [],    // advisories whose polygon contains the aircraft
         windowShown: false,
         popoverOpen: false,
+        focusIcao: '',      // station the headline is pinned to, '' = follow the pill
         refreshTimer: null,
         positionTimer: null,
     };
@@ -141,6 +142,82 @@
         if (!state.fetchedAt) return '';
         const min = Math.floor((Date.now() - state.fetchedAt) / 60000);
         return min < 1 ? 'updated just now' : `updated ${min} min ago`;
+    }
+
+    // ── Derived readings ───────────────────────────────────────────────────
+    //
+    // The popover is shaped like Apple's Weather, which puts a headline number
+    // and a one-word verdict above everything else. A METAR has the number but
+    // no verdict, and none of the things Apple pairs with it — there is no
+    // forecast in a METAR, so no high, no low, no "expected around 16:00".
+    //
+    // Rather than leave the headline bare or invent a forecast, the verdict is
+    // the one a pilot already reads off these fields: the FLIGHT CATEGORY.
+    // Standard ceiling/visibility thresholds, the same ones the AWC publishes,
+    // so this is a derivation and not a guess.
+
+    const MI = 1609.34;
+
+    /** VFR / MVFR / IFR / LIFR from ceiling and visibility. */
+    function flightCategory(p) {
+        if (!p || p.raw === 'Not Available') return null;
+        const ceil = p.ceiling;                     // ft AGL, null when none reported
+        const vis = p.visibilityMeters;             // metres, null when unparsed
+        if (ceil === null && vis === null) return null;
+        // Worst of the two decides, which is what the thresholds mean — a
+        // 200 ft ceiling is LIFR however far you can see along the runway.
+        const byCeil = ceil === null ? 4 : ceil < 500 ? 1 : ceil < 1000 ? 2 : ceil <= 3000 ? 3 : 4;
+        const byVis = vis === null ? 4 : vis < 1 * MI ? 1 : vis < 3 * MI ? 2 : vis <= 5 * MI ? 3 : 4;
+        const rank = Math.min(byCeil, byVis);
+        return [
+            null,
+            { key: 'LIFR', label: 'Low IFR', color: '#f472b6' },
+            { key: 'IFR', label: 'IFR', color: '#f87171' },
+            { key: 'MVFR', label: 'Marginal VFR', color: '#60a5fa' },
+            { key: 'VFR', label: 'VFR', color: '#4ade80' },
+        ][rank];
+    }
+
+    /**
+     * Relative humidity from temperature and dewpoint (Magnus-Tetens).
+     *
+     * Apple shows humidity and a METAR does not carry it, but it is a closed
+     * formula over two fields that ARE carried — not an estimate.
+     */
+    function humidity(p) {
+        if (!p || p.tempC === null || p.dewpointC === null) return null;
+        const e = (t) => Math.exp((17.625 * t) / (243.04 + t));
+        return Math.round(100 * (e(p.dewpointC) / e(p.tempC)));
+    }
+
+    /**
+     * The one-word condition for the headline.
+     *
+     * `conditionLabel` from the parser only ever describes cloud cover, so a
+     * station reporting thunderstorms under a broken sky read "Broken". Present
+     * weather wins here, because it is what a person means by "what's it like".
+     */
+    function conditionText(p) {
+        if (!p || p.raw === 'Not Available') return '—';
+        const raw = p.raw || '';
+        const heavy = /\+(?:SH|FZ|TS)?(?:RA|DZ|SN)/.test(raw);
+        if (/\bTS/.test(raw)) return 'Thunderstorms';
+        if (/\bFZ(?:RA|DZ)\b/.test(raw)) return 'Freezing rain';
+        if (/\b(?:\+|-)?(?:SH)?(?:SN|SG)\b/.test(raw)) return heavy ? 'Heavy snow' : 'Snow';
+        if (/\b(?:PL|IC|GS|GR)\b/.test(raw)) return 'Ice pellets';
+        if (/\b(?:\+|-)?(?:SH)?(?:RA|DZ)\b/.test(raw)) {
+            return heavy ? 'Heavy rain' : /-(?:SH)?(?:RA|DZ)/.test(raw) ? 'Light rain' : 'Rain';
+        }
+        if (/\bFG\b/.test(raw)) return 'Fog';
+        if (/\bBR\b/.test(raw)) return 'Mist';
+        if (/\b(HZ|FU|DU|SA|VA)\b/.test(raw)) return 'Haze';
+        if ((p.windSpeed || 0) >= 25 || (p.windGust || 0) >= 35) return 'Windy';
+        return p.conditionLabel && p.conditionLabel !== '—' ? p.conditionLabel : 'Clear';
+    }
+
+    /** The airport's own name, when the app has loaded its table. '' otherwise. */
+    function stationName(icao) {
+        return (typeof window.getAirportName === 'function' ? window.getAirportName(icao) : '') || '';
     }
 
     function esc(str) {
@@ -234,7 +311,14 @@
             #wx-popover {
                 display: none;
                 margin-top: 10px;
-                width: min(330px, calc(100vw - 28px));
+                width: min(340px, calc(100vw - 28px));
+                /* The panel is pinned under a pill at the top of the map, so it
+                   has the viewport minus that pill to work with and no more.
+                   Scrolling inside beats growing off the bottom of the screen. */
+                max-height: calc(100vh - 120px);
+                max-height: calc(100dvh - 120px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
                 background: linear-gradient(135deg, var(--iw-bg-start, rgba(45,45,45,0.9)), var(--iw-bg-end, rgba(45,45,45,0.9)));
                 backdrop-filter: blur(40px) saturate(140%);
                 -webkit-backdrop-filter: blur(40px) saturate(140%);
@@ -246,15 +330,162 @@
                 animation: wx-fade-in 0.32s cubic-bezier(0.16, 1, 0.3, 1);
             }
             #wx-widget-root.wx-open #wx-popover { display: block; }
-            .wx-pop-head {
-                display: flex;
+
+            /* ── The headline ───────────────────────────────────────────────
+               Apple's shape: place, one big number, one word. Centred, with
+               air around it, because its whole job is to be read without
+               being read. Everything below it is detail for whoever wants it. */
+            .wx-hero {
+                padding: 18px 15px 16px;
+                text-align: center;
+            }
+            .wx-hero-place {
+                font-family: var(--font-data, ui-monospace, monospace);
+                font-size: 15px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                color: var(--text-primary, #fafafa);
+            }
+            .wx-hero-sub {
+                margin-top: 2px;
+                font-size: 11px;
+                color: var(--text-secondary, #a1a1aa);
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .wx-hero-temp {
+                margin-top: 6px;
+                font-size: 62px;
+                font-weight: 200;
+                line-height: 1;
+                letter-spacing: -2px;
+                color: var(--text-primary, #fafafa);
+            }
+            /* Optically centred: the degree sign hangs off the right of the
+               number, and without pulling it back the whole figure sits left. */
+            .wx-hero-temp .deg { font-weight: 200; }
+            .wx-hero-cond {
+                margin-top: 4px;
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--text-secondary, #a1a1aa);
+            }
+            .wx-hero-cat {
+                display: inline-flex;
                 align-items: center;
-                justify-content: space-between;
-                padding: 12px 15px 10px;
+                gap: 6px;
+                margin-top: 10px;
+                padding: 4px 10px;
+                border-radius: 999px;
+                border: 1px solid color-mix(in srgb, var(--cat) 45%, transparent);
+                background: color-mix(in srgb, var(--cat) 14%, transparent);
+            }
+            .wx-hero-cat .key {
+                font-size: 10.5px;
+                font-weight: 800;
+                letter-spacing: 0.06em;
+                color: var(--cat);
+            }
+            .wx-hero-cat .lab { font-size: 10.5px; color: var(--text-secondary, #a1a1aa); }
+            .wx-hero-none { margin-top: 10px; font-size: 11.5px; color: var(--text-secondary, #a1a1aa); }
+
+            /* ── The route strip ────────────────────────────────────────────
+               Apple's hourly row with places on the axis instead of hours,
+               because a METAR is one observation and there is no hour to
+               scroll through. */
+            .wx-strip {
+                display: flex;
+                gap: 6px;
+                padding: 10px 12px;
+                margin: 0 3px;
+                border-top: 1px solid var(--border-glass, rgba(255,255,255,0.1));
                 border-bottom: 1px solid var(--border-glass, rgba(255,255,255,0.1));
             }
-            .wx-pop-head .title { font-size: 12.5px; font-weight: 700; color: var(--text-primary, #fafafa); }
-            .wx-pop-head .age { font-size: 10px; color: var(--text-secondary, #a1a1aa); }
+            .wx-strip-item {
+                flex: 1 1 0;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 4px;
+                padding: 8px 4px;
+                border: 1px solid transparent;
+                border-radius: 12px;
+                background: transparent;
+                font-family: inherit;
+                color: var(--text-primary, #fafafa);
+                cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
+                transition: background 0.15s ease, border-color 0.15s ease;
+            }
+            .wx-strip-item:hover { background: rgba(255,255,255,0.06); }
+            .wx-strip-item.is-on {
+                background: rgba(255,255,255,0.1);
+                border-color: var(--border-highlight, rgba(255,255,255,0.15));
+            }
+            .wx-strip-item .tag {
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                color: var(--text-secondary, #a1a1aa);
+                text-transform: uppercase;
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .wx-strip-item i { font-size: 15px; color: var(--text-secondary, #a1a1aa); }
+            .wx-strip-item.is-on i { color: var(--text-primary, #fafafa); }
+            .wx-strip-item .temp { font-size: 14px; font-weight: 700; letter-spacing: -0.3px; }
+            .wx-strip-item .icao {
+                font-family: var(--font-data, ui-monospace, monospace);
+                font-size: 9.5px;
+                color: var(--text-dim, #94a3b8);
+            }
+
+            /* ── The detail tiles ───────────────────────────────────────────
+               Apple's grid, over the fields a METAR carries. */
+            .wx-tiles {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                padding: 12px;
+            }
+            .wx-tile {
+                padding: 9px 10px;
+                border-radius: 12px;
+                background: rgba(255,255,255,0.05);
+                border: 1px solid var(--border-glass, rgba(255,255,255,0.08));
+                min-width: 0;
+            }
+            .wx-tile .k {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                font-size: 9.5px;
+                font-weight: 700;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                color: var(--text-secondary, #a1a1aa);
+            }
+            .wx-tile .k i { font-size: 9.5px; }
+            .wx-tile .v {
+                margin-top: 4px;
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--text-primary, #fafafa);
+                overflow-wrap: anywhere;
+            }
+            .wx-tile .s { margin-top: 1px; font-size: 10px; color: var(--text-dim, #94a3b8); }
+            .wx-pop-foot {
+                padding: 0 15px 12px;
+                font-size: 10px;
+                color: var(--text-secondary, #a1a1aa);
+                text-align: center;
+            }
+            .wx-pop-foot:empty { display: none; }
+
             .wx-hazards {
                 padding: 4px 0;
                 border-bottom: 1px solid var(--border-glass, rgba(255,255,255,0.1));
@@ -294,42 +525,17 @@
                 -webkit-box-orient: vertical;
                 overflow: hidden;
             }
-            .wx-station { padding: 11px 15px; }
-            .wx-station + .wx-station { border-top: 1px solid var(--border-glass, rgba(255,255,255,0.1)); }
-            .wx-station-top {
-                display: flex;
-                align-items: baseline;
-                gap: 8px;
-                margin-bottom: 8px;
-            }
-            .wx-station-top .tag {
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.08em;
-                color: var(--text-secondary, #a1a1aa);
-                text-transform: uppercase;
-            }
-            .wx-station-top .icao {
-                font-family: var(--font-data, ui-monospace, monospace);
-                font-size: 13.5px;
-                font-weight: 700;
-                color: var(--text-primary, #fafafa);
-            }
-            .wx-station-top .temp { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--text-primary, #fafafa); }
-            .wx-station-top .temp i { font-size: 12px; margin-right: 5px; color: var(--text-secondary, #a1a1aa); }
-            .wx-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-            .wx-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
-            .wx-row .k { color: var(--text-secondary, #a1a1aa); }
-            .wx-row .v { color: var(--text-primary, #fafafa); font-weight: 600; text-align: right; white-space: nowrap; }
             .wx-raw {
-                margin-top: 8px;
+                margin: 0 12px 12px;
+                padding: 8px 10px;
+                border-radius: 10px;
+                background: rgba(0,0,0,0.22);
                 font-family: var(--font-data, ui-monospace, monospace);
                 font-size: 9.5px;
-                line-height: 1.5;
+                line-height: 1.55;
                 color: var(--text-dim, #94a3b8);
                 word-break: break-word;
             }
-            .wx-unavailable { font-size: 11px; color: var(--text-secondary, #a1a1aa); }
         `;
         document.head.appendChild(style);
     }
@@ -352,6 +558,16 @@
         });
         pill.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePopover(); }
+        });
+        // The route strip moves the headline between stations. Delegated,
+        // because renderPopover() replaces its own innerHTML on every METAR
+        // refresh and a handler bound to a button would not survive that.
+        popover.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-wx-station]');
+            if (!btn) return;
+            e.stopPropagation();
+            state.focusIcao = btn.getAttribute('data-wx-station');
+            renderPopover();
         });
         // Capture phase: while the popover is open, a click anywhere else
         // dismisses it and goes no further — the map and the flight window
@@ -524,46 +740,138 @@
         `;
     }
 
-    function stationHTML(tag, icao, p) {
-        if (!icao) return '';
+    /**
+     * The stations this popover can show, in route order.
+     *
+     * NEAR is dropped when it is already one of the route airports — a flight
+     * on the ground at its own departure gate should not be offered the same
+     * station twice.
+     */
+    function stations() {
+        const ctx = state.ctx || {};
+        const now = state.nowStation;
+        const out = [];
+        if (ctx.depIcao) out.push({ role: 'dep', tag: 'Departure', icao: ctx.depIcao, parsed: state.metars.dep });
+        if (now && now.icao !== ctx.depIcao && now.icao !== ctx.arrIcao) {
+            out.push({
+                role: 'now', icao: now.icao, parsed: now.parsed,
+                tag: now.km != null ? `Now · ${Math.round(now.km)} km` : 'Now',
+            });
+        }
+        if (ctx.arrIcao) out.push({ role: 'arr', tag: 'Arrival', icao: ctx.arrIcao, parsed: state.metars.arr });
+        return out;
+    }
+
+    /** The station the headline is showing — the pinned one, else the pill's. */
+    function focusedStation() {
+        const list = stations();
+        if (!list.length) return null;
+        return list.find((s) => s.icao === state.focusIcao)
+            || list.find((s) => s.icao === (primaryStation() || {}).icao)
+            || list[0];
+    }
+
+    /**
+     * The headline: where, how warm, and what it is like.
+     *
+     * Deliberately the same shape as Apple's — place, one big number, one word
+     * — because that is the part a reader takes in without reading. What sits
+     * where Apple puts "H:89° L:73°" is the flight category, since a METAR has
+     * no forecast to put there and a blank line would waste the most valuable
+     * row in the panel.
+     */
+    function heroHTML(st) {
+        if (!st) return '';
+        const p = st.parsed;
+        const name = stationName(st.icao);
         if (!p || p.raw === 'Not Available') {
             return `
-                <div class="wx-station">
-                    <div class="wx-station-top">
-                        <span class="tag">${tag}</span>
-                        <span class="icao">${esc(icao)}</span>
-                    </div>
-                    <div class="wx-unavailable">No METAR available for this station.</div>
+                <div class="wx-hero">
+                    <div class="wx-hero-place">${esc(st.icao)}</div>
+                    ${name ? `<div class="wx-hero-sub">${esc(name)}</div>` : ''}
+                    <div class="wx-hero-none">No report from this station.</div>
                 </div>`;
         }
+        const cat = flightCategory(p);
         return `
-            <div class="wx-station">
-                <div class="wx-station-top">
-                    <span class="tag">${tag}</span>
-                    <span class="icao">${esc(icao)}</span>
-                    <span class="temp"><i class="fa-solid ${iconFor(p, nightForStation(icao))}"></i>${p.tempC !== null ? `${p.tempC}°C` : '—'}</span>
-                </div>
-                <div class="wx-rows">
-                    <div class="wx-row"><span class="k">Wind</span><span class="v">${esc(fmtWind(p))}</span></div>
-                    <div class="wx-row"><span class="k">Visibility</span><span class="v">${esc(p.visibility || '—')}</span></div>
-                    <div class="wx-row"><span class="k">Clouds</span><span class="v">${esc(fmtClouds(p))}</span></div>
-                    <div class="wx-row"><span class="k">Dewpoint</span><span class="v">${p.dewpointC !== null ? `${p.dewpointC}°C` : '—'}</span></div>
-                    <div class="wx-row" style="grid-column: 1 / -1;"><span class="k">Altimeter</span><span class="v">${esc(fmtQnh(p))}</span></div>
-                </div>
-                <div class="wx-raw">${esc(p.raw)}</div>
+            <div class="wx-hero">
+                <div class="wx-hero-place">${esc(st.icao)}</div>
+                ${name ? `<div class="wx-hero-sub">${esc(name)}</div>` : ''}
+                <div class="wx-hero-temp">${p.tempC !== null ? `${p.tempC}<span class="deg">°</span>` : '--<span class="deg">°</span>'}</div>
+                <div class="wx-hero-cond">${esc(conditionText(p))}</div>
+                ${cat ? `<div class="wx-hero-cat" style="--cat:${cat.color};">
+                    <span class="key">${cat.key}</span>${cat.label !== cat.key
+                        ? `<span class="lab">${esc(cat.label)}</span>` : ''}
+                </div>` : ''}
+            </div>`;
+    }
+
+    /**
+     * The route strip — Apple's hourly row, with the axis changed.
+     *
+     * There is no hourly to show: a METAR is one observation, now. What a
+     * pilot has instead of hours is PLACES, and the three that matter are
+     * where this flight left, where it is, and where it is going. Same glance,
+     * same shape, and every figure on it is observed rather than predicted.
+     */
+    function stripHTML(list, focusIcao) {
+        if (list.length < 2) return '';
+        return `
+            <div class="wx-strip">
+                ${list.map((s) => {
+                    const p = s.parsed;
+                    const on = s.icao === focusIcao;
+                    const temp = (p && p.tempC !== null) ? `${p.tempC}°` : '—';
+                    return `
+                    <button class="wx-strip-item${on ? ' is-on' : ''}" data-wx-station="${esc(s.icao)}"
+                        aria-pressed="${on ? 'true' : 'false'}">
+                        <span class="tag">${esc(s.tag)}</span>
+                        <i class="fa-solid ${p ? iconFor(p, nightForStation(s.icao)) : 'fa-cloud'}"></i>
+                        <span class="temp">${temp}</span>
+                        <span class="icao">${esc(s.icao)}</span>
+                    </button>`;
+                }).join('')}
+            </div>`;
+    }
+
+    /** Apple's tile grid, over the fields a METAR actually carries. */
+    function tilesHTML(p) {
+        if (!p || p.raw === 'Not Available') return '';
+        const rh = humidity(p);
+        // Pressure is the one reading with two units a pilot may want, and both
+        // on one line is what made this tile wrap to two. The second unit drops
+        // to a caption instead — still there, no longer setting the row height.
+        const inHg = p.altimeterInHg !== null ? `${p.altimeterInHg.toFixed(2)} inHg` : '';
+        const hPa = p.altimeterHpa !== null ? `${p.altimeterHpa} hPa` : '';
+        const tiles = [
+            ['wind', 'Wind', fmtWind(p), ''],
+            ['eye', 'Visibility', p.visibility || '—', ''],
+            ['cloud', 'Clouds', fmtClouds(p), ''],
+            ['droplet', 'Dew point', p.dewpointC !== null ? `${p.dewpointC}°C` : '—', ''],
+            ['gauge-high', 'Pressure', inHg || hPa || '—', inHg && hPa ? hPa : ''],
+            ['percent', 'Humidity', rh !== null ? `${rh}%` : '—', ''],
+        ];
+        return `
+            <div class="wx-tiles">
+                ${tiles.map(([icon, k, v, sub]) => `
+                    <div class="wx-tile">
+                        <div class="k"><i class="fa-solid fa-${icon}"></i>${esc(k)}</div>
+                        <div class="v">${esc(v)}</div>
+                        ${sub ? `<div class="s">${esc(sub)}</div>` : ''}
+                    </div>`).join('')}
             </div>`;
     }
 
     function renderPopover() {
         if (!state.ctx) return;
-        // NEAR = the station closest to where the aircraft is right now.
-        // Skip it when it duplicates a route airport the popover already shows.
-        const now = state.nowStation;
-        const nowIsRoute = now && (now.icao === state.ctx.depIcao || now.icao === state.ctx.arrIcao);
-        const nowHTML = (now && !nowIsRoute)
-            ? stationHTML(now.km != null ? `NEAR · ${Math.round(now.km)} km` : 'NEAR', now.icao, now.parsed)
-            : '';
-        // Active hazards at the aircraft's position, most severe first.
+        const list = stations();
+        const focus = focusedStation();
+        const p = focus ? focus.parsed : null;
+
+        // Active hazards at the aircraft's position, most severe first. This is
+        // the panel's equivalent of Apple's summary card, and it stays pinned
+        // above the headline: a SIGMET is the one thing here that is worth
+        // interrupting somebody for.
         const hazHTML = state.hazardsHere.length ? `
             <div class="wx-hazards">
                 ${state.hazardsHere.map(h => {
@@ -584,15 +892,14 @@
                     </div>`;
                 }).join('')}
             </div>` : '';
+
         popover.innerHTML = `
-            <div class="wx-pop-head">
-                <span class="title">Route Weather</span>
-                <span class="age">${ageLabel()}</span>
-            </div>
             ${hazHTML}
-            ${nowHTML}
-            ${stationHTML('DEP', state.ctx.depIcao, state.metars.dep)}
-            ${stationHTML('ARR', state.ctx.arrIcao, state.metars.arr)}
+            ${heroHTML(focus)}
+            ${stripHTML(list, focus ? focus.icao : '')}
+            ${tilesHTML(p)}
+            ${p && p.raw !== 'Not Available' ? `<div class="wx-raw">${esc(p.raw)}</div>` : ''}
+            <div class="wx-pop-foot">${esc(ageLabel())}</div>
         `;
     }
 
@@ -757,6 +1064,10 @@
             state.nowStation = null;
             state.nowSeq++;
             state.fetchedAt = 0;
+            // A pinned station belongs to the flight it was pinned on. Left
+            // set, the next flight's popover would open on a station that is
+            // not on its route and quietly fall back — so it is cleared here.
+            state.focusIcao = '';
             setPopover(false);
             renderPill();
             fetchMetars();

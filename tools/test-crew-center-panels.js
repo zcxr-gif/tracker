@@ -35,6 +35,19 @@ const server = http.createServer((req, res) => {
 
 const hoursFromNow = (h) => new Date(Date.now() + h * 3600e3).toISOString();
 
+// A deliberate overnight, in the READER's timezone: pushes back at 23:40
+// tomorrow and lands at 07:20 the day after. Fixed rather than relative because
+// the whole point of the departure timeline is that the two ends fall on
+// different days, and a leg computed as "+26h" only sometimes does.
+const localAt = (daysAhead, hh, mm) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysAhead);
+    d.setHours(hh, mm, 0, 0);
+    return d.toISOString();
+};
+const OVERNIGHT_DEP = localAt(1, 23, 40);
+const OVERNIGHT_ARR = localAt(2, 7, 20);
+
 let announcements = [
     { id: 'a1', title: 'Rae Okafor joined the airline', body: '', kind: 'join', auto: true, pinned: false, authorName: '', createdAt: hoursFromNow(-3) },
     { id: 'a2', title: 'July schedule is live', body: 'Bidding closes Friday.', kind: 'notice', auto: false, pinned: true, authorName: 'Ops', createdAt: hoursFromNow(-30) },
@@ -42,7 +55,7 @@ let announcements = [
 let schedules = [
     {
         id: 'sc1', flightNumber: 'BA117', origin: 'EGLL', destination: 'KJFK', aircraft: 'Boeing 787-9',
-        departsAt: hoursFromNow(26), arrivesAt: hoursFromNow(34), blockMinutes: 480, seats: 2,
+        departsAt: OVERNIGHT_DEP, arrivesAt: OVERNIGHT_ARR, blockMinutes: 460, seats: 2,
         minRank: '', notes: '', status: 'published', locked: false, hoursUntilUnlock: 0,
         booked: 1, seatsLeft: 1, full: false, flown: false, canManage: true, routeId: null,
     },
@@ -221,6 +234,36 @@ function api(route, over = {}) {
     check('coverage the server counted is shown', /1 of 2 open/.test(sched));
     check('staff get the add button', await page.isVisible('#csNewBtn'));
 
+    // ---- 3b. One departure, in full ---------------------------------------
+    // A row has to stay one line tall so a week reads as a week, which makes it
+    // the wrong place to answer "what day do I land?". BA117 pushes back at
+    // 23:40 and lands at 07:20 — the row shows both clocks and leaves the
+    // reader to work out that the second one is tomorrow. The timeline says so.
+    await page.click('#csPanel [data-detail="sc1"]');
+    await page.waitForSelector('.cs-dialog', { timeout: 5000 });
+    check('a row opens the departure in full', true);
+
+    const days = await page.$$eval('.cs-dialog .cs-tl-day', (els) => els.map((e) => e.textContent.trim()));
+    check('both ends of the leg carry their weekday', days.length === 2, days.join(' → '));
+    check('…and an overnight says so by showing two different ones',
+        days.length === 2 && days[0] !== days[1], days.join(' → '));
+
+    const detail = (await page.textContent('.cs-dialog-body')).replace(/\s+/g, ' ');
+    check('the total duration is stated once, at the top', /Total duration 7h 40m/.test(detail), detail.slice(0, 90));
+    check('the sector carries the flight number and the aircraft',
+        /BA117/.test(detail) && /Boeing 787-9/.test(detail));
+    // Not a dead end: whoever opened this to check the arrival day is the
+    // person about to decide whether to take the leg.
+    check('the row’s own actions come with it', await page.isVisible('.cs-tl-actions [data-book="sc1"]'));
+
+    // Both the sheet and the dialog listen for Escape on `document`, and the
+    // sheet listens first — so one press used to close the dialog AND throw
+    // away the schedule behind it.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    check('Escape closes the detail', !(await page.isVisible('.cs-dialog')));
+    check('…and leaves the schedule underneath open', await page.isVisible('#csPanel:not(.cp-hidden)'));
+
     await page.click('#csPanel [data-book="sc2"]');
     await page.waitForTimeout(700);
     check('booking calls the API rather than deciding locally',
@@ -301,6 +344,26 @@ function api(route, over = {}) {
     check('a feed waiting on us says so', /Waiting on us/.test(partner));
     check('every action links out to the portal',
         (await page.$$('#cptPanel a[href*="va-portal"]')).length >= 2);
+
+    // The portal and the Terms are served by the BACKEND; the crew center is a
+    // static site on another origin. Every one of these used to be sent as a
+    // bare path, so the browser resolved it against the crew center and each
+    // button opened a blank tab. The fake above still answers in that old
+    // relative form on purpose — a reader's crew center talks to whatever
+    // backend is deployed, including one from before the server-side fix, so
+    // the panel has to rebase them itself.
+    const hrefs = await page.$$eval('#cptPanel a[href]', (as) => as.map((a) => a.getAttribute('href')));
+    check('no link is left resolving against the crew center',
+        hrefs.length > 0 && hrefs.every((h) => /^https?:\/\//.test(h)), hrefs.join(' '));
+    check('the portal links point at the backend that serves it',
+        hrefs.filter((h) => /va-portal/.test(h)).every((h) => h.startsWith('https://site--indgo-backend')),
+        hrefs.filter((h) => /va-portal/.test(h)).join(' '));
+    check('…and so does the Terms page',
+        hrefs.some((h) => /^https:\/\/site--indgo-backend[^ ]*\/terms$/.test(h)), hrefs.join(' '));
+    // The VA typed this one into their own listing. It is not ours to rebase —
+    // rewriting it onto our backend would invent a page.
+    check('the VA’s own website is left alone',
+        hrefs.includes('https://example.com/'), hrefs.join(' '));
     await page.click('#cptPanel .cp-head [data-cp-close]');
 
     const ours = errors.filter((e) => !/Failed to load resource|tailwind is not defined|lucide/i.test(e));
