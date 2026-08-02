@@ -32,6 +32,7 @@ import { FlightDispatchUI } from './FlightDispatchUI.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
 import { CrewCenterOverlay } from './crewCenterOverlay.js';
+import { DiscordPresenceUI } from './discordPresenceUI.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -4435,6 +4436,19 @@ if (this._activeTab === 'flight-plan') {
                         </div>
 
                         <div class="pui-card">
+                            <div class="pui-card-header">
+                                <h3><i class="fa-brands fa-discord" style="color:#5865F2; margin-right:8px;"></i>Discord Rich Presence</h3>
+                            </div>
+                            <div class="pui-card-body">
+                                <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--pui-text-secondary); line-height: 1.55;">
+                                    Put a flight on your Discord profile — callsign, aircraft, route, altitude,
+                                    a countdown to landing and the community photo of the actual airframe.
+                                </p>
+                                <div id="pui-discord-presence"></div>
+                            </div>
+                        </div>
+
+                        <div class="pui-card">
                             <div class="pui-card-header"><h3>${this.t('set.support')}</h3></div>
                             <div class="pui-card-body pui-action-list-body">
                                 <div class="pui-action-list">
@@ -5111,6 +5125,17 @@ const contentRoot = document.getElementById('pui-content');
 }
 
         if (this._activeTab === 'settings') {
+            // ─── Discord Rich Presence panel ───────────────────────────────
+            // Self-contained: it renders itself, wires its own listeners and
+            // tears down when this host leaves the DOM. See discordPresenceUI.js.
+            const discordHost = document.getElementById('pui-discord-presence');
+            if (discordHost) {
+                DiscordPresenceUI.mount(discordHost, {
+                    ifUsername: this._currentUser?.user_metadata?.if_username || '',
+                    watchlist: this._watchlist.map(w => w.watched_username),
+                });
+            }
+
             const themeRadios = document.querySelectorAll('input[name="pui-theme"]');
             themeRadios.forEach(radio => {
                 radio.addEventListener('change', (e) => {
