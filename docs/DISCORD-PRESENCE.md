@@ -20,6 +20,51 @@ airframe as the large image.
 Pilots turn it on from **Profile → Settings → Discord Rich Presence**, pick a
 flight, and their status follows it until it lands or they stop it.
 
+## Using it
+
+The panel carries its own instructions — a "How this works" section, expanded by
+default until a flight is being broadcast — so this is the same guidance in one
+place.
+
+**Switching it on**
+
+1. On the computer, open the **Discord desktop app** and sign in. The browser
+   version has no local RPC server, so there is nothing for the tracker to talk
+   to.
+2. In Inflight, go to **Profile → Settings → Discord Rich Presence** and press
+   **Connect Discord**. If Discord asks to authorise Inflight, accept — it is
+   asked once and the token is remembered.
+3. Press **Choose a flight**. The pilot's own flights are listed first, across
+   every server, tagged with which one they're on.
+4. The Discord profile now carries the flight and keeps itself current.
+
+**Managing it**
+
+| Action | Effect |
+|---|---|
+| **Change flight** | Switch to another flight, including from a phone while the computer stays open |
+| **Stop broadcasting** | Clears the flight, stays connected — picking another is one tap |
+| **Disconnect** | Removes the status entirely and stops it returning on the next visit |
+| Flight ends | The card falls back to the live map rather than freezing on a landed aircraft; a new leg is picked up automatically |
+
+**Picking between several flights.** A pilot can have more than one flight up —
+typically on different servers. All of them appear under "Your flights", each
+badged with its server, and the count is in the heading. The socket feed only
+carries the server the map is showing, so this list comes from
+`GET /api/discord/presence/pilot-flights`, which reads every cached session.
+Following a flight on a server the map isn't showing keeps working: it's kept
+current by that same lookup on a 20-second poll, and its "Track this flight"
+button links to the right session rather than the visible one.
+
+**When it won't connect**
+
+- *"No Discord desktop app found"* — Discord isn't running on that machine, or
+  it's the browser build. Phones cannot broadcast at all; they can only pick.
+- *Nothing appears on the profile* — check Discord's **Settings → Activity
+  Privacy → Share your detected activities with others**.
+- *It stopped while away* — closing the tab or sleeping the machine ends the
+  broadcast. Reopening Inflight reconnects on its own.
+
 ## Moving parts
 
 | Where | File | Does |

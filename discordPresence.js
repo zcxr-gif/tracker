@@ -80,6 +80,12 @@ const RECONNECT_DELAYS_MS = [2000, 5000, 15000, 30000, 60000];
 const SESSION_POLL_MS = 10000;
 const REMOTE_POLL_MS = 15000;
 
+// A followed flight on a server the map isn't showing is kept alive by an HTTP
+// lookup instead of the socket feed. Slower on purpose — it reads a cache, and
+// a card refreshing every 20s reads no differently from one refreshing every 5.
+const OFF_FEED_POLL_MS = 20000;
+const OFF_FEED_STALE_MS = 75000;
+
 // Static assets uploaded under Rich Presence → Art Assets in the developer
 // portal. The large one is only reached when a flight has no community photo.
 const ASSET_FALLBACK_LARGE = 'inflight_logo';
@@ -333,6 +339,11 @@ export const DiscordPresence = {
     _follow: null,          // { flightId, username, label }
     _flight: null,          // last resolved live flight for _follow
     _flightSeenAtMs: 0,     // when we first saw this flight (timestamp fallback)
+    _offFeedTimer: null,    // keeps a flight on another server alive
+    _offFeedFlight: null,
+    _offFeedAtMs: 0,
+    _offFeedAnswered: false, // has the cross-server lookup replied at least once
+    _identityDirty: false,   // the resolved flight changed; push without waiting
     _lastActivityKey: '',   // dedupe identical payloads
     _lastSentAtMs: 0,
     _sendTimes: [],         // send timestamps inside the current rate window
@@ -561,6 +572,45 @@ export const DiscordPresence = {
         this._emit();
     },
 
+    /**
+     * Keep a flight that isn't on the visible server alive. Slower than the
+     * socket feed on purpose: this is one HTTP call over a cache, and a card
+     * refreshing every 20s is indistinguishable from one refreshing every 5.
+     */
+    _startOffFeedPoll() {
+        if (this._offFeedTimer || !this._follow) return;
+        const tick = async () => {
+            const flights = await this.findMyFlights(this._follow?.username);
+            const wantedId = this._follow?.flightId;
+            // The picked flight if it's still up; otherwise whatever else this
+            // pilot has, which is how a respawn onto a new id is caught.
+            const match = flights.find((f) => String(f.flightId) === String(wantedId)) || flights[0] || null;
+
+            this._offFeedFlight = match;
+            this._offFeedAtMs = match ? nowMs() : 0;
+            // Marks the point where "we don't know yet" becomes "we looked",
+            // which is what lets the packet fall back to a same-pilot match.
+            this._offFeedAnswered = true;
+
+            // Re-resolve either way: an empty answer is itself the signal that
+            // the fallback in _resolveFollowedFlight may now apply.
+            this._resolveFollowedFlight(this._lastFlights);
+            this._scheduleUpdate();
+            this._emit();
+
+            if (this._offFeedTimer) this._offFeedTimer = setTimeout(tick, OFF_FEED_POLL_MS);
+        };
+        this._offFeedTimer = setTimeout(tick, 0);
+    },
+
+    _stopOffFeedPoll() {
+        clearTimeout(this._offFeedTimer);
+        this._offFeedTimer = null;
+        this._offFeedFlight = null;
+        this._offFeedAtMs = 0;
+        this._offFeedAnswered = false;
+    },
+
     /** Publish our pick so the pilot's other device picks it up. */
     async _pushTarget(target) {
         if (!this._config?.remote || !this._supabase) return;
@@ -774,9 +824,13 @@ export const DiscordPresence = {
             flightId: target.flightId ? String(target.flightId) : null,
             username: target.username,
             label: target.label || target.username,
+            // Carried so the "Track this flight" link resolves on the right
+            // server even when the map is showing a different one.
+            server: target.server || this._server || '',
         };
         this._flight = null;
         this._flightSeenAtMs = 0;
+        this._stopOffFeedPoll();
         writeJson(FOLLOW_KEY, this._follow);
 
         // Resolve against the packet already in hand so the card fills in
@@ -797,40 +851,83 @@ export const DiscordPresence = {
         this._emit();
     },
 
-    /** Match the followed target against a live packet, id first then pilot. */
+    /**
+     * Match the followed target against a live packet, id first then pilot.
+     *
+     * A flight on a server the map isn't showing will never appear in this
+     * packet, so a miss falls back to the cross-server lookup rather than
+     * declaring the flight gone — otherwise following your own Expert flight
+     * while browsing Training would show "waiting" forever.
+     */
     _resolveFollowedFlight(flights) {
         if (!Array.isArray(flights)) return;
         if (!this._follow) {
             this._flight = null;
+            this._stopOffFeedPoll();
             return;
         }
 
         const wantedId = this._follow.flightId;
         const wantedUser = this._follow.username.toLowerCase();
 
-        let match = null;
+        let exact = null;
+        let samePilot = null;
         for (const flight of flights) {
             if (!flight) continue;
-            if (wantedId && String(flight.flightId) === wantedId) { match = flight; break; }
-            if (!match && flight.username && flight.username.toLowerCase() === wantedUser) match = flight;
+            if (wantedId && String(flight.flightId) === wantedId) { exact = flight; break; }
+            if (!samePilot && flight.username && flight.username.toLowerCase() === wantedUser) samePilot = flight;
         }
 
-        if (!match) {
-            this._flight = null;
-            this._flightSeenAtMs = 0;
+        // 1. The flight they picked, right here in the packet.
+        if (exact) {
+            this._stopOffFeedPoll();
+            this._adoptResolved(exact);
             return;
         }
 
-        // The pilot started a new leg: adopt the new id so subsequent ticks
-        // match on the fast path again.
-        if (String(match.flightId) !== this._follow.flightId) {
-            this._follow.flightId = String(match.flightId);
+        // 2. Not in this packet. It may be on a server the map isn't showing,
+        //    or the pilot may have respawned onto a new id. The cross-server
+        //    lookup answers both, and it sees every server, so it gets the
+        //    first say — matching on the pilot here would happily grab their
+        //    *other* concurrent flight, which is not what they asked for.
+        this._startOffFeedPoll();
+        const fresh = this._offFeedFlight && (nowMs() - this._offFeedAtMs) <= OFF_FEED_STALE_MS;
+        if (fresh) {
+            this._adoptResolved(this._offFeedFlight);
+            return;
+        }
+
+        // 3. The lookup has had its say and come back empty: a same-pilot
+        //    flight in this packet is a respawn worth following. Until it has
+        //    answered, show nothing rather than the wrong aircraft.
+        if (this._offFeedAnswered && samePilot) {
+            this._adoptResolved(samePilot);
+            return;
+        }
+
+        this._flight = null;
+        this._flightSeenAtMs = 0;
+    },
+
+    /**
+     * Take a resolved flight as the one we're broadcasting. A change of
+     * identity here — first resolve, a respawn, a switch of server — is a
+     * change the pilot is waiting to see, so it marks the next update urgent
+     * rather than letting it sit behind the 15s cadence.
+     */
+    _adoptResolved(flight) {
+        if (String(flight.flightId) !== String(this._flight?.flightId || '')) {
+            this._identityDirty = true;
+        }
+        // A new leg: adopt the id so subsequent ticks match on the fast path.
+        if (String(flight.flightId) !== this._follow.flightId) {
+            this._follow.flightId = String(flight.flightId);
+            if (flight.server) this._follow.server = flight.server;
             writeJson(FOLLOW_KEY, this._follow);
             this._flightSeenAtMs = 0;
         }
-
         if (!this._flightSeenAtMs) this._flightSeenAtMs = nowMs();
-        this._flight = match;
+        this._flight = flight;
     },
 
     // =======================================================================
@@ -988,7 +1085,10 @@ export const DiscordPresence = {
         if (flight.flightId) {
             const params = new URLSearchParams({ flight: String(flight.flightId) });
             // The tracker needs the session name to find a flight id again.
-            if (this._server) params.set('server', this._server);
+            // Prefer the flight's own server — following one on Expert while
+            // browsing Training would otherwise link to the wrong session.
+            const server = flight.server || this._follow?.server || this._server;
+            if (server) params.set('server', server);
             buttons.push({
                 label: clamp('Track this flight', MAX_BUTTON_LABEL),
                 url: `${SITE_ORIGIN}/?${params.toString()}`,
@@ -1099,7 +1199,11 @@ export const DiscordPresence = {
 
         const now = nowMs();
         const earliest = this._earliestSendMs();
-        const dueAtMs = options.immediate
+        // A resolve that changed which aircraft we're showing counts as
+        // immediate even when the caller didn't know to ask for it.
+        const immediate = options.immediate || this._identityDirty;
+        this._identityDirty = false;
+        const dueAtMs = immediate
             ? earliest
             : Math.max(earliest, this._lastSentAtMs + UPDATE_CADENCE_MS);
         const wait = Math.max(0, dueAtMs - now);
@@ -1184,6 +1288,27 @@ export const DiscordPresence = {
     /** The latest live packet, for the panel's flight picker. */
     getLiveFlights() {
         return this._lastFlights;
+    },
+
+    /**
+     * Every flight this pilot has in the air, on any server. The socket feed is
+     * scoped to the server the map is showing, so a pilot flying on Expert
+     * while looking at Training would not otherwise see their own aircraft —
+     * and choosing which of your flights to broadcast is exactly when it
+     * matters. Returns [] rather than throwing: the picker still has the
+     * local feed to fall back on.
+     */
+    async findMyFlights(username) {
+        const name = String(username || '').trim();
+        if (!name) return [];
+        try {
+            const res = await fetch(
+                `${BACKEND}/api/discord/presence/pilot-flights?username=${encodeURIComponent(name)}`,
+            );
+            if (!res.ok) return [];
+            const json = await res.json();
+            return Array.isArray(json?.flights) ? json.flights : [];
+        } catch (_) { return []; }
     },
 
     getState() {

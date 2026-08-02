@@ -170,6 +170,10 @@ function stubEnvironment(mode) {
             return new Response(JSON.stringify({ ok: true, assets }),
                 { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
+        if (url.includes('/api/discord/presence/pilot-flights')) {
+            window.__pilotLookups = (window.__pilotLookups || 0) + 1;
+            return reply({ ok: true, flights: window.__myFlights || [] });
+        }
         if (url.includes('/api/airport/EGLL')) {
             return new Response(JSON.stringify({ latitude: 51.4775, longitude: -0.4614 }),
                 { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -317,6 +321,54 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             const after = await page.evaluate(() => window.__rpc.sent.filter((f) => f.cmd === 'SET_ACTIVITY').length);
 
             eq('an unchanged flight sends nothing', after, before);
+            await page.close();
+        }
+
+        // ── More than one flight, on more than one server ────────────────────
+        console.log('\nA pilot with two flights up\n');
+        {
+            const page = await open('ok');
+            // The map is showing Expert; the pilot also has one on Training,
+            // which the socket feed for this room will never carry.
+            await page.evaluate((f) => window.publish([f]), FLIGHT);
+            await page.evaluate((f) => {
+                window.__myFlights = [
+                    { ...f, server: 'Expert Server' },
+                    {
+                        ...f,
+                        flightId: 'flt-tr',
+                        callsign: 'BAW9',
+                        departureIcao: 'EGLL',
+                        arrivalIcao: 'VTBS',
+                        server: 'Training Server',
+                    },
+                ];
+            }, FLIGHT);
+
+            const mine = await page.evaluate(() => window.DiscordPresence.findMyFlights('speedbird'));
+            eq('both flights are offered', mine.length, 2);
+            eq('…including the one on another server', mine[1].server, 'Training Server');
+
+            // Following the off-server one has to keep working even though it
+            // is absent from every packet this map receives.
+            await page.evaluate(() => window.DiscordPresence.connect());
+            await page.evaluate(() => window.DiscordPresence.follow({
+                flightId: 'flt-tr', username: 'speedbird', label: 'BAW9', server: 'Training Server',
+            }));
+            await wait(1200);
+
+            const state = await page.evaluate(() => window.DiscordPresence.getState());
+            eq('an off-server flight still resolves', state.flight?.callsign, 'BAW9');
+
+            const activity = await page.evaluate(() => {
+                const frames = window.__rpc.sent.filter((f) => f.cmd === 'SET_ACTIVITY');
+                return frames[frames.length - 1]?.args?.activity;
+            });
+            // Exact, not a substring: "Waiting for BAW9" is the idle card and
+            // would pass a contains() check while proving the opposite.
+            eq('…and is what Discord is told', activity?.details, 'BAW9 · Boeing 777-300ER');
+            has('…linked to its own server, not the visible one',
+                activity?.buttons?.[0]?.url, 'server=Training+Server');
             await page.close();
         }
 

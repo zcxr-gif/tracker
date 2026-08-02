@@ -107,6 +107,27 @@ function injectStyles() {
         }
         .dpui-remote-head i { color:${DISCORD_BLURPLE}; }
 
+        .dpui-help { margin-top:12px; border-top:1px solid rgba(255,255,255,0.07); padding-top:10px; }
+        .dpui-help > summary {
+            cursor:pointer; list-style:none; user-select:none;
+            font-size:0.8rem; font-weight:600; color:var(--pui-text-secondary);
+            display:flex; align-items:center; gap:7px; padding:2px 0;
+        }
+        .dpui-help > summary::-webkit-details-marker { display:none; }
+        .dpui-help > summary::before {
+            content:'\\f059'; font-family:'Font Awesome 6 Free'; font-weight:900;
+            color:${DISCORD_BLURPLE}; font-size:0.85rem;
+        }
+        .dpui-help[open] > summary { margin-bottom:8px; }
+        .dpui-help-body { font-size:0.8rem; color:var(--pui-text-tertiary); line-height:1.6; }
+        .dpui-help-body h4 {
+            margin:14px 0 4px; font-size:0.7rem; font-weight:700;
+            letter-spacing:0.06em; text-transform:uppercase; color:var(--pui-text-secondary);
+        }
+        .dpui-help-body ol, .dpui-help-body ul { margin:0; padding-left:18px; }
+        .dpui-help-body li { margin-bottom:5px; }
+        .dpui-help-body strong { color:var(--pui-text-secondary); }
+
         .dpui-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
         .dpui-empty {
             padding:18px; border-radius:12px; text-align:center;
@@ -167,6 +188,11 @@ function injectStyles() {
             font-size:0.74rem; color:var(--pui-text-tertiary);
             overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
         }
+        .dpui-result-server {
+            flex:0 0 auto; padding:3px 8px; border-radius:6px;
+            background:rgba(255,255,255,0.07); color:var(--pui-text-tertiary);
+            font-size:0.66rem; font-weight:700; letter-spacing:0.03em; text-transform:uppercase;
+        }
         .dpui-picker-foot {
             padding:12px 20px; border-top:1px solid rgba(255,255,255,0.06);
             display:flex; justify-content:flex-end; gap:8px;
@@ -181,6 +207,7 @@ export const DiscordPresenceUI = {
     _unsubscribe: null,
     _tickTimer: null,
     _endsAtMs: null,
+    _myFlights: [],         // this pilot's flights across every server
     _countdownLabel: null,
     _countdownPending: false,
     _busy: false,
@@ -237,10 +264,16 @@ export const DiscordPresenceUI = {
         const state = DiscordPresence.getState();
 
         if (!state.supported) {
+            // Say what is missing rather than just "unavailable" — this state
+            // is what an operator sees before the Discord app is wired up, and
+            // a dead end here reads like a bug in the tracker.
             host.innerHTML = `
                 <div class="dpui-empty">
                     <i class="fa-brands fa-discord" style="font-size:1.4rem; color:${DISCORD_BLURPLE}; display:block; margin-bottom:8px;"></i>
-                    Discord presence isn't available on this deployment yet.
+                    <strong style="display:block; margin-bottom:6px; color:var(--pui-text-secondary);">Not switched on yet</strong>
+                    Discord Rich Presence needs the Inflight Discord application configured
+                    on the server before it can be used. Everything else on this page works
+                    as normal.
                 </div>`;
             return;
         }
@@ -261,6 +294,7 @@ export const DiscordPresenceUI = {
             ${this._error ? `<div class="pui-alert" style="margin-top:12px;">${esc(this._error)}</div>` : ''}
             ${this._actionsHTML(state)}
             <p class="pui-help-text" style="margin-top:12px;">${esc(footnote)}</p>
+            ${this._helpHTML(state)}
         `;
 
         this._wire();
@@ -367,6 +401,61 @@ export const DiscordPresenceUI = {
                     the next time Inflight is open there with Discord running.
                 </p>`}
             </div>`;
+    },
+
+    /**
+     * How to switch it on, and how to manage it once it is. Collapsed by
+     * default so it doesn't crowd the panel, and open on first visit for
+     * someone who hasn't connected yet — that's when the steps are needed.
+     */
+    _helpHTML(state) {
+        const open = !state.connected && !state.follow ? ' open' : '';
+
+        return `
+            <details class="dpui-help"${open}>
+                <summary>How this works</summary>
+                <div class="dpui-help-body">
+                    <ol>
+                        <li><strong>On your computer</strong>, open the Discord desktop app
+                            and sign in. The browser version has no way to receive this.</li>
+                        <li>Come back here and press <strong>Connect Discord</strong>. If
+                            Discord asks you to authorise Inflight, accept — it is asked
+                            once and remembered.</li>
+                        <li>Press <strong>Choose a flight</strong>. Your own flights are
+                            listed first, on every server, so pick the one you want if you
+                            have more than one up.</li>
+                        <li>That's it — your Discord profile now shows the flight, and
+                            updates itself as it goes.</li>
+                    </ol>
+
+                    <h4>Managing it</h4>
+                    <ul>
+                        <li><strong>Switch flights</strong> any time with Change flight —
+                            including from your phone, as long as this computer is still
+                            open with Discord connected.</li>
+                        <li><strong>Stop broadcasting</strong> clears the flight but keeps
+                            you connected, so picking another is one tap.</li>
+                        <li><strong>Disconnect</strong> removes the status from your profile
+                            entirely and stops it coming back on your next visit.</li>
+                        <li><strong>If the flight ends</strong>, the card falls back to the
+                            live map rather than freezing on a landed aircraft. Start a new
+                            leg and it follows you onto it.</li>
+                    </ul>
+
+                    <h4>If it won't connect</h4>
+                    <ul>
+                        <li><strong>"No Discord desktop app found"</strong> — Discord isn't
+                            running on this computer, or it's the browser version. Phones
+                            can't broadcast at all; they can only pick the flight.</li>
+                        <li><strong>Nothing shows on your profile</strong> — check Discord's
+                            Settings → Activity Privacy, and make sure "Share your detected
+                            activities with others" is on.</li>
+                        <li><strong>It stopped while you were away</strong> — closing this
+                            tab or letting the computer sleep ends the broadcast. Reopen
+                            Inflight and it reconnects on its own.</li>
+                    </ul>
+                </div>
+            </details>`;
     },
 
     _actionsHTML(state) {
@@ -525,6 +614,7 @@ export const DiscordPresenceUI = {
                         flightId: btn.dataset.flightId || null,
                         username: btn.dataset.username,
                         label: btn.dataset.label || btn.dataset.username,
+                        server: btn.dataset.server || '',
                     });
                     close();
                     // Connecting on pick saves a second click for anyone who
@@ -550,6 +640,18 @@ export const DiscordPresenceUI = {
 
         paint();
         search.focus();
+
+        // A pilot can have more than one flight up, and the socket feed only
+        // carries the server the map is showing. Pull every flight they have,
+        // on any server, so all of them are offered — repainting when it lands
+        // rather than holding the picker closed on a network call.
+        if (this._context.ifUsername) {
+            DiscordPresence.findMyFlights(this._context.ifUsername).then((mine) => {
+                if (!document.body.contains(overlay)) return;
+                this._myFlights = Array.isArray(mine) ? mine : [];
+                paint();
+            });
+        }
     },
 
     /**
@@ -557,7 +659,19 @@ export const DiscordPresenceUI = {
      * then everyone else — filtered by the search box once it has a query.
      */
     _resultsHTML(query) {
-        const flights = DiscordPresence.getLiveFlights() || [];
+        // The pilot's own flights come from the cross-server lookup; everyone
+        // else's from the packet the map is already receiving. Merged by
+        // flightId so a flight present in both is offered once.
+        const feed = DiscordPresence.getLiveFlights() || [];
+        const mine = this._myFlights || [];
+        const byId = new Map();
+        for (const flight of [...mine, ...feed]) {
+            if (flight?.flightId && !byId.has(String(flight.flightId))) {
+                byId.set(String(flight.flightId), flight);
+            }
+        }
+        const flights = [...byId.values()];
+
         if (!flights.length) {
             return `<div class="dpui-no-results">No live flights right now. The map is still loading, or the server is quiet.</div>`;
         }
@@ -596,18 +710,23 @@ export const DiscordPresenceUI = {
             const acft = flight.aircraft?.aircraftName || 'Unknown aircraft';
             const alt = Math.round(flight.position?.alt_ft || 0);
             const isActive = active && String(active.flightId) === String(flight.flightId);
+            // Only meaningful once a pilot has flights on more than one server,
+            // which is exactly when picking the right one gets confusing.
+            const server = flight.server || '';
 
             return `
                 <button type="button" class="dpui-result"
                         data-active="${isActive}"
                         data-flight-id="${esc(flight.flightId)}"
                         data-username="${esc(flight.username)}"
-                        data-label="${esc(cs)}">
+                        data-label="${esc(cs)}"
+                        data-server="${esc(server)}">
                     <span class="dpui-result-icon"><i class="fa-solid fa-plane-up"></i></span>
                     <span class="dpui-result-main">
                         <span class="dpui-result-title">${esc(cs)} · ${esc(dep)} → ${esc(arr)}</span>
                         <span class="dpui-result-sub">${esc(flight.username)} · ${esc(acft)} · ${alt.toLocaleString()} ft</span>
                     </span>
+                    ${server ? `<span class="dpui-result-server">${esc(server.replace(/ Server$/i, ''))}</span>` : ''}
                     ${isActive ? '<i class="fa-solid fa-check" style="color:' + DISCORD_BLURPLE + ';"></i>' : ''}
                 </button>`;
         };
@@ -616,7 +735,12 @@ export const DiscordPresenceUI = {
             ? `<div class="dpui-group-label">${esc(label)}</div>${list.map(row).join('')}`
             : '');
 
-        const html = section('Your flight', groups.mine)
+        // Naming the count is the cue that there is a choice to make here.
+        const mineLabel = groups.mine.length > 1
+            ? `Your flights (${groups.mine.length})`
+            : 'Your flight';
+
+        const html = section(mineLabel, groups.mine)
             + section('Pilots you watch', groups.watchlist)
             + section(query ? 'Search results' : 'Live right now', groups.all);
 
