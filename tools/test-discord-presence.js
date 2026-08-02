@@ -107,13 +107,61 @@ function stubEnvironment(mode) {
     window.WebSocket = FakeDiscordSocket;
     window.WebSocket.OPEN = 1;
 
+    // Stand-in for the backend's shared target: one record, two writers, the
+    // same revision rules the real store uses.
+    window.__server = { target: null, revision: 0, host: { online: false, connected: false }, sessions: 0 };
+    window.__setTargetFromPhone = (target) => {
+        window.__server.revision += 1;
+        window.__server.target = target;
+    };
+
+    // A signed-in Supabase client, reduced to the one call presence makes.
+    window.__supabase = {
+        auth: {
+            getSession: async () => ({ data: { session: { access_token: 'test-token' } } }),
+            onAuthStateChange: () => {},
+        },
+    };
+
     // Backend: config, plus an asset mint that echoes a deterministic key.
     const realFetch = window.fetch;
     window.fetch = async (input, init) => {
         const url = String(input);
+        const reply = (body) => new Response(JSON.stringify(body),
+            { status: 200, headers: { 'Content-Type': 'application/json' } });
+
         if (url.includes('/api/discord/presence/config')) {
-            return new Response(JSON.stringify({ ok: true, enabled: true, clientId: 'test-client-id', externalAssets: true }),
-                { status: 200, headers: { 'Content-Type': 'application/json' } });
+            return reply({ ok: true, enabled: true, clientId: 'test-client-id', externalAssets: true, remote: true });
+        }
+        if (url.includes('/api/discord/presence/session')) {
+            const body = JSON.parse(init.body);
+            window.__server.sessions += 1;
+            window.__server.host = { online: true, connected: !!body.connected };
+            // Seed from the desktop only when we hold nothing, same as the server.
+            if (window.__server.revision === 0 && body.revision > 0 && body.target) {
+                window.__server.revision = body.revision;
+                window.__server.target = body.target;
+            }
+            return reply({
+                ok: true,
+                target: window.__server.target,
+                revision: window.__server.revision,
+                host: window.__server.host,
+                changed: window.__server.revision !== body.revision,
+            });
+        }
+        if (url.includes('/api/discord/presence/target')) {
+            if (init?.method === 'PUT') {
+                const body = JSON.parse(init.body);
+                window.__server.revision += 1;
+                window.__server.target = body.clear ? null : body.target;
+            }
+            return reply({
+                ok: true,
+                target: window.__server.target,
+                revision: window.__server.revision,
+                host: window.__server.host,
+            });
         }
         if (url.includes('/api/discord/presence/assets')) {
             const body = JSON.parse(init.body);
@@ -141,9 +189,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
         args: process.env.PLAYWRIGHT_NO_SANDBOX ? ['--no-sandbox'] : [],
     });
 
+    const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
     /** Fresh page with the stub installed and the module imported. */
-    async function open(mode) {
-        const page = await browser.newPage();
+    async function open(mode, options = {}) {
+        const page = await browser.newPage(options.mobile ? { userAgent: IPHONE_UA } : {});
         await page.addInitScript(stubEnvironment(mode));
         // A bare page: the module only needs SocketDataHub, not the whole map.
         await page.goto(`http://127.0.0.1:${port}/tools/__presence-harness.html`);
@@ -160,6 +210,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   import { socketDataHub } from '../SocketDataHub.js';
   window.DiscordPresence = DiscordPresence;
   window.publish = (flights) => socketDataHub.publish('all_flights_update', { server: 'Expert Server', flights });
+  DiscordPresence.attachAuth(window.__supabase);
   DiscordPresence.boot();
 </script>`);
 
@@ -266,6 +317,64 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             const after = await page.evaluate(() => window.__rpc.sent.filter((f) => f.cmd === 'SET_ACTIVITY').length);
 
             eq('an unchanged flight sends nothing', after, before);
+            await page.close();
+        }
+
+        // ── Driving the laptop from a phone ─────────────────────────────────
+        console.log('\nThe phone as a remote\n');
+        {
+            const page = await open('ok', { mobile: true });
+            await page.evaluate((f) => window.publish([f]), FLIGHT);
+            await page.waitForTimeout(300);
+
+            const state = await page.evaluate(() => window.DiscordPresence.getState());
+            eq('a phone knows it cannot host', state.hostCapable, false);
+            eq('…so it never opens a Discord socket', state.connected, false);
+            eq('…and offers remote control instead', state.remoteAvailable, true);
+
+            const handshakes = await page.evaluate(() => window.__rpc.handshakes.length);
+            eq('no port scan is attempted on a phone', handshakes, 0);
+
+            // Picking here must reach the server, not the (absent) local client.
+            await page.evaluate((f) => window.DiscordPresence.follow({
+                flightId: f.flightId, username: f.username, label: f.callsign,
+            }), FLIGHT);
+            await page.waitForTimeout(400);
+
+            const server = await page.evaluate(() => window.__server);
+            eq('the pick is published for the laptop', server.target?.flightId, 'flt-1');
+            has('…with the label the laptop will show', server.target?.label, 'BAW278');
+            await page.close();
+        }
+
+        // ── The laptop picking it up ────────────────────────────────────────
+        console.log('\nThe laptop following the phone\n');
+        {
+            const page = await open('ok');
+            await page.evaluate((f) => window.publish([f]), FLIGHT);
+            await page.evaluate(() => window.DiscordPresence.connect());
+            await page.waitForTimeout(400);
+
+            const heartbeats = await page.evaluate(() => window.__server.sessions);
+            (heartbeats > 0)
+                ? ok('a connected laptop heartbeats')
+                : bad('a connected laptop heartbeats', 'no session poll was made');
+            eq('…and reports Discord is live', await page.evaluate(() => window.__server.host.connected), true);
+
+            // The phone chooses a different flight while the laptop sits there.
+            await page.evaluate((f) => window.publish([f, { ...f, flightId: 'flt-9', callsign: 'QFA1', username: 'wingman' }]), FLIGHT);
+            await page.evaluate(() => window.__setTargetFromPhone({ flightId: 'flt-9', username: 'wingman', label: 'QFA1' }));
+            await page.waitForTimeout(12000); // one poll interval
+
+            const state = await page.evaluate(() => window.DiscordPresence.getState());
+            eq('the laptop adopts the phone\'s pick', state.follow?.flightId, 'flt-9');
+            eq('…and broadcasts the new flight', state.flight?.callsign, 'QFA1');
+
+            const activity = await page.evaluate(() => {
+                const frames = window.__rpc.sent.filter((f) => f.cmd === 'SET_ACTIVITY');
+                return frames[frames.length - 1]?.args?.activity;
+            });
+            has('…on the card Discord actually receives', activity?.details, 'QFA1');
             await page.close();
         }
 

@@ -14,6 +14,7 @@ import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
 import { CrewCenterOverlay } from './crewCenterOverlay.js';
+import { DiscordPresenceUI } from './discordPresenceUI.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     { value: 'A318', name: 'Airbus A318-100' }, { value: 'A319', name: 'Airbus A319-100' },
@@ -3293,6 +3294,15 @@ init(supabaseClient) {
                   </button>
               </div>`)}
 
+              <!-- Discord Rich Presence. On a phone this is a remote for the
+                   pilot's computer: Discord only accepts presence from a client
+                   on the same machine, so what's picked here is what the laptop
+                   broadcasts. See discordPresenceUI.js. -->
+              <div class="mdui-section">
+                  <div class="mdui-section-title">Discord Rich Presence</div>
+                  <div id="mdui-discord-presence"></div>
+              </div>
+
               <!-- Support -->
               <div class="mdui-section">
                   <div class="mdui-section-title">Support &amp; Legal</div>
@@ -4261,6 +4271,16 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             document.getElementById('mdui-delete-account')?.addEventListener('click', () => {
                 this._showDeleteAccountModal();
             });
+
+            // Self-contained: renders itself and tears down when the host
+            // leaves the DOM. See discordPresenceUI.js.
+            const discordHost = document.getElementById('mdui-discord-presence');
+            if (discordHost) {
+                DiscordPresenceUI.mount(discordHost, {
+                    ifUsername: this._currentUser?.user_metadata?.if_username || '',
+                    watchlist: (this._watchlist || []).map(w => w.watched_username),
+                });
+            }
         }
     },
 

@@ -97,6 +97,16 @@ function injectStyles() {
             font-size:0.76rem; font-weight:600;
         }
 
+        .dpui-remote {
+            margin-top:14px; padding:12px 14px; border-radius:12px;
+            background:rgba(88,101,242,0.08); border:1px solid rgba(88,101,242,0.22);
+        }
+        .dpui-remote-head {
+            display:flex; align-items:center; gap:9px;
+            font-size:0.84rem; font-weight:600; color:var(--pui-text-secondary);
+        }
+        .dpui-remote-head i { color:${DISCORD_BLURPLE}; }
+
         .dpui-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
         .dpui-empty {
             padding:18px; border-radius:12px; text-align:center;
@@ -238,15 +248,19 @@ export const DiscordPresenceUI = {
         const copy = DiscordPresence.describe();
         this._refreshCountdown(state);
 
+        const footnote = state.connected
+            ? 'Your status updates while this tab is open and clears when you disconnect. You can switch flights from your phone.'
+            : (state.hostCapable
+                ? 'Needs the Discord desktop app running on this computer.'
+                : 'Rich Presence is sent by your computer — this picks what it shows.');
+
         host.innerHTML = `
             ${this._statusRowHTML(state)}
             ${this._cardHTML(state, copy)}
+            ${state.connected ? '' : this._remoteHTML(state)}
             ${this._error ? `<div class="pui-alert" style="margin-top:12px;">${esc(this._error)}</div>` : ''}
             ${this._actionsHTML(state)}
-            <p class="pui-help-text" style="margin-top:12px;">
-                Needs the Discord desktop app running on this computer. Your status updates
-                while this tab is open and clears when you disconnect.
-            </p>
+            <p class="pui-help-text" style="margin-top:12px;">${esc(footnote)}</p>
         `;
 
         this._wire();
@@ -254,7 +268,9 @@ export const DiscordPresenceUI = {
 
     _statusRowHTML(state) {
         const labels = {
-            idle: 'Not connected',
+            // On a phone "not connected" would read as a fault; it's simply
+            // what every phone is, so name the role instead.
+            idle: state.hostCapable ? 'Not connected' : 'Remote control',
             connecting: 'Connecting…',
             connected: state.follow ? 'Broadcasting' : 'Connected',
             error: 'Problem',
@@ -315,10 +331,62 @@ export const DiscordPresenceUI = {
             </div>`;
     },
 
+    /**
+     * On a device that cannot reach Discord — a phone, or a desktop with
+     * Discord closed — the panel becomes a remote for whichever machine can.
+     * The pilot still picks the flight here; the laptop is what broadcasts it.
+     */
+    _remoteHTML(state) {
+        const host = state.host || {};
+        const onPhone = !state.hostCapable;
+
+        if (!state.remoteAvailable) {
+            return `<div class="dpui-empty" style="margin-top:14px;">
+                ${onPhone
+                    ? 'Discord Rich Presence has to be sent from a computer. Open Inflight on your laptop with Discord running to switch it on.'
+                    : 'Sign in to pick a flight here and have your laptop broadcast it.'}
+            </div>`;
+        }
+
+        const laptop = host.connected
+            ? `<span class="dpui-pill" data-status="connected"><i class="fa-solid fa-circle"></i> Laptop broadcasting</span>`
+            : (host.online
+                ? `<span class="dpui-pill" data-status="connecting"><i class="fa-solid fa-circle"></i> Laptop open, Discord not connected</span>`
+                : `<span class="dpui-pill"><i class="fa-solid fa-circle"></i> Laptop offline</span>`);
+
+        return `
+            <div class="dpui-remote">
+                <div class="dpui-remote-head">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <span>${onPhone ? 'Controlling your computer from here' : 'This device isn\'t connected to Discord'}</span>
+                </div>
+                <div class="dpui-status-row" style="margin:10px 0 0;">${laptop}</div>
+                ${host.online ? '' : `
+                <p class="pui-help-text" style="margin-top:10px;">
+                    Whatever you pick is saved — your computer will start broadcasting it
+                    the next time Inflight is open there with Discord running.
+                </p>`}
+            </div>`;
+    },
+
     _actionsHTML(state) {
         if (this._busy) {
             return `<div class="dpui-actions">
                 <button class="pui-btn-primary" disabled><i class="fa-solid fa-spinner fa-spin"></i> Working…</button>
+            </div>`;
+        }
+
+        // A phone has no local Discord to connect to, so offering the button
+        // would only ever produce an error. It gets the picker and nothing else.
+        if (!state.connected && !state.hostCapable) {
+            return `<div class="dpui-actions">
+                <button class="pui-btn-primary" data-dpui="pick">
+                    <i class="fa-solid fa-plane-up"></i> ${state.follow ? 'Change flight' : 'Choose a flight'}
+                </button>
+                ${state.follow ? `
+                <button class="pui-btn-secondary" data-dpui="unfollow">
+                    <i class="fa-solid fa-circle-stop"></i> Stop broadcasting
+                </button>` : ''}
             </div>`;
         }
 
@@ -460,8 +528,10 @@ export const DiscordPresenceUI = {
                     });
                     close();
                     // Connecting on pick saves a second click for anyone who
-                    // opened the picker before connecting.
-                    if (!DiscordPresence.getState().connected) {
+                    // opened the picker before connecting. On a phone there is
+                    // nothing to connect to — the pick alone is the whole job.
+                    const picked = DiscordPresence.getState();
+                    if (!picked.connected && picked.hostCapable) {
                         this._busy = true;
                         this._render();
                         DiscordPresence.connect()

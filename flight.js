@@ -25,6 +25,7 @@ import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
+import { DiscordPresence } from './discordPresence.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -52,6 +53,13 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
 FlightDispatchService.init(supabase);
+
+// 4. Discord presence. Needs the Supabase client so a phone and a laptop
+// signed into the same account can find each other — the phone picks the
+// flight, the laptop is what actually talks to Discord. boot() also starts the
+// live-feed subscription, so this runs whether or not the profile is opened.
+DiscordPresence.attachAuth(supabase);
+DiscordPresence.boot();
 
 
 // --- TRUE SIGNED DISTANCE FIELD GENERATION -----------------------------------

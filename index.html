@@ -2651,13 +2651,5 @@
     <script type="module" src="searchEngine.js"></script>
     <script type="module" src="flight.js"></script>
 
-    <!-- Discord Rich Presence. Boots independently of the profile panel so a
-         pilot who turned it on keeps broadcasting without opening Settings;
-         it no-ops when the backend has no Discord credentials configured. -->
-    <script type="module">
-        import { DiscordPresence } from './discordPresence.js';
-        DiscordPresence.boot();
-    </script>
-
 </body>
 </html>

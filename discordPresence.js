@@ -72,6 +72,14 @@ const UPDATE_CADENCE_MS = 15000;
 
 const RECONNECT_DELAYS_MS = [2000, 5000, 15000, 30000, 60000];
 
+// Remote control. The desktop tab polls faster because it is the thing that
+// has to react; the phone is only reflecting status back to whoever is looking
+// at it. The desktop poll doubles as the heartbeat that tells the phone this
+// laptop is still alive, so it must stay well inside the backend's stale
+// window (35s).
+const SESSION_POLL_MS = 10000;
+const REMOTE_POLL_MS = 15000;
+
 // Static assets uploaded under Rich Presence → Art Assets in the developer
 // portal. The large one is only reached when a flight has no community photo.
 const ASSET_FALLBACK_LARGE = 'inflight_logo';
@@ -340,6 +348,14 @@ export const DiscordPresence = {
     _airportCoords: new Map(),  // ICAO -> [lat, lon] | null
     _coordsInFlight: new Map(),
 
+    // ---- remote control ----
+    _supabase: null,        // set by attachAuth; without it this is one device
+    _revision: 0,           // last target revision this device has applied
+    _host: { online: false, connected: false },
+    _sessionTimer: null,    // desktop: heartbeat + pick up the phone's choice
+    _remoteTimer: null,     // phone: reflect the laptop's status back
+    _pushing: null,         // in-flight target write, so polls don't race it
+
     _listeners: new Set(),
     _feedUnsubscribe: null,
     _booted: false,
@@ -389,12 +405,179 @@ export const DiscordPresence = {
         const savedFollow = readJson(FOLLOW_KEY);
         if (savedFollow && savedFollow.username) this._follow = savedFollow;
 
-        // Only auto-reconnect for someone who explicitly turned this on before:
-        // a cold visitor should never see a Discord consent dialog they didn't
-        // ask for, and the port scan is not free.
-        if (readJson(AUTOCONNECT_KEY) === true) {
+        // A phone has nothing to connect to, so it goes straight to being a
+        // remote for the pilot's laptop. Only auto-reconnect on a machine that
+        // could host, and only for someone who turned this on before: a cold
+        // visitor should never meet a Discord consent dialog they didn't ask
+        // for, and the port scan is not free.
+        if (this.isHostCapable() && readJson(AUTOCONNECT_KEY) === true) {
             this.connect({ silent: true }).catch(() => { /* panel shows why */ });
+        } else {
+            this._refreshSyncLoops();
         }
+    },
+
+    // =======================================================================
+    // Remote control
+    //
+    // Rich Presence only reaches a Discord client on the same machine, so a
+    // phone cannot broadcast. What it can do is tell the laptop what to show:
+    // the chosen flight lives on the backend against the pilot's account, the
+    // desktop tab polls for it, and the phone polls to see whether that tab is
+    // still alive. Signed out, none of this runs and the feature stays local.
+    // =======================================================================
+
+    /** Hand over the Supabase client so the two devices can find each other. */
+    attachAuth(client) {
+        this._supabase = client || null;
+        if (!client) return;
+        // Signing in mid-session should start syncing, and signing out should
+        // stop it, without a reload.
+        try {
+            client.auth.onAuthStateChange(() => this._refreshSyncLoops());
+        } catch (_) { /* older client shape — the poll below still covers it */ }
+        this._refreshSyncLoops();
+    },
+
+    async _accessToken() {
+        if (!this._supabase) return null;
+        try {
+            const { data } = await this._supabase.auth.getSession();
+            return data?.session?.access_token || null;
+        } catch (_) { return null; }
+    },
+
+    async _api(path, { method = 'GET', body = null } = {}) {
+        const token = await this._accessToken();
+        if (!token) return null;
+
+        const res = await fetch(`${BACKEND}/api/discord/presence/${path}`, {
+            method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!res.ok) return null;
+        return res.json().catch(() => null);
+    },
+
+    /**
+     * A phone has no local Discord to reach, so it never runs the port scan —
+     * it goes straight to being a remote. This is a hint, not a gate: a desktop
+     * that turns out to have no Discord running falls back to the same mode.
+     */
+    isHostCapable() {
+        if (typeof navigator === 'undefined') return false;
+        return !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    },
+
+    /** Whichever loop this device should be running, given what it can do. */
+    _refreshSyncLoops() {
+        if (!this._config?.remote || !this._supabase) return;
+
+        if (this._socket?.open) {
+            this._stopRemoteLoop();
+            this._startSessionLoop();
+        } else {
+            this._stopSessionLoop();
+            this._startRemoteLoop();
+        }
+    },
+
+    _startSessionLoop() {
+        if (this._sessionTimer) return;
+        const tick = async () => {
+            await this._pollSession();
+            if (this._sessionTimer) this._sessionTimer = setTimeout(tick, SESSION_POLL_MS);
+        };
+        this._sessionTimer = setTimeout(tick, 0);
+    },
+
+    _stopSessionLoop() {
+        clearTimeout(this._sessionTimer);
+        this._sessionTimer = null;
+    },
+
+    _startRemoteLoop() {
+        if (this._remoteTimer) return;
+        const tick = async () => {
+            await this._pollRemote();
+            if (this._remoteTimer) this._remoteTimer = setTimeout(tick, REMOTE_POLL_MS);
+        };
+        this._remoteTimer = setTimeout(tick, 0);
+    },
+
+    _stopRemoteLoop() {
+        clearTimeout(this._remoteTimer);
+        this._remoteTimer = null;
+    },
+
+    /**
+     * Desktop: check in, and adopt whatever the phone picked. The heartbeat
+     * carries our own target so a backend restart can be re-seeded from the
+     * tab that is actually broadcasting — the server keeps it only if it holds
+     * nothing newer.
+     */
+    async _pollSession() {
+        if (this._pushing) return; // a write in flight is the newer truth
+        const state = await this._api('session', {
+            method: 'POST',
+            body: {
+                connected: !!this._socket?.open,
+                revision: this._revision,
+                target: this._follow,
+            },
+        }).catch(() => null);
+
+        if (!state) return;
+        this._host = state.host || this._host;
+        if (state.revision !== this._revision) this._adoptTarget(state);
+    },
+
+    /** Phone: reflect the laptop's status, and any pick made on it. */
+    async _pollRemote() {
+        const state = await this._api('target').catch(() => null);
+        if (!state) return;
+
+        const hostChanged = state.host?.online !== this._host.online
+            || state.host?.connected !== this._host.connected;
+        this._host = state.host || this._host;
+
+        if (state.revision !== this._revision) this._adoptTarget(state);
+        else if (hostChanged) this._emit();
+    },
+
+    /** Take the server's version of the target as ours. */
+    _adoptTarget(state) {
+        this._revision = state.revision;
+        this._follow = state.target || null;
+        this._flight = null;
+        this._flightSeenAtMs = 0;
+        writeJson(FOLLOW_KEY, this._follow);
+        this._resolveFollowedFlight(this._lastFlights);
+        this._scheduleUpdate({ immediate: true });
+        this._emit();
+    },
+
+    /** Publish our pick so the pilot's other device picks it up. */
+    async _pushTarget(target) {
+        if (!this._config?.remote || !this._supabase) return;
+
+        this._pushing = this._api('target', {
+            method: 'PUT',
+            body: target ? { target } : { clear: true },
+        }).then((state) => {
+            // Match the server's revision so our own write doesn't come back
+            // on the next poll looking like somebody else's change.
+            if (state?.revision) this._revision = state.revision;
+            if (state?.host) this._host = state.host;
+            this._emit();
+        }).catch(() => { /* the local device still broadcasts */ })
+            .finally(() => { this._pushing = null; });
+
+        return this._pushing;
     },
 
     _subscribeFeed() {
@@ -445,6 +628,12 @@ export const DiscordPresence = {
             this._lastSentAtMs = 0;
             this._sendTimes = [];
             this.__authRetried = false;
+
+            // This device is now the one that can actually broadcast: start
+            // heartbeating so the pilot's phone knows, and pick up anything
+            // chosen there while this tab was closed.
+            this._refreshSyncLoops();
+
             await this._pushActivity();
             return true;
         })()
@@ -480,6 +669,9 @@ export const DiscordPresence = {
         this._discordUser = null;
         this._lastActivityKey = '';
         if (options.forget) writeJson(TOKEN_KEY, null);
+
+        // Stop claiming to be a live host; drop back to watching from here.
+        this._refreshSyncLoops();
         this._setStatus('idle', 'Disconnected.');
     },
 
@@ -487,6 +679,7 @@ export const DiscordPresence = {
         this._socket = null;
         this._discordUser = null;
         this._lastActivityKey = '';
+        this._refreshSyncLoops();
         if (this._intentionalClose) return;
 
         // Discord was quit or restarted. Back off rather than hammering the
@@ -591,6 +784,7 @@ export const DiscordPresence = {
         this._resolveFollowedFlight(this._lastFlights);
 
         this._scheduleUpdate({ immediate: true });
+        this._pushTarget(this._follow);
         this._emit();
     },
 
@@ -599,6 +793,7 @@ export const DiscordPresence = {
         this._flight = null;
         writeJson(FOLLOW_KEY, null);
         this._scheduleUpdate({ immediate: true });
+        this._pushTarget(null);
         this._emit();
     },
 
@@ -992,15 +1187,24 @@ export const DiscordPresence = {
     },
 
     getState() {
+        const connected = !!this._socket?.open;
         return {
             supported: !!this._config,
             status: this._status,
             detail: this._statusDetail,
-            connected: !!this._socket?.open,
+            connected,
             discordUser: this._discordUser,
             follow: this._follow,
             flight: this._flight,
             airborne: this._totalAirborne,
+
+            // Remote control. `role` is what this device is doing right now:
+            // 'host' broadcasts to Discord, 'remote' drives whichever device
+            // does. `host` describes the other end, for the phone to show.
+            role: connected ? 'host' : 'remote',
+            hostCapable: this.isHostCapable(),
+            remoteAvailable: !!(this._config?.remote && this._supabase),
+            host: this._host,
         };
     },
 
