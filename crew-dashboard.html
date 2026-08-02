@@ -511,6 +511,108 @@
                     <p id="sch_note" class="hidden text-sm mt-2"></p>
                 </div>
 
+                <!-- ============ THE ROSTER SWEEP ============
+                     Owner-only, and the only settings block in the crew center
+                     that removes people. Everything about how it is presented
+                     follows from that: it ships off, the destructive choice is
+                     never the pre-selected one, and the preview below shows who
+                     the next run would actually take BEFORE it is switched on.
+                     The backend gates it on owner too — this is not the gate. -->
+                <div id="crewRetentionBlock" class="pt-5 border-t hair hidden">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Roster sweep</h3>
+                    <p class="text-xs muted mb-3">Keep the roster to people who actually fly. New recruits get a window
+                        to log their first flight; established pilots who go quiet stop counting as active.
+                        No check-ride, no sign-off — one flight, logged.</p>
+
+                    <label class="flex items-center gap-3 surface hair rounded-lg px-3.5 py-3 cursor-pointer">
+                        <input type="checkbox" id="ret_enabled" class="accent-[var(--accent)] w-4 h-4">
+                        <span class="min-w-0">
+                            <span class="block text-sm font-semibold">Sweep the roster automatically</span>
+                            <span class="block text-xs muted">Runs every few hours. Off means nothing here does anything.</span>
+                        </span>
+                    </label>
+
+                    <div id="ret_fields" class="space-y-3 mt-3">
+                        <!-- Probation -->
+                        <div class="surface hair rounded-lg p-3 space-y-2.5">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" id="ret_firstFlight" class="accent-[var(--accent)] w-4 h-4">
+                                <span class="min-w-0">
+                                    <span class="block text-sm font-semibold">First flight deadline</span>
+                                    <span class="block text-xs muted">A new recruit must fly and log one flight.</span>
+                                </span>
+                            </label>
+                            <div class="grid grid-cols-2 gap-2.5">
+                                <label class="text-xs muted">Days to fly
+                                    <input id="ret_firstFlightDays" type="number" min="1" max="90" placeholder="7"
+                                        class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                </label>
+                                <label class="text-xs muted">Warn before
+                                    <input id="ret_firstFlightWarnDays" type="number" min="0" max="30" placeholder="2"
+                                        class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                    <span class="block mt-1">days · 0 = no warning</span>
+                                </label>
+                            </div>
+                            <label class="block text-xs muted">Then
+                                <select id="ret_firstFlightAction" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                    <option value="inactive">Mark them inactive</option>
+                                    <option value="remove">Delete the account</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <!-- Inactivity -->
+                        <div class="surface hair rounded-lg p-3 space-y-2.5">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" id="ret_inactivity" class="accent-[var(--accent)] w-4 h-4">
+                                <span class="min-w-0">
+                                    <span class="block text-sm font-semibold">Inactivity</span>
+                                    <span class="block text-xs muted">A pilot who has stopped logging flights.</span>
+                                </span>
+                            </label>
+                            <div class="grid grid-cols-2 gap-2.5">
+                                <label class="text-xs muted">Days of silence
+                                    <input id="ret_inactivityDays" type="number" min="7" max="365" placeholder="30"
+                                        class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                </label>
+                                <label class="text-xs muted">Warn before
+                                    <input id="ret_inactivityWarnDays" type="number" min="0" max="60" placeholder="7"
+                                        class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                    <span class="block mt-1">days · 0 = no warning</span>
+                                </label>
+                            </div>
+                            <label class="block text-xs muted">Then
+                                <select id="ret_inactivityAction" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                    <option value="inactive">Mark them inactive</option>
+                                    <option value="remove">Delete the account</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <label class="flex items-center gap-3 surface hair rounded-lg px-3.5 py-3 cursor-pointer">
+                            <input type="checkbox" id="ret_exemptStaff" class="accent-[var(--accent)] w-4 h-4">
+                            <span class="min-w-0">
+                                <span class="block text-sm font-semibold">Never sweep staff</span>
+                                <span class="block text-xs muted">Running the airline is not the same as flying it.</span>
+                            </span>
+                        </label>
+
+                        <!-- Who the next run would take. Fetched from the same
+                             code path the real sweep uses, with nothing written. -->
+                        <div class="rounded-lg p-3 text-xs" style="background:color-mix(in srgb, var(--ink) 5%, transparent);">
+                            <div class="flex items-center justify-between gap-2 mb-1.5">
+                                <span class="font-semibold text-[var(--ink)]">Next run would take</span>
+                                <button onclick="loadRetentionPreview()" class="muted hover:text-[var(--ink)] font-medium">Refresh</button>
+                            </div>
+                            <div id="ret_preview" class="muted">Save your settings to see this.</div>
+                        </div>
+                    </div>
+
+                    <button onclick="saveRetentionPrefs()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save roster sweep</button>
+                    <button id="ret_runBtn" onclick="runRetentionNow()" class="w-full surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition mt-2">Run it now</button>
+                    <p id="ret_note" class="hidden text-sm mt-2"></p>
+                </div>
+
               </div><!-- /crew -->
 
               <div data-panel="recruit" class="space-y-6 hidden">
@@ -1638,6 +1740,163 @@
         }
 
         /* ================================================================
+           THE ROSTER SWEEP
+
+           Owner-only settings for the two rules in crewRetention.js: a
+           first-flight window for new recruits, and an inactivity window for
+           everybody else.
+
+           The preview is the important part of this screen, not the switches.
+           Every other settings block here changes how something LOOKS or who
+           may press what; this one deletes pilots on a timer. So the panel
+           always answers "who would the next run take?" from the server's own
+           dry run — the same function that does the real sweep, with nothing
+           written — and it answers it before the owner has committed to
+           anything.
+           ================================================================ */
+        let RETENTION_PREFS = null;
+
+        function retentionEls(){
+            return {
+                enabled: document.getElementById('ret_enabled'),
+                firstFlight: document.getElementById('ret_firstFlight'),
+                firstFlightDays: document.getElementById('ret_firstFlightDays'),
+                firstFlightWarnDays: document.getElementById('ret_firstFlightWarnDays'),
+                firstFlightAction: document.getElementById('ret_firstFlightAction'),
+                inactivity: document.getElementById('ret_inactivity'),
+                inactivityDays: document.getElementById('ret_inactivityDays'),
+                inactivityWarnDays: document.getElementById('ret_inactivityWarnDays'),
+                inactivityAction: document.getElementById('ret_inactivityAction'),
+                exemptStaff: document.getElementById('ret_exemptStaff'),
+            };
+        }
+
+        // The block only exists for the owner. Staff who can otherwise change
+        // most of this drawer are not offered it at all, rather than being
+        // offered it and refused on save.
+        function applyRetentionVisibility(){
+            const block=document.getElementById('crewRetentionBlock');
+            if(block) block.classList.toggle('hidden', !IS_OWNER);
+        }
+
+        function fillRetentionForm(r){
+            const e=retentionEls(); if(!e.enabled) return;
+            RETENTION_PREFS = r || RETENTION_PREFS || {};
+            const v = RETENTION_PREFS;
+            e.enabled.checked = !!v.enabled;
+            e.firstFlight.checked = !!v.firstFlight;
+            e.firstFlightDays.value = v.firstFlightDays != null ? v.firstFlightDays : 7;
+            e.firstFlightWarnDays.value = v.firstFlightWarnDays != null ? v.firstFlightWarnDays : 2;
+            e.firstFlightAction.value = v.firstFlightAction || 'remove';
+            e.inactivity.checked = !!v.inactivity;
+            e.inactivityDays.value = v.inactivityDays != null ? v.inactivityDays : 30;
+            e.inactivityWarnDays.value = v.inactivityWarnDays != null ? v.inactivityWarnDays : 7;
+            e.inactivityAction.value = v.inactivityAction || 'inactive';
+            e.exemptStaff.checked = v.exemptStaff !== false;
+            applyRetentionEnabled();
+        }
+
+        function applyRetentionEnabled(){
+            const e=retentionEls(); if(!e.enabled) return;
+            const fields=document.getElementById('ret_fields');
+            if(fields){
+                fields.style.opacity = e.enabled.checked ? '1' : '.45';
+                fields.querySelectorAll('input,select').forEach(el=>{ el.disabled = !e.enabled.checked; });
+            }
+            const run=document.getElementById('ret_runBtn');
+            if(run) run.disabled = !e.enabled.checked;
+        }
+
+        async function loadRetention(){
+            if(!IS_OWNER) return;
+            const slug=getSlug(), token=sessionToken();
+            if(!slug || !token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/retention`,
+                    { headers:{ Accept:'application/json', Authorization:'Bearer '+token } });
+                if(!res.ok) return;
+                const d=await res.json();
+                fillRetentionForm(d.rules);
+                renderRetentionPreview(d.preview);
+            }catch{ /* the settings still work; only the preview is missing */ }
+        }
+        const loadRetentionPreview = loadRetention;
+
+        function renderRetentionPreview(p){
+            const host=document.getElementById('ret_preview'); if(!host) return;
+            if(!p){ host.textContent='Could not read the preview.'; return; }
+            if(p.skipped){ host.textContent = p.skipped==='not enabled'
+                ? 'Nothing — the sweep is off.' : `Not run: ${p.skipped}.`; return; }
+            const rows=[];
+            const list=(arr,verb)=>{
+                if(!arr || !arr.length) return;
+                const names=arr.slice(0,8).map(x=>escapeHtml(x.name||'a pilot')).join(', ');
+                const more=arr.length>8 ? ` +${arr.length-8} more` : '';
+                rows.push(`<div class="mt-1"><span class="font-semibold text-[var(--ink)]">${verb} ${arr.length}</span> — ${names}${more}</div>`);
+            };
+            list(p.removed,'Delete');
+            list(p.deactivated,'Mark inactive');
+            list(p.warned,'Warn');
+            host.innerHTML = rows.length
+                ? `${rows.join('')}<div class="mt-1.5">${p.checked} pilot${p.checked===1?'':'s'} checked.</div>`
+                : `Nobody. ${p.checked} pilot${p.checked===1?'':'s'} checked.`;
+        }
+
+        async function saveRetentionPrefs(){
+            const e=retentionEls(); const note=document.getElementById('ret_note');
+            const num=(el,lo,hi,def)=>{ const n=Math.round(Number(el.value)); return Number.isFinite(n)?Math.max(lo,Math.min(hi,n)):def; };
+            RETENTION_PREFS={
+                enabled: e.enabled.checked,
+                firstFlight: e.firstFlight.checked,
+                firstFlightDays: num(e.firstFlightDays,1,90,7),
+                firstFlightWarnDays: num(e.firstFlightWarnDays,0,30,2),
+                firstFlightAction: e.firstFlightAction.value,
+                inactivity: e.inactivity.checked,
+                inactivityDays: num(e.inactivityDays,7,365,30),
+                inactivityWarnDays: num(e.inactivityWarnDays,0,60,7),
+                inactivityAction: e.inactivityAction.value,
+                exemptStaff: e.exemptStaff.checked,
+            };
+            await saveSettings({ retention: RETENTION_PREFS });
+            note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+            // Re-read rather than trusting what was sent: the server normalises
+            // and clamps these, and the preview must reflect what will actually
+            // run, not what was typed.
+            loadRetention();
+        }
+
+        async function runRetentionNow(){
+            const note=document.getElementById('ret_note');
+            const p = RETENTION_PREFS || {};
+            const willDelete = (p.firstFlight && p.firstFlightAction==='remove') || (p.inactivity && p.inactivityAction==='remove');
+            // The one confirm in this drawer, and only when the run can delete.
+            // Marking somebody inactive is undone with a click; deleting them
+            // is not, so that is where the friction belongs.
+            if(willDelete && !window.confirm('Run the sweep now? Pilots past their deadline will be deleted, and that cannot be undone.')) return;
+            const slug=getSlug(), token=sessionToken();
+            if(!slug || !token) return;
+            note.textContent='Running…'; note.className='text-sm muted'; note.classList.remove('hidden');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/retention/run`,
+                    { method:'POST', headers:{ Accept:'application/json', Authorization:'Bearer '+token } });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok) throw new Error(d.error||'That didn’t work.');
+                const bits=[];
+                if(d.removed?.length) bits.push(`${d.removed.length} removed`);
+                if(d.deactivated?.length) bits.push(`${d.deactivated.length} marked inactive`);
+                if(d.warned?.length) bits.push(`${d.warned.length} warned`);
+                if(d.failed?.length) bits.push(`${d.failed.length} failed`);
+                note.textContent = bits.length ? `Done — ${bits.join(', ')}.` : `Done — nothing was due (${d.checked} checked).`;
+                note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                fetchRoster().then(renderRoster).catch(()=>{});
+                loadRetention();
+            }catch(err){
+                note.textContent = err.message || 'Could not run the sweep.';
+                note.className='text-sm text-red-600 dark:text-red-400';
+            }
+        }
+
+        /* ================================================================
            STATISTICS
 
            What this airline's flying actually looks like, from
@@ -2096,6 +2355,8 @@
             // of the settings wiring — the markup is static, so nothing stacks.
             const schOn=document.getElementById('sch_enabled');
             if(schOn) schOn.addEventListener('change', syncScheduleOpts);
+            const retOn=document.getElementById('ret_enabled');
+            if(retOn) retOn.addEventListener('change', applyRetentionEnabled);
             document.querySelectorAll('input[name="sch_booking"]').forEach(r=>{
                 r.addEventListener('change', syncScheduleOpts);
             });
@@ -5042,6 +5303,16 @@
             const schedule=document.getElementById('crewScheduleBlock');
             if(structure) structure.classList.toggle('cp-hidden', !can('settings.branding'));
             if(schedule) schedule.classList.toggle('cp-hidden', !can('schedules.manage'));
+            // The roster sweep is the owner's alone — it removes pilots, and
+            // that is not a power to hand to whoever also runs the schedule.
+            // The backend gates it the same way; this only stops it being
+            // offered to somebody who would then be refused on save.
+            const retention=document.getElementById('crewRetentionBlock');
+            if(retention){
+                const ownsSweep=IS_OWNER||!sessionToken();
+                retention.classList.toggle('hidden', !ownsSweep);
+                if(ownsSweep && RETENTION_PREFS===null) loadRetention();
+            }
             if(ME_LOADED){ renderRolePresets(); renderStaffRoles(); renderAssignments(); }
             // The tiles are gated on the same capabilities, and they are drawn
             // once before /me answers — when CAPS is still empty and everything
