@@ -529,15 +529,56 @@
      * will introduce. An uncaught error is exactly the moment nobody's `finally`
      * ran, so it is exactly the moment to check.
      *
-     * Deliberately narrow: it only unlocks when NOTHING is actually open. A
-     * panel that threw while rendering its body is still a panel the reader is
-     * looking at, and yanking the page back out from under it would be a second
-     * bug wearing the first one's clothes.
+     * Narrow, but measured by what is on SCREEN rather than what is open: it
+     * unlocks when nothing is showing the reader anything. A panel that got
+     * some content out is still a panel they are looking at, and yanking the
+     * page from under it would be a second bug wearing the first one's clothes
+     * — but an empty shell is not that, it is the debris of a render that
+     * failed, and treating it as a real panel is what let the black screen
+     * survive this net. See anythingOpen().
      * ------------------------------------------------------------------- */
 
-    /** Is any panel, sheet or dialog currently on screen? */
+    /**
+     * Is any panel, sheet or dialog currently showing the reader something?
+     *
+     * "Open" is not the same question as "on screen", and the difference is the
+     * black screen this net kept failing to catch. A panel whose body render
+     * threw before it wrote anything is still `open` by class — so the check
+     * above said "something is open, leave the page alone" and refused to
+     * unlock, while what the reader actually had was an empty sheet over a
+     * collapsed document. Framed in the app's Crew Center overlay that reads as
+     * a black screen with nothing to click, and Escape was the only way out.
+     *
+     * An empty body is nothing to look at, so it does not count as open. A
+     * panel that got *some* content out still does, which keeps the original
+     * intent: never yank the page from under a reader who has something.
+     */
     function anythingOpen() {
-        return !!document.querySelector('.cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden), .cev-modal:not(.cev-hidden)');
+        const open = document.querySelectorAll(
+            '.cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden), .cev-modal:not(.cev-hidden)',
+        );
+        for (const el of open) {
+            const body = el.querySelector('.cp-body, .cev-body');
+            // No body element at all: not ours to judge, treat as real.
+            if (!body) return true;
+            if (body.textContent.trim() || body.querySelector('img, svg, canvas, iframe, input')) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Close any panel that is open but has nothing in it. Called only from the
+     * uncaught handler: by then the render that should have filled it has
+     * already failed, so the shell is debris rather than a panel mid-flight.
+     */
+    function closeEmptyPanels() {
+        const open = document.querySelectorAll('.cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden)');
+        for (const el of open) {
+            const body = el.querySelector('.cp-body, .cev-body');
+            if (body && !body.textContent.trim()) {
+                el.classList.add(el.classList.contains('cev-panel') ? 'cev-hidden' : 'cp-hidden');
+            }
+        }
     }
 
     /**
@@ -549,6 +590,10 @@
     function recoverScroll() {
         if (lockCount === 0 && document.body.style.position !== 'fixed') return false;
         if (anythingOpen()) return false;
+        // Nothing on screen is worth keeping, so take the empty shells down
+        // too — leaving one up would put a transparent sheet over a page the
+        // reader can now scroll but not click through to.
+        closeEmptyPanels();
         // Force it, whatever the counter thinks. The counter is the thing that
         // got out of step; the body is the thing the reader is stuck behind.
         lockCount = 1;
