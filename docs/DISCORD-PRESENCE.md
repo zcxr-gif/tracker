@@ -124,7 +124,8 @@ only when the revision differs from what it last saw.
 ## Setup
 
 Nothing below is optional if you want the feature live. Until the backend has
-`DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, `/api/discord/presence/config`
+`DISCORD_PRESENCE_CLIENT_ID` and `DISCORD_PRESENCE_CLIENT_SECRET`,
+`/api/discord/presence/config`
 reports `enabled: false` and the client hides the panel entirely, which is the
 intended behaviour for an unconfigured deploy.
 
@@ -167,15 +168,22 @@ In the [developer portal](https://discord.com/developers/applications):
 ### 2. Backend environment
 
 ```bash
-DISCORD_CLIENT_ID=...          # required — also served to the client
-DISCORD_CLIENT_SECRET=...      # required — code → token exchange
-DISCORD_BOT_TOKEN=...          # optional — community photos as the large image
+DISCORD_PRESENCE_CLIENT_ID=...      # required — also served to the client
+DISCORD_PRESENCE_CLIENT_SECRET=...  # required — code → token exchange
+DISCORD_PRESENCE_BOT_TOKEN=...      # optional — community photos as the large image
 DISCORD_PRESENCE_REDIRECT=https://inflight.info   # must match step 4
 DISCORD_PRESENCE_ENABLED=1     # optional override of the auto-detected switch
 ```
 
-Without `DISCORD_BOT_TOKEN` everything still works — every card just falls back
-to `inflight_logo` instead of the aircraft photo.
+Without `DISCORD_PRESENCE_BOT_TOKEN` everything still works — every card just falls
+back to `inflight_logo` instead of the aircraft photo.
+
+**Why the `DISCORD_PRESENCE_` prefix.** The VA bot (`database/bot.js`) already owns
+the bare `DISCORD_BOT_TOKEN` and `DISCORD_CLIENT_ID`, and these services share env
+config in practice. Presence reads only the prefixed names, with no fallback to the
+bare ones — picking up the bot's application would name the wrong app on the card,
+fail the token exchange with `invalid_client`, and mint images under an application
+that never asked for them. Reading nothing is the better failure.
 
 ### 3. Verify
 
@@ -233,11 +241,11 @@ still respects the floor.
 
 | Panel says | Cause |
 |---|---|
-| "Discord presence is not enabled on this deployment" | Backend has no `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET` |
+| "Discord presence is not enabled on this deployment" | Backend has no `DISCORD_PRESENCE_CLIENT_ID`/`DISCORD_PRESENCE_CLIENT_SECRET` |
 | Phone shows "Laptop offline" while the laptop is open | The tab was closed or the machine slept — the heartbeat has to keep arriving. Backgrounded tabs still poll, just slower |
 | Phone can't pick anything ("sign in to…") | Remote control is per-account: both devices must be signed into the same Inflight account, and the backend must be able to verify Supabase tokens |
 | "No Discord desktop app found" | Discord isn't running, or it's the browser version — there is no local RPC server in that case |
 | "Discord rejected this site's origin" | The origin is missing from RPC Origins (step 3) |
 | "Discord rejected the authorisation: invalid_grant" | `DISCORD_PRESENCE_REDIRECT` doesn't match a redirect on the application (step 4) |
-| Card shows the logo, never the aircraft | `DISCORD_BOT_TOKEN` unset, or the flight has no community photo yet |
+| Card shows the logo, never the aircraft | `DISCORD_PRESENCE_BOT_TOKEN` unset, or the flight has no community photo yet |
 | Card shows the phase dot as a blank circle | Art assets not uploaded, or still propagating |
