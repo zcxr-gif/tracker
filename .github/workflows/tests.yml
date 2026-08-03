@@ -1,0 +1,58 @@
+# Runs the browser-facing tests on pull requests.
+#
+# The existing "Data integrity" workflow only gates the generated data files —
+# it does not run any of tools/test-*.js. That meant a change to a shipped
+# script could go green on CI while being broken in a browser, which is exactly
+# the failure mode tools/test-js-parses.js exists to catch.
+#
+# Two jobs rather than one: the parse check needs no dependencies at all and
+# should answer in seconds, so it is not made to wait behind a browser download.
+name: Tests
+
+on:
+  pull_request:
+    paths:
+      - '**.js'
+      - '**.html'
+      - '.github/workflows/tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**.js'
+      - '**.html'
+      - '.github/workflows/tests.yml'
+
+jobs:
+  # Does every script the browser loads actually parse as a module? `node
+  # --check` disagrees with a browser on ES modules, and a syntax error in one
+  # shipped file takes the whole map down.
+  parse:
+    name: Scripts parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tools/test-js-parses.js
+
+  # Discord Rich Presence, driven against a stubbed Discord client: the RPC
+  # handshake, the activity payload, cross-server flights, and the phone →
+  # laptop remote. See tools/test-discord-presence.js.
+  presence:
+    name: Discord presence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # `playwright` (not -core) so `playwright install` is available; it pulls
+      # playwright-core in, which is what the test requires.
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - run: node tools/test-discord-presence.js

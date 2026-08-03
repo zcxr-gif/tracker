@@ -185,11 +185,33 @@ function stubEnvironment(mode) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Wait for a condition in the page rather than for a duration. Every wait here
+ * used to be a fixed sleep long enough for the slowest poll, which made the
+ * suite both slow and quietly dependent on the machine keeping up — fine on a
+ * laptop, a coin flip on a loaded CI runner.
+ */
+async function until(page, fn, arg, label) {
+    try {
+        await page.waitForFunction(fn, arg, { timeout: 25000, polling: 100 });
+        return true;
+    } catch (_) {
+        bad(label, 'condition never became true within 25s');
+        return false;
+    }
+}
+
 (async () => {
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
     const port = server.address().port;
+    // Use an explicit Chromium when one is provided or pre-installed (this
+    // container has one at /opt/pw-browsers); otherwise let Playwright find the
+    // browser it downloaded, which is what CI has.
+    const explicitChromium = process.env.PLAYWRIGHT_CHROMIUM
+        || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : null);
+
     const browser = await chromium.launch({
-        executablePath: process.env.PLAYWRIGHT_CHROMIUM || '/opt/pw-browsers/chromium',
+        ...(explicitChromium ? { executablePath: explicitChromium } : {}),
         args: process.env.PLAYWRIGHT_NO_SANDBOX ? ['--no-sandbox'] : [],
     });
 
@@ -228,7 +250,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             await page.evaluate((f) => window.DiscordPresence.follow({
                 flightId: f.flightId, username: f.username, label: f.callsign,
             }), FLIGHT);
-            await wait(600);
+            await until(page, (sel) => window.__rpc.sent.some((f) => f.cmd === 'SET_ACTIVITY'
+                && f.args.activity?.details?.startsWith(sel)), 'BAW278', 'an activity was pushed');
 
             const handshakes = await page.evaluate(() => window.__rpc.handshakes);
             has('handshake targets the local RPC port', handshakes[0], 'ws://127.0.0.1:646');
@@ -274,7 +297,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             await page.evaluate((f) => window.publish([f]), FLIGHT);
             await page.evaluate(() => window.DiscordPresence.connect());
             await page.evaluate((f) => window.DiscordPresence.follow({ flightId: f.flightId, username: f.username }), FLIGHT);
-            await wait(700);
+            await until(page, () => window.__rpc.sent.some((f) => f.cmd === 'SET_ACTIVITY'
+                && f.args.activity && f.args.activity.assets
+                && String(f.args.activity.assets.large_image).startsWith('mp:external/')),
+                null, 'the photo is minted into an external asset key');
 
             const activity = await page.evaluate(() => {
                 const frames = window.__rpc.sent.filter((f) => f.cmd === 'SET_ACTIVITY');
@@ -291,13 +317,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             await page.evaluate((f) => window.publish([f]), FLIGHT);
             await page.evaluate(() => window.DiscordPresence.connect());
             await page.evaluate((f) => window.DiscordPresence.follow({ flightId: f.flightId, username: f.username }), FLIGHT);
-            await wait(400);
+            await until(page, () => !!window.DiscordPresence.getState().flight, null, 'the first leg resolved');
 
             // Same pilot, brand new flight id and a different route.
             await page.evaluate((f) => window.publish([{
                 ...f, flightId: 'flt-2', callsign: 'BAW117', departureIcao: 'EGLL', arrivalIcao: 'KJFK',
             }]), FLIGHT);
-            await wait(6000); // past the update floor
+            await until(page, () => window.DiscordPresence.getState().follow?.flightId === 'flt-2',
+                null, 'the new flight id is adopted');
 
             const state = await page.evaluate(() => window.DiscordPresence.getState());
             eq('the new flight id is adopted', state.follow.flightId, 'flt-2');
@@ -312,7 +339,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             await page.evaluate((f) => window.publish([f]), FLIGHT);
             await page.evaluate(() => window.DiscordPresence.connect());
             await page.evaluate((f) => window.DiscordPresence.follow({ flightId: f.flightId, username: f.username }), FLIGHT);
-            await wait(500);
+            await until(page, () => !!window.DiscordPresence.getState().flight, null, 'the flight resolved');
 
             const before = await page.evaluate(() => window.__rpc.sent.filter((f) => f.cmd === 'SET_ACTIVITY').length);
             // Ten identical packets — a parked aircraft, or a quiet cruise.
@@ -355,7 +382,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             await page.evaluate(() => window.DiscordPresence.follow({
                 flightId: 'flt-tr', username: 'speedbird', label: 'BAW9', server: 'Training Server',
             }));
-            await wait(1200);
+            // Wait on the frame, not the state: resolving the flight and
+            // pushing the card are separate steps, and the card is the claim.
+            await until(page, () => window.__rpc.sent.some((f) => f.cmd === 'SET_ACTIVITY'
+                && f.args.activity?.details?.startsWith('BAW9')),
+                null, 'an off-server flight reaches the card');
 
             const state = await page.evaluate(() => window.DiscordPresence.getState());
             eq('an off-server flight still resolves', state.flight?.callsign, 'BAW9');
@@ -391,7 +422,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             await page.evaluate((f) => window.DiscordPresence.follow({
                 flightId: f.flightId, username: f.username, label: f.callsign,
             }), FLIGHT);
-            await page.waitForTimeout(400);
+            await until(page, () => !!window.__server.target, null, 'the pick is published for the laptop');
 
             const server = await page.evaluate(() => window.__server);
             eq('the pick is published for the laptop', server.target?.flightId, 'flt-1');
