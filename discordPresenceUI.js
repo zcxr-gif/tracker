@@ -19,6 +19,8 @@
 import { DiscordPresence } from './discordPresence.js';
 
 const DISCORD_BLURPLE = '#5865F2';
+// Discord's own download page, which offers the right build per platform.
+const DISCORD_DOWNLOAD_URL = 'https://discord.com/download';
 
 const esc = (value) => String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -106,6 +108,18 @@ function injectStyles() {
             font-size:0.84rem; font-weight:600; color:var(--pui-text-secondary);
         }
         .dpui-remote-head i { color:${DISCORD_BLURPLE}; }
+
+        .dpui-remedy { margin-top:10px; font-size:0.8rem; line-height:1.55; }
+        .dpui-remedy p { margin:0 0 9px; }
+        .dpui-download {
+            display:inline-flex; align-items:center; gap:8px;
+            padding:9px 14px; border-radius:9px;
+            background:${DISCORD_BLURPLE}; color:#fff !important;
+            font-size:0.82rem; font-weight:600; text-decoration:none;
+        }
+        .dpui-download:hover { background:#4752C4; }
+        .dpui-remedy-note { margin:9px 0 0 !important; opacity:0.75; font-size:0.76rem; }
+        .dpui-empty a, .dpui-help-body a, .pui-help-text a { color:#7d8aff; text-decoration:underline; }
 
         .dpui-help { margin-top:12px; border-top:1px solid rgba(255,255,255,0.07); padding-top:10px; }
         .dpui-help > summary {
@@ -291,7 +305,7 @@ export const DiscordPresenceUI = {
             ${this._statusRowHTML(state)}
             ${this._cardHTML(state, copy)}
             ${state.connected ? '' : this._remoteHTML(state)}
-            ${this._error ? `<div class="pui-alert" style="margin-top:12px;">${esc(this._error)}</div>` : ''}
+            ${this._errorHTML(state)}
             ${this._actionsHTML(state)}
             <p class="pui-help-text" style="margin-top:12px;">${esc(footnote)}</p>
             ${this._helpHTML(state)}
@@ -320,7 +334,7 @@ export const DiscordPresenceUI = {
                     <i class="fa-solid fa-circle"></i> ${esc(labels[state.status] || state.status)}
                 </span>
                 ${account}
-                ${state.detail ? `<span class="dpui-account">${esc(state.detail)}</span>` : ''}
+                ${state.detail && !this._error ? `<span class="dpui-account">${esc(state.detail)}</span>` : ''}
             </div>`;
     },
 
@@ -377,7 +391,9 @@ export const DiscordPresenceUI = {
         if (!state.remoteAvailable) {
             return `<div class="dpui-empty" style="margin-top:14px;">
                 ${onPhone
-                    ? 'Discord Rich Presence has to be sent from a computer. Open Inflight on your laptop with Discord running to switch it on.'
+                    ? `Discord Rich Presence has to be sent from a computer. Open Inflight there
+                       with the <a href="${DISCORD_DOWNLOAD_URL}" target="_blank" rel="noopener">Discord desktop app</a>
+                       running to switch it on.`
                     : 'Sign in to pick a flight here and have your laptop broadcast it.'}
             </div>`;
         }
@@ -398,9 +414,41 @@ export const DiscordPresenceUI = {
                 ${host.online ? '' : `
                 <p class="pui-help-text" style="margin-top:10px;">
                     Whatever you pick is saved — your computer will start broadcasting it
-                    the next time Inflight is open there with Discord running.
+                    the next time Inflight is open there with the
+                    <a href="${DISCORD_DOWNLOAD_URL}" target="_blank" rel="noopener">Discord desktop app</a>
+                    running.
                 </p>`}
             </div>`;
+    },
+
+    /**
+     * A failure the pilot can act on. "No Discord desktop app found" is the
+     * common one and it has an obvious next step — get the app — so the panel
+     * offers it rather than leaving them to work out that the browser version
+     * won't do.
+     */
+    _errorHTML(state) {
+        if (!this._error) return '';
+
+        const remedy = {
+            'no-client': `
+                <div class="dpui-remedy">
+                    <p>Rich Presence is sent by the Discord app installed on your computer —
+                       the browser version can't do it.</p>
+                    <a class="dpui-download" href="${DISCORD_DOWNLOAD_URL}" target="_blank" rel="noopener">
+                        <i class="fa-brands fa-discord"></i> Download Discord for desktop
+                    </a>
+                    <p class="dpui-remedy-note">Already installed? Make sure it's running, then press Connect Discord again.</p>
+                </div>`,
+            'origin-rejected': `
+                <div class="dpui-remedy">
+                    <p>This site isn't on the Discord application's RPC Origins list — that's a
+                       server-side setting, not something you can fix from here. Let the Inflight
+                       team know.</p>
+                </div>`,
+        }[state.errorCode] || '';
+
+        return `<div class="pui-alert" style="margin-top:12px;">${esc(this._error)}${remedy}</div>`;
     },
 
     /**
@@ -417,7 +465,9 @@ export const DiscordPresenceUI = {
                 <div class="dpui-help-body">
                     <ol>
                         <li><strong>On your computer</strong>, open the Discord desktop app
-                            and sign in. The browser version has no way to receive this.</li>
+                            and sign in — the browser version has no way to receive this.
+                            Don't have it?
+                            <a href="${DISCORD_DOWNLOAD_URL}" target="_blank" rel="noopener">Download Discord</a>.</li>
                         <li>Come back here and press <strong>Connect Discord</strong>. If
                             Discord asks you to authorise Inflight, accept — it is asked
                             once and remembered.</li>
@@ -445,8 +495,9 @@ export const DiscordPresenceUI = {
                     <h4>If it won't connect</h4>
                     <ul>
                         <li><strong>"No Discord desktop app found"</strong> — Discord isn't
-                            running on this computer, or it's the browser version. Phones
-                            can't broadcast at all; they can only pick the flight.</li>
+                            running on this computer, or it's the browser version.
+                            <a href="${DISCORD_DOWNLOAD_URL}" target="_blank" rel="noopener">Get the desktop app</a>.
+                            Phones can't broadcast at all; they can only pick the flight.</li>
                         <li><strong>Nothing shows on your profile</strong> — check Discord's
                             Settings → Activity Privacy, and make sure "Share your detected
                             activities with others" is on.</li>

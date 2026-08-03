@@ -28,9 +28,11 @@ place.
 
 **Switching it on**
 
-1. On the computer, open the **Discord desktop app** and sign in. The browser
+1. On the computer, open the **Discord desktop app** and sign in — download it
+   from <https://discord.com/download> if it isn't installed. The browser
    version has no local RPC server, so there is nothing for the tracker to talk
-   to.
+   to. The panel links to that download itself whenever a connect attempt finds
+   no client.
 2. In Inflight, go to **Profile → Settings → Discord Rich Presence** and press
    **Connect Discord**. If Discord asks to authorise Inflight, accept — it is
    asked once and the token is remembered.
@@ -59,7 +61,8 @@ button links to the right session rather than the visible one.
 **When it won't connect**
 
 - *"No Discord desktop app found"* — Discord isn't running on that machine, or
-  it's the browser build. Phones cannot broadcast at all; they can only pick.
+  it's the browser build. The panel offers a **Download Discord for desktop**
+  button in this state. Phones cannot broadcast at all; they can only pick.
 - *Nothing appears on the profile* — check Discord's **Settings → Activity
   Privacy → Share your detected activities with others**.
 - *It stopped while away* — closing the tab or sleeping the machine ends the

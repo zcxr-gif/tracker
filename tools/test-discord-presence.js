@@ -438,12 +438,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
             has('no client says so plainly', err, 'No Discord desktop app found');
             const state = await page.evaluate(() => window.DiscordPresence.getState());
             eq('and the panel is left in an error state', state.status, 'error');
+            // Tagged, not string-matched: this is what makes the panel offer a
+            // download link rather than a shrug.
+            eq('…tagged so the panel can offer the download', state.errorCode, 'no-client');
             await page.close();
         }
         {
             const page = await open('bad-origin');
             const err = await page.evaluate(() => window.DiscordPresence.connect().then(() => '', (e) => e.message));
             has('a rejected origin points at the portal', err, 'RPC Origins');
+            const state = await page.evaluate(() => window.DiscordPresence.getState());
+            eq('…and is tagged as a setup problem, not a missing app', state.errorCode, 'origin-rejected');
             await page.close();
         }
     } finally {

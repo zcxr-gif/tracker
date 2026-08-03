@@ -308,10 +308,18 @@ async function openRpc(clientId) {
     }
 
     if (winner) return winner;
+
+    // Tagged rather than matched on wording: the panel offers a download link
+    // for one of these and a developer-portal pointer for the other, and that
+    // decision should not hinge on an error string someone might reword.
     if (originRejected) {
-        throw new Error('Discord rejected this site\'s origin. Add it to the application\'s RPC Origins in the Discord developer portal.');
+        const err = new Error('Discord rejected this site\'s origin. Add it to the application\'s RPC Origins in the Discord developer portal.');
+        err.code = 'origin-rejected';
+        throw err;
     }
-    throw new Error('No Discord desktop app found. Open Discord on this computer and try again.');
+    const err = new Error('No Discord desktop app found. Open Discord on this computer and try again.');
+    err.code = 'no-client';
+    throw err;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +335,7 @@ export const DiscordPresence = {
     _socket: null,
     _status: 'idle',        // PresenceStatus
     _statusDetail: '',      // human-readable line for the panel
+    _errorCode: '',         // machine-readable reason the last connect failed
     _discordUser: null,     // { username, global_name, id } once connected
     _connecting: null,      // in-flight connect() promise, shared by callers
     _reconnectAttempt: 0,
@@ -660,6 +669,7 @@ export const DiscordPresence = {
         if (!config) throw new Error('Discord presence is not enabled on this deployment.');
 
         this._intentionalClose = false;
+        this._errorCode = '';
         if (!options.silent) this._setStatus('connecting', 'Looking for the Discord desktop app…');
 
         this._connecting = (async () => {
@@ -689,6 +699,7 @@ export const DiscordPresence = {
         })()
             .catch((err) => {
                 this._socket = null;
+                this._errorCode = err.code || '';
                 this._setStatus('error', err.message || 'Could not connect to Discord.');
                 throw err;
             })
@@ -1327,6 +1338,9 @@ export const DiscordPresence = {
             // 'host' broadcasts to Discord, 'remote' drives whichever device
             // does. `host` describes the other end, for the phone to show.
             role: connected ? 'host' : 'remote',
+            // 'no-client' | 'origin-rejected' | '' — what the panel should
+            // offer next, rather than just what went wrong.
+            errorCode: this._errorCode || '',
             hostCapable: this.isHostCapable(),
             remoteAvailable: !!(this._config?.remote && this._supabase),
             host: this._host,
