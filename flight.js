@@ -25,6 +25,7 @@ import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
+import { NearbyRadarUI } from './nearbyRadar.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -19793,6 +19794,7 @@ window.globalNatTracks = natTracks;
         setupFilterSettingsWindowEvents();
         AtcBoardUI.init();
         NetworkBoardUI.init();
+        NearbyRadarUI.init();
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
@@ -19959,6 +19961,19 @@ function initializeSectorOpsMap(centerICAO) {
                 bearing: sectorOpsMap.getBearing(),
                 pitch: sectorOpsMap.getPitch(),
             };
+        },
+        // Where the map is currently pointed. Exposed for features that anchor
+        // to what the user is looking at rather than to a fixed place — the
+        // Nearby radar's "Map centre" origin re-reads this every tick, so
+        // panning the map drags the scope along with it.
+        center() {
+            if (!sectorOpsMap) return null;
+            try {
+                const c = sectorOpsMap.getCenter();
+                return { lat: c.lat, lon: c.lng };
+            } catch (_) {
+                return null;
+            }
         },
         // Fly to a coordinate, offset upward so the aircraft sits in the visible
         // band of map above a bottom sheet (sheet covers the lower portion).

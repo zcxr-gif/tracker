@@ -12,6 +12,7 @@
  */
 
 import { NetworkBoardUI } from './networkBoard.js';
+import { NearbyRadarUI } from './nearbyRadar.js';
 
 const SERVER_META = {
     Expert:   { icon: 'fa-shield-halved', color: '#30d158', desc: 'Strict rules, realistic ops' },
@@ -198,13 +199,15 @@ export const MobileLandingChromeUI = {
                         <button type="button" class="ios-fullsheet-close" data-dismiss="atc" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 </div>
-                <!-- Two views of the same live network: where activity is
-                     (Airports & ATC) and what is flying (the Network board,
-                     shared with the desktop panel). A segment here rather than
-                     a seventh tab — the bar is already full at six. -->
+                <!-- Three views of the same live network: where activity is
+                     (Airports & ATC), what is flying (the Network board), and
+                     what is close to you (the Nearby radar). Both boards are
+                     shared with their desktop panels. Segments here rather than
+                     extra tabs — the bar is already full at six. -->
                 <div class="ios-seg" id="ios-atc-seg">
                     <button type="button" class="ios-seg-btn is-on" data-atc-view="airports">Airports</button>
                     <button type="button" class="ios-seg-btn" data-atc-view="network">Network</button>
+                    <button type="button" class="ios-seg-btn" data-atc-view="nearby">Nearby</button>
                 </div>
                 <div class="ios-atc-search">
                     <i class="fa-solid fa-magnifying-glass"></i>
@@ -360,7 +363,7 @@ export const MobileLandingChromeUI = {
                 this._closeAtcSheet();
                 return;
             }
-            // Airports / Network segment.
+            // Airports / Network / Nearby segment.
             const seg = e.target.closest('[data-atc-view]');
             if (seg) {
                 window.InflightHaptics?.tap?.();
@@ -373,6 +376,12 @@ export const MobileLandingChromeUI = {
                 if (NetworkBoardUI.handleClick(e)) return;
                 return;
             }
+            // The Nearby radar binds its own listener to the root it paints —
+            // it needs `input` for the ICAO field as well as `click`, which a
+            // forwarded click alone could not serve. Nothing to hand over, then;
+            // this only has to stop the airport-row handlers below from
+            // claiming a tap that landed on the scope.
+            if (this._atcView === 'nearby') return;
             // Traffic filter chips: toggle the hidden group for THAT airport
             // (each field keeps its own selection) and re-render.
             const tchip = e.target.closest('[data-atc-tchip]');
@@ -450,6 +459,15 @@ export const MobileLandingChromeUI = {
         // dispatch reaches the board on every viewport. NetworkBoardUI's own
         // handler stands down below 768px and leaves the presentation to us.
         window.addEventListener('openNetworkBoard', () => this._openAtcSheet('network'));
+
+        // Same deal for the Nearby radar: one event, whichever shell owns it.
+        window.addEventListener('openNearbyRadar', () => this._openAtcSheet('nearby'));
+
+        // Picking a contact off the radar opens the flight window behind this
+        // sheet, so the sheet has to get out of the way.
+        window.addEventListener('nearbyRadarOpenedFlight', () => {
+            if (this._atcSheetOpen) this._closeAtcSheet();
+        });
 
         // Swipe-down-to-dismiss on the full sheets (matches Settings).
         this._attachFullSheetSwipe('ios-atc-sheet', () => this._closeAtcSheet());
@@ -601,47 +619,70 @@ export const MobileLandingChromeUI = {
         this._atcSheetOpen = false;
         sheet.classList.remove('is-open');
         document.body.style.overflow = '';
-        // Stop the board polling into a sheet nobody can see, and let go of the
+        // Stop the boards polling into a sheet nobody can see, and let go of the
         // body element so a later re-render can't paint a detached node.
+        const body = document.getElementById('ios-atc-body');
         NetworkBoardUI.stopAutoRefresh();
-        NetworkBoardUI.detach(document.getElementById('ios-atc-body'));
+        NetworkBoardUI.detach(body);
+        NearbyRadarUI.stopAutoRefresh();
+        NearbyRadarUI.detach(body);
     },
 
     /**
-     * Switch the sheet between the airport board and the Network board.
-     * The search field only applies to the airport list, so it is hidden in the
-     * Network view rather than left there doing nothing.
+     * Switch the sheet between the airport board, the Network board and the
+     * Nearby radar. The search field only applies to the airport list, so it is
+     * hidden in the other two rather than left there doing nothing.
      */
     _setAtcView(view) {
-        this._atcView = (view === 'network') ? 'network' : 'airports';
+        const VIEWS = ['airports', 'network', 'nearby'];
+        this._atcView = VIEWS.includes(view) ? view : 'airports';
         const isNetwork = this._atcView === 'network';
+        const isNearby = this._atcView === 'nearby';
+        const isAirports = this._atcView === 'airports';
 
         const sheet = document.getElementById('ios-atc-sheet');
         sheet?.querySelectorAll('[data-atc-view]').forEach(btn => {
             btn.classList.toggle('is-on', btn.dataset.atcView === this._atcView);
         });
 
-        // The title stays "Network" to match the desktop panel, so the eyebrow
-        // changes instead — "Live Network" above "Network" reads as a stutter.
+        // Each board keeps the title its desktop panel uses, so the eyebrow
+        // carries the difference instead — "Live Network" above "Network"
+        // reads as a stutter.
+        const TITLES = { airports: 'Airports & ATC', network: 'Network', nearby: 'Nearby' };
+        const EYEBROWS = { airports: 'Live Network', network: 'Right Now', nearby: 'Traffic Around You' };
         const title = sheet?.querySelector('.ios-fullsheet-title');
-        if (title) title.textContent = isNetwork ? 'Network' : 'Airports & ATC';
+        if (title) title.textContent = TITLES[this._atcView];
         const eyebrow = sheet?.querySelector('.ios-fullsheet-eyebrow');
-        if (eyebrow) eyebrow.textContent = isNetwork ? 'Right Now' : 'Live Network';
+        if (eyebrow) eyebrow.textContent = EYEBROWS[this._atcView];
 
         const search = sheet?.querySelector('.ios-atc-search');
-        if (search) search.style.display = isNetwork ? 'none' : '';
+        if (search) search.style.display = isAirports ? '' : 'none';
         const count = document.getElementById('ios-atc-count');
-        if (count) count.style.display = isNetwork ? 'none' : '';
+        if (count) count.style.display = isAirports ? '' : 'none';
 
+        // Only one board owns the body at a time, so the other two are always
+        // stopped and detached before the incoming one paints into it.
         const body = document.getElementById('ios-atc-body');
+        if (!isNetwork) {
+            NetworkBoardUI.stopAutoRefresh();
+            NetworkBoardUI.detach(body);
+            body?.classList.remove('nb-window');
+        }
+        if (!isNearby) {
+            NearbyRadarUI.stopAutoRefresh();
+            NearbyRadarUI.detach(body);
+            body?.classList.remove('nr-window');
+        }
+
         if (isNetwork) {
             body?.classList.add('nb-window');
             NetworkBoardUI.renderInto(body);
             NetworkBoardUI.startAutoRefresh();
+        } else if (isNearby) {
+            body?.classList.add('nr-window');
+            NearbyRadarUI.renderInto(body);
+            NearbyRadarUI.startAutoRefresh();
         } else {
-            NetworkBoardUI.stopAutoRefresh();
-            NetworkBoardUI.detach(body);
-            body?.classList.remove('nb-window');
             this._renderAtcSheet();
         }
     },
@@ -2048,9 +2089,11 @@ export const MobileLandingChromeUI = {
                 box-shadow: 0 1px 2px rgba(0,0,0,0.18), inset 0 0.5px 0 rgba(255,255,255,0.20);
             }
 
-            /* The Network board supplies its own padding on desktop via
-               .nb-content; in this sheet the body is the host, so pad it here. */
-            .ios-atc-body.nb-window { padding: 0 16px 16px; }
+            /* The Network board and the Nearby radar supply their own padding on
+               desktop via .nb-content / .nr-content; in this sheet the body is
+               the host, so pad it here. */
+            .ios-atc-body.nb-window,
+            .ios-atc-body.nr-window { padding: 0 16px 16px; }
 
             .ios-atc-search {
                 display: flex; align-items: center; gap: 8px;

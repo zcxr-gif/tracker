@@ -708,6 +708,17 @@ export const LandingUI = {
                             </button>
                         </div>
 
+                        <!-- Nearby radar. Same reasoning as the Network orb
+                             above: on phones the scope lives in the iOS ATC
+                             sheet, so this orb is how every wider viewport
+                             reaches it. -->
+                        <div class="nexus-orb-wrapper desktop-only-tab">
+                            <button class="orb-btn" id="tile-nearby" aria-label="Nearby traffic">
+                                <i class="fa-solid fa-satellite-dish"></i>
+                                <span class="tab-label">Nearby</span>
+                            </button>
+                        </div>
+
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
@@ -797,6 +808,12 @@ export const LandingUI = {
         const networkBtn = document.getElementById('tile-network');
         networkBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openNetworkBoard'));
+        });
+
+        // Nearby radar (mirrors the Nearby segment of the mobile ATC sheet).
+        const nearbyBtn = document.getElementById('tile-nearby');
+        nearbyBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openNearbyRadar'));
         });
         window.addEventListener('activeAtcUpdated', (e) => {
             const dot = document.getElementById('atc-active-dot');
