@@ -34,6 +34,10 @@
     <!-- A staff member's OWN flying. Staff fly too, and this dashboard used to
          show them everyone else's operation and none of their own. -->
     <script src="/crewMyFlying.js"></script>
+    <!-- How a topic presents itself: the owner's slide-over/full-page choice,
+         the burger that moves between topics and the per-topic links. Re-skins
+         the panels above rather than replacing them, so it loads after them. -->
+    <script src="/crewTopicWindows.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         :root{
@@ -153,6 +157,15 @@
                     "trust    trust"; }
             :root[data-layout="classic"] #toolGrid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
             :root[data-layout="classic"] .surface{ border-radius:1rem; }
+        }
+
+        /* Full-page topics float a menu button over the top-left corner, which
+           with nothing open lands on this header's logo. The module cannot fix
+           that — it does not know what page it is on — so the page makes the
+           room, and only in the mode that needs it. */
+        :root[data-topic-mode="page"] header > .max-w-6xl{ padding-left:3.9rem; }
+        @media (max-width:40rem){
+            :root[data-topic-mode="page"] header > .max-w-6xl{ padding-left:3.6rem; }
         }
 
         /* Settings slide-over */
@@ -347,8 +360,11 @@
     </main>
 
     <!-- ============ SETTINGS SLIDE-OVER ============ -->
-    <div id="settings" class="hidden fixed inset-0 z-50">
-        <div class="absolute inset-0 bg-black/40" onclick="closeSettings()"></div>
+    <!-- data-topic marks this as one of the dashboard's own drawers, so
+         crewTopicWindows.js can restyle it for full-page mode without matching
+         on Tailwind utility classes. Same for the ctw-scrim on the dimmer. -->
+    <div id="settings" data-topic="settings" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeSettings()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-md surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Settings</span></div>
@@ -371,6 +387,15 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
                     <div id="layoutOpts" class="space-y-2.5"></div>
                     <p id="layoutLocked" class="hidden text-xs muted mt-3"></p>
+                </div>
+
+                <!-- How a topic opens. Layout is where things sit on the
+                     dashboard; this is what happens when you press one — a
+                     sheet over it, or a page of its own. -->
+                <div id="topicModeBlock" class="hidden">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Opening a topic</h3>
+                    <div id="topicOpts" class="space-y-2.5"></div>
+                    <p class="text-xs muted mt-3">Applies to the roster, routes, schedule, events, flights, statistics, announcements, embeds and partnership.</p>
                 </div>
 
                 <!-- Login page look -->
@@ -1140,8 +1165,8 @@
     </div>
 
     <!-- ============ ROSTER SLIDE-OVER ============ -->
-    <div id="roster" class="hidden fixed inset-0 z-50">
-        <div class="absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
+    <div id="roster" data-topic="roster" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 z-10 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center justify-between px-5 h-16">
@@ -1184,8 +1209,8 @@
     </div>
 
     <!-- ============ ROUTES SLIDE-OVER ============ -->
-    <div id="routes" class="hidden fixed inset-0 z-50">
-        <div class="absolute inset-0 bg-black/40" onclick="closeRoutes()"></div>
+    <div id="routes" data-topic="routes" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeRoutes()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="route" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Route network</span><span id="routeCount" class="text-xs muted"></span></div>
@@ -1379,8 +1404,8 @@
     </div>
 
     <!-- PIREPs / flight log -->
-    <div id="pireps" class="hidden fixed inset-0 z-50">
-        <div class="absolute inset-0 bg-black/40" onclick="closePireps()"></div>
+    <div id="pireps" data-topic="pireps" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closePireps()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="plane" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Flights</span><span id="pirepCount" class="text-xs muted"></span></div>
@@ -1589,6 +1614,49 @@
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
             });
+            registerTopics(tools);
+        }
+
+        // ---- Topics ----
+        //
+        // The same list the tiles are drawn from, handed to crewTopicWindows.js
+        // so the burger menu offers exactly what the dashboard offers — same
+        // order, same capability gates, same openers. Re-registered whenever
+        // the tiles are, because /me landing can take a tile away.
+        //
+        // `root` is how that module tells whether a topic is on screen: the
+        // outermost element of the panel each opener builds. It is a selector
+        // rather than a node because most of these do not exist until the
+        // topic has been opened once.
+        const TOPIC_ROOT={
+            roster:'#roster', routes:'#routes', pireps:'#pireps', settings:'#settings',
+            schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
+            embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
+        };
+        const TOPIC_CLOSE={
+            roster:()=>closeRoster(), routes:()=>closeRoutes(), pireps:()=>closePireps(),
+            settings:()=>closeSettings(),
+            schedule:()=>{ if(window.CrewSchedule) CrewSchedule.close(); },
+            events:()=>{ if(window.CrewEvents) CrewEvents.close(); },
+            notices:()=>{ if(window.CrewNotices) CrewNotices.close(); },
+            embeds:()=>{ if(window.CrewEmbeds) CrewEmbeds.close(); },
+            partnership:()=>{ if(window.CrewPartnership) CrewPartnership.close(); },
+            insights:()=>{ if(insightsPanel) insightsPanel.close(); },
+        };
+        const TOPIC_OPEN={
+            roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(),
+            settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
+            notices:()=>openNotices(), embeds:()=>openEmbeds(),
+            partnership:()=>openPartnership(), insights:()=>openInsights(),
+        };
+        function registerTopics(tools){
+            if(!window.CrewTopics) return;
+            CrewTopics.register(tools.filter(t=>TOPIC_OPEN[t.action]).map(t=>({
+                id:t.action, label:t.label, icon:t.icon,
+                root:TOPIC_ROOT[t.action],
+                open:TOPIC_OPEN[t.action],
+                close:TOPIC_CLOSE[t.action],
+            })));
         }
 
         // ---- Events ----
@@ -2103,6 +2171,42 @@
             applyLayout(k);                                   // live, instant
             try{ localStorage.setItem('crew:layout:'+getSlug(), k); }catch{}
             saveSettings({ layout:k });                       // persist for the whole crew (best-effort)
+        }
+
+        // ---- How a topic opens (slide-over vs its own page) ----
+        //
+        // The mechanism is entirely in crewTopicWindows.js; what lives here is
+        // the same three things the layout picker has — the radio list, the
+        // per-device write and the best-effort sync to the crew record.
+        //
+        // Rendered off CrewTopics rather than a copy of its list, so the two
+        // cannot drift into offering a mode the module does not implement.
+        function renderTopicOpts(){
+            const host=document.getElementById('topicOpts');
+            if(!host) return;
+            // Hidden until the module that implements it is actually here. A
+            // blocked script would otherwise leave a heading over an empty box
+            // offering a choice that could not be made.
+            const block=document.getElementById('topicModeBlock');
+            if(!window.CrewTopics){ if(block) block.classList.add('hidden'); return; }
+            if(block) block.classList.remove('hidden');
+            const cur=CrewTopics.mode();
+            host.innerHTML=CrewTopics.MODES.map(k=>{
+                const m=CrewTopics.MODE_META[k]||{name:k,desc:''};
+                const on=k===cur;
+                return `<button role="radio" aria-checked="${on}" data-topicmode="${k}"
+                    class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
+                    <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
+                    <span class="min-w-0"><span class="block text-sm font-semibold">${escapeHtml(m.name)}</span>
+                    <span class="block text-xs muted">${escapeHtml(m.desc)}</span></span></button>`;
+            }).join('');
+            host.querySelectorAll('[data-topicmode]').forEach(b=>b.addEventListener('click',()=>chooseTopicMode(b.getAttribute('data-topicmode'))));
+        }
+        async function chooseTopicMode(k){
+            if(!window.CrewTopics || !CrewTopics.MODES.includes(k)) return;
+            CrewTopics.setMode(k, { persist:true });           // live, instant, and remembered on this device
+            renderTopicOpts();
+            saveSettings({ topicMode:k });                     // the crew's default, for everyone's first visit
         }
 
         // ---- Settings panel ----
@@ -5527,6 +5631,9 @@
             }
             if(b.supabase) SUPA=b.supabase;
             if(b.loginLook && LOGIN_LOOKS.includes(b.loginLook)) LOGIN_LOOK=b.loginLook;
+            // Not applied here: the mode is resolved in one place (boot, below),
+            // because a device-local choice and a ?topics= preview both outrank
+            // what the crew record says and this is only one of the three.
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=b.fleet;
@@ -5599,6 +5706,18 @@
             const b = await resolveBranding();
             applyBranding(b);
             applyLayout(resolveLayout(b));
+            // How a topic opens. Set before anything can be clicked, because
+            // the mode is CSS on <html> and a panel opened first would appear
+            // as a sheet and then jump to full width under the reader.
+            if(window.CrewTopics){
+                CrewTopics.configure({ slug:getSlug(), name:CREW_NAME, mode:b&&b.topicMode });
+                CrewTopics.onModeChange(()=>renderTopicOpts());
+                // The burger menu's own way out of page mode is a choice like
+                // any other, so it takes the same route as the radio above —
+                // saved for this device AND for the crew.
+                CrewTopics.onModeChoice(chooseTopicMode);
+                renderTopicOpts();
+            }
             applyEmbeds();
             // A host (the app's overlay, or a VA site framing us) can flip
             // light/dark on us; the live map is themed by URL, so re-source it.
@@ -5620,6 +5739,11 @@
             setCat('appearance');
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
+            // Last, and deliberately: a link to `#/roster` opens the roster,
+            // and opening it before /me landed would open it without knowing
+            // who is asking — which is how a panel loads signed out and then
+            // has to reload itself.
+            if(window.CrewTopics) CrewTopics.start();
         })();
     </script>
 </body>
