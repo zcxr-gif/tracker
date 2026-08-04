@@ -279,6 +279,138 @@ function searchAirports(query, airportIndex) {
     return results.slice(0, PER_CATEGORY_CAP);
 }
 
+/* ── Routes ──────────────────────────────────────────────────────────────
+ *
+ * "EGLL-KJFK" is the one query shape the box could not answer. Ranking it as
+ * two separate airport hits is the wrong answer to a question that was clearly
+ * about the pair: how far is it, and who is on it right now.
+ *
+ * A route query is two airport codes with something between them — a dash, a
+ * slash, an arrow, the word "to", or just a space. Either code may be IATA, so
+ * "LHR JFK" works as well as "EGLL EGKK". Anything else falls through and the
+ * query is searched normally, so this can only ever add a section.
+ */
+
+const ROUTE_CODE_RE = /^[A-Z0-9]{3,4}$/;
+const EARTH_R_NM = 3440.065;
+
+// How many live flights on the route the section lists. Higher than the other
+// categories: a route section that stops at five is hiding the answer on a
+// busy pairing, and these rows are the whole point of the section.
+const ROUTE_FLIGHT_CAP = 6;
+
+function greatCircleNm(lat1, lon1, lat2, lon2) {
+    const rad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * rad;
+    const dLon = (lon2 - lon1) * rad;
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * EARTH_R_NM * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * Split a query into an ordered code pair, or null when it isn't one.
+ * Separators collapse to a single space first, so every spelling of the same
+ * route lands on the same two tokens.
+ */
+export function parseRoutePair(query) {
+    const cleaned = String(query || '')
+        .trim()
+        .replace(/[-–—>/→»]+/g, ' ')
+        .replace(/\bto\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
+    if (!cleaned) return null;
+
+    const parts = cleaned.split(' ');
+    if (parts.length !== 2) return null;
+    if (!ROUTE_CODE_RE.test(parts[0]) || !ROUTE_CODE_RE.test(parts[1])) return null;
+    if (parts[0] === parts[1]) return null;
+    return parts;
+}
+
+/**
+ * Resolve a code to one airport. An exact key wins outright; otherwise the
+ * code is treated as IATA, preferring a real ICAO indicator and then the
+ * larger field, so "LHR" cannot resolve to a heliport that shares the code.
+ */
+function resolveAirport(code, airportsData, airportIndex) {
+    const direct = airportsData[code];
+    if (direct && direct.lat != null) {
+        return {
+            icao: code,
+            iata: (direct.iata || '').toUpperCase(),
+            name: direct.name || '',
+            lat: direct.lat,
+            lon: direct.lon,
+        };
+    }
+    if (code.length !== 3) return null;
+
+    let best = null;
+    for (let i = 0; i < airportIndex.length; i++) {
+        const a = airportIndex[i];
+        if (a.iata !== code || a.lat == null) continue;
+        if (!best
+            || (a.isIcao && !best.isIcao)
+            || (a.isIcao === best.isIcao && a.size > best.size)) {
+            best = a;
+        }
+    }
+    return best ? { icao: best.icao, iata: best.iata, name: best.name, lat: best.lat, lon: best.lon } : null;
+}
+
+/**
+ * The route a query names, with the traffic on it right now.
+ * Returns an empty list when the query is not a pair or either end is unknown —
+ * an unrecognised code is not an error, it just means this is an ordinary
+ * search after all.
+ */
+function searchRoutes(query, flights, airportsData, airportIndex) {
+    const pair = parseRoutePair(query);
+    if (!pair) return [];
+
+    const dep = resolveAirport(pair[0], airportsData, airportIndex);
+    const arr = resolveAirport(pair[1], airportsData, airportIndex);
+    if (!dep || !arr || dep.icao === arr.icao) return [];
+
+    const onRoute = [];
+    let reverse = 0;
+    for (const f of flights) {
+        const p = f.properties || {};
+        const d = upper(p.departureIcao || '');
+        const a = upper(p.arrivalIcao || '');
+        if (d === arr.icao && a === dep.icao) { reverse++; continue; }
+        if (d !== dep.icao || a !== arr.icao) continue;
+
+        // Distance still to run, decorated onto the entry rather than computed
+        // inside the comparator — a sort would otherwise re-derive it O(n log n)
+        // times per keystroke. A feature with no usable position sorts last
+        // instead of poisoning the order with a NaN.
+        const c = f.geometry && f.geometry.coordinates;
+        const lat = c ? Number(c[1]) : NaN;
+        const lon = c ? Number(c[0]) : NaN;
+        const toGo = (Number.isFinite(lat) && Number.isFinite(lon))
+            ? greatCircleNm(lat, lon, arr.lat, arr.lon)
+            : Infinity;
+        onRoute.push({ feature: f, toGoNm: toGo });
+    }
+
+    // Furthest along first — on a busy pairing the flight about to land is
+    // more interesting than the one still at the gate.
+    onRoute.sort((x, y) => x.toGoNm - y.toGoNm);
+
+    return [{
+        dep,
+        arr,
+        distanceNm: greatCircleNm(dep.lat, dep.lon, arr.lat, arr.lon),
+        total: onRoute.length,
+        reverse,
+        flights: onRoute.slice(0, ROUTE_FLIGHT_CAP),
+    }];
+}
+
 function searchAirlines(query, flights) {
     // Build a count map over active liveries.
     const tally = new Map();
@@ -311,18 +443,20 @@ function searchAirlines(query, flights) {
  * @param {Object} ctx
  * @param {Object} ctx.airportsData - keyed by ICAO
  * @param {Array}  ctx.flights      - GeoJSON features from currentMapFeatures
- * @returns {{flights: Array, users: Array, airports: Array, airlines: Array, query: string}}
+ * @returns {{routes: Array, flights: Array, users: Array, airports: Array, airlines: Array, query: string}}
  */
 export function runSearch(query, ctx) {
     const q = (query || '').trim();
-    if (q.length < 2) return { flights: [], users: [], airports: [], airlines: [], query: q };
+    if (q.length < 2) return { routes: [], flights: [], users: [], airports: [], airlines: [], query: q };
 
-    const airportIndex = buildAirportIndex(ctx.airportsData || {});
+    const airportsData = ctx.airportsData || {};
+    const airportIndex = buildAirportIndex(airportsData);
     const flights = ctx.flights || [];
 
     return {
         query: q,
-        flights: searchFlights(q, flights, ctx.airportsData || {}),
+        routes: searchRoutes(q, flights, airportsData, airportIndex),
+        flights: searchFlights(q, flights, airportsData),
         users: searchUsers(q, flights),
         airports: searchAirports(q, airportIndex),
         airlines: searchAirlines(q, flights),

@@ -9445,7 +9445,7 @@ function handleSearchInput(searchText) {
  */
 function runGlobalSearch(query) {
     const engine = window.GlobalSearchEngine;
-    if (!engine) return { flights: [], airports: [], airlines: [], query: query || '' };
+    if (!engine) return { routes: [], flights: [], airports: [], airlines: [], query: query || '' };
     return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
