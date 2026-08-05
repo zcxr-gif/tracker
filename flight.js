@@ -8700,7 +8700,8 @@ function renderShareMapPicker(container) {
             </div>
             <div class="share-map-preview">
                 ${previewUrl
-                    ? `<img src="${previewUrl}" alt="Preview of the route map shared links will show" loading="lazy">`
+                    ? `<img src="${previewUrl}" alt="Preview of the route map shared links will show"
+                            loading="lazy" data-share-map-img>`
                     : `<div class="share-map-preview-off">
                            <i class="fa-solid fa-image"></i>
                            <span>Shared links will show a photo of the aircraft instead.</span>
@@ -8716,6 +8717,29 @@ function renderShareMapPicker(container) {
             renderShareMapPicker(container);
         });
     });
+
+    // A preview that fails to load must not leave the browser's broken-image
+    // glyph sitting in the middle of the settings panel — it reads as a bug in
+    // the app rather than as "the picture isn't available right now". The image
+    // is fetched from the backend, so it can legitimately be missing: the
+    // renderer may not be deployed yet, the service may be down, or the route
+    // may be one it cannot place. All three land here and say so.
+    //
+    // The chosen style is still saved and still applied to shared links; only
+    // the preview of it is missing. Saying that matters, or the reader assumes
+    // their choice didn't take.
+    const img = container.querySelector('[data-share-map-img]');
+    if (img) {
+        img.addEventListener('error', () => {
+            const host = img.parentElement;
+            if (!host) return;
+            host.innerHTML = `
+                <div class="share-map-preview-off">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <span>Preview unavailable right now — your choice is still saved.</span>
+                </div>`;
+        }, { once: true });
+    }
 }
 
 window.renderShareMapPicker = renderShareMapPicker;

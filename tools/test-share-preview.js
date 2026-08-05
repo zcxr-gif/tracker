@@ -175,6 +175,34 @@ const ctx = { rewrite: (target) => ({ __rewrite: target }) };
     }
 
     // ------------------------------------------------------------------
+    head('The Settings preview survives a backend that cannot answer');
+    {
+        // A source assertion rather than a DOM one: renderShareMapPicker lives
+        // inside flight.js's DOMContentLoaded closure and cannot be imported
+        // without booting the map. tools/test-va-event-map.js reads the same
+        // file for the same reason.
+        //
+        // What this guards is a real regression that shipped once: the preview
+        // <img> points at the backend, and with no error handling a failed load
+        // leaves the browser's broken-image glyph sitting in the settings panel
+        // — which reads as a broken app rather than an unavailable picture. The
+        // renderer not being deployed, the service being down, and a route it
+        // cannot place all produce exactly that.
+        const src = fs.readFileSync(path.join(ROOT, 'flight.js'), 'utf8');
+        const start = src.indexOf('function renderShareMapPicker(');
+        ok('the picker is still there', start > 0);
+        const body = src.slice(start, start + 4000);
+
+        ok('the preview image is addressable', body.includes('data-share-map-img'));
+        ok('a failed preview load is handled',
+            /addEventListener\(\s*'error'/.test(body));
+        ok('the failure replaces the image rather than leaving it broken',
+            body.includes('share-map-preview-off') && /host\.innerHTML/.test(body));
+        ok('the failure message says the choice was still saved',
+            /still saved/.test(body));
+    }
+
+    // ------------------------------------------------------------------
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exit(fail ? 1 : 0);
 })().catch((err) => {
