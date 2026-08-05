@@ -2131,7 +2131,8 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 24px;
+            gap: 40px;
+            padding: 24px 0;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             color: #e9eaec;
             /* Neutral charcoal — no blue. A faint light vignette lifts the
@@ -2238,9 +2239,11 @@
             gap: 28px;
             width: 100%;
             max-width: 360px;
-            /* Takes the slack, so the mark stays optically centred whatever the
-               partner wall below it ends up costing. */
-            flex: 1 1 auto;
+            /* Sized to its content, not stretched. The mark and the partner
+               lanes are ONE centred composition — stretching this pushed the
+               lanes to the floor and left a dead band between the two, which
+               is what made them look squeezed in rather than designed in. */
+            flex: 0 0 auto;
         }
 
         /* Indeterminate progress. A launch screen that only fades a logo in has
@@ -2316,18 +2319,22 @@
             .inflight-splash-logo { height: 102px; }
         }
 
-        /* --- Partner wall ---------------------------------------------------
-           The whole roster, not a sample of it. Sits in normal flow at the foot
-           of the column so it can take the rows it needs without ever reaching
-           up into the mark. Hidden until the roster resolves. */
+        /* --- Partner marquee -------------------------------------------------
+           Forty logos wrapped into a block is a blob, and a blob pinned to the
+           bottom of the screen looks like something that would not fit. So they
+           travel instead: two lanes drifting in opposite directions, edges
+           faded out, sitting in the middle of the composition with the mark
+           rather than under it.
+
+           The lanes are big enough to actually read a logo — a partner wall
+           whose logos are too small to recognise is decoration, not credit. */
         .inflight-splash-partners {
             flex: 0 0 auto;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 13px;
+            gap: 14px;
             width: 100%;
-            padding: 0 20px max(6px, env(safe-area-inset-bottom));
             opacity: 0;
             animation: inflight-splash-partners-in 700ms ease-out forwards;
         }
@@ -2340,8 +2347,8 @@
             align-items: center;
             gap: 9px;
         }
-        /* Hairlines either side of the label, so the wall reads as its own band
-           rather than as loose text floating under the logo. */
+        /* Hairlines either side of the label, so the lanes read as their own
+           band rather than as loose text floating under the logo. */
         .inflight-splash-partners-label::before,
         .inflight-splash-partners-label::after {
             content: '';
@@ -2350,79 +2357,89 @@
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28));
         }
         .inflight-splash-partners-label::after { transform: scaleX(-1); }
-        /* Static "sponsor wall" — every partner laid out at once in a centered
-           multi-row grid, fully visible the moment the splash paints (no scroll
-           that needs time on screen). Wide enough for ~40 coins in three tidy
-           rows on a laptop. */
-        .inflight-splash-partners-row {
+
+        .inflight-splash-lanes {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+        }
+        /* The viewport each lane travels through. The mask is what stops a lane
+           from ending in a hard vertical edge mid-logo — it dissolves instead,
+           which is what makes the movement look deliberate. */
+        .sp-lane {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+        }
+        /* Each track holds its lane's logos TWICE, so translating it exactly
+           half its width lands on an identical frame and the loop is seamless
+           — no jump, no gap to time. */
+        .sp-track {
             display: flex;
             align-items: center;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 10px 12px;
-            max-width: min(860px, 94vw);
+            gap: 16px;
+            width: max-content;
+            padding: 2px 0;
+            animation: sp-scroll 46s linear infinite;
         }
-        /* Round "coin" badges — each logo centred inside a circle. Smaller than
-           they were: a wall of forty at the old 48px was three crowded rows,
-           and the point of showing everyone is that the wall still looks
-           composed. */
-        .inflight-splash-partners-row img,
-        .inflight-splash-partners-row .vp-name {
-            width: 40px;
-            height: 40px;
+        .sp-lane:nth-child(2) .sp-track {
+            animation-duration: 58s;
+            animation-direction: reverse;
+        }
+        @keyframes sp-scroll {
+            from { transform: translateX(0); }
+            to   { transform: translateX(-50%); }
+        }
+
+        /* Round "coin" badges — each logo centred inside a circle. */
+        .sp-track img,
+        .sp-track .vp-name {
+            width: 54px;
+            height: 54px;
             border-radius: 50%;
             flex: 0 0 auto;
             box-sizing: border-box;
-            /* Each coin arrives just after the one before it, which reads as
-               the wall assembling rather than as one block appearing. The delay
-               is capped in the markup so the last coin is never left waiting. */
-            opacity: 0;
-            transform: translateY(5px) scale(0.94);
-            animation: inflight-splash-coin-in 460ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            animation-delay: calc(var(--i, 0) * 22ms);
         }
-        .inflight-splash-partners-row img {
+        .sp-track img {
             display: block;
-            max-width: 40px;
-            max-height: 40px;
+            max-width: 54px;
+            max-height: 54px;
             object-fit: contain;
-            padding: 5px;
+            padding: 7px;
             background: #fff;
             border: 1px solid rgba(255, 255, 255, 0.22);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
             overflow: hidden;
         }
-        .inflight-splash-partners-row .vp-name {
+        .sp-track .vp-name {
             display: flex;
             align-items: center;
             justify-content: center;
-            font: 700 13px/1 'Inter', system-ui, sans-serif;
+            font: 700 16px/1 'Inter', system-ui, sans-serif;
             color: #e9eaec;
             background: rgba(255, 255, 255, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.22);
         }
         @keyframes inflight-splash-partners-in { to { opacity: 1; } }
-        @keyframes inflight-splash-coin-in {
-            to { opacity: 1; transform: none; }
-        }
         @media (max-width: 480px) {
-            .inflight-splash-partners-row img,
-            .inflight-splash-partners-row .vp-name { width: 32px; height: 32px; }
-            .inflight-splash-partners-row img { max-width: 32px; max-height: 32px; padding: 4px; }
-            .inflight-splash-partners-row .vp-name { font-size: 11px; }
-            .inflight-splash-partners-row { gap: 8px 9px; }
+            .sp-track img, .sp-track .vp-name { width: 44px; height: 44px; }
+            .sp-track img { max-width: 44px; max-height: 44px; padding: 6px; }
+            .sp-track .vp-name { font-size: 13px; }
+            .sp-track { gap: 12px; }
         }
-        /* Not enough height to seat the mark and the wall both — the mark wins.
-           A squashed wall under a squashed logo is worse than no wall. */
-        @media (max-height: 560px) {
+        /* Two lanes cost ~150px. Below this there isn't room for the mark and
+           the lanes both, and the mark wins. */
+        @media (max-height: 480px) {
             .inflight-splash-partners { display: none; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
             .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-            .inflight-splash-partners, .inflight-splash-partners-row,
-            .inflight-splash-partners-row img, .inflight-splash-partners-row .vp-name,
+            .inflight-splash-partners, .sp-track,
             .inflight-splash-arcs, .inflight-splash-arcs svg,
             .inflight-splash-bar, .inflight-splash-bar::after {
                 animation-duration: 0.001s !important;
@@ -2436,6 +2453,10 @@
             .inflight-splash-bar { display: none; }
             .inflight-splash-arcs { opacity: 0.07 !important; }
             .inflight-splash-arcs svg { transform: translate(-50%, -50%) !important; }
+            /* A stopped marquee is a lane cut off at both ends. Centre the
+               track instead and let the mask fade whatever overflows, so a
+               still frame still looks composed. */
+            .sp-track { justify-content: center; width: 100%; }
         }
     </style>
 
@@ -2481,7 +2502,10 @@
             <!-- The count is filled in from the roster that actually rendered,
                  so the wall never claims more airlines than it is showing. -->
             <span class="inflight-splash-partners-label" id="inflight-splash-partners-label">Our Partner VAs</span>
-            <div class="inflight-splash-partners-row" id="inflight-splash-partners-row"></div>
+            <div class="inflight-splash-lanes" id="inflight-splash-lanes">
+                <div class="sp-lane"><div class="sp-track" id="inflight-splash-lane-a"></div></div>
+                <div class="sp-lane"><div class="sp-track" id="inflight-splash-lane-b"></div></div>
+            </div>
         </div>
     </div>
     <script>
@@ -2653,23 +2677,29 @@
         // in time, the strip just stays hidden.
         (function () {
             var strip = document.getElementById('inflight-splash-partners');
-            var row   = document.getElementById('inflight-splash-partners-row');
+            var laneA = document.getElementById('inflight-splash-lane-a');
+            var laneB = document.getElementById('inflight-splash-lane-b');
             var label = document.getElementById('inflight-splash-partners-label');
-            if (!strip || !row) return;
+            if (!strip || !laneA || !laneB) return;
 
-            // No cap. This used to stop at 24 to keep the wall tidy, which quietly
-            // left a third of the roster off a screen whose entire job is to say
-            // who we fly with — and a partner who cannot find themselves on it is
-            // the one person guaranteed to look. The coins are smaller and the
-            // wall is wider instead; the layout, not the roster, does the tidying.
+            // No cap. This used to stop at 24, which quietly left a third of the
+            // roster off a screen whose entire job is to say who we fly with —
+            // and a partner who cannot find themselves on it is the one person
+            // guaranteed to look. Everyone rides the lanes instead.
             var tries = 0;
-            // Past this the stagger stops accumulating, so a long roster's last
-            // coin still lands promptly instead of trailing a second behind.
-            var STAGGER_CAP = 26;
             function esc(s) {
                 return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
                     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
                 });
+            }
+            function coin(ad) {
+                if (ad.logo) {
+                    return '<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
+                        '" title="' + esc(ad.name) + '" onerror="this.remove()">';
+                }
+                var initials = String(ad.name).trim().split(/\s+/)
+                    .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+                return '<span class="vp-name" title="' + esc(ad.name) + '">' + esc(initials) + '</span>';
             }
             function render(list) {
                 var seen = {}, items = [];
@@ -2679,21 +2709,25 @@
                     var key = String(ad.name).toLowerCase();
                     if (seen[key]) continue;
                     seen[key] = 1;
-                    var d = ' style="--i:' + Math.min(items.length, STAGGER_CAP) + '"';
-                    if (ad.logo) {
-                        items.push('<img' + d + ' src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
-                            '" title="' + esc(ad.name) + '" onerror="this.remove()">');
-                    } else {
-                        var initials = String(ad.name).trim().split(/\s+/)
-                            .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
-                        items.push('<span class="vp-name"' + d + ' title="' + esc(ad.name) + '">' +
-                            esc(initials) + '</span>');
-                    }
+                    items.push(coin(ad));
                 }
                 if (!items.length) return false;
-                row.innerHTML = items.join('');
+
+                // Split across the two lanes by alternating rather than by
+                // halving: the roster arrives in some order we don't control,
+                // and cutting it down the middle would put every logo-less
+                // partner in one lane if the source happened to group them.
+                var a = [], b = [];
+                for (var j = 0; j < items.length; j++) (j % 2 ? b : a).push(items[j]);
+                // One lane's worth is duplicated so the CSS can translate the
+                // track exactly half its width and land on an identical frame.
+                // A single short lane would also leave a visible gap at speed,
+                // which the doubling closes.
+                laneA.innerHTML = a.join('') + a.join('');
+                laneB.innerHTML = (b.length ? b : a).join('') + (b.length ? b : a).join('');
+
                 // Count what was actually drawn, after the de-duplication above,
-                // so the wall and its label can never disagree.
+                // so the label and the lanes can never disagree.
                 if (label) {
                     label.textContent = items.length > 1
                         ? items.length + ' Partner VAs'
