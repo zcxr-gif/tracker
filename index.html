@@ -2220,6 +2220,10 @@
             height: max(1100px, 130vw);
             transform: translate(-50%, -50%);
             animation: inflight-splash-arcs-drift 90s linear infinite;
+            /* Same reason as the marquee track: this is a very large element
+               rotating during boot, and without the hint it re-rasters on the
+               main thread every frame, taking the marquee down with it. */
+            will-change: transform;
         }
         .inflight-splash-arcs .sa-ring { fill: none; stroke: rgba(255, 255, 255, 0.5); stroke-width: 0.5; }
         .inflight-splash-arcs .sa-path { fill: none; stroke: rgba(255, 255, 255, 0.7); stroke-width: 0.7; stroke-dasharray: 5 8; }
@@ -2373,6 +2377,10 @@
             overflow: hidden;
             -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
             mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+            /* Nothing inside a lane can affect layout outside it, so say so —
+               it keeps the track's width out of the boot-time layout work the
+               rest of the page is doing while this is on screen. */
+            contain: layout paint;
         }
         /* Each track holds its lane's logos TWICE, so translating it exactly
            half its width lands on an identical frame and the loop is seamless
@@ -2380,11 +2388,30 @@
         .sp-track {
             display: flex;
             align-items: center;
-            gap: 16px;
+            /* Spacing lives on the coins as a trailing margin, NOT as `gap`.
+               `gap` puts no space after the last coin, so half the track's
+               width is half a gap short of the distance to the matching coin
+               in the second copy — and translateX(-50%) then lands 8px off,
+               which is a visible hitch once every lap. A trailing margin makes
+               the two distances identical and the loop exact. */
             width: max-content;
             padding: 2px 0;
             animation: sp-scroll 46s linear infinite;
+            /* Held until the logos have actually landed. Every image that
+               arrives repaints this layer, and forty of them trickling in over
+               the first seconds is what made the lanes stutter and then settle.
+               A lane that is briefly still looks fine; one that judders does
+               not. See startWhenPainted(). */
+            animation-play-state: paused;
+            /* This runs while the app is still downloading and parsing, so the
+               main thread is the busiest it will ever be. Promoting the track
+               to its own compositor layer up front means the scroll is a GPU
+               transform from the first frame instead of stuttering until the
+               browser decides on its own that the layer is worth having. */
+            will-change: transform;
+            backface-visibility: hidden;
         }
+        .inflight-splash-partners.is-rolling .sp-track { animation-play-state: running; }
         .sp-lane:nth-child(2) .sp-track {
             animation-duration: 58s;
             animation-direction: reverse;
@@ -2402,6 +2429,8 @@
             border-radius: 50%;
             flex: 0 0 auto;
             box-sizing: border-box;
+            /* The trailing gap the loop maths needs — see .sp-track. */
+            margin-right: 16px;
         }
         .sp-track img {
             display: block;
@@ -2425,10 +2454,9 @@
         }
         @keyframes inflight-splash-partners-in { to { opacity: 1; } }
         @media (max-width: 480px) {
-            .sp-track img, .sp-track .vp-name { width: 44px; height: 44px; }
+            .sp-track img, .sp-track .vp-name { width: 44px; height: 44px; margin-right: 12px; }
             .sp-track img { max-width: 44px; max-height: 44px; padding: 6px; }
             .sp-track .vp-name { font-size: 13px; }
-            .sp-track { gap: 12px; }
         }
         /* Two lanes cost ~150px. Below this there isn't room for the mark and
            the lanes both, and the mark wins. */
@@ -2692,14 +2720,40 @@
                     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
                 });
             }
-            function coin(ad) {
-                if (ad.logo) {
-                    return '<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
-                        '" title="' + esc(ad.name) + '" onerror="this.remove()">';
-                }
-                var initials = String(ad.name).trim().split(/\s+/)
+            function initialsFor(name) {
+                return String(name).trim().split(/\s+/)
                     .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
-                return '<span class="vp-name" title="' + esc(ad.name) + '">' + esc(initials) + '</span>';
+            }
+
+            /* A logo that fails to load must NOT be removed from the lane.
+             *
+             * Each lane holds its partners twice so the track can translate half
+             * its width and land on an identical frame. Removing a coin changes
+             * the track's width mid-animation AND leaves the two halves no
+             * longer identical, so the loop starts jumping once per cycle — the
+             * exact stutter this was blamed for. Swapping it for the initials
+             * coin keeps the footprint and keeps the halves in step.
+             */
+            window.__spCoinFailed = function (img) {
+                try {
+                    var span = document.createElement('span');
+                    span.className = 'vp-name';
+                    span.title = img.title || '';
+                    span.textContent = img.getAttribute('data-ini') || '';
+                    img.parentNode.replaceChild(span, img);
+                } catch (_) { /* leave the broken img rather than break the lane */ }
+            };
+
+            function coin(ad) {
+                var ini = initialsFor(ad.name);
+                if (ad.logo) {
+                    // decoding=async keeps forty logo decodes off the main
+                    // thread, which is already carrying the app's own boot.
+                    return '<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
+                        '" title="' + esc(ad.name) + '" data-ini="' + esc(ini) + '"' +
+                        ' decoding="async" onerror="__spCoinFailed(this)">';
+                }
+                return '<span class="vp-name" title="' + esc(ad.name) + '">' + esc(ini) + '</span>';
             }
             function render(list) {
                 var seen = {}, items = [];
@@ -2711,6 +2765,9 @@
                     seen[key] = 1;
                     items.push(coin(ad));
                 }
+                // The old de-duplication kept the FIRST spelling and dropped the
+                // rest; unchanged. What changed is that nothing is dropped after
+                // the fact any more — see __spCoinFailed.
                 if (!items.length) return false;
 
                 // Split across the two lanes by alternating rather than by
@@ -2735,7 +2792,41 @@
                 }
                 strip.hidden = false;
                 strip.removeAttribute('aria-hidden');
+                startWhenPainted();
                 return true;
+            }
+
+            /* Start the lanes moving only once nothing is left to repaint them.
+             *
+             * The tracks render before their logos have been fetched, and each
+             * one that arrives repaints the whole lane — so starting straight
+             * away means the first seconds of movement compete with forty image
+             * loads and the app's own boot. That is the "smooth after a while"
+             * everyone sees. Waiting costs a moment of stillness, which nobody
+             * reads as a fault, and buys motion that is clean from frame one.
+             *
+             * The timeout is the important half: one slow logo host must never
+             * be able to hold the lanes still for the whole splash.
+             */
+            function startWhenPainted() {
+                var imgs = [].slice.call(strip.getElementsByTagName('img'));
+                var pending = 0, started = false;
+                function go() {
+                    if (started) return;
+                    started = true;
+                    strip.classList.add('is-rolling');
+                }
+                for (var i = 0; i < imgs.length; i++) {
+                    if (imgs[i].complete) continue;
+                    pending++;
+                    (function (img) {
+                        var done = function () { if (--pending <= 0) go(); };
+                        img.addEventListener('load', done, { once: true });
+                        img.addEventListener('error', done, { once: true });
+                    })(imgs[i]);
+                }
+                if (!pending) { go(); return; }
+                setTimeout(go, 2500);
             }
 
             var t = setInterval(function () {
