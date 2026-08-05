@@ -8744,22 +8744,47 @@ function renderShareMapPicker(container) {
 
 window.renderShareMapPicker = renderShareMapPicker;
 
+// Servers, as one letter. Spelling "Expert" out cost five characters in every
+// link to say something there are only three possible answers to.
+const SHARE_SERVER_CODES = { Expert: 'E', Training: 'T', Casual: 'C' };
+const SHARE_SERVER_NAMES = { E: 'Expert', T: 'Training', C: 'Casual' };
+
+/**
+ * The link produced by the Share button.
+ *
+ * This used to carry a base64url snapshot of the whole flight (`?s=`) so the
+ * info window could open before the socket connected. It worked, and it made a
+ * typical link ~614 characters — an unreadable wall in a chat message, and most
+ * of it a community image URL and two UUIDs.
+ *
+ * The snapshot is gone from the link. Nothing was lost that the app could not
+ * already recover: consumeShareLinkParam has always had a direct ACARS REST
+ * lookup for the no-snapshot case, with the loading overlay as feedback, so a
+ * short link opens the flight about a second later instead of instantly. The
+ * rich detail a reader actually sees now lives in the link preview — callsign,
+ * route and a map of the flight — which is where it belongs, since that renders
+ * before anybody clicks.
+ *
+ * Old links keep working: consumeShareLinkParam still reads `flight`, `server`
+ * and `s` alongside the short forms below.
+ */
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
     const params = new URLSearchParams();
-    params.set('flight', flightId);
-    if (typeof currentServerName !== 'undefined' && currentServerName) {
-        params.set('server', currentServerName);
-    }
+    params.set('f', flightId);
+
+    const server = (typeof currentServerName !== 'undefined' && currentServerName) || '';
+    const code = SHARE_SERVER_CODES[server];
+    // An unrecognised server name is dropped rather than spelled out: the app
+    // searches every session anyway when it isn't told which one.
+    if (code) params.set('sv', code);
+
     // Only carried when it differs from the default the preview would pick
     // anyway — a share link is read by humans too, and there is no reason to
     // make it longer to say "do the usual thing".
     const mapStyle = getShareMapStyle();
     if (mapStyle && mapStyle !== 'dark') params.set('map', mapStyle);
-    try {
-        const snap = buildShareUrlSnapshot(flightId);
-        if (snap) params.set('s', b64uEncode(snap));
-    } catch (_) { /* link still works with just the flightId */ }
+
     return `${getShareOrigin()}/?${params.toString()}`;
 }
 
@@ -8976,12 +9001,17 @@ async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
     let params;
     try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
-    const flightId = params.get('flight');
-    let sharedServer = params.get('server');
+    // Short forms first, long forms for links already in the wild. `f`/`sv`
+    // are what buildFlightShareUrl emits now; `flight`/`server`/`s` are the
+    // older, much longer scheme and are still honoured indefinitely — a shared
+    // link can sit in a chat log for years.
+    const flightId = params.get('f') || params.get('flight');
+    let sharedServer = SHARE_SERVER_NAMES[params.get('sv')] || params.get('server');
     const urlSnapshotParam = params.get('s');
 
     // Payload sources, newest scheme first:
-    //   1. ?s=<base64url snapshot> — link-only sharing, embedded in the URL.
+    //   1. ?s=<base64url snapshot> — older link-only sharing. No longer emitted
+    //      (it was most of why those links were enormous), still read here.
     //   2. sessionStorage handoff — legacy /share/<id> function pages.
     let sharePayload = null;
     let stalePayload = null;
@@ -9030,9 +9060,12 @@ async function consumeShareLinkParam() {
     // Strip the share params so a refresh doesn't re-trigger and so the URL
     // stays clean once the window is open.
     try {
+        params.delete('f');
+        params.delete('sv');
         params.delete('flight');
         params.delete('server');
         params.delete('s');
+        params.delete('map');
         const newQuery = params.toString();
         const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);

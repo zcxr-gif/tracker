@@ -33,10 +33,14 @@
 // does today).
 const CRAWLER_UA_RE = /discord|slack|twitter|telegram|whatsapp|facebookexternalhit|facebot|linkedin|skype|pinterest|redditbot|embedly|googlebot|bingbot|duckduckbot|applebot|yandex|baiduspider|snapchat|tumblr|vkshare|iframely|tiktok|preview|unfurl|bot\b|crawler|spider/i;
 
-// Parameters worth carrying into the preview. `s` (the snapshot blob) is
-// deliberately dropped: it can be kilobytes, the function does its own lookup,
-// and a crawler has no use for the app handoff payload.
-const FORWARD = ['flight', 'server', 'map'];
+// Parameters worth carrying into the preview. `s` (the snapshot blob, only on
+// older links) is deliberately dropped: it can be kilobytes, the function does
+// its own lookup, and a crawler has no use for the app handoff payload.
+//
+// `f`/`sv` are the short forms buildFlightShareUrl emits; `flight`/`server` are
+// the older long forms, still in circulation. Both are forwarded verbatim and
+// the share function reads whichever arrives.
+const FORWARD = ['f', 'sv', 'flight', 'server', 'map'];
 
 export default async (request, context) => {
     let url;
@@ -50,7 +54,7 @@ export default async (request, context) => {
     // more broadly would put this in front of pages that have their own tags.
     if (url.pathname !== '/' && url.pathname !== '/index.html') return;
 
-    const flightId = url.searchParams.get('flight');
+    const flightId = url.searchParams.get('f') || url.searchParams.get('flight');
     if (!flightId) return;
 
     const ua = request.headers.get('user-agent') || '';

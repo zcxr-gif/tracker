@@ -688,12 +688,14 @@ ${headRedirect}
 }
 
 exports.handler = async (event) => {
-    const flightId = (event.queryStringParameters && event.queryStringParameters.flight) || '';
+    // `f` is the short form the app emits now; `flight` is the older long form,
+    // still arriving from links in the wild and from the /share/<id> rewrite.
+    const q = event.queryStringParameters || {};
+    const flightId = q.f || q.flight || '';
     // `?map=` carries the sharer's chosen route-map style (or `off`). It rides
     // on the share link itself, so the pilot's choice travels with the link
     // rather than depending on who opens it.
-    const mapStyle = String((event.queryStringParameters && event.queryStringParameters.map) || '')
-        .trim().toLowerCase();
+    const mapStyle = String(q.map || '').trim().toLowerCase();
     const headers = event.headers || {};
     const proto = headers['x-forwarded-proto'] || headers['X-Forwarded-Proto'] || 'https';
     const host = headers['x-forwarded-host'] || headers['host'] || headers['Host'] || SITE_HOST_FALLBACK;

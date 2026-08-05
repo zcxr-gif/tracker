@@ -80,8 +80,18 @@ const ctx = { rewrite: (target) => ({ __rewrite: target }) };
     await passesThrough('an empty flight parameter',
         'https://inflight.info/?flight=', DISCORD_UA);
 
+    head('It catches the short links the app emits now');
+    {
+        const out = await edge(req('https://inflight.info/?f=abc123&sv=E', DISCORD_UA), ctx);
+        ok('a short link is rewritten', out && typeof out.__rewrite === 'string', JSON.stringify(out));
+        const q = new URLSearchParams(out.__rewrite.split('?')[1]);
+        ok('the short flight id is forwarded', q.get('f') === 'abc123');
+        ok('the short server code is forwarded', q.get('sv') === 'E');
+    }
+
     head('The rewrite carries the right query');
     {
+        // The long form, as it still arrives from links already in the wild.
         const out = await edge(req(
             'https://inflight.info/?flight=abc123&server=Expert&map=midnight&s=' + 'x'.repeat(4000),
             DISCORD_UA), ctx);
@@ -93,6 +103,39 @@ const ctx = { rewrite: (target) => ({ __rewrite: target }) };
         // The snapshot blob is for the app, not the crawler, and it is large.
         ok('the app handoff snapshot is dropped', q.get('s') === null);
         ok('the rewrite stays small', out.__rewrite.length < 200, String(out.__rewrite.length));
+    }
+
+    head('Share links are short');
+    {
+        // The link builder lives inside flight.js's DOMContentLoaded closure, so
+        // this reads the source rather than importing it — same reason as the
+        // Settings-preview check below.
+        //
+        // What this guards: the link used to carry a base64url snapshot of the
+        // whole flight, which made a typical share ~614 characters. Re-adding
+        // anything of that size to the URL is the regression to catch.
+        const src = fs.readFileSync(path.join(ROOT, 'flight.js'), 'utf8');
+        const start = src.indexOf('function buildFlightShareUrl(');
+        ok('the link builder is still there', start > 0);
+        const body = src.slice(start, src.indexOf('\n}', start));
+
+        ok('it uses the short flight parameter', /params\.set\('f',/.test(body));
+        ok('it uses the short server parameter', /params\.set\('sv',/.test(body));
+        ok('it no longer embeds a snapshot',
+            !body.includes("params.set('s'") && !body.includes('buildShareUrlSnapshot'));
+
+        // A share of a real flight must stay comfortably inside what a chat
+        // client shows without truncating.
+        const sample = 'https://inflight.info/?f=3f2a9c1e-77b4-4d5a-9e21-6c8f0b3d41aa&sv=E&map=midnight';
+        ok('a fully-loaded link is under 100 characters', sample.length < 100, String(sample.length));
+
+        // Old links must keep resolving — one can sit in a chat log for years.
+        const consumer = src.slice(src.indexOf('async function consumeShareLinkParam('));
+        ok('the reader still accepts the old flight parameter', /params\.get\('flight'\)/.test(consumer));
+        ok('the reader still accepts the old server parameter', /params\.get\('server'\)/.test(consumer));
+        ok('the reader still expands an old snapshot', /params\.get\('s'\)/.test(consumer));
+        ok('the reader accepts the new short forms',
+            /params\.get\('f'\)/.test(consumer) && /params\.get\('sv'\)/.test(consumer));
     }
 
     head('It is declared to run at the site root');
