@@ -568,6 +568,9 @@ export const MobileSettingsUI = {
                 </button>
             </div>
 
+            <div class="mobile-section-header">Saved Views</div>
+            <div class="m-views" data-filter-views></div>
+
             <div class="mobile-section-header">Traffic</div>
             <div class="m-settings-list">
                 ${this.renderToggle('showStaffOnly', 'Staff Pilots Only', 'fa-shield-check')}
@@ -1457,6 +1460,169 @@ export const MobileSettingsUI = {
         // shown/hidden via opacity — see .active-pulse-dot in landingUI.js).
         const deskDot = document.getElementById('filter-active-dot');
         if (deskDot) deskDot.style.opacity = n > 0 ? '1' : '0';
+
+        // Every filter change funnels through here, which makes it the one place
+        // that can keep "Save current filters" enabled or disabled honestly.
+        // renderFilterViews never calls back into this, so there is no loop.
+        this.renderFilterViews();
+    },
+
+    /* --- Saved views ---------------------------------------------------
+     *
+     * The board can express a dozen rules at once — type, livery, airline,
+     * category, phase, altitude and speed bands, callsign, registration
+     * country, a proximity radius, a single-VA focus, and a Show/Hide switch on
+     * each one. Rebuilding a combination you use every session meant setting all
+     * of that by hand every time, and Reset was the only one-tap control.
+     *
+     * A view is a named snapshot of exactly the state resetTacticalFilters()
+     * clears — deliberately the same set, so "save, reset, apply" round-trips
+     * back to where you were. Applying one writes the state and lets
+     * syncTacticalControls() repaint the board, which is already the function
+     * that renders every control from mapFilters, so no control needs to know
+     * views exist.
+     *
+     * Stored per-browser rather than synced: these are personal working sets,
+     * and localStorage keeps the feature free of the Pro/cloud path entirely.
+     */
+    _VIEWS_KEY: 'inflight_filter_views',
+    _VIEWS_MAX: 12,
+
+    loadFilterViews() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(this._VIEWS_KEY) || '[]');
+            return Array.isArray(raw) ? raw.filter(v => v && typeof v.name === 'string' && v.state) : [];
+        } catch (_) { return []; }
+    },
+
+    saveFilterViews(views) {
+        try { localStorage.setItem(this._VIEWS_KEY, JSON.stringify(views.slice(0, this._VIEWS_MAX))); }
+        catch (_) { /* storage unavailable — the board still works */ }
+    },
+
+    /** The filter state a view captures. Mirrors resetTacticalFilters(). */
+    captureFilterState() {
+        const f = window.mapFilters || {};
+        return {
+            tactical: JSON.parse(JSON.stringify(f.tactical || {})),
+            tacticalExclude: JSON.parse(JSON.stringify(f.tacticalExclude || {})),
+            airborneOnly: !!f.airborneOnly,
+            onGroundOnly: !!f.onGroundOnly,
+            hasPlanOnly: !!f.hasPlanOnly,
+            vaFilterId: f.vaFilterId || null,
+        };
+    },
+
+    /** True when there is nothing worth saving. */
+    filterStateIsEmpty(s) {
+        if (!s) return true;
+        const hasRule = Object.values(s.tactical || {}).some(v => {
+            if (v == null || v === '') return false;
+            if (typeof v === 'object') return Object.values(v).some(x => x !== '' && x != null);
+            return true;
+        });
+        return !hasRule && !s.airborneOnly && !s.onGroundOnly && !s.hasPlanOnly && !s.vaFilterId;
+    },
+
+    /**
+     * A short human-readable line for a view, so the list says what each one
+     * does rather than making you apply it to find out.
+     */
+    describeFilterState(s) {
+        const t = (s && s.tactical) || {};
+        const excl = (s && s.tacticalExclude) || {};
+        const bits = [];
+        const mark = (id, text) => (excl[id] ? `not ${text}` : text);
+
+        if (t.type) bits.push(mark('type', String(t.type)));
+        if (t.livery) bits.push(mark('livery', String(t.livery)));
+        if (t.airline) bits.push(mark('airline', String(t.airline)));
+        if (t.callsign) bits.push(mark('callsign', String(t.callsign)));
+        if (t.category) bits.push(mark('category', String(t.category)));
+        if (t.phase) bits.push(mark('phase', String(t.phase)));
+        if (t.country && t.country !== 'All Countries') bits.push(mark('country', String(t.country)));
+
+        const band = (range, unit, id) => {
+            if (!range) return null;
+            const lo = range.min !== '' && range.min != null ? range.min : null;
+            const hi = range.max !== '' && range.max != null ? range.max : null;
+            if (lo == null && hi == null) return null;
+            const text = lo != null && hi != null ? `${lo}–${hi}${unit}`
+                : lo != null ? `above ${lo}${unit}` : `below ${hi}${unit}`;
+            return mark(id, text);
+        };
+        const alt = band(t.altitude, ' ft', 'altitude');
+        if (alt) bits.push(alt);
+        const spd = band(t.speed, ' kt', 'speed');
+        if (spd) bits.push(spd);
+
+        const ar = t.airportRadius;
+        if (ar && ar.icao && ar.radiusNm) bits.push(`${ar.radiusNm} NM of ${ar.icao}`);
+
+        if (s.airborneOnly) bits.push('airborne');
+        if (s.onGroundOnly) bits.push('on the ground');
+        if (s.hasPlanOnly) bits.push('has a plan');
+        if (s.vaFilterId) bits.push('one VA');
+
+        return bits.length ? bits.join(' · ') : 'No rules';
+    },
+
+    /** Paint the saved-view list into whichever board copies are on screen. */
+    renderFilterViews(root) {
+        const hosts = (root || document).querySelectorAll('[data-filter-views]');
+        if (!hosts.length) return;
+        const views = this.loadFilterViews();
+        const canSave = !this.filterStateIsEmpty(this.captureFilterState());
+
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        const rows = views.map((v, i) => `
+            <div class="m-view-row" data-view-index="${i}">
+                <button type="button" class="m-view-apply" data-view-apply="${i}">
+                    <span class="m-view-name">${esc(v.name)}</span>
+                    <span class="m-view-sub">${esc(this.describeFilterState(v.state))}</span>
+                </button>
+                <button type="button" class="m-view-del" data-view-delete="${i}"
+                        aria-label="Delete view ${esc(v.name)}" title="Delete">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+        `).join('');
+
+        const html = `
+            ${rows || `<p class="m-view-empty">No saved views yet. Set up the filters below, then save them here to bring the same set back in one tap.</p>`}
+            <button type="button" class="m-view-save" data-view-save ${canSave ? '' : 'disabled'}>
+                <i class="fa-solid fa-bookmark"></i>
+                <span>${canSave ? 'Save current filters' : 'Set a filter to save a view'}</span>
+            </button>
+        `;
+        hosts.forEach(h => { h.innerHTML = html; });
+    },
+
+    /** Write a saved view back onto the map and repaint the board. */
+    applyFilterView(view, root) {
+        if (!view || !view.state || !window.mapFilters) return;
+        const s = view.state;
+        window.mapFilters.tactical = JSON.parse(JSON.stringify(s.tactical || {}));
+        window.mapFilters.tacticalExclude = JSON.parse(JSON.stringify(s.tacticalExclude || {}));
+        window.mapFilters.airborneOnly = !!s.airborneOnly;
+        window.mapFilters.onGroundOnly = !!s.onGroundOnly;
+        window.mapFilters.hasPlanOnly = !!s.hasPlanOnly;
+
+        // setVaFilter owns persistence and re-running the map filter for the
+        // single-VA focus, so it is called rather than written through.
+        if (typeof window.setVaFilter === 'function') {
+            window.setVaFilter(s.vaFilterId || null);
+        }
+
+        const container = root || document.getElementById('mobile-tactical-nexus');
+        if (container) this.syncTacticalControls(container);
+        if (window.updateMapFilters) window.updateMapFilters();
+        if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage(true);
+        this.updateFilterBadge();
+        this.renderFilterViews(container);
     },
 
     resetTacticalFilters(root) {
@@ -1692,6 +1858,71 @@ export const MobileSettingsUI = {
             window.InflightHaptics?.select?.();
             this.resetTacticalFilters(root);
         });
+
+        // Saved views. Delegated, because the list is repainted whenever the
+        // filters change and per-row listeners would be dropped each time.
+        const viewsHost = root.querySelector('[data-filter-views]');
+        if (viewsHost) {
+            viewsHost.addEventListener('click', (e) => {
+                const save = e.target.closest('[data-view-save]');
+                if (save) {
+                    if (save.disabled) return;
+                    const state = this.captureFilterState();
+                    if (this.filterStateIsEmpty(state)) return;
+                    // eslint-disable-next-line no-alert
+                    const name = (window.prompt('Name this view', this.suggestViewName(state)) || '').trim();
+                    if (!name) return;
+                    const views = this.loadFilterViews();
+                    // Saving over a name replaces it rather than making a second
+                    // entry you then have to tell apart.
+                    const at = views.findIndex(v => v.name.toLowerCase() === name.toLowerCase());
+                    const entry = { name: name.slice(0, 40), state };
+                    if (at >= 0) views[at] = entry; else views.unshift(entry);
+                    this.saveFilterViews(views);
+                    window.InflightHaptics?.select?.();
+                    this.renderFilterViews(root);
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification(`Saved “${entry.name}”.`, 'success');
+                    }
+                    return;
+                }
+
+                const del = e.target.closest('[data-view-delete]');
+                if (del) {
+                    const views = this.loadFilterViews();
+                    const v = views[Number(del.dataset.viewDelete)];
+                    if (!v) return;
+                    views.splice(Number(del.dataset.viewDelete), 1);
+                    this.saveFilterViews(views);
+                    window.InflightHaptics?.select?.();
+                    this.renderFilterViews(root);
+                    return;
+                }
+
+                const apply = e.target.closest('[data-view-apply]');
+                if (apply) {
+                    const v = this.loadFilterViews()[Number(apply.dataset.viewApply)];
+                    if (!v) return;
+                    window.InflightHaptics?.select?.();
+                    this.applyFilterView(v, root);
+                    if (typeof window.showNotification === 'function') {
+                        window.showNotification(`Applied “${v.name}”.`, 'info');
+                    }
+                }
+            });
+        }
+        this.renderFilterViews(root);
+    },
+
+    /**
+     * A starting name for a new view, taken from the rules themselves so the
+     * common case is one tap and Enter rather than composing a label.
+     */
+    suggestViewName(state) {
+        const d = this.describeFilterState(state);
+        if (d === 'No rules') return 'My view';
+        const first = d.split(' · ').slice(0, 2).join(' · ');
+        return first.length > 34 ? first.slice(0, 34) : first;
     },
 
     // Reflect the current mapFilters/tactical state into the board's controls.
@@ -2712,6 +2943,53 @@ export const MobileSettingsUI = {
                 }
                 .m-filter-reset.visible { opacity: 1; pointer-events: auto; }
                 .m-filter-reset i { margin-right: 4px; }
+
+                /* --- Saved views --- */
+                .m-views { padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
+                .m-view-row { display: flex; align-items: stretch; gap: 6px; }
+                .m-view-apply {
+                    flex: 1; min-width: 0; text-align: left; cursor: pointer;
+                    display: flex; flex-direction: column; gap: 2px;
+                    padding: 10px 14px; border-radius: 12px;
+                    background: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    font-family: inherit; -webkit-tap-highlight-color: transparent;
+                    transition: background 0.18s ease, border-color 0.18s ease;
+                }
+                .m-view-apply:hover { background: rgba(125,211,252,0.10); border-color: rgba(125,211,252,0.35); }
+                .m-view-name {
+                    font-size: 0.82rem; font-weight: 700; color: #fafafa;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                .m-view-sub {
+                    font-size: 0.68rem; color: #71717a;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                .m-view-del {
+                    flex: none; width: 42px; border-radius: 12px; cursor: pointer;
+                    background: rgba(255,255,255,0.04);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    color: #f87171; font-size: 0.8rem;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                .m-view-del:hover { background: rgba(248,113,113,0.14); }
+                .m-view-save {
+                    display: flex; align-items: center; justify-content: center; gap: 8px;
+                    width: 100%; padding: 11px 14px; border-radius: 12px; cursor: pointer;
+                    background: rgba(125,211,252,0.12);
+                    border: 1px dashed rgba(125,211,252,0.40);
+                    color: #7dd3fc; font-family: inherit; font-size: 0.78rem; font-weight: 700;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                .m-view-save[disabled] {
+                    background: rgba(255,255,255,0.04);
+                    border-color: rgba(255,255,255,0.10);
+                    color: #52525b; cursor: default;
+                }
+                .m-view-empty {
+                    margin: 0; padding: 2px 2px 4px; font-size: 0.72rem;
+                    color: #71717a; line-height: 1.5;
+                }
 
                 .m-combo-list { padding: 0 20px; display: flex; flex-direction: column; gap: 10px; }
 
