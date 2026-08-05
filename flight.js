@@ -17370,6 +17370,7 @@ const SettingsUI = {
         airspace: { label: "Filters", icon: "fa-sliders" },
         va: { label: "VA", icon: "fa-handshake-angle" },
         theme: { label: "Theme", icon: "fa-palette" },
+        month: { label: "Your Month", icon: "fa-chart-pie" },
         whatsnew: { label: "What's New", icon: "fa-bullhorn" }
     },
 
@@ -18674,6 +18675,29 @@ renderCategory(catId) {
                             <p style="margin: 6px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
                                 Draws the same map under the departure/arrival bar of an open flight.
                                 Flights whose airports can't be placed leave the bar as it is.
+                            </p>
+                        </div>
+                    `;
+                    break;
+                case 'month':
+                    // The report lives at its own URL because it is a thing
+                    // people paste to each other; this is the door to it from
+                    // inside the app, which it otherwise did not have.
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Your Month</label>
+                            <p style="margin: 0 0 14px 0; font-size: 0.8rem; color: #94a3b8; line-height: 1.6;">
+                                Your flying month, read from your Infinite Flight logbook — hours, the route
+                                you wore out, the longest leg, the airports and the airframe you keep coming
+                                back to. Free, and built to be shared.
+                            </p>
+                            <a href="/month" target="_blank" rel="noopener" class="modal-btn" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;">
+                                <i class="fa-solid fa-chart-pie"></i> Open Your Month
+                            </a>
+                            <p style="margin: 12px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
+                                Needs you signed in with your IF username on your profile. Pro members also
+                                get the deep cuts — hours by weekday, leg distribution, every airframe you
+                                touched.
                             </p>
                         </div>
                     `;

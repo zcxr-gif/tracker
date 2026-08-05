@@ -497,6 +497,24 @@ export const MobileSettingsUI = {
                                 bar as it is.
                             </p>
 
+                            <!-- The monthly report. It lives at its own URL because
+                                 it is a link people paste; this is the door to it
+                                 from inside the app. -->
+                            <div class="mobile-section-header">Your Month</div>
+                            <div class="m-settings-list">
+                                <a class="m-setting-row" href="/month" target="_blank" rel="noopener" style="text-decoration:none; color:inherit;">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-chart-pie" style="color: #a78bfa;"></i>
+                                        <span>Your Month</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right" style="opacity:.5;"></i></div>
+                                </a>
+                            </div>
+                            <p class="m-settings-note">
+                                Your flying month from your Infinite Flight logbook — hours, your busiest
+                                route, the airframe you keep coming back to. Free, and made to be shared.
+                            </p>
+
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">
                                 <div class="m-setting-row m-whatsnew-row">
