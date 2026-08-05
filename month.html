@@ -162,6 +162,38 @@ a { color: inherit; }
 .card.accent { background: linear-gradient(150deg, rgba(56,189,248,0.16), rgba(167,139,250,0.13)); border-color: rgba(56,189,248,0.26); }
 .card.accent .card-label i { color: var(--amber); }
 
+/* ---- Media cards ---------------------------------------------------------
+   A card whose subject has a real picture — the airframe, the field, the route
+   — leads with it. Every one of these images comes from somewhere that can be
+   down or simply not have the picture, so the media band removes ITSELF on
+   error and the card carries on as a normal stat card. A card that collapses
+   to a broken-image glyph is worse than one that never had a photo. */
+.card.media { padding: 0; display: flex; flex-direction: column; }
+.card-media {
+    position: relative; width: 100%; aspect-ratio: 16 / 8; overflow: hidden;
+    /* Capped, because a full-width card at this ratio is ~500px of photo on a
+       laptop — the picture should set the card off, not become the card. */
+    max-height: 290px;
+    background: linear-gradient(140deg, rgba(56,189,248,0.10), rgba(167,139,250,0.10));
+}
+.card-media img {
+    display: block; width: 100%; height: 100%; object-fit: cover;
+    /* Fades in once decoded, so a slow photo doesn't snap into place. */
+    opacity: 0; transition: opacity 520ms ease;
+}
+.card-media img.on { opacity: 1; }
+.card-media::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(11,13,18,0) 34%, rgba(18,21,29,0.78) 82%, var(--surface) 100%);
+}
+.card.media .card-body { padding: 20px 22px 22px; margin-top: -34px; position: relative; z-index: 1; }
+.media-credit {
+    position: absolute; right: 10px; top: 10px; z-index: 2;
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.03em;
+    color: rgba(255,255,255,0.72); background: rgba(0,0,0,0.36);
+    padding: 3px 9px; border-radius: 999px; backdrop-filter: blur(3px);
+}
+
 .route { display: flex; align-items: center; gap: 14px; font-family: var(--mono); font-weight: 800; letter-spacing: -0.02em; }
 .route .icao { font-size: clamp(26px, 5.4vw, 44px); }
 .route i { color: var(--faint); font-size: 0.8em; }
@@ -214,6 +246,19 @@ a { color: inherit; }
 .bar-row .v { color: var(--ink); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 .bar-track { height: 8px; border-radius: 8px; background: rgba(255,255,255,0.07); overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--sky), var(--violet)); }
+
+/* Hour-of-day strip. Twenty-four rows would be a wall; as a silhouette the
+   shape of somebody's flying day is legible at a glance. */
+.hours { display: flex; align-items: flex-end; gap: 3px; height: 82px; margin-top: 4px; }
+.hours .hour {
+    flex: 1; min-width: 0; height: var(--h); min-height: 3px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--sky), var(--violet)); opacity: 0.85;
+}
+.hours .hour[style*="--h:0%"] { background: rgba(255,255,255,0.09); }
+.hours-axis {
+    display: flex; justify-content: space-between; margin-top: 8px;
+    font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums;
+}
 
 .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tbl th, .tbl td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
@@ -373,6 +418,9 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
 const ACARS = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
+// The main backend: community aircraft photos, and the route-map renderer that
+// also draws the map under every VA Discord card.
+const API = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
 
 // The logbook is paged newest-first. This bounds how far back we are willing to
 // read for one month — deep enough to reach a month or two ago for an ordinary
@@ -448,6 +496,43 @@ const coordsOf = (icao) => {
     const a = state.airports && state.airports[String(icao || '').toUpperCase()];
     return (a && Number.isFinite(a.lat)) ? a : null;
 };
+/**
+ * Satellite imagery of a field, from Esri's keyless World Imagery export — the
+ * same source the app's airport window uses for its hero, so an airport looks
+ * the same wherever it appears.
+ */
+function aerialUrl(lat, lon, w = 900, h = 450) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const R = 6378137, halfW = 4200, halfH = halfW * (h / w);
+    const x = R * lon * Math.PI / 180;
+    const y = R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+    const bbox = [x - halfW, y - halfH, x + halfW, y + halfH].map((n) => n.toFixed(1)).join(',');
+    return 'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export'
+        + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=jpg&f=image`;
+}
+
+/** The community photo for an airframe, by type + livery. Null when we have none. */
+const photoCache = new Map();
+async function communityPhoto(type, livery) {
+    const key = `${type}|${livery}`;
+    if (photoCache.has(key)) return photoCache.get(key);
+    const p = fetch(`${API}/api/aircraft/lookup?type=${encodeURIComponent(type)}&livery=${encodeURIComponent(livery || '')}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+            const rec = Array.isArray(d) ? d[0] : d;
+            if (!rec) return null;
+            const url = rec.imageUrl || (Array.isArray(rec.imageUrls) ? rec.imageUrls[0] : null);
+            return url ? { url, by: rec.contributorName || '' } : null;
+        })
+        .catch(() => null);
+    photoCache.set(key, p);
+    return p;
+}
+
+/** The route drawn by the backend's own renderer — the flight, not a stock shot. */
+const routeMapUrl = (dep, arr) =>
+    `${API}/api/route-map?dep=${encodeURIComponent(dep)}&arr=${encodeURIComponent(arr)}&size=banner&style=midnight`;
+
 const gcNm = (a, b) => {
     const R = Math.PI / 180;
     const dLat = (b.lat - a.lat) * R, dLon = (b.lon - a.lon) * R;
@@ -512,11 +597,21 @@ function buildReport(key) {
     });
     if (!legs.length) return null;
 
-    const airports = new Set(), countries = new Set(), routes = new Map(), fleet = new Map();
+    const airports = new Map(), countries = new Map(), routes = new Map(), fleet = new Map();
     const byDay = new Map(), byWeekday = new Array(7).fill(0), byHour = new Array(24).fill(0);
     const lengths = [];
+    // Leg-length buckets. Coarse on purpose: a histogram with a bar per
+    // ten-minute slice tells you nothing you can feel.
+    const buckets = [
+        { k: 'Under 1h', max: 60, n: 0 },
+        { k: '1–2h', max: 120, n: 0 },
+        { k: '2–4h', max: 240, n: 0 },
+        { k: '4–8h', max: 480, n: 0 },
+        { k: 'Over 8h', max: Infinity, n: 0 },
+    ];
     let minutes = 0, landings = 0, distance = 0, distanceKnown = 0;
     let longest = null, earliest = null, latest = null;
+    let night = 0, dawn = 0;
 
     for (const f of legs) {
         const d = flightDate(f);
@@ -527,11 +622,13 @@ function buildReport(key) {
         minutes += min;
         landings += Number(f.landingCount) || 0;
         lengths.push(min);
-        if (dep) airports.add(dep);
-        if (arr) airports.add(arr);
+        (buckets.find((b) => min < b.max) || buckets[buckets.length - 1]).n++;
+
         for (const code of [dep, arr]) {
+            if (!code) continue;
+            airports.set(code, (airports.get(code) || 0) + 1);
             const c = coordsOf(code);
-            if (c && c.country) countries.add(c.country);
+            if (c && c.country) countries.set(c.country, (countries.get(c.country) || 0) + 1);
         }
         if (dep && arr) {
             const a = coordsOf(dep), b = coordsOf(arr);
@@ -541,9 +638,19 @@ function buildReport(key) {
                 routes.set(k, (routes.get(k) || 0) + 1);
             }
         }
-        const name = aircraftName(f.aircraftId || f.aircraftID, f.liveryId || f.liveryID);
-        const seat = fleet.get(name) || { flights: 0, minutes: 0 };
+        const aId = f.aircraftId || f.aircraftID, lId = f.liveryId || f.liveryID;
+        const name = aircraftName(aId, lId);
+        const seat = fleet.get(name) || { flights: 0, minutes: 0, distance: 0, livery: '' };
         seat.flights++; seat.minutes += min;
+        if (dep && arr) {
+            const a = coordsOf(dep), b = coordsOf(arr);
+            if (a && b) seat.distance += gcNm(a, b);
+        }
+        // Keep a livery so the aircraft card can ask for a photo of the exact
+        // paint this pilot flies rather than a generic house livery.
+        if (!seat.livery && lId && state.livMap.has(String(lId).toLowerCase())) {
+            seat.livery = state.livMap.get(String(lId).toLowerCase()).name || '';
+        }
         fleet.set(name, seat);
 
         if (!longest || min > longest.min) longest = { min, dep, arr };
@@ -554,9 +661,22 @@ function buildReport(key) {
             byDay.set(dk, day);
             byWeekday[d.getDay()] += min;
             byHour[d.getHours()] += 1;
+            if (d.getHours() >= 22 || d.getHours() < 5) night++;
+            if (d.getHours() >= 5 && d.getHours() < 8) dawn++;
             if (!earliest || d < earliest) earliest = d;
             if (!latest || d > latest) latest = d;
         }
+    }
+
+    // Longest run of consecutive calendar days with a flight on them, and the
+    // longest stretch without one. Both are computed from the day keys rather
+    // than from flight timestamps, so two flights on one day count once.
+    const dayKeys = [...byDay.keys()].sort();
+    let streak = dayKeys.length ? 1 : 0, bestStreak = streak, gapDays = 0;
+    for (let i = 1; i < dayKeys.length; i++) {
+        const step = (Date.parse(dayKeys[i]) - Date.parse(dayKeys[i - 1])) / 86400000;
+        if (step === 1) { streak++; bestStreak = Math.max(bestStreak, streak); }
+        else { streak = 1; gapDays = Math.max(gapDays, step - 1); }
     }
 
     const topRoutes = [...routes.entries()].sort((a, b) => b[1] - a[1]);
@@ -580,15 +700,20 @@ function buildReport(key) {
         if (dep) sawEarlier.add(dep);
         if (arr) sawEarlier.add(arr);
     }
-    const fresh = haveHistory ? [...airports].filter((a) => !sawEarlier.has(a)) : null;
+    const fresh = haveHistory ? [...airports.keys()].filter((a) => !sawEarlier.has(a)) : null;
+
+    const topAirports = [...airports.entries()].sort((a, b) => b[1] - a[1]);
+    const topCountries = [...countries.entries()].sort((a, b) => b[1] - a[1]);
 
     return {
         key, year: y, monthName: MONTHS[m - 1],
         flights: legs.length, minutes, hours: minutes / 60, landings,
-        airports: [...airports], countries: [...countries],
+        airports: [...airports.keys()], topAirports,
+        countries: [...countries.keys()], topCountries,
         distance: distanceKnown ? distance : null, distanceLegs: distanceKnown,
-        topRoutes, topFleet, busiestDay, longest, median, lengths: sorted,
+        topRoutes, topFleet, busiestDay, longest, median, lengths: sorted, buckets,
         byWeekday, byHour, activeDays: byDay.size, fresh,
+        bestStreak, gapDays, night, dawn,
         earliest, latest,
     };
 }
@@ -634,11 +759,15 @@ function renderFree(r) {
     if (r.topRoutes.length) {
         const [name, n] = r.topRoutes[0];
         const [dep, arr] = name.split(' → ');
-        out.push(`<article class="card">
-            <i class="fa-solid fa-repeat ghost" aria-hidden="true"></i>
-            <div class="card-label"><i class="fa-solid fa-route"></i>The route you wore out</div>
-            <div class="route"><span class="icao">${esc(dep)}</span><i class="fa-solid fa-arrow-right"></i><span class="icao">${esc(arr)}</span></div>
-            <p class="card-sub">Flown <b>${nf(n)}</b> ${n === 1 ? 'time' : 'times'} this month.</p>
+        // Drawn by the same renderer that puts a map under every VA Discord
+        // card — a picture of THIS route rather than a stock aviation shot.
+        out.push(`<article class="card media wide">
+            <div class="card-media" data-media="${esc(routeMapUrl(dep, arr))}"></div>
+            <div class="card-body">
+                <div class="card-label"><i class="fa-solid fa-route"></i>The route you wore out</div>
+                <div class="route"><span class="icao">${esc(dep)}</span><i class="fa-solid fa-arrow-right"></i><span class="icao">${esc(arr)}</span></div>
+                <p class="card-sub">Flown <b>${nf(n)}</b> ${n === 1 ? 'time' : 'times'} this month${r.topRoutes.length > 1 ? ` · <b>${nf(r.topRoutes.length)}</b> different routes in all` : ''}.</p>
+            </div>
         </article>`);
     }
 
@@ -668,11 +797,60 @@ function renderFree(r) {
 
     if (r.topFleet.length) {
         const [name, seat] = r.topFleet[0];
+        out.push(`<article class="card media wide" data-photo="${esc(name)}" data-livery="${esc(seat.livery || '')}">
+            <div class="card-media" data-media=""></div>
+            <div class="card-body">
+                <div class="card-label"><i class="fa-solid fa-plane"></i>Your aircraft of the month</div>
+                <div class="stat sm">${esc(name)}</div>
+                <p class="card-sub"><b>${nf(seat.flights)}</b> ${seat.flights === 1 ? 'flight' : 'flights'} · <b>${(seat.minutes / 60).toFixed(1)}h</b> aboard${r.topFleet.length > 1 ? ` · you flew <b>${nf(r.topFleet.length)}</b> different types` : ''}.</p>
+            </div>
+        </article>`);
+    }
+
+    // The field the pilot kept coming back to, under a satellite shot of it.
+    if (r.topAirports.length) {
+        const [icao, visits] = r.topAirports[0];
+        const c = coordsOf(icao);
+        const media = c ? aerialUrl(c.lat, c.lon) : null;
+        const place = c && c.name ? c.name : '';
+        out.push(`<article class="card media wide">
+            ${media ? `<div class="card-media" data-media="${esc(media)}"><span class="media-credit">Esri World Imagery</span></div>` : ''}
+            <div class="card-body">
+                <div class="card-label"><i class="fa-solid fa-tower-observation"></i>Your home field this month</div>
+                <div class="stat">${esc(icao)}</div>
+                <p class="card-sub">${place ? `${esc(place)}. ` : ''}You passed through <b>${nf(visits)}</b> ${visits === 1 ? 'time' : 'times'}.</p>
+            </div>
+        </article>`);
+    }
+
+    if (r.bestStreak > 1) {
         out.push(card({
-            label: 'Your aircraft of the month', icon: 'fa-plane', ghost: 'fa-plane', cls: 'wide',
-            value: `<span class="stat sm">${esc(name)}</span>`,
-            sub: `<b>${nf(seat.flights)}</b> ${seat.flights === 1 ? 'flight' : 'flights'} · <b>${(seat.minutes / 60).toFixed(1)}h</b> aboard${r.topFleet.length > 1 ? ` · you flew <b>${nf(r.topFleet.length)}</b> different types` : ''}.`,
+            label: 'Longest streak', icon: 'fa-fire', ghost: 'fa-fire',
+            value: nf(r.bestStreak), unit: r.bestStreak === 1 ? 'day' : 'days',
+            sub: 'Consecutive days with a flight in them.',
         }));
+    }
+
+    if (r.night || r.dawn) {
+        const owl = r.night >= r.dawn;
+        const n = owl ? r.night : r.dawn;
+        out.push(card({
+            label: owl ? 'Night departures' : 'Dawn departures', icon: owl ? 'fa-moon' : 'fa-sun',
+            ghost: owl ? 'fa-moon' : 'fa-sun',
+            value: nf(n),
+            sub: owl
+                ? `<b>${Math.round((r.night / r.flights) * 100)}%</b> of your flights left after 22:00 or before 05:00.`
+                : `<b>${Math.round((r.dawn / r.flights) * 100)}%</b> of your flights left between 05:00 and 08:00.`,
+        }));
+    }
+
+    if (r.topCountries.length > 1) {
+        out.push(`<article class="card wide">
+            <i class="fa-solid fa-earth-europe ghost" aria-hidden="true"></i>
+            <div class="card-label"><i class="fa-solid fa-passport"></i>Where you turned up</div>
+            <div class="stat">${nf(r.topCountries.length)}<span class="unit">countries</span></div>
+            <div class="chips">${r.topCountries.slice(0, 14).map(([c, n]) => `<span class="chip">${esc(c)} <b>${nf(n)}</b></span>`).join('')}</div>
+        </article>`);
     }
 
     if (r.busiestDay) {
@@ -691,7 +869,52 @@ function renderFree(r) {
     }));
 
     $('freeGrid').innerHTML = out.join('');
+    hydrateMedia($('freeGrid'));
     reveal();
+}
+
+/**
+ * Fill every media band, and take the band out entirely when the picture isn't
+ * there. Nothing here is guaranteed: the community photo library may not have
+ * this airframe, the imagery service may be down, the renderer may not be able
+ * to place a route. In each case the card should look like a card that never
+ * had a photo, not like one whose photo broke.
+ */
+function hydrateMedia(root) {
+    // Airframe photos resolve over the network, so their band starts empty and
+    // is filled (or removed) once the lookup answers.
+    root.querySelectorAll('[data-photo]').forEach(async (cardEl) => {
+        const band = cardEl.querySelector('.card-media');
+        const shot = await communityPhoto(cardEl.dataset.photo, cardEl.dataset.livery);
+        if (!shot || !band) { band?.remove(); return; }
+        band.dataset.media = shot.url;
+        if (shot.by) {
+            const credit = document.createElement('span');
+            credit.className = 'media-credit';
+            credit.textContent = `© ${shot.by}`;
+            band.appendChild(credit);
+        }
+        paintBand(band);
+    });
+    root.querySelectorAll('.card-media[data-media]').forEach((band) => {
+        if (band.dataset.media) paintBand(band);
+    });
+}
+function paintBand(band) {
+    if (band.dataset.painted === '1') return;
+    band.dataset.painted = '1';
+    // The <img> goes into the band NOW, transparent, rather than being loaded
+    // detached and inserted on success. A detached Image() carrying
+    // loading="lazy" may never begin loading at all — no load event and no
+    // error event — which left a failed band sitting on the page as a tall
+    // empty rectangle, the one outcome this whole dance exists to avoid.
+    const img = document.createElement('img');
+    img.alt = '';
+    img.decoding = 'async';
+    img.addEventListener('load', () => img.classList.add('on'));
+    img.addEventListener('error', () => band.remove());
+    band.prepend(img);
+    img.src = band.dataset.media;
 }
 
 function renderPro(r) {
@@ -746,6 +969,62 @@ function renderPro(r) {
             </table>
         </article>`);
     }
+
+    // The shape of a month's flying: how the legs are distributed by length.
+    const maxB = Math.max(...r.buckets.map((b) => b.n), 1);
+    out.push(`<article class="card wide">
+        <div class="card-label"><i class="fa-solid fa-chart-column"></i>The shape of your legs</div>
+        <div class="bars">
+            ${r.buckets.map((b) => `<div class="bar-row">
+                <span class="k">${b.k}</span>
+                <span class="bar-track"><span class="bar-fill" style="width:${Math.round((b.n / maxB) * 100)}%"></span></span>
+                <span class="v">${nf(b.n)}</span>
+            </div>`).join('')}
+        </div>
+    </article>`);
+
+    // 24 bars is a lot of rows, so this one is drawn as a strip rather than as
+    // a list — it is a silhouette of the day, and reads better as one.
+    const maxH = Math.max(...r.byHour, 1);
+    out.push(`<article class="card wide">
+        <div class="card-label"><i class="fa-solid fa-clock"></i>When you push back</div>
+        <div class="hours">
+            ${r.byHour.map((n, h) => `<span class="hour" style="--h:${Math.round((n / maxH) * 100)}%" title="${String(h).padStart(2, '0')}:00 — ${n} ${n === 1 ? 'flight' : 'flights'}"></span>`).join('')}
+        </div>
+        <div class="hours-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+    </article>`);
+
+    if (r.topAirports.length > 1) {
+        out.push(`<article class="card wide">
+            <div class="card-label"><i class="fa-solid fa-tower-observation"></i>Airports, by how often you saw them</div>
+            <table class="tbl">
+                <thead><tr><th>Airport</th><th>Visits</th></tr></thead>
+                <tbody>${r.topAirports.slice(0, 14).map(([a, n]) => {
+                    const c = coordsOf(a);
+                    return `<tr><td>${esc(a)}${c && c.name ? ` <span style="color:var(--faint)">${esc(c.name)}</span>` : ''}</td><td>${nf(n)}</td></tr>`;
+                }).join('')}</tbody>
+            </table>
+        </article>`);
+    }
+
+    if (r.gapDays > 0) {
+        out.push(card({ label: 'Longest time grounded', icon: 'fa-pause', value: nf(r.gapDays), unit: r.gapDays === 1 ? 'day' : 'days', cls: 'third' }));
+    }
+    if (r.distance != null && r.topFleet.length) {
+        const far = r.topFleet.slice().sort((a, b) => b[1].distance - a[1].distance)[0];
+        if (far && far[1].distance > 0) {
+            out.push(card({
+                label: 'Furthest-travelled airframe', icon: 'fa-gauge-high', cls: 'third',
+                value: `<span class="stat sm">${esc(far[0])}</span>`,
+                sub: `<b>${nf(far[1].distance)} nm</b> under its wings.`,
+            }));
+        }
+    }
+    out.push(card({
+        label: 'Types per flight', icon: 'fa-shuffle', cls: 'third',
+        value: (r.topFleet.length / Math.max(r.flights, 1)).toFixed(2),
+        sub: r.topFleet.length === 1 ? 'You flew one airframe all month.' : `<b>${nf(r.topFleet.length)}</b> types over <b>${nf(r.flights)}</b> flights.`,
+    }));
 
     $('proGrid').innerHTML = out.join('');
     const locked = !state.isPro;
