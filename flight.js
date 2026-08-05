@@ -1298,11 +1298,11 @@ let mapFilters = {
         terrainTawsEnabled: false,
         terrainTawsAltitude: 10000,
         planDisplayMode: 'none',
-        // Show the backend-rendered route map as an extra slide in the flight
-        // window's hero. Off by default on purpose: every panel open that turns
-        // it on is a render request against a queue shared with Discord webhook
+        // Show the backend-rendered route map under the flight window's
+        // departure/arrival bar. Off by default on purpose: every panel open
+        // with it on is a render against a queue shared with Discord webhook
         // delivery, so this is something a user asks for rather than something
-        // everyone pays for. See resolveHeroRouteMapSlide().
+        // everyone pays for. See mountRouteMapStrip().
         showPanelRouteMap: false,
         mapStyle: 'dark',
         iconColorMode: 'default',
@@ -8759,6 +8759,9 @@ window.renderShareMapPicker = renderShareMapPicker;
  * open. Shown as one more slide in the hero carousel, it is the only picture in
  * that window OF THIS FLIGHT: the community photo is a picture of the type.
  *
+ * It sits in a strip directly under the route bar, which is already the part of
+ * this window that answers "where is this flight going".
+ *
  * Two things shape the implementation:
  *
  *  1. Renders funnel through a process-wide single-slot queue that Discord
@@ -8767,8 +8770,8 @@ window.renderShareMapPicker = renderShareMapPicker;
  *     rounded hard into the URL so repeated opens of a moving flight reuse one
  *     cached render, and nothing is requested for a flight without both ends.
  *  2. The endpoint legitimately 404s a route it cannot place — its airport index
- *     does not cover every airfield. A slide that renders nothing is worse than
- *     no slide, so the URL is probed once and only a confirmed render is added.
+ *     does not cover every airfield. An empty strip is worse than no strip, so
+ *     the URL is probed first and the slot stays collapsed unless it renders.
  */
 
 // Two decimals is what the backend already rounds to when building its own
@@ -8787,14 +8790,14 @@ function flightPanelRouteMapUrl(props) {
     if (!/^[A-Z0-9]{3,4}$/.test(dep) || !/^[A-Z0-9]{3,4}$/.test(arr) || dep === arr) return null;
 
     // The palette is the one picked for shared links, so the two look alike.
-    // 'off' is a choice about links, not about this panel — the toggle above is
-    // what governs here — so it reads as the default palette rather than as a
-    // style the backend would have to reject.
+    // 'off' is a choice about links, not about this panel — the toggle in
+    // Settings is what governs here — so it reads as the default palette rather
+    // than as a style the backend would have to reject.
     const style = getShareMapStyle();
-    // `og` is 1200x630 — very nearly the hero's own aspect, so the arc survives
-    // `background-size: cover` instead of being cropped off at both ends.
+    // `banner` is the renderer's 1200x420 wide strip — the shape it was drawn
+    // for, and the shape of the slot under the route bar.
     const params = new URLSearchParams({
-        dep, arr, size: 'og', style: style === 'off' ? 'dark' : style,
+        dep, arr, size: 'banner', style: style === 'off' ? 'dark' : style,
     });
 
     const put = (icao, latKey, lonKey) => {
@@ -8838,21 +8841,27 @@ function probeRouteMap(url) {
 }
 
 /**
- * The hero photo list for a flight, with the route map appended when the user
- * has asked for it and the backend confirms it renders. Resolves to the list
- * unchanged in every other case, so the caller has one code path.
+ * Paint the route map into the strip under the route bar, if it is wanted and
+ * it renders. Does nothing at all otherwise — the strip stays collapsed, so a
+ * flight the renderer cannot place leaves the window exactly as it was.
+ *
+ * The map belongs here rather than in the hero: the route bar is already where
+ * this window answers "where is this flight going", and a picture of the route
+ * reads as part of that answer instead of competing with the photos above it.
  */
-async function resolveHeroRouteMapSlide(photos, props) {
-    const list = Array.isArray(photos) ? photos.slice() : [];
-    if (!mapFilters.showPanelRouteMap) return list;
+async function mountRouteMapStrip(props) {
+    const strip = document.getElementById('ac-route-map-strip');
+    if (!strip || !mapFilters.showPanelRouteMap) return;
 
     const url = await probeRouteMap(flightPanelRouteMapUrl(props));
-    if (!url) return list;
+    // The panel is rebuilt on every render, so a strip that has left the
+    // document belongs to a window the user has already moved on from.
+    if (!url || !document.body.contains(strip)) return;
 
-    // No photographer: the credit line is for people who took a photo, and this
-    // is our own drawing. buildHeroPhotoCarousel hides an empty credit.
-    list.push({ src: url, photographer: '', isRouteMap: true });
-    return list;
+    strip.innerHTML = `<img src="${url}" alt="Route from ${props.departureIcao || ''} to ${props.arrivalIcao || ''}"
+        loading="lazy" decoding="async"
+        style="display: block; width: 100%; aspect-ratio: 1200 / 420; object-fit: cover;">`;
+    strip.style.display = '';
 }
 
 // Servers, as one letter. Spelling "Expert" out cost five characters in every
@@ -18663,9 +18672,8 @@ renderCategory(catId) {
                                 <label class="toggle-switch"><input type="checkbox" id="set-panel-route-map" ${mapFilters.showPanelRouteMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                             <p style="margin: 6px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
-                                Adds the route map to the photos at the top of an open flight — swipe or
-                                tap the dots to reach it. Flights whose airports can't be placed keep
-                                showing photos only.
+                                Draws the same map under the departure/arrival bar of an open flight.
+                                Flights whose airports can't be placed leave the bar as it is.
                             </p>
                         </div>
                     `;
@@ -23198,6 +23206,11 @@ let totalDistanceNM = 0;
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
+        <!-- The route map, drawn for this exact flight by the same backend
+             renderer the Discord cards and shared-link previews use. Empty and
+             collapsed until mountRouteMapStrip confirms it renders, so a flight
+             whose airports can't be placed leaves the bar as it was. -->
+        <div id="ac-route-map-strip" style="display: none; margin: 12px 16px 0 16px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);"></div>
         </div>
 
     <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
@@ -23620,26 +23633,15 @@ let totalDistanceNM = 0;
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
 
+    // Fills the strip under the route bar once the backend confirms the map
+    // renders; a no-op when the setting is off, which is the default.
+    mountRouteMapStrip(baseProps);
+
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
-        // The route map is confirmed with the backend before it is offered, so
-        // the hero is assembled once that answer is in. Until then the panel
-        // shows exactly what it always did. With the setting off — the common
-        // case — the resolver hands back the unchanged list on the next tick.
-        resolveHeroRouteMapSlide(techCardPhotos, baseProps).then(heroPhotos => {
-            if (!document.body.contains(overviewPanel)) return;
-            if (heroPhotos.length === 1 && heroPhotos[0].isRouteMap) {
-                // The route map is the only picture we have of this flight, so
-                // it becomes the hero rather than sitting behind a single dot.
-                // The generic airframe placeholder is the fallback beneath it.
-                overviewPanel.style.backgroundImage = `url('${heroPhotos[0].src}'), url('${fallbackPath}')`;
-                overviewPanel.dataset.currentPath = heroPhotos[0].src;
-                return;
-            }
-            buildHeroPhotoCarousel(overviewPanel, heroPhotos, fallbackPath);
-        });
+        buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
         // it to a logo-only chip a few seconds after the window opens (hovering or

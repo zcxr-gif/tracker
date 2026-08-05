@@ -492,9 +492,9 @@ export const MobileSettingsUI = {
                                 ${this.renderToggle('showPanelRouteMap', 'Route map in flight window', 'fa-map-location-dot')}
                             </div>
                             <p class="m-settings-note">
-                                Adds that map to the photos at the top of an open flight, in the palette
-                                picked above — swipe to reach it. Flights whose airports can't be placed
-                                keep showing photos only.
+                                Draws that same map under the departure/arrival bar of an open flight, in
+                                the palette picked above. Flights whose airports can't be placed leave the
+                                bar as it is.
                             </p>
 
                             <div class="mobile-section-header">Updates</div>
