@@ -24,6 +24,81 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.08.04',
+            date: 'August 2026',
+            title: 'Nearby & Routes',
+            tagline: 'Two new ways to find a flight: a radar scope showing what is around you right now, and a search box that finally understands "EGLL-KJFK".',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-satellite-dish',
+                    text: 'Nearby — a radar scope of the traffic around a point you choose: your own location, wherever the map is pointed, or any airport you name. Rings out to 500 NM, one blip per aircraft placed on its real bearing and distance and pointed the way it is actually flying, coloured by how high it is. Tap a blip or a row to open that flight. Turn on the bell and you will be told when something crosses into the ring. On a phone it is the new Nearby tab inside Airports & ATC; on the web it is the Nearby button beside Network.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b style="color:#fff; font-size:11px;"><i class="fa-solid fa-satellite-dish" style="color:#38bdf8; margin-right:6px;"></i>NEARBY</b>
+                                <span class="cl-vis-dim cl-vis-mono" style="font-size:9px;">100 NM · MAP CENTRE</span>
+                            </div>
+                            <div class="row" style="gap:14px;">
+                                <svg viewBox="0 0 74 74" style="width:74px; height:74px; flex:none;">
+                                    <circle cx="37" cy="37" r="34" fill="none" stroke="rgba(56,189,248,.35)" stroke-width="1"/>
+                                    <circle cx="37" cy="37" r="22" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                                    <circle cx="37" cy="37" r="11" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                                    <line x1="37" y1="3" x2="37" y2="71" stroke="rgba(255,255,255,.06)"/>
+                                    <line x1="3" y1="37" x2="71" y2="37" stroke="rgba(255,255,255,.06)"/>
+                                    <circle cx="37" cy="37" r="2" fill="#38bdf8"/>
+                                    <path d="M 0 -4 L 2.6 3.4 L 0 1.8 L -2.6 3.4 Z" fill="#f472b6" transform="translate(52 20) rotate(120)"/>
+                                    <path d="M 0 -4 L 2.6 3.4 L 0 1.8 L -2.6 3.4 Z" fill="#34d399" transform="translate(24 47) rotate(310)"/>
+                                    <path d="M 0 -4 L 2.6 3.4 L 0 1.8 L -2.6 3.4 Z" fill="#38bdf8" transform="translate(43 52) rotate(20)"/>
+                                </svg>
+                                <span style="display:flex; flex-direction:column; gap:5px; min-width:0; flex:1;">
+                                    <span style="display:flex; justify-content:space-between; gap:8px;">
+                                        <b style="color:#fff; font-size:11px;">BAW117</b>
+                                        <b class="cl-vis-mono" style="color:#38bdf8; font-size:10px;">9.7 NM · 022°</b>
+                                    </span>
+                                    <span style="display:flex; justify-content:space-between; gap:8px;">
+                                        <b style="color:#fff; font-size:11px;">EZY42</b>
+                                        <b class="cl-vis-mono" style="color:#34d399; font-size:10px;">26 NM · 134°</b>
+                                    </span>
+                                    <span style="display:flex; justify-content:space-between; gap:8px;">
+                                        <b style="color:#fff; font-size:11px;">QFA1</b>
+                                        <b class="cl-vis-mono" style="color:#f472b6; font-size:10px;">88 NM · 041°</b>
+                                    </span>
+                                </span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-route',
+                    text: 'Route search — type two airports into the search box and you get the pairing itself: how far it is, and everyone flying it right now, closest to landing first. Any spelling works — EGLL-KJFK, LHR JFK, egll to kjfk. Tap the route and the map keeps only that pairing.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row">
+                                <span class="glyph" style="color:#38bdf8;"><i class="fa-solid fa-route"></i></span>
+                                <span class="who">
+                                    <b>EGLL → KJFK</b>
+                                    <span>London Heathrow — John F Kennedy Intl</span>
+                                </span>
+                                <b class="cl-vis-mono" style="color:#38bdf8; font-size:11px;">2,991 NM</b>
+                            </div>
+                            <div class="row">
+                                <span class="who">
+                                    <b style="font-size:11px;">VIR3</b>
+                                    <span>84 NM to run</span>
+                                </span>
+                                <b class="cl-vis-mono cl-vis-dim" style="font-size:10px;">9,000 ft</b>
+                            </div>
+                            <div class="row">
+                                <span class="who">
+                                    <b style="font-size:11px;">BAW175</b>
+                                    <span>1,909 NM to run</span>
+                                </span>
+                                <b class="cl-vis-mono cl-vis-dim" style="font-size:10px;">37,000 ft</b>
+                            </div>
+                        </div>`
+                },
+            ],
+        },
+        {
             id: '2026.07.27',
             date: 'July 2026',
             title: 'Fuel, Tanks & Cabins',

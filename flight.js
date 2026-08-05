@@ -25,6 +25,8 @@ import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
+import { NearbyRadarUI } from './nearbyRadar.js';
+import { RecentItems } from './recentItems.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -8581,17 +8583,209 @@ function expandShareUrlSnapshot(snap, flightId) {
     };
 }
 
+// How a shared flight's link preview is drawn. The chosen style rides on the
+// link itself rather than being read when the link is opened, so what the
+// sharer picked is what everyone in the chat sees. 'off' falls back to a
+// community photo of the aircraft, which is what shared links showed before.
+const SHARE_MAP_STYLES = ['dark', 'midnight', 'light', 'mono', 'off'];
+const SHARE_MAP_STYLE_KEY = 'inflight_share_map_style';
+
+function getShareMapStyle() {
+    try {
+        const saved = localStorage.getItem(SHARE_MAP_STYLE_KEY);
+        if (SHARE_MAP_STYLES.includes(saved)) return saved;
+    } catch (_) { /* storage unavailable */ }
+    return 'dark';
+}
+
+function setShareMapStyle(style) {
+    if (!SHARE_MAP_STYLES.includes(style)) return;
+    try { localStorage.setItem(SHARE_MAP_STYLE_KEY, style); } catch (_) { /* storage unavailable */ }
+}
+
+window.getShareMapStyle = getShareMapStyle;
+window.setShareMapStyle = setShareMapStyle;
+window.SHARE_MAP_STYLES = SHARE_MAP_STYLES;
+
+// The picker itself. Painted into whatever container it is handed so the
+// desktop Settings modal and the mobile Settings sheet share one implementation
+// instead of drifting — the same arrangement renderVaEventVaPicker uses.
+//
+// The preview is the real thing: it is the very image a crawler would fetch for
+// a link shared right now, rendered by the same backend endpoint. Picking a
+// style therefore shows exactly what the choice does, rather than describing it.
+const SHARE_MAP_STYLE_LABELS = [
+    { id: 'dark',     label: 'Dark',     icon: 'fa-circle-half-stroke' },
+    { id: 'midnight', label: 'Midnight', icon: 'fa-moon' },
+    { id: 'light',    label: 'Light',    icon: 'fa-sun' },
+    { id: 'mono',     label: 'Mono',     icon: 'fa-circle' },
+    { id: 'off',      label: 'No map',   icon: 'fa-ban' },
+];
+
+// A recognisable long-haul, so the preview shows a curve and two continents
+// rather than a dot. Only used when no flight is open.
+const SHARE_PREVIEW_FALLBACK = { dep: 'EGLL', arr: 'KJFK' };
+
+
+function shareMapPreviewUrl(style) {
+    if (style === 'off') return null;
+    let dep = SHARE_PREVIEW_FALLBACK.dep;
+    let arr = SHARE_PREVIEW_FALLBACK.arr;
+    // Prefer the flight actually being viewed, so the preview is the user's own.
+    const props = currentFlightInWindow
+        ? (currentMapFeatures[currentFlightInWindow] || {}).properties
+        : null;
+    const d = String(props?.departureIcao || '').toUpperCase();
+    const a = String(props?.arrivalIcao || '').toUpperCase();
+    if (/^[A-Z0-9]{3,4}$/.test(d) && /^[A-Z0-9]{3,4}$/.test(a) && d !== a) { dep = d; arr = a; }
+
+    const params = new URLSearchParams({ dep, arr, size: 'og', style });
+    return `${API_BASE_URL}/api/route-map?${params.toString()}`;
+}
+
+function injectShareMapPickerStyles() {
+    if (document.getElementById('share-map-picker-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'share-map-picker-styles';
+    style.textContent = `
+        .share-map-options {
+            display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+        }
+        .share-map-option {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 12px; border-radius: 999px; cursor: pointer;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.10);
+            color: #a1a1aa; font-family: inherit; font-size: 0.72rem; font-weight: 600;
+            transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+        }
+        .share-map-option:hover { color: #fafafa; }
+        .share-map-option.is-on {
+            background: rgba(56, 189, 248, 0.16);
+            border-color: rgba(56, 189, 248, 0.45);
+            color: #e0f2fe;
+        }
+        .share-map-preview {
+            border-radius: 10px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.10);
+            background: rgba(255,255,255,0.03);
+        }
+        /* 1200x630 is the shape a crawler renders, so the preview keeps it —
+           a differently-proportioned preview would be a lie about the result. */
+        .share-map-preview img { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; }
+        .share-map-preview-off {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 8px; padding: 24px 16px; text-align: center;
+            font-size: 0.72rem; color: #71717a;
+        }
+        .share-map-preview-off i { font-size: 1.2rem; opacity: 0.6; }
+    `;
+    document.head.appendChild(style);
+}
+
+function renderShareMapPicker(container) {
+    if (!container) return;
+    injectShareMapPickerStyles();
+    const current = getShareMapStyle();
+    const previewUrl = shareMapPreviewUrl(current);
+
+    container.innerHTML = `
+        <div class="share-map-picker">
+            <div class="share-map-options">
+                ${SHARE_MAP_STYLE_LABELS.map(s => `
+                    <button type="button" class="share-map-option ${s.id === current ? 'is-on' : ''}"
+                            data-share-map="${s.id}" aria-pressed="${s.id === current}">
+                        <i class="fa-solid ${s.icon}"></i><span>${s.label}</span>
+                    </button>
+                `).join('')}
+            </div>
+            <div class="share-map-preview">
+                ${previewUrl
+                    ? `<img src="${previewUrl}" alt="Preview of the route map shared links will show"
+                            loading="lazy" data-share-map-img>`
+                    : `<div class="share-map-preview-off">
+                           <i class="fa-solid fa-image"></i>
+                           <span>Shared links will show a photo of the aircraft instead.</span>
+                       </div>`}
+            </div>
+        </div>
+    `;
+
+    container.querySelectorAll('[data-share-map]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setShareMapStyle(btn.dataset.shareMap);
+            window.InflightHaptics?.tap?.();
+            renderShareMapPicker(container);
+        });
+    });
+
+    // A preview that fails to load must not leave the browser's broken-image
+    // glyph sitting in the middle of the settings panel — it reads as a bug in
+    // the app rather than as "the picture isn't available right now". The image
+    // is fetched from the backend, so it can legitimately be missing: the
+    // renderer may not be deployed yet, the service may be down, or the route
+    // may be one it cannot place. All three land here and say so.
+    //
+    // The chosen style is still saved and still applied to shared links; only
+    // the preview of it is missing. Saying that matters, or the reader assumes
+    // their choice didn't take.
+    const img = container.querySelector('[data-share-map-img]');
+    if (img) {
+        img.addEventListener('error', () => {
+            const host = img.parentElement;
+            if (!host) return;
+            host.innerHTML = `
+                <div class="share-map-preview-off">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <span>Preview unavailable right now — your choice is still saved.</span>
+                </div>`;
+        }, { once: true });
+    }
+}
+
+window.renderShareMapPicker = renderShareMapPicker;
+
+// Servers, as one letter. Spelling "Expert" out cost five characters in every
+// link to say something there are only three possible answers to.
+const SHARE_SERVER_CODES = { Expert: 'E', Training: 'T', Casual: 'C' };
+const SHARE_SERVER_NAMES = { E: 'Expert', T: 'Training', C: 'Casual' };
+
+/**
+ * The link produced by the Share button.
+ *
+ * This used to carry a base64url snapshot of the whole flight (`?s=`) so the
+ * info window could open before the socket connected. It worked, and it made a
+ * typical link ~614 characters — an unreadable wall in a chat message, and most
+ * of it a community image URL and two UUIDs.
+ *
+ * The snapshot is gone from the link. Nothing was lost that the app could not
+ * already recover: consumeShareLinkParam has always had a direct ACARS REST
+ * lookup for the no-snapshot case, with the loading overlay as feedback, so a
+ * short link opens the flight about a second later instead of instantly. The
+ * rich detail a reader actually sees now lives in the link preview — callsign,
+ * route and a map of the flight — which is where it belongs, since that renders
+ * before anybody clicks.
+ *
+ * Old links keep working: consumeShareLinkParam still reads `flight`, `server`
+ * and `s` alongside the short forms below.
+ */
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
     const params = new URLSearchParams();
-    params.set('flight', flightId);
-    if (typeof currentServerName !== 'undefined' && currentServerName) {
-        params.set('server', currentServerName);
-    }
-    try {
-        const snap = buildShareUrlSnapshot(flightId);
-        if (snap) params.set('s', b64uEncode(snap));
-    } catch (_) { /* link still works with just the flightId */ }
+    params.set('f', flightId);
+
+    const server = (typeof currentServerName !== 'undefined' && currentServerName) || '';
+    const code = SHARE_SERVER_CODES[server];
+    // An unrecognised server name is dropped rather than spelled out: the app
+    // searches every session anyway when it isn't told which one.
+    if (code) params.set('sv', code);
+
+    // Only carried when it differs from the default the preview would pick
+    // anyway — a share link is read by humans too, and there is no reason to
+    // make it longer to say "do the usual thing".
+    const mapStyle = getShareMapStyle();
+    if (mapStyle && mapStyle !== 'dark') params.set('map', mapStyle);
+
     return `${getShareOrigin()}/?${params.toString()}`;
 }
 
@@ -8808,12 +9002,17 @@ async function consumeShareLinkParam() {
     if (typeof window === 'undefined' || !window.location) return;
     let params;
     try { params = new URLSearchParams(window.location.search || ''); } catch (_) { params = new URLSearchParams(); }
-    const flightId = params.get('flight');
-    let sharedServer = params.get('server');
+    // Short forms first, long forms for links already in the wild. `f`/`sv`
+    // are what buildFlightShareUrl emits now; `flight`/`server`/`s` are the
+    // older, much longer scheme and are still honoured indefinitely — a shared
+    // link can sit in a chat log for years.
+    const flightId = params.get('f') || params.get('flight');
+    let sharedServer = SHARE_SERVER_NAMES[params.get('sv')] || params.get('server');
     const urlSnapshotParam = params.get('s');
 
     // Payload sources, newest scheme first:
-    //   1. ?s=<base64url snapshot> — link-only sharing, embedded in the URL.
+    //   1. ?s=<base64url snapshot> — older link-only sharing. No longer emitted
+    //      (it was most of why those links were enormous), still read here.
     //   2. sessionStorage handoff — legacy /share/<id> function pages.
     let sharePayload = null;
     let stalePayload = null;
@@ -8862,9 +9061,12 @@ async function consumeShareLinkParam() {
     // Strip the share params so a refresh doesn't re-trigger and so the URL
     // stays clean once the window is open.
     try {
+        params.delete('f');
+        params.delete('sv');
         params.delete('flight');
         params.delete('server');
         params.delete('s');
+        params.delete('map');
         const newQuery = params.toString();
         const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);
@@ -9444,7 +9646,7 @@ function handleSearchInput(searchText) {
  */
 function runGlobalSearch(query) {
     const engine = window.GlobalSearchEngine;
-    if (!engine) return { flights: [], airports: [], airlines: [], query: query || '' };
+    if (!engine) return { routes: [], flights: [], airports: [], airlines: [], query: query || '' };
     return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
@@ -9714,6 +9916,8 @@ function onAirportSearchResultClick(arg) {
     if (Number.isFinite(lat) && Number.isFinite(lon) && sectorOpsMap) {
         sectorOpsMap.flyTo({ center: [lon, lat], zoom: 11, essential: true });
     }
+    try { RecentItems.rememberAirport(icao); } catch (_) { /* history is never fatal */ }
+
     if (typeof handleAirportClick === 'function') {
         handleAirportClick(icao);
     }
@@ -18329,6 +18533,18 @@ renderCategory(catId) {
                                 <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;" ${!isSignedIn ? 'disabled' : ''}>Reset Default Theme</button>
                             </div>
                         </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Shared Link Preview</label>
+                            <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
+                                How a flight you share looks when the link is posted in Discord, iMessage or
+                                anywhere else that shows a preview. The map is drawn for that exact flight —
+                                its route, both airports and where the aircraft had got to.
+                            </p>
+                            <!-- Painted by renderShareMapPicker below, so this and the
+                                 mobile Settings sheet share one implementation. -->
+                            <div id="share-map-picker"></div>
+                        </div>
                     `;
                     break;
                 case 'whatsnew':
@@ -18363,6 +18579,10 @@ renderCategory(catId) {
                 // Render the live style-preview snapshots (replaces the Mapbox
                 // Static Images API; see MobileSettingsUI.generateStylePreview).
                 MobileSettingsUI.hydrateStylePreviews(container);
+            }
+            if (catId === 'theme') {
+                const shareHost = container.querySelector('#share-map-picker');
+                if (shareHost && typeof renderShareMapPicker === 'function') renderShareMapPicker(shareHost);
             }
             if (catId === 'overlays') {
                 // Wire + hydrate the shared ATC Tag Studio (same controls as the
@@ -19793,6 +20013,7 @@ window.globalNatTracks = natTracks;
         setupFilterSettingsWindowEvents();
         AtcBoardUI.init();
         NetworkBoardUI.init();
+        NearbyRadarUI.init();
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
@@ -19959,6 +20180,19 @@ function initializeSectorOpsMap(centerICAO) {
                 bearing: sectorOpsMap.getBearing(),
                 pitch: sectorOpsMap.getPitch(),
             };
+        },
+        // Where the map is currently pointed. Exposed for features that anchor
+        // to what the user is looking at rather than to a fixed place — the
+        // Nearby radar's "Map centre" origin re-reads this every tick, so
+        // panning the map drags the scope along with it.
+        center() {
+            if (!sectorOpsMap) return null;
+            try {
+                const c = sectorOpsMap.getCenter();
+                return { lat: c.lat, lon: c.lng };
+            } catch (_) {
+                return null;
+            }
         },
         // Fly to a coordinate, offset upward so the aircraft sits in the visible
         // band of map above a bottom sheet (sheet covers the lower portion).
@@ -21384,6 +21618,11 @@ function closeAircraftWindow() {
 
 async function handleAircraftClick(flightProps, optionalSessionId = null, event = null) {
     if (!flightProps || !flightProps.flightId) return;
+
+    // Remember it for the search box's empty state. Every path that opens a
+    // flight window funnels through here — map tap, search result, share link,
+    // the Nearby radar — so this one call covers them all.
+    try { RecentItems.rememberFlight(flightProps); } catch (_) { /* history is never fatal */ }
 
     // Runway data is lazy (26 MB) and the phase readout in this window depends
     // on it. Warming it here — rather than blocking boot — means it is ready

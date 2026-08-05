@@ -6,7 +6,7 @@ export const LandingUI = {
     _currentServer: 'Expert', 
     _searchCursorIndex: -1,
     _currentMatches: [],
-    _currentResults: { flights: [], users: [], airports: [], airlines: [] },
+    _currentResults: { routes: [], flights: [], users: [], airports: [], airlines: [] },
     _theme: localStorage.getItem('pui-theme') || 'dark',
 
     filterGroups: {
@@ -117,8 +117,14 @@ export const LandingUI = {
 
         if (!query || query.length < 2) {
             this._currentMatches = [];
-            this._currentResults = { flights: [], users: [], airports: [], airlines: [] };
+            this._currentResults = { routes: [], flights: [], users: [], airports: [], airlines: [] };
             this._searchCursorIndex = -1;
+            // An empty box is the moment you are about to type something you
+            // just had open, so offer those back instead of showing nothing.
+            if (resultsContainer && this.renderRecentsInto(resultsContainer)) {
+                if (searchBlade) searchBlade.classList.add('has-results');
+                return;
+            }
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
                 resultsContainer.classList.remove('visible');
@@ -129,7 +135,7 @@ export const LandingUI = {
 
         const results = (typeof window.runGlobalSearch === 'function')
             ? window.runGlobalSearch(query)
-            : { flights: [], users: [], airports: [], airlines: [] };
+            : { routes: [], flights: [], users: [], airports: [], airlines: [] };
 
         this._currentResults = results;
         // Keep flight matches around for keyboard nav (arrows + Enter).
@@ -445,6 +451,176 @@ export const LandingUI = {
         `;
     },
 
+    /**
+     * The "EGLL-KJFK" answer: the pairing itself, then who is on it.
+     *
+     * The header row is the route — its great-circle distance and how many are
+     * flying it — and tapping it filters the map down to that pairing, the same
+     * action the Network board's Routes tab performs. The rows under it are the
+     * live flights, furthest along first, and open the flight window like any
+     * other search result.
+     */
+    _renderRouteRow(route) {
+        const { dep, arr } = route;
+        const nm = Math.round(route.distanceNm).toLocaleString();
+        const count = route.total;
+        const live = count === 0
+            ? 'Nobody flying it right now'
+            : `${count} flying it now`;
+        const reverse = route.reverse
+            ? `<span class="res-pill">${route.reverse} the other way</span>`
+            : '';
+
+        const header = `
+            <div class="premium-result-item premium-route-head"
+                 onclick="LandingUI.executeRouteClick('${this._esc(dep.icao)}', '${this._esc(arr.icao)}')">
+                <div class="res-meta-icon" style="color: var(--lui-accent);"><i class="fa-solid fa-route" style="font-size: 14px;"></i></div>
+                <div class="res-info-main">
+                    <div class="res-primary-row">
+                        <span class="res-callsign">${this._esc(dep.icao)} → ${this._esc(arr.icao)}</span>
+                        <span class="res-pill">${nm} NM</span>
+                        ${reverse}
+                    </div>
+                    <div class="res-secondary-row">
+                        <span class="res-pilot">${this._esc(dep.name || dep.icao)} — ${this._esc(arr.name || arr.icao)}</span>
+                    </div>
+                </div>
+                <div class="res-stats">
+                    <span class="res-altitude">${count}<span>live</span></span>
+                </div>
+            </div>
+        `;
+
+        const rows = route.flights.map((item) => {
+            const f = item.feature;
+            const p = f.properties || {};
+            const lat = f.geometry?.coordinates?.[1];
+            const lon = f.geometry?.coordinates?.[0];
+            const acName = p.aircraftName || '---';
+            const alt = Math.round(p.altitude || 0);
+            // "to run" is the distance still ahead of them, which is what the
+            // sort ordered on — showing the same number keeps the order legible
+            // instead of looking arbitrary.
+            const toGo = Number.isFinite(item.toGoNm) ? `${Math.round(item.toGoNm).toLocaleString()} NM to run` : '';
+            return `
+                <div class="premium-result-item premium-route-flight"
+                     onclick="LandingUI.executeSearchClick('${this._esc(p.flightId)}', ${lat}, ${lon})">
+                    <div class="res-meta-icon"><i class="fa-solid fa-circle"></i></div>
+                    <div class="res-info-main">
+                        <div class="res-primary-row">
+                            <span class="res-callsign">${this._esc(p.callsign || p.username || 'N/A')}</span>
+                            <span class="res-pill">${this._esc(acName)}</span>
+                        </div>
+                        <div class="res-secondary-row">
+                            <span class="res-pilot">${this._esc(toGo)}</span>
+                        </div>
+                    </div>
+                    <div class="res-stats">
+                        <span class="res-altitude">${alt.toLocaleString()}<span>ft</span></span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        const more = (count > route.flights.length)
+            ? `<div class="premium-route-more">+ ${count - route.flights.length} more on this route — tap the route to filter the map</div>`
+            : '';
+
+        return header + rows + more;
+    },
+
+    /** Filter the map to one pairing, then get out of the way. */
+    executeRouteClick(dep, arr) {
+        this._activeFilters = { ...(this._activeFilters || {}), departureIcao: dep, arrivalIcao: arr };
+        this._closeBladeSearch();
+        this.dispatchFilterUpdate();
+        if (typeof window.showNotification === 'function') {
+            window.showNotification(`Map filtered to ${dep} → ${arr}.`, 'info');
+        }
+    },
+
+    /**
+     * The empty-search state: flights and airports you recently opened.
+     *
+     * @returns {boolean} true when something was painted, so the caller knows
+     *   whether to show the dropdown at all. There is nothing to show on a
+     *   first visit, and an empty panel would be worse than none.
+     */
+    renderRecentsInto(container) {
+        const R = window.RecentItems;
+        if (!container || !R || R.isEmpty()) return false;
+
+        const { flights, airports } = R.forDisplay();
+
+        const flightRows = flights.map((f) => {
+            // Resolved live at paint time — a flight remembered ten minutes ago
+            // may well have landed since, and the row says which it is so the
+            // tap is never a surprise.
+            const live = R.isLive(f.id);
+            const title = f.callsign || f.username || 'Flight';
+            const route = (f.dep && f.arr) ? `${f.dep} → ${f.arr}` : (f.aircraft || '');
+            return `
+                <div class="premium-result-item"
+                     onclick="LandingUI.openRecentFlight('${this._esc(String(f.id).replace(/'/g, "\\'"))}')">
+                    <div class="res-meta-icon" style="color:${live ? '#34d399' : '#71717a'};">
+                        <i class="fa-solid ${live ? 'fa-circle' : 'fa-clock-rotate-left'}" style="font-size:${live ? '6px' : '12px'};"></i>
+                    </div>
+                    <div class="res-info-main">
+                        <div class="res-primary-row">
+                            <span class="res-callsign">${this._esc(title)}</span>
+                            ${route ? `<span class="res-pill">${this._esc(route)}</span>` : ''}
+                        </div>
+                        <div class="res-secondary-row">
+                            <span class="res-pilot">${live ? 'Still flying — tap to open' : 'Landed — tap for the replay'}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        const airportRows = airports.map((a) => `
+            <div class="premium-result-item"
+                 onclick="LandingUI.openRecentAirport('${this._esc(String(a.icao).replace(/'/g, "\\'"))}')">
+                <div class="res-meta-icon" style="color: var(--lui-accent);"><i class="fa-solid fa-tower-control" style="font-size: 14px;"></i></div>
+                <div class="res-info-main">
+                    <div class="res-primary-row"><span class="res-callsign">${this._esc(a.icao)}</span></div>
+                    <div class="res-secondary-row"><span class="res-pilot">${this._esc(a.name || 'Airport')}</span></div>
+                </div>
+            </div>
+        `);
+
+        container.innerHTML = [
+            this._renderSection('Recent flights', flightRows),
+            this._renderSection('Recent airports', airportRows),
+            `<div class="premium-recents-foot">
+                <button type="button" onclick="LandingUI.clearRecents()">Clear recents</button>
+             </div>`,
+        ].join('');
+        container.classList.add('visible');
+        return true;
+    },
+
+    openRecentFlight(flightId) {
+        const R = window.RecentItems;
+        if (!R) return;
+        const meta = R.flights().find(f => String(f.id) === String(flightId)) || {};
+        this._closeBladeSearch();
+        const how = R.openFlight(flightId, meta);
+        if (how === 'none' && typeof window.showNotification === 'function') {
+            window.showNotification('That flight has ended and has no replay saved.', 'info');
+        }
+    },
+
+    openRecentAirport(icao) {
+        this._closeBladeSearch();
+        window.RecentItems?.openAirport(icao);
+    },
+
+    clearRecents() {
+        window.RecentItems?.clear();
+        this._closeBladeSearch();
+    },
+
     _renderSection(title, rows) {
         if (!rows.length) return '';
         return `
@@ -459,8 +635,12 @@ export const LandingUI = {
         const container = document.getElementById('blade-search-results');
         if (!container) return;
 
-        const r = this._currentResults || { flights: [], users: [], airports: [], airlines: [] };
-        const total = (r.flights?.length || 0) + (r.users?.length || 0) + (r.airports?.length || 0) + (r.airlines?.length || 0);
+        const r = this._currentResults || { routes: [], flights: [], users: [], airports: [], airlines: [] };
+        // Routes count towards the total: "EGLL-KJFK" matches no airport and no
+        // callsign, so without this a recognised route would render the empty
+        // state and then the answer underneath it.
+        const total = (r.routes?.length || 0) + (r.flights?.length || 0) + (r.users?.length || 0)
+            + (r.airports?.length || 0) + (r.airlines?.length || 0);
 
         // Pilots section always ends with the offline network-lookup row, so
         // even a zero-hit query still offers a way forward.
@@ -476,6 +656,7 @@ export const LandingUI = {
             ].join('');
         } else {
             container.innerHTML = [
+                this._renderSection('Route', (r.routes || []).map(e => this._renderRouteRow(e))),
                 this._renderSection('Live flights', (r.flights || []).map((e, i) => this._renderFlightRow(e, i, query))),
                 this._renderSection('Pilots', pilotRows),
                 this._renderSection('Airports', (r.airports || []).map(e => this._renderAirportRow(e, query))),
@@ -533,7 +714,7 @@ export const LandingUI = {
         document.getElementById('inflight-tactical-ui')?.classList.remove('mobile-search-active');
         this._syncSearchActive();
         this._currentMatches = [];
-        this._currentResults = { flights: [], users: [], airports: [], airlines: [] };
+        this._currentResults = { routes: [], flights: [], users: [], airports: [], airlines: [] };
         this._searchCursorIndex = -1;
     },
 
@@ -708,6 +889,17 @@ export const LandingUI = {
                             </button>
                         </div>
 
+                        <!-- Nearby radar. Same reasoning as the Network orb
+                             above: on phones the scope lives in the iOS ATC
+                             sheet, so this orb is how every wider viewport
+                             reaches it. -->
+                        <div class="nexus-orb-wrapper desktop-only-tab">
+                            <button class="orb-btn" id="tile-nearby" aria-label="Nearby traffic">
+                                <i class="fa-solid fa-satellite-dish"></i>
+                                <span class="tab-label">Nearby</span>
+                            </button>
+                        </div>
+
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
@@ -798,6 +990,12 @@ export const LandingUI = {
         networkBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openNetworkBoard'));
         });
+
+        // Nearby radar (mirrors the Nearby segment of the mobile ATC sheet).
+        const nearbyBtn = document.getElementById('tile-nearby');
+        nearbyBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openNearbyRadar'));
+        });
         window.addEventListener('activeAtcUpdated', (e) => {
             const dot = document.getElementById('atc-active-dot');
             if (dot) dot.style.opacity = (e.detail && e.detail.count > 0) ? '1' : '0';
@@ -827,6 +1025,13 @@ export const LandingUI = {
         searchInput?.addEventListener('input', (e) => {
             this.handleLocalSearch(e.target.value);
             this._syncSearchActive();
+        });
+
+        // Focusing an empty box offers what you recently had open. Routed
+        // through the same handler as typing so there is one path deciding what
+        // the dropdown contains.
+        searchInput?.addEventListener('focus', (e) => {
+            if (!e.target.value) this.handleLocalSearch('');
         });
 
         // Mobile: drive the search-active layout off focus (so the Cancel
@@ -1522,6 +1727,40 @@ export const LandingUI = {
             .premium-result-item:hover, 
             .premium-result-item.selected {
                 background: var(--lui-hover-bg);
+            }
+
+            .premium-recents-foot { padding: 6px 16px 10px; text-align: center; }
+            .premium-recents-foot button {
+                background: none; border: none; cursor: pointer;
+                font-family: inherit; font-size: 11px; font-weight: 600;
+                color: var(--lui-text-dim); padding: 4px 8px; border-radius: 6px;
+            }
+            .premium-recents-foot button:hover { color: var(--lui-text-main); }
+
+            /* The route header carries two or three pills beside a code pair,
+               which is more than a phone's width holds on one line. */
+            .premium-route-head .res-primary-row { flex-wrap: wrap; row-gap: 4px; }
+            .premium-route-head .res-secondary-row {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            /* Traffic on a searched route hangs off the route row above it, so
+               it reads as "these are on that pairing" rather than as a second
+               flat list of unrelated results. */
+            .premium-route-flight {
+                margin-left: 18px;
+                padding-left: 12px;
+                border-left: 1px solid var(--lui-border-light);
+                border-top-left-radius: 0;
+                border-bottom-left-radius: 0;
+            }
+            .premium-route-more {
+                margin: 2px 0 6px 30px;
+                padding: 0 16px 4px 12px;
+                font-size: 11px;
+                color: var(--lui-text-dim);
             }
 
             .res-meta-icon {
