@@ -485,6 +485,17 @@ export const MobileSettingsUI = {
                                 iMessage or anywhere else that shows a preview. The map is drawn for that
                                 exact flight — its route, both airports and where the aircraft had got to.
                             </p>
+                            <!-- The same drawing, in the app itself. Off by default:
+                                 it costs a render on the backend per flight opened,
+                                 so it is asked for rather than assumed. -->
+                            <div class="m-settings-list">
+                                ${this.renderToggle('showPanelRouteMap', 'Route map in flight window', 'fa-map-location-dot')}
+                            </div>
+                            <p class="m-settings-note">
+                                Adds that map to the photos at the top of an open flight, in the palette
+                                picked above — swipe to reach it. Flights whose airports can't be placed
+                                keep showing photos only.
+                            </p>
 
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">

@@ -1298,6 +1298,12 @@ let mapFilters = {
         terrainTawsEnabled: false,
         terrainTawsAltitude: 10000,
         planDisplayMode: 'none',
+        // Show the backend-rendered route map as an extra slide in the flight
+        // window's hero. Off by default on purpose: every panel open that turns
+        // it on is a render request against a queue shared with Discord webhook
+        // delivery, so this is something a user asks for rather than something
+        // everyone pays for. See resolveHeroRouteMapSlide().
+        showPanelRouteMap: false,
         mapStyle: 'dark',
         iconColorMode: 'default',
         showAircraftLabels: false,
@@ -8744,6 +8750,110 @@ function renderShareMapPicker(container) {
 }
 
 window.renderShareMapPicker = renderShareMapPicker;
+
+/* --- The route map inside the flight window ---------------------------------
+ *
+ * The same backend renderer that draws the map under every VA Discord card and
+ * inside a shared link's preview (GET /api/route-map — see the endpoint's own
+ * notes in the backend) can just as well draw the flight the user currently has
+ * open. Shown as one more slide in the hero carousel, it is the only picture in
+ * that window OF THIS FLIGHT: the community photo is a picture of the type.
+ *
+ * Two things shape the implementation:
+ *
+ *  1. Renders funnel through a process-wide single-slot queue that Discord
+ *     webhook delivery also uses, and the endpoint sheds past four concurrent
+ *     misses. So this is opt-in (mapFilters.showPanelRouteMap), the position is
+ *     rounded hard into the URL so repeated opens of a moving flight reuse one
+ *     cached render, and nothing is requested for a flight without both ends.
+ *  2. The endpoint legitimately 404s a route it cannot place — its airport index
+ *     does not cover every airfield. A slide that renders nothing is worse than
+ *     no slide, so the URL is probed once and only a confirmed render is added.
+ */
+
+// Two decimals is what the backend already rounds to when building its own
+// cache key, so a finer value here would only ever miss on both sides.
+const PANEL_MAP_POS_DP = 2;
+
+/**
+ * The route-map URL for an open flight, or null when there is nothing to draw.
+ * Endpoint coordinates are passed through from the app's own airport data so a
+ * field outside the backend's index still renders.
+ */
+function flightPanelRouteMapUrl(props) {
+    if (!props) return null;
+    const dep = String(props.departureIcao || '').trim().toUpperCase();
+    const arr = String(props.arrivalIcao || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,4}$/.test(dep) || !/^[A-Z0-9]{3,4}$/.test(arr) || dep === arr) return null;
+
+    // The palette is the one picked for shared links, so the two look alike.
+    // 'off' is a choice about links, not about this panel — the toggle above is
+    // what governs here — so it reads as the default palette rather than as a
+    // style the backend would have to reject.
+    const style = getShareMapStyle();
+    // `og` is 1200x630 — very nearly the hero's own aspect, so the arc survives
+    // `background-size: cover` instead of being cropped off at both ends.
+    const params = new URLSearchParams({
+        dep, arr, size: 'og', style: style === 'off' ? 'dark' : style,
+    });
+
+    const put = (icao, latKey, lonKey) => {
+        const c = (typeof window.getAirportCoords === 'function') ? window.getAirportCoords(icao) : null;
+        if (c) { params.set(latKey, c.lat.toFixed(3)); params.set(lonKey, c.lon.toFixed(3)); }
+    };
+    put(dep, 'deplat', 'deplon');
+    put(arr, 'arrlat', 'arrlon');
+
+    const pos = props.position || {};
+    const lat = Number(pos.lat ?? pos.latitude);
+    const lon = Number(pos.lon ?? pos.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        params.set('lat', lat.toFixed(PANEL_MAP_POS_DP));
+        params.set('lon', lon.toFixed(PANEL_MAP_POS_DP));
+    }
+
+    return `${API_BASE_URL}/api/route-map?${params.toString()}`;
+}
+
+// Probe results by URL. A URL that rendered once will render again (the backend
+// caches it), and one that 404'd is not worth re-asking on every reopen.
+const _panelMapProbes = new Map();
+
+/**
+ * Resolve to the URL once the browser has actually decoded the image, or null.
+ * Uses an <img> rather than fetch so the probe populates the HTTP cache the
+ * hero itself then reads from — the slide appears without a second request.
+ */
+function probeRouteMap(url) {
+    if (!url) return Promise.resolve(null);
+    if (_panelMapProbes.has(url)) return _panelMapProbes.get(url);
+    const p = new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(url);
+        img.onerror = () => resolve(null);
+        img.src = url;
+    });
+    _panelMapProbes.set(url, p);
+    return p;
+}
+
+/**
+ * The hero photo list for a flight, with the route map appended when the user
+ * has asked for it and the backend confirms it renders. Resolves to the list
+ * unchanged in every other case, so the caller has one code path.
+ */
+async function resolveHeroRouteMapSlide(photos, props) {
+    const list = Array.isArray(photos) ? photos.slice() : [];
+    if (!mapFilters.showPanelRouteMap) return list;
+
+    const url = await probeRouteMap(flightPanelRouteMapUrl(props));
+    if (!url) return list;
+
+    // No photographer: the credit line is for people who took a photo, and this
+    // is our own drawing. buildHeroPhotoCarousel hides an empty credit.
+    list.push({ src: url, photographer: '', isRouteMap: true });
+    return list;
+}
 
 // Servers, as one letter. Spelling "Expert" out cost five characters in every
 // link to say something there are only three possible answers to.
@@ -18544,6 +18654,19 @@ renderCategory(catId) {
                             <!-- Painted by renderShareMapPicker below, so this and the
                                  mobile Settings sheet share one implementation. -->
                             <div id="share-map-picker"></div>
+                            <!-- The same drawing, in the app itself. Off by
+                                 default: it costs a render on the backend per
+                                 flight opened, so it is asked for rather than
+                                 assumed. Uses the palette picked above. -->
+                            <div class="settings-row" style="margin-top: 14px;">
+                                <div class="row-label">Show it in the flight window</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-panel-route-map" ${mapFilters.showPanelRouteMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <p style="margin: 6px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
+                                Adds the route map to the photos at the top of an open flight — swipe or
+                                tap the dots to reach it. Flights whose airports can't be placed keep
+                                showing photos only.
+                            </p>
                         </div>
                     `;
                     break;
@@ -18674,6 +18797,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-auto-cycle-photos': 'autoCyclePhotos',
+            'set-panel-route-map': 'showPanelRouteMap',
             'set-12h-clock': 'use12hClock',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
@@ -23500,7 +23624,22 @@ let totalDistanceNM = 0;
     overviewPanels.forEach(overviewPanel => {
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
-        buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
+        // The route map is confirmed with the backend before it is offered, so
+        // the hero is assembled once that answer is in. Until then the panel
+        // shows exactly what it always did. With the setting off — the common
+        // case — the resolver hands back the unchanged list on the next tick.
+        resolveHeroRouteMapSlide(techCardPhotos, baseProps).then(heroPhotos => {
+            if (!document.body.contains(overviewPanel)) return;
+            if (heroPhotos.length === 1 && heroPhotos[0].isRouteMap) {
+                // The route map is the only picture we have of this flight, so
+                // it becomes the hero rather than sitting behind a single dot.
+                // The generic airframe placeholder is the fallback beneath it.
+                overviewPanel.style.backgroundImage = `url('${heroPhotos[0].src}'), url('${fallbackPath}')`;
+                overviewPanel.dataset.currentPath = heroPhotos[0].src;
+                return;
+            }
+            buildHeroPhotoCarousel(overviewPanel, heroPhotos, fallbackPath);
+        });
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
         // it to a logo-only chip a few seconds after the window opens (hovering or
