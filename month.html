@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your Month · Inflight</title>
+<meta name="description" content="Your flying month, from your Infinite Flight logbook — hours, routes, airports and the aircraft you actually fly.">
+<link rel="icon" href="/Images/inflight.png">
+<meta property="og:title" content="Your Month · Inflight">
+<meta property="og:description" content="Hours, routes, airports and the aircraft you actually fly — your flying month, from your logbook.">
+<meta property="og:image" content="/Images/og-banner.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+/* =============================================================================
+   Your Month — a monthly report built from the pilot's own Infinite Flight
+   logbook.
+
+   The split between free and Pro here is deliberate and the opposite of the
+   usual one. Everything a pilot would actually WANT to see — the hours, the
+   route they wore out, the longest leg, the aircraft they keep coming back to —
+   is free, and is the part built to be shared. Pro holds the completionist
+   detail: distributions, medians, per-weekday breakdowns, the long tail of the
+   fleet. Nobody's month is made better by knowing their median leg length. It
+   is, however, exactly what the sort of person who buys Pro wants to read.
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+    --bg: #0b0d12;
+    --surface: #12151d;
+    --surface-2: #171b25;
+    --line: rgba(255,255,255,0.09);
+    --ink: #f2f4f8;
+    --muted: rgba(242,244,248,0.62);
+    --faint: rgba(242,244,248,0.38);
+    --sky: #38bdf8;
+    --violet: #a78bfa;
+    --amber: #fbbf24;
+    --rose: #fb7185;
+    --mint: #34d399;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+html, body { margin: 0; padding: 0; }
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    overflow-x: hidden;
+}
+a { color: inherit; }
+
+/* Ambient wash. Two soft colour fields that drift; the whole page reads as one
+   surface rather than as cards on black. */
+.wash { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.wash i {
+    position: absolute; display: block; border-radius: 50%;
+    filter: blur(90px); opacity: 0.30;
+}
+.wash i:nth-child(1) { width: 52vw; height: 52vw; left: -14vw; top: -12vw; background: #1d4ed8; animation: drift1 34s ease-in-out infinite; }
+.wash i:nth-child(2) { width: 44vw; height: 44vw; right: -12vw; top: 24vh; background: #7c3aed; animation: drift2 41s ease-in-out infinite; }
+.wash i:nth-child(3) { width: 40vw; height: 40vw; left: 22vw; bottom: -18vw; background: #0891b2; animation: drift1 47s ease-in-out infinite reverse; }
+@keyframes drift1 { 50% { transform: translate3d(6vw, 4vh, 0) scale(1.12); } }
+@keyframes drift2 { 50% { transform: translate3d(-5vw, 6vh, 0) scale(1.08); } }
+
+.wrap { position: relative; z-index: 1; max-width: 940px; margin: 0 auto; padding: 0 20px 96px; }
+
+/* ---- Masthead ------------------------------------------------------------ */
+.masthead {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 22px 0 8px;
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+.brand img { height: 26px; width: auto; display: block; }
+.brand span { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.mast-actions { display: flex; align-items: center; gap: 8px; }
+.btn {
+    appearance: none; border: 1px solid var(--line); background: rgba(255,255,255,0.05);
+    color: var(--ink); font: 600 13px/1 var(--font); padding: 10px 16px; border-radius: 999px;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    transition: background 160ms ease, border-color 160ms ease, transform 120ms ease;
+}
+.btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+.btn:active { transform: scale(0.985); }
+.btn.primary {
+    background: linear-gradient(120deg, var(--sky), var(--violet));
+    border-color: transparent; color: #07101c; font-weight: 800;
+}
+.btn.primary:hover { filter: brightness(1.07); background: linear-gradient(120deg, var(--sky), var(--violet)); }
+.btn[disabled] { opacity: 0.5; pointer-events: none; }
+
+/* ---- States -------------------------------------------------------------- */
+.state {
+    text-align: center; padding: 16vh 8px 12vh; max-width: 520px; margin: 0 auto;
+}
+.state h1 { font-size: clamp(28px, 6vw, 42px); font-weight: 800; letter-spacing: -0.03em; margin: 0 0 12px; }
+.state p { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+.state .btn { margin: 0 6px; }
+.state-icon {
+    width: 64px; height: 64px; margin: 0 auto 22px; border-radius: 20px;
+    display: grid; place-items: center; font-size: 26px;
+    background: linear-gradient(140deg, rgba(56,189,248,0.22), rgba(167,139,250,0.22));
+    border: 1px solid var(--line); color: var(--sky);
+}
+[hidden] { display: none !important; }
+
+/* Loading — a progress line that says what it is doing, because reading a
+   logbook page by page genuinely takes a moment. */
+.loadbar { width: 220px; height: 3px; border-radius: 3px; background: rgba(255,255,255,0.1); margin: 0 auto 14px; overflow: hidden; }
+.loadbar i { display: block; height: 100%; width: 30%; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--sky), transparent); animation: sweep 1.3s cubic-bezier(0.4,0,0.2,1) infinite; }
+@keyframes sweep { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
+
+/* ---- Hero ---------------------------------------------------------------- */
+.hero { padding: 40px 0 8px; }
+.eyebrow {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--faint); margin-bottom: 18px;
+}
+.eyebrow::before { content: ''; width: 24px; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35)); }
+.hero h1 {
+    font-size: clamp(38px, 9vw, 76px); font-weight: 800; letter-spacing: -0.04em;
+    line-height: 0.98; margin: 0 0 18px;
+    background: linear-gradient(120deg, #fff 15%, var(--sky) 55%, var(--violet) 92%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero .lede { font-size: clamp(15px, 2.4vw, 18px); color: var(--muted); max-width: 46ch; margin: 0; }
+.hero .lede b { color: var(--ink); font-weight: 700; }
+
+/* ---- Cards --------------------------------------------------------------- */
+.grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-top: 30px; }
+.card {
+    grid-column: span 3;
+    position: relative; overflow: hidden;
+    background: linear-gradient(160deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--line); border-radius: 20px; padding: 22px;
+    /* Revealed on scroll — see the IntersectionObserver below. */
+    opacity: 0; transform: translateY(14px);
+    transition: opacity 620ms cubic-bezier(0.16,1,0.3,1), transform 620ms cubic-bezier(0.16,1,0.3,1);
+}
+.card.in { opacity: 1; transform: none; }
+.card.wide { grid-column: span 6; }
+.card.third { grid-column: span 2; }
+.card-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--faint); display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+}
+.card-label i { color: var(--sky); font-size: 12px; }
+.stat { font-size: clamp(34px, 7vw, 56px); font-weight: 800; letter-spacing: -0.035em; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat.sm { font-size: clamp(24px, 4.6vw, 34px); }
+.stat .unit { font-size: 0.42em; font-weight: 700; color: var(--faint); margin-left: 6px; letter-spacing: 0; }
+.card-sub { color: var(--muted); font-size: 13.5px; margin-top: 10px; }
+.card-sub b { color: var(--ink); font-weight: 600; }
+/* A big pale glyph bottom-right — gives each card an identity without another
+   colour. Deliberately low contrast: it is texture, not information. */
+.card .ghost {
+    position: absolute; right: -8px; bottom: -18px; font-size: 108px; line-height: 1;
+    color: rgba(255,255,255,0.035); pointer-events: none;
+}
+.card.accent { background: linear-gradient(150deg, rgba(56,189,248,0.16), rgba(167,139,250,0.13)); border-color: rgba(56,189,248,0.26); }
+.card.accent .card-label i { color: var(--amber); }
+
+.route { display: flex; align-items: center; gap: 14px; font-family: var(--mono); font-weight: 800; letter-spacing: -0.02em; }
+.route .icao { font-size: clamp(26px, 5.4vw, 44px); }
+.route i { color: var(--faint); font-size: 0.8em; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip {
+    font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--line); color: var(--muted);
+}
+.chip b { color: var(--ink); }
+
+/* ---- Section heads ------------------------------------------------------- */
+.sec-head { margin: 54px 0 6px; }
+.sec-head h2 { font-size: clamp(22px, 4vw, 30px); font-weight: 800; letter-spacing: -0.03em; margin: 0 0 8px; }
+.sec-head p { color: var(--muted); margin: 0; font-size: 14.5px; max-width: 60ch; }
+
+/* ---- Pro ----------------------------------------------------------------- */
+.pro-wrap { position: relative; margin-top: 20px; }
+.pro-locked .pro-body {
+    filter: blur(9px) saturate(0.6); opacity: 0.5; pointer-events: none; user-select: none;
+    /* Cropped to a teaser rather than blurring the full section. Left at full
+       height the upsell floats in the middle of a very tall dead zone, and the
+       reader scrolls through screens of blur to reach the footer. */
+    max-height: 560px; overflow: hidden;
+}
+.pro-veil {
+    position: absolute; inset: 0; display: grid; place-items: center; padding: 20px;
+    background: radial-gradient(ellipse at center, rgba(11,13,18,0.55), rgba(11,13,18,0.9));
+    border-radius: 20px; text-align: center;
+}
+.pro-card {
+    max-width: 420px; background: linear-gradient(160deg, var(--surface-2), var(--surface));
+    border: 1px solid rgba(251,191,36,0.28); border-radius: 20px; padding: 26px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.pro-card .crown { font-size: 22px; color: var(--amber); margin-bottom: 12px; }
+.pro-card h3 { margin: 0 0 8px; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.pro-card p { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; }
+.pro-tag {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber);
+    background: rgba(251,191,36,0.13); border: 1px solid rgba(251,191,36,0.3);
+    padding: 4px 9px; border-radius: 999px;
+}
+
+/* Distribution bars — the sort of thing this section exists for. */
+.bars { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+.bar-row { display: grid; grid-template-columns: 62px 1fr 46px; align-items: center; gap: 12px; font-size: 12.5px; }
+.bar-row .k { color: var(--muted); font-weight: 600; }
+.bar-row .v { color: var(--ink); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.bar-track { height: 8px; border-radius: 8px; background: rgba(255,255,255,0.07); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--sky), var(--violet)); }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tbl th, .tbl td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+.tbl th { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+.tbl td:last-child, .tbl th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl tr:last-child td { border-bottom: 0; }
+
+/* ---- Month picker -------------------------------------------------------- */
+.months { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; margin-top: 22px; scrollbar-width: none; }
+.months::-webkit-scrollbar { display: none; }
+.month-btn {
+    flex: 0 0 auto; appearance: none; cursor: pointer;
+    border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--muted);
+    font: 600 12.5px/1 var(--font); padding: 9px 14px; border-radius: 999px;
+    transition: all 160ms ease;
+}
+.month-btn:hover { color: var(--ink); border-color: rgba(255,255,255,0.22); }
+.month-btn.on { background: var(--ink); color: #0b0d12; border-color: var(--ink); font-weight: 800; }
+
+/* ---- Share --------------------------------------------------------------- */
+.share-strip {
+    margin-top: 34px; padding: 22px; border-radius: 20px; text-align: center;
+    background: linear-gradient(150deg, rgba(56,189,248,0.13), rgba(167,139,250,0.11));
+    border: 1px solid rgba(56,189,248,0.24);
+}
+.share-strip h3 { margin: 0 0 6px; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+.share-strip p { margin: 0 0 16px; color: var(--muted); font-size: 13.5px; }
+.share-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+#shareCanvas { display: none; }
+.share-preview {
+    margin: 18px auto 0; max-width: 320px; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+}
+.share-preview img { display: block; width: 100%; height: auto; }
+
+.foot { text-align: center; color: var(--faint); font-size: 12.5px; margin-top: 54px; line-height: 1.8; }
+.foot a { color: var(--muted); }
+
+@media (max-width: 720px) {
+    .card, .card.third { grid-column: span 6; }
+    .grid { gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .wash i { animation: none; }
+    .card { transition: none; opacity: 1; transform: none; }
+    .loadbar i { animation: none; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="wash" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<div class="wrap">
+    <header class="masthead">
+        <a class="brand" href="/">
+            <img src="/Images/inflight.png" alt="Inflight">
+            <span>Your Month</span>
+        </a>
+        <div class="mast-actions">
+            <a class="btn" href="/"><i class="fa-solid fa-map"></i> Map</a>
+        </div>
+    </header>
+
+    <!-- Signed out -->
+    <section class="state" id="stateSignedOut" hidden>
+        <div class="state-icon"><i class="fa-solid fa-user-astronaut"></i></div>
+        <h1>Your flying month, wrapped up.</h1>
+        <p>Hours, the route you wore out, the longest leg, the aircraft you keep coming back to — read from your own Infinite Flight logbook. Sign in to see yours.</p>
+        <a class="btn primary" href="/"><i class="fa-solid fa-right-to-bracket"></i> Sign in on the map</a>
+    </section>
+
+    <!-- Signed in, but no IF username on the account -->
+    <section class="state" id="stateNoIf" hidden>
+        <div class="state-icon"><i class="fa-solid fa-link-slash"></i></div>
+        <h1>Link your callsign first.</h1>
+        <p>Your month is read from your Infinite Flight logbook, so we need to know which account is yours. Add your IF username in your profile settings and come back.</p>
+        <a class="btn primary" href="/"><i class="fa-solid fa-gear"></i> Open settings</a>
+    </section>
+
+    <!-- Loading -->
+    <section class="state" id="stateLoading" hidden>
+        <div class="loadbar"><i></i></div>
+        <p id="loadMsg">Finding your logbook…</p>
+    </section>
+
+    <!-- Error -->
+    <section class="state" id="stateError" hidden>
+        <div class="state-icon" style="color:var(--rose)"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h1>That didn't load.</h1>
+        <p id="errMsg">We couldn't read your logbook just now.</p>
+        <button class="btn primary" id="retryBtn"><i class="fa-solid fa-rotate"></i> Try again</button>
+    </section>
+
+    <!-- Nothing flown in the chosen month -->
+    <section class="state" id="stateEmpty" hidden>
+        <div class="state-icon"><i class="fa-solid fa-plane-slash"></i></div>
+        <h1>Nothing logged <span id="emptyMonth">this month</span>.</h1>
+        <p>No flights landed in your logbook for that month. Pick another below, or go fly something.</p>
+        <div class="months" id="monthsEmpty"></div>
+    </section>
+
+    <!-- The report -->
+    <main id="report" hidden>
+        <section class="hero">
+            <span class="eyebrow" id="heroEyebrow">Your month</span>
+            <h1 id="heroTitle">August</h1>
+            <p class="lede" id="heroLede"></p>
+        </section>
+
+        <div class="months" id="months"></div>
+
+        <div class="grid" id="freeGrid"></div>
+
+        <div class="share-strip" id="shareStrip">
+            <h3>Worth showing off?</h3>
+            <p>A card with your month on it, sized for a story or a Discord post.</p>
+            <div class="share-actions">
+                <button class="btn primary" id="shareBtn"><i class="fa-solid fa-share-nodes"></i> Share my month</button>
+                <button class="btn" id="downloadBtn"><i class="fa-solid fa-download"></i> Save the image</button>
+            </div>
+            <div class="share-preview" id="sharePreview" hidden></div>
+        </div>
+
+        <div class="sec-head">
+            <h2>The deep cuts <span class="pro-tag"><i class="fa-solid fa-crown"></i> Pro</span></h2>
+            <p>The numbers nobody needs and some people cannot look away from: where the hours actually went, the shape of your legs, the long tail of your fleet.</p>
+        </div>
+        <div class="pro-wrap" id="proWrap">
+            <div class="pro-body grid" id="proGrid"></div>
+            <div class="pro-veil" id="proVeil" hidden>
+                <div class="pro-card">
+                    <div class="crown"><i class="fa-solid fa-crown"></i></div>
+                    <h3>This bit is for the obsessives</h3>
+                    <p>Your hours by weekday, the spread of your leg lengths, every airframe you touched, your quietest and loudest days. None of it will make you a better pilot. Pro members get it anyway.</p>
+                    <a class="btn primary" href="/"><i class="fa-solid fa-crown"></i> See Pro</a>
+                </div>
+            </div>
+        </div>
+
+        <p class="foot">
+            Read from your Infinite Flight logbook<span id="footScope"></span>.<br>
+            <a href="/">Back to the map</a>
+        </p>
+    </main>
+</div>
+
+<canvas id="shareCanvas" width="1080" height="1350"></canvas>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+/* ---------------------------------------------------------------------------
+ * Wiring. Same Supabase project and the same ACARS backend the map talks to —
+ * this page is a new view of data the app already reads, not a new source.
+ * ------------------------------------------------------------------------- */
+const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
+const ACARS = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
+
+// The logbook is paged newest-first. This bounds how far back we are willing to
+// read for one month — deep enough to reach a month or two ago for an ordinary
+// pilot, shallow enough that somebody with thousands of flights isn't waiting.
+const MAX_PAGES = 14;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const nf = (n) => Math.round(Number(n) || 0).toLocaleString();
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+const state = {
+    user: null, isPro: false, userId: null, username: '',
+    flights: [], scanned: 0, total: 0, truncated: false,
+    acMap: new Map(), livMap: new Map(), airports: null,
+    key: null, // 'YYYY-MM'
+    report: null,
+};
+
+const only = (id) => {
+    ['stateSignedOut','stateNoIf','stateLoading','stateError','stateEmpty','report']
+        .forEach((s) => { $(s).hidden = (s !== id); });
+};
+const say = (m) => { $('loadMsg').textContent = m; };
+const fail = (m) => { $('errMsg').textContent = m; only('stateError'); };
+
+/* ---------------------------------------------------------------------------
+ * Data
+ * ------------------------------------------------------------------------- */
+
+/** Resolve the pilot's IF numeric id from the username on their account. */
+async function resolveUserId(username) {
+    const res = await fetch(`${ACARS}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ discourseNames: [username], userHashes: [username] }),
+    });
+    const data = await res.json().catch(() => null);
+    return data?.users?.[0]?.userId || null;
+}
+
+/** Aircraft + livery names, so the fleet reads as aircraft rather than as ids. */
+async function loadMeta() {
+    if (state.acMap.size) return;
+    const meta = await fetch(`${ACARS}/api/metadata`).then((r) => r.json()).catch(() => null);
+    if (!meta?.ok) return;
+    state.acMap = new Map((meta.aircraft || []).map((a) => [String(a.id).toLowerCase(), a.name]));
+    state.livMap = new Map((meta.liveries || []).map((l) => [String(l.id).toLowerCase(), { name: l.name, aircraftName: l.aircraftName }]));
+}
+const aircraftName = (aId, lId) => {
+    const a = aId ? String(aId).toLowerCase() : '';
+    const l = lId ? String(lId).toLowerCase() : '';
+    if (l && state.livMap.has(l) && state.livMap.get(l).aircraftName) return state.livMap.get(l).aircraftName;
+    return state.acMap.get(a) || 'Unknown airframe';
+};
+
+/**
+ * Airport coordinates, fetched only when the report is about to use them.
+ * ~1.8MB, so it must never sit in front of the first paint — the report renders
+ * whether or not this lands, and simply omits distance and countries if it
+ * doesn't. That is the right trade: a missing stat beats a blank page.
+ */
+async function loadAirports() {
+    if (state.airports) return state.airports;
+    try {
+        state.airports = await fetch('/airports-core.json').then((r) => r.json());
+    } catch (_) { state.airports = {}; }
+    return state.airports;
+}
+const coordsOf = (icao) => {
+    const a = state.airports && state.airports[String(icao || '').toUpperCase()];
+    return (a && Number.isFinite(a.lat)) ? a : null;
+};
+const gcNm = (a, b) => {
+    const R = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * R, dLon = (b.lon - a.lon) * R;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * R) * Math.cos(b.lat * R) * Math.sin(dLon / 2) ** 2;
+    return 3440.065 * 2 * Math.asin(Math.sqrt(h));
+};
+
+/** Pull logbook pages until we've read past the month we want, or hit the cap. */
+async function loadLogbook(untilBefore) {
+    const first = await fetch(`${ACARS}/api/users/${state.userId}/flights?page=1`).then((r) => r.json());
+    if (!first?.ok) throw new Error('logbook unavailable');
+    const flights = [...(first.flights || [])];
+    state.total = first.totalCount || flights.length;
+    const pageSize = flights.length || 1;
+    const lastPage = Math.min(Math.ceil(state.total / pageSize), MAX_PAGES);
+
+    const oldestOf = (list) => list.reduce((min, f) => {
+        const t = Date.parse(f.created || f.createdAt || f.date || '');
+        return Number.isFinite(t) && t < min ? t : min;
+    }, Infinity);
+
+    for (let p = 2; p <= lastPage; p++) {
+        // Stop as soon as the oldest flight we hold predates the window — the
+        // pages beyond it cannot contain anything this month needs.
+        if (oldestOf(flights) < untilBefore) break;
+        say(`Reading your logbook… page ${p}`);
+        const pg = await fetch(`${ACARS}/api/users/${state.userId}/flights?page=${p}`).then((r) => r.json()).catch(() => null);
+        if (!pg?.ok || !Array.isArray(pg.flights) || !pg.flights.length) break;
+        flights.push(...pg.flights);
+    }
+    state.flights = flights;
+    state.scanned = flights.length;
+    state.truncated = flights.length < state.total;
+}
+
+/* ---------------------------------------------------------------------------
+ * The month itself
+ * ------------------------------------------------------------------------- */
+const flightDate = (f) => {
+    const t = Date.parse(f.created || f.createdAt || f.date || '');
+    return Number.isFinite(t) ? new Date(t) : null;
+};
+const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+/** Which months our loaded slice can actually speak for, newest first. */
+function availableMonths() {
+    const seen = new Map();
+    for (const f of state.flights) {
+        const d = flightDate(f);
+        if (!d) continue;
+        const k = monthKey(d);
+        seen.set(k, (seen.get(k) || 0) + 1);
+    }
+    return [...seen.keys()].sort().reverse();
+}
+
+function buildReport(key) {
+    const [y, m] = key.split('-').map(Number);
+    const legs = state.flights.filter((f) => {
+        const d = flightDate(f);
+        return d && d.getFullYear() === y && d.getMonth() === m - 1;
+    });
+    if (!legs.length) return null;
+
+    const airports = new Set(), countries = new Set(), routes = new Map(), fleet = new Map();
+    const byDay = new Map(), byWeekday = new Array(7).fill(0), byHour = new Array(24).fill(0);
+    const lengths = [];
+    let minutes = 0, landings = 0, distance = 0, distanceKnown = 0;
+    let longest = null, earliest = null, latest = null;
+
+    for (const f of legs) {
+        const d = flightDate(f);
+        const dep = String(f.originAirport || '').trim().toUpperCase();
+        const arr = String(f.destinationAirport || '').trim().toUpperCase();
+        const min = Number(f.totalTime) || 0;
+
+        minutes += min;
+        landings += Number(f.landingCount) || 0;
+        lengths.push(min);
+        if (dep) airports.add(dep);
+        if (arr) airports.add(arr);
+        for (const code of [dep, arr]) {
+            const c = coordsOf(code);
+            if (c && c.country) countries.add(c.country);
+        }
+        if (dep && arr) {
+            const a = coordsOf(dep), b = coordsOf(arr);
+            if (a && b) { distance += gcNm(a, b); distanceKnown++; }
+            if (dep !== arr) {
+                const k = `${dep} → ${arr}`;
+                routes.set(k, (routes.get(k) || 0) + 1);
+            }
+        }
+        const name = aircraftName(f.aircraftId || f.aircraftID, f.liveryId || f.liveryID);
+        const seat = fleet.get(name) || { flights: 0, minutes: 0 };
+        seat.flights++; seat.minutes += min;
+        fleet.set(name, seat);
+
+        if (!longest || min > longest.min) longest = { min, dep, arr };
+        if (d) {
+            const dk = d.toISOString().slice(0, 10);
+            const day = byDay.get(dk) || { flights: 0, minutes: 0, date: d };
+            day.flights++; day.minutes += min;
+            byDay.set(dk, day);
+            byWeekday[d.getDay()] += min;
+            byHour[d.getHours()] += 1;
+            if (!earliest || d < earliest) earliest = d;
+            if (!latest || d > latest) latest = d;
+        }
+    }
+
+    const topRoutes = [...routes.entries()].sort((a, b) => b[1] - a[1]);
+    const topFleet = [...fleet.entries()].sort((a, b) => b[1].minutes - a[1].minutes);
+    const busiestDay = [...byDay.values()].sort((a, b) => b.minutes - a.minutes)[0] || null;
+    const sorted = lengths.slice().sort((a, b) => a - b);
+    const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+
+    // Which airports appear this month that never appear earlier in the slice we
+    // hold. Only claimable when we actually read past the start of the month —
+    // otherwise "new" would just mean "as far back as we looked".
+    const monthStart = new Date(y, m - 1, 1).getTime();
+    const sawEarlier = new Set();
+    let haveHistory = false;
+    for (const f of state.flights) {
+        const d = flightDate(f);
+        if (!d || d.getTime() >= monthStart) continue;
+        haveHistory = true;
+        const dep = String(f.originAirport || '').trim().toUpperCase();
+        const arr = String(f.destinationAirport || '').trim().toUpperCase();
+        if (dep) sawEarlier.add(dep);
+        if (arr) sawEarlier.add(arr);
+    }
+    const fresh = haveHistory ? [...airports].filter((a) => !sawEarlier.has(a)) : null;
+
+    return {
+        key, year: y, monthName: MONTHS[m - 1],
+        flights: legs.length, minutes, hours: minutes / 60, landings,
+        airports: [...airports], countries: [...countries],
+        distance: distanceKnown ? distance : null, distanceLegs: distanceKnown,
+        topRoutes, topFleet, busiestDay, longest, median, lengths: sorted,
+        byWeekday, byHour, activeDays: byDay.size, fresh,
+        earliest, latest,
+    };
+}
+
+/* A one-line character read of the month. Not science — the point is that the
+ * page says something about YOUR month rather than only measuring it. */
+function archetype(r) {
+    const avg = r.flights ? r.minutes / r.flights : 0;
+    if (r.flights >= 20 && avg < 60) return ['The short-hop machine', 'Lots of legs, none of them long. Somebody likes the pattern.'];
+    if (avg >= 240) return ['The long-hauler', 'Long, quiet legs. You fly like the cabin lights are dimmed.'];
+    if (r.topRoutes.length && r.topRoutes[0][1] >= Math.max(3, r.flights * 0.4)) return ['The creature of habit', 'One route, over and over. It is a good route, to be fair.'];
+    if (r.airports.length >= r.flights * 1.6) return ['The explorer', 'Barely repeated an airport all month.'];
+    if (r.activeDays >= 15) return ['The regular', 'You were in the sim more days than not.'];
+    return ['The steady hand', 'A solid month’s flying, no drama.'];
+}
+
+/* ---------------------------------------------------------------------------
+ * Render
+ * ------------------------------------------------------------------------- */
+const card = (opts) => {
+    const { label, icon, value, unit, sub, ghost, cls = '' } = opts;
+    return `<article class="card ${cls}">
+        ${ghost ? `<i class="fa-solid ${ghost} ghost" aria-hidden="true"></i>` : ''}
+        <div class="card-label"><i class="fa-solid ${icon}"></i>${esc(label)}</div>
+        <div class="stat">${value}${unit ? `<span class="unit">${esc(unit)}</span>` : ''}</div>
+        ${sub ? `<p class="card-sub">${sub}</p>` : ''}
+    </article>`;
+};
+
+function renderFree(r) {
+    const [title, blurb] = archetype(r);
+    $('heroEyebrow').textContent = `${r.monthName} ${r.year} · ${esc(state.username)}`;
+    $('heroTitle').textContent = title;
+    $('heroLede').innerHTML = `${esc(blurb)} You flew <b>${nf(r.flights)} ${r.flights === 1 ? 'leg' : 'legs'}</b> and spent <b>${r.hours.toFixed(1)} hours</b> in the air.`;
+
+    const out = [];
+    out.push(card({
+        label: 'Hours in the air', icon: 'fa-clock', ghost: 'fa-clock', cls: 'accent',
+        value: r.hours.toFixed(1), unit: 'h',
+        sub: `Across <b>${nf(r.flights)}</b> ${r.flights === 1 ? 'flight' : 'flights'} on <b>${nf(r.activeDays)}</b> ${r.activeDays === 1 ? 'day' : 'days'}.`,
+    }));
+
+    if (r.topRoutes.length) {
+        const [name, n] = r.topRoutes[0];
+        const [dep, arr] = name.split(' → ');
+        out.push(`<article class="card">
+            <i class="fa-solid fa-repeat ghost" aria-hidden="true"></i>
+            <div class="card-label"><i class="fa-solid fa-route"></i>The route you wore out</div>
+            <div class="route"><span class="icao">${esc(dep)}</span><i class="fa-solid fa-arrow-right"></i><span class="icao">${esc(arr)}</span></div>
+            <p class="card-sub">Flown <b>${nf(n)}</b> ${n === 1 ? 'time' : 'times'} this month.</p>
+        </article>`);
+    }
+
+    if (r.longest) {
+        out.push(card({
+            label: 'Longest leg', icon: 'fa-arrows-left-right', ghost: 'fa-plane-up',
+            value: (r.longest.min / 60).toFixed(1), unit: 'h',
+            sub: r.longest.dep && r.longest.arr ? `<b>${esc(r.longest.dep)}</b> to <b>${esc(r.longest.arr)}</b>.` : '',
+        }));
+    }
+
+    out.push(card({
+        label: 'Airports touched', icon: 'fa-tower-observation', ghost: 'fa-tower-control',
+        value: nf(r.airports.length),
+        sub: r.fresh && r.fresh.length
+            ? `<b>${nf(r.fresh.length)}</b> of them for the first time.`
+            : (r.countries.length ? `Across <b>${nf(r.countries.length)}</b> ${r.countries.length === 1 ? 'country' : 'countries'}.` : ''),
+    }));
+
+    if (r.distance != null) {
+        out.push(card({
+            label: 'Distance flown', icon: 'fa-earth-americas', ghost: 'fa-earth-americas',
+            value: nf(r.distance), unit: 'nm',
+            sub: `That is <b>${(r.distance / 21639).toFixed(2)}×</b> around the planet.`,
+        }));
+    }
+
+    if (r.topFleet.length) {
+        const [name, seat] = r.topFleet[0];
+        out.push(card({
+            label: 'Your aircraft of the month', icon: 'fa-plane', ghost: 'fa-plane', cls: 'wide',
+            value: `<span class="stat sm">${esc(name)}</span>`,
+            sub: `<b>${nf(seat.flights)}</b> ${seat.flights === 1 ? 'flight' : 'flights'} · <b>${(seat.minutes / 60).toFixed(1)}h</b> aboard${r.topFleet.length > 1 ? ` · you flew <b>${nf(r.topFleet.length)}</b> different types` : ''}.`,
+        }));
+    }
+
+    if (r.busiestDay) {
+        const d = r.busiestDay.date;
+        out.push(card({
+            label: 'Your biggest day', icon: 'fa-calendar-day', ghost: 'fa-calendar',
+            value: `<span class="stat sm">${DAYS[d.getDay()]} ${d.getDate()}</span>`,
+            sub: `<b>${nf(r.busiestDay.flights)}</b> ${r.busiestDay.flights === 1 ? 'flight' : 'flights'}, <b>${(r.busiestDay.minutes / 60).toFixed(1)}h</b> flown.`,
+        }));
+    }
+
+    out.push(card({
+        label: 'Landings', icon: 'fa-plane-arrival', ghost: 'fa-plane-arrival',
+        value: nf(r.landings),
+        sub: r.landings > r.flights ? 'Some of those were practice, and we are not judging.' : '',
+    }));
+
+    $('freeGrid').innerHTML = out.join('');
+    reveal();
+}
+
+function renderPro(r) {
+    const out = [];
+
+    const maxDay = Math.max(...r.byWeekday, 1);
+    out.push(`<article class="card wide">
+        <div class="card-label"><i class="fa-solid fa-chart-simple"></i>Where the hours went</div>
+        <div class="bars">
+            ${DAYS.map((d, i) => `<div class="bar-row">
+                <span class="k">${d.slice(0, 3)}</span>
+                <span class="bar-track"><span class="bar-fill" style="width:${Math.round((r.byWeekday[i] / maxDay) * 100)}%"></span></span>
+                <span class="v">${(r.byWeekday[i] / 60).toFixed(1)}h</span>
+            </div>`).join('')}
+        </div>
+    </article>`);
+
+    const avg = r.flights ? r.minutes / r.flights : 0;
+    out.push(card({ label: 'Average leg', icon: 'fa-ruler-horizontal', value: (avg / 60).toFixed(2), unit: 'h', cls: 'third', sub: `Median <b>${(r.median / 60).toFixed(2)}h</b>.` }));
+    out.push(card({ label: 'Shortest leg', icon: 'fa-compress', value: (r.lengths[0] / 60).toFixed(2), unit: 'h', cls: 'third' }));
+    out.push(card({ label: 'Flights per active day', icon: 'fa-divide', value: (r.flights / Math.max(r.activeDays, 1)).toFixed(2), cls: 'third' }));
+
+    const hour = r.byHour.indexOf(Math.max(...r.byHour));
+    out.push(card({
+        label: 'Your departure hour', icon: 'fa-hourglass-half', cls: 'third',
+        value: `<span class="stat sm">${String(hour).padStart(2, '0')}:00</span>`,
+        sub: 'Local to you, not Zulu.',
+    }));
+    out.push(card({ label: 'Landings per flight', icon: 'fa-plane-circle-check', value: (r.landings / Math.max(r.flights, 1)).toFixed(2), cls: 'third' }));
+    out.push(card({
+        label: 'Days between first and last', icon: 'fa-calendar-week', cls: 'third',
+        value: r.earliest && r.latest ? nf(Math.round((r.latest - r.earliest) / 86400000) + 1) : '—',
+        sub: `Flew on <b>${nf(r.activeDays)}</b> of them.`,
+    }));
+
+    if (r.topFleet.length) {
+        out.push(`<article class="card wide">
+            <div class="card-label"><i class="fa-solid fa-warehouse"></i>Every airframe you touched</div>
+            <table class="tbl">
+                <thead><tr><th>Aircraft</th><th>Flights</th><th>Hours</th></tr></thead>
+                <tbody>${r.topFleet.map(([n, s]) => `<tr><td>${esc(n)}</td><td>${nf(s.flights)}</td><td>${(s.minutes / 60).toFixed(1)}</td></tr>`).join('')}</tbody>
+            </table>
+        </article>`);
+    }
+
+    if (r.topRoutes.length > 1) {
+        out.push(`<article class="card wide">
+            <div class="card-label"><i class="fa-solid fa-list-ol"></i>Your routes, ranked</div>
+            <table class="tbl">
+                <thead><tr><th>Route</th><th>Flights</th></tr></thead>
+                <tbody>${r.topRoutes.slice(0, 12).map(([n, c]) => `<tr><td>${esc(n)}</td><td>${nf(c)}</td></tr>`).join('')}</tbody>
+            </table>
+        </article>`);
+    }
+
+    $('proGrid').innerHTML = out.join('');
+    const locked = !state.isPro;
+    $('proWrap').classList.toggle('pro-locked', locked);
+    $('proVeil').hidden = !locked;
+    reveal();
+}
+
+// Cards arrive as they come into view. Anything already on screen is revealed
+// immediately, so the first screenful never waits on a scroll that may not come.
+let io = null;
+function reveal() {
+    if (!io) {
+        io = new IntersectionObserver((entries) => {
+            entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+        }, { rootMargin: '0px 0px -8% 0px' });
+    }
+    document.querySelectorAll('.card:not(.in)').forEach((c) => io.observe(c));
+}
+
+function renderMonths() {
+    const months = availableMonths();
+    const html = months.map((k) => {
+        const [y, m] = k.split('-').map(Number);
+        return `<button class="month-btn ${k === state.key ? 'on' : ''}" data-k="${k}">${MONTHS[m - 1].slice(0, 3)} ${String(y).slice(2)}</button>`;
+    }).join('');
+    for (const host of [$('months'), $('monthsEmpty')]) {
+        host.innerHTML = html;
+        host.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => show(b.dataset.k)));
+    }
+}
+
+function show(key) {
+    state.key = key;
+    const r = buildReport(key);
+    state.report = r;
+    renderMonths();
+    if (!r) {
+        const [y, m] = key.split('-').map(Number);
+        $('emptyMonth').textContent = `in ${MONTHS[m - 1]} ${y}`;
+        only('stateEmpty');
+        return;
+    }
+    $('footScope').textContent = state.truncated
+        ? ` — your ${nf(state.scanned)} most recent flights of ${nf(state.total)}`
+        : '';
+    renderFree(r);
+    renderPro(r);
+    only('report');
+    $('sharePreview').hidden = true;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------------------------------------------------------------------------
+ * The share card. Drawn on a canvas rather than screenshotted, so it is sized
+ * for a story (1080x1350) and readable at thumbnail size instead of being a
+ * shrunken web page.
+ * ------------------------------------------------------------------------- */
+function drawShareCard() {
+    const r = state.report;
+    const c = $('shareCanvas'), x = c.getContext('2d');
+    const W = c.width, H = c.height;
+
+    const g = x.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#101427'); g.addColorStop(0.55, '#0b0d12'); g.addColorStop(1, '#1a1030');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    const glow = x.createRadialGradient(W * 0.75, H * 0.16, 0, W * 0.75, H * 0.16, W * 0.8);
+    glow.addColorStop(0, 'rgba(56,189,248,0.30)'); glow.addColorStop(1, 'rgba(56,189,248,0)');
+    x.fillStyle = glow; x.fillRect(0, 0, W, H);
+
+    const F = (w, s) => `${w} ${s}px 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif`;
+    x.textBaseline = 'alphabetic';
+
+    x.fillStyle = 'rgba(242,244,248,0.55)'; x.font = F(700, 30);
+    x.fillText(`${r.monthName.toUpperCase()} ${r.year}`, 84, 150);
+
+    x.fillStyle = '#fff'; x.font = F(800, 88);
+    const [title] = archetype(r);
+    wrap(x, title, 84, 260, W - 168, 96);
+
+    x.fillStyle = 'rgba(242,244,248,0.62)'; x.font = F(600, 34);
+    x.fillText(`@${state.username}`, 84, 420);
+
+    // Four numbers, two by two. Any more and none of them read at thumbnail size.
+    const cells = [
+        ['HOURS FLOWN', r.hours.toFixed(1)],
+        ['FLIGHTS', nf(r.flights)],
+        ['AIRPORTS', nf(r.airports.length)],
+        [r.topRoutes.length ? 'TOP ROUTE' : 'LANDINGS', r.topRoutes.length ? r.topRoutes[0][0].replace(' → ', '–') : nf(r.landings)],
+    ];
+    let cy = 560;
+    cells.forEach((cell, i) => {
+        const cx = 84 + (i % 2) * ((W - 168) / 2);
+        const row = Math.floor(i / 2);
+        const yy = cy + row * 280;
+        x.fillStyle = 'rgba(242,244,248,0.45)'; x.font = F(700, 24);
+        x.fillText(cell[0], cx, yy);
+        x.fillStyle = '#fff';
+        // Route strings are long; step the size down so they never overrun.
+        const size = String(cell[1]).length > 8 ? 62 : 104;
+        x.font = F(800, size);
+        x.fillText(String(cell[1]), cx, yy + size + 12);
+    });
+
+    if (r.longest) {
+        x.fillStyle = 'rgba(242,244,248,0.5)'; x.font = F(600, 28);
+        x.fillText(`Longest leg ${(r.longest.min / 60).toFixed(1)}h${r.longest.dep ? ` · ${r.longest.dep}–${r.longest.arr}` : ''}`, 84, H - 190);
+    }
+
+    x.fillStyle = 'rgba(242,244,248,0.34)'; x.font = F(700, 26);
+    x.fillText('INFLIGHT · YOUR MONTH', 84, H - 110);
+
+    return c;
+}
+function wrap(x, text, left, top, maxW, lh) {
+    const words = String(text).split(' ');
+    let line = '', y = top;
+    for (const w of words) {
+        const test = line ? `${line} ${w}` : w;
+        if (x.measureText(test).width > maxW && line) { x.fillText(line, left, y); line = w; y += lh; }
+        else line = test;
+    }
+    if (line) x.fillText(line, left, y);
+}
+const shareBlob = () => new Promise((res) => drawShareCard().toBlob(res, 'image/png'));
+
+$('shareBtn').addEventListener('click', async () => {
+    const blob = await shareBlob();
+    if (!blob) return;
+    const file = new File([blob], `inflight-${state.key}.png`, { type: 'image/png' });
+    // Native share sheet when the browser has one and will take a file;
+    // otherwise show the card so it can be saved or dragged out by hand.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+            await navigator.share({ files: [file], title: 'My flying month', text: `${state.report.hours.toFixed(1)} hours in ${state.report.monthName}.` });
+            return;
+        } catch (_) { /* dismissed — fall through to the preview */ }
+    }
+    showPreview(blob);
+});
+$('downloadBtn').addEventListener('click', async () => {
+    const blob = await shareBlob();
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `inflight-${state.key}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showPreview(blob);
+});
+function showPreview(blob) {
+    const host = $('sharePreview');
+    host.innerHTML = `<img alt="Your month, as a shareable card">`;
+    host.querySelector('img').src = URL.createObjectURL(blob);
+    host.hidden = false;
+}
+
+/* ---------------------------------------------------------------------------
+ * Boot
+ * ------------------------------------------------------------------------- */
+$('retryBtn').addEventListener('click', () => boot());
+
+async function boot() {
+    only('stateLoading');
+    say('Checking your account…');
+
+    const { data: { session } } = await supabase.auth.getSession();
+    state.user = session?.user || null;
+    if (!state.user) { only('stateSignedOut'); return; }
+
+    state.username = state.user.user_metadata?.if_username || '';
+    if (!state.username) { only('stateNoIf'); return; }
+
+    // Pro is read fresh, but a failure here must never block the report — the
+    // free half is the point of the page, and defaulting to "not Pro" only ever
+    // shows a member an upsell they can dismiss.
+    try {
+        const { data } = await supabase.from('profiles').select('is_pro').eq('id', state.user.id).maybeSingle();
+        state.isPro = data?.is_pro === true;
+    } catch (_) { state.isPro = false; }
+
+    try {
+        say('Finding your Infinite Flight account…');
+        state.userId = await resolveUserId(state.username);
+        if (!state.userId) { fail(`We couldn't find an Infinite Flight account for “${state.username}”. Check the username on your profile.`); return; }
+
+        say('Reading your logbook…');
+        // Read back to the start of last month, so the picker has something to
+        // offer besides the month in progress.
+        const now = new Date();
+        const back = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+        await Promise.all([loadMeta(), loadLogbook(back)]);
+
+        if (!state.flights.length) { fail('Your logbook came back empty. Once you have flown, your month will appear here.'); return; }
+
+        say('Working out your month…');
+        await loadAirports();
+
+        const months = availableMonths();
+        const wanted = monthKey(new Date());
+        show(months.includes(wanted) ? wanted : months[0]);
+    } catch (err) {
+        fail('We couldn’t read your logbook just now. It is usually worth another go in a moment.');
+    }
+}
+
+supabase.auth.onAuthStateChange((_e, s) => { if (s?.user?.id !== state.user?.id) boot(); });
+boot();
+</script>
+</body>
+</html>
