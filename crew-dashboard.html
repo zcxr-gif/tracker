@@ -3675,6 +3675,10 @@
             // The unmapped count is a to-do list, not a statistic: every one of
             // them is a leg the VA typed an ICAO into that no airport index can
             // place, which is almost always a typo. So it opens the list.
+            // Only route managers get `flown` from the backend, so this chip
+            // appears for the people whose job the gap actually is.
+            const gaps=RM.data&&RM.data.stats&&RM.data.stats.unpublished;
+            if(gaps) chips.push(`<button type="button" onclick="rmOpenUnpublished()" title="City pairs the crew flies that the network doesn't list" class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5 hover:opacity-80 transition" style="background:color-mix(in srgb,var(--accent) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 32%,var(--line));"><i data-lucide="compass" class="w-3.5 h-3.5 accent-text"></i>${gaps} flown, not listed</button>`);
             const un=RM.data&&RM.data.stats&&RM.data.stats.unmapped; if(un) chips.push(`<button type="button" onclick="rmOpenUnmapped()" title="See which routes couldn't be placed" class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5 hover:opacity-80 transition" style="background:color-mix(in srgb,#f59e0b 16%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 30%,var(--line));"><i data-lucide="triangle-alert" class="w-3.5 h-3.5" style="color:#f59e0b"></i>${un} unmapped</button>`);
             host.innerHTML=chips.join(''); if(window.lucide) lucide.createIcons();
         }
@@ -3741,6 +3745,52 @@
             const list=touching.slice().sort((a,b)=>(b.distanceNm||0)-(a.distanceNm||0)).map(rmRouteRow).join('')||'<p class="text-sm faint text-center py-6">No routes.</p>';
             const live=rmLiveMapBtn(icao,`Show ${escapeHtml(icao)} live`,'w-full');
             rmRailShow(head, summary+(live?`<div class="pt-1">${live}</div>`:'')+'<div class="space-y-2 pt-1">'+list+'</div>');
+        }
+
+        /**
+         * City pairs the crew flies that the network doesn't list.
+         *
+         * The backend sends this to route managers only, aggregated from
+         * approved flight reports. It is the one view that puts the plan and
+         * the flight log in the same place: a pair with eleven flights against
+         * it and no route entry is either a route worth publishing or a sign
+         * the roster is quietly flying something else.
+         *
+         * Every row is actionable, because a list of gaps you then have to
+         * re-type into the route form is most of the work left undone.
+         */
+        function rmOpenUnpublished(){
+            const gaps=((RM.data&&RM.data.flown)||[]).filter(f=>!f.published);
+            const head=`<div class="flex items-center gap-2"><i data-lucide="compass" class="w-4 h-4 accent-text"></i><span class="font-semibold tracking-tight">Flown, not listed</span></div>`;
+            if(!gaps.length){ rmRailShow(head,'<p class="text-sm faint text-center py-6">Every pair the crew flies is in the network.</p>'); return; }
+            const rows=gaps.map(f=>{
+                const hrs=f.minutes?`${(f.minutes/60).toFixed(f.minutes<600?1:0)}h logged`:'';
+                return `<div class="surface hair rounded-lg p-2.5">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 text-sm font-semibold"><span>${escapeHtml(f.origin)}</span><i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i><span>${escapeHtml(f.destination)}</span></div>
+                            <div class="text-[11px] muted mt-1">${f.flights} flight${f.flights===1?'':'s'}${hrs?` · ${hrs}`:''}</div>
+                        </div>
+                        <button type="button" onclick="rmAddRouteFromPair('${escapeHtml(f.origin)}','${escapeHtml(f.destination)}')"
+                            class="shrink-0 accent-bg text-white text-xs font-semibold px-2.5 py-1.5 rounded-md hover:opacity-90 transition">Add route</button>
+                    </div>
+                </div>`;
+            }).join('');
+            rmRailShow(head,`<p class="text-xs muted">Approved flight reports, grouped by city pair. These are being flown but aren't in the published network.</p>
+                <div class="space-y-2 pt-2">${rows}</div>`);
+        }
+        // Straight from the gap to the form that closes it, with both ends
+        // filled in. Deliberately opens a NEW route rather than handing the
+        // pair to openRouteForm as a route object — that would set the editing
+        // id from a record which does not exist.
+        function rmAddRouteFromPair(origin,destination){
+            closeRouteMap();
+            openRoutes();
+            openRouteForm(null);
+            const from=document.getElementById('nr_from'), to=document.getElementById('nr_to');
+            if(from) from.value=origin;
+            if(to) to.value=destination;
+            if(from) from.focus();
         }
 
         /**
