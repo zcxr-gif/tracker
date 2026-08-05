@@ -16,9 +16,13 @@
 // serve them HTML with NO meta refresh — they get pure OG tags. Humans get
 // the meta refresh + JS redirect as a fallback.
 //
-// LEGACY: new shares are link-only (direct /?flight=<id>&s=<snapshot> app
-// URLs built client-side) and never touch this function. This endpoint stays
-// to serve /share/<id> links that are already in the wild. Resolution is
+// REACHED TWO WAYS. Shares are built client-side as direct app URLs
+// (/?flight=<id>&s=<snapshot>), which load instantly and do not come through
+// here — but a crawler asking for one of those URLs is rewritten to this
+// function by netlify/edge-functions/flight-preview.js, because index.html
+// only carries the site-wide OG tags and would unfurl as the generic banner.
+// Humans keep the direct path untouched. The older /share/<id> links still in
+// the wild also land here, via _redirects. Resolution is
 // snapshot-first: this function persists a snapshot to Netlify Blobs on every
 // successful live lookup, so even after the flight ends the link still
 // unfurls with the real callsign/route/photo and humans land on a proper
@@ -38,6 +42,88 @@ const BRAND_LOGO_PATH = '/Images/inflight.png';
 // Branded 1200x630 hero used when there is no community aircraft photo.
 const PLANE_FALLBACK_PATH = '/Images/og-banner.png';
 const PLANE_FALLBACK_TYPE = 'image/png';
+
+// The backend renders the route map that also rides under every VA Discord
+// card. Given a dep/arr pair it draws the great-circle track, both endpoints and
+// the aircraft's position on an offline basemap — a picture OF THIS FLIGHT,
+// which a stock photo of the type is not. Returns a 404 for a route it cannot
+// place, so it is only ever used as a candidate, never assumed.
+const ROUTE_MAP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/route-map';
+const ROUTE_MAP_STYLES = ['dark', 'midnight', 'light', 'mono'];
+const ROUTE_MAP_DEFAULT_STYLE = 'dark';
+const ICAO_RE = /^[A-Z0-9]{3,4}$/;
+// Budget for confirming the map renders. Generous enough to cover a cold render
+// on the backend, short enough that a crawler never waits on a sick backend.
+const ROUTE_MAP_PROBE_MS = 4000;
+
+/**
+ * The route-map image URL for a flight, or null when there is nothing to draw.
+ *
+ * `style` comes from the share link (`?map=`), so the pilot who shared the
+ * flight chooses how their link looks. `map=off` opts out entirely and the
+ * preview falls back to the aircraft photo.
+ *
+ * Endpoint coordinates are passed through when the caller has them: the
+ * backend's own airport index covers roughly 5,900 fields, and a smaller
+ * airfield would otherwise render nothing.
+ */
+function routeMapImageUrl(flight, style) {
+    if (style === 'off') return null;
+
+    const dep = String(flight?.departureIcao || flight?.origin || '').trim().toUpperCase();
+    const arr = String(flight?.arrivalIcao || flight?.destination || '').trim().toUpperCase();
+    if (!ICAO_RE.test(dep) || !ICAO_RE.test(arr) || dep === arr) return null;
+
+    const params = new URLSearchParams({
+        dep,
+        arr,
+        size: 'og',
+        style: ROUTE_MAP_STYLES.includes(style) ? style : ROUTE_MAP_DEFAULT_STYLE,
+    });
+
+    const pos = flight?.position || {};
+    const lat = Number(pos.lat ?? pos.latitude);
+    const lon = Number(pos.lon ?? pos.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        params.set('lat', lat.toFixed(3));
+        params.set('lon', lon.toFixed(3));
+    }
+
+    return `${ROUTE_MAP_URL}?${params.toString()}`;
+}
+
+/**
+ * The route-map URL, but only once the backend has confirmed it renders.
+ *
+ * An og:image the crawler then fails to fetch is worse than no map at all — the
+ * unfurl loses its picture entirely rather than falling back to the photo we
+ * already have. The backend 404s a route it cannot place (an airfield outside
+ * its coordinate index), and that is only knowable by asking, so we ask.
+ *
+ * The probe pays for itself: this runs for crawlers, the backend caches what it
+ * renders, and the crawler's own fetch moments later is a cache hit. Any
+ * failure — timeout, 404, backend down — quietly yields null and the caller
+ * carries on with the photo.
+ */
+async function confirmedRouteMapUrl(flight, style) {
+    const url = routeMapImageUrl(flight, style);
+    if (!url) return null;
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), ROUTE_MAP_PROBE_MS) : null;
+    try {
+        const res = await fetchFn(url, {
+            method: 'HEAD',
+            signal: controller ? controller.signal : undefined,
+        });
+        return res && res.ok ? url : null;
+    } catch (err) {
+        console.warn('share: route map probe failed', err && err.message);
+        return null;
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 
 // If a snapshot was seen live within this window and the REST lookup misses,
 // assume the miss is feed lag and treat the flight as (possibly) still live.
@@ -218,7 +304,7 @@ function guessImageType(url) {
     return null;
 }
 
-function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawler }) {
+function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, mapImageUrl, isCrawler }) {
     const callsign = flight?.callsign || flight?.flightNumber || 'Live Flight';
     const username = flight?.username || flight?.virtualOrgName || 'Unknown Pilot';
     const dep = flight?.departureIcao || flight?.origin || '???';
@@ -265,8 +351,18 @@ function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawl
 
     const fallbackImage = absoluteUrl(siteOrigin, PLANE_FALLBACK_PATH);
     const brandLogo = absoluteUrl(siteOrigin, BRAND_LOGO_PATH);
-    const image = imageUrl || fallbackImage || brandLogo;
-    const imageType = guessImageType(image) || (image === fallbackImage ? PLANE_FALLBACK_TYPE : null);
+    // Preference order: this flight's own route map, then a community photo of
+    // the type, then the brand hero. The map wins because it is the only one of
+    // the three that is about THIS flight — a photo of an A320 tells the reader
+    // nothing the title didn't. The caller only passes a map URL it has already
+    // confirmed renders, so this can't fall through to a broken image.
+    const image = mapImageUrl || imageUrl || fallbackImage || brandLogo;
+    const imageType = mapImageUrl
+        ? 'image/png'
+        : (guessImageType(image) || (image === fallbackImage ? PLANE_FALLBACK_TYPE : null));
+    const imageAlt = mapImageUrl
+        ? `${dep} to ${arr} route map`
+        : acName + (livName ? ' (' + livName + ')' : '');
 
     const appParams = new URLSearchParams();
     appParams.set('flight', flightId);
@@ -308,7 +404,7 @@ function buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawl
 <meta property="og:url" content="${escapeAttr(shareUrl)}">
 <meta property="og:image" content="${escapeAttr(image)}">
 <meta property="og:image:secure_url" content="${escapeAttr(image)}">
-<meta property="og:image:alt" content="${escapeAttr(acName + (livName ? ' (' + livName + ')' : ''))}">
+<meta property="og:image:alt" content="${escapeAttr(imageAlt)}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 ${imageType ? `<meta property="og:image:type" content="${escapeAttr(imageType)}">` : ''}
@@ -593,6 +689,11 @@ ${headRedirect}
 
 exports.handler = async (event) => {
     const flightId = (event.queryStringParameters && event.queryStringParameters.flight) || '';
+    // `?map=` carries the sharer's chosen route-map style (or `off`). It rides
+    // on the share link itself, so the pilot's choice travels with the link
+    // rather than depending on who opens it.
+    const mapStyle = String((event.queryStringParameters && event.queryStringParameters.map) || '')
+        .trim().toLowerCase();
     const headers = event.headers || {};
     const proto = headers['x-forwarded-proto'] || headers['X-Forwarded-Proto'] || 'https';
     const host = headers['x-forwarded-host'] || headers['host'] || headers['Host'] || SITE_HOST_FALLBACK;
@@ -648,7 +749,13 @@ exports.handler = async (event) => {
                 // (altitude/speed) refreshes for crawlers polling later.
                 'cache-control': 'public, max-age=30, s-maxage=30'
             },
-            body: buildPage({ siteOrigin, flightId, flight, serverName, imageUrl, isCrawler })
+            // Only crawlers get the map: it is what goes in the unfurl, and
+            // probing it would add a render wait to a human's redirect for an
+            // image they never see.
+            body: buildPage({
+                siteOrigin, flightId, flight, serverName, imageUrl, isCrawler,
+                mapImageUrl: isCrawler ? await confirmedRouteMapUrl(flight, mapStyle) : null,
+            })
         };
     }
 
@@ -673,7 +780,10 @@ exports.handler = async (event) => {
                     flight: snapshot.flight,
                     serverName: snapshot.serverName,
                     imageUrl: snapshot.communityImageUrl,
-                    isCrawler
+                    isCrawler,
+                    mapImageUrl: isCrawler
+                        ? await confirmedRouteMapUrl(snapshot.flight, mapStyle)
+                        : null,
                 })
             };
         }
@@ -714,3 +824,9 @@ exports.handler = async (event) => {
         body: buildPendingHandoffPage({ siteOrigin, flightId, isCrawler })
     };
 };
+
+// Exposed for tools/test-share-preview.js. The image choice is the part of this
+// function with a silent failure mode — an og:image the crawler cannot fetch
+// costs the unfurl its picture — and it is pure, so it is worth testing directly
+// rather than through the whole handler.
+exports.__test = { routeMapImageUrl, confirmedRouteMapUrl };

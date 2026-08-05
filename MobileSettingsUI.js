@@ -475,6 +475,17 @@ export const MobileSettingsUI = {
                                  desktop share one implementation instead of drifting. -->
                             <div id="m-va-event-va-picker" style="padding: 0 4px;"></div>
 
+                            <div class="mobile-section-header">Sharing</div>
+                            <!-- Painted by flight.js's renderShareMapPicker into this
+                                 container, so mobile and desktop share one
+                                 implementation instead of drifting. -->
+                            <div id="m-share-map-picker" style="padding: 0 4px;"></div>
+                            <p class="m-settings-note">
+                                Choose how a flight you share looks when the link is posted in Discord,
+                                iMessage or anywhere else that shows a preview. The map is drawn for that
+                                exact flight — its route, both airports and where the aircraft had got to.
+                            </p>
+
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">
                                 <div class="m-setting-row m-whatsnew-row">
@@ -1816,6 +1827,9 @@ export const MobileSettingsUI = {
         // list the moment they open settings rather than after a toggle.
         if (window.mapFilters && window.mapFilters.showVaEventMarkers) this.paintVaEventPicker(sheet);
 
+        // The share-map picker has nothing to toggle it on — it is always shown.
+        this.paintShareMapPicker(sheet);
+
         // .vaef-check is excluded because the VA-event airline picker owns its
         // own checkboxes and its own handler (flight.js, renderVaEventVaPicker).
         // They carry no data-setting, so letting this generic handler see them
@@ -2131,6 +2145,18 @@ export const MobileSettingsUI = {
                 .then(() => window.renderVaEventVaPicker(host))
                 .catch(() => {});
         }
+    },
+
+    /**
+     * Mount the share-map style picker. Same arrangement as paintVaEventPicker
+     * above: flight.js owns the picker, this only says where it goes.
+     *
+     * NOTE the trailing comma — see paintVaEventPicker.
+     */
+    paintShareMapPicker(sheet) {
+        const host = (sheet || document).querySelector('#m-share-map-picker');
+        if (!host || typeof window.renderShareMapPicker !== 'function') return;
+        window.renderShareMapPicker(host);
     },
 
     // Re-renders the live label preview from the current mapFilters config so

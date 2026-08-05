@@ -8582,6 +8582,144 @@ function expandShareUrlSnapshot(snap, flightId) {
     };
 }
 
+// How a shared flight's link preview is drawn. The chosen style rides on the
+// link itself rather than being read when the link is opened, so what the
+// sharer picked is what everyone in the chat sees. 'off' falls back to a
+// community photo of the aircraft, which is what shared links showed before.
+const SHARE_MAP_STYLES = ['dark', 'midnight', 'light', 'mono', 'off'];
+const SHARE_MAP_STYLE_KEY = 'inflight_share_map_style';
+
+function getShareMapStyle() {
+    try {
+        const saved = localStorage.getItem(SHARE_MAP_STYLE_KEY);
+        if (SHARE_MAP_STYLES.includes(saved)) return saved;
+    } catch (_) { /* storage unavailable */ }
+    return 'dark';
+}
+
+function setShareMapStyle(style) {
+    if (!SHARE_MAP_STYLES.includes(style)) return;
+    try { localStorage.setItem(SHARE_MAP_STYLE_KEY, style); } catch (_) { /* storage unavailable */ }
+}
+
+window.getShareMapStyle = getShareMapStyle;
+window.setShareMapStyle = setShareMapStyle;
+window.SHARE_MAP_STYLES = SHARE_MAP_STYLES;
+
+// The picker itself. Painted into whatever container it is handed so the
+// desktop Settings modal and the mobile Settings sheet share one implementation
+// instead of drifting — the same arrangement renderVaEventVaPicker uses.
+//
+// The preview is the real thing: it is the very image a crawler would fetch for
+// a link shared right now, rendered by the same backend endpoint. Picking a
+// style therefore shows exactly what the choice does, rather than describing it.
+const SHARE_MAP_STYLE_LABELS = [
+    { id: 'dark',     label: 'Dark',     icon: 'fa-circle-half-stroke' },
+    { id: 'midnight', label: 'Midnight', icon: 'fa-moon' },
+    { id: 'light',    label: 'Light',    icon: 'fa-sun' },
+    { id: 'mono',     label: 'Mono',     icon: 'fa-circle' },
+    { id: 'off',      label: 'No map',   icon: 'fa-ban' },
+];
+
+// A recognisable long-haul, so the preview shows a curve and two continents
+// rather than a dot. Only used when no flight is open.
+const SHARE_PREVIEW_FALLBACK = { dep: 'EGLL', arr: 'KJFK' };
+
+
+function shareMapPreviewUrl(style) {
+    if (style === 'off') return null;
+    let dep = SHARE_PREVIEW_FALLBACK.dep;
+    let arr = SHARE_PREVIEW_FALLBACK.arr;
+    // Prefer the flight actually being viewed, so the preview is the user's own.
+    const props = currentFlightInWindow
+        ? (currentMapFeatures[currentFlightInWindow] || {}).properties
+        : null;
+    const d = String(props?.departureIcao || '').toUpperCase();
+    const a = String(props?.arrivalIcao || '').toUpperCase();
+    if (/^[A-Z0-9]{3,4}$/.test(d) && /^[A-Z0-9]{3,4}$/.test(a) && d !== a) { dep = d; arr = a; }
+
+    const params = new URLSearchParams({ dep, arr, size: 'og', style });
+    return `${API_BASE_URL}/api/route-map?${params.toString()}`;
+}
+
+function injectShareMapPickerStyles() {
+    if (document.getElementById('share-map-picker-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'share-map-picker-styles';
+    style.textContent = `
+        .share-map-options {
+            display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+        }
+        .share-map-option {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 12px; border-radius: 999px; cursor: pointer;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.10);
+            color: #a1a1aa; font-family: inherit; font-size: 0.72rem; font-weight: 600;
+            transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+        }
+        .share-map-option:hover { color: #fafafa; }
+        .share-map-option.is-on {
+            background: rgba(56, 189, 248, 0.16);
+            border-color: rgba(56, 189, 248, 0.45);
+            color: #e0f2fe;
+        }
+        .share-map-preview {
+            border-radius: 10px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.10);
+            background: rgba(255,255,255,0.03);
+        }
+        /* 1200x630 is the shape a crawler renders, so the preview keeps it —
+           a differently-proportioned preview would be a lie about the result. */
+        .share-map-preview img { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; }
+        .share-map-preview-off {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 8px; padding: 24px 16px; text-align: center;
+            font-size: 0.72rem; color: #71717a;
+        }
+        .share-map-preview-off i { font-size: 1.2rem; opacity: 0.6; }
+    `;
+    document.head.appendChild(style);
+}
+
+function renderShareMapPicker(container) {
+    if (!container) return;
+    injectShareMapPickerStyles();
+    const current = getShareMapStyle();
+    const previewUrl = shareMapPreviewUrl(current);
+
+    container.innerHTML = `
+        <div class="share-map-picker">
+            <div class="share-map-options">
+                ${SHARE_MAP_STYLE_LABELS.map(s => `
+                    <button type="button" class="share-map-option ${s.id === current ? 'is-on' : ''}"
+                            data-share-map="${s.id}" aria-pressed="${s.id === current}">
+                        <i class="fa-solid ${s.icon}"></i><span>${s.label}</span>
+                    </button>
+                `).join('')}
+            </div>
+            <div class="share-map-preview">
+                ${previewUrl
+                    ? `<img src="${previewUrl}" alt="Preview of the route map shared links will show" loading="lazy">`
+                    : `<div class="share-map-preview-off">
+                           <i class="fa-solid fa-image"></i>
+                           <span>Shared links will show a photo of the aircraft instead.</span>
+                       </div>`}
+            </div>
+        </div>
+    `;
+
+    container.querySelectorAll('[data-share-map]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setShareMapStyle(btn.dataset.shareMap);
+            window.InflightHaptics?.tap?.();
+            renderShareMapPicker(container);
+        });
+    });
+}
+
+window.renderShareMapPicker = renderShareMapPicker;
+
 function buildFlightShareUrl(flightId) {
     if (!flightId) return null;
     const params = new URLSearchParams();
@@ -8589,6 +8727,11 @@ function buildFlightShareUrl(flightId) {
     if (typeof currentServerName !== 'undefined' && currentServerName) {
         params.set('server', currentServerName);
     }
+    // Only carried when it differs from the default the preview would pick
+    // anyway — a share link is read by humans too, and there is no reason to
+    // make it longer to say "do the usual thing".
+    const mapStyle = getShareMapStyle();
+    if (mapStyle && mapStyle !== 'dark') params.set('map', mapStyle);
     try {
         const snap = buildShareUrlSnapshot(flightId);
         if (snap) params.set('s', b64uEncode(snap));
@@ -18330,6 +18473,18 @@ renderCategory(catId) {
                                 <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;" ${!isSignedIn ? 'disabled' : ''}>Reset Default Theme</button>
                             </div>
                         </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Shared Link Preview</label>
+                            <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
+                                How a flight you share looks when the link is posted in Discord, iMessage or
+                                anywhere else that shows a preview. The map is drawn for that exact flight —
+                                its route, both airports and where the aircraft had got to.
+                            </p>
+                            <!-- Painted by renderShareMapPicker below, so this and the
+                                 mobile Settings sheet share one implementation. -->
+                            <div id="share-map-picker"></div>
+                        </div>
                     `;
                     break;
                 case 'whatsnew':
@@ -18364,6 +18519,10 @@ renderCategory(catId) {
                 // Render the live style-preview snapshots (replaces the Mapbox
                 // Static Images API; see MobileSettingsUI.generateStylePreview).
                 MobileSettingsUI.hydrateStylePreviews(container);
+            }
+            if (catId === 'theme') {
+                const shareHost = container.querySelector('#share-map-picker');
+                if (shareHost && typeof renderShareMapPicker === 'function') renderShareMapPicker(shareHost);
             }
             if (catId === 'overlays') {
                 // Wire + hydrate the shared ATC Tag Studio (same controls as the
