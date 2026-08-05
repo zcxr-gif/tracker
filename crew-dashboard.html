@@ -3672,7 +3672,14 @@
             if(cs) chips.push(chip('handshake',`${cs} codeshare${cs===1?'':'s'}`));
             if(longest&&longest.d) chips.push(chip('move-right',`${longest.o}–${longest.dd} · ${Number(longest.d).toLocaleString()} nm`));
             if(total) chips.push(chip('gauge',`${Number(total).toLocaleString()} nm`));
-            const un=RM.data&&RM.data.stats&&RM.data.stats.unmapped; if(un) chips.push(`<span class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5" style="background:color-mix(in srgb,#f59e0b 16%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 30%,var(--line));"><i data-lucide="triangle-alert" class="w-3.5 h-3.5" style="color:#f59e0b"></i>${un} unmapped</span>`);
+            // The unmapped count is a to-do list, not a statistic: every one of
+            // them is a leg the VA typed an ICAO into that no airport index can
+            // place, which is almost always a typo. So it opens the list.
+            // Only route managers get `flown` from the backend, so this chip
+            // appears for the people whose job the gap actually is.
+            const gaps=RM.data&&RM.data.stats&&RM.data.stats.unpublished;
+            if(gaps) chips.push(`<button type="button" onclick="rmOpenUnpublished()" title="City pairs the crew flies that the network doesn't list" class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5 hover:opacity-80 transition" style="background:color-mix(in srgb,var(--accent) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 32%,var(--line));"><i data-lucide="compass" class="w-3.5 h-3.5 accent-text"></i>${gaps} flown, not listed</button>`);
+            const un=RM.data&&RM.data.stats&&RM.data.stats.unmapped; if(un) chips.push(`<button type="button" onclick="rmOpenUnmapped()" title="See which routes couldn't be placed" class="rounded-full px-2.5 py-1 text-xs inline-flex items-center gap-1.5 hover:opacity-80 transition" style="background:color-mix(in srgb,#f59e0b 16%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 30%,var(--line));"><i data-lucide="triangle-alert" class="w-3.5 h-3.5" style="color:#f59e0b"></i>${un} unmapped</button>`);
             host.innerHTML=chips.join(''); if(window.lucide) lucide.createIcons();
         }
         function rmToggleActive(){ if(!RM.canManage) return; RM.activeOnly=!RM.activeOnly; rmApplyFilters(); }
@@ -3713,6 +3720,19 @@
                 <div class="flex items-center gap-1.5 mt-1">${ac}${dist?`<span class="text-xs muted">${dist}</span>`:''}</div>
             </button>`;
         }
+        // "Show it on the live map" — the handoff crewBridge already speaks.
+        // Framed inside the tracker this flies the app's map to the field; in a
+        // standalone tab it opens the tracker on it. The route list has offered
+        // this on every ICAO for a while; the network map, where somebody is
+        // already looking at an airport, did not.
+        function rmLiveMapBtn(icao,label,extra){
+            const code=String(icao||'').trim().toUpperCase();
+            if(!/^[A-Z0-9]{3,4}$/.test(code)) return '';
+            return `<button type="button" data-map-airport="${escapeHtml(code)}"
+                title="Show ${escapeHtml(code)} on the live map"
+                class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5 ${extra||''}">
+                <i data-lucide="radar" class="w-3.5 h-3.5"></i>${label||'Live map'}</button>`;
+        }
         function rmOpenAirportRail(icao,touching){
             const deps=touching.filter(p=>p.origin===icao), arrs=touching.filter(p=>p.destination===icao);
             const dests=[...new Set(deps.map(p=>p.destination))];
@@ -3723,7 +3743,80 @@
                 <div class="surface hair rounded-lg py-2"><div class="text-lg font-bold stat-num">${dests.length}</div><div class="text-[10px] uppercase tracking-wide faint">cities</div></div>
             </div>`;
             const list=touching.slice().sort((a,b)=>(b.distanceNm||0)-(a.distanceNm||0)).map(rmRouteRow).join('')||'<p class="text-sm faint text-center py-6">No routes.</p>';
-            rmRailShow(head, summary+'<div class="space-y-2 pt-1">'+list+'</div>');
+            const live=rmLiveMapBtn(icao,`Show ${escapeHtml(icao)} live`,'w-full');
+            rmRailShow(head, summary+(live?`<div class="pt-1">${live}</div>`:'')+'<div class="space-y-2 pt-1">'+list+'</div>');
+        }
+
+        /**
+         * City pairs the crew flies that the network doesn't list.
+         *
+         * The backend sends this to route managers only, aggregated from
+         * approved flight reports. It is the one view that puts the plan and
+         * the flight log in the same place: a pair with eleven flights against
+         * it and no route entry is either a route worth publishing or a sign
+         * the roster is quietly flying something else.
+         *
+         * Every row is actionable, because a list of gaps you then have to
+         * re-type into the route form is most of the work left undone.
+         */
+        function rmOpenUnpublished(){
+            const gaps=((RM.data&&RM.data.flown)||[]).filter(f=>!f.published);
+            const head=`<div class="flex items-center gap-2"><i data-lucide="compass" class="w-4 h-4 accent-text"></i><span class="font-semibold tracking-tight">Flown, not listed</span></div>`;
+            if(!gaps.length){ rmRailShow(head,'<p class="text-sm faint text-center py-6">Every pair the crew flies is in the network.</p>'); return; }
+            const rows=gaps.map(f=>{
+                const hrs=f.minutes?`${(f.minutes/60).toFixed(f.minutes<600?1:0)}h logged`:'';
+                return `<div class="surface hair rounded-lg p-2.5">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 text-sm font-semibold"><span>${escapeHtml(f.origin)}</span><i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i><span>${escapeHtml(f.destination)}</span></div>
+                            <div class="text-[11px] muted mt-1">${f.flights} flight${f.flights===1?'':'s'}${hrs?` · ${hrs}`:''}</div>
+                        </div>
+                        <button type="button" onclick="rmAddRouteFromPair('${escapeHtml(f.origin)}','${escapeHtml(f.destination)}')"
+                            class="shrink-0 accent-bg text-white text-xs font-semibold px-2.5 py-1.5 rounded-md hover:opacity-90 transition">Add route</button>
+                    </div>
+                </div>`;
+            }).join('');
+            rmRailShow(head,`<p class="text-xs muted">Approved flight reports, grouped by city pair. These are being flown but aren't in the published network.</p>
+                <div class="space-y-2 pt-2">${rows}</div>`);
+        }
+        // Straight from the gap to the form that closes it, with both ends
+        // filled in. Deliberately opens a NEW route rather than handing the
+        // pair to openRouteForm as a route object — that would set the editing
+        // id from a record which does not exist.
+        function rmAddRouteFromPair(origin,destination){
+            closeRouteMap();
+            openRoutes();
+            openRouteForm(null);
+            const from=document.getElementById('nr_from'), to=document.getElementById('nr_to');
+            if(from) from.value=origin;
+            if(to) to.value=destination;
+            if(from) from.focus();
+        }
+
+        /**
+         * The legs the map could not draw.
+         *
+         * The backend now tells us which routes it genuinely could not place —
+         * an ICAO absent from an index of ~5,900 fields — rather than the map
+         * quietly dropping anything outside a small built-in table. That makes
+         * the count worth acting on, and a count you cannot act on is just a
+         * complaint, so this lists the offenders and marks which end failed.
+         */
+        function rmOpenUnmapped(){
+            const bad=(RM.data&&RM.data.routes||[]).filter(r=>!r.mapped);
+            const head=`<div class="flex items-center gap-2"><i data-lucide="triangle-alert" class="w-4 h-4" style="color:#f59e0b"></i><span class="font-semibold tracking-tight">Couldn't be placed</span></div>`;
+            if(!bad.length){ rmRailShow(head,'<p class="text-sm faint text-center py-6">Every route is on the map.</p>'); return; }
+            // Mark the end that failed, so the fix is obvious without having to
+            // check both codes against an airport database by hand.
+            const end=(code,ok)=>ok
+                ? `<span class="font-semibold">${escapeHtml(code||'—')}</span>`
+                : `<span class="font-semibold" style="color:#f59e0b">${escapeHtml(code||'—')}</span>`;
+            const rows=bad.map(r=>`<div class="surface hair rounded-lg p-2.5">
+                <div class="flex items-center gap-1.5 text-sm">${end(r.origin,!!r.o)}<i data-lucide="arrow-right" class="w-3.5 h-3.5 faint"></i>${end(r.destination,!!r.d)}${r.flightNumber?`<span class="text-xs faint ml-1">${escapeHtml(r.flightNumber)}</span>`:''}</div>
+                <div class="text-[11px] muted mt-1">${!r.o&&!r.d?'Neither code is a known airport':(!r.o?'Origin isn\'t a known airport':'Destination isn\'t a known airport')}</div>
+            </div>`).join('');
+            rmRailShow(head,`<p class="text-xs muted">These legs are in the network but can't be drawn. Usually the ICAO has a typo — check it in the route list.</p>
+                <div class="space-y-2 pt-2">${rows}</div>`);
         }
         function rmOpenRouteRail(p){
             const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'—';
@@ -3733,6 +3826,12 @@
                 <div class="flex gap-2 pt-1">
                     <button onclick="rmFocusAirport('${escapeHtml(p.origin)}')" class="flex-1 surface hair rounded-lg py-2 text-xs font-semibold hover:border-[var(--ink)]">${escapeHtml(p.origin)} hub</button>
                     <button onclick="rmFocusAirport('${escapeHtml(p.destination)}')" class="flex-1 surface hair rounded-lg py-2 text-xs font-semibold hover:border-[var(--ink)]">${escapeHtml(p.destination)} hub</button>
+                </div>
+                <!-- Out of the plan and onto the live map: same handoff the
+                     route list's ICAO chips use. -->
+                <div class="flex gap-2">
+                    ${rmLiveMapBtn(p.origin,escapeHtml(p.origin),'flex-1')}
+                    ${rmLiveMapBtn(p.destination,escapeHtml(p.destination),'flex-1')}
                 </div>`;
             rmRailShow(head, body);
         }

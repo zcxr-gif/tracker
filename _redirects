@@ -17,3 +17,7 @@
 /crew/:slug/status  /crew-status.html  200
 /crew      /crew.html  200
 /crew/*    /crew.html  200
+
+# Your Month — the monthly logbook report. Short URL because it is a link
+# people paste, and /month.html reads like a file rather than a place.
+/month     /month.html  200

@@ -1298,6 +1298,12 @@ let mapFilters = {
         terrainTawsEnabled: false,
         terrainTawsAltitude: 10000,
         planDisplayMode: 'none',
+        // Show the backend-rendered route map under the flight window's
+        // departure/arrival bar. Off by default on purpose: every panel open
+        // with it on is a render against a queue shared with Discord webhook
+        // delivery, so this is something a user asks for rather than something
+        // everyone pays for. See mountRouteMapStrip().
+        showPanelRouteMap: false,
         mapStyle: 'dark',
         iconColorMode: 'default',
         showAircraftLabels: false,
@@ -8744,6 +8750,119 @@ function renderShareMapPicker(container) {
 }
 
 window.renderShareMapPicker = renderShareMapPicker;
+
+/* --- The route map inside the flight window ---------------------------------
+ *
+ * The same backend renderer that draws the map under every VA Discord card and
+ * inside a shared link's preview (GET /api/route-map — see the endpoint's own
+ * notes in the backend) can just as well draw the flight the user currently has
+ * open. Shown as one more slide in the hero carousel, it is the only picture in
+ * that window OF THIS FLIGHT: the community photo is a picture of the type.
+ *
+ * It sits in a strip directly under the route bar, which is already the part of
+ * this window that answers "where is this flight going".
+ *
+ * Two things shape the implementation:
+ *
+ *  1. Renders funnel through a process-wide single-slot queue that Discord
+ *     webhook delivery also uses, and the endpoint sheds past four concurrent
+ *     misses. So this is opt-in (mapFilters.showPanelRouteMap), the position is
+ *     rounded hard into the URL so repeated opens of a moving flight reuse one
+ *     cached render, and nothing is requested for a flight without both ends.
+ *  2. The endpoint legitimately 404s a route it cannot place — its airport index
+ *     does not cover every airfield. An empty strip is worse than no strip, so
+ *     the URL is probed first and the slot stays collapsed unless it renders.
+ */
+
+// Two decimals is what the backend already rounds to when building its own
+// cache key, so a finer value here would only ever miss on both sides.
+const PANEL_MAP_POS_DP = 2;
+
+/**
+ * The route-map URL for an open flight, or null when there is nothing to draw.
+ * Endpoint coordinates are passed through from the app's own airport data so a
+ * field outside the backend's index still renders.
+ */
+function flightPanelRouteMapUrl(props) {
+    if (!props) return null;
+    const dep = String(props.departureIcao || '').trim().toUpperCase();
+    const arr = String(props.arrivalIcao || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,4}$/.test(dep) || !/^[A-Z0-9]{3,4}$/.test(arr) || dep === arr) return null;
+
+    // The palette is the one picked for shared links, so the two look alike.
+    // 'off' is a choice about links, not about this panel — the toggle in
+    // Settings is what governs here — so it reads as the default palette rather
+    // than as a style the backend would have to reject.
+    const style = getShareMapStyle();
+    // `banner` is the renderer's 1200x420 wide strip — the shape it was drawn
+    // for, and the shape of the slot under the route bar.
+    const params = new URLSearchParams({
+        dep, arr, size: 'banner', style: style === 'off' ? 'dark' : style,
+    });
+
+    const put = (icao, latKey, lonKey) => {
+        const c = (typeof window.getAirportCoords === 'function') ? window.getAirportCoords(icao) : null;
+        if (c) { params.set(latKey, c.lat.toFixed(3)); params.set(lonKey, c.lon.toFixed(3)); }
+    };
+    put(dep, 'deplat', 'deplon');
+    put(arr, 'arrlat', 'arrlon');
+
+    const pos = props.position || {};
+    const lat = Number(pos.lat ?? pos.latitude);
+    const lon = Number(pos.lon ?? pos.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        params.set('lat', lat.toFixed(PANEL_MAP_POS_DP));
+        params.set('lon', lon.toFixed(PANEL_MAP_POS_DP));
+    }
+
+    return `${API_BASE_URL}/api/route-map?${params.toString()}`;
+}
+
+// Probe results by URL. A URL that rendered once will render again (the backend
+// caches it), and one that 404'd is not worth re-asking on every reopen.
+const _panelMapProbes = new Map();
+
+/**
+ * Resolve to the URL once the browser has actually decoded the image, or null.
+ * Uses an <img> rather than fetch so the probe populates the HTTP cache the
+ * hero itself then reads from — the slide appears without a second request.
+ */
+function probeRouteMap(url) {
+    if (!url) return Promise.resolve(null);
+    if (_panelMapProbes.has(url)) return _panelMapProbes.get(url);
+    const p = new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(url);
+        img.onerror = () => resolve(null);
+        img.src = url;
+    });
+    _panelMapProbes.set(url, p);
+    return p;
+}
+
+/**
+ * Paint the route map into the strip under the route bar, if it is wanted and
+ * it renders. Does nothing at all otherwise — the strip stays collapsed, so a
+ * flight the renderer cannot place leaves the window exactly as it was.
+ *
+ * The map belongs here rather than in the hero: the route bar is already where
+ * this window answers "where is this flight going", and a picture of the route
+ * reads as part of that answer instead of competing with the photos above it.
+ */
+async function mountRouteMapStrip(props) {
+    const strip = document.getElementById('ac-route-map-strip');
+    if (!strip || !mapFilters.showPanelRouteMap) return;
+
+    const url = await probeRouteMap(flightPanelRouteMapUrl(props));
+    // The panel is rebuilt on every render, so a strip that has left the
+    // document belongs to a window the user has already moved on from.
+    if (!url || !document.body.contains(strip)) return;
+
+    strip.innerHTML = `<img src="${url}" alt="Route from ${props.departureIcao || ''} to ${props.arrivalIcao || ''}"
+        loading="lazy" decoding="async"
+        style="display: block; width: 100%; aspect-ratio: 1200 / 420; object-fit: cover;">`;
+    strip.style.display = '';
+}
 
 // Servers, as one letter. Spelling "Expert" out cost five characters in every
 // link to say something there are only three possible answers to.
@@ -17251,6 +17370,7 @@ const SettingsUI = {
         airspace: { label: "Filters", icon: "fa-sliders" },
         va: { label: "VA", icon: "fa-handshake-angle" },
         theme: { label: "Theme", icon: "fa-palette" },
+        month: { label: "Your Month", icon: "fa-chart-pie" },
         whatsnew: { label: "What's New", icon: "fa-bullhorn" }
     },
 
@@ -18544,6 +18664,41 @@ renderCategory(catId) {
                             <!-- Painted by renderShareMapPicker below, so this and the
                                  mobile Settings sheet share one implementation. -->
                             <div id="share-map-picker"></div>
+                            <!-- The same drawing, in the app itself. Off by
+                                 default: it costs a render on the backend per
+                                 flight opened, so it is asked for rather than
+                                 assumed. Uses the palette picked above. -->
+                            <div class="settings-row" style="margin-top: 14px;">
+                                <div class="row-label">Show it in the flight window</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-panel-route-map" ${mapFilters.showPanelRouteMap ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                            <p style="margin: 6px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
+                                Draws the same map under the departure/arrival bar of an open flight.
+                                Flights whose airports can't be placed leave the bar as it is.
+                            </p>
+                        </div>
+                    `;
+                    break;
+                case 'month':
+                    // The report lives at its own URL because it is a thing
+                    // people paste to each other; this is the door to it from
+                    // inside the app, which it otherwise did not have.
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Your Month</label>
+                            <p style="margin: 0 0 14px 0; font-size: 0.8rem; color: #94a3b8; line-height: 1.6;">
+                                Your flying month, read from your Infinite Flight logbook — hours, the route
+                                you wore out, the longest leg, the airports and the airframe you keep coming
+                                back to. Free, and built to be shared.
+                            </p>
+                            <a href="/month" target="_blank" rel="noopener" class="modal-btn" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;">
+                                <i class="fa-solid fa-chart-pie"></i> Open Your Month
+                            </a>
+                            <p style="margin: 12px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
+                                Needs you signed in with your IF username on your profile. Pro members also
+                                get the deep cuts — hours by weekday, leg distribution, every airframe you
+                                touched.
+                            </p>
                         </div>
                     `;
                     break;
@@ -18674,6 +18829,7 @@ renderCategory(catId) {
             'set-hide-noatc-dots': 'hideNoAtcMarkers',
             'set-hide-atc-markers': 'hideAtcMarkers',
             'set-auto-cycle-photos': 'autoCyclePhotos',
+            'set-panel-route-map': 'showPanelRouteMap',
             'set-12h-clock': 'use12hClock',
             'set-atc-boundaries': 'showAtcBoundaries',
             'set-terrain-mode': 'showTerrainMode',
@@ -23074,6 +23230,11 @@ let totalDistanceNM = 0;
                 <span class="time-source-label" id="ac-bar-eta-label" style="color: ${arrTimeInfo.color}; opacity: 0.75; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; margin-top: 1px; text-transform: uppercase;">${arrTimeInfo.label}</span>
             </div>
         </div>
+        <!-- The route map, drawn for this exact flight by the same backend
+             renderer the Discord cards and shared-link previews use. Empty and
+             collapsed until mountRouteMapStrip confirms it renders, so a flight
+             whose airports can't be placed leaves the bar as it was. -->
+        <div id="ac-route-map-strip" style="display: none; margin: 12px 16px 0 16px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);"></div>
         </div>
 
     <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
@@ -23495,6 +23656,10 @@ let totalDistanceNM = 0;
     const imagePath = techCardImagePath;
     const fallbackPath = '/CommunityPlanes/default.png';
     const newImageUrl = `url('${imagePath}'), url('${fallbackPath}')`;
+
+    // Fills the strip under the route bar once the backend confirms the map
+    // renders; a no-op when the setting is off, which is the default.
+    mountRouteMapStrip(baseProps);
 
     const overviewPanels = document.querySelectorAll('#ac-overview-panel');
     overviewPanels.forEach(overviewPanel => {

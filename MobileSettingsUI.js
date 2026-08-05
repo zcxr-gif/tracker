@@ -485,6 +485,35 @@ export const MobileSettingsUI = {
                                 iMessage or anywhere else that shows a preview. The map is drawn for that
                                 exact flight — its route, both airports and where the aircraft had got to.
                             </p>
+                            <!-- The same drawing, in the app itself. Off by default:
+                                 it costs a render on the backend per flight opened,
+                                 so it is asked for rather than assumed. -->
+                            <div class="m-settings-list">
+                                ${this.renderToggle('showPanelRouteMap', 'Route map in flight window', 'fa-map-location-dot')}
+                            </div>
+                            <p class="m-settings-note">
+                                Draws that same map under the departure/arrival bar of an open flight, in
+                                the palette picked above. Flights whose airports can't be placed leave the
+                                bar as it is.
+                            </p>
+
+                            <!-- The monthly report. It lives at its own URL because
+                                 it is a link people paste; this is the door to it
+                                 from inside the app. -->
+                            <div class="mobile-section-header">Your Month</div>
+                            <div class="m-settings-list">
+                                <a class="m-setting-row" href="/month" target="_blank" rel="noopener" style="text-decoration:none; color:inherit;">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-chart-pie" style="color: #a78bfa;"></i>
+                                        <span>Your Month</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right" style="opacity:.5;"></i></div>
+                                </a>
+                            </div>
+                            <p class="m-settings-note">
+                                Your flying month from your Infinite Flight logbook — hours, your busiest
+                                route, the airframe you keep coming back to. Free, and made to be shared.
+                            </p>
 
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">

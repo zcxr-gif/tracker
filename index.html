@@ -2123,10 +2123,16 @@
             position: fixed;
             inset: 0;
             z-index: 2147483647;
+            /* A column, so the partner wall is laid out BELOW the logo rather
+               than pinned over it. Absolute positioning was fine for a single
+               tidy row; with the whole roster on screen it could reach up into
+               the mark on a short viewport. */
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 24px;
+            gap: 40px;
+            padding: 24px 0;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             color: #e9eaec;
             /* Neutral charcoal — no blue. A faint light vignette lifts the
@@ -2193,15 +2199,84 @@
             .inflight-splash-status { transition: none; }
         }
 
+        /* --- Backdrop -------------------------------------------------------
+           A few great-circle arcs drifting behind the mark, at an opacity low
+           enough to read as texture rather than as content. Inline SVG, no
+           request, no layout cost — it must not delay the first paint, which is
+           the entire reason this splash is inlined. */
+        .inflight-splash-arcs {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            opacity: 0;
+            animation: inflight-splash-arcs-in 1400ms 200ms ease-out forwards;
+        }
+        .inflight-splash-arcs svg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: max(1100px, 130vw);
+            height: max(1100px, 130vw);
+            transform: translate(-50%, -50%);
+            animation: inflight-splash-arcs-drift 90s linear infinite;
+            /* Same reason as the marquee track: this is a very large element
+               rotating during boot, and without the hint it re-rasters on the
+               main thread every frame, taking the marquee down with it. */
+            will-change: transform;
+        }
+        .inflight-splash-arcs .sa-ring { fill: none; stroke: rgba(255, 255, 255, 0.5); stroke-width: 0.5; }
+        .inflight-splash-arcs .sa-path { fill: none; stroke: rgba(255, 255, 255, 0.7); stroke-width: 0.7; stroke-dasharray: 5 8; }
+        @keyframes inflight-splash-arcs-in { to { opacity: 0.07; } }
+        @keyframes inflight-splash-arcs-drift {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to   { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
         .inflight-splash-stack {
             position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
             text-align: center;
             gap: 28px;
             width: 100%;
             max-width: 360px;
+            /* Sized to its content, not stretched. The mark and the partner
+               lanes are ONE centred composition — stretching this pushed the
+               lanes to the floor and left a dead band between the two, which
+               is what made them look squeezed in rather than designed in. */
+            flex: 0 0 auto;
+        }
+
+        /* Indeterminate progress. A launch screen that only fades a logo in has
+           no way to say "still working" — this does, without claiming a
+           percentage nothing here can actually measure. */
+        .inflight-splash-bar {
+            position: relative;
+            width: 132px;
+            height: 2px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.10);
+            overflow: hidden;
+            /* Same unhurried entrance as the logo, one beat later. */
+            opacity: 0;
+            animation: inflight-splash-fade-in 700ms 620ms ease-out forwards;
+        }
+        .inflight-splash-bar::after {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 42%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+            animation: inflight-splash-sweep 1500ms 620ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        @keyframes inflight-splash-fade-in { to { opacity: 1; } }
+        @keyframes inflight-splash-sweep {
+            from { transform: translateX(-115%); }
+            to   { transform: translateX(280%); }
         }
 
         .inflight-splash-logo-wrap {
@@ -2248,18 +2323,22 @@
             .inflight-splash-logo { height: 102px; }
         }
 
-        /* Partner VA strip pinned to the bottom of the splash. Hidden until
-           the roster resolves; fades in so it never pops in jarringly. */
+        /* --- Partner marquee -------------------------------------------------
+           Forty logos wrapped into a block is a blob, and a blob pinned to the
+           bottom of the screen looks like something that would not fit. So they
+           travel instead: two lanes drifting in opposite directions, edges
+           faded out, sitting in the middle of the composition with the mark
+           rather than under it.
+
+           The lanes are big enough to actually read a logo — a partner wall
+           whose logos are too small to recognise is decoration, not credit. */
         .inflight-splash-partners {
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: max(30px, env(safe-area-inset-bottom));
+            flex: 0 0 auto;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 14px;
-            padding: 0 20px;
+            width: 100%;
             opacity: 0;
             animation: inflight-splash-partners-in 700ms ease-out forwards;
         }
@@ -2268,63 +2347,144 @@
             letter-spacing: 0.16em;
             text-transform: uppercase;
             color: rgba(255, 255, 255, 0.42);
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
         }
-        /* Static "sponsor wall" — every partner laid out at once in a centered
-           multi-row grid, fully visible the moment the splash paints (no scroll
-           that needs time on screen). */
-        .inflight-splash-partners-row {
+        /* Hairlines either side of the label, so the lanes read as their own
+           band rather than as loose text floating under the logo. */
+        .inflight-splash-partners-label::before,
+        .inflight-splash-partners-label::after {
+            content: '';
+            width: 26px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28));
+        }
+        .inflight-splash-partners-label::after { transform: scaleX(-1); }
+
+        .inflight-splash-lanes {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+        }
+        /* The viewport each lane travels through. The mask is what stops a lane
+           from ending in a hard vertical edge mid-logo — it dissolves instead,
+           which is what makes the movement look deliberate. */
+        .sp-lane {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+            /* Nothing inside a lane can affect layout outside it, so say so —
+               it keeps the track's width out of the boot-time layout work the
+               rest of the page is doing while this is on screen. */
+            contain: layout paint;
+        }
+        /* Each track holds its lane's logos TWICE, so translating it exactly
+           half its width lands on an identical frame and the loop is seamless
+           — no jump, no gap to time. */
+        .sp-track {
             display: flex;
             align-items: center;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 14px 22px;
-            max-width: min(720px, 92vw);
+            /* Spacing lives on the coins as a trailing margin, NOT as `gap`.
+               `gap` puts no space after the last coin, so half the track's
+               width is half a gap short of the distance to the matching coin
+               in the second copy — and translateX(-50%) then lands 8px off,
+               which is a visible hitch once every lap. A trailing margin makes
+               the two distances identical and the loop exact. */
+            width: max-content;
+            padding: 2px 0;
+            animation: sp-scroll 46s linear infinite;
+            /* Held until the logos have actually landed. Every image that
+               arrives repaints this layer, and forty of them trickling in over
+               the first seconds is what made the lanes stutter and then settle.
+               A lane that is briefly still looks fine; one that judders does
+               not. See startWhenPainted(). */
+            animation-play-state: paused;
+            /* This runs while the app is still downloading and parsing, so the
+               main thread is the busiest it will ever be. Promoting the track
+               to its own compositor layer up front means the scroll is a GPU
+               transform from the first frame instead of stuttering until the
+               browser decides on its own that the layer is worth having. */
+            will-change: transform;
+            backface-visibility: hidden;
         }
+        .inflight-splash-partners.is-rolling .sp-track { animation-play-state: running; }
+        .sp-lane:nth-child(2) .sp-track {
+            animation-duration: 58s;
+            animation-direction: reverse;
+        }
+        @keyframes sp-scroll {
+            from { transform: translateX(0); }
+            to   { transform: translateX(-50%); }
+        }
+
         /* Round "coin" badges — each logo centred inside a circle. */
-        .inflight-splash-partners-row img,
-        .inflight-splash-partners-row .vp-name {
-            width: 48px;
-            height: 48px;
+        .sp-track img,
+        .sp-track .vp-name {
+            width: 54px;
+            height: 54px;
             border-radius: 50%;
             flex: 0 0 auto;
             box-sizing: border-box;
+            /* The trailing gap the loop maths needs — see .sp-track. */
+            margin-right: 16px;
         }
-        .inflight-splash-partners-row img {
+        .sp-track img {
             display: block;
-            max-width: 48px;
-            max-height: 48px;
+            max-width: 54px;
+            max-height: 54px;
             object-fit: contain;
-            padding: 6px;
+            padding: 7px;
             background: #fff;
             border: 1px solid rgba(255, 255, 255, 0.22);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
             overflow: hidden;
         }
-        .inflight-splash-partners-row .vp-name {
+        .sp-track .vp-name {
             display: flex;
             align-items: center;
             justify-content: center;
-            font: 700 15px/1 'Inter', system-ui, sans-serif;
+            font: 700 16px/1 'Inter', system-ui, sans-serif;
             color: #e9eaec;
             background: rgba(255, 255, 255, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.22);
         }
         @keyframes inflight-splash-partners-in { to { opacity: 1; } }
         @media (max-width: 480px) {
-            .inflight-splash-partners-row img,
-            .inflight-splash-partners-row .vp-name { width: 42px; height: 42px; }
-            .inflight-splash-partners-row { gap: 12px 14px; }
+            .sp-track img, .sp-track .vp-name { width: 44px; height: 44px; margin-right: 12px; }
+            .sp-track img { max-width: 44px; max-height: 44px; padding: 6px; }
+            .sp-track .vp-name { font-size: 13px; }
+        }
+        /* Two lanes cost ~150px. Below this there isn't room for the mark and
+           the lanes both, and the mark wins. */
+        @media (max-height: 480px) {
+            .inflight-splash-partners { display: none; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
             .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-            .inflight-splash-partners, .inflight-splash-partners-row {
+            .inflight-splash-partners, .sp-track,
+            .inflight-splash-arcs, .inflight-splash-arcs svg,
+            .inflight-splash-bar, .inflight-splash-bar::after {
                 animation-duration: 0.001s !important;
                 animation-delay: 0s !important;
                 animation-iteration-count: 1 !important;
                 opacity: 1 !important;
+                transform: none !important;
             }
+            /* The sweep is the one thing that must not simply land — a bar
+               frozen part-filled reads as stalled progress. Hide it instead. */
+            .inflight-splash-bar { display: none; }
+            .inflight-splash-arcs { opacity: 0.07 !important; }
+            .inflight-splash-arcs svg { transform: translate(-50%, -50%) !important; }
+            /* A stopped marquee is a lane cut off at both ends. Centre the
+               track instead and let the mask fade whatever overflows, so a
+               still frame still looks composed. */
+            .sp-track { justify-content: center; width: 100%; }
         }
     </style>
 
@@ -2341,10 +2501,24 @@
          cached Pro entitlement to localStorage, which the inline script
          below reads to upgrade the logo to the Pro mark for Pro users. -->
     <div id="inflight-pro-loader-overlay" role="status" aria-live="polite" aria-label="Inflight is loading">
+        <!-- Decorative backdrop. aria-hidden because it says nothing a screen
+             reader needs; the overlay's own label already announces the state. -->
+        <div class="inflight-splash-arcs" aria-hidden="true">
+            <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <circle class="sa-ring" cx="100" cy="100" r="46"></circle>
+                <circle class="sa-ring" cx="100" cy="100" r="72"></circle>
+                <ellipse class="sa-ring" cx="100" cy="100" rx="88" ry="34"></ellipse>
+                <ellipse class="sa-ring" cx="100" cy="100" rx="34" ry="88"></ellipse>
+                <path class="sa-path" d="M14 118 C 52 62, 148 62, 186 118"></path>
+                <path class="sa-path" d="M22 74 C 64 140, 136 140, 178 74"></path>
+            </svg>
+        </div>
         <div class="inflight-splash-stack">
             <div class="inflight-splash-logo-wrap">
                 <img src="Images/inflight.png" alt="Inflight" class="inflight-splash-logo" id="inflight-splash-logo">
             </div>
+            <!-- Indeterminate: nothing here can honestly measure a percentage. -->
+            <div class="inflight-splash-bar" aria-hidden="true"></div>
             <!-- Boot status. Stays empty (and takes no space) for the first few
                  seconds so a fast load is still a clean logo-only splash; fills
                  in only if the map is slow, and turns into an explanation plus
@@ -2353,8 +2527,13 @@
             <button type="button" class="inflight-splash-retry" id="inflight-splash-retry" hidden>Try again</button>
         </div>
         <div class="inflight-splash-partners" id="inflight-splash-partners" hidden aria-hidden="true">
-            <span class="inflight-splash-partners-label">Our Partner VAs</span>
-            <div class="inflight-splash-partners-row" id="inflight-splash-partners-row"></div>
+            <!-- The count is filled in from the roster that actually rendered,
+                 so the wall never claims more airlines than it is showing. -->
+            <span class="inflight-splash-partners-label" id="inflight-splash-partners-label">Our Partner VAs</span>
+            <div class="inflight-splash-lanes" id="inflight-splash-lanes">
+                <div class="sp-lane"><div class="sp-track" id="inflight-splash-lane-a"></div></div>
+                <div class="sp-lane"><div class="sp-track" id="inflight-splash-lane-b"></div></div>
+            </div>
         </div>
     </div>
     <script>
@@ -2526,38 +2705,128 @@
         // in time, the strip just stays hidden.
         (function () {
             var strip = document.getElementById('inflight-splash-partners');
-            var row   = document.getElementById('inflight-splash-partners-row');
-            if (!strip || !row) return;
+            var laneA = document.getElementById('inflight-splash-lane-a');
+            var laneB = document.getElementById('inflight-splash-lane-b');
+            var label = document.getElementById('inflight-splash-partners-label');
+            if (!strip || !laneA || !laneB) return;
 
-            var MAX = 24, tries = 0; // keep the wall tidy; show the rest in-app
+            // No cap. This used to stop at 24, which quietly left a third of the
+            // roster off a screen whose entire job is to say who we fly with —
+            // and a partner who cannot find themselves on it is the one person
+            // guaranteed to look. Everyone rides the lanes instead.
+            var tries = 0;
             function esc(s) {
                 return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
                     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
                 });
             }
+            function initialsFor(name) {
+                return String(name).trim().split(/\s+/)
+                    .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+            }
+
+            /* A logo that fails to load must NOT be removed from the lane.
+             *
+             * Each lane holds its partners twice so the track can translate half
+             * its width and land on an identical frame. Removing a coin changes
+             * the track's width mid-animation AND leaves the two halves no
+             * longer identical, so the loop starts jumping once per cycle — the
+             * exact stutter this was blamed for. Swapping it for the initials
+             * coin keeps the footprint and keeps the halves in step.
+             */
+            window.__spCoinFailed = function (img) {
+                try {
+                    var span = document.createElement('span');
+                    span.className = 'vp-name';
+                    span.title = img.title || '';
+                    span.textContent = img.getAttribute('data-ini') || '';
+                    img.parentNode.replaceChild(span, img);
+                } catch (_) { /* leave the broken img rather than break the lane */ }
+            };
+
+            function coin(ad) {
+                var ini = initialsFor(ad.name);
+                if (ad.logo) {
+                    // decoding=async keeps forty logo decodes off the main
+                    // thread, which is already carrying the app's own boot.
+                    return '<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
+                        '" title="' + esc(ad.name) + '" data-ini="' + esc(ini) + '"' +
+                        ' decoding="async" onerror="__spCoinFailed(this)">';
+                }
+                return '<span class="vp-name" title="' + esc(ad.name) + '">' + esc(ini) + '</span>';
+            }
             function render(list) {
                 var seen = {}, items = [];
-                for (var i = 0; i < list.length && items.length < MAX; i++) {
+                for (var i = 0; i < list.length; i++) {
                     var ad = list[i];
                     if (!ad || !ad.name) continue;
                     var key = String(ad.name).toLowerCase();
                     if (seen[key]) continue;
                     seen[key] = 1;
-                    if (ad.logo) {
-                        items.push('<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
-                            '" title="' + esc(ad.name) + '" onerror="this.remove()">');
-                    } else {
-                        var initials = String(ad.name).trim().split(/\s+/)
-                            .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
-                        items.push('<span class="vp-name" title="' + esc(ad.name) + '">' +
-                            esc(initials) + '</span>');
-                    }
+                    items.push(coin(ad));
                 }
+                // The old de-duplication kept the FIRST spelling and dropped the
+                // rest; unchanged. What changed is that nothing is dropped after
+                // the fact any more — see __spCoinFailed.
                 if (!items.length) return false;
-                row.innerHTML = items.join('');
+
+                // Split across the two lanes by alternating rather than by
+                // halving: the roster arrives in some order we don't control,
+                // and cutting it down the middle would put every logo-less
+                // partner in one lane if the source happened to group them.
+                var a = [], b = [];
+                for (var j = 0; j < items.length; j++) (j % 2 ? b : a).push(items[j]);
+                // One lane's worth is duplicated so the CSS can translate the
+                // track exactly half its width and land on an identical frame.
+                // A single short lane would also leave a visible gap at speed,
+                // which the doubling closes.
+                laneA.innerHTML = a.join('') + a.join('');
+                laneB.innerHTML = (b.length ? b : a).join('') + (b.length ? b : a).join('');
+
+                // Count what was actually drawn, after the de-duplication above,
+                // so the label and the lanes can never disagree.
+                if (label) {
+                    label.textContent = items.length > 1
+                        ? items.length + ' Partner VAs'
+                        : 'Our Partner VAs';
+                }
                 strip.hidden = false;
                 strip.removeAttribute('aria-hidden');
+                startWhenPainted();
                 return true;
+            }
+
+            /* Start the lanes moving only once nothing is left to repaint them.
+             *
+             * The tracks render before their logos have been fetched, and each
+             * one that arrives repaints the whole lane — so starting straight
+             * away means the first seconds of movement compete with forty image
+             * loads and the app's own boot. That is the "smooth after a while"
+             * everyone sees. Waiting costs a moment of stillness, which nobody
+             * reads as a fault, and buys motion that is clean from frame one.
+             *
+             * The timeout is the important half: one slow logo host must never
+             * be able to hold the lanes still for the whole splash.
+             */
+            function startWhenPainted() {
+                var imgs = [].slice.call(strip.getElementsByTagName('img'));
+                var pending = 0, started = false;
+                function go() {
+                    if (started) return;
+                    started = true;
+                    strip.classList.add('is-rolling');
+                }
+                for (var i = 0; i < imgs.length; i++) {
+                    if (imgs[i].complete) continue;
+                    pending++;
+                    (function (img) {
+                        var done = function () { if (--pending <= 0) go(); };
+                        img.addEventListener('load', done, { once: true });
+                        img.addEventListener('error', done, { once: true });
+                    })(imgs[i]);
+                }
+                if (!pending) { go(); return; }
+                setTimeout(go, 2500);
             }
 
             var t = setInterval(function () {
