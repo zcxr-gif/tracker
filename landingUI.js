@@ -119,6 +119,12 @@ export const LandingUI = {
             this._currentMatches = [];
             this._currentResults = { routes: [], flights: [], users: [], airports: [], airlines: [] };
             this._searchCursorIndex = -1;
+            // An empty box is the moment you are about to type something you
+            // just had open, so offer those back instead of showing nothing.
+            if (resultsContainer && this.renderRecentsInto(resultsContainer)) {
+                if (searchBlade) searchBlade.classList.add('has-results');
+                return;
+            }
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
                 resultsContainer.classList.remove('visible');
@@ -533,6 +539,88 @@ export const LandingUI = {
         }
     },
 
+    /**
+     * The empty-search state: flights and airports you recently opened.
+     *
+     * @returns {boolean} true when something was painted, so the caller knows
+     *   whether to show the dropdown at all. There is nothing to show on a
+     *   first visit, and an empty panel would be worse than none.
+     */
+    renderRecentsInto(container) {
+        const R = window.RecentItems;
+        if (!container || !R || R.isEmpty()) return false;
+
+        const { flights, airports } = R.forDisplay();
+
+        const flightRows = flights.map((f) => {
+            // Resolved live at paint time — a flight remembered ten minutes ago
+            // may well have landed since, and the row says which it is so the
+            // tap is never a surprise.
+            const live = R.isLive(f.id);
+            const title = f.callsign || f.username || 'Flight';
+            const route = (f.dep && f.arr) ? `${f.dep} → ${f.arr}` : (f.aircraft || '');
+            return `
+                <div class="premium-result-item"
+                     onclick="LandingUI.openRecentFlight('${this._esc(String(f.id).replace(/'/g, "\\'"))}')">
+                    <div class="res-meta-icon" style="color:${live ? '#34d399' : '#71717a'};">
+                        <i class="fa-solid ${live ? 'fa-circle' : 'fa-clock-rotate-left'}" style="font-size:${live ? '6px' : '12px'};"></i>
+                    </div>
+                    <div class="res-info-main">
+                        <div class="res-primary-row">
+                            <span class="res-callsign">${this._esc(title)}</span>
+                            ${route ? `<span class="res-pill">${this._esc(route)}</span>` : ''}
+                        </div>
+                        <div class="res-secondary-row">
+                            <span class="res-pilot">${live ? 'Still flying — tap to open' : 'Landed — tap for the replay'}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        const airportRows = airports.map((a) => `
+            <div class="premium-result-item"
+                 onclick="LandingUI.openRecentAirport('${this._esc(String(a.icao).replace(/'/g, "\\'"))}')">
+                <div class="res-meta-icon" style="color: var(--lui-accent);"><i class="fa-solid fa-tower-control" style="font-size: 14px;"></i></div>
+                <div class="res-info-main">
+                    <div class="res-primary-row"><span class="res-callsign">${this._esc(a.icao)}</span></div>
+                    <div class="res-secondary-row"><span class="res-pilot">${this._esc(a.name || 'Airport')}</span></div>
+                </div>
+            </div>
+        `);
+
+        container.innerHTML = [
+            this._renderSection('Recent flights', flightRows),
+            this._renderSection('Recent airports', airportRows),
+            `<div class="premium-recents-foot">
+                <button type="button" onclick="LandingUI.clearRecents()">Clear recents</button>
+             </div>`,
+        ].join('');
+        container.classList.add('visible');
+        return true;
+    },
+
+    openRecentFlight(flightId) {
+        const R = window.RecentItems;
+        if (!R) return;
+        const meta = R.flights().find(f => String(f.id) === String(flightId)) || {};
+        this._closeBladeSearch();
+        const how = R.openFlight(flightId, meta);
+        if (how === 'none' && typeof window.showNotification === 'function') {
+            window.showNotification('That flight has ended and has no replay saved.', 'info');
+        }
+    },
+
+    openRecentAirport(icao) {
+        this._closeBladeSearch();
+        window.RecentItems?.openAirport(icao);
+    },
+
+    clearRecents() {
+        window.RecentItems?.clear();
+        this._closeBladeSearch();
+    },
+
     _renderSection(title, rows) {
         if (!rows.length) return '';
         return `
@@ -937,6 +1025,13 @@ export const LandingUI = {
         searchInput?.addEventListener('input', (e) => {
             this.handleLocalSearch(e.target.value);
             this._syncSearchActive();
+        });
+
+        // Focusing an empty box offers what you recently had open. Routed
+        // through the same handler as typing so there is one path deciding what
+        // the dropdown contains.
+        searchInput?.addEventListener('focus', (e) => {
+            if (!e.target.value) this.handleLocalSearch('');
         });
 
         // Mobile: drive the search-active layout off focus (so the Cancel
@@ -1633,6 +1728,14 @@ export const LandingUI = {
             .premium-result-item.selected {
                 background: var(--lui-hover-bg);
             }
+
+            .premium-recents-foot { padding: 6px 16px 10px; text-align: center; }
+            .premium-recents-foot button {
+                background: none; border: none; cursor: pointer;
+                font-family: inherit; font-size: 11px; font-weight: 600;
+                color: var(--lui-text-dim); padding: 4px 8px; border-radius: 6px;
+            }
+            .premium-recents-foot button:hover { color: var(--lui-text-main); }
 
             /* The route header carries two or three pills beside a code pair,
                which is more than a phone's width holds on one line. */

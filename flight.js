@@ -26,6 +26,7 @@ import { AtcReplay } from './atcReplay.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
+import { RecentItems } from './recentItems.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -9915,6 +9916,8 @@ function onAirportSearchResultClick(arg) {
     if (Number.isFinite(lat) && Number.isFinite(lon) && sectorOpsMap) {
         sectorOpsMap.flyTo({ center: [lon, lat], zoom: 11, essential: true });
     }
+    try { RecentItems.rememberAirport(icao); } catch (_) { /* history is never fatal */ }
+
     if (typeof handleAirportClick === 'function') {
         handleAirportClick(icao);
     }
@@ -21615,6 +21618,11 @@ function closeAircraftWindow() {
 
 async function handleAircraftClick(flightProps, optionalSessionId = null, event = null) {
     if (!flightProps || !flightProps.flightId) return;
+
+    // Remember it for the search box's empty state. Every path that opens a
+    // flight window funnels through here — map tap, search result, share link,
+    // the Nearby radar — so this one call covers them all.
+    try { RecentItems.rememberFlight(flightProps); } catch (_) { /* history is never fatal */ }
 
     // Runway data is lazy (26 MB) and the phase readout in this window depends
     // on it. Warming it here — rather than blocking boot — means it is ready
