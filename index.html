@@ -2123,7 +2123,12 @@
             position: fixed;
             inset: 0;
             z-index: 2147483647;
+            /* A column, so the partner wall is laid out BELOW the logo rather
+               than pinned over it. Absolute positioning was fine for a single
+               tidy row; with the whole roster on screen it could reach up into
+               the mark on a short viewport. */
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: 24px;
@@ -2193,15 +2198,78 @@
             .inflight-splash-status { transition: none; }
         }
 
+        /* --- Backdrop -------------------------------------------------------
+           A few great-circle arcs drifting behind the mark, at an opacity low
+           enough to read as texture rather than as content. Inline SVG, no
+           request, no layout cost — it must not delay the first paint, which is
+           the entire reason this splash is inlined. */
+        .inflight-splash-arcs {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            opacity: 0;
+            animation: inflight-splash-arcs-in 1400ms 200ms ease-out forwards;
+        }
+        .inflight-splash-arcs svg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: max(1100px, 130vw);
+            height: max(1100px, 130vw);
+            transform: translate(-50%, -50%);
+            animation: inflight-splash-arcs-drift 90s linear infinite;
+        }
+        .inflight-splash-arcs .sa-ring { fill: none; stroke: rgba(255, 255, 255, 0.5); stroke-width: 0.5; }
+        .inflight-splash-arcs .sa-path { fill: none; stroke: rgba(255, 255, 255, 0.7); stroke-width: 0.7; stroke-dasharray: 5 8; }
+        @keyframes inflight-splash-arcs-in { to { opacity: 0.07; } }
+        @keyframes inflight-splash-arcs-drift {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to   { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
         .inflight-splash-stack {
             position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
             text-align: center;
             gap: 28px;
             width: 100%;
             max-width: 360px;
+            /* Takes the slack, so the mark stays optically centred whatever the
+               partner wall below it ends up costing. */
+            flex: 1 1 auto;
+        }
+
+        /* Indeterminate progress. A launch screen that only fades a logo in has
+           no way to say "still working" — this does, without claiming a
+           percentage nothing here can actually measure. */
+        .inflight-splash-bar {
+            position: relative;
+            width: 132px;
+            height: 2px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.10);
+            overflow: hidden;
+            /* Same unhurried entrance as the logo, one beat later. */
+            opacity: 0;
+            animation: inflight-splash-fade-in 700ms 620ms ease-out forwards;
+        }
+        .inflight-splash-bar::after {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 42%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+            animation: inflight-splash-sweep 1500ms 620ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        @keyframes inflight-splash-fade-in { to { opacity: 1; } }
+        @keyframes inflight-splash-sweep {
+            from { transform: translateX(-115%); }
+            to   { transform: translateX(280%); }
         }
 
         .inflight-splash-logo-wrap {
@@ -2248,18 +2316,18 @@
             .inflight-splash-logo { height: 102px; }
         }
 
-        /* Partner VA strip pinned to the bottom of the splash. Hidden until
-           the roster resolves; fades in so it never pops in jarringly. */
+        /* --- Partner wall ---------------------------------------------------
+           The whole roster, not a sample of it. Sits in normal flow at the foot
+           of the column so it can take the rows it needs without ever reaching
+           up into the mark. Hidden until the roster resolves. */
         .inflight-splash-partners {
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: max(30px, env(safe-area-inset-bottom));
+            flex: 0 0 auto;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 14px;
-            padding: 0 20px;
+            gap: 13px;
+            width: 100%;
+            padding: 0 20px max(6px, env(safe-area-inset-bottom));
             opacity: 0;
             animation: inflight-splash-partners-in 700ms ease-out forwards;
         }
@@ -2268,33 +2336,57 @@
             letter-spacing: 0.16em;
             text-transform: uppercase;
             color: rgba(255, 255, 255, 0.42);
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
         }
+        /* Hairlines either side of the label, so the wall reads as its own band
+           rather than as loose text floating under the logo. */
+        .inflight-splash-partners-label::before,
+        .inflight-splash-partners-label::after {
+            content: '';
+            width: 26px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28));
+        }
+        .inflight-splash-partners-label::after { transform: scaleX(-1); }
         /* Static "sponsor wall" — every partner laid out at once in a centered
            multi-row grid, fully visible the moment the splash paints (no scroll
-           that needs time on screen). */
+           that needs time on screen). Wide enough for ~40 coins in three tidy
+           rows on a laptop. */
         .inflight-splash-partners-row {
             display: flex;
             align-items: center;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 14px 22px;
-            max-width: min(720px, 92vw);
+            gap: 10px 12px;
+            max-width: min(860px, 94vw);
         }
-        /* Round "coin" badges — each logo centred inside a circle. */
+        /* Round "coin" badges — each logo centred inside a circle. Smaller than
+           they were: a wall of forty at the old 48px was three crowded rows,
+           and the point of showing everyone is that the wall still looks
+           composed. */
         .inflight-splash-partners-row img,
         .inflight-splash-partners-row .vp-name {
-            width: 48px;
-            height: 48px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             flex: 0 0 auto;
             box-sizing: border-box;
+            /* Each coin arrives just after the one before it, which reads as
+               the wall assembling rather than as one block appearing. The delay
+               is capped in the markup so the last coin is never left waiting. */
+            opacity: 0;
+            transform: translateY(5px) scale(0.94);
+            animation: inflight-splash-coin-in 460ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation-delay: calc(var(--i, 0) * 22ms);
         }
         .inflight-splash-partners-row img {
             display: block;
-            max-width: 48px;
-            max-height: 48px;
+            max-width: 40px;
+            max-height: 40px;
             object-fit: contain;
-            padding: 6px;
+            padding: 5px;
             background: #fff;
             border: 1px solid rgba(255, 255, 255, 0.22);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
@@ -2304,27 +2396,46 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font: 700 15px/1 'Inter', system-ui, sans-serif;
+            font: 700 13px/1 'Inter', system-ui, sans-serif;
             color: #e9eaec;
             background: rgba(255, 255, 255, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.22);
         }
         @keyframes inflight-splash-partners-in { to { opacity: 1; } }
+        @keyframes inflight-splash-coin-in {
+            to { opacity: 1; transform: none; }
+        }
         @media (max-width: 480px) {
             .inflight-splash-partners-row img,
-            .inflight-splash-partners-row .vp-name { width: 42px; height: 42px; }
-            .inflight-splash-partners-row { gap: 12px 14px; }
+            .inflight-splash-partners-row .vp-name { width: 32px; height: 32px; }
+            .inflight-splash-partners-row img { max-width: 32px; max-height: 32px; padding: 4px; }
+            .inflight-splash-partners-row .vp-name { font-size: 11px; }
+            .inflight-splash-partners-row { gap: 8px 9px; }
+        }
+        /* Not enough height to seat the mark and the wall both — the mark wins.
+           A squashed wall under a squashed logo is worse than no wall. */
+        @media (max-height: 560px) {
+            .inflight-splash-partners { display: none; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             #inflight-pro-loader-overlay,
             .inflight-splash-logo, .inflight-splash-logo-wrap::before,
-            .inflight-splash-partners, .inflight-splash-partners-row {
+            .inflight-splash-partners, .inflight-splash-partners-row,
+            .inflight-splash-partners-row img, .inflight-splash-partners-row .vp-name,
+            .inflight-splash-arcs, .inflight-splash-arcs svg,
+            .inflight-splash-bar, .inflight-splash-bar::after {
                 animation-duration: 0.001s !important;
                 animation-delay: 0s !important;
                 animation-iteration-count: 1 !important;
                 opacity: 1 !important;
+                transform: none !important;
             }
+            /* The sweep is the one thing that must not simply land — a bar
+               frozen part-filled reads as stalled progress. Hide it instead. */
+            .inflight-splash-bar { display: none; }
+            .inflight-splash-arcs { opacity: 0.07 !important; }
+            .inflight-splash-arcs svg { transform: translate(-50%, -50%) !important; }
         }
     </style>
 
@@ -2341,10 +2452,24 @@
          cached Pro entitlement to localStorage, which the inline script
          below reads to upgrade the logo to the Pro mark for Pro users. -->
     <div id="inflight-pro-loader-overlay" role="status" aria-live="polite" aria-label="Inflight is loading">
+        <!-- Decorative backdrop. aria-hidden because it says nothing a screen
+             reader needs; the overlay's own label already announces the state. -->
+        <div class="inflight-splash-arcs" aria-hidden="true">
+            <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <circle class="sa-ring" cx="100" cy="100" r="46"></circle>
+                <circle class="sa-ring" cx="100" cy="100" r="72"></circle>
+                <ellipse class="sa-ring" cx="100" cy="100" rx="88" ry="34"></ellipse>
+                <ellipse class="sa-ring" cx="100" cy="100" rx="34" ry="88"></ellipse>
+                <path class="sa-path" d="M14 118 C 52 62, 148 62, 186 118"></path>
+                <path class="sa-path" d="M22 74 C 64 140, 136 140, 178 74"></path>
+            </svg>
+        </div>
         <div class="inflight-splash-stack">
             <div class="inflight-splash-logo-wrap">
                 <img src="Images/inflight.png" alt="Inflight" class="inflight-splash-logo" id="inflight-splash-logo">
             </div>
+            <!-- Indeterminate: nothing here can honestly measure a percentage. -->
+            <div class="inflight-splash-bar" aria-hidden="true"></div>
             <!-- Boot status. Stays empty (and takes no space) for the first few
                  seconds so a fast load is still a clean logo-only splash; fills
                  in only if the map is slow, and turns into an explanation plus
@@ -2353,7 +2478,9 @@
             <button type="button" class="inflight-splash-retry" id="inflight-splash-retry" hidden>Try again</button>
         </div>
         <div class="inflight-splash-partners" id="inflight-splash-partners" hidden aria-hidden="true">
-            <span class="inflight-splash-partners-label">Our Partner VAs</span>
+            <!-- The count is filled in from the roster that actually rendered,
+                 so the wall never claims more airlines than it is showing. -->
+            <span class="inflight-splash-partners-label" id="inflight-splash-partners-label">Our Partner VAs</span>
             <div class="inflight-splash-partners-row" id="inflight-splash-partners-row"></div>
         </div>
     </div>
@@ -2527,9 +2654,18 @@
         (function () {
             var strip = document.getElementById('inflight-splash-partners');
             var row   = document.getElementById('inflight-splash-partners-row');
+            var label = document.getElementById('inflight-splash-partners-label');
             if (!strip || !row) return;
 
-            var MAX = 24, tries = 0; // keep the wall tidy; show the rest in-app
+            // No cap. This used to stop at 24 to keep the wall tidy, which quietly
+            // left a third of the roster off a screen whose entire job is to say
+            // who we fly with — and a partner who cannot find themselves on it is
+            // the one person guaranteed to look. The coins are smaller and the
+            // wall is wider instead; the layout, not the roster, does the tidying.
+            var tries = 0;
+            // Past this the stagger stops accumulating, so a long roster's last
+            // coin still lands promptly instead of trailing a second behind.
+            var STAGGER_CAP = 26;
             function esc(s) {
                 return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
                     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -2537,24 +2673,32 @@
             }
             function render(list) {
                 var seen = {}, items = [];
-                for (var i = 0; i < list.length && items.length < MAX; i++) {
+                for (var i = 0; i < list.length; i++) {
                     var ad = list[i];
                     if (!ad || !ad.name) continue;
                     var key = String(ad.name).toLowerCase();
                     if (seen[key]) continue;
                     seen[key] = 1;
+                    var d = ' style="--i:' + Math.min(items.length, STAGGER_CAP) + '"';
                     if (ad.logo) {
-                        items.push('<img src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
+                        items.push('<img' + d + ' src="' + esc(ad.logo) + '" alt="' + esc(ad.name) +
                             '" title="' + esc(ad.name) + '" onerror="this.remove()">');
                     } else {
                         var initials = String(ad.name).trim().split(/\s+/)
                             .map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
-                        items.push('<span class="vp-name" title="' + esc(ad.name) + '">' +
+                        items.push('<span class="vp-name"' + d + ' title="' + esc(ad.name) + '">' +
                             esc(initials) + '</span>');
                     }
                 }
                 if (!items.length) return false;
                 row.innerHTML = items.join('');
+                // Count what was actually drawn, after the de-duplication above,
+                // so the wall and its label can never disagree.
+                if (label) {
+                    label.textContent = items.length > 1
+                        ? items.length + ' Partner VAs'
+                        : 'Our Partner VAs';
+                }
                 strip.hidden = false;
                 strip.removeAttribute('aria-hidden');
                 return true;
