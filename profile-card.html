@@ -379,10 +379,12 @@ a { color: inherit; }
                 <p class="hint" id="vaHint">Checking the partner rosters…</p>
                 <div class="valist" id="vaList"></div>
                 <p class="vaempty" id="vaEmpty" hidden></p>
-                <p class="note" id="vaNote">
-                    Only VAs whose roster you are on appear here, and it is re-checked whenever your
-                    card is drawn — leave a VA and its colours come off on their own.
-                </p>
+                <!-- The requirement, standing in every state rather than only in
+                     the empty one. A pilot who flies for two VAs and sees one of
+                     them here needs this as much as a pilot who sees neither —
+                     it is the difference between "the badge is broken" and "the
+                     other VA has not added me yet". Written by drawVaOptions. -->
+                <p class="note" id="vaNote"></p>
             </div>
 
             <div class="panel">
@@ -482,7 +484,7 @@ const state = {
     fields: [], theme: 'midnight', autoRefresh: false, showPhoto: true,
     // The VAs they have ticked, in tick order — the card wears them in the
     // order given, so the list is the pilot's ranking and not a set.
-    vaOptions: [], vaIds: [], maxVas: 3, vaLoading: false, vaFailed: false,
+    vaOptions: [], vaIds: [], maxVas: 3, vaLoading: false, vaFailed: false, vaDenied: false,
     catalogue: [], themes: [], maxFields: 9,
     slug: null, imageUrl: null,
     previewSeq: 0, vaSeq: 0,
@@ -674,6 +676,9 @@ async function loadVaOptions() {
 
     state.vaLoading = true;
     state.vaFailed = false;
+    // A denial belongs to the save that produced it; a fresh roster check is a
+    // new answer and must not carry the old complaint forward.
+    state.vaDenied = false;
     drawVaOptions();
 
     let options = null;
@@ -718,9 +723,35 @@ function toggleVa(id) {
         if (state.vaIds.length >= state.maxVas) return;
         state.vaIds.push(id);
     }
+    // Changing the picks makes the last save's denial stale.
+    state.vaDenied = false;
     drawVaOptions();
     markDirty();
     schedulePreview();
+}
+
+/**
+ * The standing note under the picker.
+ *
+ * The requirement — your VA's staff have to put your username on their roster
+ * before you can wear their badge — is written in EVERY state, not only when
+ * the picker comes back empty. A pilot who flies for two VAs and sees one of
+ * them listed is the person most likely to think the badge is broken, and they
+ * would never see an empty-state message.
+ */
+function vaNoteText() {
+    const ask = 'A VA can only appear here after its staff have added your Infinite Flight Community '
+        + "username to their roster in the partner portal — we cannot put a VA's badge on your card "
+        + 'until they have. Ask your VA staff to add you, then load your username again here.';
+    const upkeep = ' The roster is re-checked whenever your card is drawn, so leaving a VA takes its '
+        + 'colours off on their own.';
+    // A denial is the same requirement, arriving at the worst moment, so it
+    // leads and the standing text still follows rather than being replaced.
+    const denied = state.vaDenied
+        ? 'A VA you picked could not be applied — you are not on its roster any more. The rest of your '
+          + 'card saved fine. '
+        : '';
+    return denied + ask + upkeep;
 }
 
 function drawVaOptions() {
@@ -733,6 +764,7 @@ function drawVaOptions() {
     const hint = $('vaHint');
     const empty = $('vaEmpty');
     const list = $('vaList');
+    $('vaNote').textContent = vaNoteText();
 
     if (state.vaLoading) {
         hint.textContent = 'Checking the partner rosters…';
@@ -749,9 +781,10 @@ function drawVaOptions() {
     }
     if (!state.vaOptions.length) {
         hint.textContent = `No partner VA has ${state.username} on its roster.`;
-        empty.textContent = 'Ask your VA to add your Infinite Flight Community username to the roster '
-            + 'in their partner portal, then load your username again here.';
-        empty.hidden = false;
+        // No second message here: the standing note below already says whose
+        // job it is to fix that, and saying it twice in one small panel reads
+        // as nagging rather than as help.
+        empty.hidden = true;
         list.replaceChildren();
         return;
     }
@@ -904,16 +937,14 @@ async function save() {
         reportPhoto(data);
         // The roster is re-read on save, so a pilot added to (or removed from)
         // a VA since the page loaded sees that without reloading.
+        state.vaDenied = data.vaDenied === true;
         if (Array.isArray(data.vaOptions)) {
             state.vaOptions = data.vaOptions;
             state.vaIds = Array.isArray(data.vaAdIds) ? data.vaAdIds : [];
             state.vaFailed = false;
             state.vaLoading = false;
-            drawVaOptions();
         }
-        if (data.vaDenied) {
-            $('vaNote').textContent = 'A VA you picked could not be applied — you are not on its roster any more. The rest of your card saved fine.';
-        }
+        drawVaOptions();
 
         showSnippet();
         $('freshnessNote').textContent = describeFreshness(data.statsAt, data.nextRefresh);
