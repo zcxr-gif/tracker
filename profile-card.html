@@ -182,6 +182,22 @@ a { color: inherit; }
 .note { margin: 12px 0 0; font-size: 12px; color: var(--faint); line-height: 1.6; }
 .saved { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--mint); margin-top: 10px; }
 .err { color: var(--rose); font-size: 13px; margin-top: 10px; }
+/* Identity panel */
+.idrow { display: flex; gap: 8px; }
+.idrow input {
+    flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--ink);
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 13px; outline: none; transition: border-color .14s;
+}
+.idrow input:focus { border-color: var(--sky); }
+.idrow input::placeholder { color: var(--faint); }
+.idwho {
+    display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--muted);
+    background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.26);
+    border-radius: 12px; padding: 11px 13px;
+}
+.idwho i { color: var(--mint); }
+.idwho b { color: var(--ink); }
 .sticky { position: sticky; top: 18px; }
 @media (max-width: 900px) { .sticky { position: static; } }
 </style>
@@ -210,20 +226,6 @@ a { color: inherit; }
         <h2 id="loadMsg">Checking your account…</h2>
     </section>
 
-    <section class="state" id="stateSignedOut" hidden>
-        <i class="fa-solid fa-right-to-bracket big"></i>
-        <h2>Sign in to make your card</h2>
-        <p>Your card is built from the Infinite Flight username on your Inflight account, so we need to know who you are.</p>
-        <a class="btn primary" href="/"><i class="fa-solid fa-arrow-right"></i> Open Inflight</a>
-    </section>
-
-    <section class="state" id="stateNoIf" hidden>
-        <i class="fa-solid fa-user-pen big"></i>
-        <h2>Add your IFC username first</h2>
-        <p>Put your Infinite Flight Community username on your Inflight profile and this page will find your stats.</p>
-        <a class="btn primary" href="/"><i class="fa-solid fa-arrow-right"></i> Go to your profile</a>
-    </section>
-
     <section class="state" id="stateError" hidden>
         <i class="fa-solid fa-triangle-exclamation big"></i>
         <h2>That didn't work</h2>
@@ -234,6 +236,28 @@ a { color: inherit; }
     <!-- Workbench ----------------------------------------------------------- -->
     <div class="bench" id="bench" hidden>
         <div>
+            <!-- Who the card is for. Signing in is how you SAVE one, not how you
+                 build one, so a signed-out visitor types a username here and gets
+                 the whole workbench. Being sent away to sign in and having to find
+                 your way back is the thing this panel exists to avoid. -->
+            <div class="panel" id="identityPanel">
+                <h2>Whose stats?</h2>
+                <p class="hint" id="identityHint">Type your Infinite Flight Community username.</p>
+
+                <div class="idrow" id="idInputRow">
+                    <input id="usernameInput" type="text" spellcheck="false" autocapitalize="none"
+                           autocomplete="off" placeholder="Your IFC username" aria-label="Infinite Flight Community username">
+                    <button class="btn primary" id="usernameGo"><i class="fa-solid fa-arrow-right"></i> Load</button>
+                </div>
+                <div class="err" id="idErr" hidden></div>
+
+                <div class="idwho" id="idWho" hidden>
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span>Building the card for <b id="idName"></b><span id="idFrom"></span>.</span>
+                    <button class="btn" id="idChange" style="margin-left:auto; padding:6px 11px; font-size:12.5px;">Change</button>
+                </div>
+            </div>
+
             <div class="panel">
                 <h2>Preview</h2>
                 <p class="hint" id="previewHint">This is exactly what appears on your profile.</p>
@@ -274,6 +298,25 @@ a { color: inherit; }
             <div class="panel">
                 <h2>Put it on your profile</h2>
                 <p class="hint">Save first — this line points at your saved card.</p>
+
+                <!-- Shown to a signed-out visitor. The app opens in a NEW tab on
+                     purpose: this page keeps its state, and coming back is a tab
+                     switch rather than a hunt for the URL again. Signing in there
+                     wakes this page through Supabase's cross-tab session sync, and
+                     the button below is the manual path when it doesn't. -->
+                <div id="signInBox" hidden>
+                    <a class="btn primary" id="signInLink" href="/" target="_blank" rel="noopener" style="width:100%; justify-content:center;">
+                        <i class="fa-solid fa-right-to-bracket"></i> <span id="signInLabel">Sign in to save</span>
+                    </a>
+                    <p class="note" id="signInNote">
+                        Opens Inflight in a new tab, so this one keeps everything you have picked.
+                        Come back here when you are done.
+                    </p>
+                    <button class="btn" id="recheckBtn" style="width:100%; justify-content:center;">
+                        <i class="fa-solid fa-rotate-right"></i> I've done that — check again
+                    </button>
+                </div>
+
                 <button class="btn primary" id="saveBtn" style="width:100%; justify-content:center;">
                     <i class="fa-solid fa-floppy-disk"></i> Save my card
                 </button>
@@ -318,14 +361,23 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
     user: null, token: null, isPro: false, username: '',
+    // Where the username came from. 'account' means it is the one on their
+    // Inflight profile and a save will use it; 'typed' means they are just
+    // looking, and saving needs them to sign in first.
+    usernameFrom: null,
     fields: [], theme: 'midnight', autoRefresh: false,
     catalogue: [], themes: [], maxFields: 9,
     slug: null, imageUrl: null,
     previewSeq: 0,
 };
 
+// A card can only be SAVED against a verified account, because the backend takes
+// the username from the session rather than from us. Building and previewing one
+// needs nothing.
+const canSave = () => !!(state.token && state.usernameFrom === 'account');
+
 const only = (id) => {
-    ['stateLoading', 'stateSignedOut', 'stateNoIf', 'stateError'].forEach((s) => { $(s).hidden = (s !== id); });
+    ['stateLoading', 'stateError'].forEach((s) => { $(s).hidden = (s !== id); });
     $('bench').hidden = (id !== 'bench');
 };
 const say = (m) => { $('loadMsg').textContent = m; };
@@ -553,6 +605,61 @@ function applyProState() {
         : 'Your numbers re-read themselves from Infinite Flight at the start of each month, so the card on your profile never goes stale.';
 }
 
+/**
+ * The identity panel, the save panel and the preview, brought in line with what
+ * we currently know about the visitor.
+ *
+ * Called after every change to who the card is for — a sign-in landing from
+ * another tab, a typed username, a "Change" — so there is one place that decides
+ * what a given visitor is allowed to see and do, rather than three.
+ */
+function applyIdentity() {
+    const known = !!state.username;
+    const fromAccount = state.usernameFrom === 'account';
+
+    $('idInputRow').hidden = known && fromAccount;
+    $('idWho').hidden = !known;
+    if (known) {
+        $('idName').textContent = state.username;
+        $('idFrom').textContent = fromAccount ? ' — from your Inflight account' : '';
+    }
+    $('identityHint').textContent = fromAccount
+        ? 'Taken from your Inflight profile.'
+        : 'Type your Infinite Flight Community username. You do not need an account to look.';
+
+    // Save vs. sign-in are the same slot: only one of them is ever the next step.
+    $('saveBtn').hidden = !canSave();
+    $('signInBox').hidden = canSave();
+    if (!canSave()) {
+        const needsUsername = !!state.token && !fromAccount;
+        $('signInLabel').textContent = needsUsername ? 'Add your IFC username' : 'Sign in to save';
+        $('signInNote').textContent = needsUsername
+            ? 'Put your IFC username on your Inflight profile and your card can be saved. Opens in a new tab, so this one keeps everything you have picked.'
+            : 'Opens Inflight in a new tab, so this one keeps everything you have picked. Come back here when you are done.';
+    }
+
+    applyProState();
+}
+
+/** Adopt a typed username: preview it, but it cannot be saved on its own. */
+async function useTypedUsername() {
+    const name = $('usernameInput').value.trim();
+    $('idErr').hidden = true;
+    if (!name) {
+        $('idErr').textContent = 'Type a username first.';
+        $('idErr').hidden = false;
+        return;
+    }
+    state.username = name;
+    // Only the account's own username is ever 'account' — a typed one stays
+    // typed even when it happens to match, because the backend will use the
+    // session's name regardless and the page must not imply otherwise.
+    state.usernameFrom = (state.token && name.toLowerCase() === String(state.user?.user_metadata?.if_username || '').trim().toLowerCase())
+        ? 'account' : 'typed';
+    applyIdentity();
+    renderPreview();
+}
+
 async function boot() {
     only('stateLoading');
     say('Checking your account…');
@@ -560,10 +667,12 @@ async function boot() {
     const { data: { session } } = await supabase.auth.getSession();
     state.user = session?.user || null;
     state.token = session?.access_token || null;
-    if (!state.user || !state.token) { only('stateSignedOut'); return; }
 
-    state.username = String(state.user.user_metadata?.if_username || '').trim();
-    if (!state.username) { only('stateNoIf'); return; }
+    const accountName = String(state.user?.user_metadata?.if_username || '').trim();
+    if (accountName) {
+        state.username = accountName;
+        state.usernameFrom = 'account';
+    }
 
     try {
         say('Reading your Infinite Flight stats…');
@@ -573,8 +682,10 @@ async function boot() {
         // a pilot returning to change one tick keeps their existing URL.
         const [options, mine] = await Promise.all([
             fetch(`${API}/api/if-card/options`).then((r) => r.json()),
-            fetch(`${API}/api/if-card/mine`, { headers: { Authorization: `Bearer ${state.token}` } })
-                .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+            state.token
+                ? fetch(`${API}/api/if-card/mine`, { headers: { Authorization: `Bearer ${state.token}` } })
+                    .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+                : Promise.resolve(null),
         ]);
 
         if (!options?.ok) throw new Error('options unavailable');
@@ -598,11 +709,18 @@ async function boot() {
             $('saveBtn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save changes';
         }
 
-        applyProState();
+        applyIdentity();
         drawPicks();
         drawThemes();
         only('bench');
-        renderPreview();
+        // Nothing to render until we know whose card this is — the picker and
+        // the username field are still worth showing while they decide.
+        if (state.username) {
+            renderPreview();
+        } else {
+            $('previewFrame').innerHTML = '<div class="preview-msg">Enter a username above and your card appears here.</div>';
+            $('usernameInput').focus();
+        }
     } catch (err) {
         fail('We couldn\'t reach the card service just now. It is usually worth another go in a moment.');
     }
@@ -610,6 +728,17 @@ async function boot() {
 
 $('saveBtn').addEventListener('click', save);
 $('copyBtn').addEventListener('click', copySnippet);
+$('usernameGo').addEventListener('click', useTypedUsername);
+$('usernameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') useTypedUsername(); });
+$('idChange').addEventListener('click', () => {
+    $('idInputRow').hidden = false;
+    $('usernameInput').value = state.username;
+    $('usernameInput').focus();
+    $('usernameInput').select();
+});
+// The manual path back from signing in on the other tab, for when the
+// cross-tab session sync doesn't land.
+$('recheckBtn').addEventListener('click', () => boot());
 $('autoRefresh').addEventListener('change', (e) => {
     state.autoRefresh = e.target.checked;
     markDirty();

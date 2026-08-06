@@ -24,6 +24,88 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.08.06',
+            date: 'August 2026',
+            title: 'Your Stats, On Your IFC Profile',
+            tagline: 'Your Infinite Flight stats as one image built for your Infinite Flight Community profile — you choose what is on it, and one line of paste puts it there.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-id-card',
+                    text: 'Profile Card — your grade, XP, landings, flight time, online flights, violations, ATC operations, ATC rank and virtual airline, as a single image made for your IFC About Me. You pick which of them appear and in what order, so it is your card and not a template: tick two and you get two tiles, not nine with seven blanks. Four looks to choose from, because IFC has a light theme and a dark one. Build one at inflight.info/card, paste the line it gives you, done.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b style="color:#fff; font-size:11px;"><i class="fa-solid fa-id-card" style="color:#38bdf8; margin-right:6px;"></i>PROFILE CARD</b>
+                                <span class="cl-vis-dim cl-vis-mono" style="font-size:9px;">IFC · ABOUT ME</span>
+                            </div>
+                            <div class="row" style="gap:6px;">
+                                <span style="flex:1; text-align:center; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:7px 4px;">
+                                    <b class="cl-vis-dim" style="display:block; font-size:7.5px; letter-spacing:1.4px;">GRADE</b>
+                                    <b style="color:#38bdf8; font-size:17px;">5</b>
+                                </span>
+                                <span style="flex:1; text-align:center; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:7px 4px;">
+                                    <b class="cl-vis-dim" style="display:block; font-size:7.5px; letter-spacing:1.4px;">XP</b>
+                                    <b style="color:#fff; font-size:15px;">1,204,880</b>
+                                </span>
+                                <span style="flex:1; text-align:center; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:7px 4px;">
+                                    <b class="cl-vis-dim" style="display:block; font-size:7.5px; letter-spacing:1.4px;">LANDINGS</b>
+                                    <b style="color:#fff; font-size:15px;">4,210</b>
+                                </span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-rotate',
+                    text: 'Pro keeps it current. A free card is a snapshot of the day you made it and says so on its face. Turn on the monthly refresh and your numbers re-read themselves from Infinite Flight at the start of every month, so the card sitting on your profile never quietly goes stale.'
+                },
+                {
+                    tag: 'new', icon: 'fa-user-check',
+                    text: 'You do not need an account to look. Type any IFC username and the card builds itself in front of you — signing in is only how you save one and get your link.'
+                },
+            ],
+        },
+        {
+            id: '2026.08.05',
+            date: 'August 2026',
+            title: 'Your Month, And Maps That Do Something',
+            tagline: 'A monthly report built from your own logbook, the route drawn inside the flight window, and a network map you can actually act on.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-chart-pie',
+                    text: 'Your Month — your flying month read straight from your Infinite Flight logbook: hours, the route you wore out, your longest leg, the airports and countries you touched and the airframe you keep coming back to. Free, and built to be shared. Pro adds the deep cuts — hours by weekday, leg distribution, the whole fleet you flew. Find it at inflight.info/month.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b style="color:#fff; font-size:11px;"><i class="fa-solid fa-chart-pie" style="color:#a78bfa; margin-right:6px;"></i>YOUR MONTH</b>
+                                <span class="cl-vis-dim cl-vis-mono" style="font-size:9px;">AUGUST</span>
+                            </div>
+                            <div class="row" style="gap:14px;">
+                                <span style="display:flex; flex-direction:column; gap:4px;">
+                                    <b style="color:#fff; font-size:19px;">41h 20m</b>
+                                    <b class="cl-vis-dim" style="font-size:8px; letter-spacing:1.4px;">IN THE AIR</b>
+                                </span>
+                                <span style="display:flex; flex-direction:column; gap:4px;">
+                                    <b style="color:#fff; font-size:19px;">28</b>
+                                    <b class="cl-vis-dim" style="font-size:8px; letter-spacing:1.4px;">LEGS</b>
+                                </span>
+                                <span style="display:flex; flex-direction:column; gap:4px; min-width:0;">
+                                    <b class="cl-vis-mono" style="color:#34d399; font-size:13px;">EGLL → KJFK</b>
+                                    <b class="cl-vis-dim" style="font-size:8px; letter-spacing:1.4px;">MOST FLOWN</b>
+                                </span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-map-location-dot',
+                    text: 'The route, inside the flight window. Open a flight and the great-circle track between its airports is drawn under the departure/arrival bar, with the aircraft on it — a picture of that flight, not a stock photo of the type. Four palettes in Settings, and flights whose airports cannot be placed simply leave the bar as it was.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-diagram-project',
+                    text: 'The network map does something now. It is no longer a picture you look at: pick a route off it and the map keeps only that pairing, so going from "what is this airline flying" to watching one of those flights is a tap instead of a search.'
+                },
+            ],
+        },
+        {
             id: '2026.08.04',
             date: 'August 2026',
             title: 'Nearby & Routes',
