@@ -49,6 +49,8 @@
  *   under "ACCENT_HEX_PATCH" — drop it into your Settings tab markup.
  */
 
+import { gradeLabel } from './ifGrade.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. WIDGET REGISTRY
 // Each widget declares: label, icon, sizes, optional config schema, a
@@ -178,7 +180,7 @@ const WIDGET_REGISTRY = {
             if (!ifd?.stats) {
                 return `<div class="dw-empty"><i class="fa-solid fa-link-slash"></i> Link your Infinite Flight account in Settings.</div>`;
             }
-            const grade = ifd.stats.gradeDetails?.gradeIndex ?? '—';
+            const grade = gradeLabel(ifd.stats);
             const xp = (ifd.stats.totalXP ?? 0).toLocaleString();
             const flights = (ifd.logbookTotal ?? 0).toLocaleString();
             return `
@@ -402,7 +404,7 @@ const WIDGET_REGISTRY = {
             const name = u?.user_metadata?.full_name || u?.user_metadata?.name || 'Captain';
             const ifu = u?.user_metadata?.if_username || '—';
             const bio = profile?._bio || 'Set a bio in Settings →';
-            const grade = profile?._ifData?.stats?.gradeDetails?.gradeIndex ?? '—';
+            const grade = gradeLabel(profile?._ifData?.stats);
             return `
                 <div class="dw-card-pilot">
                     <div class="dw-card-row">
