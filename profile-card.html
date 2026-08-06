@@ -447,10 +447,10 @@ a { color: inherit; }
                         <li>Save. Your stats are on your profile.</li>
                     </ol>
                     <p class="note" id="freshnessNote"></p>
-                    <p class="note">
-                        IFC does not keep its own copy of a card in a bio — it loads yours each time
-                        somebody looks, so a refresh reaches your profile on its own.
-                    </p>
+                    <!-- Written by JS from the renderer's own cache window, so
+                         the number a pilot is promised here is the number the
+                         Cache-Control header actually gives them. -->
+                    <p class="note" id="propagationNote"></p>
                 </div>
             </div>
         </aside>
@@ -486,6 +486,9 @@ const state = {
     // order given, so the list is the pilot's ranking and not a set.
     vaOptions: [], vaIds: [], maxVas: 3, vaLoading: false, vaFailed: false, vaDenied: false,
     catalogue: [], themes: [], maxFields: 9,
+    // How long a reader's browser holds the last card it fetched. Server-sent;
+    // the default only covers the options call failing.
+    refreshMinutes: 5,
     slug: null, imageUrl: null,
     previewSeq: 0, vaSeq: 0,
 };
@@ -893,7 +896,30 @@ function markDirty() {
 function showSnippet() {
     if (!state.imageUrl) return;
     $('snippet').textContent = `![My Infinite Flight stats](${state.imageUrl})`;
+    $('propagationNote').textContent = propagationText();
     $('pasteBox').hidden = false;
+}
+
+/**
+ * How soon a change actually shows up on the profile.
+ *
+ * Worth saying plainly, because the honest answer is "not instantly" and a
+ * pilot who saves an edit, looks at their profile and sees the old card has no
+ * way to tell a cache from a bug — which is exactly what happened. The number
+ * comes from the server so it tracks the real Cache-Control window.
+ *
+ * The window is a deliberate trade, not a limitation: the card is fetched
+ * afresh by every reader's browser on every profile view, so serving it with no
+ * cache at all would put a request on us for each one. A few minutes costs a
+ * pilot nothing they will notice and saves us the traffic.
+ */
+function propagationText() {
+    const mins = state.refreshMinutes;
+    const window = mins === 1 ? 'about a minute' : `about ${mins} minutes`;
+    return `IFC does not keep its own copy of a card in a bio — it loads yours each time somebody `
+        + `looks, so an edit reaches your profile on its own. Readers hold the last one they saw for `
+        + `${window}, so give it that long before you worry: a change you have just saved shows up `
+        + `within ${window}, for you and for everyone else.`;
 }
 
 function describeFreshness(statsAt, nextRefresh) {
@@ -948,9 +974,14 @@ async function save() {
 
         showSnippet();
         $('freshnessNote').textContent = describeFreshness(data.statsAt, data.nextRefresh);
+        // The one place a pilot is guaranteed to be looking at the instant the
+        // wait starts — they save, go straight to their profile, and see the
+        // old card. Saying the number here is what stops that reading as a bug.
+        const within = state.refreshMinutes === 1
+            ? 'a minute' : `${state.refreshMinutes} minutes`;
         $('savedText').textContent = data.refreshDenied
-            ? 'Saved. The monthly refresh needs Pro, so your card is a snapshot for now.'
-            : 'Saved. Your card is live at the link below.';
+            ? `Saved. The monthly refresh needs Pro, so your card is a snapshot for now — it reaches your profile within ${within}.`
+            : `Saved. Your card is live, and reaches your profile within ${within}.`;
         $('savedNote').hidden = false;
         btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save changes';
     } catch (err) {
@@ -1102,6 +1133,7 @@ async function boot() {
         state.catalogue = options.fields || [];
         state.themes = options.themes || ['midnight'];
         state.maxFields = options.maxFields || 9;
+        if (options.refreshMinutes) state.refreshMinutes = options.refreshMinutes;
         state.fields = [...(options.defaults?.fields || [])];
         state.theme = options.defaults?.theme || 'midnight';
         $('maxFields').textContent = String(state.maxFields);
