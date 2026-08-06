@@ -13,6 +13,7 @@ import { socketDataHub } from './SocketDataHub.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
+import { formatGrade } from './ifGrade.js';
 import { CrewCenterOverlay } from './crewCenterOverlay.js';
 
 const AIRCRAFT_SELECTION_LIST = [
@@ -1080,7 +1081,7 @@ init(supabaseClient) {
 
         let statChips = '';
         if (this._ifData.stats) {
-            const g = this._ifData.stats.gradeDetails?.gradeIndex;
+            const g = formatGrade(this._ifData.stats, '');
             const x = this._ifData.stats.totalXP?.toLocaleString();
             const f = this._ifData.logbookTotal?.toLocaleString();
             statChips = `
@@ -1450,7 +1451,7 @@ init(supabaseClient) {
         `;
 
         const initials = fullName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
-        const grade = this._ifData?.stats?.gradeDetails?.gradeIndex;
+        const grade = formatGrade(this._ifData?.stats, '');
         // Plane photos and custom images are Pro; a partner VA's banner is free
         // on every account (_canShowBanner).
         const hasCover = this._canShowBanner();
@@ -1474,7 +1475,7 @@ init(supabaseClient) {
                         <span class="mdui-dossier-handle"><i class="fa-solid fa-plane"></i>${ifUsername || 'Not linked'}</span>
                         ${this._bio ? `<div class="mdui-dossier-bio">${this._bio}</div>` : ''}
                     </div>
-                    ${grade != null ? `<div class="mdui-dossier-grade"><span>Grade</span><strong>${grade}</strong></div>` : ''}
+                    ${grade ? `<div class="mdui-dossier-grade"><span>Grade</span><strong>${grade}</strong></div>` : ''}
                 </div>
             </div>
         `;
@@ -1516,7 +1517,7 @@ init(supabaseClient) {
         return `
             <div class="mdui-stat-tile mdui-drillable-card" data-drill="grade" data-tone="indigo">
                 <div class="mdui-stat-tile-icon"><i class="fa-solid fa-award"></i></div>
-                <div class="mdui-stat-tile-value">Grade ${stats.gradeDetails?.gradeIndex || 'N/A'}</div>
+                <div class="mdui-stat-tile-value">Grade ${formatGrade(stats, 'N/A')}</div>
                 <div class="mdui-stat-tile-label">Pilot Level</div>
             </div>
             <div class="mdui-stat-tile mdui-drillable-card" data-drill="xp" data-tone="violet">
@@ -3664,7 +3665,7 @@ init(supabaseClient) {
         const logbook = this._ifData?.logbook || [];
 
         if (type === 'grade') {
-            const grade      = stats?.gradeDetails?.gradeIndex ?? '—';
+            const grade      = formatGrade(stats);
             const violations = stats?.violations ?? '—';
             const landings   = stats?.landingCount ?? '—';
             const onlineHrs  = stats?.onlineFlightTime ? (stats.onlineFlightTime / 60).toFixed(1) + 'h' : '—';

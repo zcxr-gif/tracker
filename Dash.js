@@ -57,6 +57,8 @@
 // { tick, intervalMs } and the dashboard will manage the interval lifecycle.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { formatGrade } from './ifGrade.js';
+
 const TINTS = {
     none:    null,
     accent:  'var(--pui-accent-soft)',
@@ -178,7 +180,7 @@ const WIDGET_REGISTRY = {
             if (!ifd?.stats) {
                 return `<div class="dw-empty"><i class="fa-solid fa-link-slash"></i> Link your Infinite Flight account in Settings.</div>`;
             }
-            const grade = ifd.stats.gradeDetails?.gradeIndex ?? '—';
+            const grade = formatGrade(ifd.stats);
             const xp = (ifd.stats.totalXP ?? 0).toLocaleString();
             const flights = (ifd.logbookTotal ?? 0).toLocaleString();
             return `
@@ -402,7 +404,7 @@ const WIDGET_REGISTRY = {
             const name = u?.user_metadata?.full_name || u?.user_metadata?.name || 'Captain';
             const ifu = u?.user_metadata?.if_username || '—';
             const bio = profile?._bio || 'Set a bio in Settings →';
-            const grade = profile?._ifData?.stats?.gradeDetails?.gradeIndex ?? '—';
+            const grade = formatGrade(profile?._ifData?.stats);
             return `
                 <div class="dw-card-pilot">
                     <div class="dw-card-row">

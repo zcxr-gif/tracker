@@ -21,6 +21,7 @@
 
 import { ProAccess } from './proAccess.js';
 import { CareerModule } from './careerModule.js';
+import { formatGrade } from './ifGrade.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
@@ -1291,7 +1292,7 @@ init(supabaseClient) {
         const logbook = this._ifData?.logbook || [];
 
         if (type === 'grade') {
-            const grade      = stats?.gradeDetails?.gradeIndex ?? '—';
+            const grade      = formatGrade(stats);
             const violations = stats?.violations ?? '—';
             const landings   = stats?.landingCount ?? '—';
             const onlineHrs  = stats?.onlineFlightTime ? (stats.onlineFlightTime / 60).toFixed(1) + 'h' : '—';
@@ -3734,7 +3735,7 @@ _getTabContentHTML() {
             const stats = this._ifData.stats || {};
             const logbook = this._ifData.logbook || [];
             
-            const grade = stats.gradeDetails?.gradeIndex || '—';
+            const grade = formatGrade(stats);
             const xp = stats.totalXP || 0;
             const totalFlights = this._ifData.logbookTotal || 0;
             const landings = stats.landingCount || 0;
@@ -3905,7 +3906,7 @@ _getTabContentHTML() {
 
             let statsStrip = '';
             if (this._ifData.stats) {
-                const grade   = this._ifData.stats.gradeDetails?.gradeIndex;
+                const grade   = formatGrade(this._ifData.stats, '');
                 const xp      = this._ifData.stats.totalXP?.toLocaleString();
                 const flights = this._ifData.logbookTotal?.toLocaleString();
                 const staleTag = this._ifData.stats._stale

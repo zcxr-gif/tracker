@@ -1,4 +1,5 @@
 import { MapAnimator } from './mapAnimator.js';
+import { formatGrade } from './ifGrade.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
 import { initPlaneSizeSlider } from './planeSizeController.js';
@@ -24072,7 +24073,7 @@ function renderPilotStatsHTML(stats, username) {
     const nextGrade = stats.gradeDetails?.grades?.[currentGradeIndex + 1];
     
     const kpis = {
-        grade: currentGrade?.name.replace('Grade ', '') || 'N/A',
+        grade: formatGrade(stats, 'N/A'),
         xp: (stats.totalXP || 0).toLocaleString(),
         atcRank: atcRankName,
         totalViolations: (stats.violationCountByLevel?.level1 || 0) + 
