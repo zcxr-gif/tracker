@@ -33,6 +33,19 @@
 //     would have introduced
 //   * a message body is rendered as text, same reasoning as the library
 //
+//   THE LINKS BOARD
+//   * the board is painted into the PAGE, not behind a panel — a quick link you
+//     have to open a panel to reach is not quick
+//   * a tile is a real <a href> with rel="noopener noreferrer" and target=_blank
+//   * a rank-gated tile is drawn WITHOUT an anchor at all: there is no address to
+//     put in one, and a link that looks clickable and does nothing is worse than
+//     one that says why
+//   * a gated tile's address is nowhere in the DOM
+//   * opening a tile tells the backend, so staff can see what the crew uses
+//   * staff can add a link, and a javascript: URL is refused with the backend's
+//     own reason rather than silently becoming a tile
+//   * reordering sends the whole new order, not just the moved tile
+//
 // Run:  node tools/test-crew-essentials.js
 // Needs: playwright-core, and a Chromium at $PLAYWRIGHT_CHROMIUM (or the
 //        pre-installed /opt/pw-browsers/chromium).
@@ -105,6 +118,32 @@ let messages = [
     },
 ];
 
+// The board as the backend would return it. The gated tile arrives with `url`
+// already emptied, because crewLinks.visibleTo did that server-side — the fake
+// has to behave the same way or the test proves the panel hides something it was
+// handed, which is not the guarantee.
+let links = [
+    {
+        id: 'k1', title: 'Discord', url: 'https://discord.gg/testva', description: 'Where we fly together',
+        category: 'community', icon: 'message-circle', minRank: '', locked: false, hoursUntilUnlock: 0,
+        pinned: true, status: 'published', sortOrder: 1, opens: 42, lastOpenedAt: hoursFromNow(-1),
+        host: 'discord.gg', createdAt: hoursFromNow(-900),
+    },
+    {
+        id: 'k2', title: 'SimBrief', url: 'https://simbrief.com/', description: 'Plan your fuel',
+        category: 'tools', icon: 'route', minRank: '', locked: false, hoursUntilUnlock: 0,
+        pinned: false, status: 'published', sortOrder: 0, opens: 8, lastOpenedAt: null,
+        host: 'simbrief.com', createdAt: hoursFromNow(-800),
+    },
+    {
+        id: 'k3', title: 'Staff ops toolkit', url: '', description: 'Rostering tools',
+        category: 'tools', icon: 'wrench', minRank: 'Captain', locked: true, hoursUntilUnlock: 212,
+        pinned: false, status: 'published', sortOrder: 0, opens: 0, lastOpenedAt: null,
+        host: '', createdAt: hoursFromNow(-700),
+    },
+];
+const CATEGORIES = ['community', 'tools', 'charts', 'downloads', 'training', 'forms', 'social', 'other'];
+
 const roster = [
     { id: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 412, rank: { name: 'Captain' }, status: 'active', aircraft: [] },
     { id: 'm2', name: 'Jo Adeyemi', callsign: 'BAW71', hours: 88, rank: { name: 'First Officer' }, status: 'active', aircraft: [] },
@@ -123,6 +162,9 @@ let savedDoc = null;
 let sentMessage = null;
 let readCalls = [];
 let rosterFetches = 0;
+let savedLink = null;
+let openedLink = null;
+let sentOrder = null;
 
 function api(route, over = {}) {
     const url = new URL(route.request().url());
@@ -186,6 +228,56 @@ function api(route, over = {}) {
         return json({ sent: 7 }, 201);
     }
     if (/\/inbox\/[\w-]+$/.test(p) && method === 'DELETE') return json({ ok: true });
+
+    // ---- the links board ----
+    if (p.endsWith('/links') && method === 'GET') {
+        const visible = links;
+        const sections = CATEGORIES
+            .map((c) => ({ category: c, links: visible.filter((l) => l.category === c) }))
+            .filter((s2) => s2.links.length);
+        return json({
+            links: visible,
+            sections,
+            summary: {
+                total: visible.length,
+                locked: visible.filter((l) => l.locked).length,
+                pinned: visible.filter((l) => l.pinned).length,
+                opens: visible.reduce((n, l) => n + (l.opens || 0), 0),
+            },
+            categories: CATEGORIES,
+            canManage: true,
+        });
+    }
+    if (p.endsWith('/links') && method === 'POST') {
+        savedLink = route.request().postDataJSON();
+        // The backend's URL allowlist, as the real one behaves: refused with a
+        // reason rather than stored. crewLinks.safeUrl is tested properly in the
+        // backend repo; this is here so the PANEL is proven to surface the reason.
+        if (/^\s*[a-z]+script\s*:|^\s*data\s*:/i.test(savedLink.url || '')) {
+            return json({ error: 'Links have to start with http:// or https://.' }, 400);
+        }
+        const l = {
+            id: 'k9', ...savedLink, locked: false, hoursUntilUnlock: 0, opens: 0,
+            lastOpenedAt: null, host: 'example.com', sortOrder: 0,
+            category: savedLink.category || 'other', icon: savedLink.icon || 'link',
+            createdAt: new Date().toISOString(),
+        };
+        links = [...links, l];
+        return json({ link: l }, 201);
+    }
+    if (p.endsWith('/links/order') && method === 'POST') {
+        sentOrder = route.request().postDataJSON();
+        return json({ ok: true, moved: (sentOrder.ids || []).length });
+    }
+    if (/\/links\/[\w-]+\/open$/.test(p) && method === 'POST') {
+        openedLink = p.split('/').slice(-2)[0];
+        return json({ ok: true, opens: 43 });
+    }
+    if (/\/links\/[\w-]+$/.test(p) && method === 'PATCH') {
+        savedLink = route.request().postDataJSON();
+        return json({ link: { ...links[0], ...savedLink } });
+    }
+    if (/\/links\/[\w-]+$/.test(p) && method === 'DELETE') return json({ ok: true });
 
     // ---- everything else the pages need to boot ----
     if (p.endsWith('/roster')) { rosterFetches += 1; return json({ roster }); }
@@ -440,6 +532,120 @@ function api(route, over = {}) {
 
     check('no page errors while messaging', staff.errors.length === 0, staff.errors.join(' | '));
     await staff.page.close();
+
+    /* =====================================================================
+     * THE LINKS BOARD
+     * =================================================================== */
+    console.log('\nThe quick-links board');
+    openedLink = null;
+    sentOrder = null;
+    const lk = await openPage('crew-pilot.html');
+
+    // On the PAGE, not behind a panel. That is the whole design decision.
+    const boardText = await lk.page.textContent('#linksBoard').catch(() => '');
+    check('the board is painted into the page, no panel opened',
+        /Discord/.test(boardText) && /SimBrief/.test(boardText), boardText.trim().slice(0, 90));
+    check('the section is revealed once it has tiles',
+        !(await lk.page.getAttribute('#linksSec', 'class') || '').includes('cp-hidden'));
+    check('tiles are grouped into sections',
+        /Community/i.test(boardText) && /Tools/i.test(boardText));
+
+    // A real anchor, opened safely.
+    const anchor = await lk.page.evaluate(() => {
+        const a = document.querySelector('#linksBoard a[data-cl-open="k1"]');
+        return a ? { href: a.getAttribute('href'), target: a.target, rel: a.rel } : null;
+    });
+    check('a tile is a real link to the address', anchor && anchor.href === 'https://discord.gg/testva',
+        JSON.stringify(anchor));
+    check('…opened in a new tab', anchor && anchor.target === '_blank');
+    check('…with noopener and noreferrer',
+        anchor && /noopener/.test(anchor.rel) && /noreferrer/.test(anchor.rel), anchor && anchor.rel);
+
+    // The gated one: no anchor at all, because there is no address to put in one.
+    const lockedTile = await lk.page.evaluate(() => {
+        const t = [...document.querySelectorAll('#linksBoard .cl-tile')]
+            .find((x) => x.textContent.includes('Staff ops toolkit'));
+        return t ? { tag: t.tagName, html: t.outerHTML } : null;
+    });
+    check('a gated tile is still shown, so a pilot knows it exists', !!lockedTile);
+    check('…drawn as text, not as a link that does nothing',
+        lockedTile && lockedTile.tag !== 'A', lockedTile && lockedTile.tag);
+    check('…saying which rank opens it',
+        lockedTile && /Captain/.test(lockedTile.html));
+    check('…and its address is nowhere in the tile',
+        lockedTile && !/href/.test(lockedTile.html) && !/example\.com/.test(lockedTile.html));
+
+    // Opening one tells the backend, which is what makes the usage figure real.
+    await lk.page.evaluate(() => {
+        // Prevented, so the test does not actually navigate to discord.gg — the
+        // click still reaches the delegated listener, which is what is under test.
+        document.addEventListener('click', (e) => { const a = e.target.closest('a'); if (a) e.preventDefault(); }, true);
+    });
+    await lk.page.click('#linksBoard a[data-cl-open="k1"]');
+    await lk.page.waitForTimeout(700);
+    check('opening a tile is reported to the backend', openedLink === 'k1', String(openedLink));
+
+    check('no page errors from the board', lk.errors.length === 0, lk.errors.join(' | '));
+    await lk.page.close();
+
+    /* =====================================================================
+     * CURATING THE BOARD
+     * =================================================================== */
+    console.log('\nCurating the board');
+    const cur = await openPage('crew-dashboard.html');
+
+    // The dashboard gets a compact strip too.
+    const strip = await cur.page.textContent('#linksBoard').catch(() => '');
+    check('the dashboard carries the board as a strip', /Discord/.test(strip), strip.trim().slice(0, 80));
+
+    await cur.page.click('#toolGrid a:has-text("Quick links")');
+    await cur.page.waitForSelector('#cl-panel:not(.cp-hidden)', { timeout: 5000 });
+    check('the Quick links tile opens the manager', true);
+
+    const manageText = await cur.page.textContent('#cl-panel');
+    check('staff see how often each tile is used', /opened 42 times/.test(manageText), manageText.trim().slice(0, 120));
+    check('…and which have never been opened', /never opened/.test(manageText));
+
+    // A javascript: URL must be refused by the backend and SAID, not swallowed.
+    await cur.page.click('[data-cl-new]');
+    await cur.page.waitForSelector('#cl-url', { timeout: 5000 });
+    await cur.page.fill('#cl-url', 'javascript:alert(1)');
+    await cur.page.click('#cl-panel button[type="submit"]');
+    await cur.page.waitForTimeout(700);
+    const toast = await cur.page.textContent('#cp-toasts').catch(() => '');
+    check('a javascript: URL is refused, with the reason shown',
+        /have to start with http/i.test(toast), toast.trim().slice(0, 90));
+    check('…and no tile was created for it',
+        !(await cur.page.textContent('#cl-panel')).includes('javascript:'));
+
+    // A good one goes through.
+    await cur.page.fill('#cl-url', 'example.com/liveries');
+    await cur.page.fill('#cl-title', 'Livery pack');
+    await cur.page.selectOption('#cl-category', 'downloads');
+    await cur.page.click('#cl-panel button[type="submit"]');
+    await cur.page.waitForTimeout(800);
+    check('a bare host is accepted and sent as typed',
+        savedLink && savedLink.url === 'example.com/liveries', JSON.stringify(savedLink && savedLink.url));
+    check('…with the label', savedLink && savedLink.title === 'Livery pack');
+    check('…and the section chosen', savedLink && savedLink.category === 'downloads');
+
+    // Reordering sends the WHOLE order, because moving one tile renumbers the rest.
+    await cur.page.waitForTimeout(300);
+    const downBtns = await cur.page.$$('#cl-panel [data-cl-down]:not([disabled])');
+    if (downBtns.length) {
+        await downBtns[0].click();
+        await cur.page.waitForTimeout(800);
+        check('reordering sends the whole new order',
+            sentOrder && Array.isArray(sentOrder.ids) && sentOrder.ids.length >= 2,
+            JSON.stringify(sentOrder));
+        check('…with the moved tile in its new place',
+            sentOrder && sentOrder.ids[0] !== 'k1', JSON.stringify(sentOrder && sentOrder.ids.slice(0, 2)));
+    } else {
+        check('reordering sends the whole new order', false, 'no enabled move-down button found');
+    }
+
+    check('no page errors while curating', cur.errors.length === 0, cur.errors.join(' | '));
+    await cur.page.close();
 
     await browser.close();
     server.close();
