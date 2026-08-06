@@ -16,6 +16,8 @@
  * pagination. Mobile-first iOS sheet; presents as a centered dialog >768px.
  */
 
+import { formatGrade } from './ifGrade.js';
+
 const ATC_RANK_MAP = {
     0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 3: 'Specialist',
     4: 'Officer', 5: 'Supervisor', 6: 'Recruiter', 7: 'Manager',
@@ -614,9 +616,7 @@ export const UserProfileUI = {
             `;
         }
 
-        const gradeIdx = stats.gradeDetails?.gradeIndex;
-        const gradeName = stats.gradeDetails?.grades?.[gradeIdx]?.name?.replace('Grade ', '');
-        const grade = gradeName ?? (typeof stats.grade === 'number' ? stats.grade : '—');
+        const grade = formatGrade(stats);
         const xp = stats.totalXP ?? stats.xp ?? 0;
         const flightTimeMin = stats.flightTime || 0;
         const hours = (flightTimeMin / 60).toLocaleString(undefined, { maximumFractionDigits: 1 });
