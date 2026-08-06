@@ -198,6 +198,44 @@ a { color: inherit; }
 }
 .idwho i { color: var(--mint); }
 .idwho b { color: var(--ink); }
+
+/* Favourites */
+.favgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .favgrid { grid-template-columns: minmax(0, 1fr); } }
+.favfield { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.favfield > span { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.01em; }
+.favfield > span i { font-style: normal; font-weight: 500; color: var(--faint); }
+.favfield input {
+    font: inherit; font-size: 14px; color: var(--ink); width: 100%; min-width: 0;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px;
+    padding: 10px 12px; outline: none; transition: border-color .14s;
+}
+.favfield input:focus { border-color: var(--sky); }
+.favfield input::placeholder { color: var(--faint); }
+#favAirport { text-transform: uppercase; }
+
+/* VA picker */
+.valist { display: flex; flex-direction: column; gap: 8px; }
+.vaopt {
+    display: flex; align-items: center; gap: 11px; cursor: pointer; min-width: 0;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; transition: border-color .14s, background .14s;
+}
+.vaopt:hover { border-color: rgba(255,255,255,0.2); }
+.vaopt.on { border-color: var(--sky); background: rgba(56,189,248,0.09); }
+.vaopt input { accent-color: var(--sky); width: 15px; height: 15px; margin: 0; flex: none; cursor: pointer; }
+.vaopt img {
+    width: 30px; height: 30px; object-fit: contain; border-radius: 7px; flex: none;
+    background: rgba(255,255,255,0.06);
+}
+.vaopt .mark {
+    width: 30px; height: 30px; border-radius: 7px; flex: none; display: grid; place-items: center;
+    background: rgba(255,255,255,0.06); font-size: 13px; font-weight: 800; color: var(--muted);
+}
+.vaopt span.nm {
+    font-size: 13.5px; font-weight: 600; color: var(--ink); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .sticky { position: sticky; top: 18px; }
 @media (max-width: 900px) { .sticky { position: static; } }
 </style>
@@ -271,9 +309,71 @@ a { color: inherit; }
                 <p class="hint">Tick up to <span id="maxFields">9</span>. They appear on the card in the order you tick them.</p>
                 <div class="picks" id="picks"></div>
             </div>
+
+            <!-- The only two things on the card the pilot asserts rather than
+                 the API reporting. Kept in their own panel for exactly that
+                 reason — they are answers, not measurements. -->
+            <div class="panel">
+                <h2>Your favourites</h2>
+                <p class="hint">
+                    Everything else is read from Infinite Flight. These two are yours to say —
+                    tick them above to put them on the card.
+                </p>
+
+                <div class="favgrid">
+                    <label class="favfield">
+                        <span>Favourite airport</span>
+                        <input id="favAirport" type="text" maxlength="4" spellcheck="false" autocapitalize="characters"
+                               autocomplete="off" placeholder="EGLL">
+                    </label>
+                    <label class="favfield">
+                        <span>Its name <i>optional</i></span>
+                        <input id="favAirportName" type="text" maxlength="28" autocomplete="off" placeholder="London Heathrow">
+                    </label>
+                    <label class="favfield">
+                        <span>Favourite aircraft</span>
+                        <input id="favAircraft" type="text" maxlength="28" autocomplete="off"
+                               list="acList" placeholder="A350-900">
+                        <datalist id="acList"></datalist>
+                    </label>
+                    <label class="favfield">
+                        <span>Livery <i>optional</i></span>
+                        <input id="favLivery" type="text" maxlength="28" autocomplete="off"
+                               list="livList" placeholder="British Airways">
+                        <datalist id="livList"></datalist>
+                    </label>
+                </div>
+
+                <div class="row" style="margin-top: 14px;">
+                    <label class="switch">
+                        <input type="checkbox" id="showPhoto" checked>
+                        <span></span>
+                    </label>
+                    <div class="body">
+                        <strong>Show a photo of it</strong>
+                        <p id="photoNote">
+                            Puts a community photo of that aircraft across the bottom of the card. If we
+                            have no photo of the livery you named, the card simply ends at the tiles.
+                        </p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <aside class="sticky">
+            <!-- Only rendered when the pilot is actually on a roster. A VA
+                 picker shown to somebody on no roster is an advert for a thing
+                 they cannot have. -->
+            <div class="panel" id="vaPanel" hidden>
+                <h2>Fly their colours</h2>
+                <p class="hint" id="vaHint">You are on this VA's roster, so you can wear it.</p>
+                <div class="valist" id="vaList"></div>
+                <p class="note" id="vaNote">
+                    Only VAs whose roster you are on appear here, and it is re-checked whenever your
+                    card is drawn — leave a VA and its colours come off on their own.
+                </p>
+            </div>
+
             <div class="panel">
                 <h2>Look</h2>
                 <p class="hint">IFC has a light and a dark theme. Pick the one that suits yours.</p>
@@ -355,6 +455,9 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
 const API = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+// Only for the aircraft/livery name suggestions — the same metadata the map and
+// Your Month read, so a pilot is offered the names Infinite Flight actually ships.
+const ACARS = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (id) => document.getElementById(id);
@@ -365,7 +468,8 @@ const state = {
     // Inflight profile and a save will use it; 'typed' means they are just
     // looking, and saving needs them to sign in first.
     usernameFrom: null,
-    fields: [], theme: 'midnight', autoRefresh: false,
+    fields: [], theme: 'midnight', autoRefresh: false, showPhoto: true,
+    vaOptions: [], vaAdId: null,
     catalogue: [], themes: [], maxFields: 9,
     slug: null, imageUrl: null,
     previewSeq: 0,
@@ -410,6 +514,13 @@ async function renderPreview() {
         theme: state.theme,
     });
     if (state.autoRefresh) params.set('pro', '1');
+    const fav = readFavourites();
+    if (fav.airport) params.set('favAirport', fav.airport);
+    if (fav.airportName) params.set('favAirportName', fav.airportName);
+    if (fav.aircraft) params.set('favAircraft', fav.aircraft);
+    if (fav.livery) params.set('favLivery', fav.livery);
+    if (!state.showPhoto) params.set('photo', '0');
+    if (state.vaAdId) params.set('va', state.vaAdId);
     const url = `${API}/api/if-card/preview?${params.toString()}`;
 
     // Decode before swapping it in, so the frame never flashes empty between
@@ -474,6 +585,116 @@ function toggleField(key) {
     drawPicks();
     markDirty();
     schedulePreview();
+}
+
+/* ---------------------------------------------------------------------------
+ * Favourites
+ * ------------------------------------------------------------------------- */
+const readFavourites = () => ({
+    airport: $('favAirport').value.trim().toUpperCase(),
+    airportName: $('favAirportName').value.trim(),
+    aircraft: $('favAircraft').value.trim(),
+    livery: $('favLivery').value.trim(),
+});
+
+function writeFavourites(fav) {
+    $('favAirport').value = fav?.airport || '';
+    $('favAirportName').value = fav?.airportName || '';
+    $('favAircraft').value = fav?.aircraft || '';
+    $('favLivery').value = fav?.livery || '';
+}
+
+/**
+ * Aircraft and livery suggestions, from the same metadata the map reads.
+ *
+ * Suggestions rather than a closed dropdown: the list is what Infinite Flight
+ * currently ships, and a pilot naming something it does not know should get a
+ * card with their answer on it rather than an argument. The photo lookup is
+ * the only thing that cares whether the name matches anything, and it fails
+ * softly by simply not finding a picture.
+ */
+async function loadAircraftSuggestions() {
+    try {
+        const meta = await fetch(`${ACARS}/api/metadata`).then((r) => r.json());
+        if (!meta?.ok) return;
+        const names = [...new Set((meta.aircraft || []).map((a) => a.name).filter(Boolean))].sort();
+        const liveries = [...new Set((meta.liveries || []).map((l) => l.name).filter(Boolean))].sort();
+        const fill = (id, list) => $(id).replaceChildren(...list.map((v) => {
+            const o = document.createElement('option');
+            o.value = v;
+            return o;
+        }));
+        fill('acList', names);
+        fill('livList', liveries);
+    } catch (_) { /* suggestions are a convenience; typing still works */ }
+}
+
+/* ---------------------------------------------------------------------------
+ * The VA badge
+ *
+ * The list comes from the server's roster lookup, so this is a picker over what
+ * the pilot has ALREADY been verified to belong to rather than a free-text box
+ * that gets rejected on save. "None" is always offered — repping a VA is
+ * optional even when you are on one.
+ * ------------------------------------------------------------------------- */
+function drawVaOptions() {
+    const panel = $('vaPanel');
+    if (!state.vaOptions.length) { panel.hidden = true; return; }
+    panel.hidden = false;
+    $('vaHint').textContent = state.vaOptions.length > 1
+        ? 'You are on more than one roster — pick the colours you want to fly.'
+        : "You are on this VA's roster, so you can wear it.";
+
+    const row = (id, name, logoUrl) => {
+        const el = document.createElement('label');
+        const on = (state.vaAdId || null) === id;
+        el.className = `vaopt${on ? ' on' : ''}`;
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'va';
+        radio.checked = on;
+        radio.addEventListener('change', () => {
+            state.vaAdId = id;
+            drawVaOptions();
+            markDirty();
+            schedulePreview();
+        });
+        el.append(radio);
+
+        if (id) {
+            if (logoUrl) {
+                const img = document.createElement('img');
+                img.src = logoUrl;
+                img.alt = '';
+                // A logo that 404s must not leave a broken-image glyph in the
+                // list; fall back to the same initial the card itself uses.
+                img.addEventListener('error', () => {
+                    const mark = document.createElement('div');
+                    mark.className = 'mark';
+                    mark.textContent = name.charAt(0).toUpperCase();
+                    img.replaceWith(mark);
+                });
+                el.append(img);
+            } else {
+                const mark = document.createElement('div');
+                mark.className = 'mark';
+                mark.textContent = name.charAt(0).toUpperCase();
+                el.append(mark);
+            }
+        }
+
+        const nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = name;
+        el.append(nm);
+        return el;
+    };
+
+    $('vaList').replaceChildren(
+        ...state.vaOptions.map((v) => row(v.id, v.name, v.logoUrl)),
+        row(null, "Don't show a VA", null),
+    );
 }
 
 const THEME_SWATCH = {
@@ -548,7 +769,14 @@ async function save() {
         const res = await fetch(`${API}/api/if-card`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.token}` },
-            body: JSON.stringify({ fields: state.fields, theme: state.theme, autoRefresh: state.autoRefresh }),
+            body: JSON.stringify({
+                fields: state.fields,
+                theme: state.theme,
+                autoRefresh: state.autoRefresh,
+                favourites: readFavourites(),
+                showPhoto: state.showPhoto,
+                vaAdId: state.vaAdId,
+            }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.message || 'We could not save your card.');
@@ -557,6 +785,20 @@ async function save() {
         state.imageUrl = data.imageUrl;
         state.autoRefresh = data.autoRefresh === true;
         $('autoRefresh').checked = state.autoRefresh;
+        // What survived normalization on the server is what the card now holds,
+        // so the fields show that rather than what was typed.
+        writeFavourites(data.favourites);
+        reportPhoto(data);
+        // The roster is re-read on save, so a pilot added to (or removed from)
+        // a VA since the page loaded sees that without reloading.
+        if (Array.isArray(data.vaOptions)) {
+            state.vaOptions = data.vaOptions;
+            state.vaAdId = data.vaAdId || null;
+            drawVaOptions();
+        }
+        if (data.vaDenied) {
+            $('vaNote').textContent = 'That VA could not be applied — you are not on its roster any more. The rest of your card saved fine.';
+        }
 
         showSnippet();
         $('freshnessNote').textContent = describeFreshness(data.statsAt, data.nextRefresh);
@@ -572,6 +814,25 @@ async function save() {
     } finally {
         btn.disabled = false;
     }
+}
+
+const PHOTO_HELP = 'Puts a community photo of that aircraft across the bottom of the card. If we have no photo of the livery you named, the card simply ends at the tiles.';
+
+/**
+ * Say whether the named aircraft actually has a photo behind it.
+ *
+ * Without this the band's absence is indistinguishable from a bug: the pilot
+ * ticked "show a photo", named an aircraft, and got no photo, with nothing on
+ * screen explaining that the gap is in our library rather than in their input.
+ */
+function reportPhoto(data) {
+    if (!state.showPhoto || !data?.favourites?.aircraft) {
+        $('photoNote').textContent = PHOTO_HELP;
+        return;
+    }
+    $('photoNote').textContent = data.photoFound
+        ? 'We have a photo of that one — it is on the card.'
+        : `No community photo of ${data.favourites.aircraft}${data.favourites.livery ? ` in ${data.favourites.livery}` : ''} yet, so the card ends at the tiles. Leaving the livery blank widens the search.`;
 }
 
 async function copySnippet() {
@@ -697,9 +958,14 @@ async function boot() {
         $('maxFields').textContent = String(state.maxFields);
 
         state.isPro = mine?.isPro === true;
+        state.vaOptions = Array.isArray(mine?.vaOptions) ? mine.vaOptions : [];
         if (mine?.card) {
             state.fields = mine.card.fields?.length ? [...mine.card.fields] : state.fields;
             state.theme = mine.card.theme || state.theme;
+            state.showPhoto = mine.card.showPhoto !== false;
+            state.vaAdId = mine.card.showVa === false ? null : (mine.card.vaAdId || null);
+            $('showPhoto').checked = state.showPhoto;
+            writeFavourites(mine.card.favourites);
             state.autoRefresh = mine.card.autoRefresh === true;
             state.slug = mine.card.slug;
             state.imageUrl = mine.card.imageUrl;
@@ -712,6 +978,10 @@ async function boot() {
         applyIdentity();
         drawPicks();
         drawThemes();
+        drawVaOptions();
+        // Not awaited: the suggestions are a convenience and the page must not
+        // wait on a metadata call to become usable.
+        loadAircraftSuggestions();
         only('bench');
         // Nothing to render until we know whose card this is — the picker and
         // the username field are still worth showing while they decide.
@@ -743,6 +1013,17 @@ $('autoRefresh').addEventListener('change', (e) => {
     state.autoRefresh = e.target.checked;
     markDirty();
     schedulePreview();
+});
+$('showPhoto').addEventListener('change', (e) => {
+    state.showPhoto = e.target.checked;
+    $('photoNote').textContent = PHOTO_HELP;
+    markDirty();
+    schedulePreview();
+});
+// `input` rather than `change` so the preview follows the typing. schedulePreview
+// already debounces, so a held key costs one render rather than one per letter.
+['favAirport', 'favAirportName', 'favAircraft', 'favLivery'].forEach((id) => {
+    $(id).addEventListener('input', () => { markDirty(); schedulePreview(); });
 });
 
 supabase.auth.onAuthStateChange((_e, s) => { if (s?.user?.id !== state.user?.id) boot(); });
