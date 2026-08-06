@@ -18699,6 +18699,21 @@ renderCategory(catId) {
                                 get the deep cuts — hours by weekday, leg distribution, every airframe you
                                 touched.
                             </p>
+
+                            <label class="config-header" style="margin-top: 22px;">Your Profile Card</label>
+                            <p style="margin: 0 0 14px 0; font-size: 0.8rem; color: #94a3b8; line-height: 1.6;">
+                                Your stats as a single image built for your Infinite Flight Community
+                                profile — grade, XP, landings, flight time, whichever of them you want on
+                                it. Paste one line into your About Me and it is there.
+                            </p>
+                            <a href="/card" target="_blank" rel="noopener" class="modal-btn" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;">
+                                <i class="fa-solid fa-id-card"></i> Make your card
+                            </a>
+                            <p style="margin: 12px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
+                                Free cards are a snapshot of the day you made them. Pro re-reads your
+                                numbers at the start of every month, so the card on your profile stays
+                                current on its own.
+                            </p>
                         </div>
                     `;
                     break;

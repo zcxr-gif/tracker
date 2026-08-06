@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your Profile Card · Inflight</title>
+<meta name="description" content="Your Infinite Flight stats as a card for your IFC profile — pick what it shows, paste one line into your About Me.">
+<link rel="icon" href="/Images/inflight.png">
+<meta property="og:title" content="Your Profile Card · Inflight">
+<meta property="og:description" content="Your Infinite Flight stats, as a card for your Infinite Flight Community profile.">
+<meta property="og:image" content="/Images/og-banner.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+/* =============================================================================
+   Your Profile Card — the stats block a pilot puts on their Infinite Flight
+   Community profile.
+
+   The page is a workbench, not a report: everything on it exists to answer
+   "what will this look like on my profile, and what do I paste?". So the
+   preview is the hero and it re-renders as you tick, the picker sits beside it
+   rather than above it, and the markdown line is one button away at all times.
+
+   Palette and furniture are month.html's on purpose — a pilot arriving from
+   their monthly report should not feel they have left the product.
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+    --bg: #0b0d12;
+    --surface: #12151d;
+    --surface-2: #171b25;
+    --line: rgba(255,255,255,0.09);
+    --ink: #f2f4f8;
+    --muted: rgba(242,244,248,0.62);
+    --faint: rgba(242,244,248,0.38);
+    --sky: #38bdf8;
+    --violet: #a78bfa;
+    --amber: #fbbf24;
+    --rose: #fb7185;
+    --mint: #34d399;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+html, body { margin: 0; padding: 0; }
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    overflow-x: hidden;
+}
+a { color: inherit; }
+
+/* Ambient wash, held still — the same two colour fields month.html drifts. */
+.wash { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.wash i { position: absolute; display: block; border-radius: 50%; filter: blur(90px); opacity: 0.26; }
+.wash i:nth-child(1) { width: 52vw; height: 52vw; left: -16vw; top: -14vw; background: #1d4ed8; }
+.wash i:nth-child(2) { width: 44vw; height: 44vw; right: -14vw; bottom: -10vw; background: #7c3aed; }
+
+.wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 20px 90px; }
+
+/* ---- Masthead ------------------------------------------------------------ */
+.masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0 8px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+.brand img { height: 26px; width: auto; display: block; }
+.brand span { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.btn {
+    appearance: none; border: 1px solid var(--line); background: rgba(255,255,255,0.05);
+    color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600;
+    padding: 9px 15px; border-radius: 11px; cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 8px; transition: background .15s, border-color .15s, transform .1s;
+}
+.btn:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.18); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--sky); border-color: transparent; color: #04121c; }
+.btn.primary:hover { background: #6fd0fa; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* ---- Title --------------------------------------------------------------- */
+.title { padding: 26px 0 6px; }
+.title h1 { margin: 0; font-size: clamp(30px, 5.2vw, 46px); font-weight: 850; letter-spacing: -0.03em; line-height: 1.06; }
+.title p { margin: 12px 0 0; color: var(--muted); font-size: 15px; max-width: 62ch; }
+
+/* ---- States -------------------------------------------------------------- */
+.state { margin-top: 34px; padding: 40px 26px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+.state i.big { font-size: 30px; color: var(--faint); display: block; margin-bottom: 14px; }
+.state h2 { margin: 0 0 8px; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.state p { margin: 0 auto 18px; color: var(--muted); font-size: 14px; max-width: 46ch; }
+.spinner { width: 26px; height: 26px; border: 2.5px solid rgba(255,255,255,0.12); border-top-color: var(--sky); border-radius: 50%; margin: 0 auto 14px; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Workbench ----------------------------------------------------------- */
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 22px; margin-top: 30px; align-items: start; }
+@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 20px; }
+.panel + .panel { margin-top: 18px; }
+.panel h2 { margin: 0 0 4px; font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+.panel .hint { margin: 0 0 16px; color: var(--faint); font-size: 12.5px; }
+
+/* The preview. Held on a chequerboard-free neutral so a light-theme card does
+   not appear to float in a hole. */
+.preview-frame {
+    position: relative; border-radius: 14px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--line); min-height: 180px;
+    display: flex; align-items: center; justify-content: center;
+}
+.preview-frame img { display: block; width: 100%; height: auto; }
+.preview-frame.busy::after {
+    content: ''; position: absolute; inset: 0; background: rgba(11,13,18,0.55);
+    backdrop-filter: blur(1px);
+}
+.preview-msg { padding: 44px 20px; color: var(--faint); font-size: 13.5px; text-align: center; }
+
+/* Stat picker */
+.picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 9px; }
+.pick {
+    display: flex; align-items: center; gap: 9px; padding: 11px 12px; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+    font-size: 13px; font-weight: 600; color: var(--muted); user-select: none;
+    transition: border-color .14s, color .14s, background .14s;
+}
+.pick:hover { border-color: rgba(255,255,255,0.2); }
+.pick input { accent-color: var(--sky); width: 15px; height: 15px; margin: 0; cursor: pointer; }
+.pick.on { color: var(--ink); border-color: rgba(56,189,248,0.55); background: rgba(56,189,248,0.09); }
+.pick.maxed:not(.on) { opacity: .42; cursor: not-allowed; }
+.pick .ord {
+    margin-left: auto; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+    color: var(--sky); background: rgba(56,189,248,0.14); border-radius: 6px; padding: 2px 6px;
+}
+
+/* Theme picker */
+.themes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.theme {
+    cursor: pointer; border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+    background: var(--surface-2); transition: border-color .14s, transform .1s;
+}
+.theme:hover { border-color: rgba(255,255,255,0.22); }
+.theme.on { border-color: var(--sky); }
+.theme .swatch { height: 30px; border-radius: 8px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.08); }
+.theme span { font-size: 12px; font-weight: 700; text-transform: capitalize; color: var(--muted); }
+.theme.on span { color: var(--ink); }
+.theme input { display: none; }
+
+/* Refresh row */
+.row { display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 13px; }
+.row.locked { opacity: .72; }
+.row .body { flex: 1; min-width: 0; }
+.row .body strong { display: block; font-size: 13.5px; font-weight: 700; }
+.row .body p { margin: 4px 0 0; font-size: 12.5px; color: var(--faint); line-height: 1.5; }
+.switch { position: relative; width: 42px; height: 24px; flex: none; margin-top: 2px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch span { position: absolute; inset: 0; background: rgba(255,255,255,0.14); border-radius: 999px; cursor: pointer; transition: background .16s; }
+.switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .16s; }
+.switch input:checked + span { background: var(--mint); }
+.switch input:checked + span::after { transform: translateX(18px); }
+.switch input:disabled + span { cursor: not-allowed; opacity: .5; }
+.pro-tag {
+    display: inline-flex; align-items: center; gap: 5px; margin-left: 7px; vertical-align: middle;
+    font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--amber); background: rgba(251,191,36,0.13); border: 1px solid rgba(251,191,36,0.3);
+    padding: 2px 7px; border-radius: 999px;
+}
+
+/* The paste line */
+.snippet {
+    display: flex; gap: 8px; align-items: stretch; margin-top: 12px;
+}
+.snippet code {
+    flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    background: #0a0c11; border: 1px solid var(--line); border-radius: 11px;
+    padding: 11px 12px; overflow-x: auto; white-space: nowrap; line-height: 1.6;
+}
+.steps { margin: 14px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.75; }
+.steps li + li { margin-top: 3px; }
+.note { margin: 12px 0 0; font-size: 12px; color: var(--faint); line-height: 1.6; }
+.saved { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--mint); margin-top: 10px; }
+.err { color: var(--rose); font-size: 13px; margin-top: 10px; }
+.sticky { position: sticky; top: 18px; }
+@media (max-width: 900px) { .sticky { position: static; } }
+</style>
+</head>
+<body>
+
+<div class="wash"><i></i><i></i></div>
+
+<div class="wrap">
+    <header class="masthead">
+        <a class="brand" href="/"><img src="/Images/inflight.png" alt=""><span>Inflight</span></a>
+        <a class="btn" href="/month" target="_blank" rel="noopener"><i class="fa-solid fa-chart-pie"></i> Your Month</a>
+    </header>
+
+    <div class="title">
+        <h1>Your profile card</h1>
+        <p>
+            Your Infinite Flight stats as one image, made for your Infinite Flight Community profile.
+            Pick what it shows, then paste a single line into your About Me.
+        </p>
+    </div>
+
+    <!-- States ------------------------------------------------------------- -->
+    <section class="state" id="stateLoading">
+        <div class="spinner"></div>
+        <h2 id="loadMsg">Checking your account…</h2>
+    </section>
+
+    <section class="state" id="stateSignedOut" hidden>
+        <i class="fa-solid fa-right-to-bracket big"></i>
+        <h2>Sign in to make your card</h2>
+        <p>Your card is built from the Infinite Flight username on your Inflight account, so we need to know who you are.</p>
+        <a class="btn primary" href="/"><i class="fa-solid fa-arrow-right"></i> Open Inflight</a>
+    </section>
+
+    <section class="state" id="stateNoIf" hidden>
+        <i class="fa-solid fa-user-pen big"></i>
+        <h2>Add your IFC username first</h2>
+        <p>Put your Infinite Flight Community username on your Inflight profile and this page will find your stats.</p>
+        <a class="btn primary" href="/"><i class="fa-solid fa-arrow-right"></i> Go to your profile</a>
+    </section>
+
+    <section class="state" id="stateError" hidden>
+        <i class="fa-solid fa-triangle-exclamation big"></i>
+        <h2>That didn't work</h2>
+        <p id="errMsg">Something went wrong.</p>
+        <button class="btn" onclick="location.reload()"><i class="fa-solid fa-rotate-right"></i> Try again</button>
+    </section>
+
+    <!-- Workbench ----------------------------------------------------------- -->
+    <div class="bench" id="bench" hidden>
+        <div>
+            <div class="panel">
+                <h2>Preview</h2>
+                <p class="hint" id="previewHint">This is exactly what appears on your profile.</p>
+                <div class="preview-frame" id="previewFrame">
+                    <div class="preview-msg" id="previewMsg">Rendering your card…</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>What it shows</h2>
+                <p class="hint">Tick up to <span id="maxFields">9</span>. They appear on the card in the order you tick them.</p>
+                <div class="picks" id="picks"></div>
+            </div>
+        </div>
+
+        <aside class="sticky">
+            <div class="panel">
+                <h2>Look</h2>
+                <p class="hint">IFC has a light and a dark theme. Pick the one that suits yours.</p>
+                <div class="themes" id="themes"></div>
+            </div>
+
+            <div class="panel">
+                <h2>Keeping it current</h2>
+                <p class="hint">A card is a picture of your stats the day it was made.</p>
+                <div class="row" id="refreshRow">
+                    <label class="switch">
+                        <input type="checkbox" id="autoRefresh">
+                        <span></span>
+                    </label>
+                    <div class="body">
+                        <strong>Refresh every month <span class="pro-tag" id="proTag"><i class="fa-solid fa-crown"></i> Pro</span></strong>
+                        <p id="refreshNote">Your numbers re-read themselves from Infinite Flight at the start of each month, so the card on your profile never goes stale.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Put it on your profile</h2>
+                <p class="hint">Save first — this line points at your saved card.</p>
+                <button class="btn primary" id="saveBtn" style="width:100%; justify-content:center;">
+                    <i class="fa-solid fa-floppy-disk"></i> Save my card
+                </button>
+                <div class="saved" id="savedNote" hidden><i class="fa-solid fa-circle-check"></i> <span id="savedText">Saved.</span></div>
+                <div class="err" id="saveErr" hidden></div>
+
+                <div id="pasteBox" hidden>
+                    <div class="snippet">
+                        <code id="snippet"></code>
+                        <button class="btn" id="copyBtn" title="Copy"><i class="fa-solid fa-copy"></i></button>
+                    </div>
+                    <ol class="steps">
+                        <li>Open your IFC profile → <b>Preferences</b> → <b>Profile</b>.</li>
+                        <li>Paste the line into <b>About me</b>.</li>
+                        <li>Save. Your stats are on your profile.</li>
+                    </ol>
+                    <p class="note" id="freshnessNote"></p>
+                    <p class="note">
+                        If IFC ever shows an old version of your card, edit your About&nbsp;me and save it again —
+                        forums keep their own copy of an image once they have fetched it.
+                    </p>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+/* ---------------------------------------------------------------------------
+ * Wiring. Same Supabase project and the same backend as the rest of the app —
+ * the card renderer lives beside the route-map renderer, because both are
+ * "give me a PNG of this" and neither belongs in a browser.
+ * ------------------------------------------------------------------------- */
+const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
+const API = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = (id) => document.getElementById(id);
+
+const state = {
+    user: null, token: null, isPro: false, username: '',
+    fields: [], theme: 'midnight', autoRefresh: false,
+    catalogue: [], themes: [], maxFields: 9,
+    slug: null, imageUrl: null,
+    previewSeq: 0,
+};
+
+const only = (id) => {
+    ['stateLoading', 'stateSignedOut', 'stateNoIf', 'stateError'].forEach((s) => { $(s).hidden = (s !== id); });
+    $('bench').hidden = (id !== 'bench');
+};
+const say = (m) => { $('loadMsg').textContent = m; };
+const fail = (m) => { $('errMsg').textContent = m; only('stateError'); };
+
+/* ---------------------------------------------------------------------------
+ * Preview
+ *
+ * Every tick re-renders server-side, which is the point: the preview is the
+ * same renderer that draws the real thing, so there is no second implementation
+ * to disagree with it. Requests are sequenced rather than debounced away — a
+ * pilot ticking quickly should land on the LAST state they chose, and a slow
+ * render arriving after a faster one must not be allowed to win.
+ * ------------------------------------------------------------------------- */
+let previewTimer = null;
+function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(renderPreview, 180);
+}
+
+async function renderPreview() {
+    if (!state.username) return;
+    const seq = ++state.previewSeq;
+    const frame = $('previewFrame');
+    frame.classList.add('busy');
+
+    const params = new URLSearchParams({
+        user: state.username,
+        fields: state.fields.join(','),
+        theme: state.theme,
+    });
+    if (state.autoRefresh) params.set('pro', '1');
+    const url = `${API}/api/if-card/preview?${params.toString()}`;
+
+    // Decode before swapping it in, so the frame never flashes empty between
+    // one card and the next.
+    const img = new Image();
+    img.alt = 'Your Infinite Flight stats card';
+    img.src = url;
+    try {
+        await img.decode();
+    } catch (_) {
+        if (seq !== state.previewSeq) return;
+        frame.classList.remove('busy');
+        frame.innerHTML = '<div class="preview-msg">We couldn\'t render a preview just now. Your saved card is unaffected.</div>';
+        return;
+    }
+    if (seq !== state.previewSeq) return;   // a newer pick already won
+    frame.classList.remove('busy');
+    frame.replaceChildren(img);
+}
+
+/* ---------------------------------------------------------------------------
+ * Pickers
+ * ------------------------------------------------------------------------- */
+function drawPicks() {
+    const maxed = state.fields.length >= state.maxFields;
+    $('picks').replaceChildren(...state.catalogue.map(({ key, label }) => {
+        const on = state.fields.includes(key);
+        const el = document.createElement('label');
+        el.className = `pick${on ? ' on' : ''}${maxed && !on ? ' maxed' : ''}`;
+
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = on;
+        box.disabled = maxed && !on;
+        box.addEventListener('change', () => toggleField(key));
+
+        const text = document.createElement('span');
+        text.textContent = label.charAt(0) + label.slice(1).toLowerCase();
+
+        el.append(box, text);
+        if (on) {
+            const ord = document.createElement('span');
+            ord.className = 'ord';
+            ord.textContent = String(state.fields.indexOf(key) + 1);
+            el.append(ord);
+        }
+        return el;
+    }));
+}
+
+function toggleField(key) {
+    const at = state.fields.indexOf(key);
+    if (at >= 0) {
+        state.fields.splice(at, 1);
+    } else {
+        if (state.fields.length >= state.maxFields) return;
+        state.fields.push(key);
+    }
+    // A card with nothing on it is not a card. Rather than let the pilot empty
+    // it and meet an error on save, the last stat simply will not come off.
+    if (!state.fields.length) { state.fields.push(key); return; }
+    drawPicks();
+    markDirty();
+    schedulePreview();
+}
+
+const THEME_SWATCH = {
+    midnight: 'linear-gradient(120deg, #0b0d12 0%, #1d4ed8 70%, #7c3aed 100%)',
+    aurora:   'linear-gradient(120deg, #0a1120 0%, #0891b2 65%, #34d399 100%)',
+    carbon:   'linear-gradient(120deg, #0d0d0f 0%, #3f3f46 65%, #fbbf24 100%)',
+    daylight: 'linear-gradient(120deg, #f4f6fa 0%, #bfdbfe 60%, #2563eb 100%)',
+};
+
+function drawThemes() {
+    $('themes').replaceChildren(...state.themes.map((key) => {
+        const el = document.createElement('label');
+        el.className = `theme${state.theme === key ? ' on' : ''}`;
+
+        const sw = document.createElement('div');
+        sw.className = 'swatch';
+        sw.style.background = THEME_SWATCH[key] || 'linear-gradient(120deg, #12151d, #38bdf8)';
+
+        const name = document.createElement('span');
+        name.textContent = key;
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'theme';
+        radio.checked = state.theme === key;
+        radio.addEventListener('change', () => {
+            state.theme = key;
+            drawThemes();
+            markDirty();
+            schedulePreview();
+        });
+
+        el.append(radio, sw, name);
+        return el;
+    }));
+}
+
+/* ---------------------------------------------------------------------------
+ * Saving, and the line they paste
+ * ------------------------------------------------------------------------- */
+function markDirty() {
+    // The pasted URL is stable, so an unsaved edit does not break anything on
+    // their profile — it just isn't live yet. Say that rather than hiding the
+    // snippet, which would read as "your card is gone".
+    if (!state.slug) return;
+    $('savedNote').hidden = true;
+    $('saveBtn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save changes';
+}
+
+function showSnippet() {
+    if (!state.imageUrl) return;
+    $('snippet').textContent = `![My Infinite Flight stats](${state.imageUrl})`;
+    $('pasteBox').hidden = false;
+}
+
+function describeFreshness(statsAt, nextRefresh) {
+    const when = statsAt ? new Date(statsAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'now';
+    if (state.autoRefresh && nextRefresh) {
+        const next = new Date(nextRefresh).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        return `Read ${when}. Refreshes on ${next}, and every month after that.`;
+    }
+    return `Read ${when}. Come back and save again whenever you want it brought up to date.`;
+}
+
+async function save() {
+    const btn = $('saveBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving…';
+    $('saveErr').hidden = true;
+
+    try {
+        const res = await fetch(`${API}/api/if-card`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.token}` },
+            body: JSON.stringify({ fields: state.fields, theme: state.theme, autoRefresh: state.autoRefresh }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.message || 'We could not save your card.');
+
+        state.slug = data.slug;
+        state.imageUrl = data.imageUrl;
+        state.autoRefresh = data.autoRefresh === true;
+        $('autoRefresh').checked = state.autoRefresh;
+
+        showSnippet();
+        $('freshnessNote').textContent = describeFreshness(data.statsAt, data.nextRefresh);
+        $('savedText').textContent = data.refreshDenied
+            ? 'Saved. The monthly refresh needs Pro, so your card is a snapshot for now.'
+            : 'Saved. Your card is live at the link below.';
+        $('savedNote').hidden = false;
+        btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save changes';
+    } catch (err) {
+        $('saveErr').textContent = err.message || 'We could not save your card.';
+        $('saveErr').hidden = false;
+        btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save my card';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function copySnippet() {
+    const text = $('snippet').textContent;
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (_) {
+        // Clipboard is blocked on plenty of mobile browsers; selecting the text
+        // for them is a working fallback rather than a dead button.
+        const range = document.createRange();
+        range.selectNodeContents($('snippet'));
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+    const btn = $('copyBtn');
+    btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+    setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-copy"></i>'; }, 1400);
+}
+
+/* ---------------------------------------------------------------------------
+ * Boot
+ * ------------------------------------------------------------------------- */
+function applyProState() {
+    const lock = !state.isPro;
+    $('refreshRow').classList.toggle('locked', lock);
+    $('autoRefresh').disabled = lock;
+    $('proTag').hidden = state.isPro;
+    $('refreshNote').textContent = lock
+        ? 'Pro members can have their numbers re-read from Infinite Flight at the start of each month, so the card on their profile never goes stale. Without it, your card stays as it was the day you saved it.'
+        : 'Your numbers re-read themselves from Infinite Flight at the start of each month, so the card on your profile never goes stale.';
+}
+
+async function boot() {
+    only('stateLoading');
+    say('Checking your account…');
+
+    const { data: { session } } = await supabase.auth.getSession();
+    state.user = session?.user || null;
+    state.token = session?.access_token || null;
+    if (!state.user || !state.token) { only('stateSignedOut'); return; }
+
+    state.username = String(state.user.user_metadata?.if_username || '').trim();
+    if (!state.username) { only('stateNoIf'); return; }
+
+    try {
+        say('Reading your Infinite Flight stats…');
+
+        // The catalogue comes from the renderer so this page can never offer a
+        // stat the card cannot draw. `mine` is what makes the page resumable:
+        // a pilot returning to change one tick keeps their existing URL.
+        const [options, mine] = await Promise.all([
+            fetch(`${API}/api/if-card/options`).then((r) => r.json()),
+            fetch(`${API}/api/if-card/mine`, { headers: { Authorization: `Bearer ${state.token}` } })
+                .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        ]);
+
+        if (!options?.ok) throw new Error('options unavailable');
+        state.catalogue = options.fields || [];
+        state.themes = options.themes || ['midnight'];
+        state.maxFields = options.maxFields || 9;
+        state.fields = [...(options.defaults?.fields || [])];
+        state.theme = options.defaults?.theme || 'midnight';
+        $('maxFields').textContent = String(state.maxFields);
+
+        state.isPro = mine?.isPro === true;
+        if (mine?.card) {
+            state.fields = mine.card.fields?.length ? [...mine.card.fields] : state.fields;
+            state.theme = mine.card.theme || state.theme;
+            state.autoRefresh = mine.card.autoRefresh === true;
+            state.slug = mine.card.slug;
+            state.imageUrl = mine.card.imageUrl;
+            $('autoRefresh').checked = state.autoRefresh;
+            showSnippet();
+            $('freshnessNote').textContent = describeFreshness(mine.card.statsAt, mine.card.nextRefresh);
+            $('saveBtn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save changes';
+        }
+
+        applyProState();
+        drawPicks();
+        drawThemes();
+        only('bench');
+        renderPreview();
+    } catch (err) {
+        fail('We couldn\'t reach the card service just now. It is usually worth another go in a moment.');
+    }
+}
+
+$('saveBtn').addEventListener('click', save);
+$('copyBtn').addEventListener('click', copySnippet);
+$('autoRefresh').addEventListener('change', (e) => {
+    state.autoRefresh = e.target.checked;
+    markDirty();
+    schedulePreview();
+});
+
+supabase.auth.onAuthStateChange((_e, s) => { if (s?.user?.id !== state.user?.id) boot(); });
+boot();
+</script>
+</body>
+</html>

@@ -21,3 +21,7 @@
 # Your Month — the monthly logbook report. Short URL because it is a link
 # people paste, and /month.html reads like a file rather than a place.
 /month     /month.html  200
+
+# Your Profile Card — the stats card a pilot puts on their IFC profile. Same
+# reasoning: it is a place people are sent to, not a file they open.
+/card      /profile-card.html  200
