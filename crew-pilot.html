@@ -21,6 +21,13 @@
          dashboard uses, showing this pilot the legs they can take. -->
     <script src="/crewPanels.js"></script>
     <script src="/crewSchedule.js"></script>
+    <!-- The airline's manuals and SOPs, with whatever this pilot's rank opens. -->
+    <script src="/crewDocuments.js"></script>
+    <!-- This pilot's own inbox: promotions, legs assigned to them, and anything
+         staff sent them personally. -->
+    <script src="/crewInbox.js"></script>
+    <!-- The airline's quick links: the Discord, SimBrief, the livery pack. -->
+    <script src="/crewLinks.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -259,6 +266,25 @@
             <div id="events" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"></div>
         </section>
 
+        <!-- ============ QUICK LINKS ============ -->
+        <!--
+          The board, sectioned and complete. Given a section of its own rather
+          than a tile because this is what a pilot most often opens the crew
+          center to find — "where do I get the liveries" is the single most
+          asked question in a VA's Discord, and the answer being one tap from
+          here is the point of the feature.
+
+          `linksSec` is hidden until the board has something in it, so a VA that
+          has added none does not carry an empty heading. crewLinks.js paints
+          nothing at all until its fetch lands.
+        -->
+        <section id="linksSec" class="mt-10 cp-hidden">
+            <div class="flex items-end justify-between mb-4">
+                <h2 class="text-lg font-bold tracking-tight">Quick links</h2>
+            </div>
+            <div id="linksBoard"></div>
+        </section>
+
         <!-- ============ ANNOUNCEMENTS ============ -->
         <section id="noticesSec" class="mt-10">
             <div class="surface rounded-lg p-6">
@@ -347,14 +373,26 @@
             {icon:'route',label:'Book a flight',desc:'Take a leg off the schedule',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Join group flights',action:'events'},
             {icon:'notebook-tabs',label:'My logbook',desc:'Your flight history',action:'logbook'},
+            // `badge` puts an unread host in the tile. crewInbox.js paints it and
+            // hides it when there is nothing waiting, so a pilot with an empty
+            // inbox sees a plain tile rather than a zero.
+            {icon:'mail',label:'Messages',desc:'Sent to you',action:'inbox',badge:true},
+            // `live` gets a host under the description that the module keeps
+            // painted with a real count — and which stays empty until the fetch
+            // lands, so the tile never claims a library it has not read.
+            {icon:'library',label:'Documents',desc:'Manuals & SOPs',action:'documents',live:true},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
-                    <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
+                    <span class="muted group-hover:accent-text transition-colors flex items-center gap-2">
+                        <i data-lucide="${t.icon}" class="w-6 h-6"></i>
+                        ${t.badge?'<span id="inboxBadge" class="cp-hidden"></span>':''}
+                    </span>
                     <div>
                         <div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div>
                         <div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div>
+                        ${t.live?'<div id="docsCount" class="text-xs mt-0.5"></div>':''}
                     </div>
                 </a>`).join('');
             document.querySelectorAll('#quickGrid [data-i]').forEach(el=>{
@@ -364,7 +402,16 @@
                 // Both of these rendered, took a click and did nothing at all.
                 if(act==='logbook') el.addEventListener('click', openLogbook);
                 if(act==='file') el.addEventListener('click', openFilePirep);
+                if(act==='inbox') el.addEventListener('click', openInbox);
+                if(act==='documents') el.addEventListener('click', openDocuments);
             });
+            // Both hosts only exist once the tiles have been drawn, so they are
+            // handed over here rather than at mount. Each module keeps painting
+            // its own host from then on.
+            const badge=document.getElementById('inboxBadge');
+            if(badge && window.CrewInbox) CrewInbox.renderBadge(badge);
+            const docs=document.getElementById('docsCount');
+            if(docs && window.CrewDocuments) CrewDocuments.renderTile(docs);
         }
         /* ================================================================
            MY FLYING
@@ -691,6 +738,69 @@
             CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: ()=> (storedSession()||{}).token || '' });
         }
 
+        // ---- Documents ----
+        //
+        // The airline's manuals and SOPs. What this pilot may READ is decided by
+        // the backend against their hours and the VA's ladder — a document above
+        // their rung arrives with its content already removed, and the panel shows
+        // the title and how far off they are. This page cannot widen that.
+        //
+        // The ladder is passed for the same reason the dashboard passes it, except
+        // here it is only used to label a lock; a pilot has no gate picker.
+        function openDocuments(){ if(window.CrewDocuments) CrewDocuments.open(); }
+        function mountDocuments(){
+            if(!window.CrewDocuments) return;
+            CrewDocuments.mount({
+                backend: BACKEND, slug: getSlug(),
+                token: ()=> (storedSession()||{}).token || '',
+            });
+        }
+
+        // ---- Messages ----
+        //
+        // This pilot's own inbox: the promotion they earned, the leg staff put them
+        // on, the acceptance that used to arrive only as an email they since lost.
+        //
+        // `canSend` is not passed — a pilot cannot message the crew, and the
+        // backend refuses it regardless. The badge is wired up in renderActions,
+        // where its host is drawn.
+        // ---- Quick links ----
+        //
+        // The whole board, in its own section. What this pilot may open is decided
+        // by the backend against their hours — a gated tile arrives with its
+        // address already removed and is drawn as locked, so nothing here can
+        // widen it.
+        //
+        // The section is revealed only once the board has painted something, so a
+        // VA with no links does not show an empty heading.
+        function mountLinks(){
+            if(!window.CrewLinks) return;
+            CrewLinks.mount({
+                backend: BACKEND, slug: getSlug(),
+                token: ()=> (storedSession()||{}).token || '',
+            }).then(()=>{
+                const host=document.getElementById('linksBoard');
+                const sec=document.getElementById('linksSec');
+                if(!host) return;
+                CrewLinks.renderBoard(host);
+                // renderBoard paints synchronously, so an empty host here means
+                // the module decided there is nothing to show.
+                if(sec) sec.classList.toggle('cp-hidden', !host.innerHTML.trim());
+            });
+        }
+
+        function openInbox(){ if(window.CrewInbox) CrewInbox.open(); }
+        function mountInbox(){
+            if(!window.CrewInbox) return;
+            CrewInbox.mount({
+                backend: BACKEND, slug: getSlug(),
+                token: ()=> (storedSession()||{}).token || '',
+            }).then(()=>{
+                const badge=document.getElementById('inboxBadge');
+                if(badge) CrewInbox.renderBadge(badge);
+            });
+        }
+
         // ---- Announcements ----
         //
         // The VA's real noticeboard. Two kinds of row arrive on it and they are
@@ -866,6 +976,9 @@
             checkPasswordGate();
             mountEvents();
             mountSchedule();
+            mountDocuments();
+            mountInbox();
+            mountLinks();
             loadNotices();
             const b = await resolveBranding();
             applyBranding(b);

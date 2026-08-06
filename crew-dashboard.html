@@ -27,6 +27,15 @@
     <script src="/crewNotices.js"></script>
     <!-- The schedule: staff build the week, pilots book a leg off it. -->
     <script src="/crewSchedule.js"></script>
+    <!-- The document library: the operations manual, the SOPs and the handbook,
+         rank-gated, instead of a Google Doc in a Discord pin. -->
+    <script src="/crewDocuments.js"></script>
+    <!-- Messages addressed to ONE pilot — the half of VA communication the
+         noticeboard cannot carry. Staff compose here; pilots read on their page. -->
+    <script src="/crewInbox.js"></script>
+    <!-- Quick links: the Discord, SimBrief, the livery pack. A board on the page
+         rather than a panel — a link you have to open a panel for is not quick. -->
+    <script src="/crewLinks.js"></script>
     <!-- The widgets a VA can put on their own website, pre-filled with theirs. -->
     <script src="/crewEmbeds.js"></script>
     <!-- Their standing with us, read-only, linking into the partnership portal. -->
@@ -306,6 +315,11 @@
                     <h2 class="text-lg font-bold tracking-tight">Manage</h2>
                     <button onclick="openSettings()" class="text-sm accent-text font-semibold hover:opacity-80">Customize</button>
                 </div>
+                <!-- The quick-links board. Painted by crewLinks.js and empty until
+                     its fetch lands — a board that renders empty and then fills
+                     reads as "this VA has no links", which is the invented-data
+                     bug the noticeboard was rewritten to remove. -->
+                <div id="linksBoard" class="mb-3"></div>
                 <div id="toolGrid" class="grid grid-cols-2 gap-3"></div>
             </section>
 
@@ -1533,6 +1547,9 @@
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
             {icon:'chart-column',label:'Statistics',desc:'Routes, pilots & activity',action:'insights'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew',action:'notices'},
+            {icon:'library',label:'Documents',desc:'Manuals, SOPs & policies',action:'documents'},
+            {icon:'mail',label:'Messages',desc:'Message pilots directly',action:'inbox'},
+            {icon:'link',label:'Quick links',desc:'Where the crew gets sent',action:'links'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
@@ -1544,6 +1561,9 @@
             routes:'routes.manage',
             schedule:'schedules.manage',
             notices:'announcements.manage',
+            documents:'documents.manage',
+            inbox:'members.message',
+            links:'links.manage',
             embeds:'settings.branding',
             partnership:'partnership.view',
             // Statistics name individual pilots and rank them, which is roster
@@ -1610,6 +1630,9 @@
                 if(t.action==='events') el.addEventListener('click', openEvents);
                 if(t.action==='schedule') el.addEventListener('click', openSchedule);
                 if(t.action==='notices') el.addEventListener('click', openNotices);
+                if(t.action==='documents') el.addEventListener('click', openDocuments);
+                if(t.action==='inbox') el.addEventListener('click', openInbox);
+                if(t.action==='links') el.addEventListener('click', openLinks);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
@@ -1632,6 +1655,7 @@
             roster:'#roster', routes:'#routes', pireps:'#pireps', settings:'#settings',
             schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
+            documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), pireps:()=>closePireps(),
@@ -1642,12 +1666,16 @@
             embeds:()=>{ if(window.CrewEmbeds) CrewEmbeds.close(); },
             partnership:()=>{ if(window.CrewPartnership) CrewPartnership.close(); },
             insights:()=>{ if(insightsPanel) insightsPanel.close(); },
+            documents:()=>{ if(window.CrewDocuments) CrewDocuments.close(); },
+            inbox:()=>{ if(window.CrewInbox) CrewInbox.close(); },
+            links:()=>{ if(window.CrewLinks) CrewLinks.close(); },
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(),
             settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
             partnership:()=>openPartnership(), insights:()=>openInsights(),
+            documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
         };
         function registerTopics(tools){
             if(!window.CrewTopics) return;
@@ -1690,6 +1718,73 @@
             if(host) CrewNotices.renderActivity(host, { limit: 6 });
         }
         function openNotices(){ if(window.CrewNotices) CrewNotices.open(); }
+
+        // ---- The document library ----
+        //
+        // The operations manual, the SOPs and the handbook, in the place a pilot
+        // already is. crewDocuments.js owns the panel and the editor; this page
+        // hands it the backend, the session and the VA's rank ladder — the ladder
+        // because the rank-gate picker offers rung NAMES, and only this page has
+        // them (they come from branding, not from the library endpoint).
+        //
+        // The gate itself is not this page's business: a document above a pilot's
+        // rung arrives already stripped of its content by the backend, so nothing
+        // here could leak one by drawing it wrong.
+        function mountDocuments(){
+            if(!window.CrewDocuments) return;
+            CrewDocuments.mount({
+                backend: BACKEND, slug: getSlug(), token: sessionToken,
+                ranks: RANKS || [],
+            });
+        }
+        function openDocuments(){ if(window.CrewDocuments) CrewDocuments.open(); }
+
+        // ---- Messages ----
+        //
+        // The addressed half of talking to the crew: what the noticeboard cannot
+        // carry because it is meant for one pilot. Staff compose here; the reading
+        // side is on the pilot page.
+        //
+        // `canSend` is told rather than asked. This page already knows what the
+        // signed-in staff member may do (loadMe has run by the time this is
+        // called), so a second round trip to discover it would be waste — and the
+        // backend gates the send itself, so a page that got this wrong would
+        // produce a 403 rather than an unauthorised message.
+        //
+        // The roster is deliberately NOT passed. It is loaded here only when the
+        // roster panel is opened, so handing it over now would usually hand over
+        // an empty array; the module fetches it itself when somebody actually
+        // opens the compose form.
+        function mountInbox(){
+            if(!window.CrewInbox) return;
+            CrewInbox.mount({
+                backend: BACKEND, slug: getSlug(), token: sessionToken,
+                ranks: RANKS || [],
+                canSend: can('members.message'),
+            });
+        }
+        function openInbox(){ if(window.CrewInbox) CrewInbox.open(); }
+
+        // ---- Quick links ----
+        //
+        // The board is painted straight into the page (see the #linksBoard host in
+        // the Manage section) rather than living behind the panel, because a quick
+        // link you have to open a panel to reach is not quick. The panel is where
+        // staff curate — add, reorder, remove.
+        //
+        // Limited to six here: this is a strip above the tool tiles, not the whole
+        // board, and the "N more" it draws opens the panel.
+        function mountLinks(){
+            if(!window.CrewLinks) return;
+            CrewLinks.mount({
+                backend: BACKEND, slug: getSlug(), token: sessionToken,
+                ranks: RANKS || [],
+            }).then(()=>{
+                const host=document.getElementById('linksBoard');
+                if(host) CrewLinks.renderBoard(host, { limit: 6 });
+            });
+        }
+        function openLinks(){ if(window.CrewLinks) CrewLinks.open(); }
 
         // ---- The schedule ----
         // Staff build the week off the route network, pilots book a leg. Both
@@ -5828,6 +5923,9 @@
             mountNotices();                 // the noticeboard, and with it the real recent-activity feed
             mountSchedule();                // the week's departures (the panel fills itself in)
             mountMyFlying();                // this staff member's own flying, if they fly
+            mountDocuments();               // the library (RANKS is already in from branding, above)
+            mountInbox();                   // messaging the crew (needs loadMe's capabilities, which have landed)
+            mountLinks();                   // the quick-links board, painted into the page
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
