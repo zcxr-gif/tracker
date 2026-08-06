@@ -515,6 +515,25 @@ export const MobileSettingsUI = {
                                 route, the airframe you keep coming back to. Free, and made to be shared.
                             </p>
 
+                            <!-- The IFC profile card. Its own page for the same
+                                 reason Your Month has one: the thing it produces
+                                 is a link that leaves the app. -->
+                            <div class="mobile-section-header">Profile Card</div>
+                            <div class="m-settings-list">
+                                <a class="m-setting-row" href="/card" target="_blank" rel="noopener" style="text-decoration:none; color:inherit;">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-id-card" style="color: #38bdf8;"></i>
+                                        <span>Your Profile Card</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right" style="opacity:.5;"></i></div>
+                                </a>
+                            </div>
+                            <p class="m-settings-note">
+                                Your stats as one image for your Infinite Flight Community profile — grade,
+                                XP, landings, whichever you pick. Paste one line into your About Me. Pro
+                                keeps the numbers refreshed every month.
+                            </p>
+
                             <div class="mobile-section-header">Updates</div>
                             <div class="m-settings-list">
                                 <div class="m-setting-row m-whatsnew-row">

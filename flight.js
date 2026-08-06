@@ -17371,6 +17371,7 @@ const SettingsUI = {
         va: { label: "VA", icon: "fa-handshake-angle" },
         theme: { label: "Theme", icon: "fa-palette" },
         month: { label: "Your Month", icon: "fa-chart-pie" },
+        card: { label: "Profile Card", icon: "fa-id-card" },
         whatsnew: { label: "What's New", icon: "fa-bullhorn" }
     },
 
@@ -18698,6 +18699,30 @@ renderCategory(catId) {
                                 Needs you signed in with your IF username on your profile. Pro members also
                                 get the deep cuts — hours by weekday, leg distribution, every airframe you
                                 touched.
+                            </p>
+                        </div>
+                    `;
+                    break;
+                case 'card':
+                    // The IFC profile card. Its own tab rather than a footnote
+                    // under Your Month: the two are different products that
+                    // happen to share a palette, and nobody hunting for a
+                    // profile card would think to look under a monthly report.
+                    html = `
+                        <div class="settings-section">
+                            <label class="config-header">Your Profile Card</label>
+                            <p style="margin: 0 0 14px 0; font-size: 0.8rem; color: #94a3b8; line-height: 1.6;">
+                                Your stats as a single image built for your Infinite Flight Community
+                                profile — grade, XP, landings, flight time, whichever of them you want on
+                                it. Paste one line into your About Me and it is there.
+                            </p>
+                            <a href="/card" target="_blank" rel="noopener" class="modal-btn" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;">
+                                <i class="fa-solid fa-id-card"></i> Make your card
+                            </a>
+                            <p style="margin: 12px 0 0 0; font-size: 0.72rem; color: #71717a; line-height: 1.5;">
+                                Needs you signed in with your IF username on your profile. Free cards are a
+                                snapshot of the day you made them; Pro re-reads your numbers at the start of
+                                every month, so the card on your profile stays current on its own.
                             </p>
                         </div>
                     `;
