@@ -236,6 +236,14 @@ a { color: inherit; }
     font-size: 13.5px; font-weight: 600; color: var(--ink); min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.vaopt.maxed:not(.on) { opacity: .42; cursor: not-allowed; }
+/* Same ordinal chip the stat picker uses — a pilot on two rosters is telling us
+   which colours lead, and the card honours that order. */
+.vaopt .ord {
+    margin-left: auto; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+    color: var(--sky); background: rgba(56,189,248,0.14); border-radius: 6px; padding: 2px 6px;
+}
+.vaempty { font-size: 13px; color: var(--faint); line-height: 1.6; margin: 0; }
 .sticky { position: sticky; top: 18px; }
 @media (max-width: 900px) { .sticky { position: static; } }
 </style>
@@ -361,13 +369,16 @@ a { color: inherit; }
         </div>
 
         <aside class="sticky">
-            <!-- Only rendered when the pilot is actually on a roster. A VA
-                 picker shown to somebody on no roster is an advert for a thing
-                 they cannot have. -->
+            <!-- Shown as soon as we know whose card this is, including for a
+                 typed username. It used to appear only when the answer was
+                 already "yes, you are on a roster", which made a pilot who IS
+                 on one and sees nothing unable to tell the difference between
+                 "we checked and you're not" and "nothing checked at all". -->
             <div class="panel" id="vaPanel" hidden>
                 <h2>Fly their colours</h2>
-                <p class="hint" id="vaHint">You are on this VA's roster, so you can wear it.</p>
+                <p class="hint" id="vaHint">Checking the partner rosters…</p>
                 <div class="valist" id="vaList"></div>
+                <p class="vaempty" id="vaEmpty" hidden></p>
                 <p class="note" id="vaNote">
                     Only VAs whose roster you are on appear here, and it is re-checked whenever your
                     card is drawn — leave a VA and its colours come off on their own.
@@ -469,10 +480,12 @@ const state = {
     // looking, and saving needs them to sign in first.
     usernameFrom: null,
     fields: [], theme: 'midnight', autoRefresh: false, showPhoto: true,
-    vaOptions: [], vaAdId: null,
+    // The VAs they have ticked, in tick order — the card wears them in the
+    // order given, so the list is the pilot's ranking and not a set.
+    vaOptions: [], vaIds: [], maxVas: 3, vaLoading: false, vaFailed: false,
     catalogue: [], themes: [], maxFields: 9,
     slug: null, imageUrl: null,
-    previewSeq: 0,
+    previewSeq: 0, vaSeq: 0,
 };
 
 // A card can only be SAVED against a verified account, because the backend takes
@@ -520,7 +533,7 @@ async function renderPreview() {
     if (fav.aircraft) params.set('favAircraft', fav.aircraft);
     if (fav.livery) params.set('favLivery', fav.livery);
     if (!state.showPhoto) params.set('photo', '0');
-    if (state.vaAdId) params.set('va', state.vaAdId);
+    if (state.vaIds.length) params.set('va', state.vaIds.join(','));
     const url = `${API}/api/if-card/preview?${params.toString()}`;
 
     // Decode before swapping it in, so the frame never flashes empty between
@@ -630,71 +643,171 @@ async function loadAircraftSuggestions() {
 }
 
 /* ---------------------------------------------------------------------------
- * The VA badge
+ * The VA badges
  *
  * The list comes from the server's roster lookup, so this is a picker over what
  * the pilot has ALREADY been verified to belong to rather than a free-text box
- * that gets rejected on save. "None" is always offered — repping a VA is
- * optional even when you are on one.
+ * that gets rejected on save. Several may be ticked, because plenty of pilots
+ * genuinely fly for more than one — and untickng them all is how you say "no
+ * VA on my card", which is why there is no separate "none" row any more.
  * ------------------------------------------------------------------------- */
+
+/**
+ * Ask the server which partner rosters this username is on.
+ *
+ * Public and username-taking, so it answers for a TYPED name as well as for a
+ * signed-in account. That is the whole fix for "I'm on a VA roster and no VA
+ * ever showed up": the options used to come only from /mine, which needs a
+ * session and reads the username off the Inflight profile, so anybody who
+ * typed a name got an empty picker no matter how many rosters they were on.
+ */
+async function loadVaOptions() {
+    const name = state.username;
+    const seq = ++state.vaSeq;
+    if (!name) {
+        state.vaOptions = [];
+        state.vaLoading = false;
+        state.vaFailed = false;
+        drawVaOptions();
+        return;
+    }
+
+    state.vaLoading = true;
+    state.vaFailed = false;
+    drawVaOptions();
+
+    let options = null;
+    try {
+        const res = await fetch(`${API}/api/if-card/vas?user=${encodeURIComponent(name)}`);
+        const data = await res.json();
+        if (data?.ok) {
+            options = data.vaOptions || [];
+            if (data.maxVas) state.maxVas = data.maxVas;
+        }
+    } catch (_) { /* handled as a failure below */ }
+
+    if (seq !== state.vaSeq) return;    // a newer username already won
+    state.vaLoading = false;
+
+    if (!options) {
+        // Say so rather than showing an empty picker: "we couldn't check" and
+        // "you're on nothing" are different answers and only one is the pilot's
+        // problem. Ticks already made are left alone.
+        state.vaFailed = true;
+        state.vaOptions = [];
+        drawVaOptions();
+        return;
+    }
+
+    state.vaOptions = options;
+    // A tick that no longer matches a roster we can see comes off — pruned only
+    // on a successful lookup, so a failed check never silently strips a VA off
+    // a saved card.
+    const kept = state.vaIds.filter((id) => options.some((o) => o.id === id));
+    const pruned = kept.length !== state.vaIds.length;
+    state.vaIds = kept;
+    drawVaOptions();
+    if (pruned) { markDirty(); schedulePreview(); }
+}
+
+function toggleVa(id) {
+    const at = state.vaIds.indexOf(id);
+    if (at >= 0) {
+        state.vaIds.splice(at, 1);
+    } else {
+        if (state.vaIds.length >= state.maxVas) return;
+        state.vaIds.push(id);
+    }
+    drawVaOptions();
+    markDirty();
+    schedulePreview();
+}
+
 function drawVaOptions() {
     const panel = $('vaPanel');
-    if (!state.vaOptions.length) { panel.hidden = true; return; }
-    panel.hidden = false;
-    $('vaHint').textContent = state.vaOptions.length > 1
-        ? 'You are on more than one roster — pick the colours you want to fly.'
+    // Nothing to say until we know whose card this is; the panel appears with
+    // the rest of the workbench the moment a username lands.
+    panel.hidden = !state.username;
+    if (!state.username) return;
+
+    const hint = $('vaHint');
+    const empty = $('vaEmpty');
+    const list = $('vaList');
+
+    if (state.vaLoading) {
+        hint.textContent = 'Checking the partner rosters…';
+        empty.hidden = true;
+        list.replaceChildren();
+        return;
+    }
+    if (state.vaFailed) {
+        hint.textContent = 'We could not check the partner rosters just now.';
+        empty.textContent = 'Your card is unaffected — try loading your username again in a moment.';
+        empty.hidden = false;
+        list.replaceChildren();
+        return;
+    }
+    if (!state.vaOptions.length) {
+        hint.textContent = `No partner VA has ${state.username} on its roster.`;
+        empty.textContent = 'Ask your VA to add your Infinite Flight Community username to the roster '
+            + 'in their partner portal, then load your username again here.';
+        empty.hidden = false;
+        list.replaceChildren();
+        return;
+    }
+
+    empty.hidden = true;
+    hint.textContent = state.vaOptions.length > 1
+        ? `You are on ${state.vaOptions.length} rosters — tick up to ${state.maxVas}, and they appear in the order you tick them.`
         : "You are on this VA's roster, so you can wear it.";
 
-    const row = (id, name, logoUrl) => {
+    const maxed = state.vaIds.length >= state.maxVas;
+    list.replaceChildren(...state.vaOptions.map(({ id, name, logoUrl }) => {
+        const on = state.vaIds.includes(id);
         const el = document.createElement('label');
-        const on = (state.vaAdId || null) === id;
-        el.className = `vaopt${on ? ' on' : ''}`;
+        el.className = `vaopt${on ? ' on' : ''}${maxed && !on ? ' maxed' : ''}`;
 
-        const radio = document.createElement('input');
-        radio.type = 'radio';
-        radio.name = 'va';
-        radio.checked = on;
-        radio.addEventListener('change', () => {
-            state.vaAdId = id;
-            drawVaOptions();
-            markDirty();
-            schedulePreview();
-        });
-        el.append(radio);
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = on;
+        box.disabled = maxed && !on;
+        box.addEventListener('change', () => toggleVa(id));
+        el.append(box);
 
-        if (id) {
-            if (logoUrl) {
-                const img = document.createElement('img');
-                img.src = logoUrl;
-                img.alt = '';
-                // A logo that 404s must not leave a broken-image glyph in the
-                // list; fall back to the same initial the card itself uses.
-                img.addEventListener('error', () => {
-                    const mark = document.createElement('div');
-                    mark.className = 'mark';
-                    mark.textContent = name.charAt(0).toUpperCase();
-                    img.replaceWith(mark);
-                });
-                el.append(img);
-            } else {
+        if (logoUrl) {
+            const img = document.createElement('img');
+            img.src = logoUrl;
+            img.alt = '';
+            // A logo that 404s must not leave a broken-image glyph in the
+            // list; fall back to the same initial the card itself uses.
+            img.addEventListener('error', () => {
                 const mark = document.createElement('div');
                 mark.className = 'mark';
                 mark.textContent = name.charAt(0).toUpperCase();
-                el.append(mark);
-            }
+                img.replaceWith(mark);
+            });
+            el.append(img);
+        } else {
+            const mark = document.createElement('div');
+            mark.className = 'mark';
+            mark.textContent = name.charAt(0).toUpperCase();
+            el.append(mark);
         }
 
         const nm = document.createElement('span');
         nm.className = 'nm';
         nm.textContent = name;
         el.append(nm);
-        return el;
-    };
 
-    $('vaList').replaceChildren(
-        ...state.vaOptions.map((v) => row(v.id, v.name, v.logoUrl)),
-        row(null, "Don't show a VA", null),
-    );
+        // Only worth showing once the order can actually differ.
+        if (on && state.vaIds.length > 1) {
+            const ord = document.createElement('span');
+            ord.className = 'ord';
+            ord.textContent = String(state.vaIds.indexOf(id) + 1);
+            el.append(ord);
+        }
+        return el;
+    }));
 }
 
 const THEME_SWATCH = {
@@ -775,7 +888,7 @@ async function save() {
                 autoRefresh: state.autoRefresh,
                 favourites: readFavourites(),
                 showPhoto: state.showPhoto,
-                vaAdId: state.vaAdId,
+                vaAdIds: state.vaIds,
             }),
         });
         const data = await res.json().catch(() => null);
@@ -793,11 +906,13 @@ async function save() {
         // a VA since the page loaded sees that without reloading.
         if (Array.isArray(data.vaOptions)) {
             state.vaOptions = data.vaOptions;
-            state.vaAdId = data.vaAdId || null;
+            state.vaIds = Array.isArray(data.vaAdIds) ? data.vaAdIds : [];
+            state.vaFailed = false;
+            state.vaLoading = false;
             drawVaOptions();
         }
         if (data.vaDenied) {
-            $('vaNote').textContent = 'That VA could not be applied — you are not on its roster any more. The rest of your card saved fine.';
+            $('vaNote').textContent = 'A VA you picked could not be applied — you are not on its roster any more. The rest of your card saved fine.';
         }
 
         showSnippet();
@@ -918,6 +1033,9 @@ async function useTypedUsername() {
     state.usernameFrom = (state.token && name.toLowerCase() === String(state.user?.user_metadata?.if_username || '').trim().toLowerCase())
         ? 'account' : 'typed';
     applyIdentity();
+    // Not awaited: the rosters are checked alongside the render rather than in
+    // front of it, so the card appears as fast as it ever did.
+    loadVaOptions();
     renderPreview();
 }
 
@@ -958,12 +1076,12 @@ async function boot() {
         $('maxFields').textContent = String(state.maxFields);
 
         state.isPro = mine?.isPro === true;
-        state.vaOptions = Array.isArray(mine?.vaOptions) ? mine.vaOptions : [];
+        if (mine?.maxVas) state.maxVas = mine.maxVas;
         if (mine?.card) {
             state.fields = mine.card.fields?.length ? [...mine.card.fields] : state.fields;
             state.theme = mine.card.theme || state.theme;
             state.showPhoto = mine.card.showPhoto !== false;
-            state.vaAdId = mine.card.showVa === false ? null : (mine.card.vaAdId || null);
+            state.vaIds = Array.isArray(mine.card.vaAdIds) ? [...mine.card.vaAdIds] : [];
             $('showPhoto').checked = state.showPhoto;
             writeFavourites(mine.card.favourites);
             state.autoRefresh = mine.card.autoRefresh === true;
@@ -986,6 +1104,10 @@ async function boot() {
         // Nothing to render until we know whose card this is — the picker and
         // the username field are still worth showing while they decide.
         if (state.username) {
+            // The rosters are checked against the username the card is FOR,
+            // through the same public lookup a typed name uses, so both paths
+            // get the same answer for the same pilot.
+            loadVaOptions();
             renderPreview();
         } else {
             $('previewFrame').innerHTML = '<div class="preview-msg">Enter a username above and your card appears here.</div>';
