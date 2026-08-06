@@ -4448,6 +4448,30 @@ if (this._activeTab === 'flight-plan') {
                             </div>
                         </div>
 
+                        <!-- Sits beside Discord Rich Presence because it is the
+                             same idea aimed at a different platform: your flying,
+                             on a profile that isn't ours. -->
+                        <div class="pui-card">
+                            <div class="pui-card-header">
+                                <h3><i class="fa-solid fa-id-card" style="color: var(--pui-accent); margin-right:8px;"></i>IFC Profile Card</h3>
+                            </div>
+                            <div class="pui-card-body">
+                                <p style="margin: 0 0 14px 0; font-size: 0.88rem; color: var(--pui-text-secondary); line-height: 1.55;">
+                                    Your stats as one image for your Infinite Flight Community profile —
+                                    grade, XP, landings, flight time, whichever of them you pick. Paste a
+                                    single line into your About Me and it is there.
+                                </p>
+                                <a href="/card" target="_blank" rel="noopener" class="pui-btn-primary" style="width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;">
+                                    <i class="fa-solid fa-id-card"></i> Make your card
+                                </a>
+                                <p class="pui-help-text" style="margin-top: 12px;">
+                                    Free cards are a snapshot of the day you made them. Pro re-reads your
+                                    numbers at the start of every month, so the card on your profile stays
+                                    current on its own.
+                                </p>
+                            </div>
+                        </div>
+
                         <div class="pui-card">
                             <div class="pui-card-header"><h3>${this.t('set.support')}</h3></div>
                             <div class="pui-card-body pui-action-list-body">
