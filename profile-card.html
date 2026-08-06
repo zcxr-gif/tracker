@@ -51,6 +51,11 @@ body {
     overflow-x: hidden;
 }
 a { color: inherit; }
+/* The UA stylesheet's [hidden] is only `display: none`, which ANY author rule
+   setting a display beats — and half the things this page toggles have one
+   (.bench is grid, .saved is flex, .pro-tag is inline-flex). Without this the
+   error state renders on top of the workbench it was meant to replace. */
+[hidden] { display: none !important; }
 
 /* Ambient wash, held still — the same two colour fields month.html drifts. */
 .wash { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
