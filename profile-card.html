@@ -213,6 +213,29 @@ a { color: inherit; }
 .favfield input:focus { border-color: var(--sky); }
 .favfield input::placeholder { color: var(--faint); }
 #favAirport { text-transform: uppercase; }
+
+/* VA picker */
+.valist { display: flex; flex-direction: column; gap: 8px; }
+.vaopt {
+    display: flex; align-items: center; gap: 11px; cursor: pointer; min-width: 0;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; transition: border-color .14s, background .14s;
+}
+.vaopt:hover { border-color: rgba(255,255,255,0.2); }
+.vaopt.on { border-color: var(--sky); background: rgba(56,189,248,0.09); }
+.vaopt input { accent-color: var(--sky); width: 15px; height: 15px; margin: 0; flex: none; cursor: pointer; }
+.vaopt img {
+    width: 30px; height: 30px; object-fit: contain; border-radius: 7px; flex: none;
+    background: rgba(255,255,255,0.06);
+}
+.vaopt .mark {
+    width: 30px; height: 30px; border-radius: 7px; flex: none; display: grid; place-items: center;
+    background: rgba(255,255,255,0.06); font-size: 13px; font-weight: 800; color: var(--muted);
+}
+.vaopt span.nm {
+    font-size: 13.5px; font-weight: 600; color: var(--ink); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .sticky { position: sticky; top: 18px; }
 @media (max-width: 900px) { .sticky { position: static; } }
 </style>
@@ -338,6 +361,19 @@ a { color: inherit; }
         </div>
 
         <aside class="sticky">
+            <!-- Only rendered when the pilot is actually on a roster. A VA
+                 picker shown to somebody on no roster is an advert for a thing
+                 they cannot have. -->
+            <div class="panel" id="vaPanel" hidden>
+                <h2>Fly their colours</h2>
+                <p class="hint" id="vaHint">You are on this VA's roster, so you can wear it.</p>
+                <div class="valist" id="vaList"></div>
+                <p class="note" id="vaNote">
+                    Only VAs whose roster you are on appear here, and it is re-checked whenever your
+                    card is drawn — leave a VA and its colours come off on their own.
+                </p>
+            </div>
+
             <div class="panel">
                 <h2>Look</h2>
                 <p class="hint">IFC has a light and a dark theme. Pick the one that suits yours.</p>
@@ -433,6 +469,7 @@ const state = {
     // looking, and saving needs them to sign in first.
     usernameFrom: null,
     fields: [], theme: 'midnight', autoRefresh: false, showPhoto: true,
+    vaOptions: [], vaAdId: null,
     catalogue: [], themes: [], maxFields: 9,
     slug: null, imageUrl: null,
     previewSeq: 0,
@@ -483,6 +520,7 @@ async function renderPreview() {
     if (fav.aircraft) params.set('favAircraft', fav.aircraft);
     if (fav.livery) params.set('favLivery', fav.livery);
     if (!state.showPhoto) params.set('photo', '0');
+    if (state.vaAdId) params.set('va', state.vaAdId);
     const url = `${API}/api/if-card/preview?${params.toString()}`;
 
     // Decode before swapping it in, so the frame never flashes empty between
@@ -591,6 +629,74 @@ async function loadAircraftSuggestions() {
     } catch (_) { /* suggestions are a convenience; typing still works */ }
 }
 
+/* ---------------------------------------------------------------------------
+ * The VA badge
+ *
+ * The list comes from the server's roster lookup, so this is a picker over what
+ * the pilot has ALREADY been verified to belong to rather than a free-text box
+ * that gets rejected on save. "None" is always offered — repping a VA is
+ * optional even when you are on one.
+ * ------------------------------------------------------------------------- */
+function drawVaOptions() {
+    const panel = $('vaPanel');
+    if (!state.vaOptions.length) { panel.hidden = true; return; }
+    panel.hidden = false;
+    $('vaHint').textContent = state.vaOptions.length > 1
+        ? 'You are on more than one roster — pick the colours you want to fly.'
+        : "You are on this VA's roster, so you can wear it.";
+
+    const row = (id, name, logoUrl) => {
+        const el = document.createElement('label');
+        const on = (state.vaAdId || null) === id;
+        el.className = `vaopt${on ? ' on' : ''}`;
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'va';
+        radio.checked = on;
+        radio.addEventListener('change', () => {
+            state.vaAdId = id;
+            drawVaOptions();
+            markDirty();
+            schedulePreview();
+        });
+        el.append(radio);
+
+        if (id) {
+            if (logoUrl) {
+                const img = document.createElement('img');
+                img.src = logoUrl;
+                img.alt = '';
+                // A logo that 404s must not leave a broken-image glyph in the
+                // list; fall back to the same initial the card itself uses.
+                img.addEventListener('error', () => {
+                    const mark = document.createElement('div');
+                    mark.className = 'mark';
+                    mark.textContent = name.charAt(0).toUpperCase();
+                    img.replaceWith(mark);
+                });
+                el.append(img);
+            } else {
+                const mark = document.createElement('div');
+                mark.className = 'mark';
+                mark.textContent = name.charAt(0).toUpperCase();
+                el.append(mark);
+            }
+        }
+
+        const nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = name;
+        el.append(nm);
+        return el;
+    };
+
+    $('vaList').replaceChildren(
+        ...state.vaOptions.map((v) => row(v.id, v.name, v.logoUrl)),
+        row(null, "Don't show a VA", null),
+    );
+}
+
 const THEME_SWATCH = {
     midnight: 'linear-gradient(120deg, #0b0d12 0%, #1d4ed8 70%, #7c3aed 100%)',
     aurora:   'linear-gradient(120deg, #0a1120 0%, #0891b2 65%, #34d399 100%)',
@@ -669,6 +775,7 @@ async function save() {
                 autoRefresh: state.autoRefresh,
                 favourites: readFavourites(),
                 showPhoto: state.showPhoto,
+                vaAdId: state.vaAdId,
             }),
         });
         const data = await res.json().catch(() => null);
@@ -682,6 +789,16 @@ async function save() {
         // so the fields show that rather than what was typed.
         writeFavourites(data.favourites);
         reportPhoto(data);
+        // The roster is re-read on save, so a pilot added to (or removed from)
+        // a VA since the page loaded sees that without reloading.
+        if (Array.isArray(data.vaOptions)) {
+            state.vaOptions = data.vaOptions;
+            state.vaAdId = data.vaAdId || null;
+            drawVaOptions();
+        }
+        if (data.vaDenied) {
+            $('vaNote').textContent = 'That VA could not be applied — you are not on its roster any more. The rest of your card saved fine.';
+        }
 
         showSnippet();
         $('freshnessNote').textContent = describeFreshness(data.statsAt, data.nextRefresh);
@@ -841,10 +958,12 @@ async function boot() {
         $('maxFields').textContent = String(state.maxFields);
 
         state.isPro = mine?.isPro === true;
+        state.vaOptions = Array.isArray(mine?.vaOptions) ? mine.vaOptions : [];
         if (mine?.card) {
             state.fields = mine.card.fields?.length ? [...mine.card.fields] : state.fields;
             state.theme = mine.card.theme || state.theme;
             state.showPhoto = mine.card.showPhoto !== false;
+            state.vaAdId = mine.card.showVa === false ? null : (mine.card.vaAdId || null);
             $('showPhoto').checked = state.showPhoto;
             writeFavourites(mine.card.favourites);
             state.autoRefresh = mine.card.autoRefresh === true;
@@ -859,6 +978,7 @@ async function boot() {
         applyIdentity();
         drawPicks();
         drawThemes();
+        drawVaOptions();
         // Not awaited: the suggestions are a convenience and the page must not
         // wait on a metadata call to become usable.
         loadAircraftSuggestions();
