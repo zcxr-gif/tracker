@@ -11,6 +11,8 @@
 //   * filing a flight means PICKING one out of their real Infinite Flight
 //     logbook — the browser sends an id, never a route or a duration — with the
 //     typed form kept as the fallback for a flight IF never logged
+//   * standings show a pilot where they sit among the people they fly with —
+//     including, and especially, when they are nowhere near the top
 //   * a pilot at the top of the ladder is not shown an empty progress bar
 //
 // Run:  node tools/test-crew-pilot-flying.js
@@ -59,6 +61,22 @@ const LOGBOOK_PAGES = [
 ];
 let logbook = LOGBOOK_PAGES[0];
 
+// The standings, as GET /standings hands them over: ranked by flights inside a
+// window, with the caller's own row carried separately so the panel can show it
+// whether or not they made the board.
+const STANDINGS = (window) => ({
+    window,
+    board: [
+        { rank: 1, memberId: 'm9', name: 'Kit Marlowe', callsign: 'BAW09', onRoster: true, flights: 12, hours: 19.4, landings: 12, lastFlightAt: ago(4), badge: { name: 'Captain' } },
+        { rank: 2, memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', onRoster: true, flights: 7, hours: 11.2, landings: 7, lastFlightAt: ago(30), badge: { name: 'First Officer' } },
+        { rank: 3, memberId: 'm8', name: 'Ada Nwosu', callsign: 'BAW08', onRoster: true, flights: 3, hours: 5.1, landings: 3, lastFlightAt: ago(60), badge: { name: 'First Officer' } },
+    ],
+    me: { rank: 2, memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', onRoster: true, flights: 7, hours: 11.2, landings: 7, lastFlightAt: ago(30), badge: { name: 'First Officer' }, of: 3 },
+    totals: { pilots: 3, flights: 22, hours: 35.7 },
+});
+let standingsBody = null;      // set to override; null means the shape above
+let standingsWindow = null;    // what the page last asked for
+
 let filed = null;
 let flyingBody = {
     pilot: { memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 214.5, status: 'active' },
@@ -73,6 +91,10 @@ function api(route) {
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
 
     if (p.endsWith('/me/flying')) return json(flyingBody);
+    if (p.endsWith('/standings')) {
+        standingsWindow = Number(new URL(route.request().url()).searchParams.get('window'));
+        return json(standingsBody || STANDINGS(standingsWindow));
+    }
     if (p.endsWith('/me/if-flights')) {
         // An unlinked pilot has one page and no flights; everyone else pages.
         if (logbook.linked === false) return json(logbook);
@@ -226,7 +248,53 @@ const head = (s) => console.log(`\n${s}`);
     ok('…and the duration as hours + minutes', filed && filed.hours === 10 && filed.minutes === 45, JSON.stringify(filed));
     ok('…attributed to this pilot', filed && filed.memberId === 'm1');
 
+    // ------------------------------------------------------------------
+    head('Standings — the panel pilots were never shown');
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.click('#quickGrid [data-i="6"]');
+    await page.waitForTimeout(600);
+    let board = await page.innerText('#crewStandings');
+    ok('the Standings tile opens the board', await page.isVisible('#crewStandings .cs-list'));
+    ok('…ranking the people actually flying', /Kit Marlowe/.test(board), board.slice(0, 200));
+    ok('…over this month by default', /This month/.test(board));
+    ok('…with the airline\'s totals on top', /3 pilots flying/.test(board), board.slice(0, 200));
+
+    ok('the signed-in pilot is marked on the board', await page.isVisible('.cs-row-me'));
+    const mine = await page.innerText('.cs-row-me');
+    ok('…as themselves, not a name they have to find', /\byou\b/i.test(mine), mine);
+
+    // The window buttons are the whole point of ranking over a window.
+    await page.click('[data-cs-window="0"]');
+    await page.waitForTimeout(500);
+    board = await page.innerText('#crewStandings');
+    ok('all-time is a different board, not the same one relabelled',
+        /Rae Okafor/.test(board) && standingsWindow === 0, `window=${standingsWindow}`);
+
     await ctx.close();
+
+    // ------------------------------------------------------------------
+    head('A pilot who has flown nothing this month');
+
+    // The case a leaderboard normally answers by leaving you off it.
+    standingsBody = {
+        window: 30,
+        board: [
+            { rank: 1, memberId: 'm9', name: 'Kit Marlowe', callsign: 'BAW09', onRoster: true, flights: 9, hours: 14.5, landings: 9, lastFlightAt: ago(4), badge: { name: 'Captain' } },
+            { rank: 2, memberId: 'm8', name: 'Ada Nwosu', callsign: 'BAW08', onRoster: true, flights: 4, hours: 6.2, landings: 4, lastFlightAt: ago(20), badge: { name: 'First Officer' } },
+        ],
+        me: { rank: null, memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', onRoster: true, flights: 0, hours: 0, landings: 0, lastFlightAt: null, badge: null, of: 2 },
+        totals: { pilots: 2, flights: 13, hours: 20.7 },
+    };
+    const { ctx: cS, page: pS } = await open();
+    await pS.click('#quickGrid [data-i="6"]');
+    await pS.waitForTimeout(600);
+    const off = await pS.innerText('#crewStandings');
+    ok('a pilot off the board is still shown their own standing', /nothing flown in this window/.test(off), off);
+    ok('…and told what it would take to appear', /4 more flights and you’re on the board/.test(off), off);
+    await cS.close();
+    standingsBody = null;
 
     // ------------------------------------------------------------------
     head('A pilot whose account was never linked');

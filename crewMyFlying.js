@@ -164,6 +164,7 @@
                 <button class="cp-btn cp-btn-sm" data-mf-schedule><i data-lucide="calendar-clock"></i> Schedule</button>
                 <button class="cp-btn cp-btn-sm" data-mf-events><i data-lucide="calendar-days"></i> Events</button>
                 <button class="cp-btn cp-btn-sm" data-mf-file=""><i data-lucide="clipboard-check"></i> File a flight</button>
+                ${window.CrewStandings ? '<button class="cp-btn cp-btn-sm" data-mf-standings><i data-lucide="trophy"></i> Standings</button>' : ''}
             </div>`;
         icons();
         wire(el);
@@ -203,6 +204,12 @@
         el.addEventListener('click', (ev) => {
             if (ev.target.closest('[data-mf-pick]')) return openPicker();
             if (ev.target.closest('[data-mf-schedule]')) return window.CrewSchedule && CrewSchedule.open();
+            // Staff fly, so staff place. The board ranks by flights in a window
+            // rather than career hours, which is the only version an owner who
+            // flies twice a month does not automatically top.
+            if (ev.target.closest('[data-mf-standings]')) {
+                return window.CrewStandings && CrewStandings.open({ api: S.api });
+            }
             if (ev.target.closest('[data-mf-events]')) return window.CrewEvents && CrewEvents.open();
             const file = ev.target.closest('[data-mf-file]');
             if (file) {

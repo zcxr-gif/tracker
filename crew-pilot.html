@@ -23,6 +23,9 @@
     <!-- Filing a flight by picking it out of the pilot's real Infinite Flight
          logbook, rather than retyping what the API already knows. -->
     <script src="/crewFlightPicker.js"></script>
+    <!-- Where this pilot sits among the people they fly with. The insights
+         panel has ranked pilots for years and only ever shown a manager. -->
+    <script src="/crewStandings.js"></script>
     <script src="/crewSchedule.js"></script>
     <!-- The airline's manuals and SOPs, with whatever this pilot's rank opens. -->
     <script src="/crewDocuments.js"></script>
@@ -384,6 +387,7 @@
             // painted with a real count — and which stays empty until the fetch
             // lands, so the tile never claims a library it has not read.
             {icon:'library',label:'Documents',desc:'Manuals & SOPs',action:'documents',live:true},
+            {icon:'trophy',label:'Standings',desc:'Who’s flying this month',action:'standings'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -407,6 +411,7 @@
                 if(act==='file') el.addEventListener('click', openFilePirep);
                 if(act==='inbox') el.addEventListener('click', openInbox);
                 if(act==='documents') el.addEventListener('click', openDocuments);
+                if(act==='standings') el.addEventListener('click', openStandings);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -806,6 +811,13 @@
                 // the module decided there is nothing to show.
                 if(sec) sec.classList.toggle('cp-hidden', !host.innerHTML.trim());
             });
+        }
+
+        /* The board works signed out — it highlights nobody then, which is the
+           honest state rather than a locked panel. So no token check here. */
+        function openStandings(){
+            if(!window.CrewStandings) return;
+            CrewStandings.open({ api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }) });
         }
 
         function openInbox(){ if(window.CrewInbox) CrewInbox.open(); }
