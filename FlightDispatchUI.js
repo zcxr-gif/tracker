@@ -114,6 +114,62 @@ const AIRCRAFT_SELECTION_LIST = [
     { value: 'MD11', name: 'McDonnell Douglas MD-11' },
 ];
 
+/* ---------------------------------------------------------------------------
+ * PERFORMANCE — what the fuel and payload plan is built out of.
+ *
+ * Seats and cruise TAS only. Fuel burn is deliberately NOT here: profileUI
+ * already carries a burn table (`_fuelBurnKgPerHr`), the lifetime-stats ledger
+ * is drawn from it, and a second table in this file would be a second thing to
+ * keep in step — the first flight where the dispatch panel and the logbook
+ * disagreed about a 777 would be a bug nobody could locate. We match against it
+ * on the aircraft NAME, which is the string it already keys on and which this
+ * list happens to hold.
+ *
+ * `seats` is a typical two-class arrangement rather than an exit limit: the
+ * number is there to size a sensible load, and filing 853 on an A380 because
+ * that is the certified maximum would be a worse default than any real airline
+ * would ever dispatch.
+ *
+ * Anything missing falls back to NARROWBODY below, which is why an aircraft
+ * added to the selection list and forgotten here still plans a usable flight
+ * instead of a blank one.
+ * ------------------------------------------------------------------------- */
+const AIRCRAFT_PERFORMANCE = {
+    A318: { seats: 107, cruiseKt: 447 }, A319: { seats: 134, cruiseKt: 447 },
+    A320: { seats: 150, cruiseKt: 447 }, A20N: { seats: 165, cruiseKt: 455 },
+    A321: { seats: 185, cruiseKt: 447 }, A21N: { seats: 200, cruiseKt: 455 },
+    A333: { seats: 277, cruiseKt: 470 }, A339: { seats: 287, cruiseKt: 475 },
+    A346: { seats: 326, cruiseKt: 483 }, A359: { seats: 315, cruiseKt: 488 },
+    A388: { seats: 525, cruiseKt: 490 },
+    B712: { seats: 106, cruiseKt: 421 }, B737: { seats: 126, cruiseKt: 447 },
+    B738: { seats: 162, cruiseKt: 447 }, B739: { seats: 178, cruiseKt: 447 },
+    B38M: { seats: 178, cruiseKt: 453 }, B742: { seats: 366, cruiseKt: 490 },
+    B744: { seats: 416, cruiseKt: 493 }, B748: { seats: 467, cruiseKt: 495 },
+    B752: { seats: 200, cruiseKt: 458 }, B763: { seats: 261, cruiseKt: 460 },
+    B772: { seats: 305, cruiseKt: 482 }, B77L: { seats: 317, cruiseKt: 482 },
+    B77W: { seats: 396, cruiseKt: 490 }, B788: { seats: 242, cruiseKt: 488 },
+    B789: { seats: 290, cruiseKt: 488 }, B78X: { seats: 330, cruiseKt: 488 },
+    CRJ2: { seats: 50, cruiseKt: 424 }, CRJ7: { seats: 70, cruiseKt: 447 },
+    CRJ9: { seats: 90, cruiseKt: 447 }, CRJX: { seats: 104, cruiseKt: 447 },
+    DH8D: { seats: 78, cruiseKt: 360 },
+    E175: { seats: 88, cruiseKt: 447 }, E190: { seats: 114, cruiseKt: 447 },
+    DC10: { seats: 270, cruiseKt: 476 }, MD11: { seats: 293, cruiseKt: 476 },
+};
+const NARROWBODY = { seats: 150, cruiseKt: 447 };
+
+/* Fuel planning constants. These are the ordinary shape of a dispatch release,
+ * not invented numbers: taxi out, the trip itself, a contingency percentage on
+ * the trip, enough to reach an alternate, and a final reserve nobody plans to
+ * touch. Naming each one is the point — a single "block fuel" figure the pilot
+ * cannot take apart is a figure they cannot sanity-check. */
+const TAXI_MIN = 12;          // engines running before wheels-up
+const CONTINGENCY_PCT = 0.05; // 5% of trip fuel, the usual allowance
+const ALTERNATE_MIN = 30;     // a diversion to somewhere sensible
+const RESERVE_MIN = 30;       // final reserve, held to landing
+const LOAD_FACTOR = 0.85;     // a full-ish aeroplane, not a sold-out one
+const PAX_WEIGHT_LB = 210;    // passenger plus their bag, standard-ish
+const KG_TO_LB = 2.20462;
+
 const OVERPASS_ENDPOINT  = 'https://overpass-api.de/api/interpreter';
 const LEAFLET_CSS_URL    = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 const LEAFLET_JS_URL     = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
@@ -175,6 +231,7 @@ export const FlightDispatchUI = {
         this._attachQuickSchedule();
         this._attachGatePicker();
         this._attachEETAutocalc();
+        this._attachLoadPlanner();
         this._attachEditDelete();
         this._attachCancelEdit();
         this._populateFormForEdit();
@@ -284,7 +341,7 @@ export const FlightDispatchUI = {
                         <li><strong>Identify:</strong> Set your Callsign and Aircraft Type.</li>
                         <li><strong>Route:</strong> Enter Origin/Destination (4-letter ICAO). EET will auto-calculate!</li>
                         <li><strong>Schedule:</strong> Tap a quick chip ("+15m") or pick a custom time. Tap the map icon next to a gate to choose visually.</li>
-                        <li><strong>Load:</strong> Add passengers (Fuel calculations coming soon!).</li>
+                        <li><strong>Load:</strong> Pax and block fuel plan themselves from the aircraft and the route — tap Recalculate after changing either.</li>
                     </ol>
                 </div>
             </div>
@@ -411,12 +468,13 @@ export const FlightDispatchUI = {
                         </div>
                         <div class="pui-form-row">
                             <div class="pui-input-group" style="flex: 1;">
-                                <label>Block Fuel (lbs) <span style="font-weight:normal; color:var(--pui-text-tertiary);">(Future Update)</span></label>
+                                <label>Block Fuel (lbs)</label>
                                 <div class="pui-input-wrapper">
                                     <i class="fa-solid fa-gas-pump pui-input-icon"></i>
-                                    <input type="number" id="pui-new-fuel" class="pui-input has-icon" placeholder="85000">
+                                    <input type="number" id="pui-new-fuel" class="pui-input has-icon" placeholder="Auto-calculated">
                                 </div>
-                                <p class="pui-help-text">Fuel telemetry will be fully integrated in an upcoming update.</p>
+                                <p class="pui-help-text">Planned from the route, the aircraft and the EET. Type your own figure and it is left alone.</p>
+                                <div id="pui-load-plan"></div>
                             </div>
                         </div>
                     </div>
@@ -768,11 +826,17 @@ const markers = gates.map(g => {
                 durationInput.placeholder = 'Calculating route...';
                 durationInput.style.opacity = '0.5';
 
-                const calc = await this._autoCalculateRouteEET(dep, arr);
+                const type = document.getElementById('pui-new-aircraft')?.value || '';
+                const calc = await this._autoCalculateRouteEET(dep, arr, type);
 
                 durationInput.style.opacity = '1';
                 if (calc) {
                     durationInput.value = calc;
+                    // The EET is what the fuel plan is a function of, so the
+                    // moment it lands the load follows. Filing a time and then
+                    // making the pilot press something to get the fuel would be
+                    // the same half-finished form with an extra step.
+                    this._recalculateLoad();
                     durationInput.style.transition = 'border-color 0.3s ease, box-shadow 0.3s ease';
                     durationInput.style.borderColor = 'var(--pui-pos)';
                     durationInput.style.boxShadow  = '0 0 0 3px var(--pui-pos-soft)';
@@ -790,7 +854,7 @@ const markers = gates.map(g => {
         arrInput.addEventListener('blur', trigger);
     },
 
-    async _autoCalculateRouteEET(depIcao, arrIcao) {
+    async _autoCalculateRouteEET(depIcao, arrIcao, type) {
         if (!depIcao || !arrIcao || depIcao.length !== 4 || arrIcao.length !== 4) return null;
 
         try {
@@ -817,12 +881,172 @@ const markers = gates.map(g => {
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             const distanceNM = R * c;
 
-            // 450kt cruise + 30 min for SID/STAR padding
-            const cruiseHours = distanceNM / 450;
+            // The type's own cruise TAS when we know it, 450kt otherwise, plus
+            // 30 min for SID/STAR padding. A Q400 and an A350 flying the same
+            // legs used to file the same time, which is wrong by well over an
+            // hour on anything transcontinental.
+            const cruiseKt = type ? this._perf(type).cruiseKt : 450;
+            const cruiseHours = distanceNM / cruiseKt;
             return Math.round((cruiseHours * 60) + 30);
         } catch (e) {
             console.warn('[FlightDispatchUI] Auto-EET failed:', e);
             return null;
+        }
+    },
+
+    // =====================================================================
+    //  FUEL & PAYLOAD
+    //
+    //  The Block Fuel field shipped reading "(Future Update)" with the help
+    //  text "Fuel telemetry will be fully integrated in an upcoming update",
+    //  and the quick guide told pilots fuel calculations were coming soon. So
+    //  the one number on this form nobody could reasonably work out in their
+    //  head was the one the form declined to work out for them.
+    //
+    //  Everything needed was already here: the route gives distance, the type
+    //  gives a burn rate and a cruise speed, and EET falls out of the two.
+    // =====================================================================
+
+    /** Performance for a type code, never null — see AIRCRAFT_PERFORMANCE. */
+    _perf(type) {
+        return AIRCRAFT_PERFORMANCE[String(type || '').toUpperCase()] || NARROWBODY;
+    },
+
+    /**
+     * Burn in lbs/hour for a type code.
+     *
+     * Resolves the code to the name the selection list already carries, then
+     * asks profileUI's existing table — the same one the lifetime ledger's
+     * "est. fuel burned" is drawn from, so the two can never disagree. The
+     * fallback exists only for a host that predates that method; it is
+     * deliberately coarse, because a wrong-but-close number the pilot can see
+     * beats a blank field, and anything better belongs in the shared table.
+     */
+    _burnLbPerHr(type) {
+        const entry = AIRCRAFT_SELECTION_LIST.find(a => a.value === String(type || '').toUpperCase());
+        const name = entry ? entry.name : String(type || '');
+        const kg = typeof this._host?._fuelBurnKgPerHr === 'function'
+            ? this._host._fuelBurnKgPerHr(name)
+            : 2200;
+        return Math.round(kg * KG_TO_LB);
+    },
+
+    /**
+     * A fuel plan for a leg, broken into the parts a release is made of.
+     *
+     * Returned in pieces rather than as one total on purpose: a pilot who can
+     * see that 9,200 lb of a 62,000 lb block is reserve can judge whether the
+     * plan is sane. One opaque figure is one they either trust blindly or
+     * ignore, and both of those are worse than arithmetic they can follow.
+     */
+    _planFuel(type, eetMinutes) {
+        const burn = this._burnLbPerHr(type);
+        const trip = Math.round(burn * (Math.max(0, Number(eetMinutes) || 0) / 60));
+        const taxi = Math.round(burn * (TAXI_MIN / 60));
+        const contingency = Math.round(trip * CONTINGENCY_PCT);
+        const alternate = Math.round(burn * (ALTERNATE_MIN / 60));
+        const reserve = Math.round(burn * (RESERVE_MIN / 60));
+        return {
+            burn, trip, taxi, contingency, alternate, reserve,
+            block: taxi + trip + contingency + alternate + reserve,
+        };
+    },
+
+    /** A sensible load for the type: seats, and 85% of them in the cabin. */
+    _planPayload(type) {
+        const seats = this._perf(type).seats;
+        const pax = Math.round(seats * LOAD_FACTOR);
+        return { seats, pax, payloadLb: pax * PAX_WEIGHT_LB };
+    },
+
+    /**
+     * Fill EET, pax and block fuel from the route and the type.
+     *
+     * Never overwrites a number the pilot typed. Dispatch software that
+     * recalculates over the top of a deliberate entry is dispatch software
+     * people stop trusting — so a field with something in it is left alone,
+     * and the breakdown underneath still updates so they can see how far off
+     * the plan their figure is.
+     */
+    async _recalculateLoad({ force = false } = {}) {
+        const type = document.getElementById('pui-new-aircraft')?.value || '';
+        const dep = (document.getElementById('pui-new-dep')?.value || '').trim().toUpperCase();
+        const arr = (document.getElementById('pui-new-arr')?.value || '').trim().toUpperCase();
+        const durationInput = document.getElementById('pui-new-duration');
+        const paxInput = document.getElementById('pui-new-pax');
+        const fuelInput = document.getElementById('pui-new-fuel');
+        if (!durationInput || !paxInput || !fuelInput) return;
+
+        // EET first — the fuel plan is a function of it. Recomputed with the
+        // type's own cruise speed when the route is known, which is why a Q400
+        // and an A350 no longer file the same time for the same legs.
+        let eet = Number(durationInput.value) || 0;
+        if ((!eet || force) && dep.length === 4 && arr.length === 4) {
+            const calc = await this._autoCalculateRouteEET(dep, arr, type);
+            if (calc) { eet = calc; durationInput.value = calc; }
+        }
+        if (!eet) { this._renderLoadPlan(null); return; }
+
+        const fuel = this._planFuel(type, eet);
+        const load = this._planPayload(type);
+        if (force || !paxInput.value) paxInput.value = load.pax;
+        if (force || !fuelInput.value) fuelInput.value = fuel.block;
+        this._renderLoadPlan({ type, eet, fuel, load });
+    },
+
+    /** The breakdown under the fuel field. Empty host when there is no plan. */
+    _renderLoadPlan(plan) {
+        const host = document.getElementById('pui-load-plan');
+        if (!host) return;
+        if (!plan) { host.innerHTML = ''; return; }
+
+        const { fuel, load, eet } = plan;
+        const lb = n => Number(n).toLocaleString();
+        const hrs = Math.floor(eet / 60), mins = eet % 60;
+        const line = (label, value, note) => `
+            <div class="pui-load-line">
+                <span>${label}${note ? ` <em>${note}</em>` : ''}</span>
+                <b>${lb(value)}</b>
+            </div>`;
+
+        host.innerHTML = `
+            <div class="pui-load-plan">
+                <div class="pui-load-head">
+                    <span><i class="fa-solid fa-calculator"></i> Planned load</span>
+                    <button type="button" class="pui-load-redo" id="pui-load-redo"
+                        title="Recalculate from the route and aircraft">Recalculate</button>
+                </div>
+                ${line('Taxi', fuel.taxi, `${TAXI_MIN} min`)}
+                ${line('Trip', fuel.trip, `${hrs ? `${hrs}h ` : ''}${mins}m at ${lb(fuel.burn)} lb/hr`)}
+                ${line('Contingency', fuel.contingency, `${Math.round(CONTINGENCY_PCT * 100)}% of trip`)}
+                ${line('Alternate', fuel.alternate, `${ALTERNATE_MIN} min`)}
+                ${line('Final reserve', fuel.reserve, `${RESERVE_MIN} min`)}
+                <div class="pui-load-line pui-load-total"><span>Block fuel</span><b>${lb(fuel.block)} lb</b></div>
+                <div class="pui-load-foot">
+                    ${load.pax} of ${load.seats} seats · ${lb(load.payloadLb)} lb payload
+                </div>
+            </div>`;
+    },
+
+    /** Recalculate when the route, the type or the EET changes. */
+    _attachLoadPlanner() {
+        const ids = ['pui-new-dep', 'pui-new-arr', 'pui-new-duration'];
+        ids.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('blur', () => this._recalculateLoad());
+        });
+        const ac = document.getElementById('pui-new-aircraft');
+        // A type change is the one edit that invalidates a figure already on
+        // screen — the numbers were right for the aeroplane they are no longer
+        // flying — so this is the one place we overwrite.
+        if (ac) ac.addEventListener('change', () => this._recalculateLoad({ force: true }));
+
+        const host = document.getElementById('pui-load-plan');
+        if (host && !host.dataset.wired) {
+            host.dataset.wired = '1';
+            host.addEventListener('click', (ev) => {
+                if (ev.target.closest('#pui-load-redo')) this._recalculateLoad({ force: true });
+            });
         }
     },
 
@@ -983,6 +1207,47 @@ const markers = gates.map(g => {
         if (document.getElementById('pui-fdu-styles')) return;
 
         const css = `
+            /* Fuel & payload breakdown — the arithmetic behind Block Fuel,
+               shown so the figure is one the pilot can check rather than one
+               they have to trust. */
+            .pui-load-plan {
+                margin-top: 10px; padding: 12px 14px;
+                background: var(--pui-bg-surface);
+                border: 1px solid var(--pui-border-light);
+                border-radius: 10px;
+                font-size: 0.82rem;
+            }
+            .pui-load-head {
+                display: flex; align-items: center; justify-content: space-between;
+                gap: 10px; margin-bottom: 8px;
+                font-weight: 700; color: var(--pui-text-secondary);
+                text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.72rem;
+            }
+            .pui-load-redo {
+                font: inherit; text-transform: none; letter-spacing: 0;
+                background: none; border: 1px solid var(--pui-border-light);
+                color: var(--pui-text-secondary);
+                border-radius: 999px; padding: 3px 10px; cursor: pointer;
+            }
+            .pui-load-redo:hover { border-color: var(--pui-accent); color: var(--pui-text-primary); }
+            .pui-load-line {
+                display: flex; align-items: baseline; justify-content: space-between;
+                gap: 12px; padding: 3px 0;
+                color: var(--pui-text-secondary);
+            }
+            .pui-load-line em {
+                font-style: normal; color: var(--pui-text-tertiary); font-size: 0.92em;
+            }
+            .pui-load-line b { font-variant-numeric: tabular-nums; color: var(--pui-text-primary); }
+            .pui-load-total {
+                margin-top: 6px; padding-top: 8px;
+                border-top: 1px solid var(--pui-border-light);
+                font-weight: 700; color: var(--pui-text-primary);
+            }
+            .pui-load-foot {
+                margin-top: 8px; color: var(--pui-text-tertiary); font-size: 0.78rem;
+            }
+
             /* Quick-schedule chips */
             .pui-quick-schedule-row {
                 display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

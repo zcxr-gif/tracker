@@ -40,6 +40,12 @@
     <script src="/crewEmbeds.js"></script>
     <!-- Their standing with us, read-only, linking into the partnership portal. -->
     <script src="/crewPartnership.js"></script>
+    <!-- Filing a flight by picking it out of the real Infinite Flight logbook.
+         Loaded before crewMyFlying.js, which files through it. -->
+    <script src="/crewFlightPicker.js"></script>
+    <!-- The standings board, opened from the my-flying card. Loaded before
+         crewMyFlying.js, which offers the button only when this is present. -->
+    <script src="/crewStandings.js"></script>
     <!-- A staff member's OWN flying. Staff fly too, and this dashboard used to
          show them everyone else's operation and none of their own. -->
     <script src="/crewMyFlying.js"></script>
@@ -1451,7 +1457,7 @@
                 <p id="pirepFormNote" class="hidden text-sm mt-2"></p>
             </div>
             <div id="pirepManageBar" class="hidden px-5 pt-4">
-                <p class="text-xs muted mb-2.5">Flights are pulled automatically from each linked pilot’s Infinite Flight history and matched to your fleet &amp; routes. <span id="pirepSyncNote"></span></p>
+                <p class="text-xs muted mb-2.5">Pilots file by picking a flight out of their own Infinite Flight logbook, so every report here is the API’s record rather than a typed claim — matched to your fleet &amp; routes as it arrives. Sync sweeps up anything a linked pilot hasn’t filed themselves. <span id="pirepSyncNote"></span></p>
                 <label class="flex items-center gap-2 text-sm cursor-pointer surface hair rounded-lg px-3 py-2.5">
                     <input id="pirepAuto" type="checkbox" class="accent-[var(--accent)]" onchange="savePirepAuto(this.checked)">
                     <span>Auto-approve fleet flights <span class="muted">— credit hours the moment a matching flight is captured</span></span>

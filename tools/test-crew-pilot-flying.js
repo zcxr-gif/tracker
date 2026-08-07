@@ -8,7 +8,13 @@
 //   * a pilot with no flights is told so, rather than shown somebody else's
 //   * the logbook opens from both the link and the tile (neither had a handler)
 //     and shows pending and rejected reports, not just the approved ones
-//   * filing a flight sends what was typed, and the form is reachable at all
+//   * filing a flight means PICKING one out of their real Infinite Flight
+//     logbook — the browser sends an id, never a route or a duration — with the
+//     typed form kept as the fallback for a flight IF never logged
+//   * standings show a pilot where they sit among the people they fly with —
+//     including, and especially, when they are nowhere near the top
+//   * the route network is browsable by the pilots who fly it, with the legs
+//     they have already flown marked and the locked ones priced in hours
 //   * a pilot at the top of the ladder is not shown an empty progress bar
 //
 // Run:  node tools/test-crew-pilot-flying.js
@@ -36,6 +42,59 @@ const FLIGHTS = [
     { id: 'p4', origin: 'EGKK', destination: 'LEBL', aircraftName: 'Airbus A321', flightNumber: 'BA490', durationMin: 130, status: 'approved', flownAt: ago(900) },
 ];
 
+// The pilot's real Infinite Flight logbook, as GET /me/if-flights hands it over:
+// already judged against this airline (filed before? fleet aircraft? published
+// route?), because those are facts the browser cannot work out for itself.
+const LOGBOOK_PAGES = [
+    {
+        linked: true, page: 1, totalPages: 2, hasNextPage: true,
+        flights: [
+            { flightId: 'if-1', origin: 'EGLL', destination: 'KSFO', aircraftName: 'Boeing 777-300ER', liveryName: 'British Airways', durationMin: 645, landings: 1, xp: 1200, violations: 0, server: 'Expert', callsign: 'BAW285', flownAt: ago(6), filed: false, inFleet: true, routeMatched: true, flightNumber: 'BA285' },
+            { flightId: 'if-2', origin: 'EGLL', destination: 'LFPG', aircraftName: 'Airbus A320', liveryName: 'British Airways', durationMin: 75, landings: 1, xp: 300, violations: 0, server: 'Expert', callsign: 'BAW304', flownAt: ago(30), filed: true, inFleet: true, routeMatched: true, flightNumber: 'BA304' },
+            { flightId: 'if-3', origin: 'KJFK', destination: 'KBOS', aircraftName: 'Cessna 172', liveryName: 'Generic', durationMin: 55, landings: 3, xp: 90, violations: 1, server: 'Training', callsign: 'N172RG', flownAt: ago(48), filed: false, inFleet: false, routeMatched: false, flightNumber: '' },
+        ],
+    },
+    {
+        linked: true, page: 2, totalPages: 2, hasNextPage: false,
+        flights: [
+            { flightId: 'if-4', origin: 'EGKK', destination: 'LEBL', aircraftName: 'Airbus A321', liveryName: 'British Airways', durationMin: 130, landings: 1, xp: 420, violations: 0, server: 'Expert', callsign: 'BAW490', flownAt: ago(900), filed: false, inFleet: true, routeMatched: true, flightNumber: 'BA490' },
+        ],
+    },
+];
+let logbook = LOGBOOK_PAGES[0];
+
+// The standings, as GET /standings hands them over: ranked by flights inside a
+// window, with the caller's own row carried separately so the panel can show it
+// whether or not they made the board.
+const STANDINGS = (window) => ({
+    window,
+    board: [
+        { rank: 1, memberId: 'm9', name: 'Kit Marlowe', callsign: 'BAW09', onRoster: true, flights: 12, hours: 19.4, landings: 12, lastFlightAt: ago(4), badge: { name: 'Captain' } },
+        { rank: 2, memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', onRoster: true, flights: 7, hours: 11.2, landings: 7, lastFlightAt: ago(30), badge: { name: 'First Officer' } },
+        { rank: 3, memberId: 'm8', name: 'Ada Nwosu', callsign: 'BAW08', onRoster: true, flights: 3, hours: 5.1, landings: 3, lastFlightAt: ago(60), badge: { name: 'First Officer' } },
+    ],
+    me: { rank: 2, memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', onRoster: true, flights: 7, hours: 11.2, landings: 7, lastFlightAt: ago(30), badge: { name: 'First Officer' }, of: 3 },
+    totals: { pilots: 3, flights: 22, hours: 35.7 },
+});
+let standingsBody = null;      // set to override; null means the shape above
+let standingsWindow = null;    // what the page last asked for
+
+// The route network, as GET /routes already hands it to any pilot: the leg, the
+// aircraft, whether it is a codeshare, and — for a rank-gated route — how many
+// hours THIS pilot is short of opening it.
+const ROUTES = [
+    // Flown by this pilot: EGLL → LFPG is p1 in FLIGHTS, approved.
+    { id: 'r1', flightNumber: 'BA304', origin: 'EGLL', destination: 'LFPG', aircraft: 'Airbus A320', distanceNm: 188, notes: '', active: true, kind: 'own', partnerName: '', minRank: '', locked: false, hoursUntilUnlock: 0 },
+    // Not flown, open.
+    { id: 'r2', flightNumber: 'BA117', origin: 'EGLL', destination: 'KJFK', aircraft: 'Boeing 777-300ER', distanceNm: 3000, notes: '', active: true, kind: 'own', partnerName: '', minRank: '', locked: false, hoursUntilUnlock: 0 },
+    // Rank-gated: the pilot is 35.5h short of Captain.
+    { id: 'r3', flightNumber: 'BA009', origin: 'EGLL', destination: 'YSSY', aircraft: 'Airbus A380-800', distanceNm: 9200, notes: '', active: true, kind: 'own', partnerName: '', minRank: 'Captain', locked: true, hoursUntilUnlock: 36 },
+    // Somebody else's metal.
+    { id: 'r4', flightNumber: 'QF002', origin: 'YSSY', destination: 'EGLL', aircraft: 'Boeing 787-9', distanceNm: 9200, notes: '', active: true, kind: 'codeshare', partnerName: 'Qantas Virtual', minRank: '', locked: false, hoursUntilUnlock: 0 },
+    // Retired: the network's history, not its map.
+    { id: 'r5', flightNumber: 'BA999', origin: 'EGLL', destination: 'LEMD', aircraft: 'Airbus A319', distanceNm: 780, notes: '', active: false, kind: 'own', partnerName: '', minRank: '', locked: false, hoursUntilUnlock: 0 },
+];
+
 let filed = null;
 let flyingBody = {
     pilot: { memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 214.5, status: 'active' },
@@ -50,10 +109,21 @@ function api(route) {
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
 
     if (p.endsWith('/me/flying')) return json(flyingBody);
+    if (p.endsWith('/standings')) {
+        standingsWindow = Number(new URL(route.request().url()).searchParams.get('window'));
+        return json(standingsBody || STANDINGS(standingsWindow));
+    }
+    if (p.endsWith('/me/if-flights')) {
+        // An unlinked pilot has one page and no flights; everyone else pages.
+        if (logbook.linked === false) return json(logbook);
+        const want = Number(new URL(route.request().url()).searchParams.get('page') || 1);
+        return json(LOGBOOK_PAGES[want - 1] || { linked: true, page: want, hasNextPage: false, flights: [] });
+    }
     if (p.endsWith('/pireps') && method === 'POST') { filed = route.request().postDataJSON(); return json({ pirep: { id: 'new' }, routeMatched: true }, 201); }
     if (p.endsWith('/announcements')) return json({ announcements: [], canManage: false });
     if (p.endsWith('/events')) return json({ events: [], canManage: false, mine: [], ranks: [] });
     if (p.endsWith('/schedules')) return json({ schedules: [], mine: [], canManage: false, rules: { enabled: true }, ranks: [] });
+    if (p.endsWith('/routes')) return json({ routes: ROUTES, counts: { own: 3, codeshare: 1, locked: 1 } });
     if (p.endsWith('/me')) return json({ role: 'pilot', name: 'Rae Okafor', mustChangePassword: false });
     if (p.endsWith('/branding')) return json({ name: 'Test VA', code: 'TVA' });
     return json({});
@@ -135,11 +205,54 @@ const head = (s) => console.log(`\n${s}`);
     await page.waitForTimeout(300);
 
     // ------------------------------------------------------------------
-    head('Filing a flight');
+    head('Filing a flight — picked out of the real logbook');
 
     await page.click('#quickGrid [data-i="0"]');
+    await page.waitForTimeout(600);
+    let picker = await page.innerText('#crewFlightPicker');
+    ok('the File a PIREP tile opens the pilot\'s own flights', await page.isVisible('#crewFlightPicker .fp-list'));
+    ok('…listing what they actually flew', /EGLL → KSFO/.test(picker), picker.slice(0, 160));
+    ok('…with the route it matches named', /BA285/.test(picker), picker.slice(0, 200));
+    ok('…a flight already filed marked as such', /already filed/i.test(picker), picker);
+    ok('…and an aircraft the airline doesn\'t operate flagged', /not in the fleet/i.test(picker), picker);
+    ok('a flight already filed cannot be filed twice',
+        await page.isDisabled('[data-fp-pick="if-2"]'));
+
+    await page.click('[data-fp-pick="if-1"]');
+    await page.waitForTimeout(300);
+    const confirm = await page.innerText('#crewFlightPicker');
+    ok('picking one shows what will be filed', /Boeing 777-300ER/.test(confirm), confirm.slice(0, 200));
+    ok('…including the time off the record, not off the pilot', /10h 45m/.test(confirm), confirm);
+    ok('…and the livery they flew in', /British Airways/.test(confirm), confirm);
+
+    await page.click('[data-fp-file]');
+    await page.waitForTimeout(600);
+
+    ok('filing sends the flight id and nothing else that matters',
+        filed && filed.flightId === 'if-1', JSON.stringify(filed));
+    ok('…so no route, aircraft or duration can be edited on the way in',
+        filed && !('origin' in filed) && !('aircraftName' in filed) && !('durationMin' in filed) && !('hours' in filed),
+        JSON.stringify(filed));
+    ok('…with the page it was found on, so the server can look it up again',
+        filed && filed.flightPage === 1, JSON.stringify(filed));
+    ok('the panel closes once it is filed', !(await page.isVisible('#crewFlightPicker .fp-list')));
+
+    // Older pages, for a flight further back than the first page.
+    await page.click('#quickGrid [data-i="0"]');
+    await page.waitForTimeout(600);
+    await page.click('[data-fp-more]');
     await page.waitForTimeout(500);
-    ok('the File a PIREP tile opens a form', await page.isVisible('#pfForm'));
+    picker = await page.innerText('#crewFlightPicker');
+    ok('older flights load onto the list rather than replacing it',
+        /EGLL → KSFO/.test(picker) && /EGKK → LEBL/.test(picker), picker.slice(0, 240));
+
+    // ------------------------------------------------------------------
+    head('Filing by hand — the fallback, for a flight IF never logged');
+
+    filed = null;
+    await page.click('[data-fp-manual]');
+    await page.waitForTimeout(500);
+    ok('the by-hand form is still reachable', await page.isVisible('#pfForm'));
 
     await page.fill('#pfFrom', 'egll');
     await page.fill('#pfTo', 'ksfo');
@@ -154,7 +267,103 @@ const head = (s) => console.log(`\n${s}`);
     ok('…and the duration as hours + minutes', filed && filed.hours === 10 && filed.minutes === 45, JSON.stringify(filed));
     ok('…attributed to this pilot', filed && filed.memberId === 'm1');
 
+    // ------------------------------------------------------------------
+    head('Standings — the panel pilots were never shown');
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.click('#quickGrid [data-i="6"]');
+    await page.waitForTimeout(600);
+    let board = await page.innerText('#crewStandings');
+    ok('the Standings tile opens the board', await page.isVisible('#crewStandings .cs-list'));
+    ok('…ranking the people actually flying', /Kit Marlowe/.test(board), board.slice(0, 200));
+    ok('…over this month by default', /This month/.test(board));
+    ok('…with the airline\'s totals on top', /3 pilots flying/.test(board), board.slice(0, 200));
+
+    ok('the signed-in pilot is marked on the board', await page.isVisible('.cs-row-me'));
+    const mine = await page.innerText('.cs-row-me');
+    ok('…as themselves, not a name they have to find', /\byou\b/i.test(mine), mine);
+
+    // The window buttons are the whole point of ranking over a window.
+    await page.click('[data-cs-window="0"]');
+    await page.waitForTimeout(500);
+    board = await page.innerText('#crewStandings');
+    ok('all-time is a different board, not the same one relabelled',
+        /Rae Okafor/.test(board) && standingsWindow === 0, `window=${standingsWindow}`);
+
+    // ------------------------------------------------------------------
+    head('The route network — a word this page did not contain');
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.click('#quickGrid [data-i="7"]');
+    await page.waitForTimeout(600);
+    let net = await page.innerText('#crewNetwork');
+    ok('the Route network tile opens the network', await page.isVisible('#crewNetwork .cn-list'));
+    ok('…listing where the airline flies', /BA117/.test(net) && /EGLL → KJFK/.test(net), net.slice(0, 200));
+    ok('a retired route is not offered as somewhere to fly', !/BA999/.test(net), net);
+    ok('a codeshare says whose metal it is', /Qantas Virtual/.test(net), net);
+
+    ok('a route this pilot has flown is marked', /flown/i.test(net), net.slice(0, 260));
+    ok('…and counted against the network', /1 of 4 routes flown/.test(net), net.slice(0, 160));
+
+    // The whole reason locked routes are shown rather than hidden.
+    ok('a locked route names the hours to unlocking it', /36h to captain/i.test(net), net);
+
+    await page.click('[data-cn-filter="todo"]');
+    await page.waitForTimeout(300);
+    net = await page.innerText('#crewNetwork');
+    ok('"not yet flown" hides what they have already done', !/BA304/.test(net), net);
+    ok('…and keeps what they have not', /BA117/.test(net), net);
+
+    await page.click('[data-cn-filter="open"]');
+    await page.waitForTimeout(300);
+    net = await page.innerText('#crewNetwork');
+    ok('"open to me" drops the rank-gated leg', !/BA009/.test(net), net);
+
+    await page.click('[data-cn-filter="all"]');
+    await page.fill('#cnSearch', 'yssy');
+    await page.waitForTimeout(300);
+    net = await page.innerText('#crewNetwork');
+    ok('search finds a leg by airport', /BA009/.test(net) && /QF002/.test(net), net);
+    ok('…and drops what does not match', !/BA304/.test(net), net);
+
     await ctx.close();
+
+    // ------------------------------------------------------------------
+    head('A pilot who has flown nothing this month');
+
+    // The case a leaderboard normally answers by leaving you off it.
+    standingsBody = {
+        window: 30,
+        board: [
+            { rank: 1, memberId: 'm9', name: 'Kit Marlowe', callsign: 'BAW09', onRoster: true, flights: 9, hours: 14.5, landings: 9, lastFlightAt: ago(4), badge: { name: 'Captain' } },
+            { rank: 2, memberId: 'm8', name: 'Ada Nwosu', callsign: 'BAW08', onRoster: true, flights: 4, hours: 6.2, landings: 4, lastFlightAt: ago(20), badge: { name: 'First Officer' } },
+        ],
+        me: { rank: null, memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', onRoster: true, flights: 0, hours: 0, landings: 0, lastFlightAt: null, badge: null, of: 2 },
+        totals: { pilots: 2, flights: 13, hours: 20.7 },
+    };
+    const { ctx: cS, page: pS } = await open();
+    await pS.click('#quickGrid [data-i="6"]');
+    await pS.waitForTimeout(600);
+    const off = await pS.innerText('#crewStandings');
+    ok('a pilot off the board is still shown their own standing', /nothing flown in this window/.test(off), off);
+    ok('…and told what it would take to appear', /4 more flights and you’re on the board/.test(off), off);
+    await cS.close();
+    standingsBody = null;
+
+    // ------------------------------------------------------------------
+    head('A pilot whose account was never linked');
+
+    logbook = { linked: false, flights: [], page: 1, hasNextPage: false };
+    const { ctx: c0, page: p0 } = await open();
+    await p0.click('#quickGrid [data-i="0"]');
+    await p0.waitForTimeout(600);
+    const unlinked = await p0.innerText('#crewFlightPicker');
+    ok('they are told why their flights aren\'t there', /isn’t linked to an Infinite Flight account/.test(unlinked), unlinked);
+    ok('…and can still file by hand', await p0.isVisible('[data-fp-manual]'));
+    await c0.close();
+    logbook = LOGBOOK_PAGES[0];
 
     // ------------------------------------------------------------------
     head('Pilots the old page could not describe');
