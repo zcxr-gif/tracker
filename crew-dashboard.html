@@ -479,6 +479,22 @@
                         <p id="roleNote" class="hidden text-sm mt-2"></p>
                     </div>
 
+                    <!-- ============ INFINITE FLIGHT LIVE ORGANIZATION ============
+                         Mirrors the real fleet out of the VA's IF Live org over
+                         PublicApi v3 (OAuth2), so the list below stops being a
+                         thing somebody has to retype. The hand-built fleet is
+                         never replaced — flights match against both. Hidden
+                         entirely when the server has no OAuth client set up. -->
+                    <div id="ifOrgCard" class="mt-5 hidden">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Infinite Flight fleet</span>
+                            <span id="ifOrgBadge" class="text-[11px] font-semibold px-2 py-0.5 rounded-full"></span>
+                        </div>
+                        <p class="text-xs muted mb-2.5">Connect the Live organization you actually operate and we’ll mirror its aircraft — registrations, fleet order and which are in active slots. Your hand-built fleet below stays exactly as it is; flights are matched against both.</p>
+                        <div id="ifOrgBody" class="space-y-2.5"></div>
+                        <p id="ifOrgNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
                     <div class="mt-5">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Fleet</span>
@@ -2546,6 +2562,128 @@
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>`;
         }
+        /* ============ INFINITE FLIGHT LIVE ORGANIZATION (PublicApi v3) ============
+           Connect the VA's real Live org over OAuth2 and mirror its fleet.
+
+           The whole panel is driven off one status call. It stays hidden unless
+           the server actually has an OAuth client configured, because a
+           "Connect" button that can only ever fail is worse than no button. */
+        let IF_ORG = null;
+
+        function ifOrgNote(msg, bad){
+            const el=document.getElementById('ifOrgNote'); if(!el) return;
+            el.textContent = msg || '';
+            el.className = msg ? ('text-sm mt-2 ' + (bad ? 'text-rose-500' : 'text-emerald-500')) : 'hidden text-sm mt-2';
+        }
+
+        async function ifOrgApi(path, opts){
+            const slug=getSlug(), token=sessionToken();
+            const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/if-org${path}`, Object.assign({
+                headers:{ 'Content-Type':'application/json', Accept:'application/json', Authorization:'Bearer '+token }
+            }, opts||{}));
+            let body=null; try{ body=await res.json(); }catch{}
+            if(!res.ok || !body || body.ok===false) throw new Error((body&&body.error) || `Request failed (${res.status})`);
+            return body;
+        }
+
+        async function loadIfOrg(){
+            const card=document.getElementById('ifOrgCard'); if(!card) return;
+            try{
+                IF_ORG = await ifOrgApi('');
+            }catch{
+                card.classList.add('hidden');   // no access, or the VA has no such tab
+                return;
+            }
+            // Nothing to offer if the deployment has no OAuth client. Staff
+            // cannot fix that; only the operator can.
+            if(!IF_ORG.available){ card.classList.add('hidden'); return; }
+            card.classList.remove('hidden');
+            renderIfOrg();
+        }
+
+        function renderIfOrg(){
+            const body=document.getElementById('ifOrgBody');
+            const badge=document.getElementById('ifOrgBadge');
+            if(!body||!IF_ORG) return;
+            const esc=(v)=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+            if(!IF_ORG.connected){
+                badge.textContent='Not connected';
+                badge.className='text-[11px] font-semibold px-2 py-0.5 rounded-full bg-zinc-500/10 text-zinc-500';
+                body.innerHTML = `<button id="ifOrgConnect" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Connect Infinite Flight</button>
+                    <p class="text-xs muted">You'll sign in at Infinite Flight and approve read access to your organizations, aircraft and schedules. We never ask for permission to change them.</p>`;
+                document.getElementById('ifOrgConnect').onclick = startIfOrgConnect;
+                return;
+            }
+
+            badge.textContent = IF_ORG.organizationName ? esc(IF_ORG.organizationName) : 'Connected';
+            badge.className='text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500';
+
+            const s = IF_ORG.summary || {};
+            const rows = (IF_ORG.fleet||[]).slice(0,60).map(a=>`
+                <div class="flex items-center gap-2 text-xs py-1 border-t border-black/5 dark:border-white/5">
+                    <span class="font-mono font-semibold w-20 shrink-0">${esc(a.registration||'—')}</span>
+                    <span class="flex-1 min-w-0 truncate">${esc(a.type||'Unidentified')}${a.livery?` <span class="muted">· ${esc(a.livery)}</span>`:''}</span>
+                    <span class="shrink-0 ${a.isFleetActiveSlot?'text-emerald-500':'muted'}">${a.isFleetActiveSlot?'Active':'Storage'}</span>
+                </div>`).join('');
+
+            body.innerHTML = `
+                ${!IF_ORG.organizationId ? `<div><label class="text-xs font-semibold block mb-1">Which organization?</label>
+                    <select id="ifOrgPick" class="w-full text-sm rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5"><option value="">Loading…</option></select></div>` : ''}
+                ${IF_ORG.organizationId ? `<div class="flex flex-wrap gap-3 text-xs">
+                    <span><strong>${s.total||0}</strong> <span class="muted">aircraft</span></span>
+                    <span><strong>${s.activeSlots||0}</strong> <span class="muted">active</span></span>
+                    <span><strong>${s.storage||0}</strong> <span class="muted">storage</span></span>
+                    <span><strong>${s.distinctTypes||0}</strong> <span class="muted">types</span></span>
+                </div>` : ''}
+                ${s.unresolved ? `<p class="text-xs text-amber-500">${s.unresolved} aircraft couldn't be matched to an Infinite Flight aircraft name, so they won't count towards flight matching.</p>` : ''}
+                ${IF_ORG.lastSyncError ? `<p class="text-xs text-rose-500">Last sync failed: ${esc(IF_ORG.lastSyncError)}</p>` : ''}
+                ${rows ? `<div class="max-h-64 overflow-y-auto">${rows}</div>` : ''}
+                <div class="flex gap-2">
+                    ${IF_ORG.organizationId ? `<button id="ifOrgSync" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Sync fleet</button>` : ''}
+                    <button id="ifOrgDisconnect" class="px-3 rounded-lg py-2 text-sm font-semibold border border-black/10 dark:border-white/10 hover:opacity-80 transition">Disconnect</button>
+                </div>
+                <p class="text-[11px] muted">Connected by ${esc(IF_ORG.connectedBy||'a staff member')}${IF_ORG.lastSyncAt?` · last synced ${new Date(IF_ORG.lastSyncAt).toLocaleString()}`:''}. Infinite Flight's v3 API is still in preview, so this can stop working without notice — your own fleet list below is unaffected if it does.</p>`;
+
+            const sync=document.getElementById('ifOrgSync');
+            if(sync) sync.onclick = async ()=>{ sync.disabled=true; ifOrgNote('Syncing…');
+                try{ const r=await ifOrgApi('/sync',{method:'POST'}); IF_ORG.fleet=r.fleet; IF_ORG.summary=r.summary; IF_ORG.lastSyncAt=r.syncedAt; IF_ORG.lastSyncError=''; renderIfOrg(); ifOrgNote(`Synced ${r.summary.total} aircraft.`); }
+                catch(e){ ifOrgNote(e.message, true); } finally{ sync.disabled=false; } };
+
+            document.getElementById('ifOrgDisconnect').onclick = async ()=>{
+                if(!confirm('Disconnect Infinite Flight? Your hand-built fleet is kept.')) return;
+                try{ await ifOrgApi('',{method:'DELETE'}); await loadIfOrg(); ifOrgNote('Disconnected.'); }
+                catch(e){ ifOrgNote(e.message, true); } };
+
+            if(!IF_ORG.organizationId) loadIfOrgChoices();
+        }
+
+        async function loadIfOrgChoices(){
+            const sel=document.getElementById('ifOrgPick'); if(!sel) return;
+            try{
+                const r = await ifOrgApi('/organizations');
+                if(!r.organizations.length){ sel.innerHTML='<option value="">No organizations on this account</option>'; return; }
+                sel.innerHTML = '<option value="">Choose…</option>' + r.organizations
+                    .map(o=>`<option value="${o.id}">${o.name} — ${o.operationType}, ${o.worldType}</option>`).join('');
+                sel.onchange = async ()=>{
+                    if(!sel.value) return;
+                    sel.disabled=true; ifOrgNote('Pulling the fleet…');
+                    try{ await ifOrgApi('/organization',{method:'POST',body:JSON.stringify({organizationId:sel.value})}); await loadIfOrg(); ifOrgNote('Fleet synced.'); }
+                    catch(e){ ifOrgNote(e.message, true); sel.disabled=false; }
+                };
+            }catch(e){ sel.innerHTML=`<option value="">${e.message}</option>`; }
+        }
+
+        async function startIfOrgConnect(){
+            ifOrgNote('Opening Infinite Flight…');
+            try{
+                // prompt=consent so the final redirect follows the user's tap on
+                // IF's authorize button, which some redirect paths need.
+                const r = await ifOrgApi('/connect',{method:'POST',body:JSON.stringify({prompt:'consent'})});
+                window.location.href = r.url;
+            }catch(e){ ifOrgNote(e.message, true); }
+        }
+
         function renderStructure(){
             document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
             document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
@@ -5935,6 +6073,7 @@
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
+            loadIfOrg();                    // the Infinite Flight Live organization panel
             renderSchedulePrefs();          // the rank picker needs the ladder, which renderStructure has now
             renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
             wireTeam(); applyCapState();     // render team editors + gate tabs by caps
