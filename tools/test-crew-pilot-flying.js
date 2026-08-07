@@ -13,6 +13,8 @@
 //     typed form kept as the fallback for a flight IF never logged
 //   * standings show a pilot where they sit among the people they fly with —
 //     including, and especially, when they are nowhere near the top
+//   * the route network is browsable by the pilots who fly it, with the legs
+//     they have already flown marked and the locked ones priced in hours
 //   * a pilot at the top of the ladder is not shown an empty progress bar
 //
 // Run:  node tools/test-crew-pilot-flying.js
@@ -77,6 +79,22 @@ const STANDINGS = (window) => ({
 let standingsBody = null;      // set to override; null means the shape above
 let standingsWindow = null;    // what the page last asked for
 
+// The route network, as GET /routes already hands it to any pilot: the leg, the
+// aircraft, whether it is a codeshare, and — for a rank-gated route — how many
+// hours THIS pilot is short of opening it.
+const ROUTES = [
+    // Flown by this pilot: EGLL → LFPG is p1 in FLIGHTS, approved.
+    { id: 'r1', flightNumber: 'BA304', origin: 'EGLL', destination: 'LFPG', aircraft: 'Airbus A320', distanceNm: 188, notes: '', active: true, kind: 'own', partnerName: '', minRank: '', locked: false, hoursUntilUnlock: 0 },
+    // Not flown, open.
+    { id: 'r2', flightNumber: 'BA117', origin: 'EGLL', destination: 'KJFK', aircraft: 'Boeing 777-300ER', distanceNm: 3000, notes: '', active: true, kind: 'own', partnerName: '', minRank: '', locked: false, hoursUntilUnlock: 0 },
+    // Rank-gated: the pilot is 35.5h short of Captain.
+    { id: 'r3', flightNumber: 'BA009', origin: 'EGLL', destination: 'YSSY', aircraft: 'Airbus A380-800', distanceNm: 9200, notes: '', active: true, kind: 'own', partnerName: '', minRank: 'Captain', locked: true, hoursUntilUnlock: 36 },
+    // Somebody else's metal.
+    { id: 'r4', flightNumber: 'QF002', origin: 'YSSY', destination: 'EGLL', aircraft: 'Boeing 787-9', distanceNm: 9200, notes: '', active: true, kind: 'codeshare', partnerName: 'Qantas Virtual', minRank: '', locked: false, hoursUntilUnlock: 0 },
+    // Retired: the network's history, not its map.
+    { id: 'r5', flightNumber: 'BA999', origin: 'EGLL', destination: 'LEMD', aircraft: 'Airbus A319', distanceNm: 780, notes: '', active: false, kind: 'own', partnerName: '', minRank: '', locked: false, hoursUntilUnlock: 0 },
+];
+
 let filed = null;
 let flyingBody = {
     pilot: { memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 214.5, status: 'active' },
@@ -105,6 +123,7 @@ function api(route) {
     if (p.endsWith('/announcements')) return json({ announcements: [], canManage: false });
     if (p.endsWith('/events')) return json({ events: [], canManage: false, mine: [], ranks: [] });
     if (p.endsWith('/schedules')) return json({ schedules: [], mine: [], canManage: false, rules: { enabled: true }, ranks: [] });
+    if (p.endsWith('/routes')) return json({ routes: ROUTES, counts: { own: 3, codeshare: 1, locked: 1 } });
     if (p.endsWith('/me')) return json({ role: 'pilot', name: 'Rae Okafor', mustChangePassword: false });
     if (p.endsWith('/branding')) return json({ name: 'Test VA', code: 'TVA' });
     return json({});
@@ -271,6 +290,43 @@ const head = (s) => console.log(`\n${s}`);
     board = await page.innerText('#crewStandings');
     ok('all-time is a different board, not the same one relabelled',
         /Rae Okafor/.test(board) && standingsWindow === 0, `window=${standingsWindow}`);
+
+    // ------------------------------------------------------------------
+    head('The route network — a word this page did not contain');
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.click('#quickGrid [data-i="7"]');
+    await page.waitForTimeout(600);
+    let net = await page.innerText('#crewNetwork');
+    ok('the Route network tile opens the network', await page.isVisible('#crewNetwork .cn-list'));
+    ok('…listing where the airline flies', /BA117/.test(net) && /EGLL → KJFK/.test(net), net.slice(0, 200));
+    ok('a retired route is not offered as somewhere to fly', !/BA999/.test(net), net);
+    ok('a codeshare says whose metal it is', /Qantas Virtual/.test(net), net);
+
+    ok('a route this pilot has flown is marked', /flown/i.test(net), net.slice(0, 260));
+    ok('…and counted against the network', /1 of 4 routes flown/.test(net), net.slice(0, 160));
+
+    // The whole reason locked routes are shown rather than hidden.
+    ok('a locked route names the hours to unlocking it', /36h to captain/i.test(net), net);
+
+    await page.click('[data-cn-filter="todo"]');
+    await page.waitForTimeout(300);
+    net = await page.innerText('#crewNetwork');
+    ok('"not yet flown" hides what they have already done', !/BA304/.test(net), net);
+    ok('…and keeps what they have not', /BA117/.test(net), net);
+
+    await page.click('[data-cn-filter="open"]');
+    await page.waitForTimeout(300);
+    net = await page.innerText('#crewNetwork');
+    ok('"open to me" drops the rank-gated leg', !/BA009/.test(net), net);
+
+    await page.click('[data-cn-filter="all"]');
+    await page.fill('#cnSearch', 'yssy');
+    await page.waitForTimeout(300);
+    net = await page.innerText('#crewNetwork');
+    ok('search finds a leg by airport', /BA009/.test(net) && /QF002/.test(net), net);
+    ok('…and drops what does not match', !/BA304/.test(net), net);
 
     await ctx.close();
 

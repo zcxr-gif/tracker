@@ -26,6 +26,9 @@
     <!-- Where this pilot sits among the people they fly with. The insights
          panel has ranked pilots for years and only ever shown a manager. -->
     <script src="/crewStandings.js"></script>
+    <!-- The route network. This page did not contain the word "routes" — the
+         endpoint has always been pilot-readable and was drawn only for staff. -->
+    <script src="/crewNetwork.js"></script>
     <script src="/crewSchedule.js"></script>
     <!-- The airline's manuals and SOPs, with whatever this pilot's rank opens. -->
     <script src="/crewDocuments.js"></script>
@@ -388,6 +391,7 @@
             // lands, so the tile never claims a library it has not read.
             {icon:'library',label:'Documents',desc:'Manuals & SOPs',action:'documents',live:true},
             {icon:'trophy',label:'Standings',desc:'Who’s flying this month',action:'standings'},
+            {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -412,6 +416,7 @@
                 if(act==='inbox') el.addEventListener('click', openInbox);
                 if(act==='documents') el.addEventListener('click', openDocuments);
                 if(act==='standings') el.addEventListener('click', openStandings);
+                if(act==='network') el.addEventListener('click', openNetwork);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -818,6 +823,19 @@
         function openStandings(){
             if(!window.CrewStandings) return;
             CrewStandings.open({ api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }) });
+        }
+
+        /* The flown set comes from the logbook this page has already loaded —
+           asking the server again would be a second round trip for a fact
+           that is on screen. Approved only: a report still waiting on staff is
+           not yet a leg this pilot has flown, and marking it green would have
+           the tick disappear if staff rejected it. */
+        function openNetwork(){
+            if(!window.CrewNetwork) return;
+            CrewNetwork.open({
+                api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }),
+                flown: (MY.flights||[]).filter(f=>f.status==='approved'),
+            });
         }
 
         function openInbox(){ if(window.CrewInbox) CrewInbox.open(); }
