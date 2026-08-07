@@ -20,6 +20,9 @@
     <!-- Shared panel chrome, then the schedule: the same module the owner
          dashboard uses, showing this pilot the legs they can take. -->
     <script src="/crewPanels.js"></script>
+    <!-- Filing a flight by picking it out of the pilot's real Infinite Flight
+         logbook, rather than retyping what the API already knows. -->
+    <script src="/crewFlightPicker.js"></script>
     <script src="/crewSchedule.js"></script>
     <!-- The airline's manuals and SOPs, with whatever this pilot's rank opens. -->
     <script src="/crewDocuments.js"></script>
@@ -582,21 +585,35 @@
         }
 
         /* ---- Filing a flight ----
-           The hero button and the tile both said "File a PIREP" and neither
-           did anything. The endpoint has always been there; there was simply
-           no form on the page most pilots use.
+           The pilot picks the flight out of their own Infinite Flight logbook
+           and the whole report is filed from the record: route, aircraft,
+           livery, time, landings, XP, violations, when it happened. None of it
+           is typed, so none of it can be typed wrong.
 
-           Deliberately short. Everything the server can work out for itself —
-           which route this was, whether the aircraft is in the fleet, the
-           flight number — it works out from the airports, so asking the pilot
-           for it would be asking them to do the matching by hand. */
-        let filePanel=null;
+           The form below is the fallback, not the front door. It exists for the
+           flight Infinite Flight never logged and the one flown before the
+           pilot joined — everything else is in the logbook already, and asking
+           somebody to retype it was asking them to do the matching by hand. */
         function openFilePirep(){
             if(!window.CrewPanels) return;
             if(!sessionToken()){ CrewPanels.toast('Sign in to file a flight.','bad'); return; }
-            if(!filePanel){ filePanel=CrewPanels.sheet({ id:'pilotFile', title:'File a flight', icon:'clipboard-pen' }); }
+            if(!window.CrewFlightPicker){ openFilePirepManual(); return; }
+            CrewFlightPicker.open({
+                api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }),
+                onFiled: ()=>loadMyFlying(),
+                onManual: openFilePirepManual,
+            });
+        }
+
+        let filePanel=null;
+        function openFilePirepManual(){
+            if(!window.CrewPanels) return;
+            if(!sessionToken()){ CrewPanels.toast('Sign in to file a flight.','bad'); return; }
+            if(!filePanel){ filePanel=CrewPanels.sheet({ id:'pilotFile', title:'File a flight by hand', icon:'clipboard-pen' }); }
             filePanel.open();
             filePanel.body.innerHTML=`
+                ${window.CrewFlightPicker?`<p class="cp-note" style="margin-bottom:.7rem">For a flight Infinite Flight didn’t log.
+                    Anything in your logbook files itself — <button type="button" class="cp-btn cp-btn-sm" id="pfPicker">pick it from your flights</button></p>`:''}
                 <form class="cp-card" id="pfForm" style="display:grid;gap:.7rem">
                     <div class="cp-grid2">
                         <div><label class="cp-label" for="pfFrom">From</label>
@@ -624,6 +641,8 @@
                 </form>`;
             CrewPanels.icons();
             document.getElementById('pfForm').addEventListener('submit', submitPirep);
+            const back=document.getElementById('pfPicker');
+            if(back) back.addEventListener('click', ()=>{ filePanel.close(); openFilePirep(); });
         }
 
         async function submitPirep(ev){

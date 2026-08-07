@@ -214,14 +214,35 @@
     }
 
     /**
-     * File a flight, prefilled from the departure when there is one.
+     * File a flight.
      *
-     * Hands off to the dashboard's own PIREP form rather than growing a second
-     * one. The pilot picker in that form is pre-set to this person, which is the
-     * whole point — a staff member filing their own flight should not have to
-     * find themselves in a dropdown of the entire roster.
+     * Their own Infinite Flight logbook first: staff fly the same aeroplanes as
+     * everybody else, and a report read off the record beats one retyped into
+     * the dashboard's form — which is a form built for filing on somebody
+     * ELSE's behalf, with the whole roster in a dropdown.
+     *
+     * The booked departure rides along when there is one, so the leg still
+     * credits against it and the booking still goes to flown. What happened on
+     * the flight comes from Infinite Flight either way.
+     *
+     * The dashboard form stays as the fallback, for the same reason it does on
+     * the pilot home: a flight Infinite Flight never logged still has to be
+     * fileable. Its pilot picker is pre-set to this person.
      */
     function openFile(schedule) {
+        if (window.CrewFlightPicker && S.api) {
+            window.CrewFlightPicker.open({
+                api: S.api,
+                extra: schedule ? { scheduleId: schedule.id } : null,
+                onFiled: () => { loadBookings().then(paintAll); },
+                onManual: () => openFileByHand(schedule),
+            });
+            return;
+        }
+        openFileByHand(schedule);
+    }
+
+    function openFileByHand(schedule) {
         if (typeof window.openPireps !== 'function' || typeof window.openPirepForm !== 'function') {
             P.toast('File this flight from the Flights panel.', 'info');
             return;

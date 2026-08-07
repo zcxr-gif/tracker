@@ -8,7 +8,9 @@
 //   * a pilot with no flights is told so, rather than shown somebody else's
 //   * the logbook opens from both the link and the tile (neither had a handler)
 //     and shows pending and rejected reports, not just the approved ones
-//   * filing a flight sends what was typed, and the form is reachable at all
+//   * filing a flight means PICKING one out of their real Infinite Flight
+//     logbook — the browser sends an id, never a route or a duration — with the
+//     typed form kept as the fallback for a flight IF never logged
 //   * a pilot at the top of the ladder is not shown an empty progress bar
 //
 // Run:  node tools/test-crew-pilot-flying.js
@@ -36,6 +38,27 @@ const FLIGHTS = [
     { id: 'p4', origin: 'EGKK', destination: 'LEBL', aircraftName: 'Airbus A321', flightNumber: 'BA490', durationMin: 130, status: 'approved', flownAt: ago(900) },
 ];
 
+// The pilot's real Infinite Flight logbook, as GET /me/if-flights hands it over:
+// already judged against this airline (filed before? fleet aircraft? published
+// route?), because those are facts the browser cannot work out for itself.
+const LOGBOOK_PAGES = [
+    {
+        linked: true, page: 1, totalPages: 2, hasNextPage: true,
+        flights: [
+            { flightId: 'if-1', origin: 'EGLL', destination: 'KSFO', aircraftName: 'Boeing 777-300ER', liveryName: 'British Airways', durationMin: 645, landings: 1, xp: 1200, violations: 0, server: 'Expert', callsign: 'BAW285', flownAt: ago(6), filed: false, inFleet: true, routeMatched: true, flightNumber: 'BA285' },
+            { flightId: 'if-2', origin: 'EGLL', destination: 'LFPG', aircraftName: 'Airbus A320', liveryName: 'British Airways', durationMin: 75, landings: 1, xp: 300, violations: 0, server: 'Expert', callsign: 'BAW304', flownAt: ago(30), filed: true, inFleet: true, routeMatched: true, flightNumber: 'BA304' },
+            { flightId: 'if-3', origin: 'KJFK', destination: 'KBOS', aircraftName: 'Cessna 172', liveryName: 'Generic', durationMin: 55, landings: 3, xp: 90, violations: 1, server: 'Training', callsign: 'N172RG', flownAt: ago(48), filed: false, inFleet: false, routeMatched: false, flightNumber: '' },
+        ],
+    },
+    {
+        linked: true, page: 2, totalPages: 2, hasNextPage: false,
+        flights: [
+            { flightId: 'if-4', origin: 'EGKK', destination: 'LEBL', aircraftName: 'Airbus A321', liveryName: 'British Airways', durationMin: 130, landings: 1, xp: 420, violations: 0, server: 'Expert', callsign: 'BAW490', flownAt: ago(900), filed: false, inFleet: true, routeMatched: true, flightNumber: 'BA490' },
+        ],
+    },
+];
+let logbook = LOGBOOK_PAGES[0];
+
 let filed = null;
 let flyingBody = {
     pilot: { memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 214.5, status: 'active' },
@@ -50,6 +73,12 @@ function api(route) {
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
 
     if (p.endsWith('/me/flying')) return json(flyingBody);
+    if (p.endsWith('/me/if-flights')) {
+        // An unlinked pilot has one page and no flights; everyone else pages.
+        if (logbook.linked === false) return json(logbook);
+        const want = Number(new URL(route.request().url()).searchParams.get('page') || 1);
+        return json(LOGBOOK_PAGES[want - 1] || { linked: true, page: want, hasNextPage: false, flights: [] });
+    }
     if (p.endsWith('/pireps') && method === 'POST') { filed = route.request().postDataJSON(); return json({ pirep: { id: 'new' }, routeMatched: true }, 201); }
     if (p.endsWith('/announcements')) return json({ announcements: [], canManage: false });
     if (p.endsWith('/events')) return json({ events: [], canManage: false, mine: [], ranks: [] });
@@ -135,11 +164,54 @@ const head = (s) => console.log(`\n${s}`);
     await page.waitForTimeout(300);
 
     // ------------------------------------------------------------------
-    head('Filing a flight');
+    head('Filing a flight — picked out of the real logbook');
 
     await page.click('#quickGrid [data-i="0"]');
+    await page.waitForTimeout(600);
+    let picker = await page.innerText('#crewFlightPicker');
+    ok('the File a PIREP tile opens the pilot\'s own flights', await page.isVisible('#crewFlightPicker .fp-list'));
+    ok('…listing what they actually flew', /EGLL → KSFO/.test(picker), picker.slice(0, 160));
+    ok('…with the route it matches named', /BA285/.test(picker), picker.slice(0, 200));
+    ok('…a flight already filed marked as such', /already filed/i.test(picker), picker);
+    ok('…and an aircraft the airline doesn\'t operate flagged', /not in the fleet/i.test(picker), picker);
+    ok('a flight already filed cannot be filed twice',
+        await page.isDisabled('[data-fp-pick="if-2"]'));
+
+    await page.click('[data-fp-pick="if-1"]');
+    await page.waitForTimeout(300);
+    const confirm = await page.innerText('#crewFlightPicker');
+    ok('picking one shows what will be filed', /Boeing 777-300ER/.test(confirm), confirm.slice(0, 200));
+    ok('…including the time off the record, not off the pilot', /10h 45m/.test(confirm), confirm);
+    ok('…and the livery they flew in', /British Airways/.test(confirm), confirm);
+
+    await page.click('[data-fp-file]');
+    await page.waitForTimeout(600);
+
+    ok('filing sends the flight id and nothing else that matters',
+        filed && filed.flightId === 'if-1', JSON.stringify(filed));
+    ok('…so no route, aircraft or duration can be edited on the way in',
+        filed && !('origin' in filed) && !('aircraftName' in filed) && !('durationMin' in filed) && !('hours' in filed),
+        JSON.stringify(filed));
+    ok('…with the page it was found on, so the server can look it up again',
+        filed && filed.flightPage === 1, JSON.stringify(filed));
+    ok('the panel closes once it is filed', !(await page.isVisible('#crewFlightPicker .fp-list')));
+
+    // Older pages, for a flight further back than the first page.
+    await page.click('#quickGrid [data-i="0"]');
+    await page.waitForTimeout(600);
+    await page.click('[data-fp-more]');
     await page.waitForTimeout(500);
-    ok('the File a PIREP tile opens a form', await page.isVisible('#pfForm'));
+    picker = await page.innerText('#crewFlightPicker');
+    ok('older flights load onto the list rather than replacing it',
+        /EGLL → KSFO/.test(picker) && /EGKK → LEBL/.test(picker), picker.slice(0, 240));
+
+    // ------------------------------------------------------------------
+    head('Filing by hand — the fallback, for a flight IF never logged');
+
+    filed = null;
+    await page.click('[data-fp-manual]');
+    await page.waitForTimeout(500);
+    ok('the by-hand form is still reachable', await page.isVisible('#pfForm'));
 
     await page.fill('#pfFrom', 'egll');
     await page.fill('#pfTo', 'ksfo');
@@ -155,6 +227,19 @@ const head = (s) => console.log(`\n${s}`);
     ok('…attributed to this pilot', filed && filed.memberId === 'm1');
 
     await ctx.close();
+
+    // ------------------------------------------------------------------
+    head('A pilot whose account was never linked');
+
+    logbook = { linked: false, flights: [], page: 1, hasNextPage: false };
+    const { ctx: c0, page: p0 } = await open();
+    await p0.click('#quickGrid [data-i="0"]');
+    await p0.waitForTimeout(600);
+    const unlinked = await p0.innerText('#crewFlightPicker');
+    ok('they are told why their flights aren\'t there', /isn’t linked to an Infinite Flight account/.test(unlinked), unlinked);
+    ok('…and can still file by hand', await p0.isVisible('[data-fp-manual]'));
+    await c0.close();
+    logbook = LOGBOOK_PAGES[0];
 
     // ------------------------------------------------------------------
     head('Pilots the old page could not describe');
