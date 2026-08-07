@@ -12,6 +12,7 @@
 
     <script src="flight-graph.js"></script>
     <script src="flight-legs.js"></script>
+    <script src="landing-rates.js"></script>
     <script src="fuelEstimator.js"></script>
     <script src="cabinMap.js"></script>
     <script src="vaAds.js"></script>
@@ -406,6 +407,7 @@
         border-radius: 16px; padding: 13px 14px;
     }
     #legs-card .fl-legs-card { margin: 0 !important; background: transparent !important; border: none !important; padding: 0 !important; }
+    #landing-card .fl-landing-card { margin: 0 !important; background: transparent !important; border: none !important; padding: 0 !important; }
 
     /* --- VA-ads partner slots (vaAds.js renders into these; these overrides
            blend its cards with the window's grouped-card surfaces and swap its
@@ -567,6 +569,7 @@
     let _renderKey = null;       // flight identity — full rebuild when it changes
     let _lastGraphAt = 0;
     let _lastLegsKey = null;
+    let _lastLandingKey = null;
 
     function buildCard(p) {
         const route = p.route || {};
@@ -736,6 +739,7 @@
                     <div class="grid-section-label" style="margin:0 0 8px 2px">Speed &amp; Altitude</div>
                     <div id="graph-body"></div>
                 </div>
+                <div id="landing-card" style="display:none"></div>
                 <div id="legs-card" style="display:none"></div>
             </div>`;
     }
@@ -888,6 +892,21 @@
         FlightGraph.render(body, chart, { height: 150 });
     }
 
+    // Touchdown analysis for this journey's landings. The host detects them
+    // (it owns the airport + runway databases); this window only draws the
+    // plain result, so all three flight-info windows quote the same numbers.
+    function renderLandings(p) {
+        const el = document.getElementById('landing-card');
+        if (!el) return;
+        const landings = Array.isArray(p.landings) ? p.landings : [];
+        const key = landings.map(l => `${l.icao}-${l.time}-${l.fpm}`).join('|');
+        if (key === _lastLandingKey) return;
+        _lastLandingKey = key;
+        const html = (typeof LandingRates !== 'undefined') ? LandingRates.renderHTML(landings) : '';
+        if (html) { el.innerHTML = `<div class="panel-card">${html}</div>`; el.style.display = ''; }
+        else el.style.display = 'none';
+    }
+
     function renderLegs(p) {
         const el = document.getElementById('legs-card');
         if (!el) return;
@@ -962,12 +981,13 @@
             startCarousel();
             const btn = document.getElementById('btn-collapse');
             if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); setPhase('collapsed', true); });
-            _lastGraphAt = 0; _lastLegsKey = null;
+            _lastGraphAt = 0; _lastLegsKey = null; _lastLandingKey = null;
             hydrateVaAds(p);
         }
 
         updateDynamic(p);
         renderGraph();
+        renderLandings(p);
         renderLegs(p);
         renderFuel();
         renderCabin();
