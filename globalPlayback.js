@@ -188,6 +188,8 @@ export const GlobalPlayback = (() => {
     let onMoveStart = null, onMoveEnd = null;
     let onVisibilityChange = null;
     let wasPlayingWhenHidden = false;
+    let onStylesChanged = null;
+    let onWatchlistChanged = null;
 
     // Hover / selection.
     let hoverPopup = null;
@@ -198,7 +200,8 @@ export const GlobalPlayback = (() => {
     let drawnCount = 0;                  // …of which are inside the viewport
 
     const SRC_PLANES = 'global-playback-planes-source';
-    const LYR_PLANES = 'global-playback-planes-layer';
+    const LYR_PLANES = 'global-playback-planes-layer';        // SDF, tintable
+    const LYR_PLANES_NAT = 'global-playback-planes-natural';  // full-detail sprite
     const LYR_PLANE_LABELS = 'global-playback-plane-labels';
     const SRC_TRAILS = 'global-playback-trails-source';
     const LYR_TRAILS = 'global-playback-trails-layer';
@@ -339,6 +342,21 @@ export const GlobalPlayback = (() => {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    // Your own past flights, and your watchlist's, wear the colours you chose
+    // for them — the same ones the live map uses. Watching a replay and picking
+    // your own aircraft out of it is most of the point.
+    function pilotRelationFor(username) {
+        if (typeof window.getPilotRelation === 'function') {
+            try { return window.getPilotRelation(username); } catch (_) { /* fall through */ }
+        }
+        return 'none';
+    }
+
+    function refreshPilotRelations() {
+        for (const f of flights) f.pilotRelation = pilotRelationFor(f.username);
+        renderFrame(true);
     }
 
     function isProUser() {
@@ -651,6 +669,74 @@ export const GlobalPlayback = (() => {
 
     const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
+    /* =========================
+     * Paint, borrowed from the live map
+     * =========================
+     * Everything here defers to flight.js rather than restating it. A replay
+     * that invents its own palette is a replay that drifts out of step with the
+     * app the moment either side is touched — and, more immediately, one that
+     * ignores the colour the pilot actually chose.
+     *
+     * Each helper falls back to something sane if the host globals are missing,
+     * because this module is also loadable on its own.
+     */
+
+    const FADE_OPACITY_EXPR = ['/', ['coalesce', ['get', 'opacity'], 100], 100];
+
+    function colorExpression() {
+        if (typeof window.getPremiumColorExpression === 'function') {
+            try { return window.getPremiumColorExpression(); } catch (_) { /* fall through */ }
+        }
+        return '#ffffff';
+    }
+    function tintedIconExpression() {
+        if (typeof window.getTintedIconImageExpression === 'function') {
+            try { return window.getTintedIconImageExpression(); } catch (_) { /* fall through */ }
+        }
+        return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']];
+    }
+    function naturalIconExpression() {
+        if (typeof window.getNaturalIconImageExpression === 'function') {
+            try { return window.getNaturalIconImageExpression(); } catch (_) { /* fall through */ }
+        }
+        return '';
+    }
+
+    function planeLayout(iconImage) {
+        const baseSize = (window.mapFilters?.planeIconSize || 0.16);
+        return {
+            'icon-image': iconImage,
+            'icon-rotate': ['get', 'heading'],
+            'icon-rotation-alignment': 'map',
+            // Overlap allowed and placement ignored on purpose: this skips
+            // symbol collision detection, which is the expensive half of a
+            // symbol layout and would otherwise be re-run for every tile on
+            // every push.
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-size': ['case', ['boolean', ['get', 'selected'], false], baseSize * 1.5, baseSize]
+        };
+    }
+
+    // Re-read the live map's settings and re-apply them. Called when the pilot
+    // changes colour mode or icon size while a replay is open — without it the
+    // replay keeps the palette it opened with, which reads as the setting not
+    // working rather than as the replay being stale.
+    function applyLiveMapStyles() {
+        if (!map) return;
+        try {
+            if (map.getLayer(LYR_PLANES)) {
+                map.setLayoutProperty(LYR_PLANES, 'icon-image', tintedIconExpression());
+                map.setPaintProperty(LYR_PLANES, 'icon-color', colorExpression());
+                map.setLayoutProperty(LYR_PLANES, 'icon-size', planeLayout(null)['icon-size']);
+            }
+            if (map.getLayer(LYR_PLANES_NAT)) {
+                map.setLayoutProperty(LYR_PLANES_NAT, 'icon-image', naturalIconExpression());
+                map.setLayoutProperty(LYR_PLANES_NAT, 'icon-size', planeLayout(null)['icon-size']);
+            }
+        } catch (_) { /* style mid-swap; the next open rebuilds */ }
+    }
+
     function ensureLayers() {
         if (!map) return;
 
@@ -676,29 +762,36 @@ export const GlobalPlayback = (() => {
         if (!map.getSource(SRC_PLANES)) {
             map.addSource(SRC_PLANES, { type: 'geojson', data: EMPTY_FC });
         }
+
+        // Two layers over one source, exactly as the live map does it (see the
+        // "TWO-LAYER SDF / NATURAL RENDERING" note in flight.js): Mapbox cannot
+        // reliably tint when one symbol layer mixes SDF and non-SDF icons, so
+        // the tintable silhouettes and the full-detail natural sprites are drawn
+        // separately and each emits an empty icon-image for the planes it does
+        // not own.
+        //
+        // Replaying traffic in a palette the pilot did not choose was the bug
+        // this fixes: aircraft were coloured by altitude regardless of the
+        // White / Blue / Orange / custom setting, so a paid custom colour simply
+        // did not apply to playback.
+        if (!map.getLayer(LYR_PLANES_NAT)) {
+            map.addLayer({
+                id: LYR_PLANES_NAT, type: 'symbol', source: SRC_PLANES,
+                layout: planeLayout(naturalIconExpression()),
+                paint: { 'icon-opacity': FADE_OPACITY_EXPR }
+            });
+        }
         if (!map.getLayer(LYR_PLANES)) {
-            const baseSize = (window.mapFilters?.planeIconSize || 0.16);
             map.addLayer({
                 id: LYR_PLANES, type: 'symbol', source: SRC_PLANES,
-                layout: {
-                    'icon-image': ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B737']],
-                    'icon-rotate': ['get', 'heading'],
-                    'icon-rotation-alignment': 'map',
-                    // Overlap allowed and placement ignored on purpose: this
-                    // skips symbol collision detection, which is the expensive
-                    // half of a symbol layout and would otherwise be re-run for
-                    // every tile on every push.
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true,
-                    'icon-size': ['case', ['boolean', ['get', 'selected'], false], baseSize * 1.5, baseSize]
-                },
+                layout: planeLayout(tintedIconExpression()),
                 paint: {
-                    'icon-color': ['coalesce', ['get', 'color'], '#ffffff'],
+                    'icon-color': colorExpression(),
                     // Carries the entry/exit fade, so aircraft arrive and leave
                     // instead of blinking into existence mid-window. Stored as
                     // 0–100 so the property stays a small integer; see
                     // buildPlanes() for why that matters.
-                    'icon-opacity': ['/', ['coalesce', ['get', 'opacity'], 100], 100]
+                    'icon-opacity': FADE_OPACITY_EXPR
                 }
             });
         }
@@ -768,6 +861,18 @@ export const GlobalPlayback = (() => {
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
 
+        // Colour mode, custom colour and icon size are the pilot's, and they
+        // may change them while a replay is up.
+        onStylesChanged = () => { applyLiveMapStyles(); renderFrame(true); };
+        window.addEventListener('aircraftStylesChanged', onStylesChanged);
+
+        // Signing in, or editing the watchlist, changes which aircraft wear the
+        // highlight colours. `proStatusChanged` fires on the sign-in path and
+        // is the cheapest signal we have for it.
+        onWatchlistChanged = () => refreshPilotRelations();
+        window.addEventListener('proStatusChanged', onWatchlistChanged);
+        window.addEventListener('watchlistUpdated', onWatchlistChanged);
+
         onPlaneClick = (e) => {
             const feature = e.features && e.features[0];
             if (!feature) return;
@@ -830,6 +935,15 @@ export const GlobalPlayback = (() => {
             try { document.removeEventListener('visibilitychange', onVisibilityChange); } catch (_) {}
             onVisibilityChange = null;
         }
+        if (onStylesChanged) {
+            try { window.removeEventListener('aircraftStylesChanged', onStylesChanged); } catch (_) {}
+            onStylesChanged = null;
+        }
+        if (onWatchlistChanged) {
+            try { window.removeEventListener('proStatusChanged', onWatchlistChanged); } catch (_) {}
+            try { window.removeEventListener('watchlistUpdated', onWatchlistChanged); } catch (_) {}
+            onWatchlistChanged = null;
+        }
         wasPlayingWhenHidden = false;
 
         if (!map) return;
@@ -844,7 +958,7 @@ export const GlobalPlayback = (() => {
 
     function removeLayers() {
         if (!map) return;
-        [LYR_PLANE_LABELS, LYR_PLANES, LYR_TRAILS].forEach(id => {
+        [LYR_PLANE_LABELS, LYR_PLANES, LYR_PLANES_NAT, LYR_TRAILS].forEach(id => {
             if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
         });
         [SRC_PLANES, SRC_TRAILS].forEach(id => {
@@ -1199,7 +1313,12 @@ export const GlobalPlayback = (() => {
                 // more than the geometry does.
                 properties: {
                     flightId: '', callsign: '',
-                    category: 'B737', heading: 0, color: '#fff',
+                    category: 'B737', heading: 0,
+                    // Drives the live map's colour expression: 'user' and
+                    // 'watchlist' get the pilot's chosen highlight colours,
+                    // everyone else the active mode's colour. There is no
+                    // per-aircraft colour any more — that was the bug.
+                    pilotRelation: 'none',
                     opacity: 100, selected: false
                 }
             };
@@ -1245,6 +1364,7 @@ export const GlobalPlayback = (() => {
             p.flightId = f.flightId;
             p.callsign = f.callsign;
             p.category = f.category;
+            p.pilotRelation = f.pilotRelation;
             // Every numeric property is stored as a whole number on purpose.
             // A fractional value written into an object field is a boxed heap
             // number, and one box per aircraft per property, thirty times a
@@ -1255,7 +1375,6 @@ export const GlobalPlayback = (() => {
             // show, and opacity is carried as 0–100 and divided back down in
             // the paint expression.
             p.heading = Math.round(candHdg[i]);
-            p.color = getAltColor(candAlt[i]);
             p.opacity = Math.round(candOpacity[i] * 100);
             p.selected = (f.flightId === selectedFlightId);
 
@@ -1645,7 +1764,7 @@ export const GlobalPlayback = (() => {
                     <span class="gpb-stat-airborne"><span id="gpb-airborne">0</span> airborne<span class="gpb-shown" id="gpb-shown"></span></span>
                     <span class="gpb-stat-total"><span class="gpb-dot">•</span><span id="gpb-total">0</span> flights in window</span>
                     <div class="gpb-legend" aria-hidden="true">
-                        <span class="gpb-legend-label">GND</span>
+                        <span class="gpb-legend-label">TRAILS</span>
                         <span class="gpb-legend-ramp"></span>
                         <span class="gpb-legend-label">FL400</span>
                     </div>
@@ -1856,6 +1975,11 @@ export const GlobalPlayback = (() => {
             username: f.username || '',
             aircraftName: f.aircraft?.aircraftName || '',
             category: categoryFor(f.aircraft?.aircraftName),
+            // Resolved once per flight rather than per frame: it depends on the
+            // signed-in pilot and their watchlist, neither of which moves while
+            // a window is playing. Recomputed on sign-in or a watchlist change
+            // by refreshPilotRelations() below.
+            pilotRelation: pilotRelationFor(f.username),
             points: normalizePath(f.path, windowMeta.start),
             // Where this flight's last lookup landed. Playback advances
             // monotonically, so seeking from here is O(1) per frame instead of
@@ -2117,8 +2241,9 @@ export const GlobalPlayback = (() => {
         .gpb-stats span[id] { color: #e2e8f0; font-weight: 700; }
         .gpb-shown { color: #64748b !important; font-weight: 400 !important; }
         .gpb-dot { margin: 0 6px; color: #475569; font-weight: 400; }
-        /* The altitude ramp the aircraft and their trails are coloured by —
-           the same stops as getAltColor(), so the key and the map agree. */
+        /* The altitude ramp the *trails* are coloured by — the aircraft
+           themselves wear whatever colour the pilot chose for the live map.
+           Same stops as getAltColor(), so the key and the map agree. */
         .gpb-legend { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
         .gpb-legend-ramp {
             width: 110px; height: 5px; border-radius: 3px;

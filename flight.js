@@ -176,11 +176,40 @@ function getIconEdgeMode() {
     return (window.mapFilters && window.mapFilters.iconEdgeMode) || 'sharp';
 }
 
+// Which artwork the aircraft icons come from.
+// 'vector'  -> drawn as paths at the screen's own resolution (aircraftIcons.js)
+// 'classic' -> markers.png, the original sheet
+//
+// The sheet is 1024×512 for about sixty aircraft, which puts a B737 at 32×32
+// physical pixels while declaring it 128 logical pixels wide — so on a retina
+// phone every plane on the map is a 2× upscale of a small bitmap. The vector
+// set has no fixed resolution to run out of. The sheet is still shipped and is
+// one setting away.
+function getIconSet() {
+    return (window.mapFilters && window.mapFilters.iconSet) || 'vector';
+}
+
 async function loadSpriteSheetAndGenerateIcons(map) {
     const spriteUrl = './markers.png';
 
     const USE_SDF = true;
     const SHARP_EDGES = getIconEdgeMode() === 'sharp';
+
+    if (getIconSet() === 'vector') {
+        try {
+            const { registerVectorAircraftIcons } = await import('./aircraftIcons.js');
+            await registerVectorAircraftIcons(map, Object.keys(spriteUVs), {
+                toSdf: (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d')),
+                sharp: SHARP_EDGES,
+                yieldFrame: () => new Promise(resolve => requestAnimationFrame(resolve))
+            });
+            return;
+        } catch (e) {
+            // A failure here would leave the map with no aircraft at all, which
+            // is far worse than slightly soft ones — fall through to the sheet.
+            console.warn('[icons] Vector icon set failed, falling back to markers.png:', e);
+        }
+    }
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -1222,6 +1251,7 @@ let mapFilters = {
         // 'legacy' -> the previous behaviour (raw sprite handed to Mapbox with
         //             sdf:true), kept switchable for side-by-side comparison
         iconEdgeMode: 'sharp',
+        iconSet: 'vector',
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -1643,6 +1673,14 @@ function applyAircraftLayerStyles() {
         sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
         sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', colorExpr);
     }
+
+    // Anything else drawing traffic on this map — global playback, today —
+    // needs to restyle at the same moment. Without this a replay keeps the
+    // palette it opened with, and changing the colour setting mid-replay looks
+    // like the setting is broken rather than like the replay is stale.
+    try {
+        window.dispatchEvent(new CustomEvent('aircraftStylesChanged'));
+    } catch (_) { /* no CustomEvent in this context */ }
 }
 
 // Drop every registered aircraft sprite and rebuild it. Needed when the icon
@@ -1663,6 +1701,10 @@ async function reloadAircraftIcons() {
         if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'icon-image', '');
     });
 
+    // Both sets register under the same ids, so switching between them is a
+    // straight rebuild — the same path the sharp/legacy edge toggle already
+    // took. Without dropping the old images first the loader's hasImage()
+    // guards would keep serving whichever set registered first.
     Object.keys(spriteUVs).forEach(key => {
         [`icon-${key}`, `icon-${key}-nat`].forEach(id => {
             if (sectorOpsMap.hasImage(id)) {
@@ -1676,6 +1718,39 @@ async function reloadAircraftIcons() {
 }
 window.reloadAircraftIcons = reloadAircraftIcons;
 window.applyAircraftLayerStyles = applyAircraftLayerStyles;
+
+// How aircraft are painted, published so anything else drawing traffic on this
+// map paints it the same way.
+//
+// Global playback used to colour its aircraft by altitude, which meant a pilot
+// who had chosen Blue — or paid for a custom colour — watched a replay in
+// somebody else's palette. These are the live map's own expressions, so the
+// replay inherits the colour mode, the custom colour, and the user/watchlist
+// highlights without any of it being restated (and going stale) elsewhere.
+window.getPremiumColorExpression = getPremiumColorExpression;
+window.getTintedIconImageExpression = getTintedIconImageExpression;
+window.getNaturalIconImageExpression = getNaturalIconImageExpression;
+window.aircraftTintsAll = tintsAllAircraft;
+
+/**
+ * Which colour band a recorded pilot falls into: 'user', 'watchlist' or 'none'.
+ *
+ * The live map stamps this onto each feature as it arrives (refreshPilotRelations);
+ * a replay has to work it out from a username recorded days ago, so the lookup
+ * is published rather than the tagging.
+ */
+window.getPilotRelation = function (username) {
+    if (!username) return 'none';
+    try {
+        const name = String(username).toLowerCase();
+        const profile = (typeof ProfileUI !== 'undefined') ? ProfileUI : null;
+        const myIfName = profile?._currentUser?.user_metadata?.if_username?.toLowerCase() || null;
+        if (myIfName && name === myIfName) return 'user';
+        const watchlist = profile?._watchlist || [];
+        if (watchlist.some(w => w?.watched_username?.toLowerCase() === name)) return 'watchlist';
+    } catch (_) { /* signed out */ }
+    return 'none';
+};
 
 // --- PREMIUM CLOUD SYNC ENGINE ---
     let cloudSyncTimeout = null;
@@ -20130,6 +20205,26 @@ const AtcBoardUI = {
                         </ul>
 
                         <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Set</span>
+                        </div>
+
+                        <ul class="filter-toggle-list" id="icon-set-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-set-vector" name="icon-set" value="vector">
+                                <label for="icon-set-vector"><i class="fa-solid fa-vector-square"></i> Sharp (vector)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-set-classic" name="icon-set" value="classic">
+                                <label for="icon-set-classic"><i class="fa-solid fa-image"></i> Classic (sprite sheet)</label>
+                            </li>
+                        </ul>
+                        <p style="padding: 0 10px 4px; margin: 0; color: #8b93a7; font-size: 0.78rem; line-height: 1.4;">
+                            The classic sheet stores each aircraft at 32&ndash;60 pixels, so on a high-density
+                            screen every plane is drawn larger than it was painted. The vector set is
+                            redrawn at your screen's resolution instead.
+                        </p>
+
+                        <div class="filter-section-divider">
                             <span class="filter-section-title">Aircraft Icon Edges</span>
                         </div>
 
@@ -26137,6 +26232,8 @@ if (flatMapToggle) {
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
 
+        const setRadio = document.querySelector(`input[name="icon-set"][value="${mapFilters.iconSet || 'vector'}"]`);
+        if (setRadio) setRadio.checked = true;
         const edgeRadio = document.querySelector(`input[name="icon-edge-mode"][value="${mapFilters.iconEdgeMode || 'sharp'}"]`);
         if (edgeRadio) edgeRadio.checked = true;
 
@@ -26300,6 +26397,10 @@ if (flatMapToggle) {
             saveFiltersToLocalStorage();
             // The sharp/legacy choice is baked in when each sprite is registered,
             // so the whole icon set has to be rebuilt, not just restyled.
+            reloadAircraftIcons();
+        } else if (target.name === 'icon-set') {
+            mapFilters.iconSet = target.value;
+            saveFiltersToLocalStorage();
             reloadAircraftIcons();
         } else if (target.name === 'mobile-display-mode') {
             const val = target.value;

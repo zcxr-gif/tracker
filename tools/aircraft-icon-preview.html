@@ -1,0 +1,134 @@
+<!doctype html>
+<!--
+  aircraft-icon-preview.html — look at the aircraft icons without a map.
+
+  The vector set (aircraftIcons.js) replaced markers.png as the default because
+  the sheet stores a B737 at 32×32 physical pixels and declares it 128 logical
+  pixels wide, so on a high-density screen every plane is an upscale. That is an
+  argument from arithmetic; this page is where you check it with your eyes.
+
+  Open it from the repo root over a local server, e.g.
+
+      npx serve .        (then browse to /tools/aircraft-icon-preview.html)
+
+  — a file:// URL will not work, because the page imports an ES module.
+
+  If the vector set is not an improvement, Settings → Aircraft Icon Set → Classic
+  puts the sheet back, and it is still shipped.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aircraft icons — vector vs classic</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #0d1117; color: #94a3b8; margin: 0;
+         font: 13px/1.5 system-ui, -apple-system, sans-serif; }
+  header { padding: 18px 16px 4px; }
+  h1 { color: #f8fafc; font-size: 17px; margin: 0 0 4px; }
+  p.lede { margin: 0 0 8px; max-width: 60ch; color: #64748b; }
+  h2 { color: #e2e8f0; font-size: 13px; margin: 22px 16px 2px; font-weight: 600; }
+  .note { margin: 0 16px 8px; color: #64748b; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+          gap: 6px; padding: 8px 12px; }
+  .cell { text-align: center; }
+  .cell canvas { display: block; margin: 0 auto; }
+  .lbl { margin-top: 3px; font-size: 10px; color: #64748b; }
+  .light { background: #c8d0da; }
+  .sat { background: #4a5a3e; }
+  .pair { display: flex; gap: 10px; justify-content: center; align-items: flex-end; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Aircraft icons</h1>
+  <p class="lede">
+    Top: the vector set, drawn at your screen's own resolution. Bottom: the same
+    aircraft sliced out of markers.png the way the map slices them. Judge them at
+    the sizes the map actually uses — around 20&nbsp;pixels.
+  </p>
+</header>
+
+<h2>Vector — 64px, to see the shape</h2>
+<div class="grid" id="big"></div>
+
+<h2>Vector — 20px, the size the map draws</h2>
+<div class="grid" id="small"></div>
+
+<h2>Natural variant over pale terrain</h2>
+<p class="note">Used for untinted traffic in White mode. The dark rim is what keeps a white aircraft readable here.</p>
+<div class="grid light" id="nat"></div>
+<div class="grid sat" id="natsat"></div>
+
+<h2>Vector vs classic, same size</h2>
+<p class="note">Vector on the left of each pair, classic sheet on the right.</p>
+<div class="grid" id="cmp"></div>
+
+<script type="module">
+import { _internals, __draw } from '../aircraftIcons.js';
+const { SHAPES } = _internals;
+const names = Object.keys(SHAPES);
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+
+function canvasFor(px) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(px * DPR); c.height = Math.round(px * DPR);
+  c.style.width = px + 'px'; c.style.height = px + 'px';
+  const g = c.getContext('2d');
+  g.scale(DPR, DPR);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  return { c, g };
+}
+
+function cell(child, label) {
+  const w = document.createElement('div'); w.className = 'cell';
+  w.appendChild(child);
+  if (label) { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = label; w.appendChild(l); }
+  return w;
+}
+
+function drawSet(hostId, px, natural, fill) {
+  const host = document.getElementById(hostId);
+  for (const n of names) {
+    const { c, g } = canvasFor(px);
+    g.fillStyle = fill;
+    __draw(g, SHAPES[n], px, natural);
+    host.appendChild(cell(c, n));
+  }
+}
+
+drawSet('big', 64, false, '#e8eef7');
+drawSet('small', 20, false, '#e8eef7');
+drawSet('nat', 28, true, '#ffffff');
+drawSet('natsat', 28, true, '#ffffff');
+
+// The classic sheet, sliced exactly as flight.js slices it.
+const uvSrc = await (await fetch('../embed-sprites.js')).text();
+const UV = JSON.parse(uvSrc.slice(uvSrc.indexOf('{'), uvSrc.lastIndexOf('}') + 1));
+const sheet = new Image();
+sheet.src = '../markers.png';
+await new Promise((res, rej) => { sheet.onload = res; sheet.onerror = rej; });
+
+const cmp = document.getElementById('cmp');
+for (const n of names) {
+  const pair = document.createElement('div'); pair.className = 'pair';
+  const px = 24;
+
+  const { c: cv, g: gv } = canvasFor(px);
+  gv.fillStyle = '#e8eef7';
+  __draw(gv, SHAPES[n], px, false);
+  pair.appendChild(cv);
+
+  const { c: cc, g: gc } = canvasFor(px);
+  const uv = UV[n] || UV.B737;
+  gc.imageSmoothingQuality = 'high';
+  gc.drawImage(sheet, uv[0] * sheet.width, uv[1] * sheet.height,
+                      uv[2] * sheet.width, uv[3] * sheet.height, 0, 0, px, px);
+  pair.appendChild(cc);
+
+  cmp.appendChild(cell(pair, n));
+}
+</script>
+</body>
+</html>
