@@ -31,19 +31,18 @@
 // ambiguous end-to-end. Detail that disappears below twenty pixels is detail
 // that costs memory for nothing, so there is none.
 //
-// Status: NOT the default
-// -----------------------
+// Status: the 'vector' option, not the default
+// --------------------------------------------
 // These are hand-authored shapes, and hand-authored is exactly their limit —
 // they are sharp, but they are not as good as real artwork drawn by someone
-// who draws aircraft. `mapFilters.iconSet` defaults to 'classic' (markers.png)
-// for that reason; this set is the 'vector' option in Settings, kept because
-// it is the only thing here with no fixed resolution.
+// who draws aircraft. That verdict is what sent this looking for a real set,
+// and it found one: aircraftShapes.js now draws the map from the vendored
+// AircraftShapesSVG planforms, and is the default.
 //
-// The real fix is a proper external set. The best one is
-// github.com/RexKramer1/AircraftShapesSVG — 182 top-view planforms named by
-// ICAO type, drawn for ADS-B viewers — but it is GPL-3.0, stated both in the
-// repo and in each file's own metadata, which is a decision about the product
-// rather than about the code. See docs/AIRCRAFT-ICONS.md.
+// This set is kept as the 'vector' option because it is the only one here with
+// no third-party licence attached — if the GPL-3.0 on the vendored artwork ever
+// becomes a problem, this is what the app falls back to without losing
+// resolution independence. See docs/AIRCRAFT-ICONS.md.
 
 /* =========================
  * Per-type geometry

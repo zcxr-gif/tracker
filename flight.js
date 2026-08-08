@@ -177,16 +177,20 @@ function getIconEdgeMode() {
 }
 
 // Which artwork the aircraft icons come from.
-// 'vector'  -> drawn as paths at the screen's own resolution (aircraftIcons.js)
-// 'classic' -> markers.png, the original sheet
+// 'shapes'  -> the vendored top-view planforms (aircraftShapes.js) — the default
+// 'vector'  -> hand-authored parametric shapes (aircraftIcons.js)
+// 'classic' -> markers.png alone, the original sheet
 //
 // The sheet is 1024×512 for about sixty aircraft, which puts a B737 at 32×32
 // physical pixels while declaring it 128 logical pixels wide — so on a retina
-// phone every plane on the map is a 2× upscale of a small bitmap. The vector
-// set has no fixed resolution to run out of. The sheet is still shipped and is
-// one setting away.
+// phone every plane on the map is a 2× upscale of a small bitmap. Both other
+// sets are vectors and have no fixed resolution to run out of.
+//
+// Note that 'shapes' does not replace the sheet, it layers over it: only the
+// sixteen categories _resolveAircraftCategory() can return get a planform, and
+// the sheet still supplies the airport markers and everything else.
 function getIconSet() {
-    return (window.mapFilters && window.mapFilters.iconSet) || 'classic';
+    return (window.mapFilters && window.mapFilters.iconSet) || 'shapes';
 }
 
 async function loadSpriteSheetAndGenerateIcons(map) {
@@ -195,18 +199,31 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     const USE_SDF = true;
     const SHARP_EDGES = getIconEdgeMode() === 'sharp';
 
-    if (getIconSet() === 'vector') {
+    const iconSet = getIconSet();
+    const makeSdf = (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d'));
+    const yieldFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Both vector sets register under the same `icon-<KEY>` ids the sheet uses
+    // and run BEFORE it. The sheet's own loader guards every addImage with
+    // hasImage(), so whatever a vector set already claimed is left alone and
+    // the sheet quietly supplies the rest — the airport markers above all,
+    // which no aircraft set has. A failure in either one is therefore not
+    // fatal: the sheet fills the gap.
+    if (iconSet === 'shapes') {
+        try {
+            const { registerAircraftShapeIcons } = await import('./aircraftShapes.js');
+            await registerAircraftShapeIcons(map, { toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame });
+        } catch (e) {
+            console.warn('[icons] Aircraft shape set failed, falling back to markers.png:', e);
+        }
+    } else if (iconSet === 'vector') {
         try {
             const { registerVectorAircraftIcons } = await import('./aircraftIcons.js');
             await registerVectorAircraftIcons(map, Object.keys(spriteUVs), {
-                toSdf: (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d')),
-                sharp: SHARP_EDGES,
-                yieldFrame: () => new Promise(resolve => requestAnimationFrame(resolve))
+                toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame
             });
             return;
         } catch (e) {
-            // A failure here would leave the map with no aircraft at all, which
-            // is far worse than slightly soft ones — fall through to the sheet.
             console.warn('[icons] Vector icon set failed, falling back to markers.png:', e);
         }
     }
@@ -1251,7 +1268,7 @@ let mapFilters = {
         // 'legacy' -> the previous behaviour (raw sprite handed to Mapbox with
         //             sdf:true), kept switchable for side-by-side comparison
         iconEdgeMode: 'sharp',
-        iconSet: 'classic',
+        iconSet: 'shapes',
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -20210,8 +20227,12 @@ const AtcBoardUI = {
 
                         <ul class="filter-toggle-list" id="icon-set-filter-group" style="padding-top: 8px;">
                             <li class="filter-radio-item">
+                                <input type="radio" id="icon-set-shapes" name="icon-set" value="shapes">
+                                <label for="icon-set-shapes"><i class="fa-solid fa-plane-up"></i> Detailed (real planforms)</label>
+                            </li>
+                            <li class="filter-radio-item">
                                 <input type="radio" id="icon-set-vector" name="icon-set" value="vector">
-                                <label for="icon-set-vector"><i class="fa-solid fa-vector-square"></i> Sharp (vector)</label>
+                                <label for="icon-set-vector"><i class="fa-solid fa-vector-square"></i> Simple (drawn shapes)</label>
                             </li>
                             <li class="filter-radio-item">
                                 <input type="radio" id="icon-set-classic" name="icon-set" value="classic">
@@ -20220,8 +20241,9 @@ const AtcBoardUI = {
                         </ul>
                         <p style="padding: 0 10px 4px; margin: 0; color: #8b93a7; font-size: 0.78rem; line-height: 1.4;">
                             The classic sheet stores each aircraft at 32&ndash;60 pixels, so on a high-density
-                            screen every plane is drawn larger than it was painted. The vector set is
-                            redrawn at your screen's resolution instead.
+                            screen every plane is drawn larger than it was painted. Detailed uses true
+                            top-view planforms redrawn at your screen's resolution &mdash; an A380 and a
+                            Cessna are different aircraft, not the same one at two sizes.
                         </p>
 
                         <div class="filter-section-divider">
@@ -26232,7 +26254,7 @@ if (flatMapToggle) {
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
 
-        const setRadio = document.querySelector(`input[name="icon-set"][value="${mapFilters.iconSet || 'classic'}"]`);
+        const setRadio = document.querySelector(`input[name="icon-set"][value="${mapFilters.iconSet || 'shapes'}"]`);
         if (setRadio) setRadio.checked = true;
         const edgeRadio = document.querySelector(`input[name="icon-edge-mode"][value="${mapFilters.iconEdgeMode || 'sharp'}"]`);
         if (edgeRadio) edgeRadio.checked = true;

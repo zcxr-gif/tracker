@@ -401,13 +401,14 @@ export const MobileSettingsUI = {
 
                             <div class="mobile-section-header">Icon Set</div>
                             <div class="settings-mobile-grid">
-                                <button class="m-setting-pill" data-setting="iconSet" data-value="vector">Sharp</button>
+                                <button class="m-setting-pill" data-setting="iconSet" data-value="shapes">Detailed</button>
+                                <button class="m-setting-pill" data-setting="iconSet" data-value="vector">Simple</button>
                                 <button class="m-setting-pill" data-setting="iconSet" data-value="classic">Classic</button>
                             </div>
                             <div class="m-setting-hint">
                                 The classic sheet stores each aircraft at 32–60 pixels, so on this screen
-                                every plane is drawn larger than it was painted. Sharp redraws them at
-                                your screen's resolution.
+                                every plane is drawn larger than it was painted. Detailed uses true
+                                top-view planforms redrawn at your screen's resolution.
                             </div>
 
                             <div class="mobile-section-header">Icon Edges</div>

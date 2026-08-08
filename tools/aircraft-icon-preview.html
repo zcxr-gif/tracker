@@ -11,10 +11,12 @@
 
       npx serve .        (then browse to /tools/aircraft-icon-preview.html)
 
-  — a file:// URL will not work, because the page imports an ES module.
+  — a file:// URL will not work, because the page imports ES modules and fetches
+  the vendored SVGs.
 
-  If the vector set is not an improvement, Settings → Aircraft Icon Set → Classic
-  puts the sheet back, and it is still shipped.
+  Three sets are shown: `shapes` (the vendored planforms, the default), `vector`
+  (hand-drawn, aircraftIcons.js) and `classic` (markers.png). Settings →
+  Aircraft Icon Set switches between them at any time.
 -->
 <html lang="en">
 <head>
@@ -61,8 +63,8 @@
 <div class="grid light" id="nat"></div>
 <div class="grid sat" id="natsat"></div>
 
-<h2>Vector vs classic, same size</h2>
-<p class="note">Vector on the left of each pair, classic sheet on the right.</p>
+<h2>All three sets, same size</h2>
+<p class="note">Left to right in each group: <b>shapes</b> (default) &middot; vector &middot; classic sheet.</p>
 <div class="grid" id="cmp"></div>
 
 <script type="module">
@@ -103,6 +105,46 @@ drawSet('small', 20, false, '#e8eef7');
 drawSet('nat', 28, true, '#ffffff');
 drawSet('natsat', 28, true, '#ffffff');
 
+// The vendored planform set, through its own loader.
+const shapeImages = new Map();
+try {
+  const { registerAircraftShapeIcons } = await import('../aircraftShapes.js');
+  const collector = {
+    hasImage: id => shapeImages.has(id),
+    addImage: (id, data) => shapeImages.set(id, data)
+  };
+  await registerAircraftShapeIcons(collector, { sharp: false });
+} catch (e) {
+  console.warn('shape set unavailable:', e);
+}
+
+function shapeCanvas(key, px, natural) {
+  const data = shapeImages.get('icon-' + key + (natural ? '-nat' : ''));
+  if (!data) return null;
+  const off = document.createElement('canvas');
+  off.width = data.width; off.height = data.height;
+  off.getContext('2d').putImageData(data, 0, 0);
+  const { c, g } = canvasFor(px);
+  g.drawImage(off, 0, 0, px, px);
+  if (!natural) {           // tint the mask the way the map would
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = '#e8eef7';
+    g.fillRect(0, 0, px, px);
+  }
+  return c;
+}
+
+const shapesHost = document.createElement('div');
+shapesHost.className = 'grid';
+const shapesHead = document.createElement('h2');
+shapesHead.textContent = 'Vendored planforms (the default) — 56px';
+document.querySelector('header').after(shapesHost);
+document.querySelector('header').after(shapesHead);
+for (const n of names) {
+  const c = shapeCanvas(n, 56, false);
+  if (c) shapesHost.appendChild(cell(c, n));
+}
+
 // The classic sheet, sliced exactly as flight.js slices it.
 const uvSrc = await (await fetch('../embed-sprites.js')).text();
 const UV = JSON.parse(uvSrc.slice(uvSrc.indexOf('{'), uvSrc.lastIndexOf('}') + 1));
@@ -114,6 +156,9 @@ const cmp = document.getElementById('cmp');
 for (const n of names) {
   const pair = document.createElement('div'); pair.className = 'pair';
   const px = 24;
+
+  const shaped = shapeCanvas(n, px, false);
+  if (shaped) pair.appendChild(shaped);
 
   const { c: cv, g: gv } = canvasFor(px);
   gv.fillStyle = '#e8eef7';
