@@ -131,10 +131,6 @@ const TRAIL_POINTS = 12;
 // one flies in from off-screen already moving, rather than appearing at the
 // edge, and enough to cover a flick-pan before the next push lands.
 const CULL_MARGIN_FRACTION = 0.35;
-// A pinch or wheel-zoom is competing for the same tiles a push would rebuild,
-// so pushes stand down while the camera moves — but only briefly, because here
-// the content is moving too and a frozen world reads as a stall.
-const MAX_CAMERA_DEFER_MS = 350;
 
 const SPEED_STORAGE_KEY = 'globalPlaybackSpeed';
 const SPAN_STORAGE_KEY = 'globalPlaybackSpanMs';
@@ -191,9 +187,7 @@ export const GlobalPlayback = (() => {
     let lastPlanePush = 0;
     let frameCostEMA = 3;                // ms, exponential moving average
     let pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
-    let cameraMoving = false;
-    let cameraDeferredSince = 0;
-    let onMoveStart = null, onMoveEnd = null;
+    let onMoveStart = null, onMove = null, onMoveEnd = null;
     let onVisibilityChange = null;
     let wasPlayingWhenHidden = false;
     let onStylesChanged = null;
@@ -1087,17 +1081,42 @@ export const GlobalPlayback = (() => {
         unbindMapInteractions();
         if (!map) return;
 
-        // Stand down while the camera moves — see deferForCamera().
-        onMoveStart = () => { cameraMoving = true; };
-        onMoveEnd = () => {
-            cameraMoving = false;
-            cameraDeferredSince = 0;
-            // Repaint at once rather than waiting for the rate limiter, so the
-            // world is correct the instant the camera settles.
+        /* A camera move is a reason to draw, not a reason to stop.
+         *
+         * This used to stand down for the first 350ms of every gesture, on the
+         * theory that a pinch is competing for the same tiles a push would
+         * rebuild. Measured, that was 89% of the screen with nothing drawn on
+         * it halfway through a zoom out, and the replay frozen for the length
+         * of the gesture — which is how it was reported: zooming "cuts off the
+         * playback".
+         *
+         * It could not be otherwise. What gets drawn is chosen against the
+         * viewport as it stood at the last push, so a viewport that has since
+         * grown is a viewport with aircraft missing from everywhere it grew
+         * into. Skipping pushes during the one gesture that changes the
+         * viewport fastest is skipping them exactly when they are needed.
+         *
+         * The saving was never worth having either: a push is about two
+         * milliseconds with fifteen hundred aircraft and their trails, against
+         * a thirty-three millisecond frame. This module's rule everywhere else
+         * is that the frame rate does not give way and the amount of detail
+         * does; the camera is not an exception to it.
+         */
+        onMoveStart = () => {
+            // Forced: this is the frame that sets the generous pad, and it is
+            // worth nothing if the rate limiter holds it until the gesture is
+            // already underway.
+            gestureStarting = true;
             renderFrame(true);
         };
+        onMove = () => renderFrame();
+        onMoveEnd = () => renderFrame(true);
         map.on('movestart', onMoveStart);
+        map.on('move', onMove);
         map.on('moveend', onMoveEnd);
+        // A resize changes the viewport without moving the camera, and while
+        // paused nothing else would notice.
+        map.on('resize', onMoveEnd);
 
         // A backgrounded tab still holds every buffer this is pushing, and
         // browsers throttle rAF unevenly rather than stopping it. Pausing on
@@ -1200,7 +1219,12 @@ export const GlobalPlayback = (() => {
 
         if (!map) return;
         if (onMoveStart) { try { map.off('movestart', onMoveStart); } catch (_) {} onMoveStart = null; }
-        if (onMoveEnd) { try { map.off('moveend', onMoveEnd); } catch (_) {} onMoveEnd = null; }
+        if (onMove) { try { map.off('move', onMove); } catch (_) {} onMove = null; }
+        if (onMoveEnd) {
+            try { map.off('moveend', onMoveEnd); } catch (_) {}
+            try { map.off('resize', onMoveEnd); } catch (_) {}
+            onMoveEnd = null;
+        }
         if (onPlaneClick) { try { map.off('click', LYR_PLANES, onPlaneClick); } catch (_) {} onPlaneClick = null; }
         if (onPlaneEnter) { try { map.off('mouseenter', LYR_PLANES, onPlaneEnter); } catch (_) {} onPlaneEnter = null; }
         if (onPlaneLeave) { try { map.off('mouseleave', LYR_PLANES, onPlaneLeave); } catch (_) {} onPlaneLeave = null; }
@@ -1231,12 +1255,42 @@ export const GlobalPlayback = (() => {
     // still tested against a viewport sitting at -170.
     const cull = { minLat: -90, maxLat: 90, minLon: -180, maxLon: 180, wrapped: false };
 
+    // How much the viewport grew at the last push. A zoom out reveals ground
+    // that was not on screen when the drawn set was chosen, and if the margin
+    // does not already cover it that ground is drawn empty for a frame — at
+    // eighty times in a seventh of a second, measured, four fifths of the
+    // screen. Padding by the growth already seen covers the growth about to
+    // happen, and costs nothing when the camera is still.
+    let lastSpanLat = 0, lastSpanLon = 0;
+    const MAX_GROWTH_PAD = 2;
+    // Growth can only be measured once it has happened, which leaves the first
+    // frame of a gesture predicting from a still camera. So the first push of
+    // each gesture is padded generously on spec — one frame, once per gesture,
+    // and it covers a zoom that arrives faster than any hand could make it.
+    let gestureStarting = false;
+    const GESTURE_START_PAD = 1;
+
     function refreshCullBounds() {
         try {
             const b = map.getBounds();
-            const padLat = (b.getNorth() - b.getSouth()) * CULL_MARGIN_FRACTION;
+            const spanLat = b.getNorth() - b.getSouth();
             const west = b.getWest(), east = b.getEast();
-            const padLon = Math.abs(east - west) * CULL_MARGIN_FRACTION;
+            const spanLon = Math.abs(east - west);
+
+            let grow = 1;
+            if (lastSpanLat > 0 && lastSpanLon > 0) {
+                grow = Math.max(spanLat / lastSpanLat, spanLon / lastSpanLon);
+            }
+            lastSpanLat = spanLat; lastSpanLon = spanLon;
+            let margin = CULL_MARGIN_FRACTION
+                + Math.min(MAX_GROWTH_PAD, Math.max(0, grow - 1));
+            if (gestureStarting) {
+                gestureStarting = false;
+                if (margin < GESTURE_START_PAD) margin = GESTURE_START_PAD;
+            }
+
+            const padLat = spanLat * margin;
+            const padLon = spanLon * margin;
 
             cull.minLat = b.getSouth() - padLat;
             cull.maxLat = b.getNorth() + padLat;
@@ -1687,15 +1741,6 @@ export const GlobalPlayback = (() => {
         trailList.length = drawn;
     }
 
-    // Should a push be held back right now? A camera gesture is competing for
-    // the same tiles, but only for so long — a replay frozen mid-pan reads as a
-    // crash, not as courtesy.
-    function deferForCamera(now) {
-        if (!cameraMoving) { cameraDeferredSince = 0; return false; }
-        if (!cameraDeferredSince) { cameraDeferredSince = now; return true; }
-        return (now - cameraDeferredSince) < MAX_CAMERA_DEFER_MS;
-    }
-
     /**
      * Draw the world at the current clock.
      *
@@ -1723,10 +1768,7 @@ export const GlobalPlayback = (() => {
         const absT = spanStart + currentMs;
         const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-        if (!force) {
-            if (deferForCamera(now)) return;
-            if (now - lastPlanePush < pushIntervalMs) return;
-        }
+        if (!force && now - lastPlanePush < pushIntervalMs) return;
 
         const began = now;
         refreshCullBounds();
@@ -2311,8 +2353,6 @@ export const GlobalPlayback = (() => {
         lastPlanePush = 0;
         frameCostEMA = 3;
         pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
-        cameraMoving = false;
-        cameraDeferredSince = 0;
         airborneCount = 0;
         drawnCount = 0;
     }
@@ -2611,6 +2651,16 @@ export const GlobalPlayback = (() => {
             buildPlanes,
             buildTrails,
             setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
+            // A camera gesture decides what is on screen, and until it was
+            // measured it was deciding wrongly — see the zoom section of
+            // tools/test-global-playback.js. A stub map is enough to drive it.
+            __setMapForTest: (m) => { map = m; },
+            bindMapInteractions,
+            unbindMapInteractions,
+            refreshCullBounds,
+            refreshThinGrid,
+            renderFrame,
+            cullBounds: () => cull,
             __planeIds: () => planeList.map(f => f.properties.flightId),
             __planeFeatures: () => planeList,
             __trailFeatures: () => trailList,

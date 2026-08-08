@@ -95,6 +95,7 @@ const ok = (name, cond, extra) => {
 // --- browser stubs -------------------------------------------------------
 global.window = { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
 global.document = {
+    addEventListener() {}, removeEventListener() {},
     getElementById: () => null,
     head: { appendChild() {} },
     body: { appendChild() {} },
@@ -619,6 +620,141 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
         // Zoomed all the way out there is nothing left to cull.
         const world = box(-180, 180, -85, 85);
         ok('a world view culls nothing', trackMayBeInView(overPacific, world) && inView(20, -160, world));
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Zooming
+     * ---------------------------------------------------------------- *
+     * Reported as "whenever I zoom in and out it like cuts off the playback",
+     * and both halves of that were true.
+     *
+     * Pushes used to stand down for the first 350ms of every camera gesture,
+     * on the theory that a pinch is competing for the same tiles a push would
+     * rebuild. But what gets drawn is chosen against the viewport as it stood
+     * at the last push, so a viewport that has since grown has aircraft
+     * missing from everywhere it grew into — measured at 89% of the screen
+     * empty halfway through a zoom out, with the replay frozen for 368ms.
+     * Skipping pushes during the one gesture that changes the viewport fastest
+     * is skipping them exactly when they are needed.
+     *
+     * Worse when paused: there is no frame loop then, so the map's own move
+     * event is the only thing that can re-cull, and nothing was listening to
+     * it — the whole screen stayed as it was until the gesture ended.
+     *
+     * These run on the wall clock, because the thing under test is a rate
+     * limiter. A gesture is a second at most, and the replay's own frame loop
+     * is stood in for by calling renderFrame the way tick() does.
+     */
+    {
+        const {
+            __setMapForTest, bindMapInteractions, unbindMapInteractions,
+            refreshCullBounds, renderFrame, cullBounds
+        } = GlobalPlayback._internals;
+
+        const cam = { lat: 40, lon: -70, span: 1 };
+        let pushes = 0;
+        const stub = {
+            getBounds: () => ({
+                getNorth: () => cam.lat + cam.span / 2,
+                getSouth: () => cam.lat - cam.span / 2,
+                getWest: () => cam.lon - cam.span * 0.8,
+                getEast: () => cam.lon + cam.span * 0.8
+            }),
+            getCanvas: () => ({ clientWidth: 1200, clientHeight: 800, style: {} }),
+            getSource: () => ({ setData() { pushes++; } }),
+            on(ev, a, b) { this.h.set(ev, typeof a === 'function' ? a : b); },
+            off() {},
+            h: new Map(),
+            fire(ev) { const fn = this.h.get(ev); if (fn) fn({ features: [] }); }
+        };
+        __setMapForTest(stub);
+        bindMapInteractions();
+
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const viewport = () => ({
+            minLat: cam.lat - cam.span / 2, maxLat: cam.lat + cam.span / 2,
+            minLon: cam.lon - cam.span * 0.8, maxLon: cam.lon + cam.span * 0.8
+        });
+        // What share of the screen is ground the last push did not select for.
+        // Nothing is drawn there, whatever the traffic — so this is the "cut
+        // off" of the report, measured as area.
+        const uncovered = (shown) => {
+            const v = viewport();
+            const w = Math.max(0, Math.min(v.maxLon, shown.maxLon) - Math.max(v.minLon, shown.minLon));
+            const h = Math.max(0, Math.min(v.maxLat, shown.maxLat) - Math.max(v.minLat, shown.minLat));
+            const area = (v.maxLon - v.minLon) * (v.maxLat - v.minLat);
+            return area > 0 ? 1 - (w * h) / area : 0;
+        };
+
+        /**
+         * Drive one gesture and report the worst of it.
+         * @param playing whether the replay's frame loop is running behind it
+         */
+        async function gesture(from, to, ms, playing) {
+            cam.span = from;
+            renderFrame(true);
+            let shown = Object.assign({}, cullBounds());
+            let worstUncovered = 0, worstGap = 0, count = 0;
+
+            const began = Date.now();
+            let lastPushAt = began;
+            const atStart = pushes;
+            stub.fire('movestart');
+            // movestart pushes too — record it, or the first measurement of
+            // the gesture is taken against the box from before it.
+            if (pushes > atStart) shown = Object.assign({}, cullBounds());
+            for (;;) {
+                const t = Date.now() - began;
+                if (t > ms) break;
+                cam.span = from * Math.pow(to / from, t / ms);
+
+                const before = pushes;
+                // The map fires `move` throughout a gesture; the frame loop
+                // runs alongside it only while playing.
+                stub.fire('move');
+                if (playing) renderFrame();
+                if (pushes > before) {
+                    count++;
+                    worstGap = Math.max(worstGap, Date.now() - lastPushAt);
+                    lastPushAt = Date.now();
+                    shown = Object.assign({}, cullBounds());
+                }
+                worstUncovered = Math.max(worstUncovered, uncovered(shown));
+                await sleep(4);
+            }
+            worstGap = Math.max(worstGap, Date.now() - lastPushAt);
+            stub.fire('moveend');
+            return { count, worstGap, worstUncovered };
+        }
+
+        const out = await gesture(1, 24, 700, true);
+        ok('zooming out never leaves part of the screen unselected',
+            out.worstUncovered < 0.02,
+            `${(out.worstUncovered * 100).toFixed(0)}% of the screen was ground the last push had culled away`);
+        ok('the replay keeps running while the camera moves',
+            out.worstGap < 120 && out.count >= 8,
+            `${out.count} pushes in 700ms, longest gap ${out.worstGap}ms`);
+
+        const inward = await gesture(24, 1, 400, true);
+        ok('zooming in keeps drawing too',
+            inward.worstUncovered < 0.02 && inward.worstGap < 120,
+            `${(inward.worstUncovered * 100).toFixed(0)}% uncovered, longest gap ${inward.worstGap}ms`);
+
+        // Paused: no frame loop at all behind the gesture.
+        const paused = await gesture(1, 24, 500, false);
+        ok('a camera move re-culls even with the replay paused',
+            paused.worstUncovered < 0.02 && paused.count >= 5,
+            `${(paused.worstUncovered * 100).toFixed(0)}% uncovered over ${paused.count} pushes`);
+
+        // Faster than a hand can pinch: the growth pad has nothing to predict
+        // from on the first frame, which is what the gesture-start pad covers.
+        const violent = await gesture(0.5, 40, 150, true);
+        ok('even a zoom faster than a gesture can be leaves nothing unselected',
+            violent.worstUncovered < 0.02,
+            `${(violent.worstUncovered * 100).toFixed(0)}% uncovered at 80x in 150ms`);
+
+        unbindMapInteractions();
+        __setMapForTest(null);
     }
 
     /* ---------------------------------------------------------------- *
