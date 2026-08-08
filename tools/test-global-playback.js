@@ -522,11 +522,32 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
         buildPlanes();
         buildTrails(midT);
         const trails = trailFeaturesAfterBuild();
+        const planes = GlobalPlayback._internals.__planeFeatures();
         ok('every comet tail is capped at its vertex budget',
             trails.length > 0 && trails.every(t => t.geometry.coordinates.length <= TRAIL_POINTS),
             `longest tail had ${Math.max(...trails.map(t => t.geometry.coordinates.length))} vertices`);
-        ok('tails are attached to the interpolated head, not the last recorded point',
-            trails.every(t => t.geometry.coordinates.length >= 2));
+
+        // Reported as "the planes aren't following their paths". Two causes,
+        // and this is the first: tails were capped at 700 while up to 1500
+        // aircraft were drawn, so more than half the map had no path under it.
+        ok('every drawn aircraft gets a tail, not just the first few hundred',
+            trails.length === planes.length,
+            `${planes.length} aircraft drawn but only ${trails.length} tails`);
+
+        // And the second: tails were rebuilt on a slower cadence than the
+        // aircraft, which at 120x is twelve seconds of flight and at 600x a
+        // full minute — the aircraft floats visibly ahead of its own trail.
+        // The head of every tail must BE the aircraft's position.
+        // Matched by position rather than by index, so this holds even if a
+        // flight is skipped and the two lists fall out of step.
+        const drawnAt = new Set(planes.map(p => `${p.geometry.coordinates[0]},${p.geometry.coordinates[1]}`));
+        const orphans = trails.filter(t => {
+            const head = t.geometry.coordinates[t.geometry.coordinates.length - 1];
+            return !drawnAt.has(`${head[0]},${head[1]}`);
+        }).length;
+        ok('every tail is anchored to its aircraft, with no lag between them',
+            orphans === 0,
+            `${orphans} of ${trails.length} tails end somewhere no aircraft is`);
 
         // ---- the crash test ----
         // Warm every pool, then measure the heap across a few hundred pushes.

@@ -41,9 +41,9 @@ const DEFAULT_SPAN_MS = HOUR_MS;
 // How much flown history trails behind each aircraft, in session time.
 const TRAIL_WINDOW_MS = 15 * 60 * 1000;
 // A world-scale replay can hold thousands of aircraft, and every one of them
-// wants a tail. How many actually get one, and how many points each is drawn
-// with, are capped below (MAX_TRAIL_FEATURES / TRAIL_POINTS) — a shorter tail
-// on the aircraft you can pick out beats a full tail on all of them.
+// gets a tail. What is capped is how many points each tail is drawn with
+// (TRAIL_POINTS) — a shorter tail on every aircraft beats a full tail on some
+// of them and nothing on the rest.
 
 /* =========================
  * Motion
@@ -108,16 +108,25 @@ const PUSH_DUTY_CYCLE = 0.4;
 // capped. Below this the stepping is plainly visible, so there is no point
 // degrading further; something else has to give instead.
 const MAX_PUSH_INTERVAL_MS = 80;
-// Trails are a background element and a heavier geometry rebuild. They run on
-// their own slower cadence; nobody can see a comet tail lag by a twentieth of a
-// second behind the aircraft drawing it.
-const TRAIL_PUSH_INTERVAL_MS = 100;
+// Trails are rebuilt on every push, with the planes.
+//
+// They used to run on their own slower cadence, on the reasoning that nobody
+// can see a comet tail lag by a twentieth of a second. That reasoning forgot
+// the speed multiplier: a tenth of a real second at 120x is twelve seconds of
+// flight, and at 600x it is a full minute — so the aircraft floated several
+// miles ahead of its own trail, detached, which is precisely what "the planes
+// aren't following their paths" looks like. The trail's head is the aircraft's
+// position; the two cannot be allowed to drift apart.
 // Vertices per comet tail. A tail says where something came from; a dozen
 // points draw that as well as sixty and cost a fifth as much geometry.
 const TRAIL_POINTS = 12;
-// How many aircraft get a tail at all. Past this the tails are a wash rather
-// than information, and they are the most expensive geometry on the map.
-const MAX_TRAIL_FEATURES = 700;
+// Vertices per tail. A tail says where something came from; a dozen points draw
+// that as well as sixty and cost a fifth as much geometry.
+//
+// There is deliberately no cap on how many aircraft get one. There used to be —
+// 700, against a drawn set of up to 1500 — which meant more than half the
+// aircraft on screen had no path under them at all. Half the map trailing
+// nothing does not read as a tasteful limit; it reads as broken.
 // How far outside the viewport an aircraft is still worth drawing. Enough that
 // one flies in from off-screen already moving, rather than appearing at the
 // edge, and enough to cover a flick-pan before the next push lands.
@@ -180,7 +189,6 @@ export const GlobalPlayback = (() => {
 
     // Push scheduling (see the header note on setData cost).
     let lastPlanePush = 0;
-    let lastTrailPush = 0;
     let frameCostEMA = 3;                // ms, exponential moving average
     let pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
     let cameraMoving = false;
@@ -537,8 +545,11 @@ export const GlobalPlayback = (() => {
      * ========================= */
 
     // Reused so evaluating a couple of thousand aircraft per frame allocates
-    // nothing. Callers must read what they need before the next call.
-    const POS = { lat: 0, lon: 0, alt: 0, gs: 0, hdg: 0, t: 0, opacity: 1 };
+    // nothing. Callers must read what they need before the next call, or pass
+    // their own object as positionAt's third argument.
+    const SHARED_POS = { lat: 0, lon: 0, alt: 0, gs: 0, hdg: 0, t: 0, opacity: 1 };
+    // A caller wanting to hold two positions at once makes one of these.
+    const makePosition = () => ({ lat: 0, lon: 0, alt: 0, gs: 0, hdg: 0, t: 0, opacity: 1 });
 
     // Find the sample at or before absT, starting from the flight's last known
     // cursor. Playback advances monotonically, so the answer is almost always
@@ -570,9 +581,15 @@ export const GlobalPlayback = (() => {
      * seen flying that ground. Better to let it go and pick it up again when
      * the data resumes.
      *
-     * Returns the shared POS object — do not retain it.
+     * Returns the shared POS object, so a second call invalidates the first.
+     * That is deliberate — a fresh object per aircraft per frame is exactly the
+     * allocation this module cannot afford — but it is a trap, and it has
+     * already cost two misdiagnoses where a harness held two "positions" that
+     * were the same object. Callers needing more than one at a time pass their
+     * own `out`.
      */
-    function positionAt(f, absT) {
+    function positionAt(f, absT, out) {
+        const POS = out || SHARED_POS;
         const pts = f.points;
         if (!pts || pts.length < 2) return null;
 
@@ -1396,7 +1413,7 @@ export const GlobalPlayback = (() => {
         const from = absT - TRAIL_WINDOW_MS;
         let drawn = 0;
 
-        for (let s = 0; s < chosenCount && s < MAX_TRAIL_FEATURES; s++) {
+        for (let s = 0; s < chosenCount; s++) {
             const i = chosen[s];
             const f = candFlight[i];
             const pts = f.points;
@@ -1407,7 +1424,11 @@ export const GlobalPlayback = (() => {
             for (let j = startIdx; j < pts.length && pts[j].t <= absT; j++) available++;
             if (available < 1) continue;
 
-            const feat = trailSlot(s);
+            // Slot by output position, not by loop index: a flight with
+            // nothing to draw is skipped, and if the two diverged a pooled
+            // feature would be written under one index and published under
+            // another.
+            const feat = trailSlot(drawn);
             const coords = feat.geometry.coordinates;
             const take = Math.min(available, TRAIL_POINTS - 1);
             const stride = available / take;
@@ -1492,13 +1513,10 @@ export const GlobalPlayback = (() => {
             return;   // style swapped underneath us; the next frame retries
         }
 
-        if (force || began - lastTrailPush >= TRAIL_PUSH_INTERVAL_MS) {
-            lastTrailPush = began;
-            try {
-                const trailSrc = map.getSource(SRC_TRAILS);
-                if (trailSrc) { buildTrails(absT); trailSrc.setData(trailCollection); }
-            } catch (_) { /* same */ }
-        }
+        try {
+            const trailSrc = map.getSource(SRC_TRAILS);
+            if (trailSrc) { buildTrails(absT); trailSrc.setData(trailCollection); }
+        } catch (_) { /* same */ }
 
         lastPlanePush = began;
 
@@ -2056,7 +2074,6 @@ export const GlobalPlayback = (() => {
         // quiet one on a fast device, and it should not inherit a slow window's
         // measured cost and open at a throttled rate for no reason.
         lastPlanePush = 0;
-        lastTrailPush = 0;
         frameCostEMA = 3;
         pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
         cameraMoving = false;
@@ -2345,6 +2362,7 @@ export const GlobalPlayback = (() => {
         _internals: {
             normalizePath,
             positionAt,
+            makePosition,
             computeTangents,
             measureTrack,
             inView,
@@ -2359,6 +2377,7 @@ export const GlobalPlayback = (() => {
             buildTrails,
             setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
             __planeIds: () => planeList.map(f => f.properties.flightId),
+            __planeFeatures: () => planeList,
             __trailFeatures: () => trailList,
             poolSizes: () => ({
                 planePool: planePool.length,
