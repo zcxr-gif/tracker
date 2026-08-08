@@ -27,6 +27,63 @@
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+// The steady-state allocation check counts garbage collections, which can only
+// be observed from outside the process — PerformanceObserver delivers 'gc'
+// entries on a later tick, and a measured loop that never yields would report
+// zero however much garbage it made. So the suite re-execs itself under
+// --trace-gc, captures the child's stdout, and counts collections between the
+// markers the child prints. Everything else runs identically either way.
+const GC_BEGIN = '=== GC WINDOW BEGINS ===';
+const GC_END = '=== GC WINDOW ENDS ===';
+
+if (process.env.GPB_GC_CHILD !== '1') {
+    const { spawnSync } = require('child_process');
+    // V8 writes --trace-gc to stdout, so the child's stdout is captured and
+    // replayed here with the trace lines filtered back out.
+    const r = spawnSync(
+        process.execPath,
+        ['--expose-gc', '--trace-gc', __filename, ...process.argv.slice(2)],
+        {
+            env: { ...process.env, GPB_GC_CHILD: '1' },
+            stdio: ['inherit', 'pipe', 'inherit'],
+            encoding: 'utf8'
+        }
+    );
+
+    const out = r.stdout || '';
+    const isTrace = (line) => /^\[\d+:.*\]\s+\d+ ms: (Scavenge|Mark-|Mark_)/.test(line);
+
+    let inWindow = false;
+    let collections = 0;
+    for (const line of out.split('\n')) {
+        if (line.includes(GC_BEGIN)) { inWindow = true; continue; }
+        if (line.includes(GC_END)) { inWindow = false; continue; }
+        if (isTrace(line)) { if (inWindow) collections++; continue; }
+        if (/^##COUNTS /.test(line)) continue;
+        if (line.length) console.log(line);
+    }
+
+    // Measured against the version that crashed: rebuilding every feature and
+    // coordinate pair per push ran 137 collections over this same workload. A
+    // pooled steady state runs a handful — one every few hundred pushes, which
+    // at thirty pushes a second is a minor GC every ten seconds or so, i.e.
+    // ordinary. Anything approaching the old figure means the pooling has been
+    // undone somewhere and the phone will die again.
+    const budget = 40;
+    const okGc = collections <= budget;
+    console.log(okGc
+        ? `  ✓ 5,000 pushes of a 2,000-aircraft window stay off the collector (${collections} GCs, budget ${budget})`
+        : `  ✗ 5,000 pushes triggered ${collections} collections (budget ${budget}) — something allocates per push`);
+
+    const counts = /##COUNTS (\d+) (\d+)/.exec(out);
+    const childPass = counts ? Number(counts[1]) : 0;
+    const childFail = counts ? Number(counts[2]) : 1;
+    const pass = childPass + (okGc ? 1 : 0);
+    const fail = childFail + (okGc ? 0 : 1);
+    console.log(`\n${pass} passing${fail ? `, ${fail} failing` : ''}\n`);
+    process.exit(fail === 0 && r.status === 0 ? 0 : 1);
+}
+
 const ROOT = path.resolve(__dirname, '..');
 
 let pass = 0; let fail = 0;
@@ -346,6 +403,195 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
         ok('a world view culls nothing', trackMayBeInView(overPacific, world) && inView(20, -160, world));
     }
 
-    console.log(`\n${pass} passing${fail ? `, ${fail} failing` : ''}\n`);
+    /* ---------------------------------------------------------------- *
+     * Drawing: bounded work, stable choices, and no garbage
+     * ---------------------------------------------------------------- *
+     * These are the two faults that made the first cut unwatchable, and
+     * neither is visible by reading the code.
+     *
+     * A push that rebuilds a few thousand features and tens of thousands of
+     * coordinate pairs is tens of megabytes per second of garbage. That is
+     * not "a bit slow" on a phone — it is a crash after a few minutes of
+     * playing, which is exactly how it was reported. So the steady state has
+     * to allocate nothing, and that is asserted against the heap rather than
+     * assumed from the shape of the code.
+     *
+     * And the work per push has to be bounded by the size of the screen, not
+     * by how busy the server was — otherwise a peak-hour window degrades the
+     * frame rate, and a degraded frame rate is the stepping this whole module
+     * exists to remove.
+     */
+    {
+        const {
+            selectVisible, buildPlanes, buildTrails, measureTrack,
+            setThinGridForTest, poolSizes, MAX_DRAWN, TRAIL_POINTS, SOFT_CAP
+        } = GlobalPlayback._internals;
+
+        // A busy window: 2,000 aircraft spread over the North Atlantic, each
+        // an hour long and sampled the way the recorder samples.
+        const busy = [];
+        for (let k = 0; k < 2000; k++) {
+            const pts = [];
+            for (let i = 0; i <= 30; i++) {
+                pts.push({
+                    t: T0 + i * 120000,
+                    lat: 35 + (k % 40) * 0.4,
+                    lon: -70 + Math.floor(k / 40) * 0.4 + i * 0.15,
+                    alt: 35000, gs: 460, hdg: 90
+                });
+            }
+            const f = measureTrack(mk(pts));
+            f.flightId = `BUSY-${k}`;
+            f.callsign = `TST${k}`;
+            f.username = 'Pilot';
+            f.aircraftName = 'A350-900';
+            f.category = 'A350';
+            busy.push(f);
+        }
+
+        const view = { minLat: 30, maxLat: 60, minLon: -80, maxLon: -40, wrapped: false };
+        // A phone-sized window: 30° of latitude over ~700px, 40° of longitude
+        // over ~400px, at one aircraft per 5px cell.
+        setThinGridForTest((30 / 700) * 5, (40 / 400) * 5);
+
+        const midT = T0 + 30 * 60000;
+
+        const airborneThinned = selectVisible(busy, midT, view, true);
+        const drawnThinned = poolSizes().chosen;
+        const candidates = poolSizes().candidates;
+        const airborneAll = selectVisible(busy, midT, view, false);
+        const drawnAll = poolSizes().chosen;
+
+        ok('every aircraft in the window is counted as airborne, drawn or not',
+            airborneThinned === airborneAll && airborneThinned > 1500,
+            `thinned counted ${airborneThinned}, unthinned ${airborneAll}`);
+
+        // The point of the safety valve is that it does not fire until it has
+        // to. Density at world zoom *is* the picture — a busy evening thinned
+        // down to a sparse scatter is a worse lie than a dropped frame — so
+        // below the cap nothing is dropped at all.
+        // And when it does fire it thins to the cap, not past it. The grid is
+        // sized in pixels, so left alone it drops however much the traffic
+        // happens to overlap — three thousand down to five hundred, when
+        // fifteen hundred would have fitted. Whatever room is left gets filled
+        // back in.
+        ok('the drawn set is capped, but only once it exceeds what a push carries',
+            drawnThinned === Math.min(candidates, SOFT_CAP),
+            `${candidates} visible → drew ${drawnThinned} (soft cap ${SOFT_CAP})`);
+
+        ok('the drawn set never exceeds the hard cap',
+            drawnThinned <= MAX_DRAWN && drawnAll <= MAX_DRAWN,
+            `${drawnThinned} / ${drawnAll} against a cap of ${MAX_DRAWN}`);
+
+        // The regression this guards against: an earlier cut thinned at
+        // icon size and unconditionally, which turned three thousand
+        // contacts into five hundred and made a packed evening render as a
+        // quiet one. Below the cap, every visible aircraft must be drawn —
+        // even a fleet deliberately stacked on top of itself.
+        {
+            const stacked = busy.slice(0, 600).map(f => {
+                const g = Object.create(Object.getPrototypeOf(f));
+                Object.assign(g, f);
+                return g;
+            });
+            selectVisible(stacked, midT, view, true);
+            const p = poolSizes();
+            ok('below the cap nothing is thinned, however stacked the traffic is',
+                p.chosen === p.candidates && p.candidates > 0,
+                `${p.candidates} visible but only ${p.chosen} drawn`);
+        }
+
+        // Flicker: if the winner inside a cell were "whichever was visited
+        // first", the drawn set would churn between neighbours frame to frame
+        // and the map would sparkle. The winner is hashed, so it is stable.
+        selectVisible(busy, midT, view, true);
+        buildPlanes();
+        const firstIds = GlobalPlayback._internals.poolSizes().planeList
+            ? new Set(planeIdsAfterBuild()) : null;
+        selectVisible(busy, midT + 900, view, true);
+        buildPlanes();
+        const secondIds = new Set(planeIdsAfterBuild());
+        let kept = 0;
+        for (const id of firstIds) if (secondIds.has(id)) kept++;
+        ok('the same aircraft stay drawn between frames — the map does not sparkle',
+            kept / firstIds.size > 0.95,
+            `only ${(100 * kept / firstIds.size).toFixed(1)}% of drawn aircraft survived a 0.9s step`);
+
+        // Tails are capped per aircraft, whatever the recording's resolution.
+        selectVisible(busy, midT, view, true);
+        buildPlanes();
+        buildTrails(midT);
+        const trails = trailFeaturesAfterBuild();
+        ok('every comet tail is capped at its vertex budget',
+            trails.length > 0 && trails.every(t => t.geometry.coordinates.length <= TRAIL_POINTS),
+            `longest tail had ${Math.max(...trails.map(t => t.geometry.coordinates.length))} vertices`);
+        ok('tails are attached to the interpolated head, not the last recorded point',
+            trails.every(t => t.geometry.coordinates.length >= 2));
+
+        // ---- the crash test ----
+        // Warm every pool, then measure the heap across a few hundred pushes.
+        for (let i = 0; i < 60; i++) {
+            selectVisible(busy, midT + i * 1000, view, true);
+            buildPlanes();
+            buildTrails(midT + i * 1000);
+        }
+        const warmPool = poolSizes().planePool;
+
+        // Churn, not retained heap. The objects a rebuild-every-push design
+        // creates are garbage by definition, so measuring the heap either side
+        // of a forced GC says nothing at all — it comes back clean and the test
+        // passes while the phone still dies. What kills the phone is the
+        // *volume*: allocate a few thousand objects several times a second and
+        // the collector runs constantly, which is both the jank and, once tile
+        // buffers are competing for the same ceiling, the crash.
+        //
+        // So count the collections. A pooled steady state does not make
+        // garbage, so it does not trigger any.
+        // The collections that happen inside these markers are counted by the
+        // parent process from --trace-gc output; see the top of this file.
+        global.gc();
+        console.log(GC_BEGIN);
+        for (let i = 0; i < 5000; i++) {
+            const t = midT + (i % 300) * 1000;
+            selectVisible(busy, t, view, true);
+            buildPlanes();
+            buildTrails(t);
+        }
+        console.log(GC_END);
+
+        // Pools settle at a high-water mark rather than at a fixed size — the
+        // drawn count moves a little as aircraft cross cell boundaries, so a
+        // few more slots get claimed after warm-up. What matters is that it
+        // converges and stays under the cap, not that it never moves.
+        const finalPool = poolSizes().planePool;
+        ok('the pools converge on a high-water mark instead of growing without bound',
+            finalPool <= MAX_DRAWN && finalPool - warmPool < warmPool * 0.25,
+            `pool went ${warmPool} → ${finalPool} over 5,000 pushes (cap ${MAX_DRAWN})`);
+
+        // Second run, from an already-settled pool: this one should not move
+        // at all, which is the steady state the memory claim actually rests on.
+        const settled = poolSizes().planePool;
+        for (let i = 0; i < 1000; i++) {
+            const t = midT + (i % 300) * 1000;
+            selectVisible(busy, t, view, true);
+            buildPlanes();
+            buildTrails(t);
+        }
+        ok('…and once settled, a further 1,000 pushes claim no new slots at all',
+            poolSizes().planePool === settled,
+            `pool moved ${settled} → ${poolSizes().planePool} on a second run`);
+
+        function planeIdsAfterBuild() {
+            // buildPlanes writes into the pooled features; read the ids back
+            // out of the live plane list via a fresh selection each time.
+            return GlobalPlayback._internals.__planeIds();
+        }
+        function trailFeaturesAfterBuild() {
+            return GlobalPlayback._internals.__trailFeatures();
+        }
+    }
+
+    // The parent adds the collection-count assertion and prints the summary.
+    console.log(`##COUNTS ${pass} ${fail}`);
     process.exit(fail === 0 ? 0 : 1);
 })();

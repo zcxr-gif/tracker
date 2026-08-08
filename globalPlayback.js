@@ -41,10 +41,9 @@ const DEFAULT_SPAN_MS = HOUR_MS;
 // How much flown history trails behind each aircraft, in session time.
 const TRAIL_WINDOW_MS = 15 * 60 * 1000;
 // A world-scale replay can hold thousands of aircraft, and every one of them
-// wants a tail. Past this many vertices the trails cost more than they show,
-// so they are thinned rather than dropped — a shorter tail on every aircraft
-// beats a full tail on an arbitrary few.
-const MAX_TRAIL_VERTICES = 40000;
+// wants a tail. How many actually get one, and how many points each is drawn
+// with, are capped below (MAX_TRAIL_FEATURES / TRAIL_POINTS) — a shorter tail
+// on the aircraft you can pick out beats a full tail on all of them.
 
 /* =========================
  * Motion
@@ -98,15 +97,27 @@ const FADE_MS = 20 * 1000;
  * be seen.
  */
 
-// Share of wall-clock time the plane source may spend inside setData().
-const PUSH_DUTY_CYCLE = 0.3;
-// Floor on the push rate however expensive a frame gets: below ~9 Hz the
-// stepping becomes visible even at world zoom.
-const MAX_PUSH_INTERVAL_MS = 110;
-// Trails are a background element and a much heavier geometry rebuild. They run
-// on their own slower cadence; nobody can see a comet tail lag by a tenth of a
+// The rate to hold. Thirty pushes a second is smooth to the eye, and leaving
+// headroom under the display's own 60 Hz means a push that runs long lands in
+// the gap rather than dropping a frame.
+const TARGET_PUSH_INTERVAL_MS = 33;
+// Share of wall-clock time pushing may consume before the rate gives way. The
+// rate is the *last* thing to give — screen-space thinning caps the work first.
+const PUSH_DUTY_CYCLE = 0.4;
+// The floor, for a device that cannot hold the target even with the drawn set
+// capped. Below this the stepping is plainly visible, so there is no point
+// degrading further; something else has to give instead.
+const MAX_PUSH_INTERVAL_MS = 80;
+// Trails are a background element and a heavier geometry rebuild. They run on
+// their own slower cadence; nobody can see a comet tail lag by a twentieth of a
 // second behind the aircraft drawing it.
-const TRAIL_PUSH_INTERVAL_MS = 130;
+const TRAIL_PUSH_INTERVAL_MS = 100;
+// Vertices per comet tail. A tail says where something came from; a dozen
+// points draw that as well as sixty and cost a fifth as much geometry.
+const TRAIL_POINTS = 12;
+// How many aircraft get a tail at all. Past this the tails are a wash rather
+// than information, and they are the most expensive geometry on the map.
+const MAX_TRAIL_FEATURES = 700;
 // How far outside the viewport an aircraft is still worth drawing. Enough that
 // one flies in from off-screen already moving, rather than appearing at the
 // edge, and enough to cover a flick-pan before the next push lands.
@@ -154,23 +165,29 @@ export const GlobalPlayback = (() => {
     let onProStatusChanged = null;
     let abortLoad = null;
 
-    // Persistent GeoJSON, mutated in place. Rebuilding these objects every
-    // frame would allocate a few thousand features sixty times a second and
-    // hand the garbage collector the frame budget; instead each aircraft keeps
-    // one feature for as long as it is on screen and only its numbers change.
-    const planeFeatures = new Map();     // flightId -> Feature (currently drawn)
-    let planeList = [];                  // cached Array.from(planeFeatures.values())
-    let planeRosterDirty = true;         // the *set* of drawn aircraft changed
+    // Persistent GeoJSON. These objects are written, never rebuilt: a few
+    // thousand features and tens of thousands of coordinate pairs, reallocated
+    // several times a second, is tens of megabytes per second of garbage — on
+    // a phone that is not slow, it is a crash after a few minutes of playing.
+    // Pools are keyed by draw slot rather than by aircraft, because nothing
+    // downstream tracks a feature's identity from one push to the next.
+    const planePool = [];                // slot -> Feature
+    const trailPool = [];                // slot -> Feature (coordinates reused)
+    const planeList = [];                // persistent; truncated, never replaced
+    const trailList = [];
     const planeCollection = { type: 'FeatureCollection', features: planeList };
-    const trailCollection = { type: 'FeatureCollection', features: [] };
+    const trailCollection = { type: 'FeatureCollection', features: trailList };
 
     // Push scheduling (see the header note on setData cost).
     let lastPlanePush = 0;
     let lastTrailPush = 0;
-    let planeCostEMA = 3;                // ms, exponential moving average
+    let frameCostEMA = 3;                // ms, exponential moving average
+    let pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
     let cameraMoving = false;
     let cameraDeferredSince = 0;
     let onMoveStart = null, onMoveEnd = null;
+    let onVisibilityChange = null;
+    let wasPlayingWhenHidden = false;
 
     // Hover / selection.
     let hoverPopup = null;
@@ -205,7 +222,15 @@ export const GlobalPlayback = (() => {
 
     // Altitude ramp, matched to flightReplay/atcReplay so a track means the
     // same thing whichever replay you are looking at.
-    function getAltColor(alt) {
+    //
+    // Quantised into bands and precomputed, because the obvious version builds
+    // an `rgb(…)` string per aircraft per push — a few hundred throwaway
+    // strings thirty times a second, which is exactly the kind of quiet churn
+    // this module cannot afford. Two hundred bands is finer than the eye can
+    // separate on a ramp this wide.
+    const ALT_BANDS = 200;
+    const ALT_CEIL = 40000;
+    const ALT_COLORS = (() => {
         const stops = [
             [0, [56, 189, 248]],
             [10000, [45, 212, 191]],
@@ -213,29 +238,65 @@ export const GlobalPlayback = (() => {
             [30000, [250, 204, 21]],
             [40000, [248, 113, 113]]
         ];
-        const a = Math.max(0, Math.min(40000, alt || 0));
-        for (let i = 0; i < stops.length - 1; i++) {
-            const [lo, c0] = stops[i], [hi, c1] = stops[i + 1];
-            if (a <= hi) {
-                const f = (a - lo) / (hi - lo || 1);
-                const c = c0.map((v, j) => Math.round(v + (c1[j] - v) * f));
-                return `rgb(${c[0]},${c[1]},${c[2]})`;
+        const out = new Array(ALT_BANDS + 1);
+        for (let b = 0; b <= ALT_BANDS; b++) {
+            const a = (b / ALT_BANDS) * ALT_CEIL;
+            let color = 'rgb(248,113,113)';
+            for (let i = 0; i < stops.length - 1; i++) {
+                const [lo, c0] = stops[i], [hi, c1] = stops[i + 1];
+                if (a <= hi) {
+                    const f = (a - lo) / (hi - lo || 1);
+                    color = `rgb(${Math.round(c0[0] + (c1[0] - c0[0]) * f)},`
+                          + `${Math.round(c0[1] + (c1[1] - c0[1]) * f)},`
+                          + `${Math.round(c0[2] + (c1[2] - c0[2]) * f)})`;
+                    break;
+                }
             }
+            out[b] = color;
         }
-        return 'rgb(248,113,113)';
+        return out;
+    })();
+
+    function getAltColor(alt) {
+        const a = alt > 0 ? (alt < ALT_CEIL ? alt : ALT_CEIL) : 0;
+        return ALT_COLORS[(a / ALT_CEIL * ALT_BANDS) | 0];
     }
 
-    // The sprite sheet the live map already loaded. 'default' has no frame in
-    // it, so an unknown airframe resolves to a real icon rather than making
-    // Mapbox re-request a missing image on every frame.
+    // The sprite sheet the live map already loaded.
+    //
+    // The fallback is not politeness. A symbol layer whose `icon-image`
+    // resolves to a frame that is not registered makes Mapbox re-request the
+    // missing image — on every frame, for as long as the layer is drawn. At
+    // sixty frames a second across a replay left playing, that is the leak
+    // atcReplay's own comment records as eventually crashing the iOS web view.
+    // So the resolved name is checked against the map before it is used, and
+    // anything unknown becomes a real aircraft instead.
+    const FALLBACK_CATEGORY = 'B737';
+    const categoryCache = new Map();
+
     function categoryFor(aircraftName) {
+        const key = aircraftName || '';
+        const cached = categoryCache.get(key);
+        if (cached !== undefined) return cached;
+
+        let cat = FALLBACK_CATEGORY;
         if (typeof window.getAircraftCategory === 'function') {
             try {
                 const c = window.getAircraftCategory(aircraftName);
-                if (c && c !== 'default') return c;
-            } catch (_) { /* fall through */ }
+                if (c && c !== 'default') cat = c;
+            } catch (_) { /* keep the fallback */ }
         }
-        return 'B737';
+        // hasImage() is only meaningful once the map exists and its sprites are
+        // registered; before that we take the mapping on trust, which is the
+        // same trust the live map places in it.
+        try {
+            if (map && map.hasImage && !map.hasImage(`icon-${cat}`)) {
+                if (map.hasImage(`icon-${FALLBACK_CATEGORY}`)) cat = FALLBACK_CATEGORY;
+            }
+        } catch (_) { /* keep what we have */ }
+
+        categoryCache.set(key, cat);
+        return cat;
     }
 
     function fmtZulu(epochMs) {
@@ -266,6 +327,18 @@ export const GlobalPlayback = (() => {
         }
         const d = Math.round(ms / DAY_MS);
         return `${d} day${d === 1 ? '' : 's'} ago`;
+    }
+
+    // Callsigns, pilot names and aircraft types are recorded from what pilots
+    // typed into Infinite Flight, so they are not ours and they go into the
+    // hover card as text, never as markup.
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function isProUser() {
@@ -594,7 +667,7 @@ export const GlobalPlayback = (() => {
                     // otherwise mat together into a solid wash; heavier close
                     // in, where each one is a track you are actually reading.
                     'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1, 6, 1.8, 10, 2.6],
-                    'line-opacity': ['*', ['coalesce', ['get', 'opacity'], 1],
+                    'line-opacity': ['*', ['/', ['coalesce', ['get', 'opacity'], 100], 100],
                         ['interpolate', ['linear'], ['zoom'], 2, 0.35, 6, 0.55, 10, 0.7]]
                 }
             });
@@ -622,8 +695,10 @@ export const GlobalPlayback = (() => {
                 paint: {
                     'icon-color': ['coalesce', ['get', 'color'], '#ffffff'],
                     // Carries the entry/exit fade, so aircraft arrive and leave
-                    // instead of blinking into existence mid-window.
-                    'icon-opacity': ['coalesce', ['get', 'opacity'], 1]
+                    // instead of blinking into existence mid-window. Stored as
+                    // 0–100 so the property stays a small integer; see
+                    // buildPlanes() for why that matters.
+                    'icon-opacity': ['/', ['coalesce', ['get', 'opacity'], 100], 100]
                 }
             });
         }
@@ -647,7 +722,7 @@ export const GlobalPlayback = (() => {
                     'text-color': '#ffffff',
                     'text-halo-color': 'rgba(0,0,0,0.8)',
                     'text-halo-width': 1.4,
-                    'text-opacity': ['coalesce', ['get', 'opacity'], 1]
+                    'text-opacity': ['/', ['coalesce', ['get', 'opacity'], 100], 100]
                 },
                 // Callsigns for a whole server at world zoom would be an
                 // unreadable mat of text — and, worse, the collision detection
@@ -679,6 +754,20 @@ export const GlobalPlayback = (() => {
         map.on('movestart', onMoveStart);
         map.on('moveend', onMoveEnd);
 
+        // A backgrounded tab still holds every buffer this is pushing, and
+        // browsers throttle rAF unevenly rather than stopping it. Pausing on
+        // hide means a replay left playing behind another app stops consuming
+        // anything at all, instead of grinding on unwatched.
+        onVisibilityChange = () => {
+            if (document.hidden) {
+                if (isPlaying) { wasPlayingWhenHidden = true; pause(); }
+            } else if (wasPlayingWhenHidden) {
+                wasPlayingWhenHidden = false;
+                play();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
         onPlaneClick = (e) => {
             const feature = e.features && e.features[0];
             if (!feature) return;
@@ -700,21 +789,28 @@ export const GlobalPlayback = (() => {
             if (!hasPointer) return;
             const feature = e.features && e.features[0];
             if (!feature) return;
-            const p = feature.properties;
             const gl = window.mapboxgl;
             if (!gl) return;
+
+            // Detail comes from the flight record and the clock, not from the
+            // feature — see buildPlanes() for why the feature carries as
+            // little as it does.
+            const f = flightsById.get(feature.properties.flightId);
+            if (!f) return;
+            const pos = positionAt(f, spanStart + currentMs);
+
             if (!hoverPopup) {
                 hoverPopup = new gl.Popup({ closeButton: false, closeOnClick: false, className: 'gpb-popup', offset: 12 });
             }
             hoverPopup
                 .setLngLat(feature.geometry.coordinates)
                 .setHTML(`
-                    <div class="gpb-pop-call">${p.callsign || '----'}</div>
-                    ${p.username ? `<div class="gpb-pop-user">${p.username}</div>` : ''}
-                    ${p.aircraftName ? `<div class="gpb-pop-type">${p.aircraftName}</div>` : ''}
+                    <div class="gpb-pop-call">${escapeHtml(f.callsign || '----')}</div>
+                    ${f.username ? `<div class="gpb-pop-user">${escapeHtml(f.username)}</div>` : ''}
+                    ${f.aircraftName ? `<div class="gpb-pop-type">${escapeHtml(f.aircraftName)}</div>` : ''}
                     <div class="gpb-pop-nums">
-                        <span>${Number(p.altitude || 0).toLocaleString()} ft</span>
-                        <span>${Math.round(p.speed || 0)} kt</span>
+                        <span>${Math.round(pos ? pos.alt : 0).toLocaleString()} ft</span>
+                        <span>${Math.round(pos ? pos.gs : 0)} kt</span>
                     </div>`)
                 .addTo(map);
         };
@@ -727,6 +823,15 @@ export const GlobalPlayback = (() => {
     }
 
     function unbindMapInteractions() {
+        // This one is on `document`, not the map, so it has to come off even
+        // when the map is already gone — otherwise a torn-down session keeps a
+        // listener that closes over it.
+        if (onVisibilityChange) {
+            try { document.removeEventListener('visibilitychange', onVisibilityChange); } catch (_) {}
+            onVisibilityChange = null;
+        }
+        wasPlayingWhenHidden = false;
+
         if (!map) return;
         if (onMoveStart) { try { map.off('movestart', onMoveStart); } catch (_) {} onMoveStart = null; }
         if (onMoveEnd) { try { map.off('moveend', onMoveEnd); } catch (_) {} onMoveEnd = null; }
@@ -817,111 +922,394 @@ export const GlobalPlayback = (() => {
         return west <= b.maxLon || (west + span) >= b.minLon + 360;
     }
 
-    function dropFeature(flightId) {
-        if (planeFeatures.delete(flightId)) planeRosterDirty = true;
+    /* =========================
+     * Selection — bounding the work by pixels, not by traffic
+     * =========================
+     * The first cut bounded cost by lowering the frame rate when a window got
+     * busy. That is exactly the wrong lever: a slower frame rate is *visible*,
+     * and it is visible as the stepping this whole module exists to avoid.
+     *
+     * What is not visible is drawing fewer aircraft when they are stacked on
+     * the same pixel. At world zoom on a phone, two thousand aircraft compete
+     * for a few hundred distinguishable positions — most of them are literally
+     * behind one another. So the drawn set is thinned in screen space: at most
+     * one aircraft per cell of roughly an icon's size. The number pushed to
+     * Mapbox is then governed by the size of the screen rather than by how busy
+     * the server happened to be, which is what makes the cost flat across
+     * zooms, devices and windows.
+     *
+     * Everything below writes into preallocated scratch. Nothing in the steady
+     * state allocates — see the note above renderFrame() for why that stopped
+     * being a nicety and became the difference between running and crashing.
+     */
+
+    // Thinning is a safety valve, not a policy — and getting that the wrong way
+    // round is a trap worth naming, because the first attempt fell into it.
+    //
+    // At world zoom the *density* is the picture. A thousand overlapping
+    // aircraft over the North Atlantic is what the map is for, and collapsing
+    // them to one per icon-sized cell does not declutter it, it deletes it:
+    // three thousand contacts become five hundred and a busy evening renders as
+    // a quiet afternoon. That is a worse lie than a dropped frame.
+    //
+    // So thinning does not run at all until the drawn set would exceed what a
+    // push can carry. Below that everything is drawn, at every zoom. Above it,
+    // aircraft sharing a small screen cell — genuinely one blob, at that scale
+    // — are collapsed until the set fits.
+    const SOFT_CAP = 1500;
+    const THIN_CELL_PX = 5;
+    // The backstop, for a window busier than any grid can bound.
+    const MAX_DRAWN = 2500;
+
+    // Parallel scratch arrays — one slot per candidate aircraft. Grown when a
+    // window needs more and never shrunk, so a long session settles at its
+    // high-water mark and allocates nothing after that.
+    let candCap = 0;
+    let candFlight = [], candLat = null, candLon = null, candAlt = null,
+        candGs = null, candHdg = null, candOpacity = null;
+    // Which candidates the grid pass already took, stamped by generation so it
+    // needs no clearing between pushes.
+    let pickedGen = null;
+
+    function ensureCandidateCapacity(n) {
+        if (n <= candCap) return;
+        const cap = Math.max(64, 1 << (32 - Math.clz32(Math.max(1, n - 1))));
+        pickedGen = new Int32Array(cap);
+        candFlight = new Array(cap);
+        candLat = new Float64Array(cap);
+        candLon = new Float64Array(cap);
+        candAlt = new Float64Array(cap);
+        candGs = new Float64Array(cap);
+        candHdg = new Float64Array(cap);
+        candOpacity = new Float32Array(cap);
+        candCap = cap;
     }
 
-    // Walk every flight, evaluate it at absT, and keep the plane features in
-    // step with what should be on screen. Features are mutated in place; the
-    // cached list is only rebuilt when the *set* of drawn aircraft changes.
-    function updatePlaneFeatures(absT) {
-        refreshCullBounds();
-        airborneCount = 0;
-        drawnCount = 0;
+    // The thinning grid, as an open-addressed hash table in typed arrays.
+    //
+    // A Map would read better, but `Map.clear()` throws away its backing table
+    // and the next push allocates a new one — a few thousand entries thirty
+    // times a second, which is the churn this whole pass exists to avoid. A
+    // generation counter retires the previous push's entries in O(1) with no
+    // allocation at all: a slot counts as occupied only if it was stamped this
+    // generation.
+    const CELL_SLOTS = 8192;                      // power of two, > 2 × MAX_DRAWN
+    const CELL_MASK = CELL_SLOTS - 1;
+    const cellKey = new Int32Array(CELL_SLOTS);   // the cell hash living in this slot
+    const cellPos = new Int32Array(CELL_SLOTS);   // where its winner sits in `chosen`
+    const cellGen = new Int32Array(CELL_SLOTS);   // which push last claimed the slot
+    let thinGeneration = 0;
 
-        for (const f of flights) {
+    // Winning candidate indices. A typed array sized to the hard cap with a
+    // separate count, rather than a plain array truncated with `length = 0`:
+    // shrinking a JS array trims its backing store, and pushing it back up to
+    // a few hundred entries reallocates it — several kilobytes of quiet churn
+    // per push, thirty times a second, for a list whose size barely changes.
+    const chosen = new Int32Array(MAX_DRAWN);
+    let chosenCount = 0;
+
+    // Grid size in degrees, derived from how much world is on screen and how
+    // many pixels that is being drawn into. Approximate — it ignores Mercator
+    // stretch and bearing — which is entirely good enough for "are these two
+    // aircraft on the same pixel?".
+    let cellDegLat = 0, cellDegLon = 0;
+    let invCellLat = 1, invCellLon = 1;
+    // How many aircraft were visible before any thinning — the number the HUD
+    // compares the drawn count against.
+    let candidateCount = 0;
+
+    function refreshThinGrid() {
+        let w = 1024, h = 768;
+        try {
+            const canvas = map.getCanvas();
+            if (canvas) { w = canvas.clientWidth || canvas.width || w; h = canvas.clientHeight || canvas.height || h; }
+        } catch (_) { /* defaults */ }
+        cellDegLon = ((cull.maxLon - cull.minLon) / Math.max(1, w)) * THIN_CELL_PX;
+        cellDegLat = ((cull.maxLat - cull.minLat) / Math.max(1, h)) * THIN_CELL_PX;
+    }
+
+    // Stable tie-break inside a cell. Without one, whichever aircraft happened
+    // to be visited first wins, that changes as tracks are reordered by the
+    // clock, and the drawn aircraft flickers between neighbours. Hashing the
+    // flight id makes the winner the same one every frame for as long as they
+    // share a cell.
+    function flightHash(f) {
+        if (f.hash !== undefined) return f.hash;
+        let h = 2166136261;
+        const s = f.flightId || '';
+        for (let i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        f.hash = h >>> 0;
+        return f.hash;
+    }
+
+    /**
+     * Evaluate every flight at absT and choose what to draw.
+     *
+     * Writes into the scratch arrays above and fills `chosen` with the indices
+     * that survived. Returns the airborne total, which is a different number
+     * from the drawn total and worth reporting separately — "1,847 airborne,
+     * 620 in view" is information, not an apology.
+     *
+     * @param {Array} flightList  every flight in the window
+     * @param {number} absT       the clock, in epoch ms
+     * @param {object} bounds     padded viewport, in unwrapped-longitude space
+     * @param {boolean} thin      apply screen-space thinning
+     */
+    function selectVisible(flightList, absT, bounds, thin) {
+        ensureCandidateCapacity(flightList.length);
+        // Reciprocals, hoisted: a multiply per aircraft rather than a divide,
+        // and it keeps the guard against a zero-sized grid out of the loop.
+        invCellLat = 1 / (cellDegLat || 1);
+        invCellLon = 1 / (cellDegLon || 1);
+        chosenCount = 0;
+        // Retires every slot from the previous push without touching them.
+        thinGeneration++;
+
+        let airborne = 0;
+        let n = 0;
+
+        for (let k = 0; k < flightList.length; k++) {
+            const f = flightList[k];
+
             // Three rejections, cheapest first. Only what survives all of them
             // is worth interpolating.
-            if (absT < f.t0 || absT > f.t1) { dropFeature(f.flightId); continue; }
-            if (!trackMayBeInView(f)) { airborneCount++; dropFeature(f.flightId); continue; }
+            if (absT < f.t0 || absT > f.t1) continue;
+            if (!trackMayBeInView(f, bounds)) { airborne++; continue; }
 
             const pos = positionAt(f, absT);
             // null here means absT landed in a hole in the recording, so the
             // aircraft was not being tracked and is not airborne as far as this
             // replay can honestly say.
-            if (!pos) { dropFeature(f.flightId); continue; }
-            airborneCount++;
+            if (!pos) continue;
+            airborne++;
 
-            if (!inView(pos.lat, pos.lon)) { dropFeature(f.flightId); continue; }
+            if (!inView(pos.lat, pos.lon, bounds)) continue;
 
-            const existing = planeFeatures.get(f.flightId);
-            drawnCount++;
-            const color = getAltColor(pos.alt);
-            if (existing) {
-                const c = existing.geometry.coordinates;
-                c[0] = pos.lon;
-                c[1] = pos.lat;
-                const props = existing.properties;
-                props.heading = pos.hdg;
-                props.color = color;
-                props.opacity = pos.opacity;
-                props.altitude = Math.round(pos.alt);
-                props.speed = Math.round(pos.gs);
-                props.selected = (f.flightId === selectedFlightId);
-            } else {
-                planeFeatures.set(f.flightId, {
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
-                    properties: {
-                        flightId: f.flightId,
-                        callsign: f.callsign,
-                        username: f.username,
-                        aircraftName: f.aircraftName,
-                        category: f.category,
-                        heading: pos.hdg,
-                        color,
-                        opacity: pos.opacity,
-                        altitude: Math.round(pos.alt),
-                        speed: Math.round(pos.gs),
-                        selected: (f.flightId === selectedFlightId)
+            const i = n++;
+            candFlight[i] = f;
+            candLat[i] = pos.lat;
+            candLon[i] = pos.lon;
+            candAlt[i] = pos.alt;
+            candGs[i] = pos.gs;
+            candHdg[i] = pos.hdg;
+            candOpacity[i] = pos.opacity;
+        }
+
+        candidateCount = n;
+
+        // The common case, and the one worth protecting: everything visible is
+        // drawn, exactly as recorded, at whatever zoom.
+        if (!thin || n <= SOFT_CAP) {
+            const take = n < MAX_DRAWN ? n : MAX_DRAWN;
+            for (let i = 0; i < take; i++) chosen[i] = i;
+            chosenCount = take;
+            return airborne;
+        }
+
+        thinToFit(n);
+        return airborne;
+    }
+
+    /**
+     * Collapse candidates that share a screen cell until the set fits.
+     *
+     * Only reached when the visible traffic exceeds what a push can carry, so
+     * by construction the aircraft being dropped are ones stacked within a few
+     * pixels of a survivor.
+     */
+    function thinToFit(n) {
+        for (let i = 0; i < n; i++) {
+            if (chosenCount >= SOFT_CAP) break;
+            // Hash the cell, then linear-probe. Winners are written straight
+            // into `chosen`, so there is no collection pass afterwards and no
+            // iterator to allocate.
+            //
+            // Math.imul, not `*`. The obvious multiply overflows the
+            // small-integer range — a cell index of a few hundred times a
+            // large prime is ~10^11 — and V8 boxes the result on the heap.
+            // One box per aircraft per axis per push was, by measurement,
+            // *all* of this pass's remaining allocation. imul returns an
+            // int32 and allocates nothing.
+            const key = (Math.imul(Math.floor(candLat[i] * invCellLat), 73856093)
+                       ^ Math.imul(Math.floor(candLon[i] * invCellLon), 19349663)) | 0;
+            let slot = (key ^ (key >>> 15)) & CELL_MASK;
+
+            for (let probe = 0; probe < CELL_SLOTS; probe++) {
+                if (cellGen[slot] !== thinGeneration) {
+                    // Free slot — this aircraft owns the cell.
+                    cellGen[slot] = thinGeneration;
+                    cellKey[slot] = key;
+                    cellPos[slot] = chosenCount;
+                    pickedGen[i] = thinGeneration;
+                    chosen[chosenCount++] = i;
+                    break;
+                }
+                if (cellKey[slot] === key) {
+                    // Taken. Lowest hash wins, so the same aircraft holds the
+                    // cell frame after frame and the map does not sparkle.
+                    const at = cellPos[slot];
+                    if (flightHash(candFlight[i]) < flightHash(candFlight[chosen[at]])) {
+                        pickedGen[chosen[at]] = 0;
+                        pickedGen[i] = thinGeneration;
+                        chosen[at] = i;
                     }
-                });
-                planeRosterDirty = true;
+                    break;
+                }
+                slot = (slot + 1) & CELL_MASK;
             }
         }
 
-        if (planeRosterDirty) {
-            planeList = Array.from(planeFeatures.values());
-            planeCollection.features = planeList;
-            planeRosterDirty = false;
+        // The grid is sized in pixels, so it thins by however much the traffic
+        // happens to overlap — which is usually far more than needed. Dropping
+        // three thousand aircraft to five hundred when fifteen hundred would
+        // have fitted is the density loss all over again, just less of it.
+        //
+        // So put back whatever there is room for. The result is the most
+        // aircraft a push can carry, with the ones that were hidden behind a
+        // neighbour the first to be left out.
+        for (let i = 0; i < n && chosenCount < SOFT_CAP; i++) {
+            if (pickedGen[i] === thinGeneration) continue;
+            chosen[chosenCount++] = i;
         }
     }
 
-    // Comet tails, for the aircraft currently drawn. Rebuilt wholesale — a
-    // trail's geometry changes at both ends every time — which is exactly why
-    // this runs on its own slower cadence instead of per frame.
-    function updateTrailFeatures(absT) {
-        const features = trailCollection.features;
-        features.length = 0;
-        if (!showTrails) return;
+    /* =========================
+     * Feature pools
+     * ========================= */
+
+    // One Feature per drawn slot, reused for whichever aircraft occupies that
+    // slot this frame. Slots are not stable across frames — an aircraft can
+    // move between them — which is fine because nothing downstream tracks a
+    // feature's identity between pushes.
+    function planeSlot(i) {
+        let feat = planePool[i];
+        if (!feat) {
+            feat = planePool[i] = {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [0, 0] },
+                // Only what the map draws. Everything the hover card wants —
+                // pilot, type, altitude, speed — is resolved from the flight
+                // record at hover time instead of riding along on every
+                // feature: these properties are structure-cloned to the worker
+                // on every single push, and at a couple of thousand aircraft
+                // thirty times a second the strings nobody is looking at cost
+                // more than the geometry does.
+                properties: {
+                    flightId: '', callsign: '',
+                    category: 'B737', heading: 0, color: '#fff',
+                    opacity: 100, selected: false
+                }
+            };
+        }
+        return feat;
+    }
+
+    function trailSlot(i) {
+        let feat = trailPool[i];
+        if (!feat) {
+            feat = trailPool[i] = {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: [] },
+                properties: { color: '#fff', opacity: 100 }
+            };
+        }
+        return feat;
+    }
+
+    // Write a [lon, lat] pair into a coordinates array, reusing the pair that
+    // is already there. `coords` is a persistent array on a pooled feature, so
+    // in the steady state this touches numbers only.
+    function setCoord(coords, i, lon, lat) {
+        const pair = coords[i];
+        if (pair) { pair[0] = lon; pair[1] = lat; }
+        else coords[i] = [lon, lat];
+    }
+
+    function buildPlanes() {
+        // Written by index and truncated once at the end. Clearing first and
+        // pushing back up reallocates the backing store every push; assigning
+        // into the existing one and setting the final length does not, because
+        // the count barely moves from frame to frame.
+        for (let s = 0; s < chosenCount; s++) {
+            const i = chosen[s];
+            const f = candFlight[i];
+            const feat = planeSlot(s);
+
+            feat.geometry.coordinates[0] = candLon[i];
+            feat.geometry.coordinates[1] = candLat[i];
+
+            const p = feat.properties;
+            p.flightId = f.flightId;
+            p.callsign = f.callsign;
+            p.category = f.category;
+            // Every numeric property is stored as a whole number on purpose.
+            // A fractional value written into an object field is a boxed heap
+            // number, and one box per aircraft per property, thirty times a
+            // second, is most of what this pass still allocates. Integers are
+            // small-integer values and cost nothing.
+            //
+            // Nothing is lost: a degree of rotation is finer than the icon can
+            // show, and opacity is carried as 0–100 and divided back down in
+            // the paint expression.
+            p.heading = Math.round(candHdg[i]);
+            p.color = getAltColor(candAlt[i]);
+            p.opacity = Math.round(candOpacity[i] * 100);
+            p.selected = (f.flightId === selectedFlightId);
+
+            planeList[s] = feat;
+        }
+        planeList.length = chosenCount;
+    }
+
+    // Comet tails for the drawn aircraft, decimated to TRAIL_POINTS vertices.
+    //
+    // The first cut walked every recorded point inside the trail window, which
+    // at world scale meant tens of thousands of freshly allocated coordinate
+    // pairs several times a second. A tail is a visual cue about where
+    // something came from; a dozen points draw that just as well as sixty, and
+    // the geometry is now written into arrays that already exist.
+    function buildTrails(absT) {
+        if (!showTrails) { trailList.length = 0; return; }
 
         const from = absT - TRAIL_WINDOW_MS;
-        let vertices = 0;
+        let drawn = 0;
 
-        for (const feature of planeList) {
-            if (vertices >= MAX_TRAIL_VERTICES) break;
-            const f = flightsById.get(feature.properties.flightId);
-            if (!f) continue;
+        for (let s = 0; s < chosenCount && s < MAX_TRAIL_FEATURES; s++) {
+            const i = chosen[s];
+            const f = candFlight[i];
+            const pts = f.points;
 
-            const pos = positionAt(f, absT);
-            if (!pos) continue;
+            const startIdx = firstIndexAtOrAfter(pts, from);
+            // How many recorded points fall inside the tail window.
+            let available = 0;
+            for (let j = startIdx; j < pts.length && pts[j].t <= absT; j++) available++;
+            if (available < 1) continue;
 
-            const coords = [];
-            for (let i = firstIndexAtOrAfter(f.points, from); i < f.points.length; i++) {
-                const p = f.points[i];
-                if (p.t > absT) break;
-                coords.push([p.lon, p.lat]);
+            const feat = trailSlot(s);
+            const coords = feat.geometry.coordinates;
+            const take = Math.min(available, TRAIL_POINTS - 1);
+            const stride = available / take;
+
+            let w = 0;
+            for (let k = 0; k < take; k++) {
+                const p = pts[startIdx + Math.floor(k * stride)];
+                setCoord(coords, w++, p.lon, p.lat);
             }
-            coords.push([pos.lon, pos.lat]);
-            if (coords.length < 2) continue;
+            // The head is the interpolated position, so the tail stays attached
+            // to the aircraft between recorded points instead of lagging to the
+            // last one.
+            setCoord(coords, w++, candLon[i], candLat[i]);
+            coords.length = w;
+            if (w < 2) continue;
 
-            vertices += coords.length;
-            features.push({
-                type: 'Feature',
-                geometry: { type: 'LineString', coordinates: coords },
-                properties: { color: getAltColor(pos.alt), opacity: pos.opacity }
-            });
+            feat.properties.color = getAltColor(candAlt[i]);
+            feat.properties.opacity = Math.round(candOpacity[i] * 100);
+            trailList[drawn++] = feat;
         }
+        trailList.length = drawn;
     }
 
     // Should a push be held back right now? A camera gesture is competing for
@@ -936,9 +1324,24 @@ export const GlobalPlayback = (() => {
     /**
      * Draw the world at the current clock.
      *
+     * Two rules govern what happens here, both learned the hard way.
+     *
+     * The frame rate is not the adjustable one. Dropping to nine pushes a
+     * second to save work produces visible stepping, which is the fault this
+     * module exists to fix — so the target interval is fixed and it is the
+     * amount of *detail* that gives way under load, via the screen-space
+     * thinning above. Fewer aircraft where they overlap is invisible; a lower
+     * frame rate is not.
+     *
+     * And nothing here may allocate in the steady state. Rebuilding a few
+     * thousand features and tens of thousands of coordinate pairs several times
+     * a second is tens of megabytes per second of garbage, which on a phone is
+     * not slow — it is a crash after a few minutes of playing. Every object
+     * below is pooled and rewritten.
+     *
      * `force` bypasses the rate limiter for the frames a user is waiting on —
-     * a scrub, a pause, the first frame — where a tenth of a second of latency
-     * is felt directly rather than averaged away.
+     * a scrub, a toggle, the first frame — where latency is felt directly
+     * rather than averaged away.
      */
     function renderFrame(force = false) {
         if (!map || !map.getSource(SRC_PLANES)) return;
@@ -947,40 +1350,64 @@ export const GlobalPlayback = (() => {
 
         if (!force) {
             if (deferForCamera(now)) return;
-            // Keep the time spent inside setData to a fixed share of the wall
-            // clock, whatever this window and this device turn out to cost.
-            const minInterval = Math.min(MAX_PUSH_INTERVAL_MS, planeCostEMA / PUSH_DUTY_CYCLE);
-            if (now - lastPlanePush < minInterval) return;
+            if (now - lastPlanePush < pushIntervalMs) return;
         }
 
         const began = now;
-        updatePlaneFeatures(absT);
+        refreshCullBounds();
+        refreshThinGrid();
+
+        // Thinning only earns its keep once there is something to thin. Below
+        // the threshold every aircraft is drawn, which is the zoomed-in case
+        // and the one where individual smoothness is actually being watched.
+        // `true` here means "thin if you must", not "thin" — selectVisible
+        // only engages the grid once the visible set exceeds what a push can
+        // carry, so an ordinary window is drawn whole.
+        airborneCount = selectVisible(flights, absT, cull, true);
+        drawnCount = chosenCount;
+
+        buildPlanes();
         try {
             map.getSource(SRC_PLANES).setData(planeCollection);
         } catch (_) {
             return;   // style swapped underneath us; the next frame retries
         }
-        lastPlanePush = began;
 
         if (force || began - lastTrailPush >= TRAIL_PUSH_INTERVAL_MS) {
             lastTrailPush = began;
             try {
                 const trailSrc = map.getSource(SRC_TRAILS);
-                if (trailSrc) { updateTrailFeatures(absT); trailSrc.setData(trailCollection); }
+                if (trailSrc) { buildTrails(absT); trailSrc.setData(trailCollection); }
             } catch (_) { /* same */ }
         }
 
-        // Measured across both pushes, not just the planes. Trails only rebuild
-        // on some frames, but they land on the same main thread as everything
-        // else — averaging their cost in over many frames is what makes the
-        // limiter reflect the real cost of a frame rather than part of one.
+        lastPlanePush = began;
+
+        // Measured across both pushes, since they land on the same main thread.
         const cost = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - began;
-        // Weighted toward history so one janky frame doesn't halve the rate,
-        // but quick enough to follow a real change in zoom or density.
-        planeCostEMA = planeCostEMA * 0.85 + cost * 0.15;
+        frameCostEMA = frameCostEMA * 0.85 + cost * 0.15;
+        adaptPushInterval();
 
         updateHUD(absT);
     }
+
+    /**
+     * Hold the push rate at the target, and only give it up when the device
+     * plainly cannot sustain it.
+     *
+     * The thinning already caps how much work a frame can be asked to do, so
+     * this is the second line rather than the first: it exists for the case
+     * where even the capped set is too much — an old phone, a busy tab — and
+     * the honest answer is a lower rate rather than a stalled one.
+     */
+    function adaptPushInterval() {
+        const affordable = frameCostEMA / PUSH_DUTY_CYCLE;
+        const want = Math.max(TARGET_PUSH_INTERVAL_MS, Math.min(MAX_PUSH_INTERVAL_MS, affordable));
+        // Ease toward the new interval so one expensive frame — a style change,
+        // a GC pause — doesn't visibly change the cadence on its own.
+        pushIntervalMs = pushIntervalMs * 0.8 + want * 0.2;
+    }
+
 
     function tick(now) {
         rafId = null;
@@ -1082,7 +1509,7 @@ export const GlobalPlayback = (() => {
                     <span class="gpb-eyebrow">Global Playback</span>
                     <h2 class="gpb-title">Rewind the map</h2>
                     <p class="gpb-sub">
-                        Watch every flight${serverName ? ` on the <b>${serverName}</b> server` : ''} exactly as it flew.
+                        Watch every flight${serverName ? ` on the <b>${escapeHtml(serverName)}</b> server` : ''} exactly as it flew.
                     </p>
                     <div class="gpb-tier-badge">
                         ${tier === 'pro'
@@ -1330,13 +1757,12 @@ export const GlobalPlayback = (() => {
         if (date) date.textContent = new Date(absT).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
         const air = panelEl.querySelector('#gpb-airborne');
         if (air) air.textContent = String(airborneCount);
-        // "of which on screen" only says something once culling is actually
-        // holding some back; at world zoom the two numbers are the same and the
-        // second is noise.
+        // "of which drawn" only says something once culling or the density cap
+        // is actually holding some back. When everything airborne is on screen
+        // the two numbers are the same and the second is noise.
         const shown = panelEl.querySelector('#gpb-shown');
         if (shown) {
-            const hidden = airborneCount - drawnCount;
-            shown.textContent = hidden > 0 ? ` · ${drawnCount} in view` : '';
+            shown.textContent = (airborneCount > drawnCount) ? ` · ${drawnCount} drawn` : '';
         }
     }
 
@@ -1487,11 +1913,13 @@ export const GlobalPlayback = (() => {
 
         flights = [];
         flightsById = new Map();
-        planeFeatures.clear();
-        planeList = [];
-        planeCollection.features = planeList;
-        trailCollection.features = [];
-        planeRosterDirty = true;
+        // The pools themselves are kept: a session that opens a second window
+        // reuses the features the first one warmed up, and the arrays inside
+        // them, rather than starting the allocation over.
+        planeList.length = 0;
+        trailList.length = 0;
+        chosenCount = 0;
+        thinGeneration++;
 
         windowMeta = null;
         spanStart = 0;
@@ -1505,7 +1933,8 @@ export const GlobalPlayback = (() => {
         // measured cost and open at a throttled rate for no reason.
         lastPlanePush = 0;
         lastTrailPush = 0;
-        planeCostEMA = 3;
+        frameCostEMA = 3;
+        pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
         cameraMoving = false;
         cameraDeferredSince = 0;
         airborneCount = 0;
@@ -1795,6 +2224,29 @@ export const GlobalPlayback = (() => {
             measureTrack,
             inView,
             trackMayBeInView,
+            // The selection + build pass, so a test can run it thousands of
+            // times and watch the heap. That it allocates nothing in the steady
+            // state is not a performance detail — it is the difference between
+            // playing for an hour and crashing after five minutes — and it is
+            // not something you can see by reading the code.
+            selectVisible,
+            buildPlanes,
+            buildTrails,
+            setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
+            __planeIds: () => planeList.map(f => f.properties.flightId),
+            __trailFeatures: () => trailList,
+            poolSizes: () => ({
+                planePool: planePool.length,
+                trailPool: trailPool.length,
+                planeList: planeList.length,
+                trailList: trailList.length,
+                chosen: chosenCount,
+                candidates: candidateCount,
+                candCap
+            }),
+            MAX_DRAWN,
+            SOFT_CAP,
+            TRAIL_POINTS,
             MAX_INTERP_GAP_MS,
             MAX_SPLINE_SEGMENT_MS,
             FADE_MS
