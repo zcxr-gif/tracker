@@ -273,29 +273,104 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
     }
 
     /* ---------------------------------------------------------------- *
-     * Headings
-     * ---------------------------------------------------------------- */
+     * Headings — an aircraft points where it is going
+     * ---------------------------------------------------------------- *
+     * Reported as the planes "swinging around" instead of flying.
+     *
+     * The recorded heading field was the obvious source, and it is what
+     * flightReplay and atcReplay use. It is right for them: they animate every
+     * recorded point and interpolate straight between them, so the direction
+     * they draw an aircraft moving IS the recorded heading.
+     *
+     * This replay is not that. Position follows a spline through points the
+     * backend has already thinned to a time grid, while recorded heading is a
+     * separate signal sampled at those same instants. Through a turn the two
+     * part company — measured at up to 33° on a realistic track — and an
+     * aircraft drawn moving one way while pointing another reads as the map
+     * swinging around, not as crabbing.
+     *
+     * So heading is taken from the tangent of the curve being drawn. These
+     * assert that, and they fail against the recorded-heading version.
+     */
+    const bearing = (from, to) =>
+        (Math.atan2((to.lon - from.lon) * Math.cos(from.lat * Math.PI / 180), to.lat - from.lat)
+            * 180 / Math.PI + 360) % 360;
+    const angleGap = (x, y) => Math.abs(((x - y + 540) % 360) - 180);
+
     {
-        // 350° → 10° is a 20° turn through north, not a 340° spin the other way.
-        const f = mk([
-            { t: T0, lat: 40, lon: -60, hdg: 350 },
-            { t: T0 + 60000, lat: 40.1, lon: -60, hdg: 10 }
-        ]);
-        const mid = positionAt(f, T0 + 30000);
-        const nearNorth = mid.hdg > 355 || mid.hdg < 5;
-        ok('a heading crossing north takes the short way round',
-            nearNorth, `midpoint heading was ${mid.hdg.toFixed(1)}°, expected ~0/360`);
-    }
-    {
-        // A recorded heading of 0 on both ends is a missing value, not due
-        // north — an aircraft tracking east must not be drawn pointing north.
+        // The decisive case: a recorded heading that flatly disagrees with the
+        // path. The aircraft flies due east; the field says it is pointing
+        // north. What is drawn must follow the path.
         const f = mk([
             { t: T0, lat: 40, lon: -60, hdg: 0 },
-            { t: T0 + 60000, lat: 40, lon: -59, hdg: 0 }
+            { t: T0 + 60000, lat: 40, lon: -59.8, hdg: 0 },
+            { t: T0 + 120000, lat: 40, lon: -59.6, hdg: 0 }
         ]);
         const mid = positionAt(f, T0 + 30000);
-        ok('a missing heading falls back to the direction of travel',
-            mid.hdg > 80 && mid.hdg < 100, `got ${mid.hdg.toFixed(1)}°, expected ~90° for an eastbound leg`);
+        ok('an aircraft points along its path, not along the recorded heading field',
+            angleGap(mid.hdg, 90) < 3,
+            `drawn at ${mid.hdg.toFixed(1)}°, but the leg tracks 090°`);
+    }
+
+    {
+        // Through a turn, at the coarse spacing a busy window produces. This is
+        // where recorded heading and the drawn path diverge worst.
+        const f = mk(turningTrack(T0, 12, 120000));
+        const A = GlobalPlayback._internals.makePosition();
+        const B = GlobalPlayback._internals.makePosition();
+        const gaps = [];
+        const last = f.points[f.points.length - 1].t;
+        for (let t = f.points[0].t; t <= last - 2000; t += 1000) {
+            const a = positionAt(f, t, A);
+            const b = positionAt(f, t + 1000, B);
+            if (!a || !b) continue;
+            gaps.push(angleGap(a.hdg, bearing(a, b)));
+        }
+        gaps.sort((x, y) => x - y);
+        const p95 = gaps[Math.floor(gaps.length * 0.95)];
+        ok('through a turn it still points exactly where it is moving',
+            p95 < 2 && gaps[gaps.length - 1] < 6,
+            `p95 ${p95.toFixed(2)}°, worst ${gaps[gaps.length - 1].toFixed(1)}° off the direction of travel`);
+    }
+
+    {
+        // Rotation has to be continuous too — a heading that is correct at every
+        // instant but jumps between them is the same fault seen a frame later.
+        const f = mk(turningTrack(T0, 12, 120000));
+        const P = GlobalPlayback._internals.makePosition();
+        let prev = null, worst = 0;
+        const last = f.points[f.points.length - 1].t;
+        for (let t = f.points[0].t; t <= last; t += 1000) {
+            const p = positionAt(f, t, P);
+            if (!p) { prev = null; continue; }
+            if (prev !== null) worst = Math.max(worst, angleGap(p.hdg, prev));
+            prev = p.hdg;
+        }
+        // A rate-one turn is 3°/s; anything past that in one second of session
+        // time is a snap rather than a turn.
+        ok('the icon never snaps round — rotation stays at a rate an aircraft could fly',
+            worst < 3.5, `turned ${worst.toFixed(1)}° in one second`);
+    }
+
+    {
+        // Crossing north must not spin the long way. atan2 gives this for free
+        // now, which is the point — it was arithmetic that had to be got right
+        // by hand when the heading came from the recorded field.
+        const f = mk([
+            { t: T0, lat: 40, lon: -60.02, hdg: 350 },
+            { t: T0 + 60000, lat: 40.1, lon: -60, hdg: 10 },
+            { t: T0 + 120000, lat: 40.2, lon: -59.98, hdg: 10 }
+        ]);
+        const P = GlobalPlayback._internals.makePosition();
+        let prev = null, worst = 0;
+        for (let t = T0; t <= T0 + 120000; t += 1000) {
+            const p = positionAt(f, t, P);
+            if (!p) continue;
+            if (prev !== null) worst = Math.max(worst, angleGap(p.hdg, prev));
+            prev = p.hdg;
+        }
+        ok('a track crossing north does not spin the aircraft the long way round',
+            worst < 3.5, `spun ${worst.toFixed(1)}° in one second crossing north`);
     }
 
     /* ---------------------------------------------------------------- *

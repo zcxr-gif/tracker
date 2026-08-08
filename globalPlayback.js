@@ -603,6 +603,10 @@ export const GlobalPlayback = (() => {
 
         const u = dt > 0 ? (absT - a.t) / dt : 0;
 
+        // Position, and the tangent to the path at the same instant. They come
+        // out of the same curve on purpose — see the note on heading below.
+        let dLat, dLon;
+
         if (dt > 0 && dt <= MAX_SPLINE_SEGMENT_MS) {
             // Cubic Hermite with Catmull-Rom tangents. h10/h11 carry the
             // tangents, which are per-unit-time, so they are scaled by the
@@ -615,29 +619,65 @@ export const GlobalPlayback = (() => {
             const h11 = u3 - u2;
             POS.lat = h00 * a.lat + h10 * dt * a.mLat + h01 * b.lat + h11 * dt * b.mLat;
             POS.lon = h00 * a.lon + h10 * dt * a.mLon + h01 * b.lon + h11 * dt * b.mLon;
+
+            // The curve's own derivative. Scale factors are irrelevant — only
+            // the direction is wanted — so dp/du is used as-is.
+            const g00 = 6 * u2 - 6 * u;
+            const g10 = 3 * u2 - 4 * u + 1;
+            const g01 = -6 * u2 + 6 * u;
+            const g11 = 3 * u2 - 2 * u;
+            dLat = g00 * a.lat + g10 * dt * a.mLat + g01 * b.lat + g11 * dt * b.mLat;
+            dLon = g00 * a.lon + g10 * dt * a.mLon + g01 * b.lon + g11 * dt * b.mLon;
         } else {
             POS.lat = a.lat + (b.lat - a.lat) * u;
             POS.lon = a.lon + (b.lon - a.lon) * u;
+            dLat = b.lat - a.lat;
+            dLon = b.lon - a.lon;
         }
 
         POS.alt = a.alt + (b.alt - a.alt) * u;
         POS.gs = a.gs + (b.gs - a.gs) * u;
 
-        // Heading is an angle, so it has to be interpolated the short way round
-        // — lerping 350° to 10° through 180° spins every aircraft on the map
-        // through a full turn as it crosses north.
-        let delta = b.hdg - a.hdg;
-        if (delta > 180) delta -= 360; else if (delta < -180) delta += 360;
-        POS.hdg = (a.hdg + delta * u + 360) % 360;
-
-        // A recorded heading of exactly 0 is usually a missing value rather
-        // than due north, and an aircraft frozen pointing north while tracking
-        // west is more obviously wrong than a slightly noisy heading. Fall back
-        // to the direction it is actually moving.
-        if (a.hdg === 0 && b.hdg === 0) {
-            const dLon = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
-            const dLat = b.lat - a.lat;
-            if (dLon || dLat) POS.hdg = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+        /* Heading comes from the path, not from the recorded heading field.
+         *
+         * Both were available and taking the recorded one looked obviously
+         * right — it is what flightReplay and atcReplay do. It is right for
+         * them, because they animate every recorded point and interpolate
+         * straight between them, so the direction they draw an aircraft moving
+         * and the heading they draw it pointing are the same thing.
+         *
+         * This replay is not that. Position follows a spline through points the
+         * backend has already thinned to a time grid, and recorded heading is a
+         * separate signal sampled at those same instants. Through a turn the
+         * two part company — measured at up to 33 degrees on a realistic track
+         * — and an aircraft drawn moving one way while pointing another does
+         * not read as crabbing, it reads as the whole map swinging around.
+         *
+         * Taking the tangent of the curve actually being drawn makes that
+         * impossible by construction: the aircraft always points exactly where
+         * it is going. The crab angle is lost, which at fifteen pixels nobody
+         * could see anyway.
+         */
+        //
+        // Stateless, deliberately. Remembering the last heading on the flight
+        // object is the obvious way to hold a direction through a stationary
+        // moment, and it costs a boxed heap number per aircraft per frame —
+        // the exact churn the render pass is built to avoid, and something the
+        // GC budget in the tests caught within minutes of it being written. The
+        // chord is a perfectly good second opinion and costs nothing.
+        const cosLat = Math.cos(POS.lat * Math.PI / 180);
+        if (Math.abs(dLat) > 1e-12 || Math.abs(dLon) > 1e-12) {
+            POS.hdg = (Math.atan2(dLon * cosLat, dLat) * 180 / Math.PI + 360) % 360;
+        } else if (Math.abs(b.lat - a.lat) > 1e-12 || Math.abs(b.lon - a.lon) > 1e-12) {
+            // The tangent vanished mid-segment; the segment itself still has a
+            // direction.
+            POS.hdg = (Math.atan2((b.lon - a.lon) * cosLat, b.lat - a.lat) * 180 / Math.PI + 360) % 360;
+        } else {
+            // Genuinely stationary — parked, or holding. Nothing to derive a
+            // direction from, so the recorded heading is all there is.
+            let delta = b.hdg - a.hdg;
+            if (delta > 180) delta -= 360; else if (delta < -180) delta += 360;
+            POS.hdg = (a.hdg + delta * u + 360) % 360;
         }
 
         // Fade in off the start of the track and out into the end, so aircraft
