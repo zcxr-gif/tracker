@@ -24,6 +24,7 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
+import { GlobalPlayback } from './globalPlayback.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
@@ -15700,6 +15701,84 @@ function updateTrafficLegendUI() {
     `;
 }
 
+
+    /* =========================================================================
+     * GLOBAL PLAYBACK
+     *
+     * The other two replays each have a subject — one aircraft, one
+     * controller's airspace. This one's subject is the map: pick a moment and
+     * watch the whole server fly it again. Free accounts reach back a day, Pro
+     * reaches back a fortnight; the tier is settled server-side, so nothing
+     * here decides it.
+     *
+     * Opened by the `openGlobalPlayback` event so the desktop orb and the
+     * mobile tab bar can both reach it without either one importing this
+     * module.
+     * ========================================================================= */
+    let globalPlaybackChromeToRestore = null;
+
+    async function launchGlobalPlayback() {
+        if (typeof GlobalPlayback === 'undefined') return;
+        if (GlobalPlayback.isOpen()) { GlobalPlayback.close(); return; }
+        if (!sectorOpsMap) {
+            showNotification?.('The map is still loading — try again in a moment.', 'error');
+            return;
+        }
+
+        const isMobile = !!(window.MobileUIHandler && window.MobileUIHandler.isMobile());
+
+        // The same chrome-clearing the ATC replay does, for the same reason:
+        // the transport panel docks to the bottom of the map and competes with
+        // every floating window for that space.
+        const uiToToggle = [];
+        if (isMobile) {
+            try { window.MobileUIHandler.closeActiveWindow(true); } catch (_) { /* nothing open */ }
+        } else {
+            const remember = (el) => {
+                if (el && el.classList && el.classList.contains('visible')) {
+                    uiToToggle.push(el);
+                    el.classList.remove('visible');
+                }
+            };
+            remember(document.getElementById('airport-info-window'));
+            remember(document.getElementById('aircraft-info-window'));
+            remember(document.getElementById('sector-ops-floating-panel'));
+            remember(document.getElementById('weather-settings-window'));
+            remember(document.getElementById('filter-settings-window'));
+        }
+
+        // The live 3D dot field is a separate THREE custom layer from the flat
+        // sector-ops icons the playback hides, so it would keep drawing live
+        // contacts over a historical picture. Suppress it without touching the
+        // saved preference and put it back on close.
+        const wasLive3D = (typeof LiveTraffic3D !== 'undefined') && LiveTraffic3D.isVisible();
+        if (wasLive3D) { try { LiveTraffic3D.setVisible(false); } catch (_) {} }
+
+        globalPlaybackChromeToRestore = { uiToToggle, wasLive3D };
+
+        // Scope the replay to the server the map is showing. Without it a
+        // window mixes Expert, Training and Casual traffic onto one map, which
+        // is not a picture of anything that ever happened.
+        let playbackSessionId = null;
+        try { playbackSessionId = await getValidSessionId(); } catch (_) { /* all servers */ }
+        if (playbackSessionId === 'default') playbackSessionId = null;
+
+        GlobalPlayback.open({
+            map: sectorOpsMap,
+            apiBase: ACARS_SOCKET_URL,
+            sessionId: playbackSessionId,
+            serverName: (typeof currentServerName !== 'undefined') ? currentServerName : '',
+            onClose: () => {
+                const state = globalPlaybackChromeToRestore;
+                globalPlaybackChromeToRestore = null;
+                if (!state) return;
+                if (state.wasLive3D) { try { LiveTraffic3D.setVisible(true); } catch (_) {} }
+                state.uiToToggle.forEach(el => { if (el && el.classList) el.classList.add('visible'); });
+            }
+        });
+    }
+
+    window.addEventListener('openGlobalPlayback', () => { launchGlobalPlayback(); });
 
     // Launch the ATC session replay for a recorded controller session. Mirrors
     // the flight-replay launch flow: get the competing chrome out of the way so

@@ -889,6 +889,18 @@ export const LandingUI = {
                             </button>
                         </div>
 
+                        <!-- Global playback. Rewinds the whole map rather than
+                             one flight or one controller's airspace — free
+                             accounts reach back a day, Pro reaches back a
+                             fortnight. The tier is resolved server-side; this
+                             orb only opens the picker. -->
+                        <div class="nexus-orb-wrapper">
+                            <button class="orb-btn" id="tile-playback" aria-label="Global playback">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                                <span class="tab-label">Playback</span>
+                            </button>
+                        </div>
+
                         <!-- Nearby radar. Same reasoning as the Network orb
                              above: on phones the scope lives in the iOS ATC
                              sheet, so this orb is how every wider viewport
@@ -989,6 +1001,12 @@ export const LandingUI = {
         const networkBtn = document.getElementById('tile-network');
         networkBtn?.addEventListener('click', () => {
             window.dispatchEvent(new CustomEvent('openNetworkBoard'));
+        });
+
+        // Global playback (mirrors the Playback tab in the mobile tab bar).
+        const playbackBtn = document.getElementById('tile-playback');
+        playbackBtn?.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('openGlobalPlayback'));
         });
 
         // Nearby radar (mirrors the Nearby segment of the mobile ATC sheet).

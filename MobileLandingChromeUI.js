@@ -113,6 +113,10 @@ export const MobileLandingChromeUI = {
                     </span>
                     <span class="ios-tab-label">ATC</span>
                 </button>
+                <button type="button" class="ios-tab" data-action="playback">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    <span class="ios-tab-label">Playback</span>
+                </button>
                 <button type="button" class="ios-tab" data-action="filters">
                     <span class="ios-tab-iconwrap">
                         <i class="fa-solid fa-sliders"></i>
@@ -514,6 +518,12 @@ export const MobileLandingChromeUI = {
             case 'atc':
                 this._openAtcSheet();
                 break;
+            case 'playback':
+                // The picker takes the whole screen, so the tab bar and any
+                // open sheet have to get out of the way first.
+                this._closeAllSheets?.();
+                window.dispatchEvent(new CustomEvent('openGlobalPlayback'));
+                break;
             case 'filters':
                 window.dispatchEvent(new CustomEvent('openMobileUI'));
                 break;
@@ -626,6 +636,19 @@ export const MobileLandingChromeUI = {
         NetworkBoardUI.detach(body);
         NearbyRadarUI.stopAutoRefresh();
         NearbyRadarUI.detach(body);
+    },
+
+    /**
+     * Dismiss every sheet and popover this chrome owns.
+     *
+     * Used before handing the screen to something that takes all of it — the
+     * global playback picker — so an open sheet isn't left stranded on top of
+     * it with no way back.
+     */
+    _closeAllSheets() {
+        if (this._atcSheetOpen) this._closeAtcSheet();
+        if (this._serverSheetOpen) this._closeServerSheet();
+        if (this._weatherSheetOpen) this._closeWeatherSheet();
     },
 
     /**
@@ -1605,6 +1628,18 @@ export const MobileLandingChromeUI = {
                 letter-spacing: 0.05px;
                 line-height: 1.1;
                 color: inherit;
+                /* Seven tabs share the bar since Playback joined it. On a
+                   narrow handset each one gets about 45px, which "Playback"
+                   and "Partners" both overrun — so the labels are allowed to
+                   clip cleanly rather than wrap into two lines and shove the
+                   icons out of alignment. */
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: clip;
+                white-space: nowrap;
+            }
+            @media (max-width: 380px) {
+                .ios-tab .ios-tab-label { font-size: 9.5px; letter-spacing: -0.1px; }
             }
             .ios-tab:active {
                 background: var(--ios-fill);
