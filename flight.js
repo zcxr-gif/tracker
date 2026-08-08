@@ -14025,7 +14025,7 @@ async function fetchAirportData(icao) {
 }
 
 // --- ATC Session History (Replay) ----------------------------------------
-// The ATC replay backend records every controller session for 48h. The
+// The ATC replay backend records every controller session for two weeks. The
 // /api/atc/sessions/recent endpoint can't filter by airport, so we pull the
 // recent sessions for the current server and keep the ones staffing THIS
 // field, newest first. Each becomes a "Replay" card in the airport window.
@@ -14613,10 +14613,10 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         // --- ATC Replay History (recorded controller sessions for this field) ---
         const atcSessions = await fetchAtcSessionsForAirport(icao);
         let atcHistoryHtml = atcSessions.length === 0
-            ? '<div style="padding: 20px; text-align: center; color: #71717a;">No recorded ATC sessions in the last 48h.</div>'
+            ? '<div style="padding: 20px; text-align: center; color: #71717a;">No recorded ATC sessions in the last two weeks.</div>'
             : `<div style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
                 <div style="font-size: 0.65rem; color: #71717a; padding: 0 2px 6px; line-height: 1.4;">
-                    Replay a controller's session — their facility, frequency timeline, and every flight that passed through their airspace. Recordings are kept for 48 hours.
+                    Replay a controller's session — their facility, frequency timeline, and every flight that passed through their airspace. Recordings are kept for two weeks.
                 </div>
                 ${atcSessions.map(renderAtcSessionCard).join('')}
             </div>`;

@@ -2046,7 +2046,7 @@ export const AtcReplay = (() => {
         let payload = null;
         try {
             const res = await fetch(opts.replayUrl);
-            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept 48h).', 'error'); close(); return false; }
+            if (res.status === 404) { hideLoading(); showToast('This ATC session has expired (data is kept two weeks).', 'error'); close(); return false; }
             payload = res.ok ? await res.json() : null;
         } catch (e) {
             console.warn('[AtcReplay] fetch failed:', e);
