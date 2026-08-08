@@ -374,6 +374,149 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
     }
 
     /* ---------------------------------------------------------------- *
+     * On the ground
+     * ---------------------------------------------------------------- *
+     * Reported as "when lining up some planes for some reason go back… of
+     * course most of these planes do NOT backtaxi", and it was real. A
+     * Catmull-Rom tangent is inherited from a point's neighbours and knows
+     * nothing about the segment it gets used on, so at the one place where an
+     * aircraft's speed changes by its own magnitude between two samples — the
+     * stop at the hold short — the curve ran past the far sample and crawled
+     * back onto it. Measured on the fixture below at 3.4 m backwards over
+     * thirty-odd seconds, on an aeroplane that was standing still.
+     *
+     * The same fixture shows the two related faults: an aircraft that has
+     * stopped drifting on up the taxiway anyway, because a ninety-second gap
+     * in the feed was being drawn as ninety seconds of movement rather than as
+     * the wait it records; and a takeoff roll drawn thirty metres away from
+     * where the aeroplane was, because a curve fitted to neighbouring
+     * positions cannot accelerate but one fitted to the recorded speeds can.
+     *
+     * These are metres from a datum, at the recorder's real cadence and under
+     * its real skip rule, so they fail if the fitting ever comes back out.
+     */
+    {
+        const DATUM = { lat: 40.6398, lon: -73.7789 };          // KJFK
+        const M_LAT = 110946, M_LON = 110946 * Math.cos(DATUM.lat * Math.PI / 180);
+        const KT = 0.514444;
+        // Ground fixtures are written in metres and seconds, which is how a
+        // taxiway is actually laid out and the only way they stay readable.
+        const ground = (rows) => mk(rows.map(r => ({
+            t: T0 + r.s * 1000,
+            lat: DATUM.lat + r.y / M_LAT,
+            lon: DATUM.lon + r.x / M_LON,
+            alt: 0,
+            gs: r.gs,
+            hdg: r.hdg ?? 0
+        })));
+        const metres = (p) => ({
+            x: (p.lon - DATUM.lon) * M_LON,
+            y: (p.lat - DATUM.lat) * M_LAT
+        });
+
+        // Taxi up to the hold short, stop, wait, then go. The recorder keeps
+        // the point where it stopped and the point where it moved again and
+        // drops everything between, so this is a real ninety-second segment
+        // twenty metres long.
+        const lineup = ground([
+            { s: 0, x: 0, y: 0, gs: 14 },
+            { s: 15, x: 0, y: 108, gs: 14 },
+            { s: 30, x: 0, y: 216, gs: 14 },
+            { s: 45, x: 0, y: 300, gs: 0 },      // stopped at the hold short
+            { s: 135, x: 0, y: 320, gs: 8 },     // rolling again
+            { s: 150, x: 0, y: 400, gs: 26 },
+            { s: 165, x: 0, y: 640, gs: 55 }
+        ]);
+
+        // Measured against the furthest it has been, not against the previous
+        // frame: the fault is a slow crawl backwards over half a minute, and
+        // frame-to-frame it is a tenth of a metre at a time.
+        const P = GlobalPlayback._internals.makePosition();
+        let worstBack = 0, backAt = 0, peakY = -Infinity, worstDrift = 0;
+        for (let t = T0; t <= T0 + 165000; t += 250) {
+            const p = positionAt(lineup, t, P);
+            if (!p) continue;
+            const { y } = metres(p);
+            if (y > peakY) peakY = y;
+            else if (peakY - y > worstBack) { worstBack = peakY - y; backAt = (t - T0) / 1000; }
+            // While it is holding, it is holding.
+            if (t >= T0 + 50000 && t <= T0 + 125000) {
+                worstDrift = Math.max(worstDrift, Math.abs(y - 300));
+            }
+        }
+
+        ok('an aircraft lining up never moves backwards',
+            worstBack < 0.5,
+            `backed up ${worstBack.toFixed(1)} m at t+${backAt.toFixed(0)}s — it does not backtaxi`);
+
+        ok('an aircraft holding short stays where it stopped',
+            worstDrift < 8,
+            `drifted ${worstDrift.toFixed(1)} m up the taxiway while stationary`);
+
+        // The other ground geometry worth pinning: the 180 off the end of a
+        // parallel taxiway onto the runway, taken at 12 knots so the whole
+        // loop falls between two samples. This one was never the fault — it
+        // came through the old interpolation within a metre of the pavement —
+        // but it is the shape most able to turn into a loop if the limits on
+        // the tangents are ever loosened, so it is held here.
+        const turn = ground([
+            { s: 0, x: 0, y: 0, gs: 12 },
+            { s: 15, x: 0, y: 93, gs: 12 },
+            { s: 30, x: 0, y: 185, gs: 12 },
+            { s: 45, x: 0, y: 278, gs: 12 },
+            { s: 60, x: 0, y: 368, gs: 10 },
+            { s: 75, x: 10, y: 424, gs: 7 },     // rounding the loop
+            { s: 90, x: 58, y: 426, gs: 7 },
+            { s: 105, x: 70, y: 375, gs: 7 },    // now heading back the other way
+            { s: 120, x: 70, y: 145, gs: 59 },   // rolling
+            { s: 135, x: 70, y: -527, gs: 117 }
+        ]);
+        let worstOut = 0, prevS = null, swept = 0, peakSwept = 0, turnBack = 0;
+        for (let t = T0; t <= T0 + 135000; t += 250) {
+            const p = positionAt(turn, t, P);
+            if (!p) continue;
+            const { x, y } = metres(p);
+            // How far outside the two parallel legs it strays.
+            if (y < 370) worstOut = Math.max(worstOut, Math.max(0, -x), Math.max(0, x - 70));
+            // Progress round the loop, as an accumulated angle, must only ever
+            // advance.
+            const s = Math.atan2(x - 35, y - 400);
+            if (prevS !== null) {
+                let d = s - prevS;
+                if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+                swept += d * 180 / Math.PI;
+                if (swept > peakSwept) peakSwept = swept;
+                else turnBack = Math.max(turnBack, peakSwept - swept);
+            }
+            prevS = s;
+        }
+
+        ok('a 180 onto the runway stays on the pavement',
+            worstOut < 5, `swung ${worstOut.toFixed(1)} m outside the taxiway`);
+        ok('…and goes round the turn one way',
+            turnBack < 1, `reversed ${turnBack.toFixed(1)}° round the loop`);
+
+        // A takeoff roll is the one thing on the ground whose true shape is
+        // known exactly: constant acceleration, so distance goes as t². A
+        // curve whose end slopes are the recorded speeds reproduces that
+        // outright; one whose slopes are guessed from neighbouring samples
+        // cannot, and puts the aircraft off the ground early.
+        const A = 2;                                     // m/s², a light jet
+        const roll = ground([0, 15, 30, 45].map(s => ({
+            s, x: 0, y: A * s * s / 2, gs: (A * s) / KT
+        })));
+        let worstRoll = 0;
+        for (let t = T0; t <= T0 + 45000; t += 250) {
+            const p = positionAt(roll, t, P);
+            if (!p) continue;
+            const s = (t - T0) / 1000;
+            worstRoll = Math.max(worstRoll, Math.abs(metres(p).y - A * s * s / 2));
+        }
+        ok('a takeoff roll follows the aircraft\'s own acceleration',
+            worstRoll < 8, `${worstRoll.toFixed(0)} m off where the recorded speeds put it`);
+    }
+
+    /* ---------------------------------------------------------------- *
      * Entry and exit
      * ---------------------------------------------------------------- */
     {

@@ -455,7 +455,14 @@ export const GlobalPlayback = (() => {
                 lon,
                 alt: p[3] || 0,
                 gs: p[4] || 0,
-                hdg: p[5] || 0
+                hdg: p[5] || 0,
+                // Filled in by computeTangents. Declared here so every point
+                // shares one hidden class and the frame loop reads them off a
+                // fixed offset instead of a dictionary.
+                mLat: 0, mLon: 0,
+                sLat: 0, sLon: 0,
+                eLat: 0, eLon: 0,
+                u0: 0, uInv: 1
             });
         }
         computeTangents(out);
@@ -505,6 +512,188 @@ export const GlobalPlayback = (() => {
                 pts[i].mLat = (next.lat - prev.lat) / dt;
                 pts[i].mLon = (next.lon - prev.lon) / dt;
             }
+        }
+        fitSegments(pts);
+    }
+
+    /* Stop the curve overshooting the samples it is drawn through.
+     *
+     * A Catmull-Rom tangent is inherited from a point's *neighbours*, so it
+     * knows nothing about the segment it is about to be used on. When the two
+     * sides of a point disagree — and the place they disagree most is a stop,
+     * where one side is a taxi and the other is nothing — the tangent is far
+     * longer than the chord it has to cross, and a cubic with a tangent longer
+     * than its own chord runs past the far end and comes back.
+     *
+     * On the map that is an aircraft rolling past where it stopped and then
+     * creeping backwards onto it: measured at 3.4 m over half a minute at a
+     * hold short, on an aeroplane that was standing still. It reads as a
+     * backtaxi that never happened, which is exactly how it was reported.
+     *
+     * So the tangent is rebuilt out of its two halves, which turn out to have
+     * different right answers.
+     *
+     * Its *direction* comes from the neighbours, as before — that is the part
+     * Catmull-Rom is good at, and it is what makes the path curve through a
+     * turn instead of cornering at every sample.
+     *
+     * Its *length* comes from the recorded ground speed, which was sitting in
+     * the data all along and was being ignored. A cubic whose end slopes are
+     * the real speeds at the two ends is not an approximation of an
+     * accelerating aircraft, it is exactly one: over a segment of constant
+     * acceleration the cubic term falls out and the curve is the aeroplane's
+     * own equation of motion. That is what takes a departing aircraft off the
+     * runway at the right moment instead of a hundred metres early.
+     *
+     * The two speeds are scaled together so their average crosses the chord in
+     * the segment's own time. It is their ratio that carries the acceleration;
+     * the scale has to answer to where the aircraft was actually seen. A useful
+     * side effect is that any constant error in reported ground speed cancels
+     * out entirely, and a pair of speeds can never sum to more than the chord
+     * needs — which is the Fritsch-Carlson monotonicity condition, met by
+     * construction rather than by clamping.
+     *
+     * The limiter is kept anyway, for the segments where there is no usable
+     * speed to work from, and the sideways component — the part that makes the
+     * path a curve rather than a polyline — is bounded by the chord as well: a
+     * segment may bow, it may not loop.
+     *
+     * Both tangents are folded into the segment's own duration and stored on
+     * the point that starts the segment, because the limit depends on the
+     * segment and a point's two segments can want different things from it.
+     * Doing it here also takes four multiplications out of the frame loop.
+     */
+    const MAX_TANGENT_RATIO = 3;      // Fritsch-Carlson: the circle of radius 3
+    const MAX_BOW_RATIO = 1;          // sideways travel, as a multiple of the chord
+
+    /* The other half of the ground problem: time an aircraft spent stopped.
+     *
+     * The recorder drops a report only when the aircraft is stationary *and*
+     * the last point it stored was stationary too (history.cjs). So a hold
+     * short is stored as exactly two points — the one where it stopped and the
+     * one where it started again — and everything suppressed between them was
+     * suppressed because the aeroplane was not moving. The gap is not missing
+     * data. It is a record of standing still, and it is the only place in the
+     * feed where a two-minute gap means something specific.
+     *
+     * Spread evenly across that gap, an aircraft holding for two minutes is
+     * drawn sliding gently up the taxiway the whole time, which is both wrong
+     * and the sort of wrong somebody watching their own flight will spot.
+     *
+     * The speeds say how much of the gap was really spent moving: covering the
+     * chord at the average of the two end speeds takes a certain time, and if
+     * that is a fraction of the gap, the rest of the gap was the wait. The wait
+     * goes next to whichever end was stopped. An aircraft that brakes to a halt
+     * stops and stays stopped; one that is about to depart waits and then goes.
+     */
+    const STATIONARY_KT = 2;          // the recorder's own threshold
+    const M_PER_DEG = 110946;
+    const KT_M_PER_MS = 0.514444 / 1000;
+    const MIN_MOVING_FRACTION = 0.05; // never squeeze motion into a jump
+
+    function fitSegments(pts) {
+        const n = pts.length;
+        for (let i = 0; i < n - 1; i++) {
+            const a = pts[i], b = pts[i + 1];
+            const dt = b.t - a.t;
+
+            // Work in a locally square metric so a chord's direction means the
+            // same thing in both axes; longitude is compressed by latitude
+            // everywhere but the equator.
+            const cosLat = Math.cos((a.lat + b.lat) * 0.5 * Math.PI / 180) || 1e-6;
+            const cx = (b.lon - a.lon) * cosLat;
+            const cy = b.lat - a.lat;
+            const L = Math.hypot(cx, cy);
+
+            a.u0 = 0; a.uInv = 1;
+
+            if (!(dt > 0) || L <= 1e-12) {
+                // The aircraft is where it was. Any tangent at all would send
+                // it out and back for no reason — the commonest version of the
+                // fault, since an aeroplane holding short is reported at the
+                // same spot twice.
+                a.sLat = 0; a.sLon = 0; a.eLat = 0; a.eLon = 0;
+                continue;
+            }
+
+            const ux = cx / L, uy = cy / L;
+
+            // Direction from the neighbours; the chord stands in wherever the
+            // neighbours have nothing to say (the ends of a track, or a point
+            // whose two neighbours are the same place).
+            let adx = a.mLon * cosLat, ady = a.mLat;
+            let aMag = Math.hypot(adx, ady);
+            if (aMag > 1e-15) { adx /= aMag; ady /= aMag; } else { adx = ux; ady = uy; }
+
+            let bdx = b.mLon * cosLat, bdy = b.mLat;
+            let bMag = Math.hypot(bdx, bdy);
+            if (bMag > 1e-15) { bdx /= bMag; bdy /= bMag; } else { bdx = ux; bdy = uy; }
+
+            // Length from the recorded speeds, rescaled to the chord. Knots
+            // need no conversion: the scaling cancels the units along with any
+            // constant error in them.
+            const sa = a.gs > 0 ? a.gs : 0;
+            const sb = b.gs > 0 ? b.gs : 0;
+            let aLen = L, bLen = L;
+            if (sa + sb > 0.01) {
+                const k = 2 * L / (sa + sb);
+                aLen = sa * k;
+                bLen = sb * k;
+
+                // One end stopped and a chord too short for the time taken:
+                // the aircraft was holding, and only part of the gap was
+                // spent moving. Confine the motion to that part.
+                if (Math.min(sa, sb) < STATIONARY_KT) {
+                    const moving = 2 * L * M_PER_DEG / ((sa + sb) * KT_M_PER_MS * dt);
+                    if (moving < 0.9) {
+                        const f = Math.max(MIN_MOVING_FRACTION, moving);
+                        // The wait sits against the stopped end.
+                        a.u0 = sa < sb ? 1 - f : 0;
+                        a.uInv = 1 / f;
+                    }
+                }
+            }
+
+            let ax = adx * aLen, ay = ady * aLen;
+            let bx = bdx * bLen, by = bdy * bLen;
+
+            // Split along the chord and across it.
+            let aPar = ax * ux + ay * uy;
+            let bPar = bx * ux + by * uy;
+            const aPerpX = ax - aPar * ux, aPerpY = ay - aPar * uy;
+            const bPerpX = bx - bPar * ux, bPerpY = by - bPar * uy;
+
+            // Along: never negative (that is the backwards step itself), and
+            // inside the radius-3 circle that makes the cubic monotone.
+            if (aPar < 0) aPar = 0;
+            if (bPar < 0) bPar = 0;
+            const alpha = aPar / L, beta = bPar / L;
+            const r2 = alpha * alpha + beta * beta;
+            if (r2 > MAX_TANGENT_RATIO * MAX_TANGENT_RATIO) {
+                const tau = MAX_TANGENT_RATIO / Math.sqrt(r2);
+                aPar *= tau; bPar *= tau;
+            }
+
+            // Across: bounded, so a hard turn bows instead of looping.
+            const cap = L * MAX_BOW_RATIO;
+            let aPerpS = 1, bPerpS = 1;
+            const aPerpMag = Math.hypot(aPerpX, aPerpY);
+            const bPerpMag = Math.hypot(bPerpX, bPerpY);
+            if (aPerpMag > cap) aPerpS = cap / aPerpMag;
+            if (bPerpMag > cap) bPerpS = cap / bPerpMag;
+
+            ax = aPar * ux + aPerpX * aPerpS;
+            ay = aPar * uy + aPerpY * aPerpS;
+            bx = bPar * ux + bPerpX * bPerpS;
+            by = bPar * uy + bPerpY * bPerpS;
+
+            a.sLon = ax / cosLat; a.sLat = ay;
+            a.eLon = bx / cosLat; a.eLat = by;
+        }
+        if (n) {
+            const z = pts[n - 1];
+            z.sLat = 0; z.sLon = 0; z.eLat = 0; z.eLon = 0;
+            z.u0 = 0; z.uInv = 1;
         }
     }
 
@@ -601,24 +790,30 @@ export const GlobalPlayback = (() => {
         const dt = b.t - a.t;
         if (dt > MAX_INTERP_GAP_MS) return null;
 
-        const u = dt > 0 ? (absT - a.t) / dt : 0;
+        // The segment's own progress, with any time the aircraft spent standing
+        // still taken out of it — see fitSegments.
+        let u = dt > 0 ? (absT - a.t) / dt : 0;
+        if (a.uInv !== 1) {
+            u = (u - a.u0) * a.uInv;
+            if (u < 0) u = 0; else if (u > 1) u = 1;
+        }
 
         // Position, and the tangent to the path at the same instant. They come
         // out of the same curve on purpose — see the note on heading below.
         let dLat, dLon;
 
         if (dt > 0 && dt <= MAX_SPLINE_SEGMENT_MS) {
-            // Cubic Hermite with Catmull-Rom tangents. h10/h11 carry the
-            // tangents, which are per-unit-time, so they are scaled by the
-            // segment's own duration — that is what makes this correct on an
-            // unevenly sampled track instead of only on a regular one.
+            // Cubic Hermite. h10/h11 carry the tangents — already folded into
+            // this segment's duration and limited against its chord by
+            // limitTangents, which is what keeps the curve from running past a
+            // sample and reversing onto it.
             const u2 = u * u, u3 = u2 * u;
             const h00 = 2 * u3 - 3 * u2 + 1;
             const h10 = u3 - 2 * u2 + u;
             const h01 = -2 * u3 + 3 * u2;
             const h11 = u3 - u2;
-            POS.lat = h00 * a.lat + h10 * dt * a.mLat + h01 * b.lat + h11 * dt * b.mLat;
-            POS.lon = h00 * a.lon + h10 * dt * a.mLon + h01 * b.lon + h11 * dt * b.mLon;
+            POS.lat = h00 * a.lat + h10 * a.sLat + h01 * b.lat + h11 * a.eLat;
+            POS.lon = h00 * a.lon + h10 * a.sLon + h01 * b.lon + h11 * a.eLon;
 
             // The curve's own derivative. Scale factors are irrelevant — only
             // the direction is wanted — so dp/du is used as-is.
@@ -626,8 +821,8 @@ export const GlobalPlayback = (() => {
             const g10 = 3 * u2 - 4 * u + 1;
             const g01 = -6 * u2 + 6 * u;
             const g11 = 3 * u2 - 2 * u;
-            dLat = g00 * a.lat + g10 * dt * a.mLat + g01 * b.lat + g11 * dt * b.mLat;
-            dLon = g00 * a.lon + g10 * dt * a.mLon + g01 * b.lon + g11 * dt * b.mLon;
+            dLat = g00 * a.lat + g10 * a.sLat + g01 * b.lat + g11 * a.eLat;
+            dLon = g00 * a.lon + g10 * a.sLon + g01 * b.lon + g11 * a.eLon;
         } else {
             POS.lat = a.lat + (b.lat - a.lat) * u;
             POS.lon = a.lon + (b.lon - a.lon) * u;
