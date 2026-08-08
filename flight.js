@@ -186,7 +186,7 @@ function getIconEdgeMode() {
 // set has no fixed resolution to run out of. The sheet is still shipped and is
 // one setting away.
 function getIconSet() {
-    return (window.mapFilters && window.mapFilters.iconSet) || 'vector';
+    return (window.mapFilters && window.mapFilters.iconSet) || 'classic';
 }
 
 async function loadSpriteSheetAndGenerateIcons(map) {
@@ -1251,7 +1251,7 @@ let mapFilters = {
         // 'legacy' -> the previous behaviour (raw sprite handed to Mapbox with
         //             sdf:true), kept switchable for side-by-side comparison
         iconEdgeMode: 'sharp',
-        iconSet: 'vector',
+        iconSet: 'classic',
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -26232,7 +26232,7 @@ if (flatMapToggle) {
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
 
-        const setRadio = document.querySelector(`input[name="icon-set"][value="${mapFilters.iconSet || 'vector'}"]`);
+        const setRadio = document.querySelector(`input[name="icon-set"][value="${mapFilters.iconSet || 'classic'}"]`);
         if (setRadio) setRadio.checked = true;
         const edgeRadio = document.querySelector(`input[name="icon-edge-mode"][value="${mapFilters.iconEdgeMode || 'sharp'}"]`);
         if (edgeRadio) edgeRadio.checked = true;

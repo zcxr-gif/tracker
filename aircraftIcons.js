@@ -31,13 +31,19 @@
 // ambiguous end-to-end. Detail that disappears below twenty pixels is detail
 // that costs memory for nothing, so there is none.
 //
-// Turning this off
-// ----------------
-// `mapFilters.iconSet` selects the set: 'vector' (this) or 'classic'
-// (markers.png, untouched and still shipped). Settings has a toggle, and
-// flight.js's loadSpriteSheetAndGenerateIcons() branches on it — so reverting
-// is a setting, and removing the feature entirely is deleting this file and
-// that branch.
+// Status: NOT the default
+// -----------------------
+// These are hand-authored shapes, and hand-authored is exactly their limit —
+// they are sharp, but they are not as good as real artwork drawn by someone
+// who draws aircraft. `mapFilters.iconSet` defaults to 'classic' (markers.png)
+// for that reason; this set is the 'vector' option in Settings, kept because
+// it is the only thing here with no fixed resolution.
+//
+// The real fix is a proper external set. The best one is
+// github.com/RexKramer1/AircraftShapesSVG — 182 top-view planforms named by
+// ICAO type, drawn for ADS-B viewers — but it is GPL-3.0, stated both in the
+// repo and in each file's own metadata, which is a decision about the product
+// rather than about the code. See docs/AIRCRAFT-ICONS.md.
 
 /* =========================
  * Per-type geometry
