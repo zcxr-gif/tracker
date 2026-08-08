@@ -55,7 +55,8 @@ function categoriesFromFlightJs() {
     const mod = await import(pathToFileURL(path.join(ROOT, 'aircraftShapes.js')).href);
     const {
         SHAPE_FILE, LOGICAL_SIZE, scaleForSpan,
-        MIN_SCALE, MAX_SCALE, BASE_FILL
+        MIN_SCALE, MAX_SCALE, BASE_FILL,
+        MIN_SOURCE_PX, MAX_SOURCE_PX, ATLAS_BUDGET_BYTES, sourcePixelsFor
     } = mod._internals;
 
     /* ---- the artwork is actually here ---- */
@@ -141,6 +142,54 @@ function categoriesFromFlightJs() {
     ok('the smallest aircraft is still worth drawing',
         scaleForSpan(SPAN.C172) * BASE_FILL > 0.35,
         'a light single would be a smudge at map sizes');
+
+    /* ---- texture budget ---- */
+    // This is the check that was missing, and its absence crashed the app.
+    //
+    // Mapbox packs every registered icon into ONE atlas texture. The first cut
+    // rasterised at LOGICAL_SIZE × devicePixelRatio — 384 square on a 3× phone
+    // — which needs an atlas about 2660 pixels on a side. Plenty of mobile GPUs
+    // cap texture size at 2048, so the atlas did not degrade, it failed; and
+    // the 27 MB of RGBA behind it took the tab with it. Opening global playback
+    // was what forced the atlas to be built, so that is where it surfaced.
+    //
+    // The numbers below are computed the way the loader computes them, so this
+    // fails if the sizing is ever raised back past what a GPU will hold.
+    const SDF_PAD = (() => {
+        const m = /const SDF_RADIUS\s*=\s*(\d+)/.exec(fs.readFileSync(path.join(ROOT, 'flight.js'), 'utf8'));
+        return m ? Number(m[1]) : 8;
+    })();
+    const IMAGES = Object.keys(SHAPE_FILE).length * 3;   // silhouette, selected, natural
+
+    // The conservative floor across GPUs that are still in use. Staying well
+    // under it leaves room for the sprite sheet, which shares the same atlas.
+    const SAFE_ATLAS_PX = 2048;
+
+    for (const dpr of [1, 2, 3]) {
+        const side = sourcePixelsFor(dpr) + SDF_PAD * 2;
+        const bytes = IMAGES * side * side * 4;
+        const atlasPx = Math.ceil(Math.sqrt(IMAGES * side * side));
+
+        ok(`at ${dpr}x the atlas stays well inside what a GPU will hold`,
+            atlasPx < SAFE_ATLAS_PX * 0.75,
+            `${IMAGES} icons at ${side}px need a ~${atlasPx}px atlas (limit ${SAFE_ATLAS_PX})`);
+
+        ok(`at ${dpr}x the set fits its declared texture budget`,
+            bytes <= ATLAS_BUDGET_BYTES,
+            `${(bytes / 1048576).toFixed(1)} MB against a ${(ATLAS_BUDGET_BYTES / 1048576).toFixed(0)} MB budget`);
+    }
+
+    // Sharpness is the whole reason for the exercise, so the floor has to stay
+    // above what the map actually draws: icon-size defaults to 0.15, which puts
+    // a 128-logical icon at ~19 logical pixels, or ~58 device pixels at 3x.
+    ok('the raster is still comfortably sharper than the map draws',
+        sourcePixelsFor(3) > 128 * 0.15 * 3 * 1.5,
+        `${sourcePixelsFor(3)}px source against ~${Math.round(128 * 0.15 * 3)}px drawn at 3x`);
+
+    ok('every variant is registered at one size, so the layers agree on scale',
+        MAX_SOURCE_PX >= MIN_SOURCE_PX && sourcePixelsFor(2) === sourcePixelsFor(3),
+        'the SDF pad is added to all variants; a mismatch makes tinted and '
+        + 'natural aircraft draw at different sizes');
 
     /* ---- registration contract ---- */
     ok('shapes register at the same logical size as the sprite sheet',

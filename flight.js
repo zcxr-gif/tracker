@@ -212,7 +212,12 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     if (iconSet === 'shapes') {
         try {
             const { registerAircraftShapeIcons } = await import('./aircraftShapes.js');
-            await registerAircraftShapeIcons(map, { toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame });
+            await registerAircraftShapeIcons(map, {
+                toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame,
+                // The spread buildSdfImageData adds on every side, so the
+                // shape loader can keep all its variants the same size.
+                sdfPadding: SDF_RADIUS
+            });
         } catch (e) {
             console.warn('[icons] Aircraft shape set failed, falling back to markers.png:', e);
         }
