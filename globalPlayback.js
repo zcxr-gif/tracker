@@ -275,20 +275,58 @@ export const GlobalPlayback = (() => {
     const SRC_PATHS = 'global-playback-paths-source';
     const LYR_PATHS = 'global-playback-paths-layer';          // the whole flown route, so far
 
-    /* Everything a tap may land on.
+    /* Hover detail is for pointer devices only. On touch there is no hover, and
+     * a tooltip appearing under the finger that summoned it is worse than
+     * none — tapping selects instead. It also sets the tap radius below. */
+    const hasPointer = (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+        ? window.matchMedia('(hover: hover)').matches
+        : true;
+
+    /* How near a tap has to be, in screen pixels, to count as hitting an
+     * aircraft. A finger is not a pixel: Apple and Google both put the minimum
+     * comfortable target at around 44pt/48dp, and these icons draw at about
+     * twelve. The generosity is the point. */
+    const TAP_RADIUS_TOUCH = 28;
+    const TAP_RADIUS_MOUSE = 16;
+
+    /**
+     * The drawn aircraft nearest a screen point, or null.
      *
-     * Two symbol layers draw the same source, and which of them actually
-     * renders an aircraft depends on the pilot's colour mode: the tintable SDF
-     * icons in White/Blue/Orange/custom, the full-detail sprites in Natural.
-     * Mapbox only fires a layer-scoped handler when the hit test finds a
-     * RENDERED feature of that layer, so binding to the SDF layer alone meant
-     * that in Natural mode — where the aircraft you can see are drawn by the
-     * other layer — every tap missed and nothing opened at all.
+     * Mapbox's own layer hit test cannot do this job here, for three separate
+     * reasons that all bite at once:
      *
-     * The halo is in the list too. It is a circle under the aircraft you
-     * singled out, so it is both a legitimate target and a far easier one than
-     * a twelve-pixel icon. */
-    const INTERACTIVE_PLANE_LAYERS = [LYR_PLANES, LYR_PLANES_NAT, LYR_PLANE_HALO];
+     *   * it matches the rendered glyph, so it only fires for whichever of the
+     *     two plane layers the pilot's colour mode happens to be drawing;
+     *   * the glyph is twelve pixels, and a moving one at that — at 120x an
+     *     aircraft crosses its own width between a finger going down and
+     *     coming up, so an exact-hit test misses almost every time. "The
+     *     planes just go and they don't let me view their data" is what that
+     *     feels like;
+     *   * the source is rewritten thirty times a second, and a query against a
+     *     tile index mid-rebuild finds nothing at all.
+     *
+     * So the hit test is done here instead, against the positions this module
+     * just drew — which it knows exactly, needs no tile index to consult, and
+     * can be as forgiving as a finger requires.
+     */
+    function nearestDrawnPlane(point) {
+        if (!map || !point || !planeList.length) return null;
+        const radius = hasPointer ? TAP_RADIUS_MOUSE : TAP_RADIUS_TOUCH;
+        let best = null, bestDist = radius * radius;
+
+        for (let i = 0; i < planeList.length; i++) {
+            const feat = planeList[i];
+            let p;
+            try { p = map.project(feat.geometry.coordinates); } catch (_) { continue; }
+            const dx = p.x - point.x, dy = p.y - point.y;
+            const d = dx * dx + dy * dy;
+            // Ties go to the aircraft nearer the finger, and a tie on that is
+            // broken by draw order, which is stable frame to frame.
+            if (d < bestDist) { bestDist = d; best = feat; }
+        }
+        return best ? { flightId: best.properties.flightId, coordinates: best.geometry.coordinates } : null;
+    }
+
 
     // Live traffic is blanked while the replay is up, exactly as flightReplay
     // and atcReplay do it: snapshot each layer's filter, hide everything, put
@@ -1393,33 +1431,29 @@ export const GlobalPlayback = (() => {
         window.addEventListener('watchlistUpdated', onWatchlistChanged);
 
         onPlaneClick = (e) => {
-            const feature = e.features && e.features[0];
-            if (!feature) return;
-            selectFlight(feature.properties.flightId);
+            const hit = nearestDrawnPlane(e.point);
+            if (!hit) return;
+            selectFlight(hit.flightId);
         };
-        for (const id of INTERACTIVE_PLANE_LAYERS) {
-            try { map.on('click', id, onPlaneClick); } catch (_) { /* layer not built yet */ }
-        }
-
-        // Hover detail on pointer devices only. On touch there is no hover, and
-        // a tooltip that appears under the finger that summoned it is worse
-        // than none — tapping selects instead.
-        const hasPointer = typeof window.matchMedia === 'function'
-            ? window.matchMedia('(hover: hover)').matches
-            : true;
+        // Bound to the map, not to a layer — see nearestDrawnPlane.
+        map.on('click', onPlaneClick);
 
         onPlaneEnter = (e) => {
-            if (map.getCanvas) map.getCanvas().style.cursor = 'pointer';
             if (!hasPointer) return;
-            const feature = e.features && e.features[0];
-            if (!feature) return;
+            const hit = nearestDrawnPlane(e.point);
+            if (!hit) {
+                if (map.getCanvas) map.getCanvas().style.cursor = '';
+                if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} }
+                return;
+            }
+            if (map.getCanvas) map.getCanvas().style.cursor = 'pointer';
             const gl = window.mapboxgl;
             if (!gl) return;
 
             // Detail comes from the flight record and the clock, not from the
             // feature — see buildPlanes() for why the feature carries as
             // little as it does.
-            const f = flightsById.get(feature.properties.flightId);
+            const f = flightsById.get(hit.flightId);
             if (!f) return;
             const pos = positionAt(f, spanStart + currentMs);
 
@@ -1427,7 +1461,7 @@ export const GlobalPlayback = (() => {
                 hoverPopup = new gl.Popup({ closeButton: false, closeOnClick: false, className: 'gpb-popup', offset: 12 });
             }
             hoverPopup
-                .setLngLat(feature.geometry.coordinates)
+                .setLngLat(hit.coordinates)
                 .setHTML(`
                     <div class="gpb-pop-call">${escapeHtml(f.callsign || '----')}</div>
                     ${f.username ? `<div class="gpb-pop-user">${escapeHtml(f.username)}</div>` : ''}
@@ -1442,12 +1476,8 @@ export const GlobalPlayback = (() => {
             if (map.getCanvas) map.getCanvas().style.cursor = '';
             if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} }
         };
-        for (const id of INTERACTIVE_PLANE_LAYERS) {
-            try {
-                map.on('mouseenter', id, onPlaneEnter);
-                map.on('mouseleave', id, onPlaneLeave);
-            } catch (_) { /* same */ }
-        }
+        map.on('mousemove', onPlaneEnter);
+        map.on('mouseout', onPlaneLeave);
     }
 
     function unbindMapInteractions() {
@@ -1477,12 +1507,9 @@ export const GlobalPlayback = (() => {
             try { map.off('resize', onMoveEnd); } catch (_) {}
             onMoveEnd = null;
         }
-        for (const id of INTERACTIVE_PLANE_LAYERS) {
-            if (onPlaneClick) { try { map.off('click', id, onPlaneClick); } catch (_) {} }
-            if (onPlaneEnter) { try { map.off('mouseenter', id, onPlaneEnter); } catch (_) {} }
-            if (onPlaneLeave) { try { map.off('mouseleave', id, onPlaneLeave); } catch (_) {} }
-        }
-        onPlaneClick = null; onPlaneEnter = null; onPlaneLeave = null;
+        if (onPlaneClick) { try { map.off('click', onPlaneClick); } catch (_) {} onPlaneClick = null; }
+        if (onPlaneEnter) { try { map.off('mousemove', onPlaneEnter); } catch (_) {} onPlaneEnter = null; }
+        if (onPlaneLeave) { try { map.off('mouseout', onPlaneLeave); } catch (_) {} onPlaneLeave = null; }
         if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} hoverPopup = null; }
         try { if (map.getCanvas) map.getCanvas().style.cursor = ''; } catch (_) {}
     }
@@ -4088,6 +4115,21 @@ export const GlobalPlayback = (() => {
             buildTrails,
             buildPaths,
             setSelectedForTest: (id) => { selectedFlightId = id; },
+            selectedForTest: () => selectedFlightId,
+            // The clock, so a test can put the replay at a known moment
+            // without mounting the chrome to get one.
+            __setClockForTest: (startMs, endMs, atMs) => {
+                windowMeta = { start: startMs, end: endMs };
+                spanStart = startMs;
+                totalDurationMs = Math.max(1, endMs - startMs);
+                currentMs = atMs;
+            },
+            // The tap hit test, which is the whole reason a tap works at all —
+            // and which cannot be reached through Mapbox, because not asking
+            // Mapbox is the point of it.
+            nearestDrawnPlane,
+            TAP_RADIUS_TOUCH,
+            TAP_RADIUS_MOUSE,
             __pathFeatures: () => pathList,
             setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
             // A camera gesture decides what is on screen, and until it was
