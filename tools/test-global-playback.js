@@ -903,6 +903,101 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
             orphans === 0,
             `${orphans} of ${trails.length} tails end somewhere no aircraft is`);
 
+        /* ---------------------------------------------------------------- *
+         * The filter rail
+         * ----------------------------------------------------------------
+         * The presets across the top decide what is on the map, so getting a
+         * class wrong is not a cosmetic miss — it is traffic the pilot asked
+         * to see and did not get. The classes come from a type name and a
+         * callsign, both typed by the pilot, so what is pinned here is the
+         * reading of that evidence: an airframe lands in every class that
+         * fits it, a fighter never lands in Airlines, and a type nobody has
+         * taught it about still shows up somewhere rather than vanishing.
+         * ---------------------------------------------------------------- */
+        {
+            const { classifyFlight, filterMasks: M, setFlightsForTest, setFiltersForTest, visibleFlights }
+                = GlobalPlayback._internals;
+            const has = (type, call, bit) => (classifyFlight(type, call) & bit) !== 0;
+
+            ok('a widebody is both an airliner and a heavy',
+                has('Boeing 777-300ER', 'BAW112', M.T_AIRLINE) &&
+                has('Boeing 777-300ER', 'BAW112', M.T_HEAVY));
+
+            ok('a freighter is cargo, and still an airliner',
+                has('Boeing 747-8F', 'GTI8103', M.T_CARGO) &&
+                has('Boeing 747-8F', 'GTI8103', M.T_AIRLINE));
+
+            ok('a passenger type on a cargo callsign is read as cargo',
+                has('Boeing 737-800', 'FDX1290', M.T_CARGO));
+
+            ok('a fighter is military and never an airliner',
+                has('F-22 Raptor', 'RAPTOR1', M.T_MILITARY) &&
+                !has('F-22 Raptor', 'RAPTOR1', M.T_AIRLINE));
+
+            // The one the app's own category mapping gets to first: "C-130"
+            // reads as a Cessna to anything scanning for light singles.
+            ok('a Hercules is military, not a light single',
+                has('C-130 Hercules', 'HERKY22', M.T_MILITARY) &&
+                !has('C-130 Hercules', 'HERKY22', M.T_GA));
+
+            ok('a light single is GA and nothing else',
+                has('Cessna 172SP', 'N172SP', M.T_GA) &&
+                !has('Cessna 172SP', 'N172SP', M.T_AIRLINE));
+
+            ok('a bizjet is business',
+                has('Cessna Citation X', 'N400CX', M.T_BUSINESS));
+
+            // A type the lists have not caught up with must not fall out of
+            // every preset — "All Traffic" would then be the only chip that
+            // showed it, which is exactly the silent loss this guards.
+            ok('an unrecognised type is still filed somewhere',
+                classifyFlight('Some Unreleased Airframe', 'XXX1') !== 0);
+
+            const fleet = [
+                ['Boeing 777-300ER', 'BAW112'], ['Airbus A320-200', 'EZY43'],
+                ['Boeing 747-8F', 'GTI8103'], ['F-22 Raptor', 'RAPTOR1'],
+                ['Cessna 172SP', 'N172SP'], ['Cessna Citation X', 'N400CX']
+            ].map(([aircraftName, callsign], i) => ({
+                aircraftName, callsign,
+                classMask: classifyFlight(aircraftName, callsign),
+                pilotRelation: i === 0 ? 'self' : 'none'
+            }));
+            setFlightsForTest(fleet);
+
+            setFiltersForTest(['all']);
+            ok('the rail unfiltered draws every flight in the window',
+                visibleFlights().length === fleet.length);
+
+            setFiltersForTest(['military']);
+            ok('one preset draws only what belongs to it',
+                visibleFlights().length === 1 && visibleFlights()[0].callsign === 'RAPTOR1');
+
+            setFiltersForTest(['military', 'ga']);
+            ok('two presets draw the union, not the intersection',
+                visibleFlights().length === 2);
+
+            // A 747-8F is cargo and a heavy at once. Selecting both must not
+            // draw it twice, which is what a naive concat would do — and a
+            // duplicated aircraft is a duplicated icon on the map.
+            setFiltersForTest(['cargo', 'heavy']);
+            ok('an aircraft matching two selected presets is drawn once',
+                visibleFlights().filter(f => f.callsign === 'GTI8103').length === 1);
+
+            setFiltersForTest(['mine']);
+            ok('the watchlist preset filters on the pilot, not the airframe',
+                visibleFlights().length === 1 && visibleFlights()[0].callsign === 'BAW112');
+
+            // Nothing selected can only mean "show me everything again". An
+            // empty map with no aircraft to click is not a state the rail is
+            // allowed to reach.
+            setFiltersForTest([]);
+            ok('an empty selection falls back to everything, never to nothing',
+                visibleFlights().length === fleet.length);
+
+            setFlightsForTest([]);
+            setFiltersForTest(['all']);
+        }
+
         // ---- the crash test ----
         // Warm every pool, then measure the heap across a few hundred pushes.
         for (let i = 0; i < 60; i++) {
