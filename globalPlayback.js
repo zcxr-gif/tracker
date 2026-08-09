@@ -275,6 +275,21 @@ export const GlobalPlayback = (() => {
     const SRC_PATHS = 'global-playback-paths-source';
     const LYR_PATHS = 'global-playback-paths-layer';          // the whole flown route, so far
 
+    /* Everything a tap may land on.
+     *
+     * Two symbol layers draw the same source, and which of them actually
+     * renders an aircraft depends on the pilot's colour mode: the tintable SDF
+     * icons in White/Blue/Orange/custom, the full-detail sprites in Natural.
+     * Mapbox only fires a layer-scoped handler when the hit test finds a
+     * RENDERED feature of that layer, so binding to the SDF layer alone meant
+     * that in Natural mode — where the aircraft you can see are drawn by the
+     * other layer — every tap missed and nothing opened at all.
+     *
+     * The halo is in the list too. It is a circle under the aircraft you
+     * singled out, so it is both a legitimate target and a far easier one than
+     * a twelve-pixel icon. */
+    const INTERACTIVE_PLANE_LAYERS = [LYR_PLANES, LYR_PLANES_NAT, LYR_PLANE_HALO];
+
     // Live traffic is blanked while the replay is up, exactly as flightReplay
     // and atcReplay do it: snapshot each layer's filter, hide everything, put
     // the filters back on close. Anything less leaves live aircraft flying
@@ -1382,7 +1397,9 @@ export const GlobalPlayback = (() => {
             if (!feature) return;
             selectFlight(feature.properties.flightId);
         };
-        map.on('click', LYR_PLANES, onPlaneClick);
+        for (const id of INTERACTIVE_PLANE_LAYERS) {
+            try { map.on('click', id, onPlaneClick); } catch (_) { /* layer not built yet */ }
+        }
 
         // Hover detail on pointer devices only. On touch there is no hover, and
         // a tooltip that appears under the finger that summoned it is worse
@@ -1425,8 +1442,12 @@ export const GlobalPlayback = (() => {
             if (map.getCanvas) map.getCanvas().style.cursor = '';
             if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} }
         };
-        map.on('mouseenter', LYR_PLANES, onPlaneEnter);
-        map.on('mouseleave', LYR_PLANES, onPlaneLeave);
+        for (const id of INTERACTIVE_PLANE_LAYERS) {
+            try {
+                map.on('mouseenter', id, onPlaneEnter);
+                map.on('mouseleave', id, onPlaneLeave);
+            } catch (_) { /* same */ }
+        }
     }
 
     function unbindMapInteractions() {
@@ -1456,9 +1477,12 @@ export const GlobalPlayback = (() => {
             try { map.off('resize', onMoveEnd); } catch (_) {}
             onMoveEnd = null;
         }
-        if (onPlaneClick) { try { map.off('click', LYR_PLANES, onPlaneClick); } catch (_) {} onPlaneClick = null; }
-        if (onPlaneEnter) { try { map.off('mouseenter', LYR_PLANES, onPlaneEnter); } catch (_) {} onPlaneEnter = null; }
-        if (onPlaneLeave) { try { map.off('mouseleave', LYR_PLANES, onPlaneLeave); } catch (_) {} onPlaneLeave = null; }
+        for (const id of INTERACTIVE_PLANE_LAYERS) {
+            if (onPlaneClick) { try { map.off('click', id, onPlaneClick); } catch (_) {} }
+            if (onPlaneEnter) { try { map.off('mouseenter', id, onPlaneEnter); } catch (_) {} }
+            if (onPlaneLeave) { try { map.off('mouseleave', id, onPlaneLeave); } catch (_) {} }
+        }
+        onPlaneClick = null; onPlaneEnter = null; onPlaneLeave = null;
         if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} hoverPopup = null; }
         try { if (map.getCanvas) map.getCanvas().style.cursor = ''; } catch (_) {}
     }

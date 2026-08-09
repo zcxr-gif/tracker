@@ -194,6 +194,26 @@ const ok = (name, cond, extra) => {
     ok('an update for a different aircraft is refused, not drawn over the open one',
         stale.accepted === false && stale.pushes === 0);
 
+    // ---- the wiring in flight.js, which the injected tests above cannot see ----
+    //
+    // Everything above hands the module its own collaborators, so it passes
+    // whether or not flight.js wires it correctly — and the first attempt did
+    // not. aircraftInfoWindow and currentFlightInWindow are locals of the
+    // DOMContentLoaded callback, so a top-level closure over them reads a
+    // window that is permanently null and throws a ReferenceError on the
+    // flight id. Both failures are silent: the button just does nothing.
+    const src = fs.readFileSync(path.join(ROOT, 'flight.js'), 'utf8');
+    const wireAt = src.indexOf('createHistoricalFlightWindow({');
+    const elemAt = src.indexOf("aircraftInfoWindow = document.getElementById('aircraft-info-window')");
+    ok('flight.js wires the window where the element it needs actually exists',
+        wireAt > -1 && elemAt > -1 && wireAt > elemAt,
+        `wiring at ${wireAt}, element assigned at ${elemAt}`);
+
+    const wireLine = src.slice(src.lastIndexOf('\n', wireAt) + 1, wireAt);
+    ok('...inside that scope rather than at module level',
+        /^\s+/.test(wireLine),
+        'the wiring sits at column 0, outside the callback that owns those locals');
+
     await browser.close();
     server.close();
     console.log(`\n${pass} passing${fail ? `, ${fail} failing` : ''}`);

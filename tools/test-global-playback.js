@@ -758,6 +758,55 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
     }
 
     /* ---------------------------------------------------------------- *
+     * A tap has to land on whichever layer is actually drawing
+     * ---------------------------------------------------------------- *
+     * Two symbol layers draw the same source. Which one renders an aircraft
+     * depends on the pilot's colour mode: the tintable SDF icons in
+     * White/Blue/Orange/custom, the full-detail sprites in Natural. Mapbox
+     * only fires a layer-scoped handler when the hit test finds a RENDERED
+     * feature of that layer, so binding the tap to one of them meant that in
+     * the other mode every tap missed and nothing opened at all — which is
+     * exactly how it was reported.
+     *
+     * Asserted on the binding rather than on a click, because the bug was
+     * never in the handler: it was in which layers the handler was offered.
+     */
+    {
+        const { __setMapForTest, bindMapInteractions, unbindMapInteractions } = GlobalPlayback._internals;
+
+        const bound = { click: new Set(), mouseenter: new Set(), mouseleave: new Set() };
+        const stub = {
+            getBounds: () => ({ getNorth: () => 1, getSouth: () => 0, getWest: () => 0, getEast: () => 1 }),
+            getCanvas: () => ({ clientWidth: 800, clientHeight: 600, style: {} }),
+            getSource: () => ({ setData() {} }),
+            on(ev, a) { if (typeof a === 'string' && bound[ev]) bound[ev].add(a); },
+            off(ev, a) { if (typeof a === 'string' && bound[ev]) bound[ev].delete(a); }
+        };
+        __setMapForTest(stub);
+        bindMapInteractions();
+
+        const needed = [
+            'global-playback-planes-layer',      // SDF, tintable
+            'global-playback-planes-natural',    // full-detail sprite
+            'global-playback-plane-halo'         // the easy target under the ones you singled out
+        ];
+        const missing = needed.filter(id => !bound.click.has(id));
+        ok('a tap is offered to every layer that can draw an aircraft',
+            missing.length === 0,
+            missing.length ? `never bound: ${missing.join(', ')}` : '');
+
+        ok('and so is the hover, so the popup is not dead in one colour mode',
+            needed.every(id => bound.mouseenter.has(id) && bound.mouseleave.has(id)));
+
+        unbindMapInteractions();
+        ok('leaving the replay takes every one of those bindings with it',
+            bound.click.size === 0 && bound.mouseenter.size === 0 && bound.mouseleave.size === 0,
+            `left behind: ${bound.click.size} click, ${bound.mouseenter.size} enter, ${bound.mouseleave.size} leave`);
+
+        __setMapForTest(null);
+    }
+
+    /* ---------------------------------------------------------------- *
      * Back-pressure: never hand Mapbox more than it has taken in
      * ---------------------------------------------------------------- *
      * The push rate used to be governed by frameCostEMA, which times the
