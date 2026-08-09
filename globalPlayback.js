@@ -17,10 +17,29 @@
 // they click, rather than after a refusal. The lock is courtesy; the server is
 // the authority.
 //
+// The chrome is a mode, not a panel. While a window is playing the app's own
+// top bar, tab bar and orbs stand down and the replay owns three edges:
+//
+//   top           preset traffic filters — All Traffic, Airlines, Heavies,
+//                 Cargo, Business, GA, Military, Watchlist — each carrying the
+//                 count behind it, with "another moment" and "leave" pinned to
+//                 the right so they never scroll away
+//   left/bottom   the transport: clock, counts, scrubber, speeds
+//   bottom right  the map overlays as bubbles — weather, ATC airspace, trails
+//
+// The same three on a phone, laid along the bottom edge either side of the
+// thumb rather than stacked. See buildPanel() and the .gpb-mode rules.
+//
 // Public API:
 //   GlobalPlayback.open({ map, apiBase, sessionId?, serverName?, onClose? })
 //   GlobalPlayback.close()
 //   GlobalPlayback.isOpen()
+
+import {
+    TRAFFIC_PRESETS as FILTER_PRESETS,
+    classifyFlight,
+    T_AIRLINE, T_HEAVY, T_CARGO, T_BUSINESS, T_GA, T_MILITARY
+} from './trafficClasses.js';
 
 const SPEED_OPTIONS = [15, 60, 120, 300, 600];
 const DEFAULT_SPEED = 120;
@@ -132,9 +151,22 @@ const TRAIL_POINTS = 12;
 // edge, and enough to cover a flick-pan before the next push lands.
 const CULL_MARGIN_FRACTION = 0.35;
 
+// The full flown route is drawn only for aircraft you have singled out — the
+// selected one, and the pilots on your watchlist. A full track costs an order
+// of magnitude more vertices than a comet tail, so the count is what keeps it
+// affordable; a watchlist is a handful of people, and this is generous for it.
+const MAX_PATHS = 24;
+const PATH_POINTS = 180;
+
 const SPEED_STORAGE_KEY = 'globalPlaybackSpeed';
 const SPAN_STORAGE_KEY = 'globalPlaybackSpanMs';
 const TRAILS_STORAGE_KEY = 'globalPlaybackTrails';
+const FILTER_STORAGE_KEY = 'globalPlaybackFilters';
+
+// The filter rail's vocabulary lives in trafficClasses.js, shared with the
+// live map's preset rail. Tapping Cargo, rewinding an hour and tapping Cargo
+// again has to show the same fleet, which two copies of the list would not
+// manage for a week.
 
 export const GlobalPlayback = (() => {
     // ---------- state ----------
@@ -146,8 +178,10 @@ export const GlobalPlayback = (() => {
 
     let limits = null;               // the server's answer to "what may I ask for?"
     let flights = [];                // { flightId, callsign, username, category, points[], cursor }
+    let visibleFlights = [];         // the subset the filter rail is letting through
     let flightsById = new Map();     // flightId -> the same objects, for hit-testing
     let windowMeta = null;           // { start, end, stepMs } of the loaded window
+    let classCounts = null;          // preset id -> how many flights in this window match
 
     // One clock for the whole world. Everything is drawn against it, which is
     // the only reason the picture is coherent: aircraft that were in the air
@@ -160,6 +194,15 @@ export const GlobalPlayback = (() => {
     let isPlaying = false;
     let isScrubbing = false;
     let showTrails = true;
+    // Filter rail selection. Empty and 'all' mean the same thing — everything —
+    // so the rail can never end up showing an empty map with no way back.
+    let activeFilters = new Set(['all']);
+    // The two map overlays the bubbles own. Neither belongs to this module: the
+    // rain radar is flight.js's `weatherToggle` listener and the airspace is
+    // mapFilters.showAtcBoundaries, so the bubbles drive the app's own state
+    // and only mirror it here so the button can light up.
+    let weatherOn = false;
+    let airspaceOn = false;
     let rafId = null;
     let lastFrameAt = 0;
 
@@ -178,10 +221,13 @@ export const GlobalPlayback = (() => {
     // downstream tracks a feature's identity from one push to the next.
     const planePool = [];                // slot -> Feature
     const trailPool = [];                // slot -> Feature (coordinates reused)
+    const pathPool = [];                 // slot -> Feature (full flown route)
     const planeList = [];                // persistent; truncated, never replaced
     const trailList = [];
+    const pathList = [];
     const planeCollection = { type: 'FeatureCollection', features: planeList };
     const trailCollection = { type: 'FeatureCollection', features: trailList };
+    const pathCollection = { type: 'FeatureCollection', features: pathList };
 
     // Push scheduling (see the header note on setData cost).
     let lastPlanePush = 0;
@@ -197,6 +243,9 @@ export const GlobalPlayback = (() => {
     let hoverPopup = null;
     let onPlaneEnter = null, onPlaneLeave = null, onPlaneClick = null;
     let selectedFlightId = null;
+    // Keep the camera on the selected aircraft. Off by default: a replay you
+    // cannot pan away from is a replay you cannot look around in.
+    let followSelected = false;
 
     let airborneCount = 0;               // aircraft with a position this frame
     let drawnCount = 0;                  // …of which are inside the viewport
@@ -207,6 +256,9 @@ export const GlobalPlayback = (() => {
     const LYR_PLANE_LABELS = 'global-playback-plane-labels';
     const SRC_TRAILS = 'global-playback-trails-source';
     const LYR_TRAILS = 'global-playback-trails-layer';
+    const LYR_PLANE_HALO = 'global-playback-plane-halo';      // ring under the ones you care about
+    const SRC_PATHS = 'global-playback-paths-source';
+    const LYR_PATHS = 'global-playback-paths-layer';          // the whole flown route, so far
 
     // Live traffic is blanked while the replay is up, exactly as flightReplay
     // and atcReplay do it: snapshot each layer's filter, hide everything, put
@@ -304,6 +356,68 @@ export const GlobalPlayback = (() => {
         return cat;
     }
 
+    /* =========================
+     * Filter rail
+     * ========================= */
+
+    function filterIsAll() {
+        return activeFilters.size === 0 || activeFilters.has('all');
+    }
+
+    // Rebuild the drawn set from the rail's selection. Called on load and on
+    // every chip, and nowhere per-frame: renderFrame reads visibleFlights.
+    function applyFilters() {
+        if (filterIsAll()) { visibleFlights = flights; return; }
+
+        let mask = 0;
+        let wantMine = false;
+        for (const id of activeFilters) {
+            const preset = FILTER_PRESETS.find(p => p.id === id);
+            if (!preset) continue;
+            if (preset.relation) wantMine = true;
+            else if (preset.mask) mask |= preset.mask;
+        }
+        if (!mask && !wantMine) { visibleFlights = flights; return; }
+
+        visibleFlights = flights.filter(f =>
+            (mask !== 0 && (f.classMask & mask) !== 0) ||
+            (wantMine && f.pilotRelation && f.pilotRelation !== 'none'));
+    }
+
+    // How many flights in the loaded window each preset would show. Counted
+    // once per window: a chip that says how much is behind it is the difference
+    // between a filter you trust and one you poke at.
+    function countClasses() {
+        const counts = { all: flights.length };
+        for (const preset of FILTER_PRESETS) {
+            if (preset.id === 'all') continue;
+            let n = 0;
+            for (const f of flights) {
+                if (preset.relation) {
+                    if (f.pilotRelation && f.pilotRelation !== 'none') n++;
+                } else if ((f.classMask & preset.mask) !== 0) n++;
+            }
+            counts[preset.id] = n;
+        }
+        return counts;
+    }
+
+    function loadSavedFilters() {
+        try {
+            const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+            if (!raw) return;
+            const ids = JSON.parse(raw);
+            if (!Array.isArray(ids) || !ids.length) return;
+            const known = ids.filter(id => FILTER_PRESETS.some(p => p.id === id));
+            if (known.length) activeFilters = new Set(known);
+        } catch (_) { /* private mode, or something else wrote the key */ }
+    }
+
+    function saveFilters() {
+        try { localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify([...activeFilters])); }
+        catch (_) { /* private mode */ }
+    }
+
     function fmtZulu(epochMs) {
         const d = new Date(epochMs);
         const p = (n) => String(n).padStart(2, '0');
@@ -358,6 +472,13 @@ export const GlobalPlayback = (() => {
 
     function refreshPilotRelations() {
         for (const f of flights) f.pilotRelation = pilotRelationFor(f.username);
+        // The Watchlist chip counts and filters on this, so both have to be
+        // redone rather than only the colours.
+        classCounts = flights.length ? countClasses() : null;
+        applyFilters();
+        refreshFilterChips();
+        // Signing in mid-replay can turn the open card into "your flight".
+        buildInfoCard();
         renderFrame(true);
     }
 
@@ -929,6 +1050,49 @@ export const GlobalPlayback = (() => {
 
     const FADE_OPACITY_EXPR = ['/', ['coalesce', ['get', 'opacity'], 100], 100];
 
+    /* The aircraft you singled out.
+     *
+     * Colour alone was not enough. In White mode — the default — your own
+     * aircraft and your watchlist's are the only ones tinted at all, which is
+     * a real difference on a quiet map and completely invisible on a busy one:
+     * an amber 12-pixel icon among two thousand white 12-pixel icons is not
+     * something the eye finds. So they also get a ring under them and their
+     * whole flown route drawn, which are visible at any density.
+     *
+     * The colours are the pilot's own settings, the same ones the live map
+     * uses, so a friend is the same colour in both. */
+    const HALO_FILTER = ['any',
+        ['==', ['get', 'pilotRelation'], 'user'],
+        ['==', ['get', 'pilotRelation'], 'watchlist'],
+        ['boolean', ['get', 'selected'], false]
+    ];
+    const SELECTED_COLOR = '#ffa62b';
+
+    function relationColors() {
+        const f = window.mapFilters || {};
+        return {
+            user: f.userPlaneColor || '#f97316',
+            watchlist: f.friendPlaneColor || '#c084fc'
+        };
+    }
+
+    // Relation wins over selection: singling out your own aircraft should not
+    // repaint it somebody else's colour.
+    function haloColorExpression(rel) {
+        return ['case',
+            ['==', ['get', 'pilotRelation'], 'user'], rel.user,
+            ['==', ['get', 'pilotRelation'], 'watchlist'], rel.watchlist,
+            SELECTED_COLOR
+        ];
+    }
+
+    function pathColorFor(f) {
+        const rel = relationColors();
+        if (f.pilotRelation === 'user') return rel.user;
+        if (f.pilotRelation === 'watchlist') return rel.watchlist;
+        return SELECTED_COLOR;
+    }
+
     function colorExpression() {
         if (typeof window.getPremiumColorExpression === 'function') {
             try { return window.getPremiumColorExpression(); } catch (_) { /* fall through */ }
@@ -980,7 +1144,17 @@ export const GlobalPlayback = (() => {
                 map.setLayoutProperty(LYR_PLANES_NAT, 'icon-image', naturalIconExpression());
                 map.setLayoutProperty(LYR_PLANES_NAT, 'icon-size', planeLayout(null)['icon-size']);
             }
+            // The halo wears the pilot's own "my aircraft" / "friend" colours,
+            // so changing either has to reach it as well as the icons.
+            if (map.getLayer(LYR_PLANE_HALO)) {
+                const rel = relationColors();
+                map.setPaintProperty(LYR_PLANE_HALO, 'circle-color', haloColorExpression(rel));
+                map.setPaintProperty(LYR_PLANE_HALO, 'circle-stroke-color', haloColorExpression(rel));
+            }
         } catch (_) { /* style mid-swap; the next open rebuilds */ }
+        // The card's accent and the flown route are painted from the same two
+        // colours, so they are re-read here too.
+        buildInfoCard();
     }
 
     function ensureLayers() {
@@ -1005,8 +1179,49 @@ export const GlobalPlayback = (() => {
             });
         }
 
+        // The whole route flown so far, for the aircraft you have singled out —
+        // the selected one and everyone on your watchlist. Separate from the
+        // comet tails because it is a different statement: a tail says where
+        // something came from in the last quarter hour, this says where the
+        // flight has been since the window opened, and it grows as it flies.
+        if (!map.getSource(SRC_PATHS)) {
+            map.addSource(SRC_PATHS, { type: 'geojson', data: EMPTY_FC, tolerance: 0.35 });
+        }
+        if (!map.getLayer(LYR_PATHS)) {
+            map.addLayer({
+                id: LYR_PATHS, type: 'line', source: SRC_PATHS,
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': ['case', ['boolean', ['get', 'selected'], false],
+                        ['interpolate', ['linear'], ['zoom'], 2, 2.2, 6, 3.2, 10, 4],
+                        ['interpolate', ['linear'], ['zoom'], 2, 1.4, 6, 2.2, 10, 2.8]],
+                    'line-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.95, 0.75]
+                }
+            });
+        }
+
         if (!map.getSource(SRC_PLANES)) {
             map.addSource(SRC_PLANES, { type: 'geojson', data: EMPTY_FC });
+        }
+
+        // A ring under the aircraft that matter to you. Drawn from the plane
+        // source rather than a source of its own, so it costs a filter and no
+        // extra geometry at all — the features are already being pushed.
+        if (!map.getLayer(LYR_PLANE_HALO)) {
+            const rel = relationColors();
+            map.addLayer({
+                id: LYR_PLANE_HALO, type: 'circle', source: SRC_PLANES,
+                filter: HALO_FILTER,
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 7, 6, 11, 12, 18],
+                    'circle-color': haloColorExpression(rel),
+                    'circle-opacity': ['*', FADE_OPACITY_EXPR, 0.16],
+                    'circle-stroke-width': 1.6,
+                    'circle-stroke-color': haloColorExpression(rel),
+                    'circle-stroke-opacity': ['*', FADE_OPACITY_EXPR, 0.8]
+                }
+            });
         }
 
         // Two layers over one source, exactly as the live map does it (see the
@@ -1147,9 +1362,7 @@ export const GlobalPlayback = (() => {
         onPlaneClick = (e) => {
             const feature = e.features && e.features[0];
             if (!feature) return;
-            const id = feature.properties.flightId;
-            selectedFlightId = (selectedFlightId === id) ? null : id;
-            renderFrame(true);
+            selectFlight(feature.properties.flightId);
         };
         map.on('click', LYR_PLANES, onPlaneClick);
 
@@ -1234,10 +1447,10 @@ export const GlobalPlayback = (() => {
 
     function removeLayers() {
         if (!map) return;
-        [LYR_PLANE_LABELS, LYR_PLANES, LYR_PLANES_NAT, LYR_TRAILS].forEach(id => {
+        [LYR_PLANE_LABELS, LYR_PLANES, LYR_PLANES_NAT, LYR_PLANE_HALO, LYR_PATHS, LYR_TRAILS].forEach(id => {
             if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
         });
-        [SRC_PLANES, SRC_TRAILS].forEach(id => {
+        [SRC_PLANES, SRC_TRAILS, SRC_PATHS].forEach(id => {
             if (map.getSource && map.getSource(id)) { try { map.removeSource(id); } catch (_) {} }
         });
     }
@@ -1632,6 +1845,18 @@ export const GlobalPlayback = (() => {
         return feat;
     }
 
+    function pathSlot(i) {
+        let feat = pathPool[i];
+        if (!feat) {
+            feat = pathPool[i] = {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: [] },
+                properties: { color: SELECTED_COLOR, selected: false }
+            };
+        }
+        return feat;
+    }
+
     function trailSlot(i) {
         let feat = trailPool[i];
         if (!feat) {
@@ -1687,6 +1912,63 @@ export const GlobalPlayback = (() => {
             planeList[s] = feat;
         }
         planeList.length = chosenCount;
+    }
+
+    /**
+     * The full route flown so far, for the handful of aircraft that earn one.
+     *
+     * "So far" is the point: it is cut at the current clock, so it draws itself
+     * across the map as the flight flies rather than appearing whole. That is
+     * the difference between watching a replay and reading a map of one.
+     *
+     * Who earns one is deliberately a handful — the selected aircraft and the
+     * pilots on your watchlist. A full track is up to a couple of hundred
+     * vertices against a comet tail's twelve, so this is affordable for
+     * twenty-odd aircraft and ruinous for two thousand. Everyone else keeps
+     * the tail.
+     */
+    function buildPaths(absT) {
+        let drawn = 0;
+
+        // Walk the drawn set rather than every flight: a path for an aircraft
+        // culled off-screen is geometry nobody can see. The selected one is
+        // picked up here too, since selecting an aircraft you cannot see is
+        // not something the map lets you do.
+        for (let s = 0; s < chosenCount && drawn < MAX_PATHS; s++) {
+            const i = chosen[s];
+            const f = candFlight[i];
+            const isSelected = f.flightId === selectedFlightId;
+            const isKnown = f.pilotRelation && f.pilotRelation !== 'none';
+            if (!isSelected && !isKnown) continue;
+
+            const pts = f.points;
+            // Everything recorded up to now. Binary search would save a walk,
+            // but this runs for at most MAX_PATHS flights.
+            let upTo = 0;
+            while (upTo < pts.length && pts[upTo].t <= absT) upTo++;
+            if (upTo < 1) continue;
+
+            const feat = pathSlot(drawn);
+            const coords = feat.geometry.coordinates;
+            const take = Math.min(upTo, PATH_POINTS - 1);
+            const stride = upTo / take;
+
+            let w = 0;
+            for (let k = 0; k < take; k++) {
+                const p = pts[Math.floor(k * stride)];
+                setCoord(coords, w++, p.lon, p.lat);
+            }
+            // Ends at the interpolated position, so the line stays welded to
+            // the nose of the aircraft between recorded points.
+            setCoord(coords, w++, candLon[i], candLat[i]);
+            coords.length = w;
+            if (w < 2) continue;
+
+            feat.properties.color = pathColorFor(f);
+            feat.properties.selected = isSelected;
+            pathList[drawn++] = feat;
+        }
+        pathList.length = drawn;
     }
 
     // Comet tails for the drawn aircraft, decimated to TRAIL_POINTS vertices.
@@ -1780,7 +2062,7 @@ export const GlobalPlayback = (() => {
         // `true` here means "thin if you must", not "thin" — selectVisible
         // only engages the grid once the visible set exceeds what a push can
         // carry, so an ordinary window is drawn whole.
-        airborneCount = selectVisible(flights, absT, cull, true);
+        airborneCount = selectVisible(visibleFlights, absT, cull, true);
         drawnCount = chosenCount;
 
         buildPlanes();
@@ -1795,6 +2077,11 @@ export const GlobalPlayback = (() => {
             if (trailSrc) { buildTrails(absT); trailSrc.setData(trailCollection); }
         } catch (_) { /* same */ }
 
+        try {
+            const pathSrc = map.getSource(SRC_PATHS);
+            if (pathSrc) { buildPaths(absT); pathSrc.setData(pathCollection); }
+        } catch (_) { /* same */ }
+
         lastPlanePush = began;
 
         // Measured across both pushes, since they land on the same main thread.
@@ -1803,6 +2090,8 @@ export const GlobalPlayback = (() => {
         adaptPushInterval();
 
         updateHUD(absT);
+        updateInfoCard(absT);
+        if (followSelected) keepCameraOnSelection();
     }
 
     /**
@@ -2041,55 +2330,220 @@ export const GlobalPlayback = (() => {
     }
 
     /* =========================
-     * Transport panel
-     * ========================= */
+     * Replay chrome
+     * =========================
+     * Three pieces, each owning one edge of the screen, under one root so the
+     * whole mode goes away in a single remove():
+     *
+     *   top          the filter rail — which traffic is on the map — with the
+     *                two session controls (pick another moment, leave) pinned
+     *                to its right so they never scroll away with the chips
+     *   left/bottom  the transport: the clock, the scrubber and the speeds.
+     *                A phone's thumb sits at the bottom-left and a desktop's
+     *                eye starts there, so that is where the controls live
+     *   bottom-right the map overlays — weather, airspace, trails — as bubbles,
+     *                within thumb reach and clear of the transport
+     *
+     * The app's own chrome is stood down while this is up (see the .gpb-mode
+     * rules in injectStyles): the replay is a mode, not a panel floating over
+     * the live map, and two competing bottom bars is what it looked like
+     * before.
+     */
+
+    function filterChipsHtml() {
+        return FILTER_PRESETS.map(preset => {
+            const on = preset.id === 'all' ? filterIsAll() : activeFilters.has(preset.id);
+            const count = classCounts ? (classCounts[preset.id] ?? 0) : null;
+            // A preset with nothing behind it in this window is shown, greyed,
+            // rather than hidden — the rail keeping the same shape from one
+            // window to the next is worth more than hiding an empty chip.
+            const empty = count === 0 && preset.id !== 'all';
+            return `<button type="button"
+                        class="gpb-fchip${on ? ' on' : ''}${empty ? ' empty' : ''}"
+                        data-gpb="filter" data-id="${preset.id}"
+                        aria-pressed="${on ? 'true' : 'false'}">
+                        <i class="fa-solid ${preset.icon}"></i>
+                        <span class="gpb-fchip-label">${preset.label}</span>
+                        ${count === null ? '' : `<span class="gpb-fchip-count">${count}</span>`}
+                    </button>`;
+        }).join('');
+    }
+
+    function refreshFilterChips() {
+        const rail = panelEl?.querySelector('[data-gpb-rail]');
+        if (rail) rail.innerHTML = filterChipsHtml();
+    }
+
+    // The dock's second meter: how many flights the rail is letting through,
+    // against how many the window holds. Unfiltered the two are the same and
+    // only one number is shown.
+    function updateWindowCount() {
+        const el = panelEl?.querySelector('#gpb-total');
+        if (!el) return;
+        el.textContent = String(visibleFlights.length);
+        const of = panelEl.querySelector('#gpb-total-of');
+        if (of) {
+            of.textContent = (visibleFlights.length === flights.length) ? '' : ` / ${flights.length}`;
+        }
+    }
 
     function buildPanel() {
         destroyPanel();
+        const ago = windowMeta ? fmtAgo(Date.now() - windowMeta.start) : '';
+
         panelEl = document.createElement('div');
-        panelEl.id = 'global-playback-panel';
-        panelEl.className = 'gpb-panel';
+        panelEl.id = 'global-playback-ui';
+        panelEl.className = 'gpb-ui';
         panelEl.innerHTML = `
-            <div class="gpb-panel-top">
-                <div class="gpb-clock">
-                    <span class="gpb-zulu" id="gpb-zulu">--:--Z</span>
-                    <span class="gpb-date" id="gpb-date">—</span>
-                </div>
-                <div class="gpb-stats">
-                    <span class="gpb-stat-airborne"><span id="gpb-airborne">0</span> airborne<span class="gpb-shown" id="gpb-shown"></span></span>
-                    <span class="gpb-stat-total"><span class="gpb-dot">•</span><span id="gpb-total">0</span> flights in window</span>
-                    <div class="gpb-legend" aria-hidden="true">
-                        <span class="gpb-legend-label">TRAILS</span>
-                        <span class="gpb-legend-ramp"></span>
-                        <span class="gpb-legend-label">FL400</span>
-                    </div>
-                </div>
-                <div class="gpb-actions">
-                    <button type="button" class="gpb-btn gpb-trails${showTrails ? ' active' : ''}" data-gpb="trails" title="Trails (T)">
-                        <i class="fa-solid fa-wave-square"></i>
+            <div class="gpb-rail">
+                <div class="gpb-rail-track" data-gpb-rail>${filterChipsHtml()}</div>
+                <div class="gpb-rail-pin">
+                    <button type="button" class="gpb-bubble gpb-bubble-sm" data-gpb="rewindpicker"
+                            title="Pick another moment" aria-label="Pick another moment">
+                        <i class="fa-solid fa-calendar-day"></i>
                     </button>
-                    <button type="button" class="gpb-btn" data-gpb="rewindpicker" title="Pick another moment">
-                        <i class="fa-solid fa-calendar-days"></i>
-                    </button>
-                    <button type="button" class="gpb-btn gpb-close" data-gpb="close" title="Close (Esc)">
+                    <button type="button" class="gpb-bubble gpb-bubble-sm gpb-quit" data-gpb="close"
+                            title="Leave replay (Esc)" aria-label="Leave replay">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
             </div>
-            <div class="gpb-panel-scrub">
-                <button type="button" class="gpb-btn gpb-play" data-gpb="play" title="Play / pause (Space)">
-                    <i class="fa-solid fa-play"></i>
-                </button>
-                <span class="gpb-elapsed" id="gpb-elapsed">0:00</span>
-                <input type="range" class="gpb-range" id="gpb-range" min="0" max="1000" value="0" step="1" aria-label="Playback position">
-                <span class="gpb-elapsed" id="gpb-duration">0:00</span>
-                <div class="gpb-speeds" id="gpb-speeds">
-                    ${SPEED_OPTIONS.map(s => `<button type="button" class="gpb-speed${s === speed ? ' active' : ''}" data-gpb="speed" data-speed="${s}">${s}×</button>`).join('')}
+
+            <div class="gpb-left">
+            <div class="gpb-card-host" id="gpb-card-host" aria-live="polite"></div>
+
+            <section class="gpb-dock" aria-label="Playback transport">
+                <header class="gpb-dock-head">
+                    <div class="gpb-clock">
+                        <span class="gpb-zulu" id="gpb-zulu">--:--Z</span>
+                        <span class="gpb-date" id="gpb-date">—</span>
+                    </div>
+                    <span class="gpb-tag" id="gpb-ago">${escapeHtml(ago)}</span>
+                </header>
+
+                <div class="gpb-meters">
+                    <div class="gpb-meter">
+                        <span class="gpb-meter-val" id="gpb-airborne">0</span>
+                        <span class="gpb-meter-key">airborne<span class="gpb-shown" id="gpb-shown"></span></span>
+                    </div>
+                    <div class="gpb-meter">
+                        <span class="gpb-meter-val"><span id="gpb-total">0</span><span class="gpb-meter-of" id="gpb-total-of"></span></span>
+                        <span class="gpb-meter-key">in window</span>
+                    </div>
                 </div>
+
+                <div class="gpb-transport">
+                    <button type="button" class="gpb-play" data-gpb="play" title="Play / pause (Space)" aria-label="Play or pause">
+                        <i class="fa-solid fa-play"></i>
+                    </button>
+                    <div class="gpb-track">
+                        <input type="range" class="gpb-range" id="gpb-range" min="0" max="1000" value="0" step="1"
+                               aria-label="Playback position">
+                        <div class="gpb-times">
+                            <span id="gpb-elapsed">0:00</span>
+                            <span id="gpb-duration">0:00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="gpb-speeds" id="gpb-speeds" role="group" aria-label="Playback speed">
+                    ${SPEED_OPTIONS.map(s => `<button type="button" class="gpb-speed${s === speed ? ' on' : ''}" data-gpb="speed" data-speed="${s}">${s}×</button>`).join('')}
+                </div>
+
+                <div class="gpb-legend" aria-hidden="true">
+                    <span class="gpb-legend-label">GND</span>
+                    <span class="gpb-legend-ramp"></span>
+                    <span class="gpb-legend-label">FL400</span>
+                </div>
+            </section>
+            </div>
+
+            <div class="gpb-bubbles" role="group" aria-label="Map overlays">
+                <button type="button" class="gpb-bubble" data-gpb="weather" aria-pressed="false"
+                        title="Rain radar" aria-label="Rain radar">
+                    <i class="fa-solid fa-cloud-showers-heavy"></i>
+                    <span class="gpb-bubble-name">Weather</span>
+                </button>
+                <button type="button" class="gpb-bubble" data-gpb="atc" aria-pressed="false"
+                        title="ATC airspace" aria-label="ATC airspace">
+                    <i class="fa-solid fa-tower-broadcast"></i>
+                    <span class="gpb-bubble-name">ATC</span>
+                </button>
+                <button type="button" class="gpb-bubble${showTrails ? ' on' : ''}" data-gpb="trails"
+                        aria-pressed="${showTrails ? 'true' : 'false'}" title="Trails (T)" aria-label="Trails">
+                    <i class="fa-solid fa-wave-square"></i>
+                    <span class="gpb-bubble-name">Trails</span>
+                </button>
             </div>`;
+
         document.body.appendChild(panelEl);
+        document.body.classList.add('gpb-mode');
         bindPanelEvents();
+        syncOverlayBubbles();
         updateScrubber();
+    }
+
+    /* ---------- map overlays, driven through the app's own switches ---------- */
+
+    // The rain radar belongs to flight.js — it owns the RainViewer source and
+    // the frame it points at. Asking for it through the event the weather sheet
+    // already fires means one implementation, and the sheet's own switch stays
+    // truthful whichever surface flipped it.
+    function setWeather(on) {
+        weatherOn = !!on;
+        try {
+            window.dispatchEvent(new CustomEvent('weatherToggle', {
+                detail: { type: 'precip', isActive: weatherOn }
+            }));
+        } catch (_) { /* nothing listening */ }
+        const sheetSwitch = document.getElementById('weather-toggle-precip');
+        if (sheetSwitch && sheetSwitch.checked !== weatherOn) sheetSwitch.checked = weatherOn;
+        // Light the bubble now and check back afterwards. Turning the radar on
+        // is a network fetch, so the layer does not exist for another moment —
+        // and may never exist if RainViewer is down. Waiting for it would make
+        // the button feel dead; not checking at all would leave it lying.
+        paintBubbles();
+        setTimeout(syncOverlayBubbles, 1500);
+    }
+
+    // Same reasoning for the FIR overlay: mapFilters is the app's state and
+    // applyAtcBoundaryVisibility() builds the layers on demand, so this sets
+    // the flag and lets the app do the work.
+    function setAirspace(on) {
+        airspaceOn = !!on;
+        try {
+            if (window.mapFilters) window.mapFilters.showAtcBoundaries = airspaceOn;
+            if (typeof window.applyAtcBoundaryVisibility === 'function') {
+                window.applyAtcBoundaryVisibility(map);
+            }
+        } catch (_) { /* boundaries unavailable on this style */ }
+        const settingsSwitch = document.getElementById('set-atc-boundaries');
+        if (settingsSwitch && settingsSwitch.checked !== airspaceOn) settingsSwitch.checked = airspaceOn;
+        paintBubbles();
+    }
+
+    // Read the two overlays back off the app rather than trusting our own
+    // copy: either can be flipped from Settings while the replay is up. Only
+    // where the app can actually answer — a missing mapFilters means "unknown",
+    // not "off", and reading it as off would blank a button the user just lit.
+    function syncOverlayBubbles() {
+        if (!panelEl) return;
+        try { if (map && map.getLayer) weatherOn = !!map.getLayer('rainviewer-radar-layer'); } catch (_) {}
+        try { if (window.mapFilters) airspaceOn = !!window.mapFilters.showAtcBoundaries; } catch (_) {}
+        paintBubbles();
+    }
+
+    function paintBubbles() {
+        if (!panelEl) return;
+        const paint = (sel, on) => {
+            const btn = panelEl.querySelector(sel);
+            if (!btn) return;
+            btn.classList.toggle('on', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        };
+        paint('[data-gpb="weather"]', weatherOn);
+        paint('[data-gpb="atc"]', airspaceOn);
+        paint('[data-gpb="trails"]', showTrails);
     }
 
     function bindPanelEvents() {
@@ -2102,10 +2556,18 @@ export const GlobalPlayback = (() => {
             switch (target.dataset.gpb) {
                 case 'close': close(); break;
                 case 'play': isPlaying ? pause() : play(); break;
+                case 'weather': setWeather(!weatherOn); break;
+                case 'atc': setAirspace(!airspaceOn); break;
+                case 'deselect': selectFlight(selectedFlightId); break;
+                case 'follow':
+                    followSelected = !followSelected;
+                    syncFollowButton();
+                    if (followSelected) keepCameraOnSelection();
+                    break;
                 case 'trails':
                     showTrails = !showTrails;
-                    target.classList.toggle('active', showTrails);
                     try { localStorage.setItem(TRAILS_STORAGE_KEY, showTrails ? '1' : '0'); } catch (_) {}
+                    paintBubbles();
                     renderFrame(true);
                     break;
                 case 'rewindpicker':
@@ -2115,11 +2577,37 @@ export const GlobalPlayback = (() => {
                     teardownPlayback();
                     buildPicker();
                     break;
+                case 'filter': {
+                    const id = target.dataset.id;
+                    if (id === 'all') {
+                        activeFilters = new Set(['all']);
+                    } else {
+                        activeFilters.delete('all');
+                        if (activeFilters.has(id)) activeFilters.delete(id);
+                        else activeFilters.add(id);
+                        // Turning the last preset off is a request to see
+                        // everything again, not a request for an empty map.
+                        if (!activeFilters.size) activeFilters.add('all');
+                    }
+                    saveFilters();
+                    applyFilters();
+                    // Filtering away the aircraft whose card is open would
+                    // leave a card describing something no longer on the map.
+                    if (selectedFlightId && !visibleFlights.some(f => f.flightId === selectedFlightId)) {
+                        selectedFlightId = null;
+                        followSelected = false;
+                        buildInfoCard();
+                    }
+                    refreshFilterChips();
+                    updateWindowCount();
+                    renderFrame(true);
+                    break;
+                }
                 case 'speed': {
                     speed = Number(target.dataset.speed) || DEFAULT_SPEED;
                     try { localStorage.setItem(SPEED_STORAGE_KEY, String(speed)); } catch (_) {}
-                    panelEl.querySelectorAll('[data-gpb="speed"]').forEach(el => el.classList.remove('active'));
-                    target.classList.add('active');
+                    panelEl.querySelectorAll('[data-gpb="speed"]').forEach(el => el.classList.remove('on'));
+                    target.classList.add('on');
                     break;
                 }
             }
@@ -2141,21 +2629,29 @@ export const GlobalPlayback = (() => {
     }
 
     function destroyPanel() {
+        try { document.body.classList.remove('gpb-mode'); } catch (_) {}
         if (!panelEl) return;
         try { panelEl.remove(); } catch (_) {}
         panelEl = null;
     }
 
     function setPlayIcon() {
-        const icon = panelEl?.querySelector('.gpb-play i');
+        const btn = panelEl?.querySelector('.gpb-play');
+        if (!btn) return;
+        btn.classList.toggle('playing', isPlaying);
+        const icon = btn.querySelector('i');
         if (icon) icon.className = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
     }
 
     function updateScrubber() {
         if (!panelEl) return;
+        const pct = totalDurationMs ? (currentMs / totalDurationMs) : 0;
         const range = panelEl.querySelector('#gpb-range');
-        if (range && !isScrubbing) {
-            range.value = String(totalDurationMs ? Math.round((currentMs / totalDurationMs) * 1000) : 0);
+        if (range) {
+            if (!isScrubbing) range.value = String(Math.round(pct * 1000));
+            // The filled part of the track is painted from this rather than
+            // from a second element, so the fill can never lag the thumb.
+            range.style.setProperty('--gpb-progress', `${(pct * 100).toFixed(2)}%`);
         }
         const elapsed = panelEl.querySelector('#gpb-elapsed');
         if (elapsed) elapsed.textContent = fmtClock(currentMs);
@@ -2180,18 +2676,202 @@ export const GlobalPlayback = (() => {
         }
     }
 
+    /* =========================
+     * Flight card
+     * =========================
+     * Tap an aircraft and the replay says what it was: who was flying it, what
+     * they were flying, and what it was doing at this instant of the recording.
+     *
+     * The live flight window cannot be reused for this. It is built around a
+     * flightId that is still being polled — photos, the live route, the ATC
+     * frequencies in range — and none of that exists for a flight that landed
+     * two weeks ago. So the card shows what the recording actually holds, and
+     * says nothing it cannot support.
+     *
+     * Rebuilt only when the selection changes; the numbers are patched in place
+     * every frame, because innerHTML thirty times a second on a card the user
+     * is reading is both a re-layout and a lost text selection.
+     */
+
+    const CARD_NOW = makePosition();
+    const CARD_THEN = makePosition();
+    const VS_SAMPLE_MS = 60 * 1000;    // session time, so it reads as feet per minute
+
+    // Cumulative track distance, in nautical miles, computed once per flight
+    // the first time its card is opened. A few hundred points on a tap is
+    // nothing; the same work per frame for every aircraft would not be.
+    function ensureCumulative(f) {
+        if (f.cumNm) return f.cumNm;
+        const pts = f.points;
+        const cum = new Float64Array(pts.length);
+        for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1], b = pts[i];
+            const dLat = b.lat - a.lat;
+            const dLon = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
+            cum[i] = cum[i - 1] + Math.hypot(dLat, dLon) * 60;
+        }
+        f.cumNm = cum;
+        return cum;
+    }
+
+    function relationLabel(relation) {
+        if (relation === 'user') return 'Your flight';
+        if (relation === 'watchlist') return 'Watchlist';
+        return '';
+    }
+
+    function selectFlight(id) {
+        selectedFlightId = (selectedFlightId === id) ? null : id;
+        if (!selectedFlightId) followSelected = false;
+        buildInfoCard();
+        renderFrame(true);
+    }
+
+    function buildInfoCard() {
+        const host = panelEl?.querySelector('#gpb-card-host');
+        if (!host) return;
+
+        const f = selectedFlightId ? flightsById.get(selectedFlightId) : null;
+        if (!f) { host.innerHTML = ''; host.classList.remove('open'); return; }
+
+        const relation = f.pilotRelation && f.pilotRelation !== 'none' ? f.pilotRelation : '';
+        const badge = relationLabel(f.pilotRelation);
+        const accent = pathColorFor(f);
+
+        host.innerHTML = `
+            <article class="gpb-card${relation ? ` rel-${relation}` : ''}" style="--gpb-card-accent:${accent}">
+                <header class="gpb-card-head">
+                    <div class="gpb-card-id">
+                        <span class="gpb-card-call">${escapeHtml(f.callsign || '----')}</span>
+                        ${badge ? `<span class="gpb-card-badge">${escapeHtml(badge)}</span>` : ''}
+                    </div>
+                    <div class="gpb-card-head-btns">
+                        <button type="button" class="gpb-card-btn" data-gpb="follow" aria-pressed="false"
+                                title="Keep the camera on this aircraft (F)" aria-label="Follow">
+                            <i class="fa-solid fa-crosshairs"></i>
+                        </button>
+                        <button type="button" class="gpb-card-btn" data-gpb="deselect"
+                                title="Close" aria-label="Close flight card">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <div class="gpb-card-sub">
+                    ${f.username ? `<span class="gpb-card-pilot">${escapeHtml(f.username)}</span>` : ''}
+                    ${f.aircraftName ? `<span class="gpb-card-type">${escapeHtml(f.aircraftName)}</span>` : ''}
+                </div>
+
+                <div class="gpb-card-stats">
+                    <div class="gpb-card-stat"><span id="gpb-card-alt">—</span><small>ALT FT</small></div>
+                    <div class="gpb-card-stat"><span id="gpb-card-gs">—</span><small>GS KT</small></div>
+                    <div class="gpb-card-stat"><span id="gpb-card-hdg">—</span><small>HDG</small></div>
+                    <div class="gpb-card-stat"><span id="gpb-card-vs">—</span><small>V/S FPM</small></div>
+                </div>
+
+                <div class="gpb-card-track">
+                    <div class="gpb-card-trackbar"><span id="gpb-card-trackfill"></span></div>
+                    <div class="gpb-card-trackrow">
+                        <span>${fmtZulu(f.t0)}</span>
+                        <span id="gpb-card-flown">—</span>
+                        <span>${fmtZulu(f.t1)}</span>
+                    </div>
+                </div>
+            </article>`;
+        host.classList.add('open');
+        syncFollowButton();
+    }
+
+    function updateInfoCard(absT) {
+        if (!selectedFlightId || !panelEl) return;
+        const f = flightsById.get(selectedFlightId);
+        if (!f) return;
+
+        const set = (id, text) => {
+            const el = panelEl.querySelector(id);
+            if (el && el.textContent !== text) el.textContent = text;
+        };
+
+        const now = positionAt(f, absT, CARD_NOW);
+        if (!now) {
+            // Between the ends of its own track, or inside a hole in the
+            // recording. The card stays — it is still the flight you picked —
+            // but it stops asserting numbers it does not have.
+            ['#gpb-card-alt', '#gpb-card-gs', '#gpb-card-hdg', '#gpb-card-vs'].forEach(id => set(id, '—'));
+            return;
+        }
+
+        set('#gpb-card-alt', Math.round(now.alt).toLocaleString());
+        set('#gpb-card-gs', String(Math.round(now.gs)));
+        set('#gpb-card-hdg', `${String(Math.round(now.hdg)).padStart(3, '0')}°`);
+
+        const then = positionAt(f, absT - VS_SAMPLE_MS, CARD_THEN);
+        if (then) {
+            const fpm = Math.round((now.alt - then.alt) / (VS_SAMPLE_MS / 60000));
+            set('#gpb-card-vs', (fpm > 0 ? '+' : '') + fpm.toLocaleString());
+        } else {
+            set('#gpb-card-vs', '—');
+        }
+
+        // Progress through this flight's own track, which is not the same as
+        // progress through the window — most flights start and end inside it.
+        const span = Math.max(1, f.t1 - f.t0);
+        const pct = Math.max(0, Math.min(1, (absT - f.t0) / span));
+        const fill = panelEl.querySelector('#gpb-card-trackfill');
+        if (fill) fill.style.width = `${(pct * 100).toFixed(1)}%`;
+
+        const cum = ensureCumulative(f);
+        const idx = Math.min(f.points.length - 1, firstIndexAtOrAfter(f.points, absT));
+        set('#gpb-card-flown', `${Math.round(cum[idx]).toLocaleString()} nm flown`);
+    }
+
+    function syncFollowButton() {
+        const btn = panelEl?.querySelector('[data-gpb="follow"]');
+        if (!btn) return;
+        btn.classList.toggle('on', followSelected);
+        btn.setAttribute('aria-pressed', followSelected ? 'true' : 'false');
+    }
+
+    // Recentre without fighting the user: a pan or a zoom is a decision, and a
+    // camera that snaps back from it is worse than one that never followed.
+    // easeTo with a short duration keeps up with 600× without teleporting.
+    function keepCameraOnSelection() {
+        if (!map || !selectedFlightId) return;
+        const f = flightsById.get(selectedFlightId);
+        if (!f) return;
+        const p = positionAt(f, spanStart + currentMs, CARD_NOW);
+        if (!p) return;
+        try {
+            map.easeTo({ center: [p.lon, p.lat], duration: 260, essential: true });
+        } catch (_) { /* camera busy */ }
+    }
+
     function bindKeys() {
         unbindKeys();
         onKeyDown = (e) => {
             if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-            if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+            // Escape backs out one step at a time: a card you opened by tapping
+            // an aircraft should not take the whole replay down with it.
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (selectedFlightId) selectFlight(selectedFlightId);
+                else close();
+                return;
+            }
             if (!panelEl) return;
-            if (e.code === 'Space') { e.preventDefault(); isPlaying ? pause() : play(); return; }
-            if (e.key === 't' || e.key === 'T') {
-                const btn = panelEl.querySelector('.gpb-trails');
+            if ((e.key === 'f' || e.key === 'F') && selectedFlightId) {
+                const btn = panelEl.querySelector('[data-gpb="follow"]');
                 if (btn) btn.click();
                 return;
             }
+            if (e.code === 'Space') { e.preventDefault(); isPlaying ? pause() : play(); return; }
+            if (e.key === 't' || e.key === 'T') {
+                const btn = panelEl.querySelector('[data-gpb="trails"]');
+                if (btn) btn.click();
+                return;
+            }
+            if (e.key === 'w' || e.key === 'W') { setWeather(!weatherOn); return; }
+            if (e.key === 'a' || e.key === 'A') { setAirspace(!airspaceOn); return; }
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 const step = (e.shiftKey ? 15 : 5) * 60 * 1000;   // session minutes
@@ -2270,6 +2950,10 @@ export const GlobalPlayback = (() => {
             username: f.username || '',
             aircraftName: f.aircraft?.aircraftName || '',
             category: categoryFor(f.aircraft?.aircraftName),
+            // Which filter-rail presets this flight belongs to. Resolved here,
+            // once, so the rail costs a bitwise AND per aircraft rather than a
+            // string scan.
+            classMask: classifyFlight(f.aircraft?.aircraftName, f.callsign),
             // Resolved once per flight rather than per frame: it depends on the
             // signed-in pilot and their watchlist, neither of which moves while
             // a window is playing. Recomputed on sign-in or a watchlist change
@@ -2295,11 +2979,12 @@ export const GlobalPlayback = (() => {
         totalDurationMs = Math.max(1, windowMeta.end - windowMeta.start);
         currentMs = 0;
 
+        classCounts = countClasses();
+        applyFilters();
+
         buildPanel();
         hideLoading();
-
-        const total = panelEl?.querySelector('#gpb-total');
-        if (total) total.textContent = String(flights.length);
+        updateWindowCount();
 
         if (payload.truncated) {
             showToast(`That window was busy — showing the first ${flights.length} flights.`, 'info');
@@ -2331,12 +3016,15 @@ export const GlobalPlayback = (() => {
         destroyPanel();
 
         flights = [];
+        visibleFlights = [];
+        classCounts = null;
         flightsById = new Map();
         // The pools themselves are kept: a session that opens a second window
         // reuses the features the first one warmed up, and the arrays inside
         // them, rather than starting the allocation over.
         planeList.length = 0;
         trailList.length = 0;
+        pathList.length = 0;
         chosenCount = 0;
         thinGeneration++;
 
@@ -2346,6 +3034,7 @@ export const GlobalPlayback = (() => {
         currentMs = 0;
         isScrubbing = false;
         selectedFlightId = null;
+        followSelected = false;
 
         // Reset the rate limiter with the session. The next window may be a
         // quiet one on a fast device, and it should not inherit a slow window's
@@ -2402,6 +3091,7 @@ export const GlobalPlayback = (() => {
             const savedTrails = localStorage.getItem(TRAILS_STORAGE_KEY);
             if (savedTrails !== null) showTrails = savedTrails === '1';
         } catch (_) { /* private mode */ }
+        loadSavedFilters();
 
         showLoading('Checking how far back you can go.');
         try {
@@ -2453,163 +3143,583 @@ export const GlobalPlayback = (() => {
         const style = document.createElement('style');
         style.id = 'global-playback-styles';
         style.textContent = `
-        .gpb-picker { position: fixed; inset: 0; z-index: 4200; display: flex; align-items: center; justify-content: center; }
-        .gpb-picker-backdrop { position: absolute; inset: 0; background: rgba(4,7,15,0.72); backdrop-filter: blur(6px); }
-        .gpb-picker-card {
-            position: relative; width: min(560px, calc(100vw - 32px));
-            max-height: calc(100vh - 48px); overflow-y: auto;
-            background: linear-gradient(180deg, #141a26 0%, #0d1119 100%);
-            border: 1px solid rgba(148,163,184,0.18); border-radius: 20px;
-            padding: 26px 24px 22px; color: #e2e8f0;
-            box-shadow: 0 30px 80px rgba(0,0,0,0.6);
-        }
-        .gpb-picker-close {
-            position: absolute; top: 14px; right: 14px; width: 32px; height: 32px;
-            border: none; border-radius: 50%; cursor: pointer;
-            background: rgba(148,163,184,0.12); color: #cbd5e1; font-size: 14px;
-        }
-        .gpb-picker-close:hover { background: rgba(148,163,184,0.22); }
-        .gpb-eyebrow { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #818cf8; font-weight: 700; }
-        .gpb-title { margin: 6px 0 4px; font-size: 24px; font-weight: 700; color: #f8fafc; }
-        .gpb-sub { margin: 0 0 12px; font-size: 13px; color: #94a3b8; line-height: 1.5; }
-        .gpb-sub b { color: #e2e8f0; }
-        .gpb-tier-badge {
-            display: inline-flex; align-items: center; gap: 7px;
-            font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px;
-            background: rgba(99,102,241,0.14); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3);
-        }
-        .gpb-tier-pro .gpb-tier-badge { background: rgba(250,204,21,0.12); color: #fde047; border-color: rgba(250,204,21,0.32); }
-        .gpb-field { margin-top: 20px; }
-        .gpb-label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 9px; }
-        .gpb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-        .gpb-chip {
-            border: 1px solid rgba(148,163,184,0.2); background: rgba(148,163,184,0.08);
-            color: #cbd5e1; border-radius: 999px; padding: 8px 14px;
-            font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s ease;
-        }
-        .gpb-chip:hover { background: rgba(99,102,241,0.2); border-color: rgba(129,140,248,0.5); color: #e0e7ff; }
-        .gpb-chip.active { background: rgba(99,102,241,0.32); border-color: #818cf8; color: #ffffff; }
-        .gpb-chip.locked { color: #64748b; border-style: dashed; }
-        .gpb-chip.locked i { color: #eab308; margin-left: 4px; font-size: 11px; }
-        .gpb-chip.locked:hover { background: rgba(250,204,21,0.12); border-color: rgba(250,204,21,0.4); color: #fde047; }
-        .gpb-input {
-            width: 100%; box-sizing: border-box; padding: 11px 13px; border-radius: 12px;
-            background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.22);
-            color: #e2e8f0; font-size: 14px; font-family: inherit;
-        }
-        .gpb-input:focus { outline: none; border-color: #818cf8; }
-        .gpb-hint { margin-top: 6px; font-size: 12px; color: #64748b; font-variant-numeric: tabular-nums; }
-        .gpb-upsell {
-            display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 20px;
-            padding: 13px 15px; border-radius: 14px; cursor: pointer; text-align: left;
-            background: linear-gradient(135deg, rgba(250,204,21,0.14), rgba(249,115,22,0.1));
-            border: 1px solid rgba(250,204,21,0.3); color: #fde68a; font-family: inherit;
-        }
-        .gpb-upsell:hover { border-color: rgba(250,204,21,0.55); }
-        .gpb-upsell > i:first-child { font-size: 18px; color: #facc15; }
-        .gpb-upsell span { flex: 1; font-size: 12px; line-height: 1.5; }
-        .gpb-upsell b { display: block; font-size: 13px; color: #fef3c7; margin-bottom: 2px; }
-        .gpb-go {
-            width: 100%; margin-top: 20px; padding: 13px; border: none; border-radius: 14px;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
-            font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
-        }
-        .gpb-go:hover { filter: brightness(1.1); }
 
-        .gpb-panel {
-            position: fixed; left: 50%; transform: translateX(-50%);
-            bottom: max(18px, env(safe-area-inset-bottom, 0px));
-            width: min(760px, calc(100vw - 24px)); z-index: 4100;
-            background: rgba(13,17,25,0.94); backdrop-filter: blur(14px);
-            border: 1px solid rgba(148,163,184,0.16); border-radius: 18px;
-            padding: 12px 14px; color: #e2e8f0;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.55);
+        /* =====================================================================
+         * Replay mode — palette
+         * =====================================================================
+         * Deliberately warm. The map underneath is ocean and land, the aircraft
+         * are amber, and a cool grey-blue chrome sat on top of that reading as
+         * a fourth unrelated colour is what this replaces. Everything here is
+         * one family: near-black warmed towards brown, warm off-white type, and
+         * a single amber-to-ember accent that means "this is on".
+         *
+         * The one thing not drawn from this palette is the altitude ramp on the
+         * trails. That is data, not chrome, and it is shared with flightReplay
+         * and atcReplay so a track reads the same in all three.
+         * ------------------------------------------------------------------ */
+        .gpb-ui, .gpb-picker, #global-playback-loading, .gpb-popup {
+            --gpb-ink:      #100d0a;
+            --gpb-shell:    rgba(26,21,17,0.92);
+            --gpb-shell-2:  rgba(46,37,29,0.66);
+            --gpb-raise:    rgba(255,232,205,0.055);
+            --gpb-raise-2:  rgba(255,232,205,0.10);
+            --gpb-line:     rgba(255,226,190,0.13);
+            --gpb-line-2:   rgba(255,226,190,0.26);
+            --gpb-text:     #f8f0e5;
+            --gpb-dim:      #b8a795;
+            --gpb-faint:    #8a7c6d;
+            --gpb-amber:    #ffa62b;
+            --gpb-ember:    #ff6a3d;
+            --gpb-gold:     #ffd28a;
+            --gpb-red:      #ff7a6b;
+            --gpb-blur:     blur(18px) saturate(1.25);
+            --gpb-lift:     0 18px 44px rgba(0,0,0,0.55), 0 2px 0 rgba(255,232,205,0.05) inset;
+            font-family: inherit;
         }
-        .gpb-panel-top { display: flex; align-items: center; gap: 14px; }
-        .gpb-clock { display: flex; flex-direction: column; line-height: 1.15; }
-        .gpb-zulu { font-size: 20px; font-weight: 700; color: #f8fafc; font-variant-numeric: tabular-nums; }
-        .gpb-date { font-size: 11px; color: #64748b; }
-        .gpb-stats { flex: 1; font-size: 12px; color: #94a3b8; }
-        .gpb-stats span[id] { color: #e2e8f0; font-weight: 700; }
-        .gpb-shown { color: #64748b !important; font-weight: 400 !important; }
-        .gpb-dot { margin: 0 6px; color: #475569; font-weight: 400; }
-        /* The altitude ramp the *trails* are coloured by — the aircraft
-           themselves wear whatever colour the pilot chose for the live map.
-           Same stops as getAltColor(), so the key and the map agree. */
-        .gpb-legend { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+
+        /* =====================================================================
+         * The mode takes the screen
+         * =====================================================================
+         * Replay is a mode, not a panel. While it is up the app's own chrome
+         * stands down, so the rail owns the top, the dock owns the left and the
+         * bubbles own the bottom right without two bottom bars fighting for the
+         * same thumb. Purely declarative, so closing the replay puts every one
+         * of them back by removing a single class.
+         * ------------------------------------------------------------------ */
+        body.gpb-mode #ios-landing-topbar,
+        body.gpb-mode #ios-landing-tabbar,
+        body.gpb-mode #ios-traffic-rail,
+        body.gpb-mode #ios-map-bubbles,
+        body.gpb-mode .tactical-header,
+        body.gpb-mode .utility-nexus,
+        body.gpb-mode .auth-nexus {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            transition: opacity .22s ease, visibility .22s ease;
+        }
+
+        /* =====================================================================
+         * Root
+         * ===================================================================== */
+        .gpb-ui {
+            position: fixed; inset: 0; z-index: 4100;
+            pointer-events: none;                 /* the map still takes gestures */
+            color: var(--gpb-text);
+            -webkit-font-smoothing: antialiased;
+        }
+        .gpb-ui button { font-family: inherit; }
+        .gpb-ui :focus-visible { outline: 2px solid var(--gpb-amber); outline-offset: 2px; }
+
+        /* =====================================================================
+         * Filter rail — the top edge
+         * ===================================================================== */
+        .gpb-rail {
+            position: absolute;
+            top: calc(env(safe-area-inset-top, 0px) + 12px);
+            left: 12px; right: 12px;
+            display: flex; align-items: center; gap: 8px;
+            pointer-events: none;
+        }
+        .gpb-rail-track {
+            flex: 1 1 auto; min-width: 0;
+            display: flex; align-items: center; gap: 7px;
+            overflow-x: auto; overflow-y: hidden;
+            padding: 2px 26px 2px 2px;
+            pointer-events: auto;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+        /* Fade the chips out into the pinned controls rather than letting them
+           slide under and collide with them. Only where the rail can actually
+           overflow — above this the chips all fit and a fade would be dimming
+           the last one for nothing. */
+        @media (max-width: 1150px) {
+            .gpb-rail-track {
+                -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 30px), transparent);
+                mask-image: linear-gradient(90deg, #000 calc(100% - 30px), transparent);
+            }
+        }
+        .gpb-rail-track::-webkit-scrollbar { display: none; }
+        .gpb-rail-pin { display: flex; gap: 7px; flex: 0 0 auto; pointer-events: auto; }
+
+        .gpb-fchip {
+            flex: 0 0 auto;
+            display: inline-flex; align-items: center; gap: 7px;
+            height: 36px; padding: 0 14px; border-radius: 999px;
+            background: var(--gpb-shell); -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line); color: var(--gpb-dim);
+            font-size: 13px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap;
+            cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+            transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease;
+        }
+        .gpb-fchip i { font-size: 11.5px; opacity: .85; }
+        .gpb-fchip:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
+        .gpb-fchip:active { transform: scale(0.96); }
+        .gpb-fchip.on {
+            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember));
+            border-color: transparent; color: #241305; font-weight: 750;
+            box-shadow: 0 8px 22px rgba(255,106,61,0.32);
+        }
+        .gpb-fchip.on i { opacity: 1; }
+        .gpb-fchip.empty:not(.on) { color: var(--gpb-faint); opacity: .55; }
+        .gpb-fchip-count {
+            font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+            padding: 1px 6px; border-radius: 999px;
+            background: var(--gpb-raise-2); color: var(--gpb-faint);
+        }
+        .gpb-fchip.on .gpb-fchip-count { background: rgba(36,19,5,0.22); color: #3a1e08; }
+
+        /* =====================================================================
+         * Bubbles — overlays, bottom right (and the two pinned to the rail)
+         * ===================================================================== */
+        .gpb-bubbles {
+            position: absolute;
+            right: 14px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+            display: flex; flex-direction: column; gap: 10px;
+            pointer-events: auto;
+        }
+        .gpb-bubble {
+            position: relative;
+            width: 48px; height: 48px; border-radius: 50%;
+            display: grid; place-items: center;
+            background: var(--gpb-shell); -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line); color: var(--gpb-dim);
+            font-size: 16px; cursor: pointer;
+            box-shadow: var(--gpb-lift);
+            transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease;
+        }
+        .gpb-bubble:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
+        .gpb-bubble:active { transform: scale(0.93); }
+        .gpb-bubble.on {
+            background: linear-gradient(140deg, var(--gpb-amber), var(--gpb-ember));
+            border-color: transparent; color: #241305;
+            box-shadow: 0 10px 26px rgba(255,106,61,0.34);
+        }
+        .gpb-bubble-sm { width: 36px; height: 36px; font-size: 13px; }
+        .gpb-quit:hover { color: var(--gpb-red); border-color: rgba(255,122,107,0.45); }
+
+        /* The label rides out of the bubble on hover, so a pointer user gets a
+           name without three permanent captions cluttering the corner and a
+           touch user gets a clean circle. */
+        .gpb-bubble-name {
+            position: absolute; right: calc(100% + 9px); top: 50%; transform: translateY(-50%) translateX(6px);
+            padding: 5px 10px; border-radius: 8px; white-space: nowrap;
+            background: var(--gpb-shell); border: 1px solid var(--gpb-line);
+            color: var(--gpb-text); font-size: 11.5px; font-weight: 650;
+            opacity: 0; pointer-events: none;
+            transition: opacity .16s ease, transform .16s ease;
+        }
+        @media (hover: hover) {
+            .gpb-bubble:hover .gpb-bubble-name { opacity: 1; transform: translateY(-50%) translateX(0); }
+        }
+
+        /* =====================================================================
+         * Transport dock — the left edge
+         * ===================================================================== */
+        .gpb-dock {
+            width: 100%; box-sizing: border-box;
+            padding: 15px 16px 14px;
+            display: flex; flex-direction: column; gap: 13px;
+            border-radius: 22px;
+            background: var(--gpb-shell);
+            -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line);
+            box-shadow: var(--gpb-lift);
+            pointer-events: auto;
+        }
+
+        .gpb-dock-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .gpb-clock { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+        .gpb-zulu {
+            font-size: 30px; font-weight: 800; line-height: 1;
+            letter-spacing: -0.025em; color: var(--gpb-text);
+            font-variant-numeric: tabular-nums;
+        }
+        .gpb-date {
+            font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--gpb-faint);
+        }
+        .gpb-tag {
+            flex: 0 0 auto;
+            padding: 4px 9px; border-radius: 999px;
+            background: rgba(255,166,43,0.13); border: 1px solid rgba(255,166,43,0.28);
+            color: var(--gpb-gold); font-size: 10.5px; font-weight: 750;
+            letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+        }
+
+        .gpb-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .gpb-meter {
+            display: flex; flex-direction: column; gap: 2px;
+            padding: 8px 10px; border-radius: 12px;
+            background: var(--gpb-raise); border: 1px solid var(--gpb-line);
+        }
+        .gpb-meter-val {
+            font-size: 17px; font-weight: 800; line-height: 1;
+            color: var(--gpb-text); font-variant-numeric: tabular-nums;
+        }
+        .gpb-meter-of { font-size: 12px; font-weight: 600; color: var(--gpb-faint); }
+        .gpb-meter-key {
+            font-size: 9.5px; font-weight: 700; letter-spacing: 0.09em;
+            text-transform: uppercase; color: var(--gpb-faint);
+        }
+        .gpb-shown { text-transform: none; letter-spacing: 0; }
+
+        .gpb-transport { display: flex; align-items: center; gap: 13px; }
+        .gpb-play {
+            flex: 0 0 auto; width: 50px; height: 50px; border-radius: 50%;
+            display: grid; place-items: center; cursor: pointer; border: none;
+            background: linear-gradient(140deg, var(--gpb-amber), var(--gpb-ember));
+            color: #24140a; font-size: 17px;
+            box-shadow: 0 10px 26px rgba(255,106,61,0.36);
+            transition: transform .16s ease, box-shadow .16s ease;
+        }
+        .gpb-play:hover { transform: scale(1.05); }
+        .gpb-play:active { transform: scale(0.95); }
+        /* Sitting still is the state worth marking: a paused replay looks like
+           a broken one otherwise. */
+        .gpb-play.playing { box-shadow: 0 10px 26px rgba(255,106,61,0.22); }
+        .gpb-play i { margin-left: 1px; }
+        .gpb-play.playing i { margin-left: 0; }
+
+        .gpb-track { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+        .gpb-range {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; border-radius: 999px; cursor: pointer;
+            background: linear-gradient(90deg,
+                var(--gpb-amber) 0%,
+                var(--gpb-ember) var(--gpb-progress, 0%),
+                rgba(255,226,190,0.15) var(--gpb-progress, 0%));
+        }
+        .gpb-range::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 16px; height: 16px; border-radius: 50%;
+            background: #fff4e6; border: 2px solid var(--gpb-ember);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.55); cursor: grab;
+        }
+        .gpb-range::-moz-range-thumb {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: #fff4e6; border: 2px solid var(--gpb-ember);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.55); cursor: grab;
+        }
+        .gpb-range::-moz-range-track { background: transparent; height: 6px; }
+        .gpb-times {
+            display: flex; justify-content: space-between;
+            font-size: 10.5px; font-weight: 650; color: var(--gpb-faint);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* One segmented control rather than five loose buttons: the speeds are
+           a single choice and they should look like one. */
+        .gpb-speeds {
+            display: flex; gap: 3px; padding: 3px; border-radius: 13px;
+            background: var(--gpb-raise); border: 1px solid var(--gpb-line);
+        }
+        .gpb-speed {
+            flex: 1 1 0; min-width: 0; padding: 7px 0; border: none; border-radius: 10px;
+            background: transparent; color: var(--gpb-faint); cursor: pointer;
+            font-size: 11.5px; font-weight: 750; font-variant-numeric: tabular-nums;
+            transition: background .15s ease, color .15s ease;
+        }
+        .gpb-speed:hover { color: var(--gpb-text); background: var(--gpb-raise-2); }
+        .gpb-speed.on {
+            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember));
+            color: #24140a;
+        }
+
+        .gpb-legend { display: flex; align-items: center; gap: 8px; }
         .gpb-legend-ramp {
-            width: 110px; height: 5px; border-radius: 3px;
+            flex: 1 1 auto; height: 4px; border-radius: 3px;
             background: linear-gradient(90deg,
                 rgb(56,189,248) 0%, rgb(45,212,191) 25%, rgb(163,230,53) 50%,
                 rgb(250,204,21) 75%, rgb(248,113,113) 100%);
         }
-        .gpb-legend-label { font-size: 9.5px; color: #64748b; letter-spacing: 0.04em; }
+        .gpb-legend-label {
+            font-size: 9px; font-weight: 700; letter-spacing: 0.09em;
+            color: var(--gpb-faint); text-transform: uppercase;
+        }
 
+        /* =====================================================================
+         * Flight card — what the recording holds about the one you tapped
+         * =====================================================================
+         * Sits directly above the transport, in the same left column, so the
+         * thing you selected and the clock you selected it at read as one
+         * panel rather than two floating cards.
+         * ------------------------------------------------------------------ */
+        /* The card and the transport are one bottom-anchored column, not two
+           free-floating cards. Stacking them in a flex column rather than
+           positioning each means the card sits on top of whatever height the
+           dock happens to be — which changes with the viewport and with the
+           rules that drop the counts and the legend on a short screen. */
+        .gpb-left {
+            position: absolute;
+            left: 20px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+            width: 340px; box-sizing: border-box;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            gap: 10px;
+            max-height: calc(100vh - 96px);
+            pointer-events: none;
+        }
+        .gpb-left > * { pointer-events: auto; }
+        .gpb-card-host { min-width: 0; pointer-events: none; }
+        .gpb-card-host.open { pointer-events: auto; }
+        .gpb-card {
+            padding: 14px 15px 13px;
+            border-radius: 20px;
+            background: var(--gpb-shell);
+            -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line);
+            box-shadow: var(--gpb-lift);
+            display: flex; flex-direction: column; gap: 11px;
+            /* The accent is the aircraft's own colour: your orange, a friend's
+               violet, or the selection amber — the same colour its route is
+               drawn in, so the card and the line on the map are obviously the
+               same aircraft. */
+            border-top: 2px solid var(--gpb-card-accent, var(--gpb-amber));
+        }
+        .gpb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .gpb-card-id { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+        .gpb-card-call {
+            font-size: 20px; font-weight: 800; letter-spacing: -0.02em;
+            color: var(--gpb-text); line-height: 1;
+        }
+        .gpb-card-badge {
+            font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+            padding: 3px 7px; border-radius: 999px;
+            color: var(--gpb-card-accent, var(--gpb-amber));
+            background: color-mix(in srgb, var(--gpb-card-accent, #ffa62b) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--gpb-card-accent, #ffa62b) 40%, transparent);
+        }
+        .gpb-card-head-btns { display: flex; gap: 6px; flex: 0 0 auto; }
+        .gpb-card-btn {
+            width: 30px; height: 30px; border-radius: 9px; cursor: pointer;
+            display: grid; place-items: center; font-size: 12px;
+            background: var(--gpb-raise); border: 1px solid var(--gpb-line); color: var(--gpb-dim);
+            transition: color .15s ease, background .15s ease, border-color .15s ease;
+        }
+        .gpb-card-btn:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
+        .gpb-card-btn.on {
+            background: var(--gpb-card-accent, var(--gpb-amber)); border-color: transparent; color: #24140a;
+        }
+        .gpb-card-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: -4px; }
+        .gpb-card-pilot { font-size: 12px; font-weight: 700; color: var(--gpb-card-accent, var(--gpb-gold)); }
+        .gpb-card-type { font-size: 12px; color: var(--gpb-faint); }
+
+        .gpb-card-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .gpb-card-stat {
+            display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+            padding: 7px 8px; border-radius: 11px;
+            background: var(--gpb-raise); border: 1px solid var(--gpb-line);
+        }
+        .gpb-card-stat span {
+            font-size: 14px; font-weight: 800; line-height: 1;
+            color: var(--gpb-text); font-variant-numeric: tabular-nums;
+        }
+        .gpb-card-stat small {
+            font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em;
+            text-transform: uppercase; color: var(--gpb-faint);
+        }
+
+        /* Where this aircraft is within its OWN track, which is rarely the
+           whole window — most flights start or finish inside it. */
+        .gpb-card-track { display: flex; flex-direction: column; gap: 5px; }
+        .gpb-card-trackbar {
+            height: 3px; border-radius: 999px; overflow: hidden;
+            background: rgba(255,226,190,0.13);
+        }
+        .gpb-card-trackbar span {
+            display: block; height: 100%; width: 0%;
+            background: var(--gpb-card-accent, var(--gpb-amber));
+            transition: width .12s linear;
+        }
+        .gpb-card-trackrow {
+            display: flex; justify-content: space-between; gap: 8px;
+            font-size: 10px; font-weight: 650; color: var(--gpb-faint);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* =====================================================================
+         * Hover card
+         * ===================================================================== */
         .gpb-popup .mapboxgl-popup-content {
-            background: rgba(13,17,25,0.95); backdrop-filter: blur(10px);
-            border: 1px solid rgba(148,163,184,0.2); border-radius: 12px;
-            padding: 9px 12px; color: #e2e8f0; font-size: 12px;
-            box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+            background: var(--gpb-shell); -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line); border-radius: 14px;
+            padding: 10px 13px; color: var(--gpb-text); font-size: 12px;
+            box-shadow: var(--gpb-lift);
         }
         .gpb-popup .mapboxgl-popup-tip { display: none; }
-        .gpb-pop-call { font-size: 14px; font-weight: 700; color: #f8fafc; }
-        .gpb-pop-user { font-size: 11px; color: #a5b4fc; margin-top: 1px; }
-        .gpb-pop-type { font-size: 11px; color: #64748b; margin-top: 1px; }
-        .gpb-pop-nums { display: flex; gap: 10px; margin-top: 5px; font-variant-numeric: tabular-nums; color: #cbd5e1; }
-        .gpb-actions { display: flex; gap: 6px; }
-        .gpb-btn {
-            width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
-            border: 1px solid rgba(148,163,184,0.18); background: rgba(148,163,184,0.08);
-            color: #cbd5e1; font-size: 13px; display: inline-flex; align-items: center; justify-content: center;
+        .gpb-pop-call { font-size: 14.5px; font-weight: 800; letter-spacing: -0.01em; color: var(--gpb-text); }
+        .gpb-pop-user { font-size: 11px; font-weight: 650; color: var(--gpb-gold); margin-top: 1px; }
+        .gpb-pop-type { font-size: 11px; color: var(--gpb-faint); margin-top: 1px; }
+        .gpb-pop-nums {
+            display: flex; gap: 10px; margin-top: 6px;
+            font-variant-numeric: tabular-nums; color: var(--gpb-dim); font-weight: 650;
         }
-        .gpb-btn:hover { background: rgba(148,163,184,0.18); color: #f1f5f9; }
-        .gpb-btn.active { background: rgba(99,102,241,0.28); border-color: #818cf8; color: #e0e7ff; }
-        .gpb-close:hover { background: rgba(239,68,68,0.22); border-color: rgba(239,68,68,0.45); color: #fecaca; }
-        .gpb-panel-scrub { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-        .gpb-play { width: 38px; height: 38px; border-radius: 50%; background: rgba(99,102,241,0.3); border-color: #818cf8; color: #fff; }
-        .gpb-elapsed { font-size: 11px; color: #94a3b8; font-variant-numeric: tabular-nums; min-width: 42px; text-align: center; }
-        .gpb-range { flex: 1; accent-color: #818cf8; height: 4px; cursor: pointer; }
-        .gpb-speeds { display: flex; gap: 4px; }
-        .gpb-speed {
-            border: 1px solid rgba(148,163,184,0.18); background: rgba(148,163,184,0.08);
-            color: #94a3b8; border-radius: 8px; padding: 5px 8px;
-            font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
-        }
-        .gpb-speed.active { background: rgba(99,102,241,0.3); border-color: #818cf8; color: #fff; }
 
+        /* =====================================================================
+         * Picker — choosing the moment
+         * ===================================================================== */
+        .gpb-picker { position: fixed; inset: 0; z-index: 4200; display: flex; align-items: center; justify-content: center; }
+        .gpb-picker-backdrop {
+            position: absolute; inset: 0;
+            background: radial-gradient(120% 90% at 50% 0%, rgba(60,32,12,0.55), rgba(10,8,6,0.86));
+            -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+        }
+        .gpb-picker-card {
+            position: relative; width: min(560px, calc(100vw - 32px));
+            max-height: calc(100vh - 48px); overflow-y: auto;
+            background: linear-gradient(180deg, #221a14 0%, #14100c 100%);
+            border: 1px solid var(--gpb-line); border-radius: 24px;
+            padding: 28px 26px 22px; color: var(--gpb-text);
+            box-shadow: 0 34px 90px rgba(0,0,0,0.66);
+            /* The datetime field opens a browser-drawn calendar. Without this
+               it opens white, on a card that is not. */
+            color-scheme: dark;
+        }
+        .gpb-picker-close {
+            position: absolute; top: 15px; right: 15px; width: 34px; height: 34px;
+            border: 1px solid var(--gpb-line); border-radius: 50%; cursor: pointer;
+            background: var(--gpb-raise); color: var(--gpb-dim); font-size: 14px;
+            display: grid; place-items: center;
+        }
+        .gpb-picker-close:hover { color: var(--gpb-red); border-color: rgba(255,122,107,0.4); }
+        .gpb-eyebrow {
+            font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+            color: var(--gpb-amber); font-weight: 800;
+        }
+        .gpb-title { margin: 8px 0 5px; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; color: var(--gpb-text); }
+        .gpb-sub { margin: 0 0 14px; font-size: 13px; color: var(--gpb-dim); line-height: 1.55; }
+        .gpb-sub b { color: var(--gpb-text); }
+        .gpb-tier-badge {
+            display: inline-flex; align-items: center; gap: 7px;
+            font-size: 11.5px; font-weight: 700; padding: 6px 12px; border-radius: 999px;
+            background: var(--gpb-raise); color: var(--gpb-dim); border: 1px solid var(--gpb-line);
+        }
+        .gpb-tier-pro .gpb-tier-badge {
+            background: rgba(255,210,138,0.12); color: var(--gpb-gold); border-color: rgba(255,210,138,0.34);
+        }
+        .gpb-field { margin-top: 22px; }
+        .gpb-label {
+            display: block; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.11em; color: var(--gpb-faint); margin-bottom: 10px;
+        }
+        .gpb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .gpb-chip {
+            border: 1px solid var(--gpb-line); background: var(--gpb-raise);
+            color: var(--gpb-dim); border-radius: 999px; padding: 9px 15px;
+            font-size: 13px; font-weight: 650; cursor: pointer; font-family: inherit;
+            transition: all .15s ease;
+        }
+        .gpb-chip:hover { border-color: rgba(255,166,43,0.45); color: var(--gpb-text); background: rgba(255,166,43,0.10); }
+        .gpb-chip.active {
+            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember));
+            border-color: transparent; color: #24140a; font-weight: 750;
+        }
+        .gpb-chip.locked { color: var(--gpb-faint); border-style: dashed; }
+        .gpb-chip.locked i { color: var(--gpb-gold); margin-left: 4px; font-size: 11px; }
+        .gpb-chip.locked:hover { background: rgba(255,210,138,0.12); border-color: rgba(255,210,138,0.42); color: var(--gpb-gold); }
+        .gpb-input {
+            width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 13px;
+            background: rgba(10,8,6,0.6); border: 1px solid var(--gpb-line);
+            color: var(--gpb-text); font-size: 14px; font-family: inherit;
+        }
+        .gpb-input:focus { outline: none; border-color: var(--gpb-amber); }
+        .gpb-hint { margin-top: 7px; font-size: 12px; color: var(--gpb-faint); font-variant-numeric: tabular-nums; }
+        .gpb-upsell {
+            display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 22px;
+            padding: 14px 15px; border-radius: 15px; cursor: pointer; text-align: left;
+            background: linear-gradient(135deg, rgba(255,210,138,0.14), rgba(255,106,61,0.10));
+            border: 1px solid rgba(255,210,138,0.3); color: var(--gpb-gold); font-family: inherit;
+        }
+        .gpb-upsell:hover { border-color: rgba(255,210,138,0.58); }
+        .gpb-upsell > i:first-child { font-size: 18px; color: var(--gpb-amber); }
+        .gpb-upsell span { flex: 1; font-size: 12px; line-height: 1.55; }
+        .gpb-upsell b { display: block; font-size: 13px; color: #ffe9c6; margin-bottom: 2px; }
+        .gpb-go {
+            width: 100%; margin-top: 22px; padding: 14px; border: none; border-radius: 15px;
+            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember)); color: #24140a;
+            font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit;
+            box-shadow: 0 12px 30px rgba(255,106,61,0.3);
+        }
+        .gpb-go:hover { filter: brightness(1.06); }
+
+        /* =====================================================================
+         * Loading
+         * ===================================================================== */
         #global-playback-loading {
             position: fixed; inset: 0; z-index: 4300; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 16px;
-            background: rgba(4,7,15,0.78); backdrop-filter: blur(5px);
+            align-items: center; justify-content: center; gap: 18px;
+            background: radial-gradient(120% 90% at 50% 40%, rgba(60,32,12,0.5), rgba(10,8,6,0.88));
+            -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
             transition: opacity .2s ease;
         }
         #global-playback-loading.fade-out { opacity: 0; }
         .gpb-spinner {
-            width: 42px; height: 42px; border-radius: 50%;
-            border: 3px solid rgba(148,163,184,0.2); border-top-color: #818cf8;
+            width: 44px; height: 44px; border-radius: 50%;
+            border: 3px solid rgba(255,226,190,0.16); border-top-color: var(--gpb-amber);
             animation: gpb-spin .8s linear infinite;
         }
         @keyframes gpb-spin { to { transform: rotate(360deg); } }
         .gpb-loading-text { text-align: center; }
-        .gpb-loading-title { font-size: 15px; font-weight: 700; color: #f1f5f9; }
-        .gpb-loading-sub { margin-top: 4px; font-size: 12px; color: #94a3b8; }
+        .gpb-loading-title { font-size: 15.5px; font-weight: 800; color: var(--gpb-text); letter-spacing: -0.01em; }
+        .gpb-loading-sub { margin-top: 5px; font-size: 12px; color: var(--gpb-dim); }
 
+        /* =====================================================================
+         * Narrow — the dock and the bubbles share the bottom edge
+         * =====================================================================
+         * The dock stops being a card on the left and becomes the bottom-left
+         * of the screen, with the bubble column held out of its way rather than
+         * stacked on top of it. Nothing is dropped on the way down except the
+         * legend: the transport is the reason the panel exists.
+         * ------------------------------------------------------------------ */
+        @media (max-width: 780px) {
+            .gpb-left {
+                left: 10px; right: 72px; width: auto;
+                /* Anchored left and held off the bubbles, but never let loose to
+                   fill a wide screen — a scrubber three hundred pixels long is
+                   easier to place a thumb on than one seven hundred long. */
+                max-width: 460px;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+                max-height: calc(100vh - 78px);
+                gap: 8px;
+            }
+            .gpb-dock { padding: 13px 14px 12px; gap: 11px; border-radius: 20px; }
+            .gpb-bubbles { right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); gap: 9px; }
+            .gpb-bubble { width: 46px; height: 46px; }
+            .gpb-card { padding: 12px 13px; border-radius: 18px; gap: 10px; }
+        }
         @media (max-width: 620px) {
-            .gpb-panel { width: calc(100vw - 16px); padding: 10px 11px; border-radius: 16px; }
-            /* No room for the legend or the window total beside the clock, but
-               the airborne count is the one number worth keeping. */
+            .gpb-rail { top: calc(env(safe-area-inset-top, 0px) + 10px); left: 10px; right: 10px; }
+            .gpb-rail-track { gap: 6px; }
+            .gpb-fchip { height: 34px; padding: 0 11px; gap: 6px; font-size: 12px; }
+            .gpb-fchip-count { font-size: 10px; padding: 1px 5px; }
+            .gpb-zulu { font-size: 26px; }
+            .gpb-play { width: 46px; height: 46px; font-size: 16px; }
             .gpb-legend { display: none; }
-            .gpb-stat-total { display: none; }
-            .gpb-stats { flex: 1; font-size: 11px; text-align: right; }
-            /* The speeds get their own row rather than being dropped — without
-               them a phone is stuck at whatever speed it opened on, and speed
-               is the control this panel is mostly about. */
-            .gpb-panel-scrub { flex-wrap: wrap; }
-            .gpb-speeds { order: 3; width: 100%; justify-content: space-between; margin-top: 8px; }
-            .gpb-speed { flex: 1; padding: 7px 0; }
-            .gpb-picker-card { padding: 22px 18px 18px; border-radius: 18px; }
-            .gpb-title { font-size: 21px; }
-        }`;
+            .gpb-picker-card { padding: 24px 18px 18px; border-radius: 20px; }
+            .gpb-title { font-size: 22px; }
+        }
+        /* A phone on its side has no vertical room to spare — the counts are
+           the first thing that can go, the clock and the scrubber the last. */
+        @media (max-width: 620px) {
+            .gpb-card-call { font-size: 18px; }
+            .gpb-card-stat span { font-size: 13px; }
+        }
+        @media (max-height: 520px) {
+            .gpb-meters { display: none; }
+            .gpb-legend { display: none; }
+            .gpb-dock { gap: 10px; }
+            .gpb-zulu { font-size: 22px; }
+            /* No room for both. The card is what you asked for by tapping, so
+               it stays and the counts go. */
+            .gpb-card-track { display: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .gpb-ui *, .gpb-picker * { transition: none !important; animation: none !important; }
+        }
+        `;
         document.head.appendChild(style);
     }
 
@@ -2650,6 +3760,9 @@ export const GlobalPlayback = (() => {
             selectVisible,
             buildPlanes,
             buildTrails,
+            buildPaths,
+            setSelectedForTest: (id) => { selectedFlightId = id; },
+            __pathFeatures: () => pathList,
             setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
             // A camera gesture decides what is on screen, and until it was
             // measured it was deciding wrongly — see the zoom section of
@@ -2657,6 +3770,49 @@ export const GlobalPlayback = (() => {
             __setMapForTest: (m) => { map = m; },
             bindMapInteractions,
             unbindMapInteractions,
+            classifyFlight,
+            countClasses,
+            filterMasks: { T_AIRLINE, T_HEAVY, T_CARGO, T_BUSINESS, T_GA, T_MILITARY },
+            setFiltersForTest: (ids) => { activeFilters = new Set(ids); applyFilters(); },
+            visibleFlights: () => visibleFlights,
+            setFlightsForTest: (list) => {
+                flights = list;
+                classCounts = countClasses();
+                applyFilters();
+            },
+            // Mount the replay chrome against no map at all, so the layout can
+            // be looked at — in a browser or a screenshot test — without a
+            // Mapbox context, an API and an hour of recorded traffic. The chrome
+            // is most of what this module is judged on and it was the one part
+            // nothing could reach.
+            __mountChromeForTest: (opts = {}) => {
+                injectStyles();
+                limits = opts.limits || {
+                    tier: 'free', lookbackMs: DAY_MS,
+                    earliest: Date.now() - DAY_MS, latest: Date.now(), maxSpanMs: 6 * HOUR_MS
+                };
+                serverName = opts.serverName || '';
+                flights = opts.flights || [];
+                windowMeta = opts.windowMeta || { start: Date.now() - 2 * HOUR_MS, end: Date.now() - HOUR_MS };
+                spanStart = windowMeta.start;
+                totalDurationMs = Math.max(1, windowMeta.end - windowMeta.start);
+                currentMs = totalDurationMs * (opts.at ?? 0.42);
+                classCounts = countClasses();
+                applyFilters();
+                if (opts.picker) { buildPicker(); return; }
+                buildPanel();
+                updateWindowCount();
+                airborneCount = opts.airborne ?? visibleFlights.length;
+                drawnCount = opts.drawn ?? airborneCount;
+                updateHUD(spanStart + currentMs);
+                updateScrubber();
+                if (opts.select) {
+                    flightsById = new Map(flights.map(f => [f.flightId, f]));
+                    selectedFlightId = opts.select;
+                    buildInfoCard();
+                    updateInfoCard(spanStart + currentMs);
+                }
+            },
             refreshCullBounds,
             refreshThinGrid,
             renderFrame,
@@ -2676,6 +3832,8 @@ export const GlobalPlayback = (() => {
             MAX_DRAWN,
             SOFT_CAP,
             TRAIL_POINTS,
+            MAX_PATHS,
+            PATH_POINTS,
             MAX_INTERP_GAP_MS,
             MAX_SPLINE_SEGMENT_MS,
             FADE_MS

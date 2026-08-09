@@ -25,6 +25,10 @@ import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { GlobalPlayback } from './globalPlayback.js';
+// The preset traffic rail's vocabulary, shared with global playback so that
+// tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
+import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
+import { PreferenceSync } from './preferenceSync.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
@@ -43,6 +47,11 @@ console.log(
 const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Carries a Pro pilot's settings between their devices. Starts itself and does
+// nothing at all for a free account; see preferenceSync.js for the allowlist of
+// what may travel (and the list of what must never).
+PreferenceSync.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
@@ -1319,6 +1328,12 @@ let mapFilters = {
         airborneOnly: false,
         onGroundOnly: false,
         hasPlanOnly: false,
+        // The preset traffic rail above the map — Airlines, Heavies, Cargo,
+        // Business, GA, Military, Watchlist. An array of preset ids; empty (or
+        // containing 'all') means everything, so the rail can never leave the
+        // map empty with no way back. See trafficClasses.js for what each one
+        // means, and updateAircraftLayerFilter() for how it is applied.
+        trafficPresets: [],
         // Flight-window clock (open to everyone). userTimezone: '' = Zulu
         // (default), 'auto' = the device's zone, else an IANA id like
         // 'Europe/London' — read via getUserTimeZone(). use12hClock switches
@@ -1837,6 +1852,10 @@ window.getPilotRelation = function (username) {
         }
     }
 
+    // Published for the mobile chrome's preset rail, which edits mapFilters
+    // from outside this module graph and must not leave the change unsaved.
+    window.saveMapFilters = (immediate) => saveFiltersToLocalStorage(immediate);
+
     // Best-effort flush of a pending cloud sync when the page is hidden or
     // unloaded, so a debounced edit isn't lost (and then resurrected from the
     // stale cloud copy on the next visit). No-op when nothing is pending.
@@ -1920,63 +1939,197 @@ window.getPilotRelation = function (username) {
     // logo: Pro users keep seeing the Pro mark, everyone else gets the neutral
     // one instead of being flashed Pro branding they haven't paid for.
     const PRO_STATUS_STORAGE_KEY = 'inflight_is_pro';
+    const PRO_DETAIL_STORAGE_KEY = 'inflight_pro_detail';
     window.InflightUser = window.InflightUser || { isPro: false, loaded: false };
     window.isInflightPro = function () {
         return !!(window.InflightUser && window.InflightUser.isPro);
     };
 
-    function persistProStatus(isPro) {
+    /**
+     * Why this account is (or is not) Pro, for the surfaces that need to say
+     * more than yes/no — the billing card's "Access ends 3 March", the dunning
+     * banner, the upgrade prompt that should not appear for a grandfathered
+     * pilot. `{ isPro, source, status, until, cancelAtPeriodEnd }`, where
+     * source is one of: subscription | grace | profile | legacy | expired |
+     * free | signed-out | unknown.
+     */
+    window.getProEntitlement = function () {
+        return (window.InflightUser && window.InflightUser.entitlement) || { isPro: false, source: 'unknown' };
+    };
+
+    function persistProStatus(isPro, entitlement) {
         try {
             localStorage.setItem(PRO_STATUS_STORAGE_KEY, isPro ? 'true' : 'false');
+            if (entitlement) localStorage.setItem(PRO_DETAIL_STORAGE_KEY, JSON.stringify(entitlement));
         } catch (_) { /* storage unavailable; splash will fall back to non-pro */ }
     }
 
+    function applyEntitlement(entitlement) {
+        const isPro = !!entitlement.isPro;
+        window.InflightUser = { isPro, loaded: true, entitlement };
+        persistProStatus(isPro, entitlement);
+        announceEntitlementChange(entitlement);
+        window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro, entitlement } }));
+        return isPro;
+    }
+
+    // An account that has quietly stopped being Pro is a support ticket. Say it
+    // once — the moment the state is first seen — rather than letting the pilot
+    // discover it by finding a feature greyed out.
+    //
+    // Keyed on the state itself, so a re-check that reports the same thing is
+    // silent: refreshProStatus() runs on sign-in, on tab focus and after any
+    // billing action, and a banner on each of those would be nagging.
+    let lastAnnouncedEntitlement = null;
+    function announceEntitlementChange(entitlement) {
+        const key = `${entitlement.source}:${entitlement.until || ''}`;
+        if (key === lastAnnouncedEntitlement) return;
+        const first = lastAnnouncedEntitlement === null;
+        lastAnnouncedEntitlement = key;
+
+        const notify = (msg, type) => {
+            try {
+                if (typeof window.showGlobalNotification === 'function') {
+                    window.showGlobalNotification(msg, type);
+                }
+            } catch (_) { /* notifications not up yet */ }
+        };
+
+        if (entitlement.source === 'grace') {
+            // Stripe is still retrying the card. Pro is still on; this is the
+            // window in which the pilot can fix it without losing anything.
+            notify('Your last Pro payment did not go through. Update your card in Billing to keep Pro.', 'error');
+            return;
+        }
+        // Only worth saying when it happens to a session that was already
+        // running. On a cold load into an expired account the billing screen
+        // says it better than a toast that appears during the splash.
+        if (entitlement.source === 'expired' && !first) {
+            notify('Your Pro subscription has ended. Pro features are locked until you resubscribe.', 'info');
+        }
+    }
+
+    /**
+     * Resolve the Pro entitlement.
+     *
+     * This used to read "a signed-in account is Pro UNLESS we explicitly
+     * stamped it free", which is backwards in a way that mattered: an account
+     * nobody stamped — a sign-up predating the stamp, an invite, any path that
+     * forgot — was Pro forever, and cancelling could not take it away.
+     * stripe-webhook's revokePro() had to write user_metadata.is_pro = false
+     * purely to work around it, which only ever reached accounts that went
+     * through Stripe. So a cancelled subscription did not reliably lock the app.
+     *
+     * The answer now comes from one place, public.pro_entitlement() (see
+     * supabase/sql/entitlement-and-preferences.sql): a live subscription, a
+     * subscription still in Stripe's retry window, a manual grant, or the
+     * grandfather flag — and an ENDED subscription outranks profiles.is_pro, so
+     * a missed webhook cannot leave an account unlocked.
+     *
+     * Nobody who had Pro when that file was run loses it: the accounts running
+     * on the old rule were stamped legacy_pro on the way past.
+     */
     async function refreshProStatus() {
+        let user = null;
         try {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const user = sessionData?.session?.user;
-            const userId = user?.id;
-            if (!userId) {
-                window.InflightUser = { isPro: false, loaded: true };
-                persistProStatus(false);
-                return false;
+            const { data } = await supabase.auth.getSession();
+            user = data?.session?.user || null;
+        } catch (_) { /* treated as signed out below */ }
+
+        if (!user?.id) {
+            return applyEntitlement({ isPro: false, source: 'signed-out' });
+        }
+
+        try {
+            const { data, error } = await supabase.rpc('pro_entitlement');
+            if (error) throw error;
+            const row = Array.isArray(data) ? data[0] : data;
+            if (row && typeof row.is_pro === 'boolean') {
+                return applyEntitlement({
+                    isPro: row.is_pro,
+                    source: row.source || 'unknown',
+                    status: row.status || null,
+                    until: row.until || null,
+                    cancelAtPeriodEnd: row.cancel_at_period_end === true
+                });
             }
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('is_pro')
-                .eq('id', userId)
-                .single();
+            throw new Error('pro_entitlement returned nothing');
+        } catch (e) {
+            // The function is not installed yet, or the network dropped. Fall
+            // back to reading the tables directly and applying the same order,
+            // so this ships safely before the SQL is run.
+            console.warn('[Pro] pro_entitlement() unavailable, falling back:', e.message || e);
+            return refreshProStatusFallback(user);
+        }
+    }
 
-            // Entitlement rule (reliable): a signed-in account is Pro UNLESS it
-            // is explicitly a free account. `profiles.is_pro` is only trusted
-            // when it's an explicit true (it often stays null/false even for
-            // paying pilots), and a free account is only the one we stamped
-            // `user_metadata.is_pro === false` at free sign-up. Everything else
-            // that's signed in is a legacy/paid Pro account.
-            const metaFree = user?.user_metadata?.is_pro === false;
-            const isPro = (profile && profile.is_pro === true) ? true : !metaFree;
+    /**
+     * The same rule, evaluated client-side against the two tables.
+     *
+     * Used when the RPC is missing. It is a fallback, not a second opinion:
+     * where the two could disagree the server wins, because this one can be
+     * lied to by anything that can PATCH the tables — which is precisely why
+     * is_pro and legacy_pro are server-write-only.
+     */
+    async function refreshProStatusFallback(user) {
+        try {
+            // legacy_pro may not exist yet; ask for it, and retry without it
+            // rather than treating a missing column as "not entitled".
+            let profile = null;
+            let res = await supabase.from('profiles')
+                .select('is_pro, legacy_pro').eq('id', user.id).maybeSingle();
+            if (res.error) {
+                res = await supabase.from('profiles')
+                    .select('is_pro').eq('id', user.id).maybeSingle();
+            }
+            profile = res.data || null;
 
-            window.InflightUser = { isPro, loaded: true };
-            persistProStatus(isPro);
-            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro } }));
-            return isPro;
+            const { data: sub } = await supabase
+                .from('subscriptions')
+                .select('status, current_period_end, cancel_at_period_end')
+                .eq('user_id', user.id)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            const legacy = profile?.legacy_pro === true;
+            const detail = {
+                status: sub?.status || null,
+                until: sub?.current_period_end || null,
+                cancelAtPeriodEnd: sub?.cancel_at_period_end === true
+            };
+
+            if (sub) {
+                const endMs = sub.current_period_end ? Date.parse(sub.current_period_end) : null;
+                const withinPeriod = !endMs || endMs > Date.now();
+                if ((sub.status === 'active' || sub.status === 'trialing') && withinPeriod) {
+                    return applyEntitlement({ isPro: true, source: 'subscription', ...detail });
+                }
+                // Stripe retries a failed card for about a fortnight; pulling
+                // the app mid-retry punishes a payment that is about to land.
+                const GRACE_MS = 14 * 24 * 60 * 60 * 1000;
+                if (sub.status === 'past_due' && (!endMs || endMs > Date.now() - GRACE_MS)) {
+                    return applyEntitlement({ isPro: true, source: 'grace', ...detail });
+                }
+                if (legacy) return applyEntitlement({ isPro: true, source: 'legacy', ...detail });
+                return applyEntitlement({ isPro: false, source: 'expired', ...detail });
+            }
+
+            if (profile?.is_pro === true) return applyEntitlement({ isPro: true, source: 'profile', ...detail });
+            if (legacy) return applyEntitlement({ isPro: true, source: 'legacy', ...detail });
+            return applyEntitlement({ isPro: false, source: 'free', ...detail });
         } catch (e) {
             console.warn('[Pro] status refresh failed:', e);
-            // On failure, don't lock out a signed-in pilot — default to Pro if a
-            // session exists and it isn't a stamped free account; not-Pro if
-            // signed out or we can't confirm a session.
-            let signedIn = false, metaFree = false;
+            // Offline, or Supabase is down. Neither locking nor unlocking is
+            // right here, so hold the last confirmed answer rather than
+            // inventing one: a paying pilot on a train keeps their app, and a
+            // free account gains nothing it did not already have.
+            let last = false, detail = null;
             try {
-                const { data } = await supabase.auth.getSession();
-                const u = data?.session?.user;
-                signedIn = !!u;
-                metaFree = u?.user_metadata?.is_pro === false;
-            } catch (_) {}
-            const fallback = signedIn && !metaFree;
-            window.InflightUser = { isPro: fallback, loaded: true };
-            persistProStatus(fallback);
-            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro: fallback } }));
-            return fallback;
+                last = localStorage.getItem(PRO_STATUS_STORAGE_KEY) === 'true';
+                detail = JSON.parse(localStorage.getItem(PRO_DETAIL_STORAGE_KEY) || 'null');
+            } catch (_) { /* storage unavailable */ }
+            return applyEntitlement(detail || { isPro: last, source: 'unknown' });
         }
     }
     window.refreshProStatus = refreshProStatus;
@@ -11466,6 +11619,14 @@ function updateAircraftLayerFilter() {
     const excl = mapFilters.tacticalExclude || {};
     const pushRule = (id, cond) => { if (cond) filter.push(excl[id] ? ['!', cond] : cond); };
 
+    // --- Preset traffic rail (the chips above the map) ---
+    // A union, not an intersection: Cargo + Military means both kinds on the
+    // map, which is what picking two chips looks like it should do. Handled
+    // whole by presetFilterExpression so the rail cannot drift from the one
+    // global playback draws.
+    const presetExpr = presetFilterExpression(mapFilters.trafficPresets);
+    if (presetExpr) filter.push(presetExpr);
+
     // --- Quick traffic toggles: airborne / on-ground / has-plan ---
     if (mapFilters.airborneOnly) filter.push(['!=', ['get', 'phase'], 'Ground']);
     if (mapFilters.onGroundOnly) filter.push(['==', ['get', 'phase'], 'Ground']);
@@ -11571,7 +11732,17 @@ function updateAircraftLayerFilter() {
     if (sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
         sectorOpsMap.setFilter(AIRCRAFT_LABEL_LAYER_ID, filter);
     }
+
+    // Every surface that shows filter state re-reads it here rather than each
+    // one guessing when the others might have changed it. The mobile preset
+    // rail listens for this, so Reset Filters on the tactical board clears the
+    // chips too instead of leaving them lit over unfiltered traffic.
+    try { window.dispatchEvent(new CustomEvent('mapFiltersChanged')); } catch (_) { /* no window */ }
 }
+// The mobile chrome's preset rail sets mapFilters.trafficPresets and needs the
+// map re-filtered without importing this module.
+window.updateAircraftLayerFilter = updateAircraftLayerFilter;
+window.TRAFFIC_PRESETS = TRAFFIC_PRESETS;
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -12606,6 +12777,11 @@ function handleSocketFlightUpdate(data) {
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
             category: getAircraftCategory(acName),
+            // Which preset classes this aircraft belongs to, as ',cargo,heavy,'.
+            // A string rather than a bitmask because Mapbox GL expressions have
+            // no bitwise operators but do have substring containment — see
+            // classTags() in trafficClasses.js.
+            __cls: classTags(acName, flight.callsign),
             heading: flight.position.heading_deg,
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
