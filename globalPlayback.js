@@ -35,6 +35,12 @@
 //   GlobalPlayback.close()
 //   GlobalPlayback.isOpen()
 
+import {
+    TRAFFIC_PRESETS as FILTER_PRESETS,
+    classifyFlight,
+    T_AIRLINE, T_HEAVY, T_CARGO, T_BUSINESS, T_GA, T_MILITARY
+} from './trafficClasses.js';
+
 const SPEED_OPTIONS = [15, 60, 120, 300, 600];
 const DEFAULT_SPEED = 120;
 
@@ -145,92 +151,22 @@ const TRAIL_POINTS = 12;
 // edge, and enough to cover a flick-pan before the next push lands.
 const CULL_MARGIN_FRACTION = 0.35;
 
+// The full flown route is drawn only for aircraft you have singled out — the
+// selected one, and the pilots on your watchlist. A full track costs an order
+// of magnitude more vertices than a comet tail, so the count is what keeps it
+// affordable; a watchlist is a handful of people, and this is generous for it.
+const MAX_PATHS = 24;
+const PATH_POINTS = 180;
+
 const SPEED_STORAGE_KEY = 'globalPlaybackSpeed';
 const SPAN_STORAGE_KEY = 'globalPlaybackSpanMs';
 const TRAILS_STORAGE_KEY = 'globalPlaybackTrails';
 const FILTER_STORAGE_KEY = 'globalPlaybackFilters';
 
-/* =========================
- * Traffic classes
- * =========================
- * What the filter rail across the top is filtering by.
- *
- * The recorder stores two things that say anything about what kind of aircraft
- * a flight was: the type the pilot selected in Infinite Flight, and the
- * callsign they typed. Neither is authoritative — somebody can fly a 777 under
- * "N172SP" — so this is a reading of the evidence rather than a lookup, and it
- * is deliberately generous: a preset that quietly drops a third of its traffic
- * is worse than one that lets a stray aircraft through.
- *
- * A flight carries every class that fits. A 777F is cargo *and* a heavy *and*
- * an airliner, and all three presets should find it.
- */
-const T_AIRLINE  = 1 << 0;
-const T_HEAVY    = 1 << 1;
-const T_CARGO    = 1 << 2;
-const T_BUSINESS = 1 << 3;
-const T_GA       = 1 << 4;
-const T_MILITARY = 1 << 5;
-
-// Types are matched against the uppercased aircraft name, substring-wise, in
-// the order the app's own getAircraftCategory() uses: military first, because
-// "C-130" would otherwise be read as a Cessna, and freighters before airliners
-// so the -F suffix is seen.
-const MIL_TYPES = [
-    'F-14', 'F-15', 'F-16', 'F-18', 'F/A-18', 'F-22', 'F-35', 'A-10',
-    'EUROFIGHTER', 'TYPHOON', 'SPITFIRE', 'P-38', 'MIG-', 'SU-27', 'SU-35',
-    'C-130', 'C130', 'C-17', 'KC-10', 'KC-135', 'E-3', 'B-52',
-    'TOMCAT', 'RAPTOR', 'HORNET', 'WARTHOG', 'THUNDERBOLT', 'FIGHTING FALCON',
-    'GLOBEMASTER', 'HERCULES', 'BLACKHAWK', 'BLACK HAWK', 'APACHE', 'CHINOOK'
-];
-const HEAVY_TYPES = [
-    'A330', 'A340', 'A350', 'A380', 'A388', 'A333', 'A339', 'A359',
-    '747', 'B74', '767', 'B76', '777', 'B77', '787', 'B78',
-    'MD-11', 'MD11', 'DC-10', 'C-17', 'KC-10'
-];
-const AIRLINE_TYPES = [
-    'A220', 'A318', 'A319', 'A320', 'A321', 'A20N', 'A21N',
-    '717', '737', 'B73', 'B38M', '757', 'B75', '767', 'B76',
-    '777', 'B77', '787', 'B78', '747', 'B74',
-    'A330', 'A340', 'A350', 'A380',
-    'CRJ', 'E170', 'E175', 'E190', 'E195', 'EMBRAER 1',
-    'DASH 8', 'DH8', 'Q400', 'ATR', 'MD-11', 'MD-80', 'DC-10'
-];
-const BIZ_TYPES = [
-    'CITATION', 'PHENOM', 'LEARJET', 'GULFSTREAM', 'GLOBAL EXPRESS',
-    'CHALLENGER', 'FALCON ', 'HAWKER', 'PRAETOR', 'LEGACY', 'TBM'
-];
-const GA_TYPES = [
-    'C172', 'CESSNA 172', 'SKYHAWK', 'C152', 'C182', 'SR22', 'CIRRUS',
-    'XCUB', 'X-CUB', 'CUB', 'CARAVAN', 'C208', '208B', 'SINGLEPROP',
-    'DA40', 'DA62', 'PIPER', 'STEARMAN', 'BARON', 'BONANZA', 'KING AIR',
-    'TBM', 'SPITFIRE', 'P-38',
-    'EUROCOPTER', 'HELICOPTER', 'ROBINSON', 'R44', 'H125', 'H60', 'H64', 'LYNX'
-];
-// A freighter is either flown as one (the type carries an F) or flown by an
-// operator that only carries boxes. Both readings are used.
-const FREIGHTER_HINTS = ['FREIGHT', 'CARGO', '747-8F', '747-400F', '777F', '767-300F', '757-200F', 'MD-11F', 'BCF', 'BDSF'];
-const CARGO_CALLSIGNS = [
-    'FDX', 'FEDEX', 'UPS', 'GTI', 'GIANT', 'ATLAS', 'CLX', 'CARGOLUX',
-    'GEC', 'BOX', 'AEROLOGIC', 'CKS', 'KALITTA', 'CJT', 'CARGOJET',
-    'ABX', 'ABW', 'AIRBRIDGE', 'NCA', 'NIPPON CARGO', 'CAO', 'CKK',
-    'MPH', 'MARTINAIR', 'SQC', 'BCS', 'DHL', 'DHK', 'PAC', 'POLAR',
-    'TAY', 'WGN', 'WESTERN GLOBAL', 'SOO', 'SOUTHERN AIR', 'QAC', 'CV',
-    'ETH CARGO', 'EK CARGO', 'UAE CARGO', 'QR CARGO', 'KE CARGO'
-];
-
-// The rail itself. `all` is the reset; `mine` reads the pilot relation rather
-// than the type, so it has no mask.
-const FILTER_PRESETS = [
-    { id: 'all',      label: 'All Traffic', icon: 'fa-earth-americas' },
-    { id: 'airline',  label: 'Airlines',    icon: 'fa-plane',         mask: T_AIRLINE },
-    { id: 'heavy',    label: 'Heavies',     icon: 'fa-plane-up',      mask: T_HEAVY },
-    { id: 'cargo',    label: 'Cargo',       icon: 'fa-box-open',      mask: T_CARGO },
-    { id: 'business', label: 'Business',    icon: 'fa-briefcase',     mask: T_BUSINESS },
-    { id: 'ga',       label: 'GA & Props',  icon: 'fa-fan',           mask: T_GA },
-    { id: 'military', label: 'Military',    icon: 'fa-jet-fighter',   mask: T_MILITARY },
-    { id: 'mine',     label: 'Watchlist',   icon: 'fa-star',          relation: true }
-];
+// The filter rail's vocabulary lives in trafficClasses.js, shared with the
+// live map's preset rail. Tapping Cargo, rewinding an hour and tapping Cargo
+// again has to show the same fleet, which two copies of the list would not
+// manage for a week.
 
 export const GlobalPlayback = (() => {
     // ---------- state ----------
@@ -285,10 +221,13 @@ export const GlobalPlayback = (() => {
     // downstream tracks a feature's identity from one push to the next.
     const planePool = [];                // slot -> Feature
     const trailPool = [];                // slot -> Feature (coordinates reused)
+    const pathPool = [];                 // slot -> Feature (full flown route)
     const planeList = [];                // persistent; truncated, never replaced
     const trailList = [];
+    const pathList = [];
     const planeCollection = { type: 'FeatureCollection', features: planeList };
     const trailCollection = { type: 'FeatureCollection', features: trailList };
+    const pathCollection = { type: 'FeatureCollection', features: pathList };
 
     // Push scheduling (see the header note on setData cost).
     let lastPlanePush = 0;
@@ -304,6 +243,9 @@ export const GlobalPlayback = (() => {
     let hoverPopup = null;
     let onPlaneEnter = null, onPlaneLeave = null, onPlaneClick = null;
     let selectedFlightId = null;
+    // Keep the camera on the selected aircraft. Off by default: a replay you
+    // cannot pan away from is a replay you cannot look around in.
+    let followSelected = false;
 
     let airborneCount = 0;               // aircraft with a position this frame
     let drawnCount = 0;                  // …of which are inside the viewport
@@ -314,6 +256,9 @@ export const GlobalPlayback = (() => {
     const LYR_PLANE_LABELS = 'global-playback-plane-labels';
     const SRC_TRAILS = 'global-playback-trails-source';
     const LYR_TRAILS = 'global-playback-trails-layer';
+    const LYR_PLANE_HALO = 'global-playback-plane-halo';      // ring under the ones you care about
+    const SRC_PATHS = 'global-playback-paths-source';
+    const LYR_PATHS = 'global-playback-paths-layer';          // the whole flown route, so far
 
     // Live traffic is blanked while the replay is up, exactly as flightReplay
     // and atcReplay do it: snapshot each layer's filter, hide everything, put
@@ -409,55 +354,6 @@ export const GlobalPlayback = (() => {
 
         categoryCache.set(key, cat);
         return cat;
-    }
-
-    /* =========================
-     * Traffic class
-     * =========================
-     * Resolved once per flight when a window loads — a few thousand string
-     * scans on load rather than any per-frame work, and the filter rail then
-     * costs one bitwise AND per aircraft.
-     */
-    const classCache = new Map();
-
-    function hasAny(haystack, needles) {
-        for (let i = 0; i < needles.length; i++) {
-            if (haystack.includes(needles[i])) return true;
-        }
-        return false;
-    }
-
-    function classifyFlight(aircraftName, callsign) {
-        const key = `${aircraftName}|${callsign}`;
-        const cached = classCache.get(key);
-        if (cached !== undefined) return cached;
-
-        const type = String(aircraftName || '').toUpperCase();
-        const call = String(callsign || '').toUpperCase();
-        let mask = 0;
-
-        // Military first. Left later it would be shadowed — "C-130" contains
-        // no Cessna, but "SPITFIRE" is both a warbird and, to the GA list, a
-        // piston single, and a fighter reads better as a fighter.
-        if (hasAny(type, MIL_TYPES)) mask |= T_MILITARY;
-
-        if (hasAny(type, FREIGHTER_HINTS) || hasAny(call, CARGO_CALLSIGNS)) mask |= T_CARGO;
-        if (hasAny(type, HEAVY_TYPES)) mask |= T_HEAVY;
-        if (hasAny(type, BIZ_TYPES)) mask |= T_BUSINESS;
-        if (hasAny(type, GA_TYPES)) mask |= T_GA;
-
-        // "Airlines" means a scheduled-service airframe, so a fighter never
-        // lands in it however it was called — but a freighter does, because a
-        // 777F is still an airliner flying a route.
-        if (!(mask & T_MILITARY) && hasAny(type, AIRLINE_TYPES)) mask |= T_AIRLINE;
-
-        // A type nothing recognised is drawn as a generic airliner on the map,
-        // so it is filtered as one too. Anything else and the commonest preset
-        // silently loses every aircraft the type list has not caught up with.
-        if (!mask) mask = T_AIRLINE;
-
-        classCache.set(key, mask);
-        return mask;
     }
 
     /* =========================
@@ -581,6 +477,8 @@ export const GlobalPlayback = (() => {
         classCounts = flights.length ? countClasses() : null;
         applyFilters();
         refreshFilterChips();
+        // Signing in mid-replay can turn the open card into "your flight".
+        buildInfoCard();
         renderFrame(true);
     }
 
@@ -1152,6 +1050,49 @@ export const GlobalPlayback = (() => {
 
     const FADE_OPACITY_EXPR = ['/', ['coalesce', ['get', 'opacity'], 100], 100];
 
+    /* The aircraft you singled out.
+     *
+     * Colour alone was not enough. In White mode — the default — your own
+     * aircraft and your watchlist's are the only ones tinted at all, which is
+     * a real difference on a quiet map and completely invisible on a busy one:
+     * an amber 12-pixel icon among two thousand white 12-pixel icons is not
+     * something the eye finds. So they also get a ring under them and their
+     * whole flown route drawn, which are visible at any density.
+     *
+     * The colours are the pilot's own settings, the same ones the live map
+     * uses, so a friend is the same colour in both. */
+    const HALO_FILTER = ['any',
+        ['==', ['get', 'pilotRelation'], 'user'],
+        ['==', ['get', 'pilotRelation'], 'watchlist'],
+        ['boolean', ['get', 'selected'], false]
+    ];
+    const SELECTED_COLOR = '#ffa62b';
+
+    function relationColors() {
+        const f = window.mapFilters || {};
+        return {
+            user: f.userPlaneColor || '#f97316',
+            watchlist: f.friendPlaneColor || '#c084fc'
+        };
+    }
+
+    // Relation wins over selection: singling out your own aircraft should not
+    // repaint it somebody else's colour.
+    function haloColorExpression(rel) {
+        return ['case',
+            ['==', ['get', 'pilotRelation'], 'user'], rel.user,
+            ['==', ['get', 'pilotRelation'], 'watchlist'], rel.watchlist,
+            SELECTED_COLOR
+        ];
+    }
+
+    function pathColorFor(f) {
+        const rel = relationColors();
+        if (f.pilotRelation === 'user') return rel.user;
+        if (f.pilotRelation === 'watchlist') return rel.watchlist;
+        return SELECTED_COLOR;
+    }
+
     function colorExpression() {
         if (typeof window.getPremiumColorExpression === 'function') {
             try { return window.getPremiumColorExpression(); } catch (_) { /* fall through */ }
@@ -1203,7 +1144,17 @@ export const GlobalPlayback = (() => {
                 map.setLayoutProperty(LYR_PLANES_NAT, 'icon-image', naturalIconExpression());
                 map.setLayoutProperty(LYR_PLANES_NAT, 'icon-size', planeLayout(null)['icon-size']);
             }
+            // The halo wears the pilot's own "my aircraft" / "friend" colours,
+            // so changing either has to reach it as well as the icons.
+            if (map.getLayer(LYR_PLANE_HALO)) {
+                const rel = relationColors();
+                map.setPaintProperty(LYR_PLANE_HALO, 'circle-color', haloColorExpression(rel));
+                map.setPaintProperty(LYR_PLANE_HALO, 'circle-stroke-color', haloColorExpression(rel));
+            }
         } catch (_) { /* style mid-swap; the next open rebuilds */ }
+        // The card's accent and the flown route are painted from the same two
+        // colours, so they are re-read here too.
+        buildInfoCard();
     }
 
     function ensureLayers() {
@@ -1228,8 +1179,49 @@ export const GlobalPlayback = (() => {
             });
         }
 
+        // The whole route flown so far, for the aircraft you have singled out —
+        // the selected one and everyone on your watchlist. Separate from the
+        // comet tails because it is a different statement: a tail says where
+        // something came from in the last quarter hour, this says where the
+        // flight has been since the window opened, and it grows as it flies.
+        if (!map.getSource(SRC_PATHS)) {
+            map.addSource(SRC_PATHS, { type: 'geojson', data: EMPTY_FC, tolerance: 0.35 });
+        }
+        if (!map.getLayer(LYR_PATHS)) {
+            map.addLayer({
+                id: LYR_PATHS, type: 'line', source: SRC_PATHS,
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': ['case', ['boolean', ['get', 'selected'], false],
+                        ['interpolate', ['linear'], ['zoom'], 2, 2.2, 6, 3.2, 10, 4],
+                        ['interpolate', ['linear'], ['zoom'], 2, 1.4, 6, 2.2, 10, 2.8]],
+                    'line-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.95, 0.75]
+                }
+            });
+        }
+
         if (!map.getSource(SRC_PLANES)) {
             map.addSource(SRC_PLANES, { type: 'geojson', data: EMPTY_FC });
+        }
+
+        // A ring under the aircraft that matter to you. Drawn from the plane
+        // source rather than a source of its own, so it costs a filter and no
+        // extra geometry at all — the features are already being pushed.
+        if (!map.getLayer(LYR_PLANE_HALO)) {
+            const rel = relationColors();
+            map.addLayer({
+                id: LYR_PLANE_HALO, type: 'circle', source: SRC_PLANES,
+                filter: HALO_FILTER,
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 7, 6, 11, 12, 18],
+                    'circle-color': haloColorExpression(rel),
+                    'circle-opacity': ['*', FADE_OPACITY_EXPR, 0.16],
+                    'circle-stroke-width': 1.6,
+                    'circle-stroke-color': haloColorExpression(rel),
+                    'circle-stroke-opacity': ['*', FADE_OPACITY_EXPR, 0.8]
+                }
+            });
         }
 
         // Two layers over one source, exactly as the live map does it (see the
@@ -1370,9 +1362,7 @@ export const GlobalPlayback = (() => {
         onPlaneClick = (e) => {
             const feature = e.features && e.features[0];
             if (!feature) return;
-            const id = feature.properties.flightId;
-            selectedFlightId = (selectedFlightId === id) ? null : id;
-            renderFrame(true);
+            selectFlight(feature.properties.flightId);
         };
         map.on('click', LYR_PLANES, onPlaneClick);
 
@@ -1457,10 +1447,10 @@ export const GlobalPlayback = (() => {
 
     function removeLayers() {
         if (!map) return;
-        [LYR_PLANE_LABELS, LYR_PLANES, LYR_PLANES_NAT, LYR_TRAILS].forEach(id => {
+        [LYR_PLANE_LABELS, LYR_PLANES, LYR_PLANES_NAT, LYR_PLANE_HALO, LYR_PATHS, LYR_TRAILS].forEach(id => {
             if (map.getLayer && map.getLayer(id)) { try { map.removeLayer(id); } catch (_) {} }
         });
-        [SRC_PLANES, SRC_TRAILS].forEach(id => {
+        [SRC_PLANES, SRC_TRAILS, SRC_PATHS].forEach(id => {
             if (map.getSource && map.getSource(id)) { try { map.removeSource(id); } catch (_) {} }
         });
     }
@@ -1855,6 +1845,18 @@ export const GlobalPlayback = (() => {
         return feat;
     }
 
+    function pathSlot(i) {
+        let feat = pathPool[i];
+        if (!feat) {
+            feat = pathPool[i] = {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: [] },
+                properties: { color: SELECTED_COLOR, selected: false }
+            };
+        }
+        return feat;
+    }
+
     function trailSlot(i) {
         let feat = trailPool[i];
         if (!feat) {
@@ -1910,6 +1912,63 @@ export const GlobalPlayback = (() => {
             planeList[s] = feat;
         }
         planeList.length = chosenCount;
+    }
+
+    /**
+     * The full route flown so far, for the handful of aircraft that earn one.
+     *
+     * "So far" is the point: it is cut at the current clock, so it draws itself
+     * across the map as the flight flies rather than appearing whole. That is
+     * the difference between watching a replay and reading a map of one.
+     *
+     * Who earns one is deliberately a handful — the selected aircraft and the
+     * pilots on your watchlist. A full track is up to a couple of hundred
+     * vertices against a comet tail's twelve, so this is affordable for
+     * twenty-odd aircraft and ruinous for two thousand. Everyone else keeps
+     * the tail.
+     */
+    function buildPaths(absT) {
+        let drawn = 0;
+
+        // Walk the drawn set rather than every flight: a path for an aircraft
+        // culled off-screen is geometry nobody can see. The selected one is
+        // picked up here too, since selecting an aircraft you cannot see is
+        // not something the map lets you do.
+        for (let s = 0; s < chosenCount && drawn < MAX_PATHS; s++) {
+            const i = chosen[s];
+            const f = candFlight[i];
+            const isSelected = f.flightId === selectedFlightId;
+            const isKnown = f.pilotRelation && f.pilotRelation !== 'none';
+            if (!isSelected && !isKnown) continue;
+
+            const pts = f.points;
+            // Everything recorded up to now. Binary search would save a walk,
+            // but this runs for at most MAX_PATHS flights.
+            let upTo = 0;
+            while (upTo < pts.length && pts[upTo].t <= absT) upTo++;
+            if (upTo < 1) continue;
+
+            const feat = pathSlot(drawn);
+            const coords = feat.geometry.coordinates;
+            const take = Math.min(upTo, PATH_POINTS - 1);
+            const stride = upTo / take;
+
+            let w = 0;
+            for (let k = 0; k < take; k++) {
+                const p = pts[Math.floor(k * stride)];
+                setCoord(coords, w++, p.lon, p.lat);
+            }
+            // Ends at the interpolated position, so the line stays welded to
+            // the nose of the aircraft between recorded points.
+            setCoord(coords, w++, candLon[i], candLat[i]);
+            coords.length = w;
+            if (w < 2) continue;
+
+            feat.properties.color = pathColorFor(f);
+            feat.properties.selected = isSelected;
+            pathList[drawn++] = feat;
+        }
+        pathList.length = drawn;
     }
 
     // Comet tails for the drawn aircraft, decimated to TRAIL_POINTS vertices.
@@ -2018,6 +2077,11 @@ export const GlobalPlayback = (() => {
             if (trailSrc) { buildTrails(absT); trailSrc.setData(trailCollection); }
         } catch (_) { /* same */ }
 
+        try {
+            const pathSrc = map.getSource(SRC_PATHS);
+            if (pathSrc) { buildPaths(absT); pathSrc.setData(pathCollection); }
+        } catch (_) { /* same */ }
+
         lastPlanePush = began;
 
         // Measured across both pushes, since they land on the same main thread.
@@ -2026,6 +2090,8 @@ export const GlobalPlayback = (() => {
         adaptPushInterval();
 
         updateHUD(absT);
+        updateInfoCard(absT);
+        if (followSelected) keepCameraOnSelection();
     }
 
     /**
@@ -2343,6 +2409,9 @@ export const GlobalPlayback = (() => {
                 </div>
             </div>
 
+            <div class="gpb-left">
+            <div class="gpb-card-host" id="gpb-card-host" aria-live="polite"></div>
+
             <section class="gpb-dock" aria-label="Playback transport">
                 <header class="gpb-dock-head">
                     <div class="gpb-clock">
@@ -2387,6 +2456,7 @@ export const GlobalPlayback = (() => {
                     <span class="gpb-legend-label">FL400</span>
                 </div>
             </section>
+            </div>
 
             <div class="gpb-bubbles" role="group" aria-label="Map overlays">
                 <button type="button" class="gpb-bubble" data-gpb="weather" aria-pressed="false"
@@ -2488,6 +2558,12 @@ export const GlobalPlayback = (() => {
                 case 'play': isPlaying ? pause() : play(); break;
                 case 'weather': setWeather(!weatherOn); break;
                 case 'atc': setAirspace(!airspaceOn); break;
+                case 'deselect': selectFlight(selectedFlightId); break;
+                case 'follow':
+                    followSelected = !followSelected;
+                    syncFollowButton();
+                    if (followSelected) keepCameraOnSelection();
+                    break;
                 case 'trails':
                     showTrails = !showTrails;
                     try { localStorage.setItem(TRAILS_STORAGE_KEY, showTrails ? '1' : '0'); } catch (_) {}
@@ -2515,6 +2591,13 @@ export const GlobalPlayback = (() => {
                     }
                     saveFilters();
                     applyFilters();
+                    // Filtering away the aircraft whose card is open would
+                    // leave a card describing something no longer on the map.
+                    if (selectedFlightId && !visibleFlights.some(f => f.flightId === selectedFlightId)) {
+                        selectedFlightId = null;
+                        followSelected = false;
+                        buildInfoCard();
+                    }
                     refreshFilterChips();
                     updateWindowCount();
                     renderFrame(true);
@@ -2593,12 +2676,194 @@ export const GlobalPlayback = (() => {
         }
     }
 
+    /* =========================
+     * Flight card
+     * =========================
+     * Tap an aircraft and the replay says what it was: who was flying it, what
+     * they were flying, and what it was doing at this instant of the recording.
+     *
+     * The live flight window cannot be reused for this. It is built around a
+     * flightId that is still being polled — photos, the live route, the ATC
+     * frequencies in range — and none of that exists for a flight that landed
+     * two weeks ago. So the card shows what the recording actually holds, and
+     * says nothing it cannot support.
+     *
+     * Rebuilt only when the selection changes; the numbers are patched in place
+     * every frame, because innerHTML thirty times a second on a card the user
+     * is reading is both a re-layout and a lost text selection.
+     */
+
+    const CARD_NOW = makePosition();
+    const CARD_THEN = makePosition();
+    const VS_SAMPLE_MS = 60 * 1000;    // session time, so it reads as feet per minute
+
+    // Cumulative track distance, in nautical miles, computed once per flight
+    // the first time its card is opened. A few hundred points on a tap is
+    // nothing; the same work per frame for every aircraft would not be.
+    function ensureCumulative(f) {
+        if (f.cumNm) return f.cumNm;
+        const pts = f.points;
+        const cum = new Float64Array(pts.length);
+        for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1], b = pts[i];
+            const dLat = b.lat - a.lat;
+            const dLon = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
+            cum[i] = cum[i - 1] + Math.hypot(dLat, dLon) * 60;
+        }
+        f.cumNm = cum;
+        return cum;
+    }
+
+    function relationLabel(relation) {
+        if (relation === 'user') return 'Your flight';
+        if (relation === 'watchlist') return 'Watchlist';
+        return '';
+    }
+
+    function selectFlight(id) {
+        selectedFlightId = (selectedFlightId === id) ? null : id;
+        if (!selectedFlightId) followSelected = false;
+        buildInfoCard();
+        renderFrame(true);
+    }
+
+    function buildInfoCard() {
+        const host = panelEl?.querySelector('#gpb-card-host');
+        if (!host) return;
+
+        const f = selectedFlightId ? flightsById.get(selectedFlightId) : null;
+        if (!f) { host.innerHTML = ''; host.classList.remove('open'); return; }
+
+        const relation = f.pilotRelation && f.pilotRelation !== 'none' ? f.pilotRelation : '';
+        const badge = relationLabel(f.pilotRelation);
+        const accent = pathColorFor(f);
+
+        host.innerHTML = `
+            <article class="gpb-card${relation ? ` rel-${relation}` : ''}" style="--gpb-card-accent:${accent}">
+                <header class="gpb-card-head">
+                    <div class="gpb-card-id">
+                        <span class="gpb-card-call">${escapeHtml(f.callsign || '----')}</span>
+                        ${badge ? `<span class="gpb-card-badge">${escapeHtml(badge)}</span>` : ''}
+                    </div>
+                    <div class="gpb-card-head-btns">
+                        <button type="button" class="gpb-card-btn" data-gpb="follow" aria-pressed="false"
+                                title="Keep the camera on this aircraft (F)" aria-label="Follow">
+                            <i class="fa-solid fa-crosshairs"></i>
+                        </button>
+                        <button type="button" class="gpb-card-btn" data-gpb="deselect"
+                                title="Close" aria-label="Close flight card">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <div class="gpb-card-sub">
+                    ${f.username ? `<span class="gpb-card-pilot">${escapeHtml(f.username)}</span>` : ''}
+                    ${f.aircraftName ? `<span class="gpb-card-type">${escapeHtml(f.aircraftName)}</span>` : ''}
+                </div>
+
+                <div class="gpb-card-stats">
+                    <div class="gpb-card-stat"><span id="gpb-card-alt">—</span><small>ALT FT</small></div>
+                    <div class="gpb-card-stat"><span id="gpb-card-gs">—</span><small>GS KT</small></div>
+                    <div class="gpb-card-stat"><span id="gpb-card-hdg">—</span><small>HDG</small></div>
+                    <div class="gpb-card-stat"><span id="gpb-card-vs">—</span><small>V/S FPM</small></div>
+                </div>
+
+                <div class="gpb-card-track">
+                    <div class="gpb-card-trackbar"><span id="gpb-card-trackfill"></span></div>
+                    <div class="gpb-card-trackrow">
+                        <span>${fmtZulu(f.t0)}</span>
+                        <span id="gpb-card-flown">—</span>
+                        <span>${fmtZulu(f.t1)}</span>
+                    </div>
+                </div>
+            </article>`;
+        host.classList.add('open');
+        syncFollowButton();
+    }
+
+    function updateInfoCard(absT) {
+        if (!selectedFlightId || !panelEl) return;
+        const f = flightsById.get(selectedFlightId);
+        if (!f) return;
+
+        const set = (id, text) => {
+            const el = panelEl.querySelector(id);
+            if (el && el.textContent !== text) el.textContent = text;
+        };
+
+        const now = positionAt(f, absT, CARD_NOW);
+        if (!now) {
+            // Between the ends of its own track, or inside a hole in the
+            // recording. The card stays — it is still the flight you picked —
+            // but it stops asserting numbers it does not have.
+            ['#gpb-card-alt', '#gpb-card-gs', '#gpb-card-hdg', '#gpb-card-vs'].forEach(id => set(id, '—'));
+            return;
+        }
+
+        set('#gpb-card-alt', Math.round(now.alt).toLocaleString());
+        set('#gpb-card-gs', String(Math.round(now.gs)));
+        set('#gpb-card-hdg', `${String(Math.round(now.hdg)).padStart(3, '0')}°`);
+
+        const then = positionAt(f, absT - VS_SAMPLE_MS, CARD_THEN);
+        if (then) {
+            const fpm = Math.round((now.alt - then.alt) / (VS_SAMPLE_MS / 60000));
+            set('#gpb-card-vs', (fpm > 0 ? '+' : '') + fpm.toLocaleString());
+        } else {
+            set('#gpb-card-vs', '—');
+        }
+
+        // Progress through this flight's own track, which is not the same as
+        // progress through the window — most flights start and end inside it.
+        const span = Math.max(1, f.t1 - f.t0);
+        const pct = Math.max(0, Math.min(1, (absT - f.t0) / span));
+        const fill = panelEl.querySelector('#gpb-card-trackfill');
+        if (fill) fill.style.width = `${(pct * 100).toFixed(1)}%`;
+
+        const cum = ensureCumulative(f);
+        const idx = Math.min(f.points.length - 1, firstIndexAtOrAfter(f.points, absT));
+        set('#gpb-card-flown', `${Math.round(cum[idx]).toLocaleString()} nm flown`);
+    }
+
+    function syncFollowButton() {
+        const btn = panelEl?.querySelector('[data-gpb="follow"]');
+        if (!btn) return;
+        btn.classList.toggle('on', followSelected);
+        btn.setAttribute('aria-pressed', followSelected ? 'true' : 'false');
+    }
+
+    // Recentre without fighting the user: a pan or a zoom is a decision, and a
+    // camera that snaps back from it is worse than one that never followed.
+    // easeTo with a short duration keeps up with 600× without teleporting.
+    function keepCameraOnSelection() {
+        if (!map || !selectedFlightId) return;
+        const f = flightsById.get(selectedFlightId);
+        if (!f) return;
+        const p = positionAt(f, spanStart + currentMs, CARD_NOW);
+        if (!p) return;
+        try {
+            map.easeTo({ center: [p.lon, p.lat], duration: 260, essential: true });
+        } catch (_) { /* camera busy */ }
+    }
+
     function bindKeys() {
         unbindKeys();
         onKeyDown = (e) => {
             if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-            if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+            // Escape backs out one step at a time: a card you opened by tapping
+            // an aircraft should not take the whole replay down with it.
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (selectedFlightId) selectFlight(selectedFlightId);
+                else close();
+                return;
+            }
             if (!panelEl) return;
+            if ((e.key === 'f' || e.key === 'F') && selectedFlightId) {
+                const btn = panelEl.querySelector('[data-gpb="follow"]');
+                if (btn) btn.click();
+                return;
+            }
             if (e.code === 'Space') { e.preventDefault(); isPlaying ? pause() : play(); return; }
             if (e.key === 't' || e.key === 'T') {
                 const btn = panelEl.querySelector('[data-gpb="trails"]');
@@ -2759,6 +3024,7 @@ export const GlobalPlayback = (() => {
         // them, rather than starting the allocation over.
         planeList.length = 0;
         trailList.length = 0;
+        pathList.length = 0;
         chosenCount = 0;
         thinGeneration++;
 
@@ -2768,6 +3034,7 @@ export const GlobalPlayback = (() => {
         currentMs = 0;
         isScrubbing = false;
         selectedFlightId = null;
+        followSelected = false;
 
         // Reset the rate limiter with the session. The next window may be a
         // quiet one on a fast device, and it should not inherit a slow window's
@@ -2921,6 +3188,8 @@ export const GlobalPlayback = (() => {
          * ------------------------------------------------------------------ */
         body.gpb-mode #ios-landing-topbar,
         body.gpb-mode #ios-landing-tabbar,
+        body.gpb-mode #ios-traffic-rail,
+        body.gpb-mode #ios-map-bubbles,
         body.gpb-mode .tactical-header,
         body.gpb-mode .utility-nexus,
         body.gpb-mode .auth-nexus {
@@ -3050,10 +3319,7 @@ export const GlobalPlayback = (() => {
          * Transport dock — the left edge
          * ===================================================================== */
         .gpb-dock {
-            position: absolute;
-            left: 20px;
-            bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
-            width: 340px; box-sizing: border-box;
+            width: 100%; box-sizing: border-box;
             padding: 15px 16px 14px;
             display: flex; flex-direction: column; gap: 13px;
             border-radius: 22px;
@@ -3172,6 +3438,106 @@ export const GlobalPlayback = (() => {
         .gpb-legend-label {
             font-size: 9px; font-weight: 700; letter-spacing: 0.09em;
             color: var(--gpb-faint); text-transform: uppercase;
+        }
+
+        /* =====================================================================
+         * Flight card — what the recording holds about the one you tapped
+         * =====================================================================
+         * Sits directly above the transport, in the same left column, so the
+         * thing you selected and the clock you selected it at read as one
+         * panel rather than two floating cards.
+         * ------------------------------------------------------------------ */
+        /* The card and the transport are one bottom-anchored column, not two
+           free-floating cards. Stacking them in a flex column rather than
+           positioning each means the card sits on top of whatever height the
+           dock happens to be — which changes with the viewport and with the
+           rules that drop the counts and the legend on a short screen. */
+        .gpb-left {
+            position: absolute;
+            left: 20px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+            width: 340px; box-sizing: border-box;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            gap: 10px;
+            max-height: calc(100vh - 96px);
+            pointer-events: none;
+        }
+        .gpb-left > * { pointer-events: auto; }
+        .gpb-card-host { min-width: 0; pointer-events: none; }
+        .gpb-card-host.open { pointer-events: auto; }
+        .gpb-card {
+            padding: 14px 15px 13px;
+            border-radius: 20px;
+            background: var(--gpb-shell);
+            -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line);
+            box-shadow: var(--gpb-lift);
+            display: flex; flex-direction: column; gap: 11px;
+            /* The accent is the aircraft's own colour: your orange, a friend's
+               violet, or the selection amber — the same colour its route is
+               drawn in, so the card and the line on the map are obviously the
+               same aircraft. */
+            border-top: 2px solid var(--gpb-card-accent, var(--gpb-amber));
+        }
+        .gpb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .gpb-card-id { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+        .gpb-card-call {
+            font-size: 20px; font-weight: 800; letter-spacing: -0.02em;
+            color: var(--gpb-text); line-height: 1;
+        }
+        .gpb-card-badge {
+            font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+            padding: 3px 7px; border-radius: 999px;
+            color: var(--gpb-card-accent, var(--gpb-amber));
+            background: color-mix(in srgb, var(--gpb-card-accent, #ffa62b) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--gpb-card-accent, #ffa62b) 40%, transparent);
+        }
+        .gpb-card-head-btns { display: flex; gap: 6px; flex: 0 0 auto; }
+        .gpb-card-btn {
+            width: 30px; height: 30px; border-radius: 9px; cursor: pointer;
+            display: grid; place-items: center; font-size: 12px;
+            background: var(--gpb-raise); border: 1px solid var(--gpb-line); color: var(--gpb-dim);
+            transition: color .15s ease, background .15s ease, border-color .15s ease;
+        }
+        .gpb-card-btn:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
+        .gpb-card-btn.on {
+            background: var(--gpb-card-accent, var(--gpb-amber)); border-color: transparent; color: #24140a;
+        }
+        .gpb-card-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: -4px; }
+        .gpb-card-pilot { font-size: 12px; font-weight: 700; color: var(--gpb-card-accent, var(--gpb-gold)); }
+        .gpb-card-type { font-size: 12px; color: var(--gpb-faint); }
+
+        .gpb-card-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .gpb-card-stat {
+            display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+            padding: 7px 8px; border-radius: 11px;
+            background: var(--gpb-raise); border: 1px solid var(--gpb-line);
+        }
+        .gpb-card-stat span {
+            font-size: 14px; font-weight: 800; line-height: 1;
+            color: var(--gpb-text); font-variant-numeric: tabular-nums;
+        }
+        .gpb-card-stat small {
+            font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em;
+            text-transform: uppercase; color: var(--gpb-faint);
+        }
+
+        /* Where this aircraft is within its OWN track, which is rarely the
+           whole window — most flights start or finish inside it. */
+        .gpb-card-track { display: flex; flex-direction: column; gap: 5px; }
+        .gpb-card-trackbar {
+            height: 3px; border-radius: 999px; overflow: hidden;
+            background: rgba(255,226,190,0.13);
+        }
+        .gpb-card-trackbar span {
+            display: block; height: 100%; width: 0%;
+            background: var(--gpb-card-accent, var(--gpb-amber));
+            transition: width .12s linear;
+        }
+        .gpb-card-trackrow {
+            display: flex; justify-content: space-between; gap: 8px;
+            font-size: 10px; font-weight: 650; color: var(--gpb-faint);
+            font-variant-numeric: tabular-nums;
         }
 
         /* =====================================================================
@@ -3309,17 +3675,20 @@ export const GlobalPlayback = (() => {
          * legend: the transport is the reason the panel exists.
          * ------------------------------------------------------------------ */
         @media (max-width: 780px) {
-            .gpb-dock {
+            .gpb-left {
                 left: 10px; right: 72px; width: auto;
                 /* Anchored left and held off the bubbles, but never let loose to
                    fill a wide screen — a scrubber three hundred pixels long is
                    easier to place a thumb on than one seven hundred long. */
                 max-width: 460px;
                 bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
-                padding: 13px 14px 12px; gap: 11px; border-radius: 20px;
+                max-height: calc(100vh - 78px);
+                gap: 8px;
             }
+            .gpb-dock { padding: 13px 14px 12px; gap: 11px; border-radius: 20px; }
             .gpb-bubbles { right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); gap: 9px; }
             .gpb-bubble { width: 46px; height: 46px; }
+            .gpb-card { padding: 12px 13px; border-radius: 18px; gap: 10px; }
         }
         @media (max-width: 620px) {
             .gpb-rail { top: calc(env(safe-area-inset-top, 0px) + 10px); left: 10px; right: 10px; }
@@ -3334,11 +3703,18 @@ export const GlobalPlayback = (() => {
         }
         /* A phone on its side has no vertical room to spare — the counts are
            the first thing that can go, the clock and the scrubber the last. */
+        @media (max-width: 620px) {
+            .gpb-card-call { font-size: 18px; }
+            .gpb-card-stat span { font-size: 13px; }
+        }
         @media (max-height: 520px) {
             .gpb-meters { display: none; }
             .gpb-legend { display: none; }
             .gpb-dock { gap: 10px; }
             .gpb-zulu { font-size: 22px; }
+            /* No room for both. The card is what you asked for by tapping, so
+               it stays and the counts go. */
+            .gpb-card-track { display: none; }
         }
         @media (prefers-reduced-motion: reduce) {
             .gpb-ui *, .gpb-picker * { transition: none !important; animation: none !important; }
@@ -3384,6 +3760,9 @@ export const GlobalPlayback = (() => {
             selectVisible,
             buildPlanes,
             buildTrails,
+            buildPaths,
+            setSelectedForTest: (id) => { selectedFlightId = id; },
+            __pathFeatures: () => pathList,
             setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
             // A camera gesture decides what is on screen, and until it was
             // measured it was deciding wrongly — see the zoom section of
@@ -3427,6 +3806,12 @@ export const GlobalPlayback = (() => {
                 drawnCount = opts.drawn ?? airborneCount;
                 updateHUD(spanStart + currentMs);
                 updateScrubber();
+                if (opts.select) {
+                    flightsById = new Map(flights.map(f => [f.flightId, f]));
+                    selectedFlightId = opts.select;
+                    buildInfoCard();
+                    updateInfoCard(spanStart + currentMs);
+                }
             },
             refreshCullBounds,
             refreshThinGrid,
@@ -3447,6 +3832,8 @@ export const GlobalPlayback = (() => {
             MAX_DRAWN,
             SOFT_CAP,
             TRAIL_POINTS,
+            MAX_PATHS,
+            PATH_POINTS,
             MAX_INTERP_GAP_MS,
             MAX_SPLINE_SEGMENT_MS,
             FADE_MS

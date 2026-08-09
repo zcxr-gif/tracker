@@ -777,7 +777,7 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
      */
     {
         const {
-            selectVisible, buildPlanes, buildTrails, measureTrack,
+            selectVisible, buildPlanes, buildTrails, buildPaths, measureTrack,
             setThinGridForTest, poolSizes, MAX_DRAWN, TRAIL_POINTS, SOFT_CAP
         } = GlobalPlayback._internals;
 
@@ -800,6 +800,9 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
             f.username = 'Pilot';
             f.aircraftName = 'A350-900';
             f.category = 'A350';
+            // A handful of the window's pilots are on the watchlist, which is
+            // what a watchlist looks like: a few dozen out of a few thousand.
+            f.pilotRelation = (k % 500 === 0) ? 'watchlist' : 'none';
             busy.push(f);
         }
 
@@ -904,6 +907,82 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
             `${orphans} of ${trails.length} tails end somewhere no aircraft is`);
 
         /* ---------------------------------------------------------------- *
+         * The flown route
+         * ----------------------------------------------------------------
+         * The aircraft you single out — the one you tapped, and the pilots on
+         * your watchlist — get their whole route drawn instead of a comet
+         * tail. Two things have to hold. It must be cut at the clock, or it
+         * stops being a replay and becomes a map of one; and it must stay a
+         * handful of aircraft, because a full track is an order of magnitude
+         * more geometry than a tail and two thousand of them is the frame
+         * budget gone.
+         * ---------------------------------------------------------------- */
+        {
+            const { buildPaths, __pathFeatures, setSelectedForTest, MAX_PATHS, PATH_POINTS }
+                = GlobalPlayback._internals;
+
+            setSelectedForTest(null);
+            selectVisible(busy, midT, view, true);
+            buildPlanes();
+            buildPaths(midT);
+            const watchOnly = __pathFeatures().length;
+            ok('a watchlist pilot gets their route drawn without being selected',
+                watchOnly > 0, 'nothing was drawn for the watchlist');
+
+            // 2,000 aircraft are drawn; only the few that were singled out may
+            // get a route. If this ever equalled the drawn count the cap had
+            // stopped working, and so had the frame budget.
+            ok('everyone else keeps the tail, and gets no route',
+                watchOnly <= MAX_PATHS && watchOnly < GlobalPlayback._internals.__planeFeatures().length,
+                `${watchOnly} routes drawn against a cap of ${MAX_PATHS}`);
+
+            setSelectedForTest('BUSY-7');
+            selectVisible(busy, midT, view, true);
+            buildPlanes();
+            buildPaths(midT);
+            const paths = __pathFeatures();
+            ok('selecting an aircraft adds its route to the watchlist\'s',
+                paths.length === watchOnly + 1);
+
+            const selected = paths.find(p => p.properties.selected);
+            ok('the selected route is marked, so it can be drawn heavier',
+                !!selected);
+
+            ok('a route is capped at its vertex budget',
+                paths.every(p => p.geometry.coordinates.length <= PATH_POINTS),
+                `longest route had ${Math.max(...paths.map(p => p.geometry.coordinates.length))} vertices`);
+
+            // The whole point: it is the route flown SO FAR. A route that ran
+            // to the end of the recording would show you where the aircraft
+            // was going before it got there.
+            const target = busy.find(f => f.flightId === 'BUSY-7');
+            const nowPos = positionAt(target, midT, GlobalPlayback._internals.makePosition());
+            const head = selected.geometry.coordinates[selected.geometry.coordinates.length - 1];
+            ok('the route ends at the aircraft, not at the end of the recording',
+                Math.abs(head[0] - nowPos.lon) < 1e-9 && Math.abs(head[1] - nowPos.lat) < 1e-9,
+                `route ends at ${head}, aircraft is at ${nowPos.lon},${nowPos.lat}`);
+
+            const lastRecordedLon = target.points[target.points.length - 1].lon;
+            ok('…and nothing on it is ahead of the clock',
+                selected.geometry.coordinates.every(c => c[0] <= nowPos.lon + 1e-9) &&
+                lastRecordedLon > nowPos.lon,
+                'the route ran past the current moment');
+
+            // Scrubbing back has to shorten it again — a route that only ever
+            // grew would be a smear left behind by the scrubber.
+            const earlyT = midT - 20 * 60000;
+            selectVisible(busy, earlyT, view, true);
+            buildPlanes();
+            buildPaths(earlyT);
+            const early = __pathFeatures().find(p => p.properties.selected);
+            ok('scrubbing back shortens the route instead of leaving a smear',
+                early.geometry.coordinates.length < selected.geometry.coordinates.length ||
+                early.geometry.coordinates[early.geometry.coordinates.length - 1][0] < head[0]);
+
+            setSelectedForTest(null);
+        }
+
+        /* ---------------------------------------------------------------- *
          * The filter rail
          * ----------------------------------------------------------------
          * The presets across the top decide what is on the map, so getting a
@@ -998,12 +1077,60 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
             setFiltersForTest(['all']);
         }
 
+        /* ---------------------------------------------------------------- *
+         * The same rail over the live map
+         * ----------------------------------------------------------------
+         * The live map cannot test a bitmask — Mapbox GL expressions have no
+         * bitwise operators — so the classes are also emitted as a delimited
+         * string and matched by containment. That is a second encoding of the
+         * same answer, and the two have to agree or tapping Cargo would mean
+         * one thing live and another in the replay.
+         * ---------------------------------------------------------------- */
+        {
+            const { classTags, presetFilterExpression, classifyFlight: liveClassify } =
+                await import(pathToFileURL(path.join(ROOT, 'trafficClasses.js')).href);
+
+            ok('live and replay read the same aircraft the same way',
+                liveClassify('Boeing 747-8F', 'GTI8103') ===
+                GlobalPlayback._internals.classifyFlight('Boeing 747-8F', 'GTI8103'));
+
+            const tags = classTags('Boeing 747-8F', 'GTI8103');
+            ok('the live tag string carries every class the mask does',
+                tags.includes(',cargo,') && tags.includes(',heavy,') && tags.includes(',airline,'),
+                `got ${tags}`);
+
+            // The delimiters are not decoration. Without them "ga" matches
+            // inside "cargo" and the GA preset quietly shows every freighter
+            // on the map.
+            ok('a short class id cannot match inside a longer one',
+                !classTags('Boeing 747-8F', 'GTI8103').includes(',ga,'),
+                `",ga," found in ${tags}`);
+
+            ok('an unfiltered rail produces no filter at all',
+                presetFilterExpression([]) === null &&
+                presetFilterExpression(['all']) === null &&
+                presetFilterExpression(['cargo', 'all']) === null);
+
+            const one = presetFilterExpression(['cargo']);
+            ok('one preset filters on containment of its own tag',
+                Array.isArray(one) && one[0] === 'in' && one[1] === ',cargo,');
+
+            const two = presetFilterExpression(['cargo', 'military']);
+            ok('two presets are a union on the live map too, not an intersection',
+                Array.isArray(two) && two[0] === 'any' && two.length === 3);
+
+            const mine = presetFilterExpression(['mine']);
+            ok('the watchlist preset filters live traffic on the pilot relation',
+                JSON.stringify(mine).includes('pilotRelation'));
+        }
+
         // ---- the crash test ----
         // Warm every pool, then measure the heap across a few hundred pushes.
         for (let i = 0; i < 60; i++) {
             selectVisible(busy, midT + i * 1000, view, true);
             buildPlanes();
             buildTrails(midT + i * 1000);
+            buildPaths(midT + i * 1000);
         }
         const warmPool = poolSizes().planePool;
 
@@ -1026,6 +1153,7 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
             selectVisible(busy, t, view, true);
             buildPlanes();
             buildTrails(t);
+            buildPaths(t);
         }
         console.log(GC_END);
 
@@ -1046,6 +1174,7 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
             selectVisible(busy, t, view, true);
             buildPlanes();
             buildTrails(t);
+            buildPaths(t);
         }
         ok('…and once settled, a further 1,000 pushes claim no new slots at all',
             poolSizes().planePool === settled,

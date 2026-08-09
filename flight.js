@@ -25,6 +25,9 @@ import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { GlobalPlayback } from './globalPlayback.js';
+// The preset traffic rail's vocabulary, shared with global playback so that
+// tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
+import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
@@ -1319,6 +1322,12 @@ let mapFilters = {
         airborneOnly: false,
         onGroundOnly: false,
         hasPlanOnly: false,
+        // The preset traffic rail above the map — Airlines, Heavies, Cargo,
+        // Business, GA, Military, Watchlist. An array of preset ids; empty (or
+        // containing 'all') means everything, so the rail can never leave the
+        // map empty with no way back. See trafficClasses.js for what each one
+        // means, and updateAircraftLayerFilter() for how it is applied.
+        trafficPresets: [],
         // Flight-window clock (open to everyone). userTimezone: '' = Zulu
         // (default), 'auto' = the device's zone, else an IANA id like
         // 'Europe/London' — read via getUserTimeZone(). use12hClock switches
@@ -1836,6 +1845,10 @@ window.getPilotRelation = function (username) {
             console.warn("Could not save filters locally.", e);
         }
     }
+
+    // Published for the mobile chrome's preset rail, which edits mapFilters
+    // from outside this module graph and must not leave the change unsaved.
+    window.saveMapFilters = (immediate) => saveFiltersToLocalStorage(immediate);
 
     // Best-effort flush of a pending cloud sync when the page is hidden or
     // unloaded, so a debounced edit isn't lost (and then resurrected from the
@@ -11466,6 +11479,14 @@ function updateAircraftLayerFilter() {
     const excl = mapFilters.tacticalExclude || {};
     const pushRule = (id, cond) => { if (cond) filter.push(excl[id] ? ['!', cond] : cond); };
 
+    // --- Preset traffic rail (the chips above the map) ---
+    // A union, not an intersection: Cargo + Military means both kinds on the
+    // map, which is what picking two chips looks like it should do. Handled
+    // whole by presetFilterExpression so the rail cannot drift from the one
+    // global playback draws.
+    const presetExpr = presetFilterExpression(mapFilters.trafficPresets);
+    if (presetExpr) filter.push(presetExpr);
+
     // --- Quick traffic toggles: airborne / on-ground / has-plan ---
     if (mapFilters.airborneOnly) filter.push(['!=', ['get', 'phase'], 'Ground']);
     if (mapFilters.onGroundOnly) filter.push(['==', ['get', 'phase'], 'Ground']);
@@ -11571,7 +11592,17 @@ function updateAircraftLayerFilter() {
     if (sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
         sectorOpsMap.setFilter(AIRCRAFT_LABEL_LAYER_ID, filter);
     }
+
+    // Every surface that shows filter state re-reads it here rather than each
+    // one guessing when the others might have changed it. The mobile preset
+    // rail listens for this, so Reset Filters on the tactical board clears the
+    // chips too instead of leaving them lit over unfiltered traffic.
+    try { window.dispatchEvent(new CustomEvent('mapFiltersChanged')); } catch (_) { /* no window */ }
 }
+// The mobile chrome's preset rail sets mapFilters.trafficPresets and needs the
+// map re-filtered without importing this module.
+window.updateAircraftLayerFilter = updateAircraftLayerFilter;
+window.TRAFFIC_PRESETS = TRAFFIC_PRESETS;
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -12606,6 +12637,11 @@ function handleSocketFlightUpdate(data) {
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
             category: getAircraftCategory(acName),
+            // Which preset classes this aircraft belongs to, as ',cargo,heavy,'.
+            // A string rather than a bitmask because Mapbox GL expressions have
+            // no bitwise operators but do have substring containment — see
+            // classTags() in trafficClasses.js.
+            __cls: classTags(acName, flight.callsign),
             heading: flight.position.heading_deg,
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,

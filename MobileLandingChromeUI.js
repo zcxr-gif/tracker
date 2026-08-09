@@ -102,17 +102,6 @@ export const MobileLandingChromeUI = {
                     <i class="fa-solid fa-images"></i>
                     <span class="ios-tab-label">Photos</span>
                 </button>
-                <button type="button" class="ios-tab" data-action="weather">
-                    <i class="fa-solid fa-cloud-sun-rain"></i>
-                    <span class="ios-tab-label">Weather</span>
-                </button>
-                <button type="button" class="ios-tab" data-action="atc">
-                    <span class="ios-tab-iconwrap">
-                        <i class="fa-solid fa-tower-broadcast"></i>
-                        <span class="ios-tab-badge is-atc" id="ios-tab-atc-dot">0</span>
-                    </span>
-                    <span class="ios-tab-label">ATC</span>
-                </button>
                 <button type="button" class="ios-tab" data-action="playback">
                     <i class="fa-solid fa-clock-rotate-left"></i>
                     <span class="ios-tab-label">Playback</span>
@@ -130,6 +119,37 @@ export const MobileLandingChromeUI = {
                 </button>
             </div>
         `;
+
+        /* --- Preset traffic rail ---------------------------------------
+           Seven tabs along the bottom was two too many, and none of them
+           answered the question people actually arrive with: show me the
+           cargo. The rail does, in one tap, from the top of the screen where
+           there is room for it — and it uses the same presets as the replay's
+           rail (trafficClasses.js), so the two agree. */
+        const trafficRail = document.createElement('div');
+        trafficRail.id = 'ios-traffic-rail';
+        trafficRail.className = 'ios-chrome';
+        trafficRail.setAttribute('data-theme', this.parent?._theme || 'dark');
+        trafficRail.innerHTML = `<div class="ios-rail-track" id="ios-rail-track"></div>`;
+
+        /* --- Map overlay bubbles (bottom right) ------------------------
+           Weather and ATC came out of the tab bar and became these. They are
+           map overlays rather than destinations — one toggles a layer, the
+           other opens a list of who is online right now — and a floating
+           control by the thumb says that better than a tab that looks like it
+           navigates somewhere. */
+        const bubbles = document.createElement('div');
+        bubbles.id = 'ios-map-bubbles';
+        bubbles.className = 'ios-chrome';
+        bubbles.setAttribute('data-theme', this.parent?._theme || 'dark');
+        bubbles.innerHTML = `
+            <button type="button" class="ios-bubble" data-bubble="weather" aria-label="Weather layers">
+                <i class="fa-solid fa-cloud-sun-rain"></i>
+            </button>
+            <button type="button" class="ios-bubble" data-bubble="atc" aria-label="Active ATC">
+                <i class="fa-solid fa-tower-broadcast"></i>
+                <span class="ios-bubble-badge" id="ios-tab-atc-dot">0</span>
+            </button>`;
 
         // --- Server bottom sheet ---
         const serverSheet = document.createElement('div');
@@ -222,6 +242,8 @@ export const MobileLandingChromeUI = {
         `;
 
         root.appendChild(topBar);
+        root.appendChild(trafficRail);
+        root.appendChild(bubbles);
         root.appendChild(bottomBar);
         mapHost.appendChild(serverSheet);
         mapHost.appendChild(weatherPop);
@@ -329,6 +351,27 @@ export const MobileLandingChromeUI = {
             this._handleTab(tab.dataset.action, tab);
         });
 
+        // --- Map overlay bubbles (bottom right) ---
+        document.getElementById('ios-map-bubbles')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-bubble]');
+            if (!btn) return;
+            window.InflightHaptics?.tap?.();
+            if (btn.dataset.bubble === 'weather') this._toggleWeatherSheet();
+            else if (btn.dataset.bubble === 'atc') this._openAtcSheet();
+        });
+
+        // --- Preset traffic rail (top) ---
+        this._renderTrafficRail();
+        document.getElementById('ios-traffic-rail')?.addEventListener('click', (e) => {
+            const chip = e.target.closest('[data-preset]');
+            if (!chip) return;
+            window.InflightHaptics?.select?.();
+            this._toggleTrafficPreset(chip.dataset.preset);
+        });
+        // The tactical board and the desktop rail write the same state, so the
+        // chips are re-read rather than assumed whenever filters change.
+        window.addEventListener('mapFiltersChanged', () => this._renderTrafficRail());
+
         // --- Server sheet selection ---
         serverSheet?.addEventListener('click', (e) => {
             if (e.target.closest('[data-dismiss="server"]')) {
@@ -357,6 +400,7 @@ export const MobileLandingChromeUI = {
                 row.classList.toggle('is-on', nowActive);
                 window.InflightHaptics?.select?.();
                 window.dispatchEvent(new CustomEvent('weatherToggle', { detail: { type, isActive: nowActive } }));
+                this._syncWeatherBubble();
             }
         });
 
@@ -533,6 +577,70 @@ export const MobileLandingChromeUI = {
         }
     },
 
+    /* ===========================================================
+       Preset traffic rail
+       =========================================================== */
+
+    // The presets come from flight.js (which owns trafficClasses.js) rather
+    // than being restated here, so a preset added there appears here without
+    // this file being touched. The fallback keeps the rail usable if the chrome
+    // renders before flight.js has finished booting.
+    _trafficPresets() {
+        return window.TRAFFIC_PRESETS || [
+            { id: 'all', label: 'All Traffic', icon: 'fa-earth-americas' }
+        ];
+    },
+
+    _activePresets() {
+        const ids = window.mapFilters?.trafficPresets;
+        return Array.isArray(ids) && ids.length ? ids : ['all'];
+    },
+
+    // Built once, then only the on/off classes are touched. Rebuilding the
+    // markup on every tap would reset the rail's horizontal scroll — tap
+    // Military, which is off the right-hand edge, and the rail would jump back
+    // to All Traffic and take your chip with it.
+    _renderTrafficRail() {
+        const track = document.getElementById('ios-rail-track');
+        if (!track) return;
+
+        if (!track.firstElementChild) {
+            track.innerHTML = this._trafficPresets().map(p => `
+                <button type="button" class="ios-rail-chip" data-preset="${p.id}" aria-pressed="false">
+                    <i class="fa-solid ${p.icon}"></i><span>${p.label}</span>
+                </button>`).join('');
+        }
+
+        const active = this._activePresets();
+        const isAll = active.includes('all');
+        track.querySelectorAll('.ios-rail-chip').forEach(chip => {
+            const on = chip.dataset.preset === 'all' ? isAll : active.includes(chip.dataset.preset);
+            chip.classList.toggle('is-on', on);
+            chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    },
+
+    _toggleTrafficPreset(id) {
+        const filters = window.mapFilters;
+        if (!filters) return;
+        const active = new Set(this._activePresets());
+
+        if (id === 'all') {
+            active.clear();
+        } else {
+            active.delete('all');
+            if (active.has(id)) active.delete(id);
+            else active.add(id);
+        }
+        // Turning the last chip off is a request to see everything again, not a
+        // request for an empty map.
+        filters.trafficPresets = [...active];
+
+        this._renderTrafficRail();
+        try { window.updateAircraftLayerFilter?.(); } catch (_) { /* map not up yet */ }
+        try { window.saveMapFilters?.(); } catch (_) { /* not signed in */ }
+    },
+
     _setActiveTab(btn) {
         document.querySelectorAll('#ios-landing-tabbar .ios-tab').forEach(t => t.classList.remove('is-pressed'));
         btn?.classList.add('is-pressed');
@@ -611,6 +719,15 @@ export const MobileLandingChromeUI = {
         const count = this._atcFacilitiesLive().length;
         dot.textContent = count > 99 ? '99+' : String(count);
         dot.classList.toggle('is-on', count > 0);
+    },
+
+    // The weather bubble lights when any overlay is on, so the map having rain
+    // on it is legible without opening the popover to check.
+    _syncWeatherBubble() {
+        const bubble = document.querySelector('#ios-map-bubbles [data-bubble="weather"]');
+        if (!bubble) return;
+        const anyOn = !!document.querySelector('#ios-weather-pop .ios-popover-row.is-on');
+        bubble.classList.toggle('is-on', anyOn);
     },
     _openAtcSheet(view) {
         const sheet = document.getElementById('ios-atc-sheet');
@@ -2178,7 +2295,6 @@ export const MobileLandingChromeUI = {
             }
 
             /* The ATC tab badge is an online-count, not an alert — tint it accent. */
-            .ios-tab-badge.is-atc { background: var(--ios-accent); box-shadow: 0 1px 3px rgba(10, 132, 255, 0.4); }
 
             /* Narrow phones: tighten the position columns so the board still fits. */
             @media (max-width: 430px) {
@@ -2187,6 +2303,132 @@ export const MobileLandingChromeUI = {
                 .ios-atc-cols { gap: 5px; }
                 .ios-atc-col { min-width: 26px; font-size: 9.5px; letter-spacing: 0.3px; }
                 .ios-atc-tower i { font-size: 13px; }
+            }
+
+            /* ============ PRESET TRAFFIC RAIL ============
+               Directly under the search bar, scrolling sideways. It answers
+               the question people arrive with — "show me the cargo" — in one
+               tap, from the half of the screen that had room for it. */
+            #ios-traffic-rail {
+                position: fixed;
+                top: calc(env(safe-area-inset-top, 0px) + 58px);
+                left: 0; right: 0;
+                z-index: 1499;
+                pointer-events: none;
+                transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.16,1,0.3,1);
+            }
+            .ios-rail-track {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                padding: 2px 10px;
+                overflow-x: auto;
+                overflow-y: hidden;
+                pointer-events: auto;
+                scrollbar-width: none;
+                -webkit-overflow-scrolling: touch;
+                /* Chips run off the right edge rather than stopping dead, so it
+                   is obvious there are more of them. */
+                -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+                mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+            }
+            .ios-rail-track::-webkit-scrollbar { display: none; }
+            .ios-rail-chip {
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                height: 32px;
+                padding: 0 12px;
+                border-radius: 999px;
+                border: 0.5px solid var(--ios-stroke);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                box-shadow: var(--ios-shadow);
+                color: var(--ios-text-2);
+                font-family: inherit;
+                font-size: 12.5px;
+                font-weight: 600;
+                letter-spacing: -0.2px;
+                white-space: nowrap;
+                cursor: pointer;
+                transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+            }
+            .ios-rail-chip i { font-size: 11px; opacity: 0.8; }
+            .ios-rail-chip:active { transform: scale(0.95); }
+            .ios-rail-chip.is-on {
+                background: var(--ios-text);
+                border-color: transparent;
+                color: var(--ios-bg-deep, #0b0b0d);
+            }
+            .ios-rail-chip.is-on i { opacity: 1; }
+            /* Searching is a different job — the rail steps aside for it rather
+               than sitting under a dropdown of results. */
+            .mobile-search-active #ios-traffic-rail {
+                opacity: 0;
+                transform: translateY(-8px);
+                pointer-events: none;
+            }
+
+            /* ============ MAP OVERLAY BUBBLES ============
+               Weather and ATC, lifted out of a seven-slot tab bar. They toggle
+               a layer and open a live list — map controls, not destinations —
+               so they float by the thumb instead of competing for a tab. */
+            #ios-map-bubbles {
+                position: fixed;
+                right: 10px;
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 76px);
+                z-index: 1499;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                pointer-events: none;
+                transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.16,1,0.3,1);
+            }
+            .ios-bubble {
+                position: relative;
+                width: 46px;
+                height: 46px;
+                border-radius: 50%;
+                display: grid;
+                place-items: center;
+                border: 0.5px solid var(--ios-stroke);
+                background: var(--ios-bg);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                box-shadow: var(--ios-shadow);
+                color: var(--ios-text);
+                font-size: 17px;
+                cursor: pointer;
+                pointer-events: auto;
+                transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+            }
+            .ios-bubble:active { transform: scale(0.92); }
+            .ios-bubble.is-on {
+                background: var(--ios-accent);
+                border-color: transparent;
+                color: #fff;
+            }
+            .ios-bubble-badge {
+                position: absolute;
+                top: -2px; right: -2px;
+                min-width: 18px; height: 18px;
+                padding: 0 5px;
+                border-radius: 999px;
+                display: grid; place-items: center;
+                background: var(--ios-accent);
+                color: #fff;
+                font-size: 10px; font-weight: 700;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+                opacity: 0; transform: scale(0.6);
+                transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16,1,0.3,1);
+            }
+            .ios-bubble-badge.is-on { opacity: 1; transform: scale(1); }
+            .mobile-search-active #ios-map-bubbles {
+                opacity: 0;
+                transform: translateY(8px);
+                pointer-events: none;
             }
 
             /* ============ WEATHER POPOVER ============ */
@@ -2206,11 +2448,15 @@ export const MobileLandingChromeUI = {
             }
             .ios-popover-card {
                 position: absolute;
+                /* Anchored to the weather bubble it now opens from, rather
+                   than centred over a tab that no longer exists. */
+                right: 10px;
                 left: 12px;
-                right: 12px;
-                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 72px);
+                /* Clear of the whole bubble column, not just the tab bar, so
+                   the control it opened from stays visible under it. */
+                bottom: calc(max(env(safe-area-inset-bottom, 0px), 4px) + 190px);
                 max-width: 340px;
-                margin: 0 auto;
+                margin-left: auto;
                 padding: 6px;
                 background: var(--ios-bg-deep);
                 -webkit-backdrop-filter: var(--ios-blur);
@@ -2219,7 +2465,7 @@ export const MobileLandingChromeUI = {
                 border-radius: 20px;
                 box-shadow: var(--ios-inner-hi), var(--ios-shadow);
                 transform: translateY(12px) scale(0.96);
-                transform-origin: bottom center;
+                transform-origin: bottom right;
                 opacity: 0;
                 transition:
                     transform 0.32s cubic-bezier(0.16,1,0.3,1),
