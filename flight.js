@@ -24,6 +24,11 @@ import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
+import { GlobalPlayback } from './globalPlayback.js';
+// The preset traffic rail's vocabulary, shared with global playback so that
+// tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
+import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
+import { PreferenceSync } from './preferenceSync.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
@@ -42,6 +47,11 @@ console.log(
 const supabaseUrl = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Carries a Pro pilot's settings between their devices. Starts itself and does
+// nothing at all for a free account; see preferenceSync.js for the allowlist of
+// what may travel (and the list of what must never).
+PreferenceSync.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
@@ -175,11 +185,62 @@ function getIconEdgeMode() {
     return (window.mapFilters && window.mapFilters.iconEdgeMode) || 'sharp';
 }
 
+// Which artwork the aircraft icons come from.
+// 'shapes'  -> the vendored top-view planforms (aircraftShapes.js) — the default
+// 'vector'  -> hand-authored parametric shapes (aircraftIcons.js)
+// 'classic' -> markers.png alone, the original sheet
+//
+// The sheet is 1024×512 for about sixty aircraft, which puts a B737 at 32×32
+// physical pixels while declaring it 128 logical pixels wide — so on a retina
+// phone every plane on the map is a 2× upscale of a small bitmap. Both other
+// sets are vectors and have no fixed resolution to run out of.
+//
+// Note that 'shapes' does not replace the sheet, it layers over it: only the
+// sixteen categories _resolveAircraftCategory() can return get a planform, and
+// the sheet still supplies the airport markers and everything else.
+function getIconSet() {
+    return (window.mapFilters && window.mapFilters.iconSet) || 'shapes';
+}
+
 async function loadSpriteSheetAndGenerateIcons(map) {
     const spriteUrl = './markers.png';
 
     const USE_SDF = true;
     const SHARP_EDGES = getIconEdgeMode() === 'sharp';
+
+    const iconSet = getIconSet();
+    const makeSdf = (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d'));
+    const yieldFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Both vector sets register under the same `icon-<KEY>` ids the sheet uses
+    // and run BEFORE it. The sheet's own loader guards every addImage with
+    // hasImage(), so whatever a vector set already claimed is left alone and
+    // the sheet quietly supplies the rest — the airport markers above all,
+    // which no aircraft set has. A failure in either one is therefore not
+    // fatal: the sheet fills the gap.
+    if (iconSet === 'shapes') {
+        try {
+            const { registerAircraftShapeIcons } = await import('./aircraftShapes.js');
+            await registerAircraftShapeIcons(map, {
+                toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame,
+                // The spread buildSdfImageData adds on every side, so the
+                // shape loader can keep all its variants the same size.
+                sdfPadding: SDF_RADIUS
+            });
+        } catch (e) {
+            console.warn('[icons] Aircraft shape set failed, falling back to markers.png:', e);
+        }
+    } else if (iconSet === 'vector') {
+        try {
+            const { registerVectorAircraftIcons } = await import('./aircraftIcons.js');
+            await registerVectorAircraftIcons(map, Object.keys(spriteUVs), {
+                toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame
+            });
+            return;
+        } catch (e) {
+            console.warn('[icons] Vector icon set failed, falling back to markers.png:', e);
+        }
+    }
 
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -1221,6 +1282,7 @@ let mapFilters = {
         // 'legacy' -> the previous behaviour (raw sprite handed to Mapbox with
         //             sdf:true), kept switchable for side-by-side comparison
         iconEdgeMode: 'sharp',
+        iconSet: 'shapes',
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -1266,6 +1328,12 @@ let mapFilters = {
         airborneOnly: false,
         onGroundOnly: false,
         hasPlanOnly: false,
+        // The preset traffic rail above the map — Airlines, Heavies, Cargo,
+        // Business, GA, Military, Watchlist. An array of preset ids; empty (or
+        // containing 'all') means everything, so the rail can never leave the
+        // map empty with no way back. See trafficClasses.js for what each one
+        // means, and updateAircraftLayerFilter() for how it is applied.
+        trafficPresets: [],
         // Flight-window clock (open to everyone). userTimezone: '' = Zulu
         // (default), 'auto' = the device's zone, else an IANA id like
         // 'Europe/London' — read via getUserTimeZone(). use12hClock switches
@@ -1642,6 +1710,14 @@ function applyAircraftLayerStyles() {
         sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
         sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', colorExpr);
     }
+
+    // Anything else drawing traffic on this map — global playback, today —
+    // needs to restyle at the same moment. Without this a replay keeps the
+    // palette it opened with, and changing the colour setting mid-replay looks
+    // like the setting is broken rather than like the replay is stale.
+    try {
+        window.dispatchEvent(new CustomEvent('aircraftStylesChanged'));
+    } catch (_) { /* no CustomEvent in this context */ }
 }
 
 // Drop every registered aircraft sprite and rebuild it. Needed when the icon
@@ -1662,6 +1738,10 @@ async function reloadAircraftIcons() {
         if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'icon-image', '');
     });
 
+    // Both sets register under the same ids, so switching between them is a
+    // straight rebuild — the same path the sharp/legacy edge toggle already
+    // took. Without dropping the old images first the loader's hasImage()
+    // guards would keep serving whichever set registered first.
     Object.keys(spriteUVs).forEach(key => {
         [`icon-${key}`, `icon-${key}-nat`].forEach(id => {
             if (sectorOpsMap.hasImage(id)) {
@@ -1675,6 +1755,39 @@ async function reloadAircraftIcons() {
 }
 window.reloadAircraftIcons = reloadAircraftIcons;
 window.applyAircraftLayerStyles = applyAircraftLayerStyles;
+
+// How aircraft are painted, published so anything else drawing traffic on this
+// map paints it the same way.
+//
+// Global playback used to colour its aircraft by altitude, which meant a pilot
+// who had chosen Blue — or paid for a custom colour — watched a replay in
+// somebody else's palette. These are the live map's own expressions, so the
+// replay inherits the colour mode, the custom colour, and the user/watchlist
+// highlights without any of it being restated (and going stale) elsewhere.
+window.getPremiumColorExpression = getPremiumColorExpression;
+window.getTintedIconImageExpression = getTintedIconImageExpression;
+window.getNaturalIconImageExpression = getNaturalIconImageExpression;
+window.aircraftTintsAll = tintsAllAircraft;
+
+/**
+ * Which colour band a recorded pilot falls into: 'user', 'watchlist' or 'none'.
+ *
+ * The live map stamps this onto each feature as it arrives (refreshPilotRelations);
+ * a replay has to work it out from a username recorded days ago, so the lookup
+ * is published rather than the tagging.
+ */
+window.getPilotRelation = function (username) {
+    if (!username) return 'none';
+    try {
+        const name = String(username).toLowerCase();
+        const profile = (typeof ProfileUI !== 'undefined') ? ProfileUI : null;
+        const myIfName = profile?._currentUser?.user_metadata?.if_username?.toLowerCase() || null;
+        if (myIfName && name === myIfName) return 'user';
+        const watchlist = profile?._watchlist || [];
+        if (watchlist.some(w => w?.watched_username?.toLowerCase() === name)) return 'watchlist';
+    } catch (_) { /* signed out */ }
+    return 'none';
+};
 
 // --- PREMIUM CLOUD SYNC ENGINE ---
     let cloudSyncTimeout = null;
@@ -1738,6 +1851,10 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
             console.warn("Could not save filters locally.", e);
         }
     }
+
+    // Published for the mobile chrome's preset rail, which edits mapFilters
+    // from outside this module graph and must not leave the change unsaved.
+    window.saveMapFilters = (immediate) => saveFiltersToLocalStorage(immediate);
 
     // Best-effort flush of a pending cloud sync when the page is hidden or
     // unloaded, so a debounced edit isn't lost (and then resurrected from the
@@ -1822,63 +1939,203 @@ window.applyAircraftLayerStyles = applyAircraftLayerStyles;
     // logo: Pro users keep seeing the Pro mark, everyone else gets the neutral
     // one instead of being flashed Pro branding they haven't paid for.
     const PRO_STATUS_STORAGE_KEY = 'inflight_is_pro';
+    const PRO_DETAIL_STORAGE_KEY = 'inflight_pro_detail';
     window.InflightUser = window.InflightUser || { isPro: false, loaded: false };
     window.isInflightPro = function () {
         return !!(window.InflightUser && window.InflightUser.isPro);
     };
 
-    function persistProStatus(isPro) {
+    /**
+     * Why this account is (or is not) Pro, for the surfaces that need to say
+     * more than yes/no — the billing card's "Access ends 3 March", the dunning
+     * banner, the upgrade prompt that should not appear for a grandfathered
+     * pilot. `{ isPro, source, status, until, cancelAtPeriodEnd }`, where
+     * source is one of: subscription | grace | profile | legacy | expired |
+     * free | signed-out | unknown.
+     */
+    window.getProEntitlement = function () {
+        return (window.InflightUser && window.InflightUser.entitlement) || { isPro: false, source: 'unknown' };
+    };
+
+    function persistProStatus(isPro, entitlement) {
         try {
             localStorage.setItem(PRO_STATUS_STORAGE_KEY, isPro ? 'true' : 'false');
+            if (entitlement) localStorage.setItem(PRO_DETAIL_STORAGE_KEY, JSON.stringify(entitlement));
         } catch (_) { /* storage unavailable; splash will fall back to non-pro */ }
     }
 
+    function applyEntitlement(entitlement) {
+        const isPro = !!entitlement.isPro;
+        window.InflightUser = { isPro, loaded: true, entitlement };
+        persistProStatus(isPro, entitlement);
+        announceEntitlementChange(entitlement);
+        window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro, entitlement } }));
+        return isPro;
+    }
+
+    // An account that has quietly stopped being Pro is a support ticket. Say it
+    // once — the moment the state is first seen — rather than letting the pilot
+    // discover it by finding a feature greyed out.
+    //
+    // Keyed on the state itself, so a re-check that reports the same thing is
+    // silent: refreshProStatus() runs on sign-in, on tab focus and after any
+    // billing action, and a banner on each of those would be nagging.
+    let lastAnnouncedEntitlement = null;
+    function announceEntitlementChange(entitlement) {
+        const key = `${entitlement.source}:${entitlement.until || ''}`;
+        if (key === lastAnnouncedEntitlement) return;
+        const first = lastAnnouncedEntitlement === null;
+        lastAnnouncedEntitlement = key;
+
+        const notify = (msg, type) => {
+            try {
+                if (typeof window.showGlobalNotification === 'function') {
+                    window.showGlobalNotification(msg, type);
+                }
+            } catch (_) { /* notifications not up yet */ }
+        };
+
+        if (entitlement.source === 'grace') {
+            // Stripe is still retrying the card. Pro is still on; this is the
+            // window in which the pilot can fix it without losing anything.
+            notify('Your last Pro payment did not go through. Update your card in Billing to keep Pro.', 'error');
+            return;
+        }
+        // Only worth saying when it happens to a session that was already
+        // running. On a cold load into an expired account the billing screen
+        // says it better than a toast that appears during the splash.
+        if (entitlement.source === 'expired' && !first) {
+            notify('Your Pro subscription has ended. Pro features are locked until you resubscribe.', 'info');
+        }
+    }
+
+    /**
+     * Resolve the Pro entitlement.
+     *
+     * This used to read "a signed-in account is Pro UNLESS we explicitly
+     * stamped it free", which is backwards in a way that mattered: an account
+     * nobody stamped — a sign-up predating the stamp, an invite, any path that
+     * forgot — was Pro forever, and cancelling could not take it away.
+     * stripe-webhook's revokePro() had to write user_metadata.is_pro = false
+     * purely to work around it, which only ever reached accounts that went
+     * through Stripe. So a cancelled subscription did not reliably lock the app.
+     *
+     * The answer now comes from one place, public.pro_entitlement() (see
+     * supabase/sql/entitlement-and-preferences.sql): a live subscription, a
+     * subscription still in Stripe's retry window, a manual grant, or the
+     * grandfather flag — and an ENDED subscription outranks profiles.is_pro, so
+     * a missed webhook cannot leave an account unlocked.
+     *
+     * Nobody who had Pro when that file was run loses it: the accounts running
+     * on the old rule were stamped legacy_pro on the way past.
+     */
     async function refreshProStatus() {
+        let user = null;
         try {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const user = sessionData?.session?.user;
-            const userId = user?.id;
-            if (!userId) {
-                window.InflightUser = { isPro: false, loaded: true };
-                persistProStatus(false);
-                return false;
+            const { data } = await supabase.auth.getSession();
+            user = data?.session?.user || null;
+        } catch (_) { /* treated as signed out below */ }
+
+        if (!user?.id) {
+            return applyEntitlement({ isPro: false, source: 'signed-out' });
+        }
+
+        try {
+            const { data, error } = await supabase.rpc('pro_entitlement');
+            if (error) throw error;
+            const row = Array.isArray(data) ? data[0] : data;
+            if (row && typeof row.is_pro === 'boolean') {
+                return applyEntitlement({
+                    isPro: row.is_pro,
+                    source: row.source || 'unknown',
+                    status: row.status || null,
+                    until: row.until || null,
+                    cancelAtPeriodEnd: row.cancel_at_period_end === true
+                });
             }
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('is_pro')
-                .eq('id', userId)
-                .single();
+            throw new Error('pro_entitlement returned nothing');
+        } catch (e) {
+            // The function is not installed yet, or the network dropped. Fall
+            // back to reading the tables directly and applying the same order,
+            // so this ships safely before the SQL is run.
+            console.warn('[Pro] pro_entitlement() unavailable, falling back:', e.message || e);
+            return refreshProStatusFallback(user);
+        }
+    }
 
-            // Entitlement rule (reliable): a signed-in account is Pro UNLESS it
-            // is explicitly a free account. `profiles.is_pro` is only trusted
-            // when it's an explicit true (it often stays null/false even for
-            // paying pilots), and a free account is only the one we stamped
-            // `user_metadata.is_pro === false` at free sign-up. Everything else
-            // that's signed in is a legacy/paid Pro account.
-            const metaFree = user?.user_metadata?.is_pro === false;
-            const isPro = (profile && profile.is_pro === true) ? true : !metaFree;
+    /**
+     * The same rule, evaluated client-side against the two tables.
+     *
+     * Used when the RPC is missing. It is a fallback, not a second opinion:
+     * where the two could disagree the server wins, because this one can be
+     * lied to by anything that can PATCH the tables — which is precisely why
+     * is_pro and legacy_pro are server-write-only.
+     */
+    async function refreshProStatusFallback(user) {
+        try {
+            // legacy_pro may not exist yet; ask for it, and retry without it
+            // rather than treating a missing column as "not entitled".
+            let profile = null;
+            let res = await supabase.from('profiles')
+                .select('is_pro, legacy_pro').eq('id', user.id).maybeSingle();
+            if (res.error) {
+                res = await supabase.from('profiles')
+                    .select('is_pro').eq('id', user.id).maybeSingle();
+            }
+            profile = res.data || null;
 
-            window.InflightUser = { isPro, loaded: true };
-            persistProStatus(isPro);
-            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro } }));
-            return isPro;
+            const { data: sub } = await supabase
+                .from('subscriptions')
+                .select('status, current_period_end, cancel_at_period_end')
+                .eq('user_id', user.id)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            const legacy = profile?.legacy_pro === true;
+            const detail = {
+                status: sub?.status || null,
+                until: sub?.current_period_end || null,
+                cancelAtPeriodEnd: sub?.cancel_at_period_end === true
+            };
+
+            if (sub) {
+                const endMs = sub.current_period_end ? Date.parse(sub.current_period_end) : null;
+                const withinPeriod = !endMs || endMs > Date.now();
+                // 'canceled' counts while the paid period is still running: the
+                // webhook writes that status as soon as the pilot cancels, not
+                // when their month actually runs out, and they paid for the
+                // rest of it. A cancelled row with no period end has nothing
+                // left to honour, so it is not covered.
+                const paidThrough = sub.status === 'canceled' && endMs && endMs > Date.now();
+                if (((sub.status === 'active' || sub.status === 'trialing') && withinPeriod) || paidThrough) {
+                    return applyEntitlement({ isPro: true, source: 'subscription', ...detail });
+                }
+                // Stripe retries a failed card for about a fortnight; pulling
+                // the app mid-retry punishes a payment that is about to land.
+                const GRACE_MS = 14 * 24 * 60 * 60 * 1000;
+                if (sub.status === 'past_due' && (!endMs || endMs > Date.now() - GRACE_MS)) {
+                    return applyEntitlement({ isPro: true, source: 'grace', ...detail });
+                }
+                if (legacy) return applyEntitlement({ isPro: true, source: 'legacy', ...detail });
+                return applyEntitlement({ isPro: false, source: 'expired', ...detail });
+            }
+
+            if (profile?.is_pro === true) return applyEntitlement({ isPro: true, source: 'profile', ...detail });
+            if (legacy) return applyEntitlement({ isPro: true, source: 'legacy', ...detail });
+            return applyEntitlement({ isPro: false, source: 'free', ...detail });
         } catch (e) {
             console.warn('[Pro] status refresh failed:', e);
-            // On failure, don't lock out a signed-in pilot — default to Pro if a
-            // session exists and it isn't a stamped free account; not-Pro if
-            // signed out or we can't confirm a session.
-            let signedIn = false, metaFree = false;
+            // Offline, or Supabase is down. Neither locking nor unlocking is
+            // right here, so hold the last confirmed answer rather than
+            // inventing one: a paying pilot on a train keeps their app, and a
+            // free account gains nothing it did not already have.
+            let last = false, detail = null;
             try {
-                const { data } = await supabase.auth.getSession();
-                const u = data?.session?.user;
-                signedIn = !!u;
-                metaFree = u?.user_metadata?.is_pro === false;
-            } catch (_) {}
-            const fallback = signedIn && !metaFree;
-            window.InflightUser = { isPro: fallback, loaded: true };
-            persistProStatus(fallback);
-            window.dispatchEvent(new CustomEvent('proStatusChanged', { detail: { isPro: fallback } }));
-            return fallback;
+                last = localStorage.getItem(PRO_STATUS_STORAGE_KEY) === 'true';
+                detail = JSON.parse(localStorage.getItem(PRO_DETAIL_STORAGE_KEY) || 'null');
+            } catch (_) { /* storage unavailable */ }
+            return applyEntitlement(detail || { isPro: last, source: 'unknown' });
         }
     }
     window.refreshProStatus = refreshProStatus;
@@ -11368,6 +11625,14 @@ function updateAircraftLayerFilter() {
     const excl = mapFilters.tacticalExclude || {};
     const pushRule = (id, cond) => { if (cond) filter.push(excl[id] ? ['!', cond] : cond); };
 
+    // --- Preset traffic rail (the chips above the map) ---
+    // A union, not an intersection: Cargo + Military means both kinds on the
+    // map, which is what picking two chips looks like it should do. Handled
+    // whole by presetFilterExpression so the rail cannot drift from the one
+    // global playback draws.
+    const presetExpr = presetFilterExpression(mapFilters.trafficPresets);
+    if (presetExpr) filter.push(presetExpr);
+
     // --- Quick traffic toggles: airborne / on-ground / has-plan ---
     if (mapFilters.airborneOnly) filter.push(['!=', ['get', 'phase'], 'Ground']);
     if (mapFilters.onGroundOnly) filter.push(['==', ['get', 'phase'], 'Ground']);
@@ -11473,7 +11738,17 @@ function updateAircraftLayerFilter() {
     if (sectorOpsMap.getLayer(AIRCRAFT_LABEL_LAYER_ID)) {
         sectorOpsMap.setFilter(AIRCRAFT_LABEL_LAYER_ID, filter);
     }
+
+    // Every surface that shows filter state re-reads it here rather than each
+    // one guessing when the others might have changed it. The mobile preset
+    // rail listens for this, so Reset Filters on the tactical board clears the
+    // chips too instead of leaving them lit over unfiltered traffic.
+    try { window.dispatchEvent(new CustomEvent('mapFiltersChanged')); } catch (_) { /* no window */ }
 }
+// The mobile chrome's preset rail sets mapFilters.trafficPresets and needs the
+// map re-filtered without importing this module.
+window.updateAircraftLayerFilter = updateAircraftLayerFilter;
+window.TRAFFIC_PRESETS = TRAFFIC_PRESETS;
 
     /**
      * --- [RENAMED & MODIFIED] Updates the main toolbar buttons to show if any layers are active.
@@ -12508,6 +12783,11 @@ function handleSocketFlightUpdate(data) {
             departureIcao: flight.departureIcao || null, // Map new backend field
             userId: flight.userId,
             category: getAircraftCategory(acName),
+            // Which preset classes this aircraft belongs to, as ',cargo,heavy,'.
+            // A string rather than a bitmask because Mapbox GL expressions have
+            // no bitwise operators but do have substring containment — see
+            // classTags() in trafficClasses.js.
+            __cls: classTags(acName, flight.callsign),
             heading: flight.position.heading_deg,
             isStaff: flight.isStaff,
             isVAMember: flight.isVAMember,
@@ -15700,6 +15980,84 @@ function updateTrafficLegendUI() {
     `;
 }
 
+
+    /* =========================================================================
+     * GLOBAL PLAYBACK
+     *
+     * The other two replays each have a subject — one aircraft, one
+     * controller's airspace. This one's subject is the map: pick a moment and
+     * watch the whole server fly it again. Free accounts reach back a day, Pro
+     * reaches back a fortnight; the tier is settled server-side, so nothing
+     * here decides it.
+     *
+     * Opened by the `openGlobalPlayback` event so the desktop orb and the
+     * mobile tab bar can both reach it without either one importing this
+     * module.
+     * ========================================================================= */
+    let globalPlaybackChromeToRestore = null;
+
+    async function launchGlobalPlayback() {
+        if (typeof GlobalPlayback === 'undefined') return;
+        if (GlobalPlayback.isOpen()) { GlobalPlayback.close(); return; }
+        if (!sectorOpsMap) {
+            showNotification?.('The map is still loading — try again in a moment.', 'error');
+            return;
+        }
+
+        const isMobile = !!(window.MobileUIHandler && window.MobileUIHandler.isMobile());
+
+        // The same chrome-clearing the ATC replay does, for the same reason:
+        // the transport panel docks to the bottom of the map and competes with
+        // every floating window for that space.
+        const uiToToggle = [];
+        if (isMobile) {
+            try { window.MobileUIHandler.closeActiveWindow(true); } catch (_) { /* nothing open */ }
+        } else {
+            const remember = (el) => {
+                if (el && el.classList && el.classList.contains('visible')) {
+                    uiToToggle.push(el);
+                    el.classList.remove('visible');
+                }
+            };
+            remember(document.getElementById('airport-info-window'));
+            remember(document.getElementById('aircraft-info-window'));
+            remember(document.getElementById('sector-ops-floating-panel'));
+            remember(document.getElementById('weather-settings-window'));
+            remember(document.getElementById('filter-settings-window'));
+        }
+
+        // The live 3D dot field is a separate THREE custom layer from the flat
+        // sector-ops icons the playback hides, so it would keep drawing live
+        // contacts over a historical picture. Suppress it without touching the
+        // saved preference and put it back on close.
+        const wasLive3D = (typeof LiveTraffic3D !== 'undefined') && LiveTraffic3D.isVisible();
+        if (wasLive3D) { try { LiveTraffic3D.setVisible(false); } catch (_) {} }
+
+        globalPlaybackChromeToRestore = { uiToToggle, wasLive3D };
+
+        // Scope the replay to the server the map is showing. Without it a
+        // window mixes Expert, Training and Casual traffic onto one map, which
+        // is not a picture of anything that ever happened.
+        let playbackSessionId = null;
+        try { playbackSessionId = await getValidSessionId(); } catch (_) { /* all servers */ }
+        if (playbackSessionId === 'default') playbackSessionId = null;
+
+        GlobalPlayback.open({
+            map: sectorOpsMap,
+            apiBase: ACARS_SOCKET_URL,
+            sessionId: playbackSessionId,
+            serverName: (typeof currentServerName !== 'undefined') ? currentServerName : '',
+            onClose: () => {
+                const state = globalPlaybackChromeToRestore;
+                globalPlaybackChromeToRestore = null;
+                if (!state) return;
+                if (state.wasLive3D) { try { LiveTraffic3D.setVisible(true); } catch (_) {} }
+                state.uiToToggle.forEach(el => { if (el && el.classList) el.classList.add('visible'); });
+            }
+        });
+    }
+
+    window.addEventListener('openGlobalPlayback', () => { launchGlobalPlayback(); });
 
     // Launch the ATC session replay for a recorded controller session. Mirrors
     // the flight-replay launch flow: get the competing chrome out of the way so
@@ -20049,6 +20407,31 @@ const AtcBoardUI = {
                                 <label for="icon-color-orange"><i class="fa-solid fa-plane" style="color: #ff9900;"></i> Orange</label>
                             </li>
                         </ul>
+
+                        <div class="filter-section-divider">
+                            <span class="filter-section-title">Aircraft Icon Set</span>
+                        </div>
+
+                        <ul class="filter-toggle-list" id="icon-set-filter-group" style="padding-top: 8px;">
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-set-shapes" name="icon-set" value="shapes">
+                                <label for="icon-set-shapes"><i class="fa-solid fa-plane-up"></i> Detailed (real planforms)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-set-vector" name="icon-set" value="vector">
+                                <label for="icon-set-vector"><i class="fa-solid fa-vector-square"></i> Simple (drawn shapes)</label>
+                            </li>
+                            <li class="filter-radio-item">
+                                <input type="radio" id="icon-set-classic" name="icon-set" value="classic">
+                                <label for="icon-set-classic"><i class="fa-solid fa-image"></i> Classic (sprite sheet)</label>
+                            </li>
+                        </ul>
+                        <p style="padding: 0 10px 4px; margin: 0; color: #8b93a7; font-size: 0.78rem; line-height: 1.4;">
+                            The classic sheet stores each aircraft at 32&ndash;60 pixels, so on a high-density
+                            screen every plane is drawn larger than it was painted. Detailed uses true
+                            top-view planforms redrawn at your screen's resolution &mdash; an A380 and a
+                            Cessna are different aircraft, not the same one at two sizes.
+                        </p>
 
                         <div class="filter-section-divider">
                             <span class="filter-section-title">Aircraft Icon Edges</span>
@@ -26058,6 +26441,8 @@ if (flatMapToggle) {
         const colorRadio = document.querySelector(`input[name="icon-color-mode"][value="${mapFilters.iconColorMode}"]`);
         if (colorRadio) colorRadio.checked = true;
 
+        const setRadio = document.querySelector(`input[name="icon-set"][value="${mapFilters.iconSet || 'shapes'}"]`);
+        if (setRadio) setRadio.checked = true;
         const edgeRadio = document.querySelector(`input[name="icon-edge-mode"][value="${mapFilters.iconEdgeMode || 'sharp'}"]`);
         if (edgeRadio) edgeRadio.checked = true;
 
@@ -26221,6 +26606,10 @@ if (flatMapToggle) {
             saveFiltersToLocalStorage();
             // The sharp/legacy choice is baked in when each sprite is registered,
             // so the whole icon set has to be rebuilt, not just restyled.
+            reloadAircraftIcons();
+        } else if (target.name === 'icon-set') {
+            mapFilters.iconSet = target.value;
+            saveFiltersToLocalStorage();
             reloadAircraftIcons();
         } else if (target.name === 'mobile-display-mode') {
             const val = target.value;

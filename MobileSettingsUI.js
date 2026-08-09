@@ -399,6 +399,18 @@ export const MobileSettingsUI = {
                                 <button class="m-setting-pill" data-setting="iconColorMode" data-value="orange">Orange</button>
                             </div>
 
+                            <div class="mobile-section-header">Icon Set</div>
+                            <div class="settings-mobile-grid">
+                                <button class="m-setting-pill" data-setting="iconSet" data-value="shapes">Detailed</button>
+                                <button class="m-setting-pill" data-setting="iconSet" data-value="vector">Simple</button>
+                                <button class="m-setting-pill" data-setting="iconSet" data-value="classic">Classic</button>
+                            </div>
+                            <div class="m-setting-hint">
+                                The classic sheet stores each aircraft at 32–60 pixels, so on this screen
+                                every plane is drawn larger than it was painted. Detailed uses true
+                                top-view planforms redrawn at your screen's resolution.
+                            </div>
+
                             <div class="mobile-section-header">Icon Edges</div>
                             <div class="settings-mobile-grid">
                                 <button class="m-setting-pill" data-setting="iconEdgeMode" data-value="sharp">Sharp</button>
@@ -1838,6 +1850,16 @@ export const MobileSettingsUI = {
         });
 
         // Tactical pill rows (category / phase).
+        // Choice pills (icon set, icon edges, …). These were never synced on
+        // open, so a sheet always showed its defaults highlighted whatever the
+        // saved setting was. Pills whose setting is not a plain mapFilters key
+        // — the flight/airport window modes — own their own state and are left
+        // alone.
+        root.querySelectorAll('.m-setting-pill[data-setting]').forEach(pill => {
+            const key = pill.dataset.setting;
+            if (filters[key] === undefined) return;
+            pill.classList.toggle('active', pill.dataset.value === String(filters[key]));
+        });
         root.querySelectorAll('.m-tac-pill').forEach(pill => {
             pill.addEventListener('click', () => {
                 window.InflightHaptics?.select?.();
@@ -2260,7 +2282,7 @@ export const MobileSettingsUI = {
                 if (window.updateMapFilters) window.updateMapFilters();
                 // Sharp vs legacy edges is baked into each sprite when it's
                 // registered, so the icon set has to be rebuilt, not restyled.
-                if (setting === 'iconEdgeMode' && window.reloadAircraftIcons) {
+                if ((setting === 'iconEdgeMode' || setting === 'iconSet') && window.reloadAircraftIcons) {
                     window.reloadAircraftIcons();
                 }
             });
