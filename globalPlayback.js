@@ -127,6 +127,11 @@ const PUSH_DUTY_CYCLE = 0.4;
 // capped. Below this the stepping is plainly visible, so there is no point
 // degrading further; something else has to give instead.
 const MAX_PUSH_INTERVAL_MS = 80;
+// How long to wait for Mapbox to take in the previous push before giving up on
+// the answer and pushing anyway. This is not a rate — a healthy source comes
+// back in a few milliseconds — it is the guard that stops a source which never
+// reports itself loaded from freezing the replay entirely.
+const MAX_ABSORB_WAIT_MS = 1000;
 // Trails are rebuilt on every push, with the planes.
 //
 // They used to run on their own slower cadence, on the reasoning that nobody
@@ -233,6 +238,16 @@ export const GlobalPlayback = (() => {
     let lastPlanePush = 0;
     let frameCostEMA = 3;                // ms, exponential moving average
     let pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
+    // What the *worker* costs, which is not the same thing and is the number
+    // that actually bounds the rate — see the back-pressure note in
+    // renderFrame. Seeded at the target so the first few frames are paced
+    // rather than fired off blind.
+    let absorbCostEMA = TARGET_PUSH_INTERVAL_MS;
+    let pushIssuedAt = 0;
+    let awaitingAbsorb = false;
+    // Whether the gate actually had to turn a frame away for the outstanding
+    // push, which is what separates a slow worker from an idle gap.
+    let blockedOnAbsorb = false;
     let onMoveStart = null, onMove = null, onMoveEnd = null;
     let onVisibilityChange = null;
     let wasPlayingWhenHidden = false;
@@ -2055,6 +2070,49 @@ export const GlobalPlayback = (() => {
 
         if (!force && now - lastPlanePush < pushIntervalMs) return;
 
+        // Back-pressure, and the reason a zoomed-out window used to kill the
+        // tab.
+        //
+        // pushIntervalMs is derived from frameCostEMA, and frameCostEMA times
+        // the main thread only: building the features, and the structured
+        // clone setData does on the way out. The expensive half is not on this
+        // thread at all — Mapbox re-indexes the source and re-runs symbol
+        // layout for every tile in view, in a worker — so the main thread sees
+        // a ~2ms push and happily issues thirty a second.
+        //
+        // Zoomed in that is fine; culling leaves a handful of features and the
+        // worker keeps pace. Zoomed out the drawn set is at its cap and each
+        // push is a few thousand features spread over the whole globe, which
+        // the worker cannot absorb thirty times a second. Nothing here waited
+        // for it, so the queue grew until the tab died — and it only ever died
+        // zoomed out, which is exactly what it looked like from outside.
+        //
+        // So the previous push has to be taken in before the next one is
+        // handed over. This needs no tuning and is self-adapting: it measures
+        // the constraint instead of a proxy for it.
+        if (!force) {
+            if (awaitingAbsorb) {
+                const waited = now - pushIssuedAt;
+                // A source that never reports itself loaded — a style swap
+                // mid-flight, an older gl-js — must not freeze the replay, so
+                // the wait has a ceiling. Reaching it is a fault, not a rate.
+                if (!sourcesAbsorbed() && waited < MAX_ABSORB_WAIT_MS) {
+                    blockedOnAbsorb = true;
+                    return;
+                }
+                awaitingAbsorb = false;
+                // Only time we actually had to wait for counts. If the source
+                // was already loaded the first time we looked, `waited` is
+                // mostly the gap between frames — idle, not work — and folding
+                // that in would throttle a worker that is keeping up perfectly
+                // well. All we learned is that it cost less than the gap, so
+                // let the average fall instead of inventing a number for it.
+                if (blockedOnAbsorb) absorbCostEMA = absorbCostEMA * 0.85 + waited * 0.15;
+                else absorbCostEMA *= 0.85;
+                blockedOnAbsorb = false;
+            }
+        }
+
         const began = now;
         refreshCullBounds();
         refreshThinGrid();
@@ -2086,6 +2144,8 @@ export const GlobalPlayback = (() => {
         } catch (_) { /* same */ }
 
         lastPlanePush = began;
+        pushIssuedAt = began;
+        awaitingAbsorb = true;
 
         // Measured across both pushes, since they land on the same main thread.
         const cost = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - began;
@@ -2106,8 +2166,27 @@ export const GlobalPlayback = (() => {
      * where even the capped set is too much — an old phone, a busy tab — and
      * the honest answer is a lower rate rather than a stalled one.
      */
+    // Has Mapbox finished taking in the last push? Only the two sources that
+    // carry per-frame volume are asked about; the paths source is a couple of
+    // dozen features on a good day and never the thing holding anyone up.
+    function sourcesAbsorbed() {
+        if (!map || typeof map.isSourceLoaded !== 'function') return true;
+        try {
+            if (!map.isSourceLoaded(SRC_PLANES)) return false;
+            if (showTrails && map.getSource(SRC_TRAILS) && !map.isSourceLoaded(SRC_TRAILS)) return false;
+            return true;
+        } catch (_) {
+            // Mid style-swap the source can be gone. Nothing to wait for.
+            return true;
+        }
+    }
+
     function adaptPushInterval() {
-        const affordable = frameCostEMA / PUSH_DUTY_CYCLE;
+        // Whichever side is the binding constraint. The main thread has a duty
+        // cycle because it is shared with everything else the page does; the
+        // worker's absorb time is a round trip we already waited out, so it
+        // counts at face value.
+        const affordable = Math.max(frameCostEMA / PUSH_DUTY_CYCLE, absorbCostEMA);
         const want = Math.max(TARGET_PUSH_INTERVAL_MS, Math.min(MAX_PUSH_INTERVAL_MS, affordable));
         // Ease toward the new interval so one expensive frame — a style change,
         // a GC pause — doesn't visibly change the cadence on its own.
@@ -3054,6 +3133,13 @@ export const GlobalPlayback = (() => {
         lastPlanePush = 0;
         frameCostEMA = 3;
         pushIntervalMs = TARGET_PUSH_INTERVAL_MS;
+        absorbCostEMA = TARGET_PUSH_INTERVAL_MS;
+        pushIssuedAt = 0;
+        // Nothing is outstanding once the layers are gone, and a stale flag
+        // here would make the next window wait a second for a push that was
+        // never issued.
+        awaitingAbsorb = false;
+        blockedOnAbsorb = false;
         airborneCount = 0;
         drawnCount = 0;
     }
