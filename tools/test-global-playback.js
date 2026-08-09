@@ -758,6 +758,68 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
     }
 
     /* ---------------------------------------------------------------- *
+     * Back-pressure: never hand Mapbox more than it has taken in
+     * ---------------------------------------------------------------- *
+     * The push rate used to be governed by frameCostEMA, which times the
+     * main thread only — building the features and the structured clone on
+     * the way out. The expensive half of setData is in a worker, re-indexing
+     * the source and re-running symbol layout, and nothing waited for it.
+     *
+     * Zoomed in that is harmless: culling leaves a handful of features and
+     * the worker keeps pace. Zoomed out the drawn set is at its cap, each
+     * push is thousands of features across the whole globe, and the main
+     * thread — seeing a two-millisecond push — kept issuing thirty a second
+     * into a worker that could not take them. The queue grew until the tab
+     * died, and only ever zoomed out, which is how it was reported.
+     *
+     * So the invariant is depth, not rate: exactly one push may be in flight.
+     * A slow worker must cost frames, never queue them.
+     */
+    {
+        const { __setMapForTest, renderFrame } = GlobalPlayback._internals;
+
+        // A worker that needs `absorbMs` to take in whatever it was handed,
+        // reporting itself unloaded until then — the signal gl-js gives.
+        async function drive(absorbMs, forMs) {
+            let busyUntil = 0, inFlight = 0, deepest = 0, pushes = 0;
+            __setMapForTest({
+                getBounds: () => ({
+                    getNorth: () => 85, getSouth: () => -85,
+                    getWest: () => -180, getEast: () => 180
+                }),
+                getCanvas: () => ({ clientWidth: 1440, clientHeight: 900, style: {} }),
+                getSource: () => ({ setData() {
+                    pushes++; inFlight++;
+                    if (inFlight > deepest) deepest = inFlight;
+                    busyUntil = Date.now() + absorbMs;
+                    setTimeout(() => { inFlight--; }, absorbMs);
+                } }),
+                isSourceLoaded: () => Date.now() >= busyUntil,
+                on() {}, off() {}
+            });
+
+            const began = Date.now();
+            while (Date.now() - began < forMs) {
+                renderFrame();                       // unforced, as tick() does
+                await new Promise(r => setTimeout(r, 16));
+            }
+            __setMapForTest(null);
+            // Three sources go out per frame, so depth is counted in frames.
+            return { deepestFrames: Math.ceil(deepest / 3), pushes };
+        }
+
+        const slow = await drive(150, 900);
+        ok('a worker that cannot keep up costs frames, it does not queue them',
+            slow.deepestFrames <= 1,
+            `deepest backlog ${slow.deepestFrames} frame(s) against a 150ms absorb`);
+
+        const fast = await drive(2, 500);
+        ok('and a worker that keeps up is not slowed down by the check',
+            fast.pushes >= 24,
+            `${Math.round(fast.pushes / 3)} frames in 500ms with a 2ms absorb`);
+    }
+
+    /* ---------------------------------------------------------------- *
      * Drawing: bounded work, stable choices, and no garbage
      * ---------------------------------------------------------------- *
      * These are the two faults that made the first cut unwatchable, and
