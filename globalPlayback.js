@@ -1066,7 +1066,10 @@ export const GlobalPlayback = (() => {
         ['==', ['get', 'pilotRelation'], 'watchlist'],
         ['boolean', ['get', 'selected'], false]
     ];
-    const SELECTED_COLOR = '#ffa62b';
+    // The chrome's accent, so the ring on the map, the route drawn from it and
+    // the card's top edge are all obviously the same "this is the one you
+    // picked". Distinct from both relation colours below.
+    const SELECTED_COLOR = '#38bdf8';
 
     function relationColors() {
         const f = window.mapFilters || {};
@@ -2205,9 +2208,11 @@ export const GlobalPlayback = (() => {
         pickerEl.innerHTML = `
             <div class="gpb-picker-backdrop" data-gpb="dismiss"></div>
             <div class="gpb-picker-card" role="dialog" aria-label="Global playback">
+                <div class="gpb-picker-grip" aria-hidden="true"></div>
                 <button type="button" class="gpb-picker-close" data-gpb="dismiss" aria-label="Close">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
+                <div class="gpb-picker-body">
                 <div class="gpb-picker-head">
                     <span class="gpb-eyebrow">Global Playback</span>
                     <h2 class="gpb-title">Rewind the map</h2>
@@ -2252,20 +2257,27 @@ export const GlobalPlayback = (() => {
                         `).join('')}
                     </div>
                 </div>
+                </div>
 
-                ${tier === 'free' ? `
-                    <button type="button" class="gpb-upsell" data-gpb="upgrade">
-                        <i class="fa-solid fa-crown"></i>
-                        <span>
-                            <b>Go back two weeks with Inflight Pro</b>
-                            Free playback covers the last 24 hours.
-                        </span>
-                        <i class="fa-solid fa-chevron-right"></i>
-                    </button>` : ''}
+                <!-- Pinned, not scrolled with the fields above it. On a phone
+                     the offset chips alone are taller than the viewport, and a
+                     "Start playback" button you have to scroll to find is the
+                     one control in here that must never be off screen. -->
+                <div class="gpb-picker-foot">
+                    ${tier === 'free' ? `
+                        <button type="button" class="gpb-upsell" data-gpb="upgrade">
+                            <i class="fa-solid fa-crown"></i>
+                            <span>
+                                <b>Go back two weeks with Inflight Pro</b>
+                                Free playback covers the last 24 hours.
+                            </span>
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>` : ''}
 
-                <button type="button" class="gpb-go" data-gpb="go">
-                    <i class="fa-solid fa-play"></i> Start playback
-                </button>
+                    <button type="button" class="gpb-go" data-gpb="go">
+                        <i class="fa-solid fa-play"></i> Start playback
+                    </button>
+                </div>
             </div>`;
 
         document.body.appendChild(pickerEl);
@@ -3147,34 +3159,56 @@ export const GlobalPlayback = (() => {
         /* =====================================================================
          * Replay mode — palette
          * =====================================================================
-         * Deliberately warm. The map underneath is ocean and land, the aircraft
-         * are amber, and a cool grey-blue chrome sat on top of that reading as
-         * a fourth unrelated colour is what this replaces. Everything here is
-         * one family: near-black warmed towards brown, warm off-white type, and
-         * a single amber-to-ember accent that means "this is on".
+         * The app's own, not one of its own invention. Every other surface in
+         * the tracker — the info windows, the mobile island, atcReplay's panel —
+         * is neutral dark glass with sky-blue as the "this is on" colour and
+         * gold reserved for Pro, and the replay used to be the one screen that
+         * wasn't. The values below are the same ones :root and the iOS chrome
+         * publish (--bg-glass, --color-brand, --text-secondary, the 8/12/16
+         * radii); they are restated as --gpb-* rather than consumed directly so
+         * the chrome still renders standalone in tools/gpb-chrome-harness.html,
+         * where flight.js's :root is not on the page.
          *
          * The one thing not drawn from this palette is the altitude ramp on the
          * trails. That is data, not chrome, and it is shared with flightReplay
          * and atcReplay so a track reads the same in all three.
          * ------------------------------------------------------------------ */
         .gpb-ui, .gpb-picker, #global-playback-loading, .gpb-popup {
-            --gpb-ink:      #100d0a;
-            --gpb-shell:    rgba(26,21,17,0.92);
-            --gpb-shell-2:  rgba(46,37,29,0.66);
-            --gpb-raise:    rgba(255,232,205,0.055);
-            --gpb-raise-2:  rgba(255,232,205,0.10);
-            --gpb-line:     rgba(255,226,190,0.13);
-            --gpb-line-2:   rgba(255,226,190,0.26);
-            --gpb-text:     #f8f0e5;
-            --gpb-dim:      #b8a795;
-            --gpb-faint:    #8a7c6d;
-            --gpb-amber:    #ffa62b;
-            --gpb-ember:    #ff6a3d;
-            --gpb-gold:     #ffd28a;
-            --gpb-red:      #ff7a6b;
-            --gpb-blur:     blur(18px) saturate(1.25);
-            --gpb-lift:     0 18px 44px rgba(0,0,0,0.55), 0 2px 0 rgba(255,232,205,0.05) inset;
-            font-family: inherit;
+            --gpb-shell:      rgba(24,26,32,0.94);
+            --gpb-shell-2:    rgba(38,41,48,0.72);
+            --gpb-raise:      rgba(255,255,255,0.06);
+            --gpb-raise-2:    rgba(255,255,255,0.12);
+            --gpb-line:       rgba(255,255,255,0.10);
+            --gpb-line-2:     rgba(255,255,255,0.20);
+            --gpb-text:       #fafafa;
+            --gpb-dim:        #a1a1aa;
+            --gpb-faint:      #71717a;
+            /* Sky is the brand accent (--color-brand), indigo the far end of
+               the same gradient atcReplay draws its frequency bars in. */
+            --gpb-accent:     #38bdf8;
+            --gpb-accent-2:   #6366f1;
+            --gpb-on-accent:  #0b1220;
+            --gpb-accent-soft: rgba(56,189,248,0.12);
+            --gpb-accent-line: rgba(56,189,248,0.32);
+            --gpb-glow:       rgba(56,189,248,0.28);
+            /* Gold means Pro here and everywhere else (.res-pro-badge). */
+            --gpb-gold:       #fbbf24;
+            --gpb-gold-soft:  rgba(251,191,36,0.12);
+            --gpb-gold-line:  rgba(251,191,36,0.32);
+            --gpb-red:        #ef4444;
+            --gpb-blur:       saturate(180%) blur(24px);
+            --gpb-lift:       0 18px 44px rgba(0,0,0,0.5), inset 0 0.5px 0 rgba(255,255,255,0.10);
+            --gpb-r-sm:       8px;
+            --gpb-r-md:       12px;
+            --gpb-r-lg:       16px;
+            font-family: var(--font-ui, 'Inter', system-ui, -apple-system, sans-serif);
+        }
+        /* The clock, the counts and the timings are readings, so they are set
+           in the app's data face like every other readout in the tracker. */
+        .gpb-zulu, .gpb-meter-val, .gpb-times, .gpb-card-call,
+        .gpb-card-stat span, .gpb-card-trackrow, .gpb-speed, .gpb-hint,
+        .gpb-pop-nums, .gpb-fchip-count {
+            font-family: var(--font-data, 'JetBrains Mono', ui-monospace, monospace);
         }
 
         /* =====================================================================
@@ -3209,7 +3243,7 @@ export const GlobalPlayback = (() => {
             -webkit-font-smoothing: antialiased;
         }
         .gpb-ui button { font-family: inherit; }
-        .gpb-ui :focus-visible { outline: 2px solid var(--gpb-amber); outline-offset: 2px; }
+        .gpb-ui :focus-visible { outline: 2px solid var(--gpb-accent); outline-offset: 2px; }
 
         /* =====================================================================
          * Filter rail — the top edge
@@ -3257,9 +3291,9 @@ export const GlobalPlayback = (() => {
         .gpb-fchip:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
         .gpb-fchip:active { transform: scale(0.96); }
         .gpb-fchip.on {
-            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember));
-            border-color: transparent; color: #241305; font-weight: 750;
-            box-shadow: 0 8px 22px rgba(255,106,61,0.32);
+            background: linear-gradient(135deg, var(--gpb-accent), var(--gpb-accent-2));
+            border-color: transparent; color: var(--gpb-on-accent); font-weight: 750;
+            box-shadow: 0 8px 22px var(--gpb-glow);
         }
         .gpb-fchip.on i { opacity: 1; }
         .gpb-fchip.empty:not(.on) { color: var(--gpb-faint); opacity: .55; }
@@ -3268,7 +3302,7 @@ export const GlobalPlayback = (() => {
             padding: 1px 6px; border-radius: 999px;
             background: var(--gpb-raise-2); color: var(--gpb-faint);
         }
-        .gpb-fchip.on .gpb-fchip-count { background: rgba(36,19,5,0.22); color: #3a1e08; }
+        .gpb-fchip.on .gpb-fchip-count { background: rgba(11,18,32,0.22); color: var(--gpb-on-accent); }
 
         /* =====================================================================
          * Bubbles — overlays, bottom right (and the two pinned to the rail)
@@ -3293,12 +3327,12 @@ export const GlobalPlayback = (() => {
         .gpb-bubble:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
         .gpb-bubble:active { transform: scale(0.93); }
         .gpb-bubble.on {
-            background: linear-gradient(140deg, var(--gpb-amber), var(--gpb-ember));
-            border-color: transparent; color: #241305;
-            box-shadow: 0 10px 26px rgba(255,106,61,0.34);
+            background: linear-gradient(140deg, var(--gpb-accent), var(--gpb-accent-2));
+            border-color: transparent; color: var(--gpb-on-accent);
+            box-shadow: 0 10px 26px var(--gpb-glow);
         }
         .gpb-bubble-sm { width: 36px; height: 36px; font-size: 13px; }
-        .gpb-quit:hover { color: var(--gpb-red); border-color: rgba(255,122,107,0.45); }
+        .gpb-quit:hover { color: var(--gpb-red); border-color: rgba(239,68,68,0.45); }
 
         /* The label rides out of the bubble on hover, so a pointer user gets a
            name without three permanent captions cluttering the corner and a
@@ -3322,7 +3356,7 @@ export const GlobalPlayback = (() => {
             width: 100%; box-sizing: border-box;
             padding: 15px 16px 14px;
             display: flex; flex-direction: column; gap: 13px;
-            border-radius: 22px;
+            border-radius: 18px;
             background: var(--gpb-shell);
             -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
             border: 1px solid var(--gpb-line);
@@ -3344,15 +3378,15 @@ export const GlobalPlayback = (() => {
         .gpb-tag {
             flex: 0 0 auto;
             padding: 4px 9px; border-radius: 999px;
-            background: rgba(255,166,43,0.13); border: 1px solid rgba(255,166,43,0.28);
-            color: var(--gpb-gold); font-size: 10.5px; font-weight: 750;
+            background: var(--gpb-accent-soft); border: 1px solid var(--gpb-accent-line);
+            color: var(--gpb-accent); font-size: 10.5px; font-weight: 750;
             letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
         }
 
         .gpb-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .gpb-meter {
             display: flex; flex-direction: column; gap: 2px;
-            padding: 8px 10px; border-radius: 12px;
+            padding: 8px 10px; border-radius: var(--gpb-r-md);
             background: var(--gpb-raise); border: 1px solid var(--gpb-line);
         }
         .gpb-meter-val {
@@ -3370,16 +3404,16 @@ export const GlobalPlayback = (() => {
         .gpb-play {
             flex: 0 0 auto; width: 50px; height: 50px; border-radius: 50%;
             display: grid; place-items: center; cursor: pointer; border: none;
-            background: linear-gradient(140deg, var(--gpb-amber), var(--gpb-ember));
-            color: #24140a; font-size: 17px;
-            box-shadow: 0 10px 26px rgba(255,106,61,0.36);
+            background: linear-gradient(140deg, var(--gpb-accent), var(--gpb-accent-2));
+            color: var(--gpb-on-accent); font-size: 17px;
+            box-shadow: 0 10px 26px var(--gpb-glow);
             transition: transform .16s ease, box-shadow .16s ease;
         }
         .gpb-play:hover { transform: scale(1.05); }
         .gpb-play:active { transform: scale(0.95); }
         /* Sitting still is the state worth marking: a paused replay looks like
            a broken one otherwise. */
-        .gpb-play.playing { box-shadow: 0 10px 26px rgba(255,106,61,0.22); }
+        .gpb-play.playing { box-shadow: 0 10px 26px rgba(56,189,248,0.18); }
         .gpb-play i { margin-left: 1px; }
         .gpb-play.playing i { margin-left: 0; }
 
@@ -3388,19 +3422,19 @@ export const GlobalPlayback = (() => {
             -webkit-appearance: none; appearance: none;
             width: 100%; height: 6px; border-radius: 999px; cursor: pointer;
             background: linear-gradient(90deg,
-                var(--gpb-amber) 0%,
-                var(--gpb-ember) var(--gpb-progress, 0%),
-                rgba(255,226,190,0.15) var(--gpb-progress, 0%));
+                var(--gpb-accent) 0%,
+                var(--gpb-accent-2) var(--gpb-progress, 0%),
+                rgba(255,255,255,0.15) var(--gpb-progress, 0%));
         }
         .gpb-range::-webkit-slider-thumb {
             -webkit-appearance: none; appearance: none;
             width: 16px; height: 16px; border-radius: 50%;
-            background: #fff4e6; border: 2px solid var(--gpb-ember);
+            background: #fff; border: 2px solid var(--gpb-accent);
             box-shadow: 0 2px 8px rgba(0,0,0,0.55); cursor: grab;
         }
         .gpb-range::-moz-range-thumb {
             width: 14px; height: 14px; border-radius: 50%;
-            background: #fff4e6; border: 2px solid var(--gpb-ember);
+            background: #fff; border: 2px solid var(--gpb-accent);
             box-shadow: 0 2px 8px rgba(0,0,0,0.55); cursor: grab;
         }
         .gpb-range::-moz-range-track { background: transparent; height: 6px; }
@@ -3413,19 +3447,19 @@ export const GlobalPlayback = (() => {
         /* One segmented control rather than five loose buttons: the speeds are
            a single choice and they should look like one. */
         .gpb-speeds {
-            display: flex; gap: 3px; padding: 3px; border-radius: 13px;
+            display: flex; gap: 3px; padding: 3px; border-radius: var(--gpb-r-md);
             background: var(--gpb-raise); border: 1px solid var(--gpb-line);
         }
         .gpb-speed {
-            flex: 1 1 0; min-width: 0; padding: 7px 0; border: none; border-radius: 10px;
+            flex: 1 1 0; min-width: 0; padding: 7px 0; border: none; border-radius: var(--gpb-r-sm);
             background: transparent; color: var(--gpb-faint); cursor: pointer;
             font-size: 11.5px; font-weight: 750; font-variant-numeric: tabular-nums;
             transition: background .15s ease, color .15s ease;
         }
         .gpb-speed:hover { color: var(--gpb-text); background: var(--gpb-raise-2); }
         .gpb-speed.on {
-            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember));
-            color: #24140a;
+            background: linear-gradient(135deg, var(--gpb-accent), var(--gpb-accent-2));
+            color: var(--gpb-on-accent);
         }
 
         .gpb-legend { display: flex; align-items: center; gap: 8px; }
@@ -3460,6 +3494,7 @@ export const GlobalPlayback = (() => {
             display: flex; flex-direction: column; justify-content: flex-end;
             gap: 10px;
             max-height: calc(100vh - 96px);
+            max-height: calc(100dvh - 96px);
             pointer-events: none;
         }
         .gpb-left > * { pointer-events: auto; }
@@ -3467,17 +3502,17 @@ export const GlobalPlayback = (() => {
         .gpb-card-host.open { pointer-events: auto; }
         .gpb-card {
             padding: 14px 15px 13px;
-            border-radius: 20px;
+            border-radius: 18px;
             background: var(--gpb-shell);
             -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
             border: 1px solid var(--gpb-line);
             box-shadow: var(--gpb-lift);
             display: flex; flex-direction: column; gap: 11px;
             /* The accent is the aircraft's own colour: your orange, a friend's
-               violet, or the selection amber — the same colour its route is
+               violet, or the selection sky — the same colour its route is
                drawn in, so the card and the line on the map are obviously the
                same aircraft. */
-            border-top: 2px solid var(--gpb-card-accent, var(--gpb-amber));
+            border-top: 2px solid var(--gpb-card-accent, var(--gpb-accent));
         }
         .gpb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
         .gpb-card-id { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
@@ -3488,29 +3523,29 @@ export const GlobalPlayback = (() => {
         .gpb-card-badge {
             font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
             padding: 3px 7px; border-radius: 999px;
-            color: var(--gpb-card-accent, var(--gpb-amber));
-            background: color-mix(in srgb, var(--gpb-card-accent, #ffa62b) 16%, transparent);
-            border: 1px solid color-mix(in srgb, var(--gpb-card-accent, #ffa62b) 40%, transparent);
+            color: var(--gpb-card-accent, var(--gpb-accent));
+            background: color-mix(in srgb, var(--gpb-card-accent, #38bdf8) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--gpb-card-accent, #38bdf8) 40%, transparent);
         }
         .gpb-card-head-btns { display: flex; gap: 6px; flex: 0 0 auto; }
         .gpb-card-btn {
-            width: 30px; height: 30px; border-radius: 9px; cursor: pointer;
+            width: 30px; height: 30px; border-radius: var(--gpb-r-sm); cursor: pointer;
             display: grid; place-items: center; font-size: 12px;
             background: var(--gpb-raise); border: 1px solid var(--gpb-line); color: var(--gpb-dim);
             transition: color .15s ease, background .15s ease, border-color .15s ease;
         }
         .gpb-card-btn:hover { color: var(--gpb-text); border-color: var(--gpb-line-2); }
         .gpb-card-btn.on {
-            background: var(--gpb-card-accent, var(--gpb-amber)); border-color: transparent; color: #24140a;
+            background: var(--gpb-card-accent, var(--gpb-accent)); border-color: transparent; color: var(--gpb-on-accent);
         }
         .gpb-card-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: -4px; }
-        .gpb-card-pilot { font-size: 12px; font-weight: 700; color: var(--gpb-card-accent, var(--gpb-gold)); }
+        .gpb-card-pilot { font-size: 12px; font-weight: 700; color: var(--gpb-card-accent, var(--gpb-accent)); }
         .gpb-card-type { font-size: 12px; color: var(--gpb-faint); }
 
         .gpb-card-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
         .gpb-card-stat {
             display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
-            padding: 7px 8px; border-radius: 11px;
+            padding: 7px 8px; border-radius: var(--gpb-r-md);
             background: var(--gpb-raise); border: 1px solid var(--gpb-line);
         }
         .gpb-card-stat span {
@@ -3527,11 +3562,11 @@ export const GlobalPlayback = (() => {
         .gpb-card-track { display: flex; flex-direction: column; gap: 5px; }
         .gpb-card-trackbar {
             height: 3px; border-radius: 999px; overflow: hidden;
-            background: rgba(255,226,190,0.13);
+            background: rgba(255,255,255,0.13);
         }
         .gpb-card-trackbar span {
             display: block; height: 100%; width: 0%;
-            background: var(--gpb-card-accent, var(--gpb-amber));
+            background: var(--gpb-card-accent, var(--gpb-accent));
             transition: width .12s linear;
         }
         .gpb-card-trackrow {
@@ -3545,13 +3580,13 @@ export const GlobalPlayback = (() => {
          * ===================================================================== */
         .gpb-popup .mapboxgl-popup-content {
             background: var(--gpb-shell); -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
-            border: 1px solid var(--gpb-line); border-radius: 14px;
+            border: 1px solid var(--gpb-line); border-radius: var(--gpb-r-md);
             padding: 10px 13px; color: var(--gpb-text); font-size: 12px;
             box-shadow: var(--gpb-lift);
         }
         .gpb-popup .mapboxgl-popup-tip { display: none; }
         .gpb-pop-call { font-size: 14.5px; font-weight: 800; letter-spacing: -0.01em; color: var(--gpb-text); }
-        .gpb-pop-user { font-size: 11px; font-weight: 650; color: var(--gpb-gold); margin-top: 1px; }
+        .gpb-pop-user { font-size: 11px; font-weight: 650; color: var(--gpb-accent); margin-top: 1px; }
         .gpb-pop-type { font-size: 11px; color: var(--gpb-faint); margin-top: 1px; }
         .gpb-pop-nums {
             display: flex; gap: 10px; margin-top: 6px;
@@ -3564,31 +3599,58 @@ export const GlobalPlayback = (() => {
         .gpb-picker { position: fixed; inset: 0; z-index: 4200; display: flex; align-items: center; justify-content: center; }
         .gpb-picker-backdrop {
             position: absolute; inset: 0;
-            background: radial-gradient(120% 90% at 50% 0%, rgba(60,32,12,0.55), rgba(10,8,6,0.86));
+            background: rgba(8,10,14,0.72);
             -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
         }
+        /* A column of three: a grip (phones only), one scrolling region, and a
+           footer that stays put. The card itself never scrolls — sizing the
+           scroll to the card rather than the card to its contents is what keeps
+           the whole thing inside the viewport at any height. */
         .gpb-picker-card {
             position: relative; width: min(560px, calc(100vw - 32px));
-            max-height: calc(100vh - 48px); overflow-y: auto;
-            background: linear-gradient(180deg, #221a14 0%, #14100c 100%);
-            border: 1px solid var(--gpb-line); border-radius: 24px;
-            padding: 28px 26px 22px; color: var(--gpb-text);
-            box-shadow: 0 34px 90px rgba(0,0,0,0.66);
+            display: flex; flex-direction: column;
+            max-height: calc(100vh - 48px);
+            /* dvh, so the mobile URL bar counts against the height it actually
+               leaves rather than the height the page wishes it had. */
+            max-height: min(calc(100dvh - 48px), 780px);
+            overflow: hidden;
+            background: var(--gpb-shell);
+            -webkit-backdrop-filter: var(--gpb-blur); backdrop-filter: var(--gpb-blur);
+            border: 1px solid var(--gpb-line); border-radius: var(--gpb-r-lg);
+            color: var(--gpb-text);
+            box-shadow: 0 34px 90px rgba(0,0,0,0.6), inset 0 0.5px 0 rgba(255,255,255,0.10);
             /* The datetime field opens a browser-drawn calendar. Without this
                it opens white, on a card that is not. */
             color-scheme: dark;
         }
+        .gpb-picker-body {
+            flex: 1 1 auto; min-height: 0;
+            overflow-y: auto; overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            padding: 26px 26px 6px;
+        }
+        .gpb-picker-foot {
+            flex: 0 0 auto;
+            display: flex; flex-direction: column; gap: 12px;
+            padding: 14px 26px calc(18px + env(safe-area-inset-bottom, 0px));
+            border-top: 1px solid var(--gpb-line);
+            background: var(--gpb-shell-2);
+        }
+        /* Only a sheet has something to grab. */
+        .gpb-picker-grip { display: none; }
         .gpb-picker-close {
-            position: absolute; top: 15px; right: 15px; width: 34px; height: 34px;
+            position: absolute; top: 14px; right: 14px; width: 34px; height: 34px;
+            z-index: 1;
             border: 1px solid var(--gpb-line); border-radius: 50%; cursor: pointer;
             background: var(--gpb-raise); color: var(--gpb-dim); font-size: 14px;
             display: grid; place-items: center;
         }
-        .gpb-picker-close:hover { color: var(--gpb-red); border-color: rgba(255,122,107,0.4); }
+        .gpb-picker-close:hover { color: var(--gpb-red); border-color: rgba(239,68,68,0.4); }
         .gpb-eyebrow {
             font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
-            color: var(--gpb-amber); font-weight: 800;
+            color: var(--gpb-accent); font-weight: 800;
         }
+        .gpb-picker-head { padding-right: 42px; }
         .gpb-title { margin: 8px 0 5px; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; color: var(--gpb-text); }
         .gpb-sub { margin: 0 0 14px; font-size: 13px; color: var(--gpb-dim); line-height: 1.55; }
         .gpb-sub b { color: var(--gpb-text); }
@@ -3598,7 +3660,7 @@ export const GlobalPlayback = (() => {
             background: var(--gpb-raise); color: var(--gpb-dim); border: 1px solid var(--gpb-line);
         }
         .gpb-tier-pro .gpb-tier-badge {
-            background: rgba(255,210,138,0.12); color: var(--gpb-gold); border-color: rgba(255,210,138,0.34);
+            background: var(--gpb-gold-soft); color: var(--gpb-gold); border-color: var(--gpb-gold-line);
         }
         .gpb-field { margin-top: 22px; }
         .gpb-label {
@@ -3612,36 +3674,36 @@ export const GlobalPlayback = (() => {
             font-size: 13px; font-weight: 650; cursor: pointer; font-family: inherit;
             transition: all .15s ease;
         }
-        .gpb-chip:hover { border-color: rgba(255,166,43,0.45); color: var(--gpb-text); background: rgba(255,166,43,0.10); }
+        .gpb-chip:hover { border-color: var(--gpb-accent-line); color: var(--gpb-text); background: var(--gpb-accent-soft); }
         .gpb-chip.active {
-            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember));
-            border-color: transparent; color: #24140a; font-weight: 750;
+            background: linear-gradient(135deg, var(--gpb-accent), var(--gpb-accent-2));
+            border-color: transparent; color: var(--gpb-on-accent); font-weight: 750;
         }
         .gpb-chip.locked { color: var(--gpb-faint); border-style: dashed; }
         .gpb-chip.locked i { color: var(--gpb-gold); margin-left: 4px; font-size: 11px; }
-        .gpb-chip.locked:hover { background: rgba(255,210,138,0.12); border-color: rgba(255,210,138,0.42); color: var(--gpb-gold); }
+        .gpb-chip.locked:hover { background: var(--gpb-gold-soft); border-color: var(--gpb-gold-line); color: var(--gpb-gold); }
         .gpb-input {
-            width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 13px;
-            background: rgba(10,8,6,0.6); border: 1px solid var(--gpb-line);
+            width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: var(--gpb-r-md);
+            background: rgba(0,0,0,0.30); border: 1px solid var(--gpb-line);
             color: var(--gpb-text); font-size: 14px; font-family: inherit;
         }
-        .gpb-input:focus { outline: none; border-color: var(--gpb-amber); }
+        .gpb-input:focus { outline: none; border-color: var(--gpb-accent); box-shadow: 0 0 0 3px var(--gpb-accent-soft); }
         .gpb-hint { margin-top: 7px; font-size: 12px; color: var(--gpb-faint); font-variant-numeric: tabular-nums; }
         .gpb-upsell {
-            display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 22px;
-            padding: 14px 15px; border-radius: 15px; cursor: pointer; text-align: left;
-            background: linear-gradient(135deg, rgba(255,210,138,0.14), rgba(255,106,61,0.10));
-            border: 1px solid rgba(255,210,138,0.3); color: var(--gpb-gold); font-family: inherit;
+            display: flex; align-items: center; gap: 12px; width: 100%;
+            padding: 13px 14px; border-radius: var(--gpb-r-md); cursor: pointer; text-align: left;
+            background: var(--gpb-gold-soft);
+            border: 1px solid var(--gpb-gold-line); color: var(--gpb-gold); font-family: inherit;
         }
-        .gpb-upsell:hover { border-color: rgba(255,210,138,0.58); }
-        .gpb-upsell > i:first-child { font-size: 18px; color: var(--gpb-amber); }
+        .gpb-upsell:hover { border-color: rgba(251,191,36,0.58); }
+        .gpb-upsell > i:first-child { font-size: 18px; color: var(--gpb-gold); }
         .gpb-upsell span { flex: 1; font-size: 12px; line-height: 1.55; }
-        .gpb-upsell b { display: block; font-size: 13px; color: #ffe9c6; margin-bottom: 2px; }
+        .gpb-upsell b { display: block; font-size: 13px; color: #fde68a; margin-bottom: 2px; }
         .gpb-go {
-            width: 100%; margin-top: 22px; padding: 14px; border: none; border-radius: 15px;
-            background: linear-gradient(135deg, var(--gpb-amber), var(--gpb-ember)); color: #24140a;
+            width: 100%; padding: 14px; border: none; border-radius: var(--gpb-r-md);
+            background: linear-gradient(135deg, var(--gpb-accent), var(--gpb-accent-2)); color: var(--gpb-on-accent);
             font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit;
-            box-shadow: 0 12px 30px rgba(255,106,61,0.3);
+            box-shadow: 0 12px 30px var(--gpb-glow);
         }
         .gpb-go:hover { filter: brightness(1.06); }
 
@@ -3651,14 +3713,14 @@ export const GlobalPlayback = (() => {
         #global-playback-loading {
             position: fixed; inset: 0; z-index: 4300; display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 18px;
-            background: radial-gradient(120% 90% at 50% 40%, rgba(60,32,12,0.5), rgba(10,8,6,0.88));
+            background: rgba(8,10,14,0.78);
             -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
             transition: opacity .2s ease;
         }
         #global-playback-loading.fade-out { opacity: 0; }
         .gpb-spinner {
             width: 44px; height: 44px; border-radius: 50%;
-            border: 3px solid rgba(255,226,190,0.16); border-top-color: var(--gpb-amber);
+            border: 3px solid rgba(255,255,255,0.16); border-top-color: var(--gpb-accent);
             animation: gpb-spin .8s linear infinite;
         }
         @keyframes gpb-spin { to { transform: rotate(360deg); } }
@@ -3683,12 +3745,13 @@ export const GlobalPlayback = (() => {
                 max-width: 460px;
                 bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
                 max-height: calc(100vh - 78px);
+                max-height: calc(100dvh - 78px);
                 gap: 8px;
             }
-            .gpb-dock { padding: 13px 14px 12px; gap: 11px; border-radius: 20px; }
+            .gpb-dock { padding: 13px 14px 12px; gap: 11px; border-radius: var(--gpb-r-lg); }
             .gpb-bubbles { right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); gap: 9px; }
             .gpb-bubble { width: 46px; height: 46px; }
-            .gpb-card { padding: 12px 13px; border-radius: 18px; gap: 10px; }
+            .gpb-card { padding: 12px 13px; border-radius: var(--gpb-r-lg); gap: 10px; }
         }
         @media (max-width: 620px) {
             .gpb-rail { top: calc(env(safe-area-inset-top, 0px) + 10px); left: 10px; right: 10px; }
@@ -3698,8 +3761,37 @@ export const GlobalPlayback = (() => {
             .gpb-zulu { font-size: 26px; }
             .gpb-play { width: 46px; height: 46px; font-size: 16px; }
             .gpb-legend { display: none; }
-            .gpb-picker-card { padding: 24px 18px 18px; border-radius: 20px; }
             .gpb-title { font-size: 22px; }
+
+            /* A phone gets the app's own modal idiom — the bottom sheet the
+               settings and info panels use — instead of a centred card taller
+               than the screen. Anchored to the bottom edge, so the fields and
+               the CTA are where the thumb already is. */
+            .gpb-picker { align-items: flex-end; }
+            .gpb-picker-card {
+                width: 100%; max-width: none;
+                max-height: 92vh;
+                max-height: min(92dvh, calc(100dvh - 20px));
+                border-radius: 22px 22px 0 0;
+                border-bottom: none;
+                box-shadow: 0 -12px 44px rgba(0,0,0,0.55);
+            }
+            .gpb-picker-grip {
+                display: block; flex: 0 0 auto;
+                width: 38px; height: 5px; border-radius: 10px;
+                background: var(--gpb-raise-2);
+                margin: 9px auto 0;
+            }
+            .gpb-picker-body { padding: 14px 18px 6px; }
+            .gpb-picker-foot { padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px)); gap: 10px; }
+            .gpb-picker-close { top: 12px; right: 12px; width: 32px; height: 32px; }
+            .gpb-field { margin-top: 18px; }
+            /* Two per row beats a ragged wrap when nine of them have to fit. */
+            .gpb-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            .gpb-chip { text-align: center; padding: 11px 10px; }
+            .gpb-upsell { padding: 11px 12px; gap: 10px; }
+            .gpb-upsell > i:first-child { font-size: 15px; }
+            .gpb-go { padding: 15px; }
         }
         /* A phone on its side has no vertical room to spare — the counts are
            the first thing that can go, the clock and the scrubber the last. */
@@ -3707,6 +3799,25 @@ export const GlobalPlayback = (() => {
             .gpb-card-call { font-size: 18px; }
             .gpb-card-stat span { font-size: 13px; }
         }
+        /* A phone on its side, or a short desktop window: the header is the
+           only part of the picker that is pure introduction, so it gives up its
+           room first and the fields keep theirs. Without this the scroll region
+           is entirely title and the choices are all below the fold. */
+        @media (max-height: 560px) {
+            .gpb-picker-card { max-height: min(calc(100dvh - 16px), 780px); }
+            .gpb-picker-body { padding: 18px 22px 4px; }
+            .gpb-title { font-size: 19px; margin: 5px 0 0; }
+            .gpb-sub { display: none; }
+            .gpb-tier-badge { margin-top: 10px; padding: 5px 10px; font-size: 11px; }
+            .gpb-field { margin-top: 14px; }
+            .gpb-label { margin-bottom: 7px; }
+            .gpb-chip { padding: 7px 13px; }
+            .gpb-picker-foot { padding: 10px 22px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 9px; }
+            .gpb-upsell { padding: 9px 12px; }
+            .gpb-upsell span { font-size: 11.5px; line-height: 1.4; }
+            .gpb-go { padding: 11px; }
+        }
+
         @media (max-height: 520px) {
             .gpb-meters { display: none; }
             .gpb-legend { display: none; }
