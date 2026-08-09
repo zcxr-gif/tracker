@@ -25,6 +25,7 @@ import { trackManager } from './proTrackManager.js';
 import { FlightReplay } from './flightReplay.js';
 import { AtcReplay } from './atcReplay.js';
 import { GlobalPlayback } from './globalPlayback.js';
+import { createHistoricalFlightWindow } from './historicalFlightWindow.js';
 // The preset traffic rail's vocabulary, shared with global playback so that
 // tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
@@ -20544,6 +20545,42 @@ if (!document.getElementById('trip-card-takeover')) {
         airportInfoWindow = document.getElementById('airport-info-window');
         airportInfoWindowRecallBtn = document.getElementById('airport-recall-btn');
         aircraftInfoWindow = document.getElementById('aircraft-info-window');
+
+        /* The flight window, for a flight that is no longer flying.
+         *
+         * The logic lives in historicalFlightWindow.js so it can be driven
+         * without a Mapbox context — see the module header for why this cannot
+         * reuse handleAircraftClick. Everything it needs is injected.
+         *
+         * Wired here, inside this scope, and not at module level: the element
+         * above and currentFlightInWindow below are both locals of this
+         * callback, so a top-level closure over them reads a window that is
+         * always null and throws on the flight id. */
+        const _historicalWindow = createHistoricalFlightWindow({
+            windowEl: () => aircraftInfoWindow,
+            getFlightWindowMode,
+            setCurrentFlight: (id) => { currentFlightInWindow = id; },
+            getCurrentFlight: () => currentFlightInWindow,
+            isMobile: () => !!(window.MobileUIHandler
+                && typeof window.MobileUIHandler.isMobile === 'function'
+                && window.MobileUIHandler.isMobile()),
+            ui: {
+                primeSimpleWindowPeekHeight: () => primeSimpleWindowPeekHeight(),
+                applySimpleWindowPhase: (phase) => applySimpleWindowPhase(phase),
+                setInfoWindowContent: (el, html) => setInfoWindowContent(el, html),
+                formatDataForSimpleWindow: (...a) => formatDataForSimpleWindow(...a),
+                populateAircraftInfoWindow: (...a) => {
+                    if (typeof populateAircraftInfoWindow === 'function') populateAircraftInfoWindow(...a);
+                },
+                openMobileWindow: (el) => window.MobileUIHandler.openWindow(el),
+                closeAircraftWindow: () => {
+                    if (typeof closeAircraftWindow === 'function') closeAircraftWindow();
+                }
+            }
+        });
+        window.openHistoricalFlightWindow = (data) => _historicalWindow.open(data);
+        window.updateHistoricalFlightWindow = (data) => _historicalWindow.update(data);
+        window.closeHistoricalFlightWindow = () => _historicalWindow.close();
         aircraftInfoWindowRecallBtn = document.getElementById('aircraft-recall-btn');
         weatherSettingsWindow = document.getElementById('weather-settings-window');
         filterSettingsWindow = document.getElementById('filter-settings-window');

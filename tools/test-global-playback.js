@@ -1252,6 +1252,105 @@ function turningTrack(startMs, samples = 12, sampleMs = 120000) {
         }
     }
 
+    /* ---------------------------------------------------------------- *
+     * A tap has to find the aircraft under the finger
+     * ---------------------------------------------------------------- *
+     * Clicking an aircraft in a replay did nothing at all, and three separate
+     * things were wrong at once for it to be that total:
+     *
+     *   * two symbol layers draw the same source and only one was bound, so in
+     *     the colour mode that draws the other, no tap ever matched;
+     *   * the glyph is twelve pixels and moving — at 120x an aircraft crosses
+     *     its own width between a finger going down and coming up, so an
+     *     exact-hit test misses even when bound to the right layer;
+     *   * the source is rewritten thirty times a second, and a query against a
+     *     tile index mid-rebuild finds nothing.
+     *
+     * The hit test is ours now, against the positions the module just drew.
+     * These assert the forgiveness that buys, which is the entire reason for
+     * doing it here rather than asking Mapbox.
+     */
+    {
+        const {
+            __setMapForTest, bindMapInteractions, unbindMapInteractions,
+            setFlightsForTest, renderFrame, __planeFeatures, nearestDrawnPlane,
+            TAP_RADIUS_TOUCH, setSelectedForTest, selectedForTest
+        } = GlobalPlayback._internals;
+
+        // Two aircraft, projected to known screen points and nowhere near each
+        // other, so a hit is unambiguous and a miss is provable.
+        const SCREEN = new Map();
+        const stub = {
+            getBounds: () => ({ getNorth: () => 60, getSouth: () => 20, getWest: () => -90, getEast: () => -50 }),
+            getCanvas: () => ({ clientWidth: 800, clientHeight: 600, style: {} }),
+            getSource: () => ({ setData() {} }),
+            project: (c) => SCREEN.get(`${c[0]},${c[1]}`) || { x: -9999, y: -9999 },
+            on(ev, a, b) { this.h[ev] = typeof a === 'function' ? a : b; },
+            off(ev) { delete this.h[ev]; },
+            h: {}
+        };
+
+        const T = 1712345678000;
+        const two = [
+            { flightId: 'near', callsign: 'AAA', username: '', aircraftName: 'Airbus A320',
+              classMask: 0xff, pilotRelation: 'none', cursor: 0,
+              points: normalizePath(packed([{ t: T, lat: 40, lon: -70 }, { t: T + 6e5, lat: 41, lon: -69 }], T), T) },
+            { flightId: 'far', callsign: 'BBB', username: '', aircraftName: 'Airbus A320',
+              classMask: 0xff, pilotRelation: 'none', cursor: 0,
+              points: normalizePath(packed([{ t: T, lat: 45, lon: -60 }, { t: T + 6e5, lat: 46, lon: -59 }], T), T) }
+        ].map(f => GlobalPlayback._internals.measureTrack(f));
+
+        __setMapForTest(stub);
+        setFlightsForTest(two);
+        GlobalPlayback._internals.__setClockForTest(T, T + 6e5, 0);
+        renderFrame(true);
+
+        const drawn = __planeFeatures();
+        ok('both aircraft are drawn, so the hit test has something to find',
+            drawn.length === 2, `${drawn.length} drawn`);
+
+        // Park the first at (400,300) and the second far away.
+        drawn.forEach((f, i) => {
+            const key = `${f.geometry.coordinates[0]},${f.geometry.coordinates[1]}`;
+            SCREEN.set(key, i === 0 ? { x: 400, y: 300 } : { x: 40, y: 40 });
+        });
+        const nearId = drawn[0].properties.flightId;
+
+        ok('a tap dead on an aircraft finds it',
+            nearestDrawnPlane({ x: 400, y: 300 })?.flightId === nearId);
+
+        ok('...and so does one a finger-width off, because a finger is not a pixel',
+            nearestDrawnPlane({ x: 400 + 10, y: 300 + 10 })?.flightId === nearId,
+            `a ${Math.round(Math.hypot(10, 10))}px miss must still count, radius is ${TAP_RADIUS_TOUCH}`);
+
+        ok('empty sky finds nothing rather than the nearest thing on the map',
+            nearestDrawnPlane({ x: 400, y: 300 + TAP_RADIUS_TOUCH * 3 }) === null);
+
+        ok('the nearer of two aircraft wins',
+            nearestDrawnPlane({ x: 50, y: 50 })?.flightId === drawn[1].properties.flightId);
+
+        // ---- and it is actually wired to something that fires ----
+        bindMapInteractions();
+        ok('the tap is bound to the map, not to a layer that may not be drawing',
+            typeof stub.h.click === 'function');
+
+        setSelectedForTest(null);
+        stub.h.click({ point: { x: 400, y: 300 } });
+        ok('a tap selects the aircraft under it',
+            selectedForTest() === nearId, `selected ${selectedForTest()}`);
+
+        setSelectedForTest(null);
+        stub.h.click({ point: { x: 400, y: 300 + TAP_RADIUS_TOUCH * 3 } });
+        ok('a tap on empty sky selects nothing',
+            selectedForTest() === null);
+
+        unbindMapInteractions();
+        ok('leaving the replay takes the tap handler with it',
+            stub.h.click === undefined);
+
+        __setMapForTest(null);
+    }
+
     // The parent adds the collection-count assertion and prints the summary.
     console.log(`##COUNTS ${pass} ${fail}`);
     process.exit(fail === 0 ? 0 : 1);

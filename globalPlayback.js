@@ -275,6 +275,59 @@ export const GlobalPlayback = (() => {
     const SRC_PATHS = 'global-playback-paths-source';
     const LYR_PATHS = 'global-playback-paths-layer';          // the whole flown route, so far
 
+    /* Hover detail is for pointer devices only. On touch there is no hover, and
+     * a tooltip appearing under the finger that summoned it is worse than
+     * none — tapping selects instead. It also sets the tap radius below. */
+    const hasPointer = (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+        ? window.matchMedia('(hover: hover)').matches
+        : true;
+
+    /* How near a tap has to be, in screen pixels, to count as hitting an
+     * aircraft. A finger is not a pixel: Apple and Google both put the minimum
+     * comfortable target at around 44pt/48dp, and these icons draw at about
+     * twelve. The generosity is the point. */
+    const TAP_RADIUS_TOUCH = 28;
+    const TAP_RADIUS_MOUSE = 16;
+
+    /**
+     * The drawn aircraft nearest a screen point, or null.
+     *
+     * Mapbox's own layer hit test cannot do this job here, for three separate
+     * reasons that all bite at once:
+     *
+     *   * it matches the rendered glyph, so it only fires for whichever of the
+     *     two plane layers the pilot's colour mode happens to be drawing;
+     *   * the glyph is twelve pixels, and a moving one at that — at 120x an
+     *     aircraft crosses its own width between a finger going down and
+     *     coming up, so an exact-hit test misses almost every time. "The
+     *     planes just go and they don't let me view their data" is what that
+     *     feels like;
+     *   * the source is rewritten thirty times a second, and a query against a
+     *     tile index mid-rebuild finds nothing at all.
+     *
+     * So the hit test is done here instead, against the positions this module
+     * just drew — which it knows exactly, needs no tile index to consult, and
+     * can be as forgiving as a finger requires.
+     */
+    function nearestDrawnPlane(point) {
+        if (!map || !point || !planeList.length) return null;
+        const radius = hasPointer ? TAP_RADIUS_MOUSE : TAP_RADIUS_TOUCH;
+        let best = null, bestDist = radius * radius;
+
+        for (let i = 0; i < planeList.length; i++) {
+            const feat = planeList[i];
+            let p;
+            try { p = map.project(feat.geometry.coordinates); } catch (_) { continue; }
+            const dx = p.x - point.x, dy = p.y - point.y;
+            const d = dx * dx + dy * dy;
+            // Ties go to the aircraft nearer the finger, and a tie on that is
+            // broken by draw order, which is stable frame to frame.
+            if (d < bestDist) { bestDist = d; best = feat; }
+        }
+        return best ? { flightId: best.properties.flightId, coordinates: best.geometry.coordinates } : null;
+    }
+
+
     // Live traffic is blanked while the replay is up, exactly as flightReplay
     // and atcReplay do it: snapshot each layer's filter, hide everything, put
     // the filters back on close. Anything less leaves live aircraft flying
@@ -1378,31 +1431,29 @@ export const GlobalPlayback = (() => {
         window.addEventListener('watchlistUpdated', onWatchlistChanged);
 
         onPlaneClick = (e) => {
-            const feature = e.features && e.features[0];
-            if (!feature) return;
-            selectFlight(feature.properties.flightId);
+            const hit = nearestDrawnPlane(e.point);
+            if (!hit) return;
+            selectFlight(hit.flightId);
         };
-        map.on('click', LYR_PLANES, onPlaneClick);
-
-        // Hover detail on pointer devices only. On touch there is no hover, and
-        // a tooltip that appears under the finger that summoned it is worse
-        // than none — tapping selects instead.
-        const hasPointer = typeof window.matchMedia === 'function'
-            ? window.matchMedia('(hover: hover)').matches
-            : true;
+        // Bound to the map, not to a layer — see nearestDrawnPlane.
+        map.on('click', onPlaneClick);
 
         onPlaneEnter = (e) => {
-            if (map.getCanvas) map.getCanvas().style.cursor = 'pointer';
             if (!hasPointer) return;
-            const feature = e.features && e.features[0];
-            if (!feature) return;
+            const hit = nearestDrawnPlane(e.point);
+            if (!hit) {
+                if (map.getCanvas) map.getCanvas().style.cursor = '';
+                if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} }
+                return;
+            }
+            if (map.getCanvas) map.getCanvas().style.cursor = 'pointer';
             const gl = window.mapboxgl;
             if (!gl) return;
 
             // Detail comes from the flight record and the clock, not from the
             // feature — see buildPlanes() for why the feature carries as
             // little as it does.
-            const f = flightsById.get(feature.properties.flightId);
+            const f = flightsById.get(hit.flightId);
             if (!f) return;
             const pos = positionAt(f, spanStart + currentMs);
 
@@ -1410,7 +1461,7 @@ export const GlobalPlayback = (() => {
                 hoverPopup = new gl.Popup({ closeButton: false, closeOnClick: false, className: 'gpb-popup', offset: 12 });
             }
             hoverPopup
-                .setLngLat(feature.geometry.coordinates)
+                .setLngLat(hit.coordinates)
                 .setHTML(`
                     <div class="gpb-pop-call">${escapeHtml(f.callsign || '----')}</div>
                     ${f.username ? `<div class="gpb-pop-user">${escapeHtml(f.username)}</div>` : ''}
@@ -1425,8 +1476,8 @@ export const GlobalPlayback = (() => {
             if (map.getCanvas) map.getCanvas().style.cursor = '';
             if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} }
         };
-        map.on('mouseenter', LYR_PLANES, onPlaneEnter);
-        map.on('mouseleave', LYR_PLANES, onPlaneLeave);
+        map.on('mousemove', onPlaneEnter);
+        map.on('mouseout', onPlaneLeave);
     }
 
     function unbindMapInteractions() {
@@ -1456,9 +1507,9 @@ export const GlobalPlayback = (() => {
             try { map.off('resize', onMoveEnd); } catch (_) {}
             onMoveEnd = null;
         }
-        if (onPlaneClick) { try { map.off('click', LYR_PLANES, onPlaneClick); } catch (_) {} onPlaneClick = null; }
-        if (onPlaneEnter) { try { map.off('mouseenter', LYR_PLANES, onPlaneEnter); } catch (_) {} onPlaneEnter = null; }
-        if (onPlaneLeave) { try { map.off('mouseleave', LYR_PLANES, onPlaneLeave); } catch (_) {} onPlaneLeave = null; }
+        if (onPlaneClick) { try { map.off('click', onPlaneClick); } catch (_) {} onPlaneClick = null; }
+        if (onPlaneEnter) { try { map.off('mousemove', onPlaneEnter); } catch (_) {} onPlaneEnter = null; }
+        if (onPlaneLeave) { try { map.off('mouseout', onPlaneLeave); } catch (_) {} onPlaneLeave = null; }
         if (hoverPopup) { try { hoverPopup.remove(); } catch (_) {} hoverPopup = null; }
         try { if (map.getCanvas) map.getCanvas().style.cursor = ''; } catch (_) {}
     }
@@ -2650,6 +2701,7 @@ export const GlobalPlayback = (() => {
                 case 'weather': setWeather(!weatherOn); break;
                 case 'atc': setAirspace(!airspaceOn); break;
                 case 'deselect': selectFlight(selectedFlightId); break;
+                case 'fullinfo': openFullInfo(); break;
                 case 'follow':
                     followSelected = !followSelected;
                     syncFollowButton();
@@ -2814,6 +2866,9 @@ export const GlobalPlayback = (() => {
     function selectFlight(id) {
         selectedFlightId = (selectedFlightId === id) ? null : id;
         if (!selectedFlightId) followSelected = false;
+        // The window belongs to the card. Picking a different aircraft, or
+        // none, must not leave the previous one's full information up.
+        if (fullInfoFlightId && fullInfoFlightId !== selectedFlightId) closeFullInfo();
         buildInfoCard();
         renderFrame(true);
     }
@@ -2837,6 +2892,10 @@ export const GlobalPlayback = (() => {
                         ${badge ? `<span class="gpb-card-badge">${escapeHtml(badge)}</span>` : ''}
                     </div>
                     <div class="gpb-card-head-btns">
+                        <button type="button" class="gpb-card-btn" data-gpb="fullinfo"
+                                title="Full flight information (I)" aria-label="Full flight information">
+                            <i class="fa-solid fa-circle-info"></i>
+                        </button>
                         <button type="button" class="gpb-card-btn" data-gpb="follow" aria-pressed="false"
                                 title="Keep the camera on this aircraft (F)" aria-label="Follow">
                             <i class="fa-solid fa-crosshairs"></i>
@@ -2873,7 +2932,87 @@ export const GlobalPlayback = (() => {
         syncFollowButton();
     }
 
+    /* ---------- the app's own flight window, for a recorded flight ----------
+     * The card is a glance; this is everything, in whichever of the three
+     * looks the pilot picked in Settings. flight.js owns the presentation and
+     * the mode — see openHistoricalFlightWindow — so the replay only supplies
+     * the flight and the clock.
+     */
+    let fullInfoFlightId = null;
+
+    // The recorded track up to the replay clock, which is what the window
+    // treats as "the flight so far". Handing it the whole track would show a
+    // flight that has already landed while the replay is halfway across the
+    // ocean.
+    // Its own position buffers rather than the card's: this runs immediately
+    // before updateInfoCard reads the same shared scratch, and two callers
+    // sharing one object is the kind of thing that works until it does not.
+    const FULL_NOW = makePosition();
+    const FULL_THEN = makePosition();
+
+    function fullInfoPayload(f, absT) {
+        const now = positionAt(f, absT, FULL_NOW);
+        let position = null;
+        if (now) {
+            // Vertical speed is not recorded, so it is differenced over a
+            // minute of session time exactly as the card does it — the two
+            // readouts are of the same flight and must not disagree.
+            const then = positionAt(f, absT - VS_SAMPLE_MS, FULL_THEN);
+            position = {
+                lat: now.lat, lon: now.lon,
+                alt_ft: now.alt, gs_kt: now.gs, heading_deg: now.hdg,
+                vs_fpm: then ? Math.round((now.alt - then.alt) / (VS_SAMPLE_MS / 60000)) : null
+            };
+        }
+        return {
+            flightId: f.flightId,
+            callsign: f.callsign,
+            username: f.username,
+            userId: f.userId,
+            aircraftName: f.aircraftName,
+            liveryName: f.liveryName,
+            atMs: absT,
+            track: f.points,
+            position
+        };
+    }
+
+    function openFullInfo() {
+        if (!selectedFlightId) return;
+        const f = flightsById.get(selectedFlightId);
+        if (!f || typeof window.openHistoricalFlightWindow !== 'function') {
+            showToast('Full flight information is not available here.', 'error');
+            return;
+        }
+        if (window.openHistoricalFlightWindow(fullInfoPayload(f, spanStart + currentMs))) {
+            fullInfoFlightId = f.flightId;
+        }
+    }
+
+    function closeFullInfo() {
+        if (!fullInfoFlightId) return;
+        fullInfoFlightId = null;
+        try { window.closeHistoricalFlightWindow?.(); } catch (_) { /* already gone */ }
+    }
+
+    // Throttled: the window is a whole document behind a postMessage, and it
+    // reads numbers a human is looking at, not a map a human is watching.
+    // Four times a second is past the point anyone can tell.
+    let lastFullInfoPush = 0;
+    const FULL_INFO_INTERVAL_MS = 250;
+
+    function updateFullInfo(absT) {
+        if (!fullInfoFlightId) return;
+        const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        if (nowMs - lastFullInfoPush < FULL_INFO_INTERVAL_MS) return;
+        lastFullInfoPush = nowMs;
+        const f = flightsById.get(fullInfoFlightId);
+        if (!f) { closeFullInfo(); return; }
+        try { window.updateHistoricalFlightWindow?.(fullInfoPayload(f, absT)); } catch (_) {}
+    }
+
     function updateInfoCard(absT) {
+        updateFullInfo(absT);
         if (!selectedFlightId || !panelEl) return;
         const f = flightsById.get(selectedFlightId);
         if (!f) return;
@@ -2961,6 +3100,7 @@ export const GlobalPlayback = (() => {
                 if (btn) btn.click();
                 return;
             }
+            if (e.key === 'i' || e.key === 'I') { if (selectedFlightId) openFullInfo(); return; }
             if (e.key === 'w' || e.key === 'W') { setWeather(!weatherOn); return; }
             if (e.key === 'a' || e.key === 'A') { setAirspace(!airspaceOn); return; }
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -3039,6 +3179,12 @@ export const GlobalPlayback = (() => {
             flightId: f.flightId,
             callsign: f.callsign || '----',
             username: f.username || '',
+            // Carried for the full flight window, which shows the livery and
+            // links the pilot. Both arrive in the payload and used to be
+            // dropped here, so the window had less to work with than the
+            // server had already sent.
+            userId: f.userId || null,
+            liveryName: f.aircraft?.liveryName || '',
             aircraftName: f.aircraft?.aircraftName || '',
             category: categoryFor(f.aircraft?.aircraftName),
             // Which filter-rail presets this flight belongs to. Resolved here,
@@ -3118,6 +3264,8 @@ export const GlobalPlayback = (() => {
         pathList.length = 0;
         chosenCount = 0;
         thinGeneration++;
+
+        closeFullInfo();
 
         windowMeta = null;
         spanStart = 0;
@@ -3306,6 +3454,14 @@ export const GlobalPlayback = (() => {
          * same thumb. Purely declarative, so closing the replay puts every one
          * of them back by removing a single class.
          * ------------------------------------------------------------------ */
+        /* The flight window is the one piece of app chrome the replay does
+           NOT stand down — it is opened from the replay, on purpose. It sits at
+           2100 though, well under this mode's 4100, so it needs lifting or it
+           opens behind the transport it was summoned from. */
+        body.gpb-mode #aircraft-info-window.historical-flight {
+            z-index: 4150 !important;
+        }
+
         body.gpb-mode #ios-landing-topbar,
         body.gpb-mode #ios-landing-tabbar,
         body.gpb-mode #ios-traffic-rail,
@@ -3959,6 +4115,21 @@ export const GlobalPlayback = (() => {
             buildTrails,
             buildPaths,
             setSelectedForTest: (id) => { selectedFlightId = id; },
+            selectedForTest: () => selectedFlightId,
+            // The clock, so a test can put the replay at a known moment
+            // without mounting the chrome to get one.
+            __setClockForTest: (startMs, endMs, atMs) => {
+                windowMeta = { start: startMs, end: endMs };
+                spanStart = startMs;
+                totalDurationMs = Math.max(1, endMs - startMs);
+                currentMs = atMs;
+            },
+            // The tap hit test, which is the whole reason a tap works at all —
+            // and which cannot be reached through Mapbox, because not asking
+            // Mapbox is the point of it.
+            nearestDrawnPlane,
+            TAP_RADIUS_TOUCH,
+            TAP_RADIUS_MOUSE,
             __pathFeatures: () => pathList,
             setThinGridForTest: (degLat, degLon) => { cellDegLat = degLat; cellDegLon = degLon; },
             // A camera gesture decides what is on screen, and until it was
@@ -3974,6 +4145,11 @@ export const GlobalPlayback = (() => {
             visibleFlights: () => visibleFlights,
             setFlightsForTest: (list) => {
                 flights = list;
+                // Everything start() derives from the list, or a test looks at
+                // a module in a state the app never reaches — selecting a
+                // flight goes through flightsById, and an empty one made a tap
+                // silently do nothing here while working perfectly in the app.
+                flightsById = new Map(list.map(f => [f.flightId, f]));
                 classCounts = countClasses();
                 applyFilters();
             },

@@ -24,6 +24,52 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.08.09',
+            date: 'August 2026',
+            title: 'Rewind The Whole Map',
+            tagline: 'Pick a moment in the past and watch every flight on the server fly it again, exactly as it happened.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-clock-rotate-left',
+                    text: 'Global Playback — not one aircraft and not one controller, but the whole map. Choose a moment, choose how long to watch, and the traffic moves as it actually did: interpolated between position reports rather than hopping between them, with comet trails, the altitude ramp and the rain radar all available while it runs. Free reaches back 24 hours; Pro reaches back two weeks.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="justify-content:space-between;">
+                                <b class="cl-vis-mono" style="color:#fff; font-size:17px;">02:49Z</b>
+                                <span style="font-size:9px; font-weight:800; letter-spacing:1px; color:#38bdf8; border:1px solid rgba(56,189,248,.32); background:rgba(56,189,248,.12); border-radius:999px; padding:3px 8px;">2 HOURS AGO</span>
+                            </div>
+                            <div class="row" style="gap:8px;">
+                                <span style="flex:1; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:6px 8px;">
+                                    <b class="cl-vis-mono" style="color:#fff; font-size:14px;">1,482</b>
+                                    <b class="cl-vis-dim" style="display:block; font-size:7.5px; letter-spacing:1.4px;">AIRBORNE</b>
+                                </span>
+                                <span style="flex:1; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:6px 8px;">
+                                    <b class="cl-vis-mono" style="color:#fff; font-size:14px;">1 HOUR</b>
+                                    <b class="cl-vis-dim" style="display:block; font-size:7.5px; letter-spacing:1.4px;">IN WINDOW</b>
+                                </span>
+                            </div>
+                            <div style="height:5px; border-radius:999px; background:linear-gradient(90deg,#38bdf8 0%,#6366f1 42%,rgba(255,255,255,.15) 42%);"></div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-filter',
+                    text: 'Filter what you are watching — Airlines, Heavies, Cargo, Business, GA, Military or your watchlist, each carrying the count behind it. Tap an aircraft for its callsign, pilot and readings at that instant, and its route drawn on the map.'
+                },
+                {
+                    tag: 'new', icon: 'fa-circle-info',
+                    text: 'Full flight information from a replay. The info button on the flight card opens the same window a tap on the live map does, in whichever look you have chosen in Settings, showing the flight as far as it had got at the moment you are watching. Departure and arrival stay blank: those come from the filed plan, and a plan is not something a recording keeps.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-bug',
+                    text: 'Playback no longer crashes when zoomed out over a busy window. The map was being handed new frames faster than it could draw them, so on a world view the backlog grew until the tab gave up. It now waits for each frame to land before sending the next.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-palette',
+                    text: 'Playback looks like the rest of the app now, and fits a phone. The controls follow the same dark glass and blue as everywhere else, and the moment picker opens as a bottom sheet with Start playback always in reach instead of a card taller than the screen.'
+                }
+            ]
+        },
+        {
             id: '2026.08.06',
             date: 'August 2026',
             title: 'Your Stats, On Your IFC Profile',
