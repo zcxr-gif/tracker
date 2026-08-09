@@ -2102,7 +2102,13 @@ window.getPilotRelation = function (username) {
             if (sub) {
                 const endMs = sub.current_period_end ? Date.parse(sub.current_period_end) : null;
                 const withinPeriod = !endMs || endMs > Date.now();
-                if ((sub.status === 'active' || sub.status === 'trialing') && withinPeriod) {
+                // 'canceled' counts while the paid period is still running: the
+                // webhook writes that status as soon as the pilot cancels, not
+                // when their month actually runs out, and they paid for the
+                // rest of it. A cancelled row with no period end has nothing
+                // left to honour, so it is not covered.
+                const paidThrough = sub.status === 'canceled' && endMs && endMs > Date.now();
+                if (((sub.status === 'active' || sub.status === 'trialing') && withinPeriod) || paidThrough) {
                     return applyEntitlement({ isPro: true, source: 'subscription', ...detail });
                 }
                 // Stripe retries a failed card for about a fortnight; pulling

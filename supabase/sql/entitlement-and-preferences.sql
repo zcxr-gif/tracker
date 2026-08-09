@@ -24,7 +24,9 @@
 --  ── The rule this installs ─────────────────────────────────────────────────
 --  One function, public.pro_entitlement(), is the single answer. In order:
 --
---    1. a live subscription        (active/trialing, inside its paid period)
+--    1. a live subscription        (active/trialing inside its paid period, or
+--                                   cancelled but paid through a period that
+--                                   has not run out yet)
 --    2. a subscription in dunning  (past_due, inside a grace window — Stripe is
 --                                   still retrying the card, and pulling Pro
 --                                   mid-retry punishes a pilot whose payment is
@@ -140,8 +142,20 @@ begin
 
   if v_sub.user_id is not null then
     -- Live: paid up, and inside the period that was paid for.
-    if v_sub.status in ('active', 'trialing')
-       and (v_sub.current_period_end is null or v_sub.current_period_end > now()) then
+    --
+    -- 'canceled' is included deliberately. Stripe's own convention is to leave
+    -- a cancelling subscription 'active' with cancel_at_period_end until the
+    -- period runs out, but process-stripe-payment writes 'canceled' the moment
+    -- the cancellation webhook lands — while current_period_end is still in
+    -- the future. Reading only the status there would pull the app off a pilot
+    -- who has paid through the end of the month, which is the one thing the
+    -- billing card promises will not happen. A cancelled row with NO period end
+    -- is not covered: there is no paid period to honour, so it has ended.
+    if (v_sub.status in ('active', 'trialing')
+        and (v_sub.current_period_end is null or v_sub.current_period_end > now()))
+       or (v_sub.status = 'canceled'
+        and v_sub.current_period_end is not null
+        and v_sub.current_period_end > now()) then
       return query select true, 'subscription'::text, v_sub.status,
                           v_sub.current_period_end, v_sub.cancel_at_period_end;
       return;

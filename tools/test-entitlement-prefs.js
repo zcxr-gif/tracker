@@ -61,6 +61,10 @@ function entitlement({ subscription = null, isPro = false, legacyPro = false }, 
         const end = subscription.current_period_end ?? null;
         const within = end === null || end > now;
         if (['active', 'trialing'].includes(subscription.status) && within) return 'subscription';
+        // process-stripe-payment stamps 'canceled' when the pilot cancels, not
+        // when their paid month runs out — so the status alone cannot decide
+        // this. A period end still in the future is money already taken.
+        if (subscription.status === 'canceled' && end !== null && end > now) return 'subscription';
         if (subscription.status === 'past_due' && (end === null || end > now - GRACE_MS)) return 'grace';
         if (legacyPro) return 'legacy';
         return 'expired';
@@ -92,6 +96,27 @@ function entitlement({ subscription = null, isPro = false, legacyPro = false }, 
 
         ok('…and locks the moment that period is past',
             entitlement({ subscription: { status: 'canceled', current_period_end: Date.now() - 1 } }) === 'expired');
+
+        // What the webhook actually writes, as opposed to what Stripe's own
+        // convention would suggest: status 'canceled' the moment the pilot
+        // cancels, with the paid period still weeks out. Reading the status
+        // alone downgraded a pilot who had paid through the end of the month.
+        ok('a cancellation stamped early keeps Pro until the paid period ends',
+            entitlement({ subscription: { status: 'canceled', cancel_at_period_end: false, current_period_end: Date.now() + 19 * DAY } }) === 'subscription',
+            'they have paid for this month — taking Pro now is taking money for nothing');
+
+        // No period end means no paid time left to honour, so this must not
+        // become a way to hold Pro forever on a cancelled row.
+        ok('…but a cancellation with no period end is over',
+            entitlement({ subscription: { status: 'canceled', current_period_end: null } }) === 'expired');
+
+        // The other half of the rule: not paying downgrades to free. The
+        // account itself is untouched — sign-in still works, Pro does not.
+        ok('a subscription that was never paid is free, not Pro',
+            entitlement({ subscription: { status: 'incomplete_expired', current_period_end: null } }) === 'expired');
+
+        ok('an unpaid subscription is free once the retries are over',
+            entitlement({ subscription: { status: 'unpaid', current_period_end: Date.now() - 30 * DAY } }) === 'expired');
 
         // The bug this whole change exists for: profiles.is_pro left true by a
         // webhook that never arrived must NOT keep a cancelled account open.
