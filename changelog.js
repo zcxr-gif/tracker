@@ -56,6 +56,10 @@
                     text: 'Filter what you are watching — Airlines, Heavies, Cargo, Business, GA, Military or your watchlist, each carrying the count behind it. Tap an aircraft for its callsign, pilot and readings at that instant, and its route drawn on the map.'
                 },
                 {
+                    tag: 'new', icon: 'fa-circle-info',
+                    text: 'Full flight information from a replay. The info button on the flight card opens the same window a tap on the live map does, in whichever look you have chosen in Settings, showing the flight as far as it had got at the moment you are watching. Departure and arrival stay blank: those come from the filed plan, and a plan is not something a recording keeps.'
+                },
+                {
                     tag: 'fixed', icon: 'fa-bug',
                     text: 'Playback no longer crashes when zoomed out over a busy window. The map was being handed new frames faster than it could draw them, so on a world view the backlog grew until the tab gave up. It now waits for each frame to land before sending the next.'
                 },
