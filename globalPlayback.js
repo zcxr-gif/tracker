@@ -2650,6 +2650,7 @@ export const GlobalPlayback = (() => {
                 case 'weather': setWeather(!weatherOn); break;
                 case 'atc': setAirspace(!airspaceOn); break;
                 case 'deselect': selectFlight(selectedFlightId); break;
+                case 'fullinfo': openFullInfo(); break;
                 case 'follow':
                     followSelected = !followSelected;
                     syncFollowButton();
@@ -2814,6 +2815,9 @@ export const GlobalPlayback = (() => {
     function selectFlight(id) {
         selectedFlightId = (selectedFlightId === id) ? null : id;
         if (!selectedFlightId) followSelected = false;
+        // The window belongs to the card. Picking a different aircraft, or
+        // none, must not leave the previous one's full information up.
+        if (fullInfoFlightId && fullInfoFlightId !== selectedFlightId) closeFullInfo();
         buildInfoCard();
         renderFrame(true);
     }
@@ -2837,6 +2841,10 @@ export const GlobalPlayback = (() => {
                         ${badge ? `<span class="gpb-card-badge">${escapeHtml(badge)}</span>` : ''}
                     </div>
                     <div class="gpb-card-head-btns">
+                        <button type="button" class="gpb-card-btn" data-gpb="fullinfo"
+                                title="Full flight information (I)" aria-label="Full flight information">
+                            <i class="fa-solid fa-circle-info"></i>
+                        </button>
                         <button type="button" class="gpb-card-btn" data-gpb="follow" aria-pressed="false"
                                 title="Keep the camera on this aircraft (F)" aria-label="Follow">
                             <i class="fa-solid fa-crosshairs"></i>
@@ -2873,7 +2881,87 @@ export const GlobalPlayback = (() => {
         syncFollowButton();
     }
 
+    /* ---------- the app's own flight window, for a recorded flight ----------
+     * The card is a glance; this is everything, in whichever of the three
+     * looks the pilot picked in Settings. flight.js owns the presentation and
+     * the mode — see openHistoricalFlightWindow — so the replay only supplies
+     * the flight and the clock.
+     */
+    let fullInfoFlightId = null;
+
+    // The recorded track up to the replay clock, which is what the window
+    // treats as "the flight so far". Handing it the whole track would show a
+    // flight that has already landed while the replay is halfway across the
+    // ocean.
+    // Its own position buffers rather than the card's: this runs immediately
+    // before updateInfoCard reads the same shared scratch, and two callers
+    // sharing one object is the kind of thing that works until it does not.
+    const FULL_NOW = makePosition();
+    const FULL_THEN = makePosition();
+
+    function fullInfoPayload(f, absT) {
+        const now = positionAt(f, absT, FULL_NOW);
+        let position = null;
+        if (now) {
+            // Vertical speed is not recorded, so it is differenced over a
+            // minute of session time exactly as the card does it — the two
+            // readouts are of the same flight and must not disagree.
+            const then = positionAt(f, absT - VS_SAMPLE_MS, FULL_THEN);
+            position = {
+                lat: now.lat, lon: now.lon,
+                alt_ft: now.alt, gs_kt: now.gs, heading_deg: now.hdg,
+                vs_fpm: then ? Math.round((now.alt - then.alt) / (VS_SAMPLE_MS / 60000)) : null
+            };
+        }
+        return {
+            flightId: f.flightId,
+            callsign: f.callsign,
+            username: f.username,
+            userId: f.userId,
+            aircraftName: f.aircraftName,
+            liveryName: f.liveryName,
+            atMs: absT,
+            track: f.points,
+            position
+        };
+    }
+
+    function openFullInfo() {
+        if (!selectedFlightId) return;
+        const f = flightsById.get(selectedFlightId);
+        if (!f || typeof window.openHistoricalFlightWindow !== 'function') {
+            showToast('Full flight information is not available here.', 'error');
+            return;
+        }
+        if (window.openHistoricalFlightWindow(fullInfoPayload(f, spanStart + currentMs))) {
+            fullInfoFlightId = f.flightId;
+        }
+    }
+
+    function closeFullInfo() {
+        if (!fullInfoFlightId) return;
+        fullInfoFlightId = null;
+        try { window.closeHistoricalFlightWindow?.(); } catch (_) { /* already gone */ }
+    }
+
+    // Throttled: the window is a whole document behind a postMessage, and it
+    // reads numbers a human is looking at, not a map a human is watching.
+    // Four times a second is past the point anyone can tell.
+    let lastFullInfoPush = 0;
+    const FULL_INFO_INTERVAL_MS = 250;
+
+    function updateFullInfo(absT) {
+        if (!fullInfoFlightId) return;
+        const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        if (nowMs - lastFullInfoPush < FULL_INFO_INTERVAL_MS) return;
+        lastFullInfoPush = nowMs;
+        const f = flightsById.get(fullInfoFlightId);
+        if (!f) { closeFullInfo(); return; }
+        try { window.updateHistoricalFlightWindow?.(fullInfoPayload(f, absT)); } catch (_) {}
+    }
+
     function updateInfoCard(absT) {
+        updateFullInfo(absT);
         if (!selectedFlightId || !panelEl) return;
         const f = flightsById.get(selectedFlightId);
         if (!f) return;
@@ -2961,6 +3049,7 @@ export const GlobalPlayback = (() => {
                 if (btn) btn.click();
                 return;
             }
+            if (e.key === 'i' || e.key === 'I') { if (selectedFlightId) openFullInfo(); return; }
             if (e.key === 'w' || e.key === 'W') { setWeather(!weatherOn); return; }
             if (e.key === 'a' || e.key === 'A') { setAirspace(!airspaceOn); return; }
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -3039,6 +3128,12 @@ export const GlobalPlayback = (() => {
             flightId: f.flightId,
             callsign: f.callsign || '----',
             username: f.username || '',
+            // Carried for the full flight window, which shows the livery and
+            // links the pilot. Both arrive in the payload and used to be
+            // dropped here, so the window had less to work with than the
+            // server had already sent.
+            userId: f.userId || null,
+            liveryName: f.aircraft?.liveryName || '',
             aircraftName: f.aircraft?.aircraftName || '',
             category: categoryFor(f.aircraft?.aircraftName),
             // Which filter-rail presets this flight belongs to. Resolved here,
@@ -3118,6 +3213,8 @@ export const GlobalPlayback = (() => {
         pathList.length = 0;
         chosenCount = 0;
         thinGeneration++;
+
+        closeFullInfo();
 
         windowMeta = null;
         spanStart = 0;
@@ -3306,6 +3403,14 @@ export const GlobalPlayback = (() => {
          * same thumb. Purely declarative, so closing the replay puts every one
          * of them back by removing a single class.
          * ------------------------------------------------------------------ */
+        /* The flight window is the one piece of app chrome the replay does
+           NOT stand down — it is opened from the replay, on purpose. It sits at
+           2100 though, well under this mode's 4100, so it needs lifting or it
+           opens behind the transport it was summoned from. */
+        body.gpb-mode #aircraft-info-window.historical-flight {
+            z-index: 4150 !important;
+        }
+
         body.gpb-mode #ios-landing-topbar,
         body.gpb-mode #ios-landing-tabbar,
         body.gpb-mode #ios-traffic-rail,
@@ -3974,6 +4079,11 @@ export const GlobalPlayback = (() => {
             visibleFlights: () => visibleFlights,
             setFlightsForTest: (list) => {
                 flights = list;
+                // Everything start() derives from the list, or a test looks at
+                // a module in a state the app never reaches — selecting a
+                // flight goes through flightsById, and an empty one made a tap
+                // silently do nothing here while working perfectly in the app.
+                flightsById = new Map(list.map(f => [f.flightId, f]));
                 classCounts = countClasses();
                 applyFilters();
             },
