@@ -73,6 +73,10 @@
         aircraftId: '',          // whose rota the schedule tab is showing
         schedules: null,
         linked: {},
+        // The fleet's workload — which aeroplanes are idle. Its own tab because
+        // it costs a call per aircraft; kept once loaded.
+        use: null,
+        useError: null,
         // Which of the fleet are airborne in multiplayer right now, keyed by the
         // persistent aircraft id. Separate from the fleet because it comes from
         // a different service and is allowed to be absent.
@@ -309,6 +313,27 @@
         } catch { /* the dot is a bonus, never a dependency */ }
     }
 
+    /**
+     * The fleet's workload.
+     *
+     * Costs one call per aircraft on the backend, which is why it is its own tab
+     * loaded on demand rather than part of the fleet board's refresh — and why
+     * the result is kept until somebody asks for it again.
+     *
+     * A refused scope is not a failure worth an error box: the panel says the
+     * connection was not granted schedule access and leaves it there, because
+     * reconnecting is the fix and the Connection tab is where that lives.
+     */
+    async function loadUtilisation() {
+        S.useError = null;
+        try {
+            S.use = await S.api('/if/utilisation');
+        } catch (err) {
+            S.use = null;
+            S.useError = (err && err.message) || 'Could not work out the fleet’s workload.';
+        }
+    }
+
     async function loadSchedules(aircraftId, { force = false } = {}) {
         if (!aircraftId) return;
         if (!force && S.aircraftId === aircraftId && S.schedules) return;
@@ -385,10 +410,12 @@
             <div class="cif-tabs" role="tablist">
                 ${tabButton('fleet', 'Fleet')}
                 ${tabButton('schedule', 'Schedules')}
+                ${tabButton('use', 'Utilisation')}
                 ${tabButton('setup', 'Connection')}
             </div>
             ${S.tab === 'fleet' ? fleetView(st) : ''}
             ${S.tab === 'schedule' ? scheduleView(st) : ''}
+            ${S.tab === 'use' ? utilisationView(st) : ''}
             ${S.tab === 'setup' ? connectionView(st) : ''}`;
     }
 
@@ -727,6 +754,86 @@
     }
 
     /* --------------------------------------------------------------------
+     * Utilisation
+     *
+     * The one question a fleet board could not answer by scrolling: which of
+     * these aeroplanes is nobody using? An airframe unflown for three weeks
+     * that everybody assumes somebody else is on is invisible in a rota read
+     * one aircraft at a time.
+     *
+     * The backend does the arithmetic (ifLive.fleetUtilisation) so this and any
+     * later surface cannot disagree about what "idle" means. Note what is drawn
+     * for an aircraft whose rota could not be read: "not read", not "nothing
+     * scheduled". Reporting a failed read as an empty rota would send a VA
+     * looking for a problem that is not there, which is worse than saying
+     * nothing.
+     * ----------------------------------------------------------------- */
+    function utilisationView(st) {
+        if (!st.canReadSchedules) {
+            return `<div class="cp-empty"><i data-lucide="lock"></i>
+                This connection wasn’t granted permission to read schedules, so the fleet’s workload can’t be worked out.
+            </div>`;
+        }
+        if (S.useError) {
+            return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>${esc(S.useError)}</div>`;
+        }
+        if (!S.use) return '<div class="cp-empty">Reading every aircraft’s schedule…</div>';
+
+        const s = S.use.summary || {};
+        const hours = (mins) => (mins ? `${Math.round(mins / 60).toLocaleString()}h` : '0h');
+        const num = (v) => (v === undefined || v === null ? '—' : Number(v).toLocaleString());
+        return `
+        <div class="cif-stats">
+            <div class="cif-stat"><b>${num(s.idle)}</b><span>Idle</span></div>
+            <div class="cif-stat"><b>${num(s.upcomingLegs)}</b><span>Legs booked</span></div>
+            <div class="cif-stat"><b>${esc(hours(s.scheduledMinutes))}</b><span>Block scheduled</span></div>
+            <div class="cif-stat"><b>${s.longestIdleDays ? num(s.longestIdleDays) + 'd' : '—'}</b><span>Longest idle</span></div>
+            <div class="cif-stat"><b>${num(s.neverFlown)}</b><span>Never flown</span></div>
+        </div>
+        ${s.unknown ? `<p class="cp-note cp-note-warn">${esc(String(s.unknown))} aircraft’s schedules couldn’t be read — they’re listed but not counted above.</p>` : ''}
+        <div class="cif-ac">${(S.use.aircraft || []).map(utilisationRow).join('')}</div>
+        <p class="cp-note cp-faint">
+            “Flown” counts legs Infinite Flight recorded an actual arrival for — a schedule in the past
+            that nobody flew doesn’t count.
+            ${S.use.readAt ? 'Read ' + esc(relativeText(S.use.readAt)) + '.' : ''}
+            <button class="cp-btn cp-btn-sm" data-cif="use-refresh" style="margin-left:.4rem">Refresh</button>
+        </p>`;
+    }
+
+    function utilisationRow(r) {
+        const idleFor = r.daysSinceFlown === null
+            ? 'never flown'
+            : `last flew ${r.daysSinceFlown === 0 ? 'today' : r.daysSinceFlown + ' day' + (r.daysSinceFlown === 1 ? '' : 's') + ' ago'}`;
+        return `<div class="cif-row">
+            <div class="cif-row-top">
+                <div style="min-width:0">
+                    <span class="cif-reg">${esc(r.registration || 'Unregistered')}</span>
+                    ${r.fleetRank ? `<span class="cif-rank"> · #${esc(String(r.fleetRank))}</span>` : ''}
+                </div>
+                <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
+                    ${r.rotaUnknown ? chip('Not read', 'mute')
+                        : r.idle ? chip('Idle', 'warn')
+                        : chip(`${r.upcoming} booked`, 'ok')}
+                    ${r.storage !== 'active' ? chip(r.storage === 'hangared' ? 'Hangared' : 'Storage', 'mute') : ''}
+                </div>
+            </div>
+            <div class="cif-times">
+                ${r.rotaUnknown
+                    ? '<span class="cp-faint">Its schedule couldn’t be read just now.</span>'
+                    : `${esc(idleFor)}${r.flownLegs ? ` · ${r.flownLegs} leg${r.flownLegs === 1 ? '' : 's'} flown` : ''}${
+                        r.nextDepartureUtc ? ` · next out ${esc(whenText(r.nextDepartureUtc))} ${esc(timeText(r.nextDepartureUtc))}Z` : ''}`}
+            </div>
+            ${!r.rotaUnknown && r.scheduledMinutes
+                ? `<div class="cp-note cp-faint">${Math.round(r.scheduledMinutes / 60)}h block scheduled</div>` : ''}
+            <div class="cif-acts">
+                <button class="cp-btn cp-btn-sm" data-cif="open-schedule" data-id="${esc(r.id)}">
+                    <i data-lucide="calendar-clock"></i> Schedule
+                </button>
+            </div>
+        </div>`;
+    }
+
+    /* --------------------------------------------------------------------
      * The connection tab
      * ----------------------------------------------------------------- */
 
@@ -757,11 +864,17 @@
         <div class="cp-card">
             <h3 class="cp-card-title">Crew schedule sync</h3>
             <p class="cp-note" style="margin:.4rem 0 .7rem">
-                Push this crew center’s published departures onto one aircraft’s Infinite Flight rota.
-                Nothing is ever deleted in Infinite Flight by a push — removing a flight is something you do here.
+                With this on, publishing a departure in the crew center puts it on that aircraft’s
+                Infinite Flight rota, edits follow it, and cancelling or deleting it takes it back off.
+                Assigning an aircraft to a departure says <b>which</b> aeroplane; this switch says
+                <b>whether</b> we write to it.
+            </p>
+            <p class="cp-note cp-faint" style="margin:0 0 .7rem">
+                Leave it off and the aircraft is only a label — pilots still see the registration they’re
+                on, and your Infinite Flight rota is untouched until you press Push.
             </p>
             <div>
-                <label class="cp-label" for="cif-sync-ac">Aircraft</label>
+                <label class="cp-label" for="cif-sync-ac">Default aircraft <span class="cp-faint">— for departures with none assigned</span></label>
                 <select class="cp-select" id="cif-sync-ac" ${st.canWrite ? '' : 'disabled'}>
                     <option value="">Not set</option>
                     ${fleet.map((a) => `<option value="${esc(a.id)}" ${st.sync && st.sync.aircraftId === a.id ? 'selected' : ''}>${esc(a.registration || a.id)}</option>`).join('')}
@@ -769,7 +882,7 @@
             </div>
             <label class="cp-note" style="display:flex;gap:.45rem;align-items:center;margin-top:.6rem">
                 <input type="checkbox" id="cif-sync-on" ${st.sync && st.sync.enabled ? 'checked' : ''} ${st.canWrite ? '' : 'disabled'}>
-                Keep this aircraft’s rota in step with the crew schedule
+                Keep Infinite Flight in step with the crew schedule, automatically
             </label>
             ${st.sync && st.sync.syncedAt ? `<p class="cp-note cp-faint" style="margin-top:.4rem">Last pushed ${esc(relativeText(st.sync.syncedAt))}.</p>` : ''}
             <div class="cif-acts" style="margin-top:.7rem">
@@ -805,6 +918,7 @@
             S.editing = null; S.planning = null;
             render();
             if (S.tab === 'fleet' || S.tab === 'schedule') act(() => loadFleet());
+            if (S.tab === 'use' && !S.use) act(() => loadUtilisation());
             if (S.tab === 'setup' && S.organizations === null) {
                 act(async () => {
                     const d = await S.api('/if/organizations');
@@ -836,6 +950,7 @@
             }, { done: 'Disconnected.' });
         }
         if (what === 'fleet-refresh') return act(() => loadFleet({ force: true }));
+        if (what === 'use-refresh') { S.use = null; return act(() => loadUtilisation()); }
 
         if (what === 'org-save') {
             const picked = panel.body.querySelector('input[name="cif-org"]:checked');
@@ -852,10 +967,16 @@
             const ac = panel.body.querySelector('#cif-sync-ac');
             const on = panel.body.querySelector('#cif-sync-on');
             return act(async () => {
-                S.status = await S.api('/if/sync', {
+                const out = await S.api('/if/sync', {
                     method: 'POST',
                     body: { enabled: !!(on && on.checked), aircraftId: ac ? ac.value : '' },
                 });
+                S.status = out;
+                // "On, but only for departures you've assigned an aircraft to"
+                // is a real configuration and also what a half-finished one
+                // looks like. The server says which; pass it on rather than
+                // letting the VA discover it by publishing something.
+                if (out.notice) toast(out.notice, 'bad');
             }, { done: 'Saved.' });
         }
 

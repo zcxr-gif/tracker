@@ -76,8 +76,9 @@ a VA without a Live organization carries no orphan heading.
 - **Schedules** — one aircraft's rota in sequence: add a leg, edit it, replace
   just its flight plan, move it (top / up / down), remove it. Legs the crew
   center already has a departure for are marked.
-- **Connection** — pick the organization, set which aircraft the crew schedule
-  pushes to, review the granted scopes, reconnect, disconnect.
+- **Utilisation** — which aeroplanes nobody is using. See below.
+- **Connection** — pick the organization, set the sync, review the granted
+  scopes, reconnect, disconnect.
 
 Plus the bridge, both ways: **push** the crew center's published upcoming
 departures onto an aircraft's rota, or **import** that rota into the crew center
@@ -87,6 +88,61 @@ A push never deletes anything in Infinite Flight, and an import never touches
 seats, rank gates, publication status or bookings. See the *Infinite Flight
 Live* section of the backend's `supabase/README.md` for why both of those are
 structural rather than promises.
+
+## Which aeroplane a departure is on
+
+The crew center's schedule editor (`crewSchedule.js`) gains an **Aircraft
+assigned** field — a specific airframe out of the VA's Live fleet, as opposed to
+the free-text *Aircraft* field beside it, which is the type and livery and has
+always been there. Pilots booking the leg are told which one they are on, in the
+schedule row and in the departure's timeline.
+
+The field is drawn **only** for a VA that has connected an organization with
+aircraft in it. `/if/airframes` answers `200` with an empty list otherwise, so
+the editor needs no special case: no connection means no field, and a schedule
+form never has to understand the Live integration. The aeroplane a departure is
+already on stays in the list even if it has since gone into storage — dropping
+it would silently unassign the departure the moment somebody opened it to change
+the time.
+
+## The sync: two switches, two questions
+
+| | says |
+|---|---|
+| assigning an aircraft to a departure | **which** aeroplane |
+| the sync switch, on the Connection tab | **whether** we write to its real rota |
+
+With the switch off, the aircraft is purely a label: pilots see the
+registration, the Infinite Flight rota is untouched, and the manual **Push**
+button still does what it always did. With it on, publishing a departure puts it
+on that aircraft's rota, edits follow it, and cancelling or deleting it takes it
+back off.
+
+They are separate because assigning an aircraft is something staff do constantly
+while building a week, and treating that as permission to start editing a live
+fleet would be a surprise nobody asked for.
+
+## Utilisation
+
+One question a fleet board cannot answer by scrolling: **which of these
+aeroplanes is nobody using?** An airframe unflown for three weeks that everyone
+assumes somebody else is on is invisible in a rota read one aircraft at a time.
+
+Per aircraft: legs booked, block hours scheduled, next departure, and how long
+since it last flew. Sorted so the thing to act on is first — never-flown above
+long-idle.
+
+Three things it will not do, and each is the "don't invent" rule again:
+
+- An aircraft whose rota **could not be read** shows *"Not read"*, never
+  *"nothing scheduled"*.
+- **Only an actual arrival counts as flown.** A past schedule nobody flew is a
+  plan, not evidence.
+- **In storage is not idle** — that is a decision somebody made.
+
+It costs one call per aircraft, so it is its own tab loaded on demand rather
+than part of the fleet board's refresh, and the result is kept until you press
+Refresh.
 
 ## Times are Zulu
 
