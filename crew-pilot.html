@@ -37,6 +37,10 @@
     <script src="/crewInbox.js"></script>
     <!-- The airline's quick links: the Discord, SimBrief, the livery pack. -->
     <script src="/crewLinks.js"></script>
+    <!-- The airline as Infinite Flight holds it: the Live organization's real
+         fleet and the schedules on it. Read-only here — the write controls need
+         a capability no pilot account has, and the backend says so. -->
+    <script src="/crewLiveOps.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -44,6 +48,11 @@
            class stops being hidden, including the password gate. See the same
            rule and reasoning in crew-dashboard.html. */
         .hidden{ display:none; }
+        /* Same reasoning one line up, for the other direction: cp-hidden is
+           crewPanels.js's, and that stylesheet is not injected until a panel
+           module mounts. A tile marked hidden in the first paint must not be
+           visible for those few milliseconds. */
+        .cp-hidden{ display:none !important; }
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
@@ -392,10 +401,18 @@
             {icon:'library',label:'Documents',desc:'Manuals & SOPs',action:'documents',live:true},
             {icon:'trophy',label:'Standings',desc:'Who’s flying this month',action:'standings'},
             {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
+            // The Live organization. Hidden until we know the crew center has
+            // connected one — a pilot cannot connect it and has nobody to ask
+            // in this page, so a tile that only ever says "not connected" is a
+            // dead end. mountLiveOps() reveals it when there is something behind
+            // it. Revealed rather than re-rendered because the tiles above paint
+            // live hosts into themselves (the inbox badge, the document count)
+            // and rebuilding the grid would throw those away.
+            {icon:'radio-tower',label:'Live ops',desc:'The airline in Infinite Flight',action:'liveops',id:'liveOpsTile',hidden:true},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
-                <a data-i="${i}" class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
+                <a data-i="${i}"${t.id?` id="${t.id}"`:''} class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group${t.hidden?' cp-hidden':''}">
                     <span class="muted group-hover:accent-text transition-colors flex items-center gap-2">
                         <i data-lucide="${t.icon}" class="w-6 h-6"></i>
                         ${t.badge?'<span id="inboxBadge" class="cp-hidden"></span>':''}
@@ -417,6 +434,7 @@
                 if(act==='documents') el.addEventListener('click', openDocuments);
                 if(act==='standings') el.addEventListener('click', openStandings);
                 if(act==='network') el.addEventListener('click', openNetwork);
+                if(act==='liveops') el.addEventListener('click', openLiveOps);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -767,6 +785,28 @@
             CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: ()=> (storedSession()||{}).token || '' });
         }
 
+        // ---- Live ops ----
+        //
+        // The organization Infinite Flight itself holds for this airline: its
+        // real airframes, where each one last was, and the schedules on them.
+        //
+        // Read-only from here, and not because this page hides anything. The
+        // panel draws its write controls from the backend's `canManage`, which
+        // is the crew center's live.manage capability — a pilot account does not
+        // hold it, so the same file that gives an operations manager an editor
+        // gives a pilot a board. That decision is made once, on the server.
+        function openLiveOps(){ if(window.CrewLiveOps) CrewLiveOps.open(); }
+        function mountLiveOps(){
+            if(!window.CrewLiveOps) return;
+            CrewLiveOps.mount({ backend: BACKEND, slug: getSlug(), token: ()=> (storedSession()||{}).token || '' })
+                .then(st=>{
+                    if(!st || !st.connected) return;
+                    const tile=document.getElementById('liveOpsTile');
+                    if(tile) tile.classList.remove('cp-hidden');
+                })
+                .catch(()=>{ /* nothing to reveal, and nothing worth saying */ });
+        }
+
         // ---- Documents ----
         //
         // The airline's manuals and SOPs. What this pilot may READ is decided by
@@ -1028,6 +1068,7 @@
             mountDocuments();
             mountInbox();
             mountLinks();
+            mountLiveOps();
             loadNotices();
             const b = await resolveBranding();
             applyBranding(b);
