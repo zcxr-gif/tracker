@@ -249,6 +249,9 @@
             // How closely a live callsign has to follow the registered shape —
             // 'exact' | 'strict' | 'broad'. See normalizeConfig.
             callsignMatch: (p.get('match') || p.get('callsignMatch') || '').trim(),
+            // How far the VA's pilot roster may vouch for a callsign the rule
+            // above rejects — 'off' | 'airline' | 'any'. See normalizeConfig.
+            rosterTrust: (p.get('roster') || p.get('rosterTrust') || '').trim(),
             hubs: p.get('hubs') ? p.get('hubs').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
@@ -310,15 +313,30 @@
         //
         //   'exact'  — the callsign must BE the registered shape and nothing
         //              more: <prefix><number><tag>. No second trailing tag, no
-        //              roster waiver, no bare-tag matches. This is the setting
-        //              for a VA that wants unwanted flights gone, and accepts
-        //              that a member who mistypes their callsign drops off.
+        //              bare-tag matches. This is the setting for a VA that wants
+        //              unwanted flights gone, and accepts that a member who
+        //              mistypes their callsign drops off.
         //   'strict' — (default) declared prefix AND the tag on one of the last
-        //              two tokens, plus the roster waiver below.
+        //              two tokens.
         //   'broad'  — the declared prefix alone is enough, tag or no tag.
         const match = ['exact', 'strict', 'broad'].includes(String(raw.callsignMatch || '').trim().toLowerCase())
             ? String(raw.callsignMatch).trim().toLowerCase()
             : 'strict';
+
+        // How far the VA's pilot roster may vouch for a flight the callsign rule
+        // rejects. A separate question from `match`: that one is "how do we read
+        // a callsign", this one is "may the roster overrule it".
+        //
+        //   'off'     — never. Only callsigns that pass `match` are members.
+        //   'airline' — (default) the roster waives the VA's TAG and nothing
+        //               more, so an untagged "Ocean 12" by a rostered pilot
+        //               counts while their "Etihad 456FR" does not.
+        //   'any'     — the roster waives the callsign entirely. The opt-in for
+        //               VAs whose members fly codeshare / partner callsigns; it
+        //               also brings in whatever else those pilots are flying.
+        const rosterTrust = ['off', 'airline', 'any'].includes(String(raw.rosterTrust || '').trim().toLowerCase())
+            ? String(raw.rosterTrust).trim().toLowerCase()
+            : 'airline';
 
         let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
@@ -398,6 +416,7 @@
             suffixes,
             regulars,
             match,
+            rosterTrust,
             card,
             hubs,
             mode,
@@ -474,22 +493,28 @@
         if (!f) return false;
         if (callsignMatches(f.callsign, cfg)) return true;
 
-        // Everything below this line WIDENS the callsign rule. A VA running in
-        // 'exact' mode has asked for the registered shape and nothing else, so
-        // none of it applies to them.
-        if ((cfg.match || 'strict') === 'exact') return false;
+        // Everything below this line WIDENS the callsign rule, and each widening
+        // is something the VA turned on rather than something we assume.
 
-        // A rostered pilot still has to be flying THIS VA's airline callsign —
-        // the roster only waives the suffix TAG (an untagged "Air Norway 123"
-        // by a registered pilot counts). It must not vouch for whatever else
-        // that pilot is flying: their "Etihad 456FR" for some other VA stays
-        // out of this embed.
+        // The pilot roster, as far as the VA lets it speak (cfg.rosterTrust):
+        //
+        //   'airline' — the default. It waives the suffix TAG only, so an
+        //     untagged "Air Norway 123" by a registered pilot counts. It must
+        //     not vouch for whatever else that pilot is flying: their "Etihad
+        //     456FR" for some other VA stays out.
+        //   'any' — the codeshare opt-in. The callsign stops mattering: a pilot
+        //     on this VA's roster is flying for this VA, full stop. The VA has
+        //     accepted that their members' other flights arrive too.
+        //   'off' — the roster never widens anything.
+        const trust = cfg.rosterTrust || 'airline';
         const uname = normUsername(f.username);
-        if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
+        if (trust !== 'off' && uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
+            if (trust === 'any') return true;
             const compact = compactCallsign(f.callsign);
             if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
             if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
         }
+
         // A distinctive tag standing on its own, with no declared airline in
         // front of it. "Etihad 456FR" counts for the VA that flies the "FR" tag
         // even though Etihad isn't on its prefix list — which is how a VA finds
