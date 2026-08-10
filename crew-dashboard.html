@@ -36,6 +36,10 @@
     <!-- Quick links: the Discord, SimBrief, the livery pack. A board on the page
          rather than a panel — a link you have to open a panel for is not quick. -->
     <script src="/crewLinks.js"></script>
+    <!-- Infinite Flight Live, over PublicApi v3's OAuth: the aircraft the VA
+         actually owns, where each one is, and the schedule each one will fly —
+         readable and editable from here instead of only in the Live portal. -->
+    <script src="/crewInfiniteFlight.js"></script>
     <!-- The widgets a VA can put on their own website, pre-filled with theirs. -->
     <script src="/crewEmbeds.js"></script>
     <!-- Their standing with us, read-only, linking into the partnership portal. -->
@@ -326,6 +330,11 @@
                      reads as "this VA has no links", which is the invented-data
                      bug the noticeboard was rewritten to remove. -->
                 <div id="linksBoard" class="mb-3"></div>
+                <!-- The Live fleet. Painted by crewInfiniteFlight.js from the
+                     VA's own Infinite Flight organization, and — like the links
+                     board above it — empty until that fetch lands, and empty
+                     for good on a crew center that has not connected one. -->
+                <div id="ifFleet" class="mb-3"></div>
                 <div id="toolGrid" class="grid grid-cols-2 gap-3"></div>
             </section>
 
@@ -1556,6 +1565,7 @@
             {icon:'library',label:'Documents',desc:'Manuals, SOPs & policies',action:'documents'},
             {icon:'mail',label:'Messages',desc:'Message pilots directly',action:'inbox'},
             {icon:'link',label:'Quick links',desc:'Where the crew gets sent',action:'links'},
+            {icon:'plane',label:'Infinite Flight',desc:'Live fleet & aircraft schedules',action:'ifLive'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
@@ -1570,6 +1580,12 @@
             documents:'documents.manage',
             inbox:'members.message',
             links:'links.manage',
+            // Reading the Live fleet is not a staff power in itself, but the
+            // panel's reason to exist is building the aircraft's rota, and
+            // that is the same capability the crew schedule uses. A staff
+            // member without it gets the pilot-facing board on the page
+            // instead, which is the read-only half.
+            ifLive:'schedules.manage',
             embeds:'settings.branding',
             partnership:'partnership.view',
             // Statistics name individual pilots and rank them, which is roster
@@ -1639,6 +1655,7 @@
                 if(t.action==='documents') el.addEventListener('click', openDocuments);
                 if(t.action==='inbox') el.addEventListener('click', openInbox);
                 if(t.action==='links') el.addEventListener('click', openLinks);
+                if(t.action==='ifLive') el.addEventListener('click', openIfLive);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
@@ -1662,6 +1679,7 @@
             schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
+            ifLive:'#cif-panel',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), pireps:()=>closePireps(),
@@ -1675,6 +1693,7 @@
             documents:()=>{ if(window.CrewDocuments) CrewDocuments.close(); },
             inbox:()=>{ if(window.CrewInbox) CrewInbox.close(); },
             links:()=>{ if(window.CrewLinks) CrewLinks.close(); },
+            ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(),
@@ -1682,6 +1701,7 @@
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
             partnership:()=>openPartnership(), insights:()=>openInsights(),
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
+            ifLive:()=>openIfLive(),
         };
         function registerTopics(tools){
             if(!window.CrewTopics) return;
@@ -1791,6 +1811,42 @@
             });
         }
         function openLinks(){ if(window.CrewLinks) CrewLinks.open(); }
+
+        // ---- Infinite Flight Live ----
+        //
+        // The VA's real fleet, out of Infinite Flight's PublicApi v3: the
+        // aircraft they own in their Live organization, where each one last
+        // was, and the rota each one is going to fly — which staff can now
+        // build from here rather than only in the Live portal.
+        //
+        // Two surfaces, and they are for different people. The PANEL is staff
+        // work: connecting the account, picking the organization, editing an
+        // aircraft's schedule. The BOARD painted below it is for anybody with a
+        // crew login — the fleet and the next few departures, read-only — and it
+        // is mounted for everyone, because a pilot seeing which aeroplanes are
+        // out is not a staff power.
+        //
+        // `liveBase` is the ACARS/live-traffic service, not this backend. It is
+        // what turns "last stored position, four hours old" into "flying now,
+        // on Expert, as BAW117" — the cross-reference Infinite Flight's own v3
+        // docs recommend, done against a feed we already poll so it costs their
+        // API nothing. Optional: without it the board simply has no green dots.
+        //
+        // The board paints NOTHING until its fetch lands, and nothing at all
+        // for a VA that has not connected an organization — an empty fleet grid
+        // that fills in a second later reads as "this VA has no aircraft".
+        function mountIfLive(){
+            if(!window.CrewIF) return;
+            CrewIF.mount({
+                backend: BACKEND, slug: getSlug(), token: sessionToken,
+                liveBase: (window.APP_CONFIG && window.APP_CONFIG.backendUrl)
+                    || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
+            }).then(()=>{
+                const host=document.getElementById('ifFleet');
+                if(host) CrewIF.renderBoard(host, { limit: 8 });
+            });
+        }
+        function openIfLive(){ if(window.CrewIF) CrewIF.open(); }
 
         // ---- The schedule ----
         // Staff build the week off the route network, pilots book a leg. Both
@@ -5932,6 +5988,7 @@
             mountDocuments();               // the library (RANKS is already in from branding, above)
             mountInbox();                   // messaging the crew (needs loadMe's capabilities, which have landed)
             mountLinks();                   // the quick-links board, painted into the page
+            mountIfLive();                  // the Live fleet board (and the panel behind it, for staff)
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
