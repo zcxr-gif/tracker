@@ -36,6 +36,11 @@
     <!-- Quick links: the Discord, SimBrief, the livery pack. A board on the page
          rather than a panel — a link you have to open a panel for is not quick. -->
     <script src="/crewLinks.js"></script>
+    <!-- The airline Infinite Flight itself holds: the Live organization's real
+         fleet, where each airframe last was, and the schedules on it. Reached
+         through an Infinite Flight account the owner connects once (OAuth2),
+         not through our platform API key. -->
+    <script src="/crewLiveOps.js"></script>
     <!-- The widgets a VA can put on their own website, pre-filled with theirs. -->
     <script src="/crewEmbeds.js"></script>
     <!-- Their standing with us, read-only, linking into the partnership portal. -->
@@ -1551,6 +1556,7 @@
             {icon:'calendar-clock',label:'Schedules',desc:'Departures & bookings',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
+            {icon:'radio-tower',label:'Live ops',desc:'Infinite Flight fleet & schedules',action:'liveops'},
             {icon:'chart-column',label:'Statistics',desc:'Routes, pilots & activity',action:'insights'},
             {icon:'megaphone',label:'Announcements',desc:'Notices to crew',action:'notices'},
             {icon:'library',label:'Documents',desc:'Manuals, SOPs & policies',action:'documents'},
@@ -1591,6 +1597,12 @@
             const tools=TOOLS.filter(t=>{
                 // A VA that has switched the schedule off gets no Schedules tile.
                 if(t.action==='schedule' && SCHEDULE_PREFS.enabled===false) return false;
+                // Live ops needs an OAuth client on the installation. Where
+                // there is none the tile is not offered at all rather than
+                // opening a panel whose only content is an apology — but only
+                // once we KNOW (null means the status has not landed yet, and
+                // hiding on a pending answer would flash the tile away).
+                if(t.action==='liveops' && LIVEOPS_AVAILABLE===false) return false;
                 // Every tile is gated on the capability its panel actually
                 // needs. Only Partnership was, which meant a staff member hired
                 // to review flight reports still saw Roster, Routes, Embeds and
@@ -1642,6 +1654,7 @@
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
+                if(t.action==='liveops') el.addEventListener('click', openLiveOps);
             });
             registerTopics(tools);
         }
@@ -1662,6 +1675,7 @@
             schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
+            liveops:'#clo-panel',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), pireps:()=>closePireps(),
@@ -1675,6 +1689,7 @@
             documents:()=>{ if(window.CrewDocuments) CrewDocuments.close(); },
             inbox:()=>{ if(window.CrewInbox) CrewInbox.close(); },
             links:()=>{ if(window.CrewLinks) CrewLinks.close(); },
+            liveops:()=>{ if(window.CrewLiveOps) CrewLiveOps.close(); },
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(),
@@ -1682,6 +1697,7 @@
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
             partnership:()=>openPartnership(), insights:()=>openInsights(),
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
+            liveops:()=>openLiveOps(),
         };
         function registerTopics(tools){
             if(!window.CrewTopics) return;
@@ -1810,6 +1826,35 @@
             CrewSchedule.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken });
         }
         function openSchedule(){ if(window.CrewSchedule) CrewSchedule.open(); }
+
+        // ---- Live ops ----
+        //
+        // The OTHER airline: the Live organization Infinite Flight itself holds,
+        // its real airframes and the schedules on them. Everything about it —
+        // whether this installation can offer it, whether this VA has connected
+        // an account, and what that account may do — is decided by the backend
+        // and read off the status endpoint. Nothing here is allowed to guess:
+        // the connection belongs to somebody's Infinite Flight account, and a
+        // dashboard that drew an editor on optimism would be offering to write
+        // into an organization it cannot see the permissions of.
+        //
+        // `null` until the status lands, so renderTiles keeps the tile up while
+        // the answer is on its way and only takes it away on a definite no.
+        let LIVEOPS_AVAILABLE=null;
+        function mountLiveOps(){
+            if(!window.CrewLiveOps) return;
+            CrewLiveOps.mount({ backend: BACKEND, slug: getSlug(), token: sessionToken })
+                .then(st=>{
+                    LIVEOPS_AVAILABLE = !!(st && st.available);
+                    renderTiles();
+                    // Landing back from Infinite Flight's consent screen. Done
+                    // after mount so the panel it opens has a status to draw,
+                    // and only once — the module strips the parameters itself.
+                    CrewLiveOps.consumeCallback();
+                })
+                .catch(()=>{ /* the panel says why when somebody opens it */ });
+        }
+        function openLiveOps(){ if(window.CrewLiveOps) CrewLiveOps.open(); }
 
         // ---- My flying ----
         //
@@ -5932,6 +5977,7 @@
             mountDocuments();               // the library (RANKS is already in from branding, above)
             mountInbox();                   // messaging the crew (needs loadMe's capabilities, which have landed)
             mountLinks();                   // the quick-links board, painted into the page
+            mountLiveOps();                 // the Live organization, and the return leg of its OAuth handshake
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
