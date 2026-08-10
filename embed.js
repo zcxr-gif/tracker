@@ -246,6 +246,12 @@
             // included even when suffix-tag mode is on for the main prefixes.
             regularCallsigns: (p.get('regulars') || p.get('callsigns'))
                 ? (p.get('regulars') || p.get('callsigns')).split(',') : null,
+            // How closely a live callsign has to follow the registered shape —
+            // 'exact' | 'strict' | 'broad'. See normalizeConfig.
+            callsignMatch: (p.get('match') || p.get('callsignMatch') || '').trim(),
+            // How far the VA's pilot roster may vouch for a callsign the rule
+            // above rejects — 'off' | 'airline' | 'any'. See normalizeConfig.
+            rosterTrust: (p.get('roster') || p.get('rosterTrust') || '').trim(),
             hubs: p.get('hubs') ? p.get('hubs').split(',') : null,
             mode: mode,
             mapboxToken: p.get('mapboxToken') || '',
@@ -299,6 +305,38 @@
         // members. Compacted the same way as prefixes.
         const regulars = (Array.isArray(raw.regularCallsigns) ? raw.regularCallsigns : [])
             .map(compactCallsign).filter(Boolean);
+
+        // How closely a live callsign has to follow what the VA registered. The
+        // owner/staff pick this per embed; anything unrecognised means 'strict',
+        // because putting somebody else's pilot on a VA's map is the error they
+        // did not agree to.
+        //
+        //   'exact'  — the callsign must BE the registered shape and nothing
+        //              more: <prefix><number><tag>. No second trailing tag, no
+        //              bare-tag matches. This is the setting for a VA that wants
+        //              unwanted flights gone, and accepts that a member who
+        //              mistypes their callsign drops off.
+        //   'strict' — (default) declared prefix AND the tag on one of the last
+        //              two tokens.
+        //   'broad'  — the declared prefix alone is enough, tag or no tag.
+        const match = ['exact', 'strict', 'broad'].includes(String(raw.callsignMatch || '').trim().toLowerCase())
+            ? String(raw.callsignMatch).trim().toLowerCase()
+            : 'strict';
+
+        // How far the VA's pilot roster may vouch for a flight the callsign rule
+        // rejects. A separate question from `match`: that one is "how do we read
+        // a callsign", this one is "may the roster overrule it".
+        //
+        //   'off'     — never. Only callsigns that pass `match` are members.
+        //   'airline' — (default) the roster waives the VA's TAG and nothing
+        //               more, so an untagged "Ocean 12" by a rostered pilot
+        //               counts while their "Etihad 456FR" does not.
+        //   'any'     — the roster waives the callsign entirely. The opt-in for
+        //               VAs whose members fly codeshare / partner callsigns; it
+        //               also brings in whatever else those pilots are flying.
+        const rosterTrust = ['off', 'airline', 'any'].includes(String(raw.rosterTrust || '').trim().toLowerCase())
+            ? String(raw.rosterTrust).trim().toLowerCase()
+            : 'airline';
 
         let mode = (String(raw.mode || '').trim().toLowerCase() === 'map') ? 'map' : 'roster';
         const mapboxToken = String(raw.mapboxToken || '').trim();
@@ -377,6 +415,8 @@
             prefixes,
             suffixes,
             regulars,
+            match,
+            rosterTrust,
             card,
             hubs,
             mode,
@@ -452,18 +492,36 @@
     function flightIsMember(f, cfg) {
         if (!f) return false;
         if (callsignMatches(f.callsign, cfg)) return true;
-        // A rostered pilot still has to be flying THIS VA's airline callsign —
-        // the roster only waives the suffix TAG (an untagged "Air Norway 123"
-        // by a registered pilot counts). It must not vouch for whatever else
-        // that pilot is flying: their "Etihad 456FR" for some other VA stays
-        // out of this embed.
+
+        // Everything below this line WIDENS the callsign rule, and each widening
+        // is something the VA turned on rather than something we assume.
+
+        // The pilot roster, as far as the VA lets it speak (cfg.rosterTrust):
+        //
+        //   'airline' — the default. It waives the suffix TAG only, so an
+        //     untagged "Air Norway 123" by a registered pilot counts. It must
+        //     not vouch for whatever else that pilot is flying: their "Etihad
+        //     456FR" for some other VA stays out.
+        //   'any' — the codeshare opt-in. The callsign stops mattering: a pilot
+        //     on this VA's roster is flying for this VA, full stop. The VA has
+        //     accepted that their members' other flights arrive too.
+        //   'off' — the roster never widens anything.
+        const trust = cfg.rosterTrust || 'airline';
         const uname = normUsername(f.username);
-        if (uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
+        if (trust !== 'off' && uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
+            if (trust === 'any') return true;
             const compact = compactCallsign(f.callsign);
             if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
             if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
         }
-        if (cfg.suffixes && cfg.suffixes.length) {
+
+        // A distinctive tag standing on its own, with no declared airline in
+        // front of it. "Etihad 456FR" counts for the VA that flies the "FR" tag
+        // even though Etihad isn't on its prefix list — which is how a VA finds
+        // members on callsigns it never registered, and equally how it picks up
+        // somebody else's pilot who happens to use the same tag. That trade is
+        // exactly what 'broad' means, so it lives there and nowhere else.
+        if ((cfg.match || 'strict') === 'broad' && cfg.suffixes && cfg.suffixes.length) {
             const tail = stripWeightClass(callsignTokens(f.callsign)).slice(-2);
             if (cfg.suffixes.some(s => s && s.toUpperCase() !== 'VA' && tail.some(t => tokenHasSuffixTag(t, s)))) return true;
         }
@@ -528,19 +586,43 @@
     //     longer sweep up every unrelated callsign that happens to end in it — the
     //     VA must declare which airline prefixes they fly that tag under. To run
     //     the tag across several airlines, list each airline in callsignPrefixes.
+    //
+    // cfg.match tightens or loosens that rule (see normalizeConfig):
+    //
+    //   'exact'  — the compacted callsign must BE <prefix><number><tag> and stop
+    //     there. "Air Canada 001VA" ✓ ; "Air Canada 001VA CX" ✗ (trailing extra),
+    //     "Air Canada 001" ✗ (no tag). A VA turns this on when it would rather
+    //     lose a member who typed their callsign loosely than carry a flight that
+    //     isn't theirs.
+    //   'broad'  — the declared prefix alone is enough, tag or no tag.
     function callsignMatches(callsign, cfg) {
         const tokens = stripWeightClass(callsignTokens(callsign));
         if (!tokens.length) return false;
         const compact = tokens.join('');          // uppercased, separators removed
+        const mode = cfg.match || 'strict';
 
         // Regular (untagged) callsigns are matched by prefix alone and are always
-        // included — they bypass the suffix-tag requirement entirely.
-        if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
+        // included — they bypass the suffix-tag requirement entirely. In exact
+        // mode they still have to be the WHOLE callsign (the bare name, or the
+        // name plus a flight number), not merely its opening.
+        if (cfg.regulars && cfg.regulars.some(p => {
+            if (!p || !compact.startsWith(p)) return false;
+            if (mode !== 'exact') return true;
+            const rest = compact.slice(p.length);
+            return rest === '' || /^\d+$/.test(rest);
+        })) return true;
 
         const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)));
+        if (!prefixHit) return false;
+
+        // Exact mode — the registered shape, nothing before or after it.
+        if (mode === 'exact') return callsignFitsShape(compact, cfg.prefixes, cfg.suffixes || []);
+
+        // Broad mode — the airline name is the whole test.
+        if (mode === 'broad') return true;
 
         // Prefix-only mode (no tags) — unchanged.
-        if (!cfg.suffixes || !cfg.suffixes.length) return prefixHit;
+        if (!cfg.suffixes || !cfg.suffixes.length) return true;
 
         // Tag mode — require the declared prefix AND at least one configured tag
         // on one of the LAST TWO tokens. Pilots often carry a second trailing tag
@@ -548,8 +630,27 @@
         // "Air Canada 001 VA EX" — so a tag on either trailing token counts. Both
         // suffixes are optional; one is enough.
         const tail = tokens.slice(-2);
-        const suffixHit = cfg.suffixes.some(s => s && tail.some(t => tokenHasSuffixTag(t, s)));
-        return prefixHit && suffixHit;
+        return cfg.suffixes.some(s => s && tail.some(t => tokenHasSuffixTag(t, s)));
+    }
+
+    // Exact-mode shape test: prefix, then the flight number, then (when the VA
+    // uses tags) one of those tags, and then nothing at all. Mirrors
+    // matchesExactShape in the ACARS backend's va_filter.cjs so the widget and
+    // the Discord feed never disagree about who is a member.
+    function callsignFitsShape(compact, prefixes, suffixes) {
+        for (const p of (prefixes || [])) {
+            if (!p || !compact.startsWith(p)) continue;
+            const rest = compact.slice(p.length);        // "001VA"
+            if (!suffixes.length) {
+                if (/^\d+$/.test(rest)) return true;     // prefix-only: <prefix><number>
+                continue;
+            }
+            for (const tag of suffixes) {
+                if (!tag || !rest.endsWith(tag)) continue;
+                if (/^\d+$/.test(rest.slice(0, rest.length - tag.length))) return true;
+            }
+        }
+        return false;
     }
 
     function normalizeFlight(f, serverName, sessionId) {
