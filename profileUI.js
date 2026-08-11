@@ -20,7 +20,9 @@
  */
 
 import { ProAccess } from './proAccess.js';
-import { CareerModule } from './careerModule.js';
+// CareerModule is loaded when the tab that shows it first renders — see
+// _careerHTML(). 57 KB for one card, which every visitor used to parse on the
+// boot path whether or not they ever opened their profile.
 import { formatGrade } from './ifGrade.js';
 // PredictiveAirspaceNetwork is constructed on the first panel open — see the
 // import() in open(). Left out of the static graph because its telemetry
@@ -117,6 +119,8 @@ export const ProfileUI = {
     // Premium Telemetry Integration
     _airspaceNetwork: null,
     _airspaceNetworkLoading: false,
+    _careerModule: null,
+    _careerModuleLoading: false,
     _airspaceRefreshTimer: null,
     _liveFlights: [],
     _liveExpanded: false,   // live-flight panel is opt-in (collapsed by default)
@@ -2170,6 +2174,33 @@ const requests = [
     },
 
     /** Rebuilds only the main content area; leaves dock + top strip untouched. */
+    /**
+     * The career card's markup, loading the module that produces it on first
+     * ask.
+     *
+     * Returning '' while it loads is the same thing the call site already did
+     * whenever CareerModule was unavailable, so the empty state is not new.
+     * The re-render on arrival goes through _renderContentOnly(), which ends
+     * in _attachContentListeners() — so the card's listeners get attached on
+     * exactly the render that first contains the card.
+     */
+    _careerHTML() {
+        if (this._careerModule && typeof this._careerModule.getHTML === 'function') {
+            return this._careerModule.getHTML(this._ifData);
+        }
+        if (!this._careerModuleLoading) {
+            this._careerModuleLoading = true;
+            import('./careerModule.js')
+                .then(({ CareerModule }) => {
+                    this._careerModule = CareerModule;
+                    if (this._isOpen) this._renderContentOnly();
+                })
+                .catch(err => console.warn('[ProfileUI] Career module unavailable:', err))
+                .finally(() => { this._careerModuleLoading = false; });
+        }
+        return '';
+    },
+
     _renderContentOnly() {
         const shell = document.getElementById('pui-shell');
         if (!shell) return;
@@ -3954,7 +3985,7 @@ _getTabContentHTML() {
                 </div>
 
                 <div class="pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
-                    ${CareerModule && typeof CareerModule.getHTML === 'function' ? CareerModule.getHTML(this._ifData) : ''}
+                    ${this._careerHTML()}
                 </div>
 
                 ${this._ifData.logbook?.length > 0 ? `
@@ -5071,8 +5102,8 @@ const contentRoot = document.getElementById('pui-content');
 
         // ─── Career Deep Dive (Dossier) Listeners ─────────────────────────
         if (this._activeTab === 'career-deep-dive') {
-            if (typeof CareerModule !== 'undefined' && typeof CareerModule.attachListeners === 'function') {
-                CareerModule.attachListeners(this._ifData, this._backendUrl, () => {
+            if (this._careerModule && typeof this._careerModule.attachListeners === 'function') {
+                this._careerModule.attachListeners(this._ifData, this._backendUrl, () => {
                     this._renderContentOnly();
                 });
             }

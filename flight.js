@@ -93,7 +93,9 @@ import { createHistoricalFlightWindow } from './historicalFlightWindow.js';
 // tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
 import { PreferenceSync } from './preferenceSync.js';
-import { runFirstRunExperience } from './firstRunExperience.js';
+// runFirstRunExperience is loaded on demand in initializeApp — returning
+// visitors skip the whole experience, so its 51 KB should not be on the path
+// that every one of them waits through.
 /**
  * Bridges a panel that is opened by a window event to an on-demand import.
  *
@@ -28629,7 +28631,16 @@ async function initializeApp() {
         // to accept the Privacy Policy + Terms before the app is usable.
         // Returning users skip this instantly. Fire-and-forget so it doesn't
         // block the rest of boot from finishing underneath the modal.
-        runFirstRunExperience(sectorOpsMap);
+        //
+        // Loaded on demand: 51 KB of cinematic intro and legal-consent UI that
+        // every returning visitor parsed and then immediately skipped. The
+        // arrival flows that have to wait for this gate (share links, replay
+        // links) poll for window.__inflightFirstRunPromise for up to thirty
+        // seconds before giving up — see waitForFirstRunGate — so an import
+        // landing a few hundred milliseconds later is already handled.
+        import('./firstRunExperience.js')
+            .then(({ runFirstRunExperience }) => runFirstRunExperience(sectorOpsMap))
+            .catch(err => console.warn('[boot] First-run experience unavailable:', err));
 
         // Runways keep loading in the background — the UI below does not read
         // them, so blocking here just delayed first interaction by the length
