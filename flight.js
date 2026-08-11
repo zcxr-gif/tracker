@@ -10,7 +10,12 @@ import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
-import { spriteUVs } from './plane-D2OPBxWC.js';
+// The sprite atlas table used to come from plane-D2OPBxWC.js, a leftover chunk
+// of a Vue build. Only this table was ever wanted from it, but that chunk
+// statically imports pinia-D0Do-mnX.js — the entire Vue 3 runtime — so every
+// visitor downloaded, parsed and executed 254 KB of framework on the boot
+// critical path to read a 124-entry lookup table. See spriteUVs.js.
+import { spriteUVs } from './spriteUVs.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -20,19 +25,111 @@ import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { FlightDeltaClient } from './FlightDeltaClient.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
-import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
-import { FlightReplay } from './flightReplay.js';
-import { AtcReplay } from './atcReplay.js';
-import { GlobalPlayback } from './globalPlayback.js';
+/* ── Replay surfaces: loaded on demand ─────────────────────────────────────
+ *
+ * Global Playback (199 KB), ATC Replay (117 KB) and Flight Replay (67 KB) are
+ * each opened from a deliberate user action — the playback orb, an airport
+ * panel's replay button, the flight window's replay control. Importing them
+ * statically put 383 KB of JavaScript on the boot critical path that most
+ * sessions never run: it has to be fetched, parsed and compiled before
+ * initializeApp() is even called, on top of an already large module graph.
+ *
+ * Each loader caches its import promise, so the first open pays the fetch and
+ * every later one resolves immediately. warmReplayModules() (called once the
+ * map is up, on an idle callback) usually gets there first, so in practice the
+ * click is as instant as it was before — it just no longer delays first paint.
+ */
+let _flightReplayPromise = null;
+let _atcReplayPromise = null;
+let _globalPlaybackPromise = null;
+
+/**
+ * Memoises a module import, but only its *success*.
+ *
+ * Caching the promise itself would cache a rejection too: the warm-up below
+ * runs on a timer, so a connection that happens to be flaky at that moment
+ * would leave a rejected promise in the slot and every later click would fail
+ * against it, for the rest of the session, long after the network recovered.
+ * Clearing the slot on failure means the next attempt actually retries.
+ */
+function memoizeImport(get, set, load) {
+    const existing = get();
+    if (existing) return existing;
+    const p = load().catch(err => { set(null); throw err; });
+    set(p);
+    return p;
+}
+
+const loadFlightReplay = () => memoizeImport(
+    () => _flightReplayPromise, v => { _flightReplayPromise = v; },
+    () => import('./flightReplay.js').then(m => m.FlightReplay));
+const loadAtcReplay = () => memoizeImport(
+    () => _atcReplayPromise, v => { _atcReplayPromise = v; },
+    () => import('./atcReplay.js').then(m => m.AtcReplay));
+const loadGlobalPlayback = () => memoizeImport(
+    () => _globalPlaybackPromise, v => { _globalPlaybackPromise = v; },
+    () => import('./globalPlayback.js').then(m => m.GlobalPlayback));
+
+/**
+ * Pulls the replay modules into the browser's module cache once the app is
+ * idle. Boot never waits on this; it only removes the download from the first
+ * click.
+ */
+function warmReplayModules() {
+    const warm = () => {
+        loadFlightReplay().catch(() => {});
+        loadAtcReplay().catch(() => {});
+        loadGlobalPlayback().catch(() => {});
+    };
+    if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(warm, { timeout: 10000 });
+    } else {
+        setTimeout(warm, 3000);
+    }
+}
 import { createHistoricalFlightWindow } from './historicalFlightWindow.js';
 // The preset traffic rail's vocabulary, shared with global playback so that
 // tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
 import { PreferenceSync } from './preferenceSync.js';
-import { runFirstRunExperience } from './firstRunExperience.js';
-import { NetworkBoardUI } from './networkBoard.js';
-import { NearbyRadarUI } from './nearbyRadar.js';
+// runFirstRunExperience is loaded on demand in initializeApp — returning
+// visitors skip the whole experience, so its 51 KB should not be on the path
+// that every one of them waits through.
+/**
+ * Bridges a panel that is opened by a window event to an on-demand import.
+ *
+ * The Network board (25 KB) and the Nearby radar (49 KB) were imported and
+ * init()'d during boot purely so each could register its own listener for the
+ * event that opens it. Neither is on screen until someone asks for it, so
+ * that was 74 KB parsed on the critical path to wire up two buttons.
+ *
+ * This listens for the same event instead. On the first fire it loads the
+ * module, runs init() — which registers the module's real listener for every
+ * later click — and opens the panel for the click that got us here. It does
+ * not re-dispatch the event to do that: MobileLandingChromeUI listens for the
+ * same two events to open its own sheets, so a replay would toggle those a
+ * second time.
+ *
+ * @param {string} eventName window event that opens the panel
+ * @param {() => Promise<{init: Function, toggle: Function}>} load
+ */
+function bridgeLazyPanel(eventName, load) {
+    const onFirstOpen = () => {
+        window.removeEventListener(eventName, onFirstOpen);
+        load()
+            .then(ui => {
+                ui.init();
+                ui.toggle(true);
+            })
+            .catch(err => {
+                console.warn(`[${eventName}] panel failed to load:`, err);
+                // Put the bridge back so the next click retries.
+                window.addEventListener(eventName, onFirstOpen);
+            });
+    };
+    window.addEventListener(eventName, onFirstOpen);
+}
 import { RecentItems } from './recentItems.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
@@ -57,11 +154,39 @@ PreferenceSync.init(supabase);
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
 
-// 2. Initialize Mobile Dashboard
-MobileDashboardUI.init(supabase);
+// 2. The mobile dashboard is loaded and wired by ProfileUI.ensureMobileDashboard()
+//    rather than imported here. It is 338 KB and only a mobile-width viewport
+//    can ever open it, so a desktop session used to parse the whole thing —
+//    on the boot critical path — for a panel it would never show.
+//
+//    It still needs to exist before the panel is opened, because its
+//    live-packet subscriber is what raises watchlist "pilot is online" toasts
+//    for someone who never opens the dashboard at all. So on a mobile viewport
+//    it is brought up during boot, exactly as before, just asynchronously; on a
+//    desktop viewport ProfileUI's own subscriber already does that job. If the
+//    window is later narrowed past the breakpoint, the resize hook below (and
+//    ProfileUI.open itself) brings it up then.
+const MOBILE_DASHBOARD_BREAKPOINT = 768;
+// Fire-and-forget on both paths: nothing here needs to wait for it, and a
+// failure is not fatal — ProfileUI.open() calls the same loader, which clears
+// its memo on failure, so opening the panel retries. Swallowed so a dead
+// connection during boot does not surface as an unhandled rejection.
+const warmMobileDashboard = () => {
+    ProfileUI.ensureMobileDashboard()
+        .catch(() => { /* retried when the panel is actually opened */ });
+};
 
-// 3. Synchronize Data State (Ensures mobile and desktop share the exact same backend data array)
-MobileDashboardUI._ifData = ProfileUI._ifData;
+if (window.innerWidth <= MOBILE_DASHBOARD_BREAKPOINT) {
+    warmMobileDashboard();
+} else {
+    const onResizeToMobile = () => {
+        if (window.innerWidth <= MOBILE_DASHBOARD_BREAKPOINT) {
+            window.removeEventListener('resize', onResizeToMobile);
+            warmMobileDashboard();
+        }
+    };
+    window.addEventListener('resize', onResizeToMobile, { passive: true });
+}
 
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
@@ -210,7 +335,13 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     const SHARP_EDGES = getIconEdgeMode() === 'sharp';
 
     const iconSet = getIconSet();
-    const makeSdf = (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d'));
+    // One scratch canvas for the whole run rather than one per icon. The
+    // registrars call this once per icon variant, and each call was minting a
+    // fresh 2D context that was used once and dropped — browsers cap how many
+    // of those can be live, and abandoning them in a batch is exactly the
+    // pattern that makes a browser start recycling contexts mid-run.
+    const sdfScratchCtx = document.createElement('canvas').getContext('2d');
+    const makeSdf = (raw) => buildSdfImageData(raw, sdfScratchCtx);
     const yieldFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
 
     // Both vector sets register under the same `icon-<KEY>` ids the sheet uses
@@ -9715,6 +9846,20 @@ async function openFlightReplayById(flightId, meta = {}, opts = {}) {
         toolbarRow.style.display = 'none';
     }
 
+    // Loaded on first replay (see loadFlightReplay); normally already warmed.
+    const FlightReplay = await loadFlightReplay().catch(() => null);
+    if (!FlightReplay) {
+        // Same restore the "replay would not open" path below performs.
+        showNotification?.('The replay could not be loaded — check your connection.', 'error');
+        if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length || 0,
+            atc: activeAtcFacilities.length || 0
+        });
+        return false;
+    }
+
     const opened = await FlightReplay.open({
         map: sectorOpsMap,
         flightId,
@@ -10025,6 +10170,15 @@ function handleSearchInput(searchText) {
 function runGlobalSearch(query) {
     const engine = window.GlobalSearchEngine;
     if (!engine) return { routes: [], flights: [], airports: [], airlines: [], query: query || '' };
+
+    // The supplementary airport tier exists for exactly this call and nothing
+    // else, so this is where it gets fetched. Non-blocking: the search runs now
+    // against the core tier — which covers every real ICAO field — and folding
+    // the extra tier in invalidates the search index, so the next keystroke
+    // ranks against the full set. That is already how the first moments of a
+    // session behaved while the tier downloaded in the background.
+    ensureSupplementaryAirports();
+
     return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
@@ -11961,11 +12115,40 @@ function invalidateAirportDerivedCaches() {
 }
 
 /**
- * Loads the supplementary airport tier in the background and folds it into the
- * live object. See tools/build-data.js for what lives in each tier:
- * nothing here is addressed by key, it exists so global search can find US
- * local identifiers, heliports and private strips. Failure is silently
- * tolerated — the app is fully functional on the core tier alone.
+ * Guarantees the supplementary airport tier has been requested, at most once.
+ *
+ * This used to be fired unconditionally at the end of boot. It is 5.8 MB — by
+ * a wide margin the largest thing the app fetches — and although the download
+ * was "background", the JSON.parse at the end of it is not: it lands as one
+ * uninterruptible long task on the main thread, seconds after load, right
+ * while the map is still fetching tiles and the first live packets are being
+ * drawn. Every visitor paid a multi-hundred-millisecond freeze (far worse on a
+ * phone) plus 5.8 MB of their data, for a tier whose entire purpose is letting
+ * global search find US local identifiers, heliports and private strips.
+ *
+ * So it is now requested by the first search instead. Sessions that never open
+ * search — the overwhelming majority — never pay for it at all.
+ */
+let supplementaryAirportsPromise = null;
+// True when boot loaded the split tiers; false when it fell back to the
+// monolithic airports.json, which already contains every field.
+let airportsUsedSplitTiers = false;
+function ensureSupplementaryAirports() {
+    if (!supplementaryAirportsPromise && airportsUsedSplitTiers) {
+        // Cleared on failure so a search during a network blip does not leave
+        // a rejected promise that suppresses every later attempt.
+        supplementaryAirportsPromise = loadSupplementaryAirports()
+            .catch(err => { supplementaryAirportsPromise = null; throw err; });
+    }
+    return supplementaryAirportsPromise || Promise.resolve();
+}
+window.ensureSupplementaryAirports = ensureSupplementaryAirports;
+
+/**
+ * Loads the supplementary airport tier and folds it into the live object. See
+ * tools/build-data.js for what lives in each tier: nothing here is addressed
+ * by key. Failure is silently tolerated — the app is fully functional on the
+ * core tier alone.
  */
 async function loadSupplementaryAirports() {
     try {
@@ -12000,6 +12183,9 @@ async function fetchAirportsData() {
     try {
         let response = await fetch('airports-core.json');
         let usedSplit = response.ok;
+        // Remembered so the first search knows whether there is a second tier
+        // to ask for at all (the monolithic fallback already contains it).
+        airportsUsedSplitTiers = usedSplit;
 
         if (!usedSplit) {
             response = await fetch('airports.json');
@@ -12016,8 +12202,9 @@ async function fetchAirportsData() {
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
 
-        // Fire-and-forget: boot must not wait on the search-only tier.
-        if (usedSplit) loadSupplementaryAirports();
+        // The search-only tier is NOT fetched here any more. It is 5.8 MB and
+        // nothing outside global search reads it, so it is requested by the
+        // first search instead — see ensureSupplementaryAirports().
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
@@ -12658,10 +12845,15 @@ function handleSocketFlightUpdate(data) {
         return;
     }
 
-    if (!window.flightNumericIdMap) {
-        window.flightNumericIdMap = new Map();
-        window.nextFlightNumericId = 1;
-    }
+    // There used to be a flightNumericIdMap here, minting a stable numeric id
+    // per flight so features could carry `id` for feature-state. Nothing ever
+    // used it: the only setFeatureState calls in the app are in
+    // natTracksLayer.js, against its own source, and the live-flights source is
+    // declared with `generateId: true`, which makes Mapbox overwrite any id we
+    // supply with the feature's array index regardless. So it was a Map lookup
+    // (and sometimes an insert) per aircraft per packet that changed nothing —
+    // and, because entries were never pruned when a flight went away, a Map
+    // that grew for the lifetime of the tab.
 
     // --- [FIX] Race Condition Check (Case Insensitive) ---
     // Ignore packets that don't match the currently selected server.
@@ -12744,11 +12936,6 @@ function handleSocketFlightUpdate(data) {
             return;
         }
         // --- [END FIX] ---
-
-        if (!window.flightNumericIdMap.has(flightId)) {
-            window.flightNumericIdMap.set(flightId, window.nextFlightNumericId++);
-        }
-        const numericId = window.flightNumericIdMap.get(flightId);
 
         updatedFlightIds.add(flightId);
 
@@ -12872,7 +13059,6 @@ function handleSocketFlightUpdate(data) {
         if (!currentMapFeatures[flightId]) {
             currentMapFeatures[flightId] = {
                 type: 'Feature',
-                id: numericId,
                 geometry: {
                     type: 'Point',
                     coordinates: [flight.position.lon, flight.position.lat]
@@ -12884,7 +13070,6 @@ function handleSocketFlightUpdate(data) {
             rosterChanged = true;
         } else {
             const cached = currentMapFeatures[flightId];
-            cached.id = numericId;
             cached.properties = newProperties;
             // Write the coordinates in place instead of swapping in a fresh
             // array — one less allocation per aircraft per tick.
@@ -14294,15 +14479,41 @@ function updatePfdDisplay(pfdData) {
     }
 
 // Add this helper to flight.js
+// Airport metadata (name, image URL) is effectively static, but this was
+// re-fetched on every single open — and it is called from several places at
+// once for the same field: the airport window, the embed card, and the flight
+// window resolving both ends of a route. Cached for the session, with
+// concurrent callers sharing one request instead of racing their own.
+const _airportMetaCache = new Map();     // icao -> resolved value
+const _airportMetaInFlight = new Map();  // icao -> Promise
+
 async function fetchAirportData(icao) {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/airports/${icao}`);
-        if (!response.ok) throw new Error('Airport data not found');
-        return await response.ok ? await response.json() : null;
-    } catch (error) {
-        console.error("Error fetching dynamic airport image:", error);
-        return null;
-    }
+    const key = String(icao || '').toUpperCase();
+    if (!key) return null;
+    if (_airportMetaCache.has(key)) return _airportMetaCache.get(key);
+
+    const pending = _airportMetaInFlight.get(key);
+    if (pending) return pending;
+
+    const request = (async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/airports/${key}`);
+            if (!response.ok) throw new Error('Airport data not found');
+            const data = await response.json();
+            _airportMetaCache.set(key, data);
+            return data;
+        } catch (error) {
+            console.error("Error fetching dynamic airport image:", error);
+            // Not cached: a failure here is usually the network, and the next
+            // open should get a real chance rather than inheriting the miss.
+            return null;
+        } finally {
+            _airportMetaInFlight.delete(key);
+        }
+    })();
+
+    _airportMetaInFlight.set(key, request);
+    return request;
 }
 
 // --- ATC Session History (Replay) ----------------------------------------
@@ -14459,15 +14670,27 @@ function airportAerialImageUrl(lat, lon, w = 900, h = 420) {
 async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
-        const airportMetadata = await fetchAirportData(icao);
-        
+
+        // Steps 1-3 below used to run strictly one after another, so opening an
+        // airport cost four serial round trips before anything could render:
+        // metadata, then live details, then the session id, then traffic+ATIS.
+        // Only the last of those actually depends on an earlier one (traffic and
+        // ATIS are addressed by session), so the first three are started
+        // together here and awaited where they are needed.
+        const metadataPromise = fetchAirportData(icao).catch(() => null);
+        const liveDetailsPromise = fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`)
+            .catch(() => ({ ok: false }));
+        const sessionIdPromise = getValidSessionId().catch(() => null);
+
+        const airportMetadata = await metadataPromise;
+
         // Use the dynamic image if available, otherwise fall back to a default
         const dynamicImageUrl = airportMetadata?.imageUrl || 'Images/default_airport.webp';
 
-        // 2. Fetch Live Airport Details (Jetbridges, city, state, etc.)
+        // 2. Live Airport Details (Jetbridges, city, state, etc.)
         let liveData = null;
         try {
-            const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+            const response = await liveDetailsPromise;
             if (response.ok) {
                 const json = await response.json();
                 if (json.ok && json.airport) liveData = json.airport;
@@ -14476,15 +14699,15 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             console.warn(`Could not fetch live data for ${icao}`, e);
         }
 
-        // 3. Fetch Live Traffic & ATIS using the cached Session ID
+        // 3. Live Traffic & ATIS, on the session id resolved above
         let inbounds = [];
         let outbounds = [];
         let rawAtisText = null;
         let trafficFetchSuccess = false;
 
         try {
-            const sessionId = await getValidSessionId();
-            
+            const sessionId = await sessionIdPromise;
+
             if (sessionId && sessionId !== 'default') {
                 const [statusRes, atisRes] = await Promise.all([
                     fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
@@ -15998,7 +16221,13 @@ function updateTrafficLegendUI() {
     let globalPlaybackChromeToRestore = null;
 
     async function launchGlobalPlayback() {
-        if (typeof GlobalPlayback === 'undefined') return;
+        // Loaded on first open (see loadGlobalPlayback). The idle warm-up has
+        // normally resolved this already, so it is a cached promise.
+        const GlobalPlayback = await loadGlobalPlayback().catch(() => null);
+        if (!GlobalPlayback) {
+            showNotification?.('Playback could not be loaded — check your connection.', 'error');
+            return;
+        }
         if (GlobalPlayback.isOpen()) { GlobalPlayback.close(); return; }
         if (!sectorOpsMap) {
             showNotification?.('The map is still loading — try again in a moment.', 'error');
@@ -16064,12 +16293,19 @@ function updateTrafficLegendUI() {
     // the flight-replay launch flow: get the competing chrome out of the way so
     // the docked replay panel + map are unobstructed, then restore it once the
     // replay tears itself down.
-    function launchAtcReplay(key, apt, user, uid) {
+    async function launchAtcReplay(key, apt, user, uid) {
         if (!key) {
             showNotification?.('No ATC session selected to replay.', 'error');
             return;
         }
-        if (typeof AtcReplay === 'undefined' || !sectorOpsMap) return;
+        if (!sectorOpsMap) return;
+
+        // Loaded on first open (see loadAtcReplay); normally already warmed.
+        const AtcReplay = await loadAtcReplay().catch(() => null);
+        if (!AtcReplay) {
+            showNotification?.('The replay could not be loaded — check your connection.', 'error');
+            return;
+        }
 
         const replayUrl = `${ACARS_SOCKET_URL}/api/atc/replay?key=${encodeURIComponent(key)}`;
         const isMobile = !!(window.MobileUIHandler && window.MobileUIHandler.isMobile());
@@ -16467,7 +16703,9 @@ function setupAircraftWindowEvents() {
                     }
                 }
 
-                FlightReplay.open({
+                // Loaded on first replay (see loadFlightReplay); the idle
+                // warm-up has normally resolved this before anyone clicks.
+                loadFlightReplay().then(FlightReplay => FlightReplay.open({
                     map: sectorOpsMap,
                     flightId: currentFlightInWindow,
                     points: preloaded,
@@ -16526,6 +16764,8 @@ function setupAircraftWindowEvents() {
                                         }
                                     }
                                 }
+                })).catch(() => {
+                    showNotification?.('The replay could not be loaded — check your connection.', 'error');
                 });
                 return;
             }
@@ -20614,8 +20854,13 @@ window.globalNatTracks = natTracks;
         setupWeatherSettingsWindowEvents();
         setupFilterSettingsWindowEvents();
         AtcBoardUI.init();
-        NetworkBoardUI.init();
-        NearbyRadarUI.init();
+        // Both are loaded the first time their open event fires — see
+        // bridgeLazyPanel. Wiring the bridges here rather than at module scope
+        // keeps them in the same place in the boot order they used to occupy.
+        bridgeLazyPanel('openNetworkBoard',
+            () => import('./networkBoard.js').then(m => m.NetworkBoardUI));
+        bridgeLazyPanel('openNearbyRadar',
+            () => import('./nearbyRadar.js').then(m => m.NearbyRadarUI));
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
@@ -21284,12 +21529,21 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
  */
 async function formatDataForEmbedAirport(icao) {
     const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
-    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Metadata, live details and the session id are independent of each other;
+    // only traffic and ATIS below need the session. Started together rather
+    // than in a chain of three round trips. See createAirportInfoWindowHTML.
+    const metadataPromise = fetchAirportData(icao).catch(() => null);
+    const liveDetailsPromise = fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`)
+        .catch(() => ({ ok: false }));
+    const sessionIdPromise = getValidSessionId().catch(() => null);
+
+    const airportMetadata = await metadataPromise;
 
     // Live airport details (name / city / coords).
     let liveData = null;
     try {
-        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        const r = await liveDetailsPromise;
         if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
     } catch (_) {}
 
@@ -21303,7 +21557,7 @@ async function formatDataForEmbedAirport(icao) {
     // Live traffic + ATIS, keyed off the cached session id (same as the standard window).
     let inbound = 0, outbound = 0, rawAtis = null;
     try {
-        const sessionId = await getValidSessionId();
+        const sessionId = await sessionIdPromise;
         if (sessionId && sessionId !== 'default') {
             const [statusRes, atisRes] = await Promise.all([
                 fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
@@ -21449,12 +21703,23 @@ async function formatDataForEmbedAirport(icao) {
  */
 async function formatAirportSummary(icao) {
     const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
-    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Metadata, live details and the METAR are three independent lookups that
+    // used to run one after another. Started together instead — see
+    // createAirportInfoWindowHTML for the same treatment on the full window.
+    const metadataPromise = fetchAirportData(icao).catch(() => null);
+    const liveDetailsPromise = fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`)
+        .catch(() => ({ ok: false }));
+    const metarPromise = window.WeatherService
+        ? Promise.resolve(window.WeatherService.fetchAndParseMetar(icao)).catch(() => null)
+        : null;
+
+    const airportMetadata = await metadataPromise;
 
     // Live name / city / coords (same endpoint the airport windows use).
     let liveData = null;
     try {
-        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        const r = await liveDetailsPromise;
         if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
     } catch (_) {}
 
@@ -21468,8 +21733,8 @@ async function formatAirportSummary(icao) {
     // Parsed METAR headline — same shape/logic as the airport Card.
     let metar = null;
     try {
-        if (window.WeatherService) {
-            const w = await window.WeatherService.fetchAndParseMetar(icao);
+        if (metarPromise) {
+            const w = await metarPromise;
             if (w && w.raw && w.raw !== 'Not Available') {
                 let cat = 'VFR', color = '#4ade80';
                 if (w.raw.includes('LIFR')) { cat = 'LIFR'; color = '#c084fc'; }
@@ -22307,11 +22572,6 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 
     try {
-        let sessionId = optionalSessionId;
-        if (!sessionId || sessionId === 'default') {
-            sessionId = await getValidSessionId();
-        }
-
         // Prefer the nested aircraft object, but fall back to the flat
         // aircraftName/liveryName fields the live feature also carries. Callers
         // that pass raw (unparsed) feature properties leave `aircraft` as a
@@ -22320,15 +22580,43 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const acName = flightProps.aircraft?.aircraftName || flightProps.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || flightProps.liveryName || '';
 
-        const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
         const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
         const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
 
+        // Neither the flown path nor the aircraft lookup is addressed by
+        // session, so both are started before the session id is resolved.
+        // They used to queue behind it: on the first flight opened in a
+        // session (and once every five minutes after, when the id cache
+        // expires) that put a whole round trip in front of two requests that
+        // never needed to wait for it. The window has a spinner up either way;
+        // this is purely about how soon it can come down.
         const routePromise = fetch(historyUrl).catch(() => ({ ok: false }));
+        const aircraftLookupPromise = fetch(aircraftLookupUrl).catch(() => ({ ok: false }));
+
+        // Speculative filed-plan lookup. It is keyed on username + route, and
+        // the live feature already carries the route in the overwhelming
+        // majority of cases — the flight plan below only *fills in* a missing
+        // dep/arr, it never overrides one. Firing it here overlaps it with the
+        // plan fetch instead of running after it. getFiledPlan caches by that
+        // key for a minute, so if the plan does turn out to supply a different
+        // route the real call below is the one that counts and this one costs
+        // nothing beyond a request already in flight.
+        const speculativeFiledPlan = (flightProps.departureIcao && flightProps.arrivalIcao)
+            ? FlightDispatchService.getFiledPlan(
+                flightProps.username, flightProps.departureIcao, flightProps.arrivalIcao
+              ).catch(() => null)
+            : null;
+
+        let sessionId = optionalSessionId;
+        if (!sessionId || sessionId === 'default') {
+            sessionId = await getValidSessionId();
+        }
+
+        const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
 
         const [planRes, aircraftLookupRes] = await Promise.all([
             fetch(planUrl).catch(() => ({ ok: false })),
-            fetch(aircraftLookupUrl).catch(() => ({ ok: false }))
+            aircraftLookupPromise
         ]);
 
         const planData = planRes.ok ? await planRes.json() : null;
@@ -22371,11 +22659,21 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             }
         }));
 
-        const filedPlanData = await FlightDispatchService.getFiledPlan(
-            flightProps.username,
-            depIcao,
-            arrIcao
-        ).catch(e => null);
+        // Reuse the speculative lookup when the flight plan did not change the
+        // route out from under it — which is the normal case, since the block
+        // above only fills a *missing* dep/arr. When it did change, this falls
+        // through to a real call for the corrected route.
+        const routeUnchanged = speculativeFiledPlan
+            && depIcao === flightProps.departureIcao
+            && arrIcao === flightProps.arrivalIcao;
+
+        const filedPlanData = routeUnchanged
+            ? await speculativeFiledPlan
+            : await FlightDispatchService.getFiledPlan(
+                flightProps.username,
+                depIcao,
+                arrIcao
+            ).catch(e => null);
 
         cachedFlightDataForStatsView = { flightProps, plan };
 
@@ -28294,9 +28592,14 @@ async function initializeApp() {
 
         const apiKeysPromise = fetchApiKeys();
         const airportsPromise = fetchAirportsData();
-        // Warm the runway DB in the background. Boot never waits on it — the
-        // airport panels that need it await ensureRunwaysData() themselves.
-        ensureRunwaysData();
+        // The runway DB warm-up used to start here. Boot never waited on it,
+        // but it is 4 MB: starting it now meant it competed with the map's
+        // first tiles for bandwidth and then dropped a multi-hundred-
+        // millisecond JSON.parse on the main thread at whatever moment it
+        // happened to finish — typically while the map was painting and the
+        // first live packets were landing. Every panel that reads it already
+        // awaits ensureRunwaysData() itself, so the warm-up is now deferred to
+        // idle (see the map-ready block below) and nothing is left uncovered.
 
         try {
             await Promise.all([apiKeysPromise, airportsPromise]);
@@ -28328,7 +28631,16 @@ async function initializeApp() {
         // to accept the Privacy Policy + Terms before the app is usable.
         // Returning users skip this instantly. Fire-and-forget so it doesn't
         // block the rest of boot from finishing underneath the modal.
-        runFirstRunExperience(sectorOpsMap);
+        //
+        // Loaded on demand: 51 KB of cinematic intro and legal-consent UI that
+        // every returning visitor parsed and then immediately skipped. The
+        // arrival flows that have to wait for this gate (share links, replay
+        // links) poll for window.__inflightFirstRunPromise for up to thirty
+        // seconds before giving up — see waitForFirstRunGate — so an import
+        // landing a few hundred milliseconds later is already handled.
+        import('./firstRunExperience.js')
+            .then(({ runFirstRunExperience }) => runFirstRunExperience(sectorOpsMap))
+            .catch(err => console.warn('[boot] First-run experience unavailable:', err));
 
         // Runways keep loading in the background — the UI below does not read
         // them, so blocking here just delayed first interaction by the length
@@ -28378,6 +28690,21 @@ async function initializeApp() {
 
         // Map, chrome and traffic are all on screen — lift the splash.
         reportBootState('map-ready');
+
+        // Now that the critical path is done, pull the on-demand replay
+        // modules into the module cache while the browser is idle, so opening
+        // one is instant without any of it having delayed first paint.
+        warmReplayModules();
+
+        // Same for the runway database. Airport panels await it anyway, so
+        // this only removes the wait from the first panel someone opens — it
+        // no longer costs the map its bandwidth or the main thread its parse
+        // while the app is still coming up.
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(() => ensureRunwaysData(), { timeout: 15000 });
+        } else {
+            setTimeout(() => ensureRunwaysData(), 5000);
+        }
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch, exclude } = e.detail;

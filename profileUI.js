@@ -20,20 +20,35 @@
  */
 
 import { ProAccess } from './proAccess.js';
-import { CareerModule } from './careerModule.js';
+// CareerModule is loaded when the tab that shows it first renders — see
+// _careerHTML(). 57 KB for one card, which every visitor used to parse on the
+// boot path whether or not they ever opened their profile.
 import { formatGrade } from './ifGrade.js';
-import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
+// PredictiveAirspaceNetwork is constructed on the first panel open — see the
+// import() in open(). Left out of the static graph because its telemetry
+// binding walks every flight on every live packet, which a visitor who never
+// opens the profile panel should not be paying for.
 import { socketDataHub } from './SocketDataHub.js';
-import { MobileDashboardUI } from './MobileDashboardUI.js';
+// MobileDashboardUI is the mobile twin of this module and is loaded on demand
+// — see ProfileUI.ensureMobileDashboard(). It is 338 KB, and as a static
+// import every desktop visitor parsed a dashboard their viewport can never
+// show, on the boot critical path.
 import { FlightDispatchService } from './FlightDispatchService.js';
-import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
+// TelemetryAnalyticsEngine is loaded on demand at its single call site, which
+// is already inside an await — see _renderLiveFlightCard.
 import { AircraftViewer3D } from './AircraftViewer3D.js';
-import { AirportViewer3D } from './AirportViewer3D.js';
+// AirportViewer3D is NOT imported here: the one place that uses it already
+// does its own import('./AirportViewer3D.js') at the point the 3D airport view
+// is opened. The static import alongside it was dead — it bound a name nothing
+// referenced, while keeping 24 KB on the boot module graph for every visitor.
 import { FlightDispatchUI } from './FlightDispatchUI.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
 import { CrewCenterOverlay } from './crewCenterOverlay.js';
-import { DiscordPresenceUI } from './discordPresenceUI.js';
+// Discord Rich Presence is mounted only when the Settings tab renders, and it
+// drags in discordPresence.js behind it — 64 KB for a panel most pilots never
+// open, which as a static import sat on the boot critical path. Loaded on
+// demand instead; see the mount site in _render().
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -103,6 +118,9 @@ export const ProfileUI = {
 
     // Premium Telemetry Integration
     _airspaceNetwork: null,
+    _airspaceNetworkLoading: false,
+    _careerModule: null,
+    _careerModuleLoading: false,
     _airspaceRefreshTimer: null,
     _liveFlights: [],
     _liveExpanded: false,   // live-flight panel is opt-in (collapsed by default)
@@ -657,18 +675,31 @@ init(supabaseClient) {
                 // every username again, so a 40-entry watchlist against a busy
                 // server meant ~48,000 comparisons and as many throwaway
                 // strings on every packet.
-                const flightsByUser = new Map();
-                for (let i = 0; i < payload.flights.length; i++) {
-                    const f = payload.flights[i];
-                    const un = f.username && f.username.toLowerCase();
-                    if (!un) continue;
-                    const bucket = flightsByUser.get(un);
-                    if (bucket) bucket.push(f);
-                    else flightsByUser.set(un, [f]);
-                }
+                // Built on first use rather than eagerly: the only readers are
+                // the signed-in pilot's own flights and the watchlist, so a
+                // signed-out visitor (and anyone signed in with an empty
+                // watchlist) was paying a full pass over the packet —
+                // ~1,200 lowercased strings and as many Map inserts, every
+                // three seconds, forever — for an index nothing then read.
+                // MobileDashboardUI runs the identical subscriber, so the
+                // waste was doubled on every packet.
+                let _flightsByUser = null;
+                const flightsByUser = () => {
+                    if (_flightsByUser) return _flightsByUser;
+                    _flightsByUser = new Map();
+                    for (let i = 0; i < payload.flights.length; i++) {
+                        const f = payload.flights[i];
+                        const un = f.username && f.username.toLowerCase();
+                        if (!un) continue;
+                        const bucket = _flightsByUser.get(un);
+                        if (bucket) bucket.push(f);
+                        else _flightsByUser.set(un, [f]);
+                    }
+                    return _flightsByUser;
+                };
 
                 if (ifUsername) {
-                    const myFlights = flightsByUser.get(ifUsername.toLowerCase()) || [];
+                    const myFlights = flightsByUser().get(ifUsername.toLowerCase()) || [];
                     const previouslyHadFlights = this._liveFlights.length > 0;
                     this._liveFlights = myFlights;
                     if (this._isOpen && this._activeTab === 'dashboard') {
@@ -692,7 +723,7 @@ init(supabaseClient) {
                     for (const entry of this._watchlist) {
                         const un = entry.watched_username.toLowerCase();
                         // Keyed lookup into the per-packet index built above.
-                        const flight = (flightsByUser.get(un) || [])[0] || null;
+                        const flight = (flightsByUser().get(un) || [])[0] || null;
                         newStatus[un] = { isLive: !!flight, flight };
                     }
                     this._watchedPilotStatus = newStatus;
@@ -741,13 +772,53 @@ init(supabaseClient) {
         }
     },
 
+    /**
+     * Loads, initialises and wires the mobile dashboard, at most once.
+     *
+     * This used to be a static import initialised at boot next to this module,
+     * which meant every desktop visitor downloaded and parsed 338 KB for a
+     * panel only a mobile viewport can open — and, because its live-packet
+     * subscriber raises watchlist toasts without checking whether the mobile UI
+     * is the one on screen, a signed-in desktop user got the notification twice.
+     *
+     * The two wiring steps that used to live in flight.js are performed here so
+     * there is exactly one place that knows how to bring it up:
+     *   • init() registers its auth listener and live-packet subscriber. Late
+     *     registration is safe — supabase-js emits INITIAL_SESSION on subscribe,
+     *     so a listener attached after sign-in still receives the session.
+     *   • _ifData is aliased onto this module's object so both dashboards read
+     *     and write one cache. Both only ever mutate its properties, never
+     *     reassign it, so the alias holds for the life of the session.
+     *
+     * @returns {Promise<object>} the MobileDashboardUI module object
+     */
+    ensureMobileDashboard() {
+        if (!this._mobileDashboardPromise) {
+            this._mobileDashboardPromise = import('./MobileDashboardUI.js')
+                .then(({ MobileDashboardUI }) => {
+                    MobileDashboardUI.init(this._supabase);
+                    MobileDashboardUI._ifData = this._ifData;
+                    return MobileDashboardUI;
+                })
+                // Only success is memoised. Otherwise a failed load — the
+                // resize hook fires this off a timer, so it can land on a dead
+                // connection — would leave a rejected promise in the slot and
+                // the dashboard could never open again this session.
+                .catch(err => { this._mobileDashboardPromise = null; throw err; });
+        }
+        return this._mobileDashboardPromise;
+    },
+    _mobileDashboardPromise: null,
+
     open(user) {
-        // Mobile redirect
+        // Mobile redirect. The width test stays at open time, not load time, so
+        // a desktop window narrowed past the breakpoint still gets the mobile
+        // dashboard — it is simply fetched at that moment instead of upfront.
         if (window.innerWidth <= 768) {
-            if (MobileDashboardUI && typeof MobileDashboardUI.open === 'function') {
-                MobileDashboardUI.open(user);
-                return;
-            }
+            this.ensureMobileDashboard()
+                .then(MobileDashboardUI => MobileDashboardUI.open(user))
+                .catch(err => console.warn('Mobile dashboard failed to load:', err));
+            return;
         }
 
         this._currentUser = user;
@@ -803,10 +874,24 @@ init(supabaseClient) {
             });
         }
 
-        if (!this._airspaceNetwork) {
-            this._airspaceNetwork = new PredictiveAirspaceNetwork();
-            this._airspaceNetwork.bindTelemetryStream();
-            this._airspaceNetwork.setActiveNodes(['KJFK', 'EGLL', 'KLAX', 'OMDB']);
+        // Built on the first panel open rather than imported at boot. Every
+        // reader already guards on _airspaceNetwork being present (the
+        // analytics section returns '' without it), so arriving a moment late
+        // just means the section fills in on the next render — and a visitor
+        // who never opens the panel neither downloads it nor pays for
+        // bindTelemetryStream(), which walks every flight on every packet.
+        if (!this._airspaceNetwork && !this._airspaceNetworkLoading) {
+            this._airspaceNetworkLoading = true;
+            import('./PredictiveQueueManager.js')
+                .then(({ PredictiveAirspaceNetwork }) => {
+                    this._airspaceNetwork = new PredictiveAirspaceNetwork();
+                    this._airspaceNetwork.bindTelemetryStream();
+                    this._airspaceNetwork.setActiveNodes(['KJFK', 'EGLL', 'KLAX', 'OMDB']);
+                    // The shell may already have rendered without it.
+                    if (this._isOpen) this._renderContentOnly?.();
+                })
+                .catch(err => console.warn('[ProfileUI] Airspace network unavailable:', err))
+                .finally(() => { this._airspaceNetworkLoading = false; });
         }
 
         const overlay = document.getElementById('profile-overlay');
@@ -2089,6 +2174,33 @@ const requests = [
     },
 
     /** Rebuilds only the main content area; leaves dock + top strip untouched. */
+    /**
+     * The career card's markup, loading the module that produces it on first
+     * ask.
+     *
+     * Returning '' while it loads is the same thing the call site already did
+     * whenever CareerModule was unavailable, so the empty state is not new.
+     * The re-render on arrival goes through _renderContentOnly(), which ends
+     * in _attachContentListeners() — so the card's listeners get attached on
+     * exactly the render that first contains the card.
+     */
+    _careerHTML() {
+        if (this._careerModule && typeof this._careerModule.getHTML === 'function') {
+            return this._careerModule.getHTML(this._ifData);
+        }
+        if (!this._careerModuleLoading) {
+            this._careerModuleLoading = true;
+            import('./careerModule.js')
+                .then(({ CareerModule }) => {
+                    this._careerModule = CareerModule;
+                    if (this._isOpen) this._renderContentOnly();
+                })
+                .catch(err => console.warn('[ProfileUI] Career module unavailable:', err))
+                .finally(() => { this._careerModuleLoading = false; });
+        }
+        return '';
+    },
+
     _renderContentOnly() {
         const shell = document.getElementById('pui-shell');
         if (!shell) return;
@@ -2363,6 +2475,10 @@ async _updateLiveFlightDOM() {
             const depGate = plan?.dep_gate ? `<span class="pui-live-gate">GTE ${plan.dep_gate}</span>` : '';
             const arrGate = plan?.arr_gate ? `<span class="pui-live-gate">GTE ${plan.arr_gate}</span>` : '';
 
+            // Loaded here rather than imported: this is the only thing that
+            // reads it, and it is already an await, so nothing is made slower
+            // by fetching the module at the same moment.
+            const { TelemetryAnalyticsEngine } = await import('./TelemetryAnalyticsEngine.js');
             const analytics = await TelemetryAnalyticsEngine.analyze(flight, plan);
 
             let dispatchHTML = '';
@@ -3869,7 +3985,7 @@ _getTabContentHTML() {
                 </div>
 
                 <div class="pui-fade-in" style="margin-bottom: var(--pui-gap-lg);">
-                    ${CareerModule && typeof CareerModule.getHTML === 'function' ? CareerModule.getHTML(this._ifData) : ''}
+                    ${this._careerHTML()}
                 </div>
 
                 ${this._ifData.logbook?.length > 0 ? `
@@ -4986,8 +5102,8 @@ const contentRoot = document.getElementById('pui-content');
 
         // ─── Career Deep Dive (Dossier) Listeners ─────────────────────────
         if (this._activeTab === 'career-deep-dive') {
-            if (typeof CareerModule !== 'undefined' && typeof CareerModule.attachListeners === 'function') {
-                CareerModule.attachListeners(this._ifData, this._backendUrl, () => {
+            if (this._careerModule && typeof this._careerModule.attachListeners === 'function') {
+                this._careerModule.attachListeners(this._ifData, this._backendUrl, () => {
                     this._renderContentOnly();
                 });
             }
@@ -5155,10 +5271,17 @@ const contentRoot = document.getElementById('pui-content');
             // tears down when this host leaves the DOM. See discordPresenceUI.js.
             const discordHost = document.getElementById('pui-discord-presence');
             if (discordHost) {
-                DiscordPresenceUI.mount(discordHost, {
+                const mountOpts = {
                     ifUsername: this._currentUser?.user_metadata?.if_username || '',
                     watchlist: this._watchlist.map(w => w.watched_username),
-                });
+                };
+                import('./discordPresenceUI.js')
+                    .then(({ DiscordPresenceUI }) => {
+                        // The tab may have moved on while the module loaded —
+                        // mounting into a detached host would leak listeners.
+                        if (discordHost.isConnected) DiscordPresenceUI.mount(discordHost, mountOpts);
+                    })
+                    .catch(() => { /* the panel simply stays empty */ });
             }
 
             const themeRadios = document.querySelectorAll('input[name="pui-theme"]');

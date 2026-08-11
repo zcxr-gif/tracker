@@ -22,8 +22,8 @@
  *   • the `Object.values()` snapshot is rebuilt only when the *set* of
  *     tracked flights changes, since features are mutated in place and
  *     the array holds live references;
- *   • features are updated in place rather than replaced, which also
- *     preserves the numeric `id` flight.js assigns for feature-state.
+ *   • features are updated in place rather than replaced, so the cached
+ *     array stays valid between roster changes.
  * ===================================================================
  */
 
@@ -156,8 +156,8 @@ export class MapAnimator {
         const existing = this.currentMapFeatures[flightId];
 
         if (existing && existing.geometry) {
-            // In-place update: keeps `id` (and any other caller-set field)
-            // and keeps the cached feature list valid.
+            // In-place update: keeps any caller-set field on the feature and
+            // keeps the cached feature list valid.
             existing.properties = newProperties;
             existing.geometry.coordinates[0] = newPosition.lon;
             existing.geometry.coordinates[1] = newPosition.lat;

@@ -9,7 +9,7 @@
  *   • General  — flight window, legal
  */
 
-import { openLegalDoc } from './firstRunExperience.js';
+// openLegalDoc is loaded on demand when a legal row is tapped — see below.
 
 // Maps each map-style value to its Mapbox style owner/id so we can request a
 // real static thumbnail for the preview cards. Mirrors the style constants in
@@ -2393,9 +2393,14 @@ export const MobileSettingsUI = {
             row.addEventListener('click', () => {
                 const doc = row.dataset.doc;
                 const title = row.dataset.title || 'Document';
-                if (typeof openLegalDoc === 'function') {
-                    openLegalDoc(doc, title);
-                }
+                // Loaded on the tap. The module it lives in is the first-run
+                // experience — 51 KB of cinematic intro and consent flow that
+                // is otherwise irrelevant to a returning visitor, and importing
+                // it statically for this one row kept all of it on the boot
+                // path for everybody.
+                import('./firstRunExperience.js')
+                    .then(({ openLegalDoc }) => openLegalDoc(doc, title))
+                    .catch(err => console.warn('[Settings] Could not open legal document:', err));
             });
         });
 

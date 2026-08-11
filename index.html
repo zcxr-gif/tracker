@@ -132,7 +132,19 @@
          flight.js), so the Toastify CDN stylesheet and its render-blocking
          script are gone. -->
 
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Font Awesome, loaded without blocking the first paint.
+         A cross-origin <link rel="stylesheet"> is render-blocking: the browser
+         will not paint *anything* until it has resolved cdnjs, completed the
+         TLS handshake and parsed the file. That defeated the whole point of
+         inlining the splash below — it could not paint until a third-party
+         stylesheet the splash does not use (its rings are inline SVG) had
+         arrived. `media="print"` makes it non-blocking for screen rendering;
+         onload flips it back to `all` and the icons apply. They land during
+         the splash, so there is nothing for a user to see swap in. -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          media="print" onload="this.media='all'; this.onload=null;">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
 
     <style>
         /* Base Styles */
@@ -2903,19 +2915,68 @@
     <script src="sb.js"></script>
     <script src="mapAnimator.js" type="module"></script>
     <script src="weather.js"></script>
-    <script src="weatherWidget.js"></script>
     <script src="windLayer.js"></script>
     <script src="haptics.js"></script>
     <script src="vaAds.js"></script>
-    <script src="replayBrowser.js"></script>
-    <script src="changelog.js"></script>
     <script src="sector-ops-mobile-ui.js" defer></script>
-    <script src="flight-graph.js"></script>
-    <script src="flight-legs.js"></script>
-    <script src="windsAloft.js"></script>
-    <script src="fuelEstimator.js"></script>
-    <script src="cabinMap.js"></script>
-    <script src="communityHub.js"></script>
+
+    <!-- ============================================================
+         PANEL FEATURES — loaded after the app is on screen.
+         ============================================================
+         These nine scripts are ~386 KB of the ~4 MB the tracker used to
+         execute before it drew anything. As parser-blocking tags they all
+         had to be downloaded AND run before DOMContentLoaded fired, and
+         DOMContentLoaded is what starts flight.js's boot — so every visitor
+         waited on the fuel planner, the changelog, the cabin map and the
+         community gallery before the map was even asked for.
+
+         None of them is needed to draw a map. Each backs a panel or a card
+         inside the flight window, every call site already guards on its
+         global (`typeof FuelEstimator !== 'undefined'`, `window.CabinMap &&
+         …`), and each script self-initialises when it finds the document
+         already parsed — they all carry the
+         `readyState === 'loading' ? addEventListener : init()` pattern —
+         so arriving after DOMContentLoaded is a case they already handle.
+
+         `async = false` on an injected script preserves execution order
+         between them, matching the order the tags were in. -->
+    <script>
+        (function () {
+            var deferred = [
+                'weatherWidget.js',
+                'replayBrowser.js',
+                'changelog.js',
+                'flight-graph.js',
+                'flight-legs.js',
+                'windsAloft.js',
+                'fuelEstimator.js',
+                'cabinMap.js',
+                'communityHub.js'
+            ];
+
+            function loadPanelFeatures() {
+                deferred.forEach(function (src) {
+                    var s = document.createElement('script');
+                    s.src = src;
+                    // Ordered, not "whenever it lands" — see above.
+                    s.async = false;
+                    document.body.appendChild(s);
+                });
+            }
+
+            // After `load`, so these never compete with the map, the socket or
+            // the airport database for bandwidth; on an idle callback so they
+            // never land in the middle of the first interaction. The timeout
+            // is the backstop for a tab that never goes idle.
+            window.addEventListener('load', function () {
+                if (typeof requestIdleCallback === 'function') {
+                    requestIdleCallback(loadPanelFeatures, { timeout: 4000 });
+                } else {
+                    setTimeout(loadPanelFeatures, 1200);
+                }
+            }, { once: true });
+        })();
+    </script>
     <script type="module" src="aircraftPhoto.js"></script>
     <script type="module" src="searchEngine.js"></script>
     <script type="module" src="flight.js"></script>
@@ -2924,8 +2985,21 @@
          pilot who turned it on keeps broadcasting without opening Settings;
          it no-ops when the backend has no Discord credentials configured. -->
     <script type="module">
-        import { DiscordPresence } from './discordPresence.js';
-        DiscordPresence.boot();
+        // Booted on an idle callback rather than inline. As a static import it
+        // put discordPresence.js on the boot module graph for every visitor and
+        // fired a backend config fetch that competed with the Mapbox token and
+        // airport database for the critical path — for a feature that only does
+        // anything on a desktop running the Discord app, and only after the
+        // pilot has opted in. Auto-reconnect still happens, a moment later.
+        const bootDiscord = () => import('./discordPresence.js')
+            .then(({ DiscordPresence }) => DiscordPresence.boot())
+            .catch(() => { /* presence is optional; the panel reports why */ });
+
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(bootDiscord, { timeout: 8000 });
+        } else {
+            window.addEventListener('load', () => setTimeout(bootDiscord, 2000), { once: true });
+        }
     </script>
 
 </body>

@@ -197,20 +197,31 @@ init(supabaseClient) {
                 // every username again, so a 40-entry watchlist against a busy
                 // server meant ~48,000 comparisons and as many throwaway
                 // strings on every packet.
-                const flightsByUser = new Map();
-                for (let i = 0; i < payload.flights.length; i++) {
-                    const f = payload.flights[i];
-                    const un = f.username && f.username.toLowerCase();
-                    if (!un) continue;
-                    const bucket = flightsByUser.get(un);
-                    if (bucket) bucket.push(f);
-                    else flightsByUser.set(un, [f]);
-                }
+                // Built on first use rather than eagerly: the only readers are
+                // the signed-in pilot's own flights and the watchlist, so a
+                // signed-out visitor (and anyone signed in with an empty
+                // watchlist) was paying a full pass over the packet —
+                // ~1,200 lowercased strings and as many Map inserts, every
+                // three seconds, forever — for an index nothing then read.
+                let _flightsByUser = null;
+                const flightsByUser = () => {
+                    if (_flightsByUser) return _flightsByUser;
+                    _flightsByUser = new Map();
+                    for (let i = 0; i < payload.flights.length; i++) {
+                        const f = payload.flights[i];
+                        const un = f.username && f.username.toLowerCase();
+                        if (!un) continue;
+                        const bucket = _flightsByUser.get(un);
+                        if (bucket) bucket.push(f);
+                        else _flightsByUser.set(un, [f]);
+                    }
+                    return _flightsByUser;
+                };
 
                 const ifUsername = this._currentUser?.user_metadata?.if_username;
                 if (ifUsername) {
                     const prev = this._liveFlights.length > 0;
-                    this._liveFlights = flightsByUser.get(ifUsername.toLowerCase()) || [];
+                    this._liveFlights = flightsByUser().get(ifUsername.toLowerCase()) || [];
                     if (this._isOpen && this._activeTab === 'dashboard') {
                         if (this._liveFlights.length > 0 || prev) this._updateLiveBanner();
                     }
@@ -229,7 +240,7 @@ init(supabaseClient) {
                     for (const entry of this._watchlist) {
                         const un = entry.watched_username.toLowerCase();
                         // Keyed lookup into the per-packet index built above.
-                        const flight = (flightsByUser.get(un) || [])[0] || null;
+                        const flight = (flightsByUser().get(un) || [])[0] || null;
                         newStatus[un] = { isLive: !!flight, flight };
                     }
                     this._watchedPilotStatus = newStatus;
