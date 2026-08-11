@@ -44,12 +44,32 @@ let _flightReplayPromise = null;
 let _atcReplayPromise = null;
 let _globalPlaybackPromise = null;
 
-const loadFlightReplay = () => (_flightReplayPromise ||=
-    import('./flightReplay.js').then(m => m.FlightReplay));
-const loadAtcReplay = () => (_atcReplayPromise ||=
-    import('./atcReplay.js').then(m => m.AtcReplay));
-const loadGlobalPlayback = () => (_globalPlaybackPromise ||=
-    import('./globalPlayback.js').then(m => m.GlobalPlayback));
+/**
+ * Memoises a module import, but only its *success*.
+ *
+ * Caching the promise itself would cache a rejection too: the warm-up below
+ * runs on a timer, so a connection that happens to be flaky at that moment
+ * would leave a rejected promise in the slot and every later click would fail
+ * against it, for the rest of the session, long after the network recovered.
+ * Clearing the slot on failure means the next attempt actually retries.
+ */
+function memoizeImport(get, set, load) {
+    const existing = get();
+    if (existing) return existing;
+    const p = load().catch(err => { set(null); throw err; });
+    set(p);
+    return p;
+}
+
+const loadFlightReplay = () => memoizeImport(
+    () => _flightReplayPromise, v => { _flightReplayPromise = v; },
+    () => import('./flightReplay.js').then(m => m.FlightReplay));
+const loadAtcReplay = () => memoizeImport(
+    () => _atcReplayPromise, v => { _atcReplayPromise = v; },
+    () => import('./atcReplay.js').then(m => m.AtcReplay));
+const loadGlobalPlayback = () => memoizeImport(
+    () => _globalPlaybackPromise, v => { _globalPlaybackPromise = v; },
+    () => import('./globalPlayback.js').then(m => m.GlobalPlayback));
 
 /**
  * Pulls the replay modules into the browser's module cache once the app is
@@ -113,13 +133,22 @@ ProfileUI.init(supabase);
 //    window is later narrowed past the breakpoint, the resize hook below (and
 //    ProfileUI.open itself) brings it up then.
 const MOBILE_DASHBOARD_BREAKPOINT = 768;
+// Fire-and-forget on both paths: nothing here needs to wait for it, and a
+// failure is not fatal — ProfileUI.open() calls the same loader, which clears
+// its memo on failure, so opening the panel retries. Swallowed so a dead
+// connection during boot does not surface as an unhandled rejection.
+const warmMobileDashboard = () => {
+    ProfileUI.ensureMobileDashboard()
+        .catch(() => { /* retried when the panel is actually opened */ });
+};
+
 if (window.innerWidth <= MOBILE_DASHBOARD_BREAKPOINT) {
-    ProfileUI.ensureMobileDashboard();
+    warmMobileDashboard();
 } else {
     const onResizeToMobile = () => {
         if (window.innerWidth <= MOBILE_DASHBOARD_BREAKPOINT) {
             window.removeEventListener('resize', onResizeToMobile);
-            ProfileUI.ensureMobileDashboard();
+            warmMobileDashboard();
         }
     };
     window.addEventListener('resize', onResizeToMobile, { passive: true });
@@ -12072,7 +12101,10 @@ let supplementaryAirportsPromise = null;
 let airportsUsedSplitTiers = false;
 function ensureSupplementaryAirports() {
     if (!supplementaryAirportsPromise && airportsUsedSplitTiers) {
-        supplementaryAirportsPromise = loadSupplementaryAirports();
+        // Cleared on failure so a search during a network blip does not leave
+        // a rejected promise that suppresses every later attempt.
+        supplementaryAirportsPromise = loadSupplementaryAirports()
+            .catch(err => { supplementaryAirportsPromise = null; throw err; });
     }
     return supplementaryAirportsPromise || Promise.resolve();
 }

@@ -787,7 +787,12 @@ init(supabaseClient) {
                     MobileDashboardUI.init(this._supabase);
                     MobileDashboardUI._ifData = this._ifData;
                     return MobileDashboardUI;
-                });
+                })
+                // Only success is memoised. Otherwise a failed load — the
+                // resize hook fires this off a timer, so it can land on a dead
+                // connection — would leave a rejected promise in the slot and
+                // the dashboard could never open again this session.
+                .catch(err => { this._mobileDashboardPromise = null; throw err; });
         }
         return this._mobileDashboardPromise;
     },
