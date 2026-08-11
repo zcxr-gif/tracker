@@ -14391,15 +14391,41 @@ function updatePfdDisplay(pfdData) {
     }
 
 // Add this helper to flight.js
+// Airport metadata (name, image URL) is effectively static, but this was
+// re-fetched on every single open — and it is called from several places at
+// once for the same field: the airport window, the embed card, and the flight
+// window resolving both ends of a route. Cached for the session, with
+// concurrent callers sharing one request instead of racing their own.
+const _airportMetaCache = new Map();     // icao -> resolved value
+const _airportMetaInFlight = new Map();  // icao -> Promise
+
 async function fetchAirportData(icao) {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/airports/${icao}`);
-        if (!response.ok) throw new Error('Airport data not found');
-        return await response.ok ? await response.json() : null;
-    } catch (error) {
-        console.error("Error fetching dynamic airport image:", error);
-        return null;
-    }
+    const key = String(icao || '').toUpperCase();
+    if (!key) return null;
+    if (_airportMetaCache.has(key)) return _airportMetaCache.get(key);
+
+    const pending = _airportMetaInFlight.get(key);
+    if (pending) return pending;
+
+    const request = (async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/airports/${key}`);
+            if (!response.ok) throw new Error('Airport data not found');
+            const data = await response.json();
+            _airportMetaCache.set(key, data);
+            return data;
+        } catch (error) {
+            console.error("Error fetching dynamic airport image:", error);
+            // Not cached: a failure here is usually the network, and the next
+            // open should get a real chance rather than inheriting the miss.
+            return null;
+        } finally {
+            _airportMetaInFlight.delete(key);
+        }
+    })();
+
+    _airportMetaInFlight.set(key, request);
+    return request;
 }
 
 // --- ATC Session History (Replay) ----------------------------------------
@@ -14556,15 +14582,27 @@ function airportAerialImageUrl(lat, lon, w = 900, h = 420) {
 async function createAirportInfoWindowHTML(icao, requestId) {
         // 1. Get Static Data
         const staticData = airportsData[icao] || {};
-        const airportMetadata = await fetchAirportData(icao);
-        
+
+        // Steps 1-3 below used to run strictly one after another, so opening an
+        // airport cost four serial round trips before anything could render:
+        // metadata, then live details, then the session id, then traffic+ATIS.
+        // Only the last of those actually depends on an earlier one (traffic and
+        // ATIS are addressed by session), so the first three are started
+        // together here and awaited where they are needed.
+        const metadataPromise = fetchAirportData(icao).catch(() => null);
+        const liveDetailsPromise = fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`)
+            .catch(() => ({ ok: false }));
+        const sessionIdPromise = getValidSessionId().catch(() => null);
+
+        const airportMetadata = await metadataPromise;
+
         // Use the dynamic image if available, otherwise fall back to a default
         const dynamicImageUrl = airportMetadata?.imageUrl || 'Images/default_airport.webp';
 
-        // 2. Fetch Live Airport Details (Jetbridges, city, state, etc.)
+        // 2. Live Airport Details (Jetbridges, city, state, etc.)
         let liveData = null;
         try {
-            const response = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+            const response = await liveDetailsPromise;
             if (response.ok) {
                 const json = await response.json();
                 if (json.ok && json.airport) liveData = json.airport;
@@ -14573,15 +14611,15 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             console.warn(`Could not fetch live data for ${icao}`, e);
         }
 
-        // 3. Fetch Live Traffic & ATIS using the cached Session ID
+        // 3. Live Traffic & ATIS, on the session id resolved above
         let inbounds = [];
         let outbounds = [];
         let rawAtisText = null;
         let trafficFetchSuccess = false;
 
         try {
-            const sessionId = await getValidSessionId();
-            
+            const sessionId = await sessionIdPromise;
+
             if (sessionId && sessionId !== 'default') {
                 const [statusRes, atisRes] = await Promise.all([
                     fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
@@ -21398,12 +21436,21 @@ function updateFlightPlanLayer(flightId, plan, currentPosition) {
  */
 async function formatDataForEmbedAirport(icao) {
     const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
-    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Metadata, live details and the session id are independent of each other;
+    // only traffic and ATIS below need the session. Started together rather
+    // than in a chain of three round trips. See createAirportInfoWindowHTML.
+    const metadataPromise = fetchAirportData(icao).catch(() => null);
+    const liveDetailsPromise = fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`)
+        .catch(() => ({ ok: false }));
+    const sessionIdPromise = getValidSessionId().catch(() => null);
+
+    const airportMetadata = await metadataPromise;
 
     // Live airport details (name / city / coords).
     let liveData = null;
     try {
-        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        const r = await liveDetailsPromise;
         if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
     } catch (_) {}
 
@@ -21417,7 +21464,7 @@ async function formatDataForEmbedAirport(icao) {
     // Live traffic + ATIS, keyed off the cached session id (same as the standard window).
     let inbound = 0, outbound = 0, rawAtis = null;
     try {
-        const sessionId = await getValidSessionId();
+        const sessionId = await sessionIdPromise;
         if (sessionId && sessionId !== 'default') {
             const [statusRes, atisRes] = await Promise.all([
                 fetch(`${ACARS_SOCKET_URL}/api/live/airport/${sessionId}/${icao}/status`),
@@ -21563,12 +21610,23 @@ async function formatDataForEmbedAirport(icao) {
  */
 async function formatAirportSummary(icao) {
     const staticData = (typeof airportsData !== 'undefined' && airportsData[icao]) || {};
-    const airportMetadata = await fetchAirportData(icao).catch(() => null);
+
+    // Metadata, live details and the METAR are three independent lookups that
+    // used to run one after another. Started together instead — see
+    // createAirportInfoWindowHTML for the same treatment on the full window.
+    const metadataPromise = fetchAirportData(icao).catch(() => null);
+    const liveDetailsPromise = fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`)
+        .catch(() => ({ ok: false }));
+    const metarPromise = window.WeatherService
+        ? Promise.resolve(window.WeatherService.fetchAndParseMetar(icao)).catch(() => null)
+        : null;
+
+    const airportMetadata = await metadataPromise;
 
     // Live name / city / coords (same endpoint the airport windows use).
     let liveData = null;
     try {
-        const r = await fetch(`${ACARS_SOCKET_URL}/api/airport/${icao}`);
+        const r = await liveDetailsPromise;
         if (r.ok) { const j = await r.json(); if (j.ok && j.airport) liveData = j.airport; }
     } catch (_) {}
 
@@ -21582,8 +21640,8 @@ async function formatAirportSummary(icao) {
     // Parsed METAR headline — same shape/logic as the airport Card.
     let metar = null;
     try {
-        if (window.WeatherService) {
-            const w = await window.WeatherService.fetchAndParseMetar(icao);
+        if (metarPromise) {
+            const w = await metarPromise;
             if (w && w.raw && w.raw !== 'Not Available') {
                 let cat = 'VFR', color = '#4ade80';
                 if (w.raw.includes('LIFR')) { cat = 'LIFR'; color = '#c084fc'; }
@@ -22421,11 +22479,6 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 
     try {
-        let sessionId = optionalSessionId;
-        if (!sessionId || sessionId === 'default') {
-            sessionId = await getValidSessionId();
-        }
-
         // Prefer the nested aircraft object, but fall back to the flat
         // aircraftName/liveryName fields the live feature also carries. Callers
         // that pass raw (unparsed) feature properties leave `aircraft` as a
@@ -22434,15 +22487,43 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const acName = flightProps.aircraft?.aircraftName || flightProps.aircraftName || '';
         const livName = flightProps.aircraft?.liveryName || flightProps.liveryName || '';
 
-        const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
         const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
         const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
 
+        // Neither the flown path nor the aircraft lookup is addressed by
+        // session, so both are started before the session id is resolved.
+        // They used to queue behind it: on the first flight opened in a
+        // session (and once every five minutes after, when the id cache
+        // expires) that put a whole round trip in front of two requests that
+        // never needed to wait for it. The window has a spinner up either way;
+        // this is purely about how soon it can come down.
         const routePromise = fetch(historyUrl).catch(() => ({ ok: false }));
+        const aircraftLookupPromise = fetch(aircraftLookupUrl).catch(() => ({ ok: false }));
+
+        // Speculative filed-plan lookup. It is keyed on username + route, and
+        // the live feature already carries the route in the overwhelming
+        // majority of cases — the flight plan below only *fills in* a missing
+        // dep/arr, it never overrides one. Firing it here overlaps it with the
+        // plan fetch instead of running after it. getFiledPlan caches by that
+        // key for a minute, so if the plan does turn out to supply a different
+        // route the real call below is the one that counts and this one costs
+        // nothing beyond a request already in flight.
+        const speculativeFiledPlan = (flightProps.departureIcao && flightProps.arrivalIcao)
+            ? FlightDispatchService.getFiledPlan(
+                flightProps.username, flightProps.departureIcao, flightProps.arrivalIcao
+              ).catch(() => null)
+            : null;
+
+        let sessionId = optionalSessionId;
+        if (!sessionId || sessionId === 'default') {
+            sessionId = await getValidSessionId();
+        }
+
+        const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
 
         const [planRes, aircraftLookupRes] = await Promise.all([
             fetch(planUrl).catch(() => ({ ok: false })),
-            fetch(aircraftLookupUrl).catch(() => ({ ok: false }))
+            aircraftLookupPromise
         ]);
 
         const planData = planRes.ok ? await planRes.json() : null;
@@ -22485,11 +22566,21 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             }
         }));
 
-        const filedPlanData = await FlightDispatchService.getFiledPlan(
-            flightProps.username,
-            depIcao,
-            arrIcao
-        ).catch(e => null);
+        // Reuse the speculative lookup when the flight plan did not change the
+        // route out from under it — which is the normal case, since the block
+        // above only fills a *missing* dep/arr. When it did change, this falls
+        // through to a real call for the corrected route.
+        const routeUnchanged = speculativeFiledPlan
+            && depIcao === flightProps.departureIcao
+            && arrIcao === flightProps.arrivalIcao;
+
+        const filedPlanData = routeUnchanged
+            ? await speculativeFiledPlan
+            : await FlightDispatchService.getFiledPlan(
+                flightProps.username,
+                depIcao,
+                arrIcao
+            ).catch(e => null);
 
         cachedFlightDataForStatsView = { flightProps, plan };
 
