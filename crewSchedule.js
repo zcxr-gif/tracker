@@ -63,6 +63,11 @@
         ranks: [],
         routes: [],         // the VA's network, for the editor's route picker
         routesLoaded: false,
+        // The VA's real aeroplanes, out of their Infinite Flight organization.
+        // Empty for a crew center that has not connected one, which is a
+        // supported state and not an error — the editor simply omits the field.
+        airframes: [],
+        airframesLoaded: false,
         canManage: false,
         loaded: false,
         error: null,
@@ -143,6 +148,65 @@
         return S.routes;
     }
 
+    /**
+     * The "which aeroplane?" field, or nothing at all.
+     *
+     * Drawn only for a VA that has connected a Live organization AND has
+     * aircraft in it. A crew center without one sees the editor exactly as it
+     * was — no empty dropdown, no "connect Infinite Flight" prompt in the
+     * middle of a schedule form, because the person building next week's flying
+     * did not come here to be sold an integration.
+     *
+     * The aeroplane a departure is already on is kept in the list even when it
+     * has since gone into storage: dropping it would silently unassign the
+     * departure the moment somebody opened it to change the time.
+     */
+    function airframeField(v) {
+        const assigned = v.airframe || null;
+        const list = S.airframes.slice();
+        if (assigned && !list.some((a) => a.id === assigned.id)) {
+            list.unshift({ id: assigned.id, registration: assigned.registration, storage: 'unknown' });
+        }
+        if (!list.length) return '';
+        const opts = ['<option value="">No specific aircraft</option>']
+            .concat(list.map((a) => {
+                const label = a.registration || a.id;
+                const note = a.storage === 'storage' ? ' — storage'
+                    : a.storage === 'hangared' ? ' — hangared' : '';
+                return `<option value="${esc(a.id)}" data-reg="${esc(a.registration || '')}"${assigned && assigned.id === a.id ? ' selected' : ''}>${esc(label + note)}</option>`;
+            })).join('');
+        return `<div>
+            <label class="cp-label" for="csAirframe">Aircraft assigned</label>
+            <select id="csAirframe" class="cp-select">${opts}</select>
+            <p class="cp-note">The actual aeroplane from your Infinite Flight fleet, as opposed to the type above.
+                Pilots booking this leg are told which one they are on.</p>
+        </div>`;
+    }
+
+    /**
+     * The aeroplanes this VA could put a departure on.
+     *
+     * These are real airframes out of the VA's Infinite Flight organization —
+     * not the aircraft TYPE, which is the free-text field beside it and has
+     * always been there.
+     *
+     * `/if/airframes` answers 200 with an empty list for a crew center that has
+     * not connected an organization, so there is nothing to handle here: no
+     * connection means no picker, and the schedule editor is otherwise
+     * untouched. That is why this endpoint exists separately from the fleet
+     * endpoints, which correctly 409 — a schedule form should not have to
+     * understand the Live connection to draw one dropdown.
+     */
+    async function loadAirframes() {
+        if (S.airframesLoaded) return S.airframes;
+        try {
+            const d = await S.api('/if/airframes');
+            S.airframes = Array.isArray(d.airframes) ? d.airframes : [];
+        } catch { S.airframes = []; }
+        S.airframesLoaded = true;
+        return S.airframes;
+    }
+
     /* =====================================================================
      * THE LIST
      * =================================================================== */
@@ -189,6 +253,12 @@
             s.departsAt ? `<span class="cp-fact"><i data-lucide="clock"></i> ${esc(timeText(s.departsAt))}${s.arrivesAt ? ` → ${esc(timeText(s.arrivesAt))}` : ''}</span>` : '',
             block ? `<span class="cp-fact"><i data-lucide="timer"></i> ${esc(block)}</span>` : '',
             s.aircraft ? `<span class="cp-fact"><i data-lucide="plane"></i> ${esc(s.aircraft)}</span>` : '',
+            // The specific aeroplane, when one is assigned. Its own fact rather
+            // than appended to the type, because they answer different
+            // questions — "what am I flying" and "which one" — and a pilot
+            // scanning a week is usually looking for the second.
+            s.airframe && s.airframe.registration
+                ? `<span class="cp-fact"><i data-lucide="tag"></i> ${esc(s.airframe.registration)}</span>` : '',
             s.seats > 1 ? `<span class="cp-fact"><i data-lucide="users"></i> ${s.seats} crew</span>` : '',
         ].filter(Boolean).join('');
 
@@ -543,6 +613,8 @@
         const mid = [
             s.flightNumber ? `<p class="cs-tl-flightno">${esc(s.flightNumber)}</p>` : '',
             s.aircraft ? `<p class="cs-tl-fact">${esc(s.aircraft)}</p>` : '',
+            s.airframe && s.airframe.registration
+                ? `<p class="cs-tl-fact">Aircraft ${esc(s.airframe.registration)}</p>` : '',
             block ? `<p class="cs-tl-fact">${esc(block)}</p>` : '',
             s.seats > 1 ? `<p class="cs-tl-fact">${s.seats} crew</p>` : '',
         ].filter(Boolean).join('');
@@ -694,7 +766,7 @@
      * =================================================================== */
 
     async function openEditor(s) {
-        await loadRoutes();
+        await Promise.all([loadRoutes(), loadAirframes()]);
         editorOpen = true;
         const isNew = !s;
         const v = s || {};
@@ -727,6 +799,7 @@
                     <div><label class="cp-label" for="csAircraft">Aircraft</label>
                         <input id="csAircraft" class="cp-input" maxlength="60" placeholder="Boeing 787-9" value="${esc(v.aircraft || '')}"></div>
                 </div>
+                ${airframeField(v)}
                 <div class="cp-grid2">
                     <div><label class="cp-label" for="csDep">Departs</label>
                         <input id="csDep" class="cp-input" type="datetime-local" value="${esc(forInput(v.departsAt))}"></div>
@@ -801,6 +874,20 @@
                 destination: q('#csDest').value.trim().toUpperCase(),
                 flightNumber: q('#csFlightNo').value.trim(),
                 aircraft: q('#csAircraft').value.trim(),
+                // The registration travels with the id so the schedule can be
+                // read without calling Infinite Flight — see the note on
+                // crew_schedules.if_registration. Taken off the selected
+                // <option> rather than looked up again, so the label stored is
+                // exactly the one the person saw when they chose.
+                ...(() => {
+                    const sel = q('#csAirframe');
+                    if (!sel) return {};      // no connection: leave both alone
+                    const opt = sel.options[sel.selectedIndex];
+                    return {
+                        ifAircraftId: sel.value || '',
+                        ifRegistration: (sel.value && opt ? opt.getAttribute('data-reg') : '') || '',
+                    };
+                })(),
                 departsAt: fromInput(q('#csDep').value),
                 arrivesAt: fromInput(q('#csArr').value),
                 seats: Number(q('#csSeats').value) || 1,

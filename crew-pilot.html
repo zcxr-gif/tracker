@@ -37,6 +37,11 @@
     <script src="/crewInbox.js"></script>
     <!-- The airline's quick links: the Discord, SimBrief, the livery pack. -->
     <script src="/crewLinks.js"></script>
+    <!-- Every aircraft gets a picture. Must load before the fleet board below. -->
+    <script src="/crewAircraftImage.js"></script>
+    <!-- The VA's real fleet, out of Infinite Flight's Live API. Read-only here:
+         this page gets the pilot-facing board, never the staff panel. -->
+    <script src="/crewInfiniteFlight.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -292,6 +297,28 @@
                 <h2 class="text-lg font-bold tracking-tight">Quick links</h2>
             </div>
             <div id="linksBoard"></div>
+        </section>
+
+        <!-- ============ THE FLEET ============ -->
+        <!--
+          The aircraft the VA actually owns in Infinite Flight, where each one
+          is, and what is going out next. Until PublicApi v3 this was visible
+          only inside the Live portal, which is not somewhere a pilot goes to
+          answer "is 682XL back yet?".
+
+          Read-only, and read through the VA's own connection: a pilot never
+          holds a token and cannot address anything but the organization their
+          VA selected. Hidden the same way the links section is — the module
+          paints nothing until its fetch lands, and nothing at all for a crew
+          center that has not connected an organization, so a VA without one
+          carries no empty heading.
+        -->
+        <section id="ifFleetSec" class="mt-10 cp-hidden">
+            <div class="flex items-end justify-between mb-4">
+                <h2 class="text-lg font-bold tracking-tight">Fleet</h2>
+                <span class="text-xs muted">Infinite Flight Live</span>
+            </div>
+            <div id="ifFleetBoard"></div>
         </section>
 
         <!-- ============ ANNOUNCEMENTS ============ -->
@@ -818,6 +845,44 @@
             });
         }
 
+        // ---- The fleet ----
+        //
+        // The aircraft the VA owns in Infinite Flight, and where they are.
+        //
+        // READ-ONLY, AND ONLY THE BOARD. crewInfiniteFlight.js also carries the
+        // staff panel — connecting the account, building an aircraft's rota —
+        // and none of it is reachable from here: this page calls renderBoard()
+        // and never open(), the board reads a single pilot-safe endpoint, and
+        // the endpoints behind the panel refuse a pilot's session outright. A
+        // pilot USES the fleet; staff are the ones who set it up.
+        //
+        // Nothing about the connection is exposed either — no organization
+        // picker, no scopes, no "not connected yet" prompt. A crew center whose
+        // staff have not connected one simply has no Fleet section, which is
+        // the right thing for somebody who could not act on the message anyway.
+        function mountIfFleet(){
+            if(!window.CrewIF) return;
+            CrewIF.mount({
+                backend: BACKEND, slug: getSlug(),
+                token: ()=> (storedSession()||{}).token || '',
+                liveBase: (window.APP_CONFIG && window.APP_CONFIG.backendUrl)
+                    || 'https://site--acars-backend--6dmjph8ltlhv.code.run',
+                // The pilot mount: the board, and no way into the staff panel.
+                boardOnly: true,
+            }).then(()=>{
+                const host=document.getElementById('ifFleetBoard');
+                const sec=document.getElementById('ifFleetSec');
+                if(!host) return;
+                CrewIF.renderBoard(host);
+                // The board's own fetch is separate from mount's, so the
+                // section is revealed when that lands rather than now — see
+                // reloadBoard's promise below.
+                CrewIF.reloadBoard().then(()=>{
+                    if(sec) sec.classList.toggle('cp-hidden', !host.innerHTML.trim());
+                });
+            });
+        }
+
         /* The board works signed out — it highlights nobody then, which is the
            honest state rather than a locked panel. So no token check here. */
         function openStandings(){
@@ -1028,6 +1093,7 @@
             mountDocuments();
             mountInbox();
             mountLinks();
+            mountIfFleet();     // the VA's Live fleet, read-only
             loadNotices();
             const b = await resolveBranding();
             applyBranding(b);
