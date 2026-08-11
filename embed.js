@@ -334,7 +334,13 @@
         //   'any'     — the roster waives the callsign entirely. The opt-in for
         //               VAs whose members fly codeshare / partner callsigns; it
         //               also brings in whatever else those pilots are flying.
-        const rosterTrust = ['off', 'airline', 'any'].includes(String(raw.rosterTrust || '').trim().toLowerCase())
+        //   'tagged'  — the other end of the same dial: the roster vouches for
+        //               the pilot but NEVER for a missing tag. The airline must
+        //               be ours and the callsign must carry one of our tags, so
+        //               a rostered pilot's "UPS 123UP Cargo" counts and their
+        //               "UPS 123" does not. For a VA whose suffix is the whole
+        //               point of having one.
+        const rosterTrust = ['off', 'tagged', 'airline', 'any'].includes(String(raw.rosterTrust || '').trim().toLowerCase())
             ? String(raw.rosterTrust).trim().toLowerCase()
             : 'airline';
 
@@ -511,8 +517,22 @@
         if (trust !== 'off' && uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
             if (trust === 'any') return true;
             const compact = compactCallsign(f.callsign);
-            if (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p))) return true;
-            if (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))) return true;
+            const onAirline = (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)))
+                || (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p)));
+            if (onAirline) {
+                // 'airline' waives the tag here; 'tagged' will not. A VA on
+                // 'tagged' has said the suffix is not decoration, so the roster
+                // may vouch for the pilot and for the rest of the callsign's
+                // shape — "UPS 123UP Cargo" — but never for its absence.
+                //
+                // Falls THROUGH rather than returning false: the roster is one
+                // of several widenings and a 'broad' listing has another below.
+                // Returning here would answer the whole question on behalf of a
+                // rule that had only declined to help.
+                if (trust !== 'tagged') return true;
+                const tail = stripWeightClass(callsignTokens(f.callsign)).slice(-2);
+                if (cfg.suffixes && cfg.suffixes.some(s => s && tail.some(t => tokenHasSuffixTag(t, s)))) return true;
+            }
         }
 
         // A distinctive tag standing on its own, with no declared airline in

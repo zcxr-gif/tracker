@@ -281,9 +281,63 @@
      * The backend
      * ================================================================== */
 
+    /**
+     * Take a status payload as the new truth, without letting it forget things
+     * it was not asked about.
+     *
+     * Every save here answers with the connection's new state, and the panel
+     * repaints from that answer rather than re-fetching — which is right, and
+     * which also means a reply that omits a field silently unsets it. Two
+     * fields make that dangerous rather than cosmetic: `you`, which says
+     * whether the person looking is the owner, and `redirectUri`, which is the
+     * value they are being told to register. Losing either mid-session
+     * replaces a working setup screen with "only the VA owner can connect an
+     * account" — addressed to the owner, immediately after they saved
+     * something.
+     *
+     * The server sends both on every one of these routes now. This keeps the
+     * panel from depending on that: facts about the CALLER do not change
+     * because a client id was saved, so a payload that is quiet about them is
+     * treated as quiet, not as a denial.
+     */
+    function applyStatus(out) {
+        if (!out || typeof out !== 'object') return S.status;
+        const prev = S.status || {};
+        S.status = {
+            ...out,
+            you: out.you || prev.you || null,
+            redirectUri: out.redirectUri || prev.redirectUri || '',
+        };
+        return S.status;
+    }
+
+    /**
+     * May this person maintain the Infinite Flight connection?
+     *
+     * `you.canManage` is the answer, and it comes from a backend that knows
+     * about integrations.manage. FALLING BACK TO `you.owner` is not belt and
+     * braces — it is the deploy-order guarantee. This panel ships separately
+     * from the API it talks to, and a backend that predates the capability
+     * sends `you` WITHOUT `canManage`; read plainly, that undefined is falsy
+     * and every owner is told to go and ask the VA owner for permission. On
+     * the setup screen. Which is the bug this panel was just fixed for.
+     *
+     * So: the new answer when there is one, the old one when there isn't.
+     * `??` rather than `||` — an explicit `false` from a new backend is a real
+     * refusal and must not fall through to ownership.
+     */
+    const mayManage = (st) => {
+        const you = st && st.you;
+        if (!you) return false;
+        return you.canManage ?? !!you.owner;
+    };
+
     async function load({ quiet = false } = {}) {
         if (!S.slug) return null;
         try {
+            // A full load is the one place the previous status is NOT carried
+            // over: GET /if is authoritative about the caller, so a demotion
+            // between page loads has to be able to land.
             S.status = await S.api('/if');
             S.error = null;
         } catch (err) {
@@ -496,12 +550,16 @@
      * 403 nobody can diagnose.
      * ----------------------------------------------------------------- */
     function setupView(st) {
-        const owner = st.you && st.you.owner;
+        // `canManage`, not `owner`. Connecting the account is gated on
+        // integrations.manage, which an owner holds implicitly and can grant to
+        // whoever actually keeps the integrations working — so the question the
+        // screen asks is "may you do this", not "is your name on the airline".
+        const owner = mayManage(st);
         if (!owner) {
             return `<div class="cp-empty">
                 <i data-lucide="plane"></i>
                 This crew center isn’t connected to Infinite Flight yet.
-                <div class="cp-note" style="margin-top:.5rem">Only the VA owner can connect an account.</div>
+                <div class="cp-note" style="margin-top:.5rem">Ask the VA owner, or someone with permission to manage integrations, to connect an account.</div>
             </div>`;
         }
         const c = st.client || {};
@@ -910,7 +968,9 @@
      * ----------------------------------------------------------------- */
 
     function connectionView(st) {
-        const owner = st.you && st.you.owner;
+        // Same as setupView: picking the organization, reconnecting and
+        // disconnecting are all "manage the connection", not "own the airline".
+        const owner = mayManage(st);
         const orgs = S.organizations;
         const fleet = (S.fleet && S.fleet.aircraft) || [];
         return `
@@ -1010,14 +1070,14 @@
         if (what === 'connect') return startConnect();
         if (what === 'client-clear') {
             return act(async () => {
-                S.status = await S.api('/if/client', { method: 'DELETE' });
+                applyStatus(await S.api('/if/client', { method: 'DELETE' }));
             }, { done: 'Client removed.' });
         }
         if (what === 'disconnect') {
             if (!window.confirm('Disconnect this crew center from Infinite Flight?')) return;
             return act(async () => {
                 const out = await S.api('/if/connection', { method: 'DELETE' });
-                S.status = out; S.fleet = null; S.schedules = null; S.organizations = null;
+                applyStatus(out); S.fleet = null; S.schedules = null; S.organizations = null;
                 S.aircraftId = '';
             }, { done: 'Disconnected.' });
         }
@@ -1029,7 +1089,7 @@
             if (!picked) return toast('Pick an organization first.', 'bad');
             return act(async () => {
                 const out = await S.api('/if/organization', { method: 'POST', body: { organizationId: picked.value } });
-                S.status = out;
+                applyStatus(out);
                 S.fleet = null; S.aircraftId = ''; S.schedules = null;
                 await loadFleet({ force: true });
             }, { done: 'Organization set.' });
@@ -1043,7 +1103,7 @@
                     method: 'POST',
                     body: { enabled: !!(on && on.checked), aircraftId: ac ? ac.value : '' },
                 });
-                S.status = out;
+                applyStatus(out);
                 // "On, but only for departures you've assigned an aircraft to"
                 // is a real configuration and also what a half-finished one
                 // looks like. The server says which; pass it on rather than
@@ -1173,7 +1233,7 @@
                 // is only sent when something was typed.
                 if (String(data.clientSecret || '')) body.clientSecret = String(data.clientSecret);
                 const out = await S.api('/if/client', { method: 'POST', body });
-                S.status = out;
+                applyStatus(out);
                 if (out.warning) toast(out.warning, 'bad');
                 if (out.notice) toast(out.notice, 'bad');
             }, { done: 'Client saved.' });
