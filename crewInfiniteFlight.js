@@ -124,6 +124,13 @@
         .cif-ac{ display:grid; gap:.5rem; }
         .cif-row{ border:1px solid var(--line,#e5e5e5); border-radius:.7rem; padding:.7rem .8rem;
             display:grid; gap:.45rem; }
+        /* The aircraft picture. Fixed box with object-fit so a Planespotters
+           photo (any aspect ratio) and the silhouette (120x72) occupy exactly
+           the same space — otherwise the list reflows as photos arrive, which
+           is the jump this module's synchronous-first design exists to avoid. */
+        .cai{ width:3.75rem; height:2.25rem; border-radius:.35rem; object-fit:cover;
+            background:var(--line,#e5e5e5); flex:0 0 auto; display:block; }
+        .cif-idrow{ display:flex; align-items:center; gap:.6rem; min-width:0; }
         .cif-row-top{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; }
         .cif-reg{ font-weight:700; letter-spacing:-.01em; color:var(--ink,#1C1A16); }
         .cif-rank{ font-size:.7rem; color:var(--faint,#A8A296); font-weight:600; }
@@ -165,6 +172,7 @@
         .cif-board-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); gap:.5rem; }
         .cif-tile{ border:1px solid var(--line,#e5e5e5); border-radius:.7rem; padding:.6rem .7rem;
             display:grid; gap:.2rem; background:var(--surface,#fff); }
+        .cif-tile .cai{ width:100%; height:3.25rem; margin-bottom:.35rem; }
         .cif-tile b{ font-size:.9rem; letter-spacing:-.01em; }
         .cif-tile small{ font-size:.72rem; color:var(--muted,#736E64); }
         .cif-dot{ width:.5rem; height:.5rem; border-radius:999px; display:inline-block; }
@@ -185,6 +193,19 @@
      * ifLive.js so it can be corrected in one place when the preview moves.
      */
     const enumLabel = (e) => (e && e.label ? e.label : '');
+
+    /**
+     * The aircraft's picture — always something, never a broken image.
+     *
+     * crewAircraftImage.js guarantees a synchronous, self-contained silhouette
+     * and upgrades it to a real photograph where one exists. This wrapper exists
+     * so a page that has not loaded that module still renders a fleet: an empty
+     * string is a missing thumbnail, which is a cosmetic loss, where an
+     * exception inside a row renderer is a blank panel.
+     */
+    const picture = (a) => (window.CrewAircraftImage
+        ? window.CrewAircraftImage.img(a || {})
+        : '');
 
     const chip = (text, tone) => (text
         ? `<span class="cp-chip${tone ? ' cp-chip-' + tone : ''}">${esc(text)}</span>` : '');
@@ -389,10 +410,53 @@
         return panel;
     }
 
+    /**
+     * Paint the panel.
+     *
+     * THE TRY/CATCH IS THE POINT, and it is worth being explicit about why,
+     * because "wrap it in a try/catch" is usually a smell and here it is the
+     * fix for a specific, reported failure.
+     *
+     * Opening a sheet takes the scroll lock, which sets `position:fixed` on the
+     * body and collapses the document to nothing. If the render then throws,
+     * `innerHTML` is never assigned, the lock is never released, and what is
+     * left on screen is the page background with an empty sheet over it —
+     * white on the crew center, black inside the app's overlay. No content, no
+     * error, nothing to click, and Escape the only way out. crewPanels.js
+     * carries a safety net for exactly this, but a net is a last resort: the
+     * right answer is not to fall.
+     *
+     * So a view that throws paints an honest failure instead of nothing. The
+     * panel stays usable, the reader can close it, and the console gets the
+     * actual error.
+     *
+     * Every escape hatch below is deliberately unable to throw in turn: no
+     * template interpolation of live data, no icon pass, plain text only.
+     */
     function render() {
         if (!panel || !panel.isOpen()) return;
-        panel.body.innerHTML = view();
+        let html;
+        try {
+            html = view();
+        } catch (err) {
+            console.error('crewInfiniteFlight: render failed —', err);
+            html = '<div class="cp-empty">Something went wrong drawing this panel. '
+                + 'Close it and try again — your fleet and schedules are unaffected.</div>';
+        }
+        try {
+            panel.body.innerHTML = html;
+        } catch (err) {
+            // Assigning innerHTML can itself throw on a detached node. Better a
+            // panel that says nothing than a page locked behind one.
+            console.error('crewInfiniteFlight: could not paint —', err);
+            return;
+        }
+        // Neither of these may take the panel down. Icons throw on a name
+        // lucide does not know; the picture upgrade touches the network.
         try { icons(); } catch { /* a missing glyph is not worth a blank panel */ }
+        try {
+            if (window.CrewAircraftImage) window.CrewAircraftImage.upgrade(panel.body);
+        } catch { /* photographs are decoration */ }
     }
 
     function view() {
@@ -572,9 +636,13 @@
             : a.storage === 'hangared' ? chip('Hangared', 'mute') : chip('Storage', 'warn');
         return `<div class="cif-row" data-cif-ac="${esc(a.id)}">
             <div class="cif-row-top">
-                <div style="min-width:0">
-                    <span class="cif-reg">${esc(a.registration || 'Unregistered')}</span>
-                    ${a.fleetRank ? `<span class="cif-rank"> · #${esc(String(a.fleetRank))} in fleet</span>` : ''}
+                <div class="cif-idrow">
+                    ${picture(a)}
+                    <div style="min-width:0">
+                        <span class="cif-reg">${esc(a.registration || 'Unregistered')}</span>
+                        ${a.fleetRank ? `<span class="cif-rank"> · #${esc(String(a.fleetRank))} in fleet</span>` : ''}
+                        ${a.type && a.type.name ? `<div class="cp-note cp-faint">${esc(a.type.name)}${a.type.livery ? ' · ' + esc(a.type.livery) : ''}</div>` : ''}
+                    </div>
                 </div>
                 <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
                     ${liveNow ? chip('Flying now', 'ok') : ''}
@@ -806,9 +874,13 @@
             : `last flew ${r.daysSinceFlown === 0 ? 'today' : r.daysSinceFlown + ' day' + (r.daysSinceFlown === 1 ? '' : 's') + ' ago'}`;
         return `<div class="cif-row">
             <div class="cif-row-top">
-                <div style="min-width:0">
-                    <span class="cif-reg">${esc(r.registration || 'Unregistered')}</span>
-                    ${r.fleetRank ? `<span class="cif-rank"> · #${esc(String(r.fleetRank))}</span>` : ''}
+                <div class="cif-idrow">
+                    ${picture(r)}
+                    <div style="min-width:0">
+                        <span class="cif-reg">${esc(r.registration || 'Unregistered')}</span>
+                        ${r.fleetRank ? `<span class="cif-rank"> · #${esc(String(r.fleetRank))}</span>` : ''}
+                        ${r.type && r.type.name ? `<div class="cp-note cp-faint">${esc(r.type.name)}</div>` : ''}
+                    </div>
                 </div>
                 <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
                     ${r.rotaUnknown ? chip('Not read', 'mute')
@@ -1235,7 +1307,26 @@
         for (const [el, opts] of boardHosts) paintBoard(el, opts);
     }
 
-    function paintBoard(el, { limit = 0, departures = true } = {}) {
+    /**
+     * Paint one in-page board.
+     *
+     * Same reasoning as render(), with one difference that matters: this host
+     * belongs to somebody else's page — the dashboard's Manage section, the
+     * pilot page's Fleet section — and it is painted during THEIR boot. An
+     * exception escaping here does not just blank a board, it aborts whatever
+     * ran after it in the host's init. So it fails to an empty host, which the
+     * host already treats as "nothing to show" and hides.
+     */
+    function paintBoard(el, opts) {
+        try {
+            paintBoardInner(el, opts || {});
+        } catch (err) {
+            console.error('crewInfiniteFlight: board render failed —', err);
+            try { el.innerHTML = ''; } catch { /* nothing further to do */ }
+        }
+    }
+
+    function paintBoardInner(el, { limit = 0, departures = true } = {}) {
         // Nothing until the fetch lands. An empty board that fills in a moment
         // later reads as "this VA has no aircraft", which is the invented-data
         // failure the rest of this crew center was rewritten to remove.
@@ -1269,6 +1360,9 @@
             </div>` : ''}
         </div>`;
         try { icons(); } catch { /* ignore */ }
+        try {
+            if (window.CrewAircraftImage) window.CrewAircraftImage.upgrade(el);
+        } catch { /* photographs are decoration */ }
     }
 
     function boardTile(a) {
@@ -1277,6 +1371,7 @@
         const dot = live || (p && p.state && p.state.name === 'InFlight' && !p.stale) ? 'air'
             : (p && p.hasFix && !p.stale) ? 'gnd' : 'off';
         return `<div class="cif-tile">
+            ${picture(a)}
             <b>${esc(a.registration || 'Unregistered')}</b>
             <small><span class="cif-dot cif-dot-${dot}"></span>
                 ${live ? esc(live.callsign || 'Flying now')

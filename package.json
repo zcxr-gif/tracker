@@ -1,7 +1,8 @@
 {
   "scripts": {
     "build:data": "node tools/build-data.js",
-    "verify:data": "node tools/verify-data.js"
+    "verify:data": "node tools/verify-data.js",
+    "test:panels": "node tools/test-crew-panel-render.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",

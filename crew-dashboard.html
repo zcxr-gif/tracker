@@ -36,6 +36,10 @@
     <!-- Quick links: the Discord, SimBrief, the livery pack. A board on the page
          rather than a panel — a link you have to open a panel for is not quick. -->
     <script src="/crewLinks.js"></script>
+    <!-- Every aircraft gets a picture. Loaded BEFORE the Live panel, which asks
+         it for one on every row — a self-contained silhouette straight away,
+         upgraded to a real photograph where one exists. -->
+    <script src="/crewAircraftImage.js"></script>
     <!-- Infinite Flight Live, over PublicApi v3's OAuth: the aircraft the VA
          actually owns, where each one is, and the schedule each one will fly —
          readable and editable from here instead of only in the Live portal. -->
