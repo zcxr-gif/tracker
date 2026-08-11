@@ -577,21 +577,50 @@
             </p>
             ${failed}
             ${c.configured ? '' : `
+            <p class="cp-note cp-note-bad" style="margin-top:.6rem">
+                Infinite Flight sign-in isn’t configured on this server yet. An Inflight
+                administrator needs to set the platform OAuth client — there’s nothing for
+                you to do here until they have.
+            </p>`}
+        </div>
+        ${clientCard(st, c)}
+        ${signInCard(st, c)}`;
+    }
+
+    /**
+     * The OAuth client card.
+     *
+     * Signing in runs on Inflight's own client, so for almost everybody this is
+     * not a step — it is a fact about how the connection works, and a form they
+     * should never have to open. It used to be the first thing on the screen,
+     * with a four-step walkthrough of registering an application on Infinite
+     * Flight's developer page, because the platform client could not be used
+     * yet. That is over; a sign-in button that begins "first, create an OAuth2
+     * client" is not a sign-in button.
+     *
+     * So the form is folded away unless it is actually load-bearing:
+     *
+     *   • platform client in use  → one sentence, form collapsed behind a
+     *     disclosure for the VA who has a reason to use their own
+     *   • the VA's own in use     → open, because it is theirs to maintain and
+     *     hiding the field they are responsible for would be worse
+     *   • nothing configured      → open, with the registration steps, since on
+     *     that deployment their own client is the only thing that can work
+     */
+    function clientCard(st, c) {
+        const usingOwn = c.source === 'va';
+        const platform = c.configured && c.source === 'platform';
+        const steps = `
             <ol class="cif-steps">
                 <li>Open <a href="https://infiniteflight.com/account/api-keys" target="_blank" rel="noopener noreferrer">infiniteflight.com/account/api-keys</a> and create an OAuth2 client.</li>
                 <li>Set its redirect URI to exactly:<br><code class="cif-plan">${esc(st.redirectUri || '')}</code></li>
                 <li>Choose <b>confidential</b> if you can keep a secret, or <b>public</b> if not — either works.</li>
                 <li>Paste the client ID below.</li>
-            </ol>`}
-        </div>
+            </ol>`;
 
-        <form class="cp-card" data-cif-form="client">
-            <h3 class="cp-card-title">OAuth client</h3>
-            ${c.configured && c.source === 'platform' ? `
-                <p class="cp-note" style="margin-top:.4rem">
-                    Using Inflight’s own Infinite Flight app. If it isn’t approved for your account yet,
-                    register your own client below instead.
-                </p>` : ''}
+        const form = `
+        <form data-cif-form="client">
+            ${platform ? '' : steps}
             <div style="margin-top:.6rem">
                 <label class="cp-label" for="cif-client-id">Client ID</label>
                 <input class="cp-input" id="cif-client-id" name="clientId" placeholder="ifc_…"
@@ -607,10 +636,42 @@
             </div>
             <div class="cif-acts" style="margin-top:.7rem">
                 <button class="cp-btn cp-btn-primary" type="submit" ${S.busy ? 'disabled' : ''}>Save client</button>
-                ${c.source === 'va' ? '<button class="cp-btn cp-btn-bad" type="button" data-cif="client-clear">Remove</button>' : ''}
+                ${usingOwn ? '<button class="cp-btn cp-btn-bad" type="button" data-cif="client-clear">Remove</button>' : ''}
             </div>
-        </form>
+        </form>`;
 
+        if (!platform) {
+            return `<div class="cp-card">
+            <h3 class="cp-card-title">OAuth client</h3>
+            ${usingOwn ? `<p class="cp-note" style="margin-top:.4rem">
+                This crew center signs in with its own OAuth client. Remove it to go back to
+                Inflight’s, which needs no setup.${st.connected ? ' Your current connection stays on this client until you disconnect.' : ''}
+            </p>` : ''}
+            ${form}
+        </div>`;
+        }
+
+        return `<div class="cp-card">
+            <h3 class="cp-card-title">OAuth client</h3>
+            <p class="cp-note" style="margin-top:.4rem">
+                Signing in uses Inflight’s own Infinite Flight app — there’s nothing to register
+                and nothing to paste here.
+            </p>
+            <details style="margin-top:.6rem">
+                <summary class="cp-note" style="cursor:pointer">Use your own OAuth client instead</summary>
+                <p class="cp-note" style="margin:.5rem 0 .2rem">
+                    Only if you need the connection to run under credentials your VA owns. Most
+                    crew centers should leave this alone.
+                </p>
+                ${steps}
+                ${form}
+            </details>
+        </div>`;
+    }
+
+    /** The sign-in card — the part that is actually a button. */
+    function signInCard(st, c) {
+        return `
         <div class="cp-card">
             <h3 class="cp-card-title">Sign in</h3>
             <p class="cp-note" style="margin:.4rem 0 .6rem">
@@ -629,7 +690,7 @@
             <button class="cp-btn cp-btn-primary" data-cif="connect" ${c.configured && !S.busy ? '' : 'disabled'}>
                 <i data-lucide="log-in"></i> Connect Infinite Flight
             </button>
-            ${c.configured ? '' : '<p class="cp-note" style="margin-top:.5rem">Save a client ID first.</p>'}
+            ${c.configured ? '' : '<p class="cp-note" style="margin-top:.5rem">Waiting on the server’s OAuth client.</p>'}
         </div>`;
     }
 
