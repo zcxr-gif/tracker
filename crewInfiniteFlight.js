@@ -529,12 +529,16 @@
      * 403 nobody can diagnose.
      * ----------------------------------------------------------------- */
     function setupView(st) {
-        const owner = st.you && st.you.owner;
+        // `canManage`, not `owner`. Connecting the account is gated on
+        // integrations.manage, which an owner holds implicitly and can grant to
+        // whoever actually keeps the integrations working — so the question the
+        // screen asks is "may you do this", not "is your name on the airline".
+        const owner = st.you && st.you.canManage;
         if (!owner) {
             return `<div class="cp-empty">
                 <i data-lucide="plane"></i>
                 This crew center isn’t connected to Infinite Flight yet.
-                <div class="cp-note" style="margin-top:.5rem">Only the VA owner can connect an account.</div>
+                <div class="cp-note" style="margin-top:.5rem">Ask the VA owner, or someone with permission to manage integrations, to connect an account.</div>
             </div>`;
         }
         const c = st.client || {};
@@ -943,7 +947,9 @@
      * ----------------------------------------------------------------- */
 
     function connectionView(st) {
-        const owner = st.you && st.you.owner;
+        // Same as setupView: picking the organization, reconnecting and
+        // disconnecting are all "manage the connection", not "own the airline".
+        const owner = st.you && st.you.canManage;
         const orgs = S.organizations;
         const fleet = (S.fleet && S.fleet.aircraft) || [];
         return `

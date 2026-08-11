@@ -854,7 +854,7 @@
                         <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
                     <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. Roles belong to this crew center only; another VA’s roles are its own.</p>
-                    <p class="text-xs muted mb-3">Only you, the owner, can see or change this. Owners always have full access; a staff member with no role assigned keeps full access until you give them one.</p>
+                    <p class="text-xs muted mb-3">Only you, the owner — and anyone you give <b>“Create staff roles &amp; assign the team”</b> to — can see or change this. Owners always have full access. A staff member with no role assigned keeps the everyday permissions until you give them one, but never the owner-level ones below. Nobody can grant a permission they don’t hold themselves, so handing someone this page cannot make them the owner.</p>
 
                     <!-- Presets. The permission system worked before this and
                          almost nobody used it, because it asked a volunteer
@@ -5617,6 +5617,13 @@
                 CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
                 ROLE_PRESETS = Array.isArray(d.rolePresets)?d.rolePresets:[];
                 STAFF_ROLES = Array.isArray(d.staffRoles)?d.staffRoles:[];
+                // What THIS person may hand out. An owner gets the whole
+                // catalogue; a delegate with team.manage gets their own
+                // capabilities and no more, because you cannot grant what you
+                // do not hold. Empty from a backend that predates the field, in
+                // which case the ticks are all enabled and the server is still
+                // the one that refuses — the screen is a courtesy, not the gate.
+                GRANTABLE = Array.isArray(d.grantable)?new Set(d.grantable):null;
                 STAFF_ASSIGN = Array.isArray(d.staffAssignments)?d.staffAssignments:[];
                 // /me is the authoritative identity — it corrects a session
                 // stored before the name was known, or one that has gone stale.
@@ -5635,13 +5642,17 @@
                 // to Alerts, so this no longer needs the notifications power.
                 recruit:can('settings.recruitment'),
                 alerts:can('settings.notifications'),
-                team:(IS_OWNER||!sessionToken()),
+                // Gated on team.manage, which an owner holds implicitly. A
+                // chief of staff builds the team; the no-escalation rule on the
+                // server is what makes that safe, so the tab does not have to
+                // be owner-only to be.
+                team:(IS_OWNER||can('team.manage')||!sessionToken()),
                 // Data now carries the connection, the storage report AND bulk
                 // deletion. The storage report used to be its own, wider tab —
                 // it shows sizes and row counts, nothing that is in a row — so
                 // that audience is kept, and the two owner-only blocks inside
                 // hide themselves for anybody else (see applyDataSectionState).
-                data:(IS_OWNER||can('settings.notifications')||!sessionToken()) };
+                data:(IS_OWNER||can('integrations.manage')||can('settings.notifications')||!sessionToken()) };
             document.querySelectorAll('.settings-tab').forEach(t=>{
                 const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
             });
@@ -5651,29 +5662,35 @@
                 const first=document.querySelector('.settings-tab:not(.hidden)');
                 if(first) setCat(first.getAttribute('data-cat'));
             }
-            // Within the Data tab, the connection and the bulk-delete blocks are
-            // the owner's alone — a schedule manager who can see how full the
-            // database is has no business connecting it elsewhere or emptying
-            // it. The storage report between them stays visible to both, which
-            // is the whole reason the tab is wider than its owner-only parts.
-            const owns=IS_OWNER||!sessionToken();
+            // Within the Data tab, the two blocks are gated separately, because
+            // they are now two different powers. Connecting the store is
+            // integrations.manage — the technical manager's job. Emptying it is
+            // still the owner's alone: "delete four years of flight reports" is
+            // not a thing to hand to whoever set the database up. The storage
+            // report between them stays visible to both, which is the whole
+            // reason the tab is wider than its restricted parts.
+            const preview=!sessionToken();
+            const canConnect=IS_OWNER||can('integrations.manage')||preview;
+            const canPurge=IS_OWNER||preview;
             const dataConn=document.getElementById('dataSection');
             const dataManage=document.getElementById('dataManageBlock');
-            if(dataConn) dataConn.classList.toggle('cp-hidden', !owns);
-            if(dataManage) dataManage.classList.toggle('cp-hidden', !owns);
+            if(dataConn) dataConn.classList.toggle('cp-hidden', !canConnect);
+            if(dataManage) dataManage.classList.toggle('cp-hidden', !canPurge);
 
             // Within the Crew tab, show only the parts this person may change.
             const structure=document.getElementById('crewStructureBlock');
             const schedule=document.getElementById('crewScheduleBlock');
             if(structure) structure.classList.toggle('cp-hidden', !can('settings.branding'));
             if(schedule) schedule.classList.toggle('cp-hidden', !can('schedules.manage'));
-            // The roster sweep is the owner's alone — it removes pilots, and
-            // that is not a power to hand to whoever also runs the schedule.
-            // The backend gates it the same way; this only stops it being
-            // offered to somebody who would then be refused on save.
+            // The roster sweep is gated on retention.manage — it removes
+            // pilots, so it is in none of the presets and not in the default a
+            // staff member gets with no role, which means holding it takes an
+            // owner ticking that line deliberately. The backend gates it the
+            // same way; this only stops it being offered to somebody who would
+            // then be refused on save.
             const retention=document.getElementById('crewRetentionBlock');
             if(retention){
-                const ownsSweep=IS_OWNER||!sessionToken();
+                const ownsSweep=IS_OWNER||can('retention.manage')||!sessionToken();
                 retention.classList.toggle('hidden', !ownsSweep);
                 if(ownsSweep && RETENTION_PREFS===null) loadRetention();
             }
@@ -5684,8 +5701,13 @@
             renderTiles();
         }
 
-        // Owner-only editors for staff roles + assignments.
+        // Editors for staff roles + assignments — the owner's, and any
+        // delegate holding team.manage.
         let ROLE_PRESETS=[];
+        let GRANTABLE=null;
+        // May this person tick this capability? null means "no ceiling was
+        // sent", which is the pre-`grantable` backend and stays permissive.
+        function canGrant(id){ return !GRANTABLE || !GRANTABLE.size || GRANTABLE.has(id); }
         function renderRolePresets(){
             const host=document.getElementById('rolePresetRow'); if(!host) return;
             host.innerHTML = ROLE_PRESETS.map(pr=>`
@@ -5717,7 +5739,11 @@
         function roleSummary(r){
             const perms=(r.permissions||[]).filter(c=>CAP_CATALOG.some(x=>x.id===c));
             if(!perms.length) return 'Can see the crew center and change nothing.';
-            if(perms.length===CAP_CATALOG.length) return 'Everything an owner can do, apart from the team and the data store.';
+            // No longer "apart from the team and the data store" — those are in
+            // the catalogue now, so a role with every box ticked really does
+            // hold everything the owner does. Worth saying plainly: it is the
+            // one summary a reader should stop and check they meant.
+            if(perms.length===CAP_CATALOG.length) return 'Everything an owner can do.';
             return perms.map(id=>(CAP_CATALOG.find(c=>c.id===id)||{}).label||id).join(' · ');
         }
         function staffRoleRowHtml(r,i){
@@ -5733,9 +5759,19 @@
             const groupHtml=CAP_CATALOG.length ? Object.entries(groups).map(([g,caps])=>`
                 <div class="mt-2">
                     <div class="text-[11px] uppercase tracking-wide faint mb-1">${escapeHtml(g)}</div>
-                    ${caps.map(c=>`<label class="flex items-start gap-2 text-sm py-0.5 cursor-pointer">
-                        <input type="checkbox" data-perm="${escapeHtml(c.id)}" ${perms.has(c.id)?'checked':''} class="mt-0.5 accent-[var(--accent)]">
-                        <span>${escapeHtml(c.label)}</span></label>`).join('')}
+                    ${caps.map(c=>{
+                        // A line this person cannot grant is shown, disabled,
+                        // rather than hidden. Hiding it would make the role
+                        // card silently disagree with the same card as the
+                        // owner sees it — a chief of staff would edit a role
+                        // and have no idea it also carries permissions they
+                        // were never shown. Shown-and-greyed says both "this
+                        // exists" and "not yours to change".
+                        const locked=!canGrant(c.id);
+                        return `<label class="flex items-start gap-2 text-sm py-0.5 ${locked?'opacity-50 cursor-not-allowed':'cursor-pointer'}"${locked?' title="Only someone who holds this permission can grant it."':''}>
+                        <input type="checkbox" data-perm="${escapeHtml(c.id)}" ${perms.has(c.id)?'checked':''} ${locked?'disabled':''} class="mt-0.5 accent-[var(--accent)]">
+                        <span>${escapeHtml(c.label)}</span></label>`;
+                    }).join('')}
                 </div>`).join('')
                 : `<p class="text-xs mt-2 text-red-500">Couldn’t load the permission list, so there is nothing to tick.
                     Reload the page; if it stays empty your crew center backend may be out of date.</p>`;
