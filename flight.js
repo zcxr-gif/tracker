@@ -254,7 +254,13 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     const SHARP_EDGES = getIconEdgeMode() === 'sharp';
 
     const iconSet = getIconSet();
-    const makeSdf = (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d'));
+    // One scratch canvas for the whole run rather than one per icon. The
+    // registrars call this once per icon variant, and each call was minting a
+    // fresh 2D context that was used once and dropped — browsers cap how many
+    // of those can be live, and abandoning them in a batch is exactly the
+    // pattern that makes a browser start recycling contexts mid-run.
+    const sdfScratchCtx = document.createElement('canvas').getContext('2d');
+    const makeSdf = (raw) => buildSdfImageData(raw, sdfScratchCtx);
     const yieldFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
 
     // Both vector sets register under the same `icon-<KEY>` ids the sheet uses
@@ -12755,10 +12761,15 @@ function handleSocketFlightUpdate(data) {
         return;
     }
 
-    if (!window.flightNumericIdMap) {
-        window.flightNumericIdMap = new Map();
-        window.nextFlightNumericId = 1;
-    }
+    // There used to be a flightNumericIdMap here, minting a stable numeric id
+    // per flight so features could carry `id` for feature-state. Nothing ever
+    // used it: the only setFeatureState calls in the app are in
+    // natTracksLayer.js, against its own source, and the live-flights source is
+    // declared with `generateId: true`, which makes Mapbox overwrite any id we
+    // supply with the feature's array index regardless. So it was a Map lookup
+    // (and sometimes an insert) per aircraft per packet that changed nothing —
+    // and, because entries were never pruned when a flight went away, a Map
+    // that grew for the lifetime of the tab.
 
     // --- [FIX] Race Condition Check (Case Insensitive) ---
     // Ignore packets that don't match the currently selected server.
@@ -12841,11 +12852,6 @@ function handleSocketFlightUpdate(data) {
             return;
         }
         // --- [END FIX] ---
-
-        if (!window.flightNumericIdMap.has(flightId)) {
-            window.flightNumericIdMap.set(flightId, window.nextFlightNumericId++);
-        }
-        const numericId = window.flightNumericIdMap.get(flightId);
 
         updatedFlightIds.add(flightId);
 
@@ -12969,7 +12975,6 @@ function handleSocketFlightUpdate(data) {
         if (!currentMapFeatures[flightId]) {
             currentMapFeatures[flightId] = {
                 type: 'Feature',
-                id: numericId,
                 geometry: {
                     type: 'Point',
                     coordinates: [flight.position.lon, flight.position.lat]
@@ -12981,7 +12986,6 @@ function handleSocketFlightUpdate(data) {
             rosterChanged = true;
         } else {
             const cached = currentMapFeatures[flightId];
-            cached.id = numericId;
             cached.properties = newProperties;
             // Write the coordinates in place instead of swapping in a fresh
             // array — one less allocation per aircraft per tick.
