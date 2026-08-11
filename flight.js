@@ -10083,6 +10083,15 @@ function handleSearchInput(searchText) {
 function runGlobalSearch(query) {
     const engine = window.GlobalSearchEngine;
     if (!engine) return { routes: [], flights: [], airports: [], airlines: [], query: query || '' };
+
+    // The supplementary airport tier exists for exactly this call and nothing
+    // else, so this is where it gets fetched. Non-blocking: the search runs now
+    // against the core tier — which covers every real ICAO field — and folding
+    // the extra tier in invalidates the search index, so the next keystroke
+    // ranks against the full set. That is already how the first moments of a
+    // session behaved while the tier downloaded in the background.
+    ensureSupplementaryAirports();
+
     return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
@@ -12019,11 +12028,37 @@ function invalidateAirportDerivedCaches() {
 }
 
 /**
- * Loads the supplementary airport tier in the background and folds it into the
- * live object. See tools/build-data.js for what lives in each tier:
- * nothing here is addressed by key, it exists so global search can find US
- * local identifiers, heliports and private strips. Failure is silently
- * tolerated — the app is fully functional on the core tier alone.
+ * Guarantees the supplementary airport tier has been requested, at most once.
+ *
+ * This used to be fired unconditionally at the end of boot. It is 5.8 MB — by
+ * a wide margin the largest thing the app fetches — and although the download
+ * was "background", the JSON.parse at the end of it is not: it lands as one
+ * uninterruptible long task on the main thread, seconds after load, right
+ * while the map is still fetching tiles and the first live packets are being
+ * drawn. Every visitor paid a multi-hundred-millisecond freeze (far worse on a
+ * phone) plus 5.8 MB of their data, for a tier whose entire purpose is letting
+ * global search find US local identifiers, heliports and private strips.
+ *
+ * So it is now requested by the first search instead. Sessions that never open
+ * search — the overwhelming majority — never pay for it at all.
+ */
+let supplementaryAirportsPromise = null;
+// True when boot loaded the split tiers; false when it fell back to the
+// monolithic airports.json, which already contains every field.
+let airportsUsedSplitTiers = false;
+function ensureSupplementaryAirports() {
+    if (!supplementaryAirportsPromise && airportsUsedSplitTiers) {
+        supplementaryAirportsPromise = loadSupplementaryAirports();
+    }
+    return supplementaryAirportsPromise || Promise.resolve();
+}
+window.ensureSupplementaryAirports = ensureSupplementaryAirports;
+
+/**
+ * Loads the supplementary airport tier and folds it into the live object. See
+ * tools/build-data.js for what lives in each tier: nothing here is addressed
+ * by key. Failure is silently tolerated — the app is fully functional on the
+ * core tier alone.
  */
 async function loadSupplementaryAirports() {
     try {
@@ -12058,6 +12093,9 @@ async function fetchAirportsData() {
     try {
         let response = await fetch('airports-core.json');
         let usedSplit = response.ok;
+        // Remembered so the first search knows whether there is a second tier
+        // to ask for at all (the monolithic fallback already contains it).
+        airportsUsedSplitTiers = usedSplit;
 
         if (!usedSplit) {
             response = await fetch('airports.json');
@@ -12074,8 +12112,9 @@ async function fetchAirportsData() {
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
 
-        // Fire-and-forget: boot must not wait on the search-only tier.
-        if (usedSplit) loadSupplementaryAirports();
+        // The search-only tier is NOT fetched here any more. It is 5.8 MB and
+        // nothing outside global search reads it, so it is requested by the
+        // first search instead — see ensureSupplementaryAirports().
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
@@ -28369,9 +28408,14 @@ async function initializeApp() {
 
         const apiKeysPromise = fetchApiKeys();
         const airportsPromise = fetchAirportsData();
-        // Warm the runway DB in the background. Boot never waits on it — the
-        // airport panels that need it await ensureRunwaysData() themselves.
-        ensureRunwaysData();
+        // The runway DB warm-up used to start here. Boot never waited on it,
+        // but it is 4 MB: starting it now meant it competed with the map's
+        // first tiles for bandwidth and then dropped a multi-hundred-
+        // millisecond JSON.parse on the main thread at whatever moment it
+        // happened to finish — typically while the map was painting and the
+        // first live packets were landing. Every panel that reads it already
+        // awaits ensureRunwaysData() itself, so the warm-up is now deferred to
+        // idle (see the map-ready block below) and nothing is left uncovered.
 
         try {
             await Promise.all([apiKeysPromise, airportsPromise]);
@@ -28458,6 +28502,16 @@ async function initializeApp() {
         // modules into the module cache while the browser is idle, so opening
         // one is instant without any of it having delayed first paint.
         warmReplayModules();
+
+        // Same for the runway database. Airport panels await it anyway, so
+        // this only removes the wait from the first panel someone opens — it
+        // no longer costs the map its bandwidth or the main thread its parse
+        // while the app is still coming up.
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(() => ensureRunwaysData(), { timeout: 15000 });
+        } else {
+            setTimeout(() => ensureRunwaysData(), 5000);
+        }
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch, exclude } = e.detail;
