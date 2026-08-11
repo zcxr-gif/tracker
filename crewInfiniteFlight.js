@@ -311,6 +311,27 @@
         return S.status;
     }
 
+    /**
+     * May this person maintain the Infinite Flight connection?
+     *
+     * `you.canManage` is the answer, and it comes from a backend that knows
+     * about integrations.manage. FALLING BACK TO `you.owner` is not belt and
+     * braces — it is the deploy-order guarantee. This panel ships separately
+     * from the API it talks to, and a backend that predates the capability
+     * sends `you` WITHOUT `canManage`; read plainly, that undefined is falsy
+     * and every owner is told to go and ask the VA owner for permission. On
+     * the setup screen. Which is the bug this panel was just fixed for.
+     *
+     * So: the new answer when there is one, the old one when there isn't.
+     * `??` rather than `||` — an explicit `false` from a new backend is a real
+     * refusal and must not fall through to ownership.
+     */
+    const mayManage = (st) => {
+        const you = st && st.you;
+        if (!you) return false;
+        return you.canManage ?? !!you.owner;
+    };
+
     async function load({ quiet = false } = {}) {
         if (!S.slug) return null;
         try {
@@ -533,7 +554,7 @@
         // integrations.manage, which an owner holds implicitly and can grant to
         // whoever actually keeps the integrations working — so the question the
         // screen asks is "may you do this", not "is your name on the airline".
-        const owner = st.you && st.you.canManage;
+        const owner = mayManage(st);
         if (!owner) {
             return `<div class="cp-empty">
                 <i data-lucide="plane"></i>
@@ -949,7 +970,7 @@
     function connectionView(st) {
         // Same as setupView: picking the organization, reconnecting and
         // disconnecting are all "manage the connection", not "own the airline".
-        const owner = st.you && st.you.canManage;
+        const owner = mayManage(st);
         const orgs = S.organizations;
         const fleet = (S.fleet && S.fleet.aircraft) || [];
         return `
