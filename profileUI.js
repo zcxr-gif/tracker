@@ -22,16 +22,23 @@
 import { ProAccess } from './proAccess.js';
 import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
-import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
+// PredictiveAirspaceNetwork is constructed on the first panel open — see the
+// import() in open(). Left out of the static graph because its telemetry
+// binding walks every flight on every live packet, which a visitor who never
+// opens the profile panel should not be paying for.
 import { socketDataHub } from './SocketDataHub.js';
 // MobileDashboardUI is the mobile twin of this module and is loaded on demand
 // — see ProfileUI.ensureMobileDashboard(). It is 338 KB, and as a static
 // import every desktop visitor parsed a dashboard their viewport can never
 // show, on the boot critical path.
 import { FlightDispatchService } from './FlightDispatchService.js';
-import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
+// TelemetryAnalyticsEngine is loaded on demand at its single call site, which
+// is already inside an await — see _renderLiveFlightCard.
 import { AircraftViewer3D } from './AircraftViewer3D.js';
-import { AirportViewer3D } from './AirportViewer3D.js';
+// AirportViewer3D is NOT imported here: the one place that uses it already
+// does its own import('./AirportViewer3D.js') at the point the 3D airport view
+// is opened. The static import alongside it was dead — it bound a name nothing
+// referenced, while keeping 24 KB on the boot module graph for every visitor.
 import { FlightDispatchUI } from './FlightDispatchUI.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
@@ -109,6 +116,7 @@ export const ProfileUI = {
 
     // Premium Telemetry Integration
     _airspaceNetwork: null,
+    _airspaceNetworkLoading: false,
     _airspaceRefreshTimer: null,
     _liveFlights: [],
     _liveExpanded: false,   // live-flight panel is opt-in (collapsed by default)
@@ -862,10 +870,24 @@ init(supabaseClient) {
             });
         }
 
-        if (!this._airspaceNetwork) {
-            this._airspaceNetwork = new PredictiveAirspaceNetwork();
-            this._airspaceNetwork.bindTelemetryStream();
-            this._airspaceNetwork.setActiveNodes(['KJFK', 'EGLL', 'KLAX', 'OMDB']);
+        // Built on the first panel open rather than imported at boot. Every
+        // reader already guards on _airspaceNetwork being present (the
+        // analytics section returns '' without it), so arriving a moment late
+        // just means the section fills in on the next render — and a visitor
+        // who never opens the panel neither downloads it nor pays for
+        // bindTelemetryStream(), which walks every flight on every packet.
+        if (!this._airspaceNetwork && !this._airspaceNetworkLoading) {
+            this._airspaceNetworkLoading = true;
+            import('./PredictiveQueueManager.js')
+                .then(({ PredictiveAirspaceNetwork }) => {
+                    this._airspaceNetwork = new PredictiveAirspaceNetwork();
+                    this._airspaceNetwork.bindTelemetryStream();
+                    this._airspaceNetwork.setActiveNodes(['KJFK', 'EGLL', 'KLAX', 'OMDB']);
+                    // The shell may already have rendered without it.
+                    if (this._isOpen) this._renderContentOnly?.();
+                })
+                .catch(err => console.warn('[ProfileUI] Airspace network unavailable:', err))
+                .finally(() => { this._airspaceNetworkLoading = false; });
         }
 
         const overlay = document.getElementById('profile-overlay');
@@ -2422,6 +2444,10 @@ async _updateLiveFlightDOM() {
             const depGate = plan?.dep_gate ? `<span class="pui-live-gate">GTE ${plan.dep_gate}</span>` : '';
             const arrGate = plan?.arr_gate ? `<span class="pui-live-gate">GTE ${plan.arr_gate}</span>` : '';
 
+            // Loaded here rather than imported: this is the only thing that
+            // reads it, and it is already an await, so nothing is made slower
+            // by fetching the module at the same moment.
+            const { TelemetryAnalyticsEngine } = await import('./TelemetryAnalyticsEngine.js');
             const analytics = await TelemetryAnalyticsEngine.analyze(flight, plan);
 
             let dispatchHTML = '';

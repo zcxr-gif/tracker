@@ -94,8 +94,40 @@ import { createHistoricalFlightWindow } from './historicalFlightWindow.js';
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
 import { PreferenceSync } from './preferenceSync.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
-import { NetworkBoardUI } from './networkBoard.js';
-import { NearbyRadarUI } from './nearbyRadar.js';
+/**
+ * Bridges a panel that is opened by a window event to an on-demand import.
+ *
+ * The Network board (25 KB) and the Nearby radar (49 KB) were imported and
+ * init()'d during boot purely so each could register its own listener for the
+ * event that opens it. Neither is on screen until someone asks for it, so
+ * that was 74 KB parsed on the critical path to wire up two buttons.
+ *
+ * This listens for the same event instead. On the first fire it loads the
+ * module, runs init() — which registers the module's real listener for every
+ * later click — and opens the panel for the click that got us here. It does
+ * not re-dispatch the event to do that: MobileLandingChromeUI listens for the
+ * same two events to open its own sheets, so a replay would toggle those a
+ * second time.
+ *
+ * @param {string} eventName window event that opens the panel
+ * @param {() => Promise<{init: Function, toggle: Function}>} load
+ */
+function bridgeLazyPanel(eventName, load) {
+    const onFirstOpen = () => {
+        window.removeEventListener(eventName, onFirstOpen);
+        load()
+            .then(ui => {
+                ui.init();
+                ui.toggle(true);
+            })
+            .catch(err => {
+                console.warn(`[${eventName}] panel failed to load:`, err);
+                // Put the bridge back so the next click retries.
+                window.addEventListener(eventName, onFirstOpen);
+            });
+    };
+    window.addEventListener(eventName, onFirstOpen);
+}
 import { RecentItems } from './recentItems.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
@@ -20820,8 +20852,13 @@ window.globalNatTracks = natTracks;
         setupWeatherSettingsWindowEvents();
         setupFilterSettingsWindowEvents();
         AtcBoardUI.init();
-        NetworkBoardUI.init();
-        NearbyRadarUI.init();
+        // Both are loaded the first time their open event fires — see
+        // bridgeLazyPanel. Wiring the bridges here rather than at module scope
+        // keeps them in the same place in the boot order they used to occupy.
+        bridgeLazyPanel('openNetworkBoard',
+            () => import('./networkBoard.js').then(m => m.NetworkBoardUI));
+        bridgeLazyPanel('openNearbyRadar',
+            () => import('./nearbyRadar.js').then(m => m.NearbyRadarUI));
         initPlaneSizeSlider(sectorOpsMap, mapFilters);
         
         // --- 12. Setup Search Listeners (Now that elements exist) ---
