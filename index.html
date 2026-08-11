@@ -132,7 +132,19 @@
          flight.js), so the Toastify CDN stylesheet and its render-blocking
          script are gone. -->
 
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Font Awesome, loaded without blocking the first paint.
+         A cross-origin <link rel="stylesheet"> is render-blocking: the browser
+         will not paint *anything* until it has resolved cdnjs, completed the
+         TLS handshake and parsed the file. That defeated the whole point of
+         inlining the splash below — it could not paint until a third-party
+         stylesheet the splash does not use (its rings are inline SVG) had
+         arrived. `media="print"` makes it non-blocking for screen rendering;
+         onload flips it back to `all` and the icons apply. They land during
+         the splash, so there is nothing for a user to see swap in. -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          media="print" onload="this.media='all'; this.onload=null;">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
 
     <style>
         /* Base Styles */
@@ -2924,8 +2936,21 @@
          pilot who turned it on keeps broadcasting without opening Settings;
          it no-ops when the backend has no Discord credentials configured. -->
     <script type="module">
-        import { DiscordPresence } from './discordPresence.js';
-        DiscordPresence.boot();
+        // Booted on an idle callback rather than inline. As a static import it
+        // put discordPresence.js on the boot module graph for every visitor and
+        // fired a backend config fetch that competed with the Mapbox token and
+        // airport database for the critical path — for a feature that only does
+        // anything on a desktop running the Discord app, and only after the
+        // pilot has opted in. Auto-reconnect still happens, a moment later.
+        const bootDiscord = () => import('./discordPresence.js')
+            .then(({ DiscordPresence }) => DiscordPresence.boot())
+            .catch(() => { /* presence is optional; the panel reports why */ });
+
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(bootDiscord, { timeout: 8000 });
+        } else {
+            window.addEventListener('load', () => setTimeout(bootDiscord, 2000), { once: true });
+        }
     </script>
 
 </body>

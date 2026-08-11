@@ -33,7 +33,10 @@ import { FlightDispatchUI } from './FlightDispatchUI.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
 import { CrewCenterOverlay } from './crewCenterOverlay.js';
-import { DiscordPresenceUI } from './discordPresenceUI.js';
+// Discord Rich Presence is mounted only when the Settings tab renders, and it
+// drags in discordPresence.js behind it — 64 KB for a panel most pilots never
+// open, which as a static import sat on the boot critical path. Loaded on
+// demand instead; see the mount site in _render().
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -657,18 +660,31 @@ init(supabaseClient) {
                 // every username again, so a 40-entry watchlist against a busy
                 // server meant ~48,000 comparisons and as many throwaway
                 // strings on every packet.
-                const flightsByUser = new Map();
-                for (let i = 0; i < payload.flights.length; i++) {
-                    const f = payload.flights[i];
-                    const un = f.username && f.username.toLowerCase();
-                    if (!un) continue;
-                    const bucket = flightsByUser.get(un);
-                    if (bucket) bucket.push(f);
-                    else flightsByUser.set(un, [f]);
-                }
+                // Built on first use rather than eagerly: the only readers are
+                // the signed-in pilot's own flights and the watchlist, so a
+                // signed-out visitor (and anyone signed in with an empty
+                // watchlist) was paying a full pass over the packet —
+                // ~1,200 lowercased strings and as many Map inserts, every
+                // three seconds, forever — for an index nothing then read.
+                // MobileDashboardUI runs the identical subscriber, so the
+                // waste was doubled on every packet.
+                let _flightsByUser = null;
+                const flightsByUser = () => {
+                    if (_flightsByUser) return _flightsByUser;
+                    _flightsByUser = new Map();
+                    for (let i = 0; i < payload.flights.length; i++) {
+                        const f = payload.flights[i];
+                        const un = f.username && f.username.toLowerCase();
+                        if (!un) continue;
+                        const bucket = _flightsByUser.get(un);
+                        if (bucket) bucket.push(f);
+                        else _flightsByUser.set(un, [f]);
+                    }
+                    return _flightsByUser;
+                };
 
                 if (ifUsername) {
-                    const myFlights = flightsByUser.get(ifUsername.toLowerCase()) || [];
+                    const myFlights = flightsByUser().get(ifUsername.toLowerCase()) || [];
                     const previouslyHadFlights = this._liveFlights.length > 0;
                     this._liveFlights = myFlights;
                     if (this._isOpen && this._activeTab === 'dashboard') {
@@ -692,7 +708,7 @@ init(supabaseClient) {
                     for (const entry of this._watchlist) {
                         const un = entry.watched_username.toLowerCase();
                         // Keyed lookup into the per-packet index built above.
-                        const flight = (flightsByUser.get(un) || [])[0] || null;
+                        const flight = (flightsByUser().get(un) || [])[0] || null;
                         newStatus[un] = { isLive: !!flight, flight };
                     }
                     this._watchedPilotStatus = newStatus;
@@ -5155,10 +5171,17 @@ const contentRoot = document.getElementById('pui-content');
             // tears down when this host leaves the DOM. See discordPresenceUI.js.
             const discordHost = document.getElementById('pui-discord-presence');
             if (discordHost) {
-                DiscordPresenceUI.mount(discordHost, {
+                const mountOpts = {
                     ifUsername: this._currentUser?.user_metadata?.if_username || '',
                     watchlist: this._watchlist.map(w => w.watched_username),
-                });
+                };
+                import('./discordPresenceUI.js')
+                    .then(({ DiscordPresenceUI }) => {
+                        // The tab may have moved on while the module loaded —
+                        // mounting into a detached host would leak listeners.
+                        if (discordHost.isConnected) DiscordPresenceUI.mount(discordHost, mountOpts);
+                    })
+                    .catch(() => { /* the panel simply stays empty */ });
             }
 
             const themeRadios = document.querySelectorAll('input[name="pui-theme"]');

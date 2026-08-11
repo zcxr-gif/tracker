@@ -10,7 +10,12 @@ import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
-import { spriteUVs } from './plane-D2OPBxWC.js';
+// The sprite atlas table used to come from plane-D2OPBxWC.js, a leftover chunk
+// of a Vue build. Only this table was ever wanted from it, but that chunk
+// statically imports pinia-D0Do-mnX.js — the entire Vue 3 runtime — so every
+// visitor downloaded, parsed and executed 254 KB of framework on the boot
+// critical path to read a 124-entry lookup table. See spriteUVs.js.
+import { spriteUVs } from './spriteUVs.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -22,9 +27,48 @@ import { FlightDeltaClient } from './FlightDeltaClient.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
-import { FlightReplay } from './flightReplay.js';
-import { AtcReplay } from './atcReplay.js';
-import { GlobalPlayback } from './globalPlayback.js';
+/* ── Replay surfaces: loaded on demand ─────────────────────────────────────
+ *
+ * Global Playback (199 KB), ATC Replay (117 KB) and Flight Replay (67 KB) are
+ * each opened from a deliberate user action — the playback orb, an airport
+ * panel's replay button, the flight window's replay control. Importing them
+ * statically put 383 KB of JavaScript on the boot critical path that most
+ * sessions never run: it has to be fetched, parsed and compiled before
+ * initializeApp() is even called, on top of an already large module graph.
+ *
+ * Each loader caches its import promise, so the first open pays the fetch and
+ * every later one resolves immediately. warmReplayModules() (called once the
+ * map is up, on an idle callback) usually gets there first, so in practice the
+ * click is as instant as it was before — it just no longer delays first paint.
+ */
+let _flightReplayPromise = null;
+let _atcReplayPromise = null;
+let _globalPlaybackPromise = null;
+
+const loadFlightReplay = () => (_flightReplayPromise ||=
+    import('./flightReplay.js').then(m => m.FlightReplay));
+const loadAtcReplay = () => (_atcReplayPromise ||=
+    import('./atcReplay.js').then(m => m.AtcReplay));
+const loadGlobalPlayback = () => (_globalPlaybackPromise ||=
+    import('./globalPlayback.js').then(m => m.GlobalPlayback));
+
+/**
+ * Pulls the replay modules into the browser's module cache once the app is
+ * idle. Boot never waits on this; it only removes the download from the first
+ * click.
+ */
+function warmReplayModules() {
+    const warm = () => {
+        loadFlightReplay().catch(() => {});
+        loadAtcReplay().catch(() => {});
+        loadGlobalPlayback().catch(() => {});
+    };
+    if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(warm, { timeout: 10000 });
+    } else {
+        setTimeout(warm, 3000);
+    }
+}
 import { createHistoricalFlightWindow } from './historicalFlightWindow.js';
 // The preset traffic rail's vocabulary, shared with global playback so that
 // tapping Cargo, rewinding an hour and tapping Cargo again shows the same fleet.
@@ -9715,6 +9759,20 @@ async function openFlightReplayById(flightId, meta = {}, opts = {}) {
         toolbarRow.style.display = 'none';
     }
 
+    // Loaded on first replay (see loadFlightReplay); normally already warmed.
+    const FlightReplay = await loadFlightReplay().catch(() => null);
+    if (!FlightReplay) {
+        // Same restore the "replay would not open" path below performs.
+        showNotification?.('The replay could not be loaded — check your connection.', 'error');
+        if (toolbarRow) toolbarRow.style.display = prevToolbarDisplay || '';
+        LandingUI.update(true, {
+            server: currentServerName,
+            flights: Object.keys(currentMapFeatures).length || 0,
+            atc: activeAtcFacilities.length || 0
+        });
+        return false;
+    }
+
     const opened = await FlightReplay.open({
         map: sectorOpsMap,
         flightId,
@@ -15998,7 +16056,13 @@ function updateTrafficLegendUI() {
     let globalPlaybackChromeToRestore = null;
 
     async function launchGlobalPlayback() {
-        if (typeof GlobalPlayback === 'undefined') return;
+        // Loaded on first open (see loadGlobalPlayback). The idle warm-up has
+        // normally resolved this already, so it is a cached promise.
+        const GlobalPlayback = await loadGlobalPlayback().catch(() => null);
+        if (!GlobalPlayback) {
+            showNotification?.('Playback could not be loaded — check your connection.', 'error');
+            return;
+        }
         if (GlobalPlayback.isOpen()) { GlobalPlayback.close(); return; }
         if (!sectorOpsMap) {
             showNotification?.('The map is still loading — try again in a moment.', 'error');
@@ -16064,12 +16128,19 @@ function updateTrafficLegendUI() {
     // the flight-replay launch flow: get the competing chrome out of the way so
     // the docked replay panel + map are unobstructed, then restore it once the
     // replay tears itself down.
-    function launchAtcReplay(key, apt, user, uid) {
+    async function launchAtcReplay(key, apt, user, uid) {
         if (!key) {
             showNotification?.('No ATC session selected to replay.', 'error');
             return;
         }
-        if (typeof AtcReplay === 'undefined' || !sectorOpsMap) return;
+        if (!sectorOpsMap) return;
+
+        // Loaded on first open (see loadAtcReplay); normally already warmed.
+        const AtcReplay = await loadAtcReplay().catch(() => null);
+        if (!AtcReplay) {
+            showNotification?.('The replay could not be loaded — check your connection.', 'error');
+            return;
+        }
 
         const replayUrl = `${ACARS_SOCKET_URL}/api/atc/replay?key=${encodeURIComponent(key)}`;
         const isMobile = !!(window.MobileUIHandler && window.MobileUIHandler.isMobile());
@@ -16467,7 +16538,9 @@ function setupAircraftWindowEvents() {
                     }
                 }
 
-                FlightReplay.open({
+                // Loaded on first replay (see loadFlightReplay); the idle
+                // warm-up has normally resolved this before anyone clicks.
+                loadFlightReplay().then(FlightReplay => FlightReplay.open({
                     map: sectorOpsMap,
                     flightId: currentFlightInWindow,
                     points: preloaded,
@@ -16526,6 +16599,8 @@ function setupAircraftWindowEvents() {
                                         }
                                     }
                                 }
+                })).catch(() => {
+                    showNotification?.('The replay could not be loaded — check your connection.', 'error');
                 });
                 return;
             }
@@ -28378,6 +28453,11 @@ async function initializeApp() {
 
         // Map, chrome and traffic are all on screen — lift the splash.
         reportBootState('map-ready');
+
+        // Now that the critical path is done, pull the on-demand replay
+        // modules into the module cache while the browser is idle, so opening
+        // one is instant without any of it having delayed first paint.
+        warmReplayModules();
 
         window.addEventListener('filterUpdate', (e) => {
             const { filters, quickSearch, exclude } = e.detail;
