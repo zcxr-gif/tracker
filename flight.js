@@ -25,7 +25,6 @@ import { PerformanceMonitor } from './performanceMonitor.js';
 import { socketDataHub } from './SocketDataHub.js';
 import { FlightDeltaClient } from './FlightDeltaClient.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
-import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
 /* ── Replay surfaces: loaded on demand ─────────────────────────────────────
  *
@@ -101,11 +100,30 @@ PreferenceSync.init(supabase);
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
 
-// 2. Initialize Mobile Dashboard
-MobileDashboardUI.init(supabase);
-
-// 3. Synchronize Data State (Ensures mobile and desktop share the exact same backend data array)
-MobileDashboardUI._ifData = ProfileUI._ifData;
+// 2. The mobile dashboard is loaded and wired by ProfileUI.ensureMobileDashboard()
+//    rather than imported here. It is 338 KB and only a mobile-width viewport
+//    can ever open it, so a desktop session used to parse the whole thing —
+//    on the boot critical path — for a panel it would never show.
+//
+//    It still needs to exist before the panel is opened, because its
+//    live-packet subscriber is what raises watchlist "pilot is online" toasts
+//    for someone who never opens the dashboard at all. So on a mobile viewport
+//    it is brought up during boot, exactly as before, just asynchronously; on a
+//    desktop viewport ProfileUI's own subscriber already does that job. If the
+//    window is later narrowed past the breakpoint, the resize hook below (and
+//    ProfileUI.open itself) brings it up then.
+const MOBILE_DASHBOARD_BREAKPOINT = 768;
+if (window.innerWidth <= MOBILE_DASHBOARD_BREAKPOINT) {
+    ProfileUI.ensureMobileDashboard();
+} else {
+    const onResizeToMobile = () => {
+        if (window.innerWidth <= MOBILE_DASHBOARD_BREAKPOINT) {
+            window.removeEventListener('resize', onResizeToMobile);
+            ProfileUI.ensureMobileDashboard();
+        }
+    };
+    window.addEventListener('resize', onResizeToMobile, { passive: true });
+}
 
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);

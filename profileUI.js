@@ -24,7 +24,10 @@ import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
-import { MobileDashboardUI } from './MobileDashboardUI.js';
+// MobileDashboardUI is the mobile twin of this module and is loaded on demand
+// — see ProfileUI.ensureMobileDashboard(). It is 338 KB, and as a static
+// import every desktop visitor parsed a dashboard their viewport can never
+// show, on the boot critical path.
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
@@ -757,13 +760,48 @@ init(supabaseClient) {
         }
     },
 
+    /**
+     * Loads, initialises and wires the mobile dashboard, at most once.
+     *
+     * This used to be a static import initialised at boot next to this module,
+     * which meant every desktop visitor downloaded and parsed 338 KB for a
+     * panel only a mobile viewport can open — and, because its live-packet
+     * subscriber raises watchlist toasts without checking whether the mobile UI
+     * is the one on screen, a signed-in desktop user got the notification twice.
+     *
+     * The two wiring steps that used to live in flight.js are performed here so
+     * there is exactly one place that knows how to bring it up:
+     *   • init() registers its auth listener and live-packet subscriber. Late
+     *     registration is safe — supabase-js emits INITIAL_SESSION on subscribe,
+     *     so a listener attached after sign-in still receives the session.
+     *   • _ifData is aliased onto this module's object so both dashboards read
+     *     and write one cache. Both only ever mutate its properties, never
+     *     reassign it, so the alias holds for the life of the session.
+     *
+     * @returns {Promise<object>} the MobileDashboardUI module object
+     */
+    ensureMobileDashboard() {
+        if (!this._mobileDashboardPromise) {
+            this._mobileDashboardPromise = import('./MobileDashboardUI.js')
+                .then(({ MobileDashboardUI }) => {
+                    MobileDashboardUI.init(this._supabase);
+                    MobileDashboardUI._ifData = this._ifData;
+                    return MobileDashboardUI;
+                });
+        }
+        return this._mobileDashboardPromise;
+    },
+    _mobileDashboardPromise: null,
+
     open(user) {
-        // Mobile redirect
+        // Mobile redirect. The width test stays at open time, not load time, so
+        // a desktop window narrowed past the breakpoint still gets the mobile
+        // dashboard — it is simply fetched at that moment instead of upfront.
         if (window.innerWidth <= 768) {
-            if (MobileDashboardUI && typeof MobileDashboardUI.open === 'function') {
-                MobileDashboardUI.open(user);
-                return;
-            }
+            this.ensureMobileDashboard()
+                .then(MobileDashboardUI => MobileDashboardUI.open(user))
+                .catch(err => console.warn('Mobile dashboard failed to load:', err));
+            return;
         }
 
         this._currentUser = user;
