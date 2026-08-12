@@ -1,0 +1,172 @@
+# Codemagic pipeline for the native iOS tracker.
+#
+# Same shape as the Inflight-IOS repo's pipeline — App Store Connect
+# integration, automatic signing, build number from $BUILD_NUMBER, straight to
+# TestFlight — but there is no Capacitor step, because there is no web layer.
+# The Xcode project is generated from project.yml by XcodeGen instead of by
+# `npx cap add ios`, for the same reason: the project is a build artefact, not
+# source, so it never lands in a diff.
+#
+# There are no third-party dependencies, so there is no `npm install`, no
+# `pod install` and no SPM resolution. Everything the app uses ships with the
+# iOS SDK.
+
+workflows:
+  # Run this one FIRST, and any time the Swift changes.
+  #
+  # It compiles the app for the simulator with signing switched off, so it
+  # needs no App Store Connect setup, no certificate, no registered bundle id
+  # and no TestFlight slot — it answers only "does this build?". Start it by
+  # hand from the Codemagic UI; it has no `triggering` block on purpose, so it
+  # never competes with the release workflow for build minutes.
+  #
+  # If this is green, the only things that can still fail in the release
+  # workflow are signing and upload.
+  ios-compile-check:
+    name: Compile check (no signing)
+    max_build_duration: 30
+
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "InflightTracker.xcodeproj"
+        XCODE_SCHEME: "InflightTracker"
+
+    scripts:
+      - name: Generate Xcode Project
+        script: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+          rm -rf "$XCODE_PROJECT"
+          xcodegen generate --spec project.yml --project .
+
+      - name: Build for Simulator
+        script: |
+          set -euo pipefail
+          # CODE_SIGNING_ALLOWED=NO is what makes this runnable before any
+          # signing assets exist. A simulator build never needs a signature.
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+    artifacts:
+      - /tmp/xcodebuild_logs/*.log
+
+  ios-native-workflow:
+    name: Inflight Tracker (native iOS)
+    max_build_duration: 45
+
+    integrations:
+      app_store_connect: Codemagic CI/CD
+
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "InflightTracker.xcodeproj"
+        XCODE_SCHEME: "InflightTracker"
+
+      # AUTOMATIC SIGNING CONFIGURATION
+      # Must match PRODUCT_BUNDLE_IDENTIFIER in project.yml, and the bundle id
+      # must exist in App Store Connect before the first build.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tracker.InflightTracker
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true
+
+    scripts:
+      - name: Generate Xcode Project
+        script: |
+          set -euo pipefail
+
+          # XcodeGen is not guaranteed to be on the image; installing it is a
+          # few seconds and makes the build reproducible on a bare runner.
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            echo "==> Installing XcodeGen"
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+          # The project is regenerated from scratch every build, so a stale one
+          # can never be picked up.
+          rm -rf "$XCODE_PROJECT"
+          xcodegen generate --spec project.yml --project .
+
+          # Fail here rather than three steps later with an opaque xcodebuild
+          # error if the spec produced something unusable.
+          echo "==> Verifying generated project"
+          if [ ! -d "$XCODE_PROJECT" ]; then
+            echo "FATAL: XcodeGen did not produce $XCODE_PROJECT."
+            exit 1
+          fi
+          if ! xcodebuild -project "$XCODE_PROJECT" -list | grep -q "$XCODE_SCHEME"; then
+            echo "FATAL: scheme $XCODE_SCHEME missing from the generated project."
+            xcodebuild -project "$XCODE_PROJECT" -list || true
+            exit 1
+          fi
+          echo "==> $XCODE_PROJECT generated with scheme $XCODE_SCHEME"
+
+      - name: Increment Build Number
+        script: |
+          set -euo pipefail
+          # Keeps the Xcode build number in step with the Codemagic build id,
+          # which is what stops TestFlight rejecting uploads as duplicates.
+          # Requires VERSIONING_SYSTEM = apple-generic, set in project.yml.
+          echo "Updating build version to $BUILD_NUMBER"
+          agvtool new-version -all "$BUILD_NUMBER"
+
+      - name: iOS Code Signing
+        script: |
+          set -euo pipefail
+
+          # The `ios_signing` block fetches the certificate and profile and
+          # applies them before the scripts run — but our project did not exist
+          # at that point, so the profiles have to be applied again now.
+          echo "==> Downloading App Store provisioning profiles"
+          app-store-connect profiles list \
+            --type IOS_APP_STORE \
+            --save
+
+          echo "==> Profiles available on the runner:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || true
+
+          # Also writes $HOME/export_options.plist, which is where
+          # `xcode-project build-ipa` looks for it by default.
+          echo "==> Applying profiles and generating export options"
+          xcode-project use-profiles \
+            --project "$XCODE_PROJECT" \
+            --export-options-plist "$HOME/export_options.plist"
+
+      - name: Build IPA (Signed)
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --config "Release"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - "*.ipa"
+      - /tmp/xcodebuild_logs/*.log
+      - build/ios/xcarchive/*.dSYM
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

@@ -1,8 +1,16 @@
-/node_modules
-.env
-mypilotsdata-7088ad513577.json
-# Local Netlify folder
-.netlify
+# The Xcode project is generated from project.yml by XcodeGen — see
+# codemagic.yaml. Committing a pbxproj means unreviewable diffs and constant
+# merge conflicts, so it stays out of the repo.
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+build/
+*.ipa
+*.dSYM
+*.dSYM.zip
+export_options.plist
 
-# Screenshots the crew-events browser checks drop next to themselves.
-tools/*.png
+.DS_Store
+
+# The old web tracker keeps its own .gitignore in old/.
