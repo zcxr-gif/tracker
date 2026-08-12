@@ -128,7 +128,7 @@ final class LiveTrafficStore: ObservableObject {
         selectedFlightID = nil
         state = .loading
 
-        Task { await poll() }
+        Task { await self.poll() }
     }
 
     func setShowParkedAircraft(_ show: Bool) {
@@ -139,8 +139,8 @@ final class LiveTrafficStore: ObservableObject {
 
     func refresh() {
         Task {
-            await loadSessionsIfNeeded(force: true)
-            await poll()
+            await self.loadSessionsIfNeeded(force: true)
+            await self.poll()
         }
     }
 

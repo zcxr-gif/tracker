@@ -13,7 +13,12 @@ struct Session: Identifiable, Equatable, Hashable, Decodable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
+        guard let identifier = container.lenientString(forKey: .id), !identifier.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .id, in: container, debugDescription: "Session has no usable id"
+            )
+        }
+        id = identifier
         name = ((try? container.decode(String.self, forKey: .name)) ?? "").trimmed
         userCount = container.lenientInt(forKey: .userCount)
         maxUsers = container.lenientInt(forKey: .maxUsers)

@@ -29,9 +29,11 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- armv7 is 32-bit and belongs in templates predating iOS 11. An iOS 17
+	     app is arm64-only, and declaring armv7 here is a submission error. -->
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<!-- iPhone is portrait-only, matching the Capacitor app. -->
 	<key>UISupportedInterfaceOrientations</key>

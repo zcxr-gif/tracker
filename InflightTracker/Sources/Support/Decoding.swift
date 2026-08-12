@@ -51,6 +51,18 @@ extension KeyedDecodingContainer {
         return nil
     }
 
+    /// An identifier that may arrive as a JSON string or as a bare number.
+    /// Worth being lenient about: an id that fails to decode costs a stable
+    /// key, and unstable keys make map annotations churn every poll.
+    func lenientString(forKey key: Key) -> String? {
+        if let value = try? decodeIfPresent(String.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return String(value) }
+        if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
+            return String(Int(value))
+        }
+        return nil
+    }
+
     func lenientInt(forKey key: Key) -> Int? {
         if let value = try? decodeIfPresent(Int.self, forKey: key) { return value }
         if let value = lenientDouble(forKey: key), value.isFinite { return Int(value) }
@@ -64,9 +76,9 @@ extension ISO8601DateFormatter {
     ///
     /// `ISO8601DateFormatter` is documented as thread-safe for parsing, and
     /// this instance is never mutated after construction.
-    nonisolated(unsafe) static let flexible = FlexibleISO8601()
+    static let flexible = FlexibleISO8601()
 
-    struct FlexibleISO8601: @unchecked Sendable {
+    struct FlexibleISO8601 {
         private let withFraction: ISO8601DateFormatter = {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

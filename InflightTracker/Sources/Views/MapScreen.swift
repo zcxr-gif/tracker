@@ -12,17 +12,13 @@ struct MapScreen: View {
     /// stacked sheet modifiers on the same view do not reliably coexist.
     @State private var activeSheet: ActiveSheet?
     @State private var showLegend = false
-    /// Lets `MapUserLocationButton` live in my own control stack instead of in
-    /// `.mapControls`, whose default placement is the top-trailing corner —
-    /// exactly where the search button is.
-    @Namespace private var mapScope
 
     var body: some View {
         // A ZStack rather than `.overlay` on the map: the map ignores the safe
         // area, and overlays attached to it would inherit that and slide under
         // the notch and the home indicator.
         ZStack(alignment: .top) {
-            Map(position: $camera, scope: mapScope) {
+            Map(position: $camera) {
                 ForEach(store.visibleFlights) { flight in
                     Annotation(flight.callsign, coordinate: flight.coordinate, anchor: .center) {
                         AircraftMarker(flight: flight, isSelected: flight.id == store.selectedFlightID)
@@ -33,6 +29,11 @@ struct MapScreen: View {
                 UserAnnotation()
             }
             .trackerMapStyle(mapStyleMode)
+            // Default placement is the top-trailing corner, which is why the
+            // search button lives in the bottom stack rather than up there.
+            .mapControls {
+                MapUserLocationButton()
+            }
             // Recording the region is cheap; the store re-culls on its own 1 Hz
             // tick rather than on every frame of a pan.
             .onMapCameraChange(frequency: .continuous) { context in
@@ -47,7 +48,6 @@ struct MapScreen: View {
             legendPanel
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
-        .mapScope(mapScope)
         .sheet(item: $activeSheet, onDismiss: { handleSheetDismiss() }) { sheet in
             sheetContent(for: sheet)
         }
@@ -84,15 +84,6 @@ struct MapScreen: View {
                 .buttonStyle(.plain)
 
                 Spacer(minLength: 0)
-
-                Button { activeSheet = .search } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 38, height: 38)
-                        .background(.regularMaterial, in: Circle())
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
             }
 
             HStack(spacing: 6) {
@@ -142,8 +133,9 @@ struct MapScreen: View {
 
     private var controlStack: some View {
         VStack(spacing: 10) {
-            MapUserLocationButton(scope: mapScope)
-                .buttonBorderShape(.circle)
+            circleButton("magnifyingglass") {
+                activeSheet = .search
+            }
             circleButton(mapStyleMode.iconName) {
                 mapStyleMode = mapStyleMode.next
             }

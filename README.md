@@ -60,11 +60,24 @@ Requires Xcode 15+ and an iOS 17 deployment target (the app uses the SwiftUI
 
 ## Shipping
 
-`codemagic.yaml` builds and pushes to TestFlight on every push, the same way
-the Inflight-IOS repo does: App Store Connect integration, automatic signing,
-build number taken from `$BUILD_NUMBER`. The difference is the project comes
-from `xcodegen generate` rather than `npx cap add ios`, and there is no
-dependency install step at all.
+`codemagic.yaml` has two workflows, and the order matters if you have no Mac.
+
+**`ios-compile-check` — run this first.** It generates the project and compiles
+for the simulator with signing switched off, so it needs no certificate, no
+registered bundle id and no TestFlight slot. It answers only "does this
+build?". Start it by hand from the Codemagic UI; it has no trigger, so it never
+competes with the release workflow for build minutes. If it is green, the only
+things left that can fail are signing and upload.
+
+**`ios-native-workflow` — the real one.** Builds and pushes to TestFlight on
+every push, the same way the Inflight-IOS repo does: App Store Connect
+integration, automatic signing, build number taken from `$BUILD_NUMBER`. The
+difference is the project comes from `xcodegen generate` rather than
+`npx cap add ios`, and there is no dependency install step at all.
+
+Note that it triggers on every branch (`pattern: '*'`), inherited from the
+Inflight-IOS config — so any push attempts a TestFlight build. Narrow the
+pattern to `main` if that is not what you want.
 
 **Before the first build**, the bundle id `com.tracker.InflightTracker` has to
 exist in App Store Connect. It is set in two places that must agree:

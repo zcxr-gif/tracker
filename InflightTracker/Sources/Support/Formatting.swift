@@ -4,7 +4,7 @@ import Foundation
 /// transition altitude and as feet below it, which is how pilots say them.
 enum Format {
     /// Configured once and only ever read from. Formatting is thread-safe.
-    nonisolated(unsafe) private static let grouped: NumberFormatter = {
+    private static let grouped: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 0

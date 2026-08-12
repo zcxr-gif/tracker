@@ -117,7 +117,7 @@ extension Flight: Decodable {
         // Every flight the backend sends carries a flightId, but the map keys
         // off `id` and duplicate keys would make annotations flicker, so fall
         // back to something stable rather than to a shared empty string.
-        if let flightId = try? container.decode(String.self, forKey: .flightId), !flightId.isEmpty {
+        if let flightId = container.lenientString(forKey: .flightId), !flightId.isEmpty {
             id = flightId
         } else {
             id = "\(callsign)@\(position.lat),\(position.lon)"

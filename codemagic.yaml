@@ -12,6 +12,55 @@
 # iOS SDK.
 
 workflows:
+  # Run this one FIRST, and any time the Swift changes.
+  #
+  # It compiles the app for the simulator with signing switched off, so it
+  # needs no App Store Connect setup, no certificate, no registered bundle id
+  # and no TestFlight slot — it answers only "does this build?". Start it by
+  # hand from the Codemagic UI; it has no `triggering` block on purpose, so it
+  # never competes with the release workflow for build minutes.
+  #
+  # If this is green, the only things that can still fail in the release
+  # workflow are signing and upload.
+  ios-compile-check:
+    name: Compile check (no signing)
+    max_build_duration: 30
+
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "InflightTracker.xcodeproj"
+        XCODE_SCHEME: "InflightTracker"
+
+    scripts:
+      - name: Generate Xcode Project
+        script: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+          rm -rf "$XCODE_PROJECT"
+          xcodegen generate --spec project.yml --project .
+
+      - name: Build for Simulator
+        script: |
+          set -euo pipefail
+          # CODE_SIGNING_ALLOWED=NO is what makes this runnable before any
+          # signing assets exist. A simulator build never needs a signature.
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+    artifacts:
+      - /tmp/xcodebuild_logs/*.log
+
   ios-native-workflow:
     name: Inflight Tracker (native iOS)
     max_build_duration: 45

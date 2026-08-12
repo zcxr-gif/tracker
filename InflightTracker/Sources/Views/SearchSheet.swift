@@ -45,10 +45,12 @@ struct SearchSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-        }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
-        .onChange(of: query) { _, newValue in
-            results = store.search(newValue)
+            // Inside the NavigationStack, not on it: that is where the search
+            // field is documented to attach to the navigation bar.
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
+            .onChange(of: query) { _, newValue in
+                results = store.search(newValue)
+            }
         }
     }
 
