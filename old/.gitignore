@@ -1,0 +1,8 @@
+/node_modules
+.env
+mypilotsdata-7088ad513577.json
+# Local Netlify folder
+.netlify
+
+# Screenshots the crew-events browser checks drop next to themselves.
+tools/*.png

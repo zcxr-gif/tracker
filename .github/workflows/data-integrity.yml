@@ -6,7 +6,7 @@
 # database that disagrees with the source it was generated from. Nothing caught
 # that before this workflow.
 #
-# tools/verify-data.js re-derives every tier from the sources and compares, then
+# old/tools/verify-data.js re-derives every tier from the sources and compares, then
 # checks the invariants consumers rely on. It uses only Node builtins, so there
 # is no install step.
 #
@@ -17,22 +17,22 @@ name: Data integrity
 on:
   pull_request:
     paths:
-      - 'airports.json'
-      - 'runways.json'
-      - 'Boundaries.geojson'
-      - 'airports-*.json'
-      - 'runways-*.json'
-      - 'tools/**'
+      - 'old/airports.json'
+      - 'old/runways.json'
+      - 'old/Boundaries.geojson'
+      - 'old/airports-*.json'
+      - 'old/runways-*.json'
+      - 'old/tools/**'
       - '.github/workflows/data-integrity.yml'
   push:
     branches: [main]
     paths:
-      - 'airports.json'
-      - 'runways.json'
-      - 'Boundaries.geojson'
-      - 'airports-*.json'
-      - 'runways-*.json'
-      - 'tools/**'
+      - 'old/airports.json'
+      - 'old/runways.json'
+      - 'old/Boundaries.geojson'
+      - 'old/airports-*.json'
+      - 'old/runways-*.json'
+      - 'old/tools/**'
       - '.github/workflows/data-integrity.yml'
 
 jobs:
@@ -46,4 +46,4 @@ jobs:
           node-version: '22'
 
       - name: Verify generated data is current and valid
-        run: node tools/verify-data.js
+        run: node old/tools/verify-data.js

@@ -1,20 +1,38 @@
 # CLAUDE.md — tracker
 
-## Never read these whole
+This repo holds two things:
 
-These files will exhaust a context window on a single Read. Always query them
-instead.
+- **the native iOS tracker** (`InflightTracker/`, `project.yml`,
+  `codemagic.yaml`) — Swift + SwiftUI, no third-party dependencies. This is
+  where new work goes.
+- **the old web tracker** (`old/`) — the entire previous app, moved wholesale
+  and otherwise untouched. It still ships from Netlify and is the reference for
+  the backend's data shapes.
 
-| File | Lines | How to inspect |
-|---|---|---|
-| `runways.json` | ~1,037,000 | `jq '.[0]'`, `jq 'length'`, or Grep for the specific ICAO |
-| `airports.json` | ~505,000 | same — `jq '.[] \| select(.icao=="KJFK")'` |
-| `VATSpy.dat` | ~19,500 | Grep for the callsign/ident |
-| `flight.js` | ~27,300 | Grep for the symbol, then Read with `offset`/`limit` |
-| `models/*.glb` | binary | never read |
+`old/CLAUDE.md` has the rules for working inside `old/`. Read it before touching
+anything under that directory — several files there will exhaust a context
+window on a single Read.
 
-For any file over ~800 lines: Grep for the symbol first, then Read a window
-around the hit. Do not Read top-to-bottom to "get oriented."
+## The native app
+
+The `.xcodeproj` is **generated, not committed**. `project.yml` is the project
+definition; `xcodegen generate` produces the Xcode project, both locally and in
+CI. Never hand-edit or commit a pbxproj.
+
+Adding a file to `InflightTracker/Sources/` is enough — the spec globs the
+directory, so there is no project file to update.
+
+There are deliberately no SPM or CocoaPods dependencies. Adding one means
+touching `project.yml` *and* `codemagic.yaml`, so weigh it against what ships
+with the SDK first.
+
+## Data shapes
+
+The ACARS backend's payloads are documented in `old/SocketDataHub.js` (the big
+comment at the top) and `old/FlightDeltaClient.js`. Grep those before guessing
+at a field name. Decoding on the Swift side is deliberately lenient — one
+malformed flight must never blank the map — so a wrong assumption fails
+silently as a missing value rather than loudly as an error.
 
 ## Finding code
 
@@ -23,6 +41,7 @@ around the hit. Do not Read top-to-bottom to "get oriented."
 3. Read only the confirmed range with `offset`/`limit`.
 
 Skip straight to Read only when the path is already known and the file is small.
+Every file under `InflightTracker/` is small.
 
 ## Editing
 
@@ -34,8 +53,14 @@ Skip straight to Read only when the path is already known and the file is small.
 
 ## Verifying
 
-Run the narrowest check that proves the change: the single affected test, or a
-targeted Grep. Do not re-run a full suite to confirm a one-line fix.
+There is no Xcode on Linux, so a Swift change cannot be compiled here. Say so
+rather than implying a change was built. What *can* be checked locally:
+
+- `python3 -c "import yaml,sys; yaml.safe_load(open('project.yml'))"` and the
+  same for `codemagic.yaml`.
+- `plutil -lint` is macOS-only; on Linux use
+  `python3 -c "import plistlib; plistlib.load(open('InflightTracker/Resources/Info.plist','rb'))"`.
+- `node old/tools/verify-data.js` for anything under `old/`.
 
 Use `git diff --stat` before `git diff`. Prefer `git diff -- <path>` over the
 whole working tree.
@@ -45,7 +70,7 @@ whole working tree.
 - Lead with the answer or the result. No preamble, no "Great question!", no
   closing summary of what was just done.
 - Never paste back code that was just written or edited — reference it as
-  `path/to/file.js:120`.
+  `path/to/file.swift:120`.
 - Report file contents by reference, not by quoting the file into chat.
 - State a recommendation instead of enumerating every option considered.
 - If a requirement is genuinely ambiguous, ask once before building — a wrong
