@@ -1,0 +1,19 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["R52YDKDB56.com.tracker.Inflight"],
+        "components": [
+          {
+            "/": "/share/*",
+            "comment": "One flight. The app opens straight onto it; a phone without the app gets the unfurl page and the live map, exactly as before."
+          },
+          {
+            "/": "/pilot/*",
+            "comment": "A pilot's public profile."
+          }
+        ]
+      }
+    ]
+  }
+}

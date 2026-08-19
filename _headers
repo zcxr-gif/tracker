@@ -39,3 +39,18 @@
 
 /prefix.json
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# Universal links.
+#
+# iOS fetches /.well-known/apple-app-site-association when the app is installed
+# and again periodically, and it wants JSON. The file deliberately has no
+# extension — Apple fixes the name — so nothing infers the type from it and
+# Netlify would otherwise serve it as application/octet-stream, which iOS
+# ignores in silence. There is no error anywhere when this is wrong: links
+# simply keep opening Safari.
+#
+# Never cached hard: the app IDs and paths in it change when the app does, and
+# a stale copy is a set of links that open the wrong thing.
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+  Cache-Control: public, max-age=3600

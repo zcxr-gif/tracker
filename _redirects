@@ -25,3 +25,15 @@
 # Your Profile Card — the stats card a pilot puts on their IFC profile. Same
 # reasoning: it is a place people are sent to, not a file they open.
 /card      /profile-card.html  200
+
+# Pilot profiles. The page is rendered by the backend (GET /pilot/:handle in
+# the database repo's server.js, which reads the profile through the Supabase
+# functions and returns HTML with Open Graph tags), and nothing here served
+# that path — so inflight.info/pilot/<handle>, which is the address the iOS
+# app's share button hands out and the one apple-app-site-association claims,
+# had no route on this site.
+#
+# A proxy rather than a redirect, deliberately: 200 keeps the URL on
+# inflight.info, which is what makes it a universal link the app can claim and
+# what makes the Open Graph unfurl show our domain.
+/pilot/*  https://site--indgo-backend--6dmjph8ltlhv.code.run/pilot/:splat  200
