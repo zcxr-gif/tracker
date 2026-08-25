@@ -65,10 +65,6 @@ export const SYNCED_KEYS = [
     // Units and readouts
     'inflightFuelUnit',
 
-    // Global playback (globalPlayback.js)
-    'globalPlaybackSpeed', 'globalPlaybackSpanMs', 'globalPlaybackTrails',
-    'globalPlaybackFilters',
-
     // ATC replay (atcReplay.js)
     'atcReplayAltBand', 'atcReplayCollapsed', 'atcReplayPathMode',
     'atcReplayTrailWindowMs',
