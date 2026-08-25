@@ -1,11 +1,11 @@
 // trafficClasses.js
 // What "Cargo" means, in one place.
 //
-// Two surfaces filter traffic by kind: the preset rail above the live map
-// (MobileLandingChromeUI + updateAircraftLayerFilter in flight.js) and the one
-// above global playback (globalPlayback.js). They must agree — a pilot who taps
-// Cargo, rewinds an hour and taps Cargo again should be looking at the same
-// fleet, and two copies of a list this long would not stay in step for a week.
+// The preset rail above the live map filters traffic by kind (MobileLandingChromeUI
+// + updateAircraftLayerFilter in flight.js), and every surface that offers the
+// same presets reads them from here — a pilot who taps Cargo in two places
+// should be looking at the same fleet, and two copies of a list this long would
+// not stay in step for a week.
 //
 // The evidence is thin on purpose. The recorder and the live feed both store
 // the aircraft type the pilot selected in Infinite Flight and the callsign they
