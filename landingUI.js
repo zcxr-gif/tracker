@@ -2374,7 +2374,8 @@ export const LandingUI = {
             }
             .header-text h2 { margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--lui-text-main); }
             .header-text span { font-size: 0.9rem; color: var(--lui-text-gray-2); font-weight: 500; }
-            .close-modal { background: none; border: none; color: var(--lui-text-gray-2); font-size: 2.2rem; cursor: pointer; transition: 0.2s; }
+            .close-modal { background: none; border: none; color: var(--lui-text-gray-2); font-size: 2.2rem; cursor: pointer;
+                transition: color 0.18s cubic-bezier(0.22, 1, 0.36, 1), transform 0.18s cubic-bezier(0.22, 1, 0.36, 1); }
             .close-modal:hover { color: var(--lui-text-main); transform: rotate(90deg); }
 
             .modal-body { display: flex; flex: 1; overflow: hidden; }

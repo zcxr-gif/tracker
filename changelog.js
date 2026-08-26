@@ -26,9 +26,36 @@
         {
             id: '2026.08.26',
             date: 'August 2026',
-            title: 'Notifications That Actually Arrive',
-            tagline: 'The watchlist can finally tell you something — and your own aeroplane says when it is half an hour out.',
+            title: 'Alerts That Arrive, And A Window That Keeps The Map',
+            tagline: 'The watchlist can finally tell you something, your own aeroplane says when it is half an hour out, and there is a new way to watch a flight that leaves the map on screen.',
             entries: [
+                {
+                    tag: 'new', icon: 'fa-ticket',
+                    text: 'Strip — a fourth flight window, and the first one you can keep open. A boarding-pass bar along the bottom of the map with the aircraft photo lifted clear of it, the flight number, the tail number, the route and how far through it is. Tap it for altitude, speed and ETA; everything else stays map. Settings → Flight Window.',
+                    visual: `
+                        <div class="cl-vis-card" style="padding:0; overflow:hidden;">
+                            <div style="background:linear-gradient(180deg,#1c2e4a,#121e32); padding:12px 13px; display:flex; flex-direction:column; gap:9px;">
+                                <div class="row" style="justify-content:space-between; align-items:flex-end;">
+                                    <span>
+                                        <b class="cl-vis-dim" style="display:block; font-size:8px; letter-spacing:1.1px;">FLIGHT NUM</b>
+                                        <b class="cl-vis-mono" style="color:#fff; font-size:13px;">WN1475</b>
+                                    </span>
+                                    <b class="cl-vis-mono" style="color:#fff; font-size:22px; letter-spacing:-.5px;">BNA &rarr; MSP</b>
+                                </div>
+                                <div class="row" style="gap:8px; align-items:center;">
+                                    <b class="cl-vis-mono cl-vis-dim" style="font-size:10px;">207 nm</b>
+                                    <span style="flex:1; height:4px; border-radius:999px; background:rgba(255,255,255,.85); overflow:hidden;">
+                                        <span style="display:block; width:40%; height:100%; border-radius:999px; background:linear-gradient(90deg,#ff8a52,#ff5a52);"></span>
+                                    </span>
+                                    <b class="cl-vis-mono cl-vis-dim" style="font-size:10px;">516 nm</b>
+                                </div>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'improved', icon: 'fa-wand-magic-sparkles',
+                    text: 'Settings opens smoothly now. The sheet used to animate its distance from the bottom of the screen, which makes the browser re-lay-out a full-height panel and repaint the map behind it on every frame — so it stuttered exactly when the map was busiest. It slides on a transform instead, which the GPU handles, and the dim behind it and the panel inside it now finish at the same moment rather than three at their own. Half-swipe it and let go and it springs back from where your finger left it.',
+                },
                 {
                     tag: 'fixed', icon: 'fa-bell-slash',
                     text: 'Watchlist alerts have never once reached a browser. The code that raised them called into the old iOS wrapper, and outside that wrapper the call simply did nothing — no error, no notification. Alerts are now raised through the browser and the service worker, so they arrive with Inflight in a background tab, and tapping one opens that pilot on the map.',

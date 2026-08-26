@@ -879,7 +879,7 @@ function injectPanelStyles() {
             background: rgba(6,8,13,0.62);
             -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
             display: flex; align-items: center; justify-content: center;
-            padding: 20px; opacity: 0; transition: opacity .22s ease;
+            padding: 20px; opacity: 0; transition: opacity .44s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .ifns-overlay.is-in { opacity: 1; }
         .ifns-sheet {
@@ -891,8 +891,9 @@ function injectPanelStyles() {
             box-shadow: 0 26px 70px rgba(0,0,0,0.6);
             color: #eef1f6;
             font: 500 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-            transform: translateY(14px) scale(0.985);
-            transition: transform .26s cubic-bezier(0.16,1,0.3,1);
+            transform: translateY(16px) scale(0.985);
+            transition: transform .44s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: transform;
         }
         .ifns-overlay.is-in .ifns-sheet { transform: none; }
         .ifns-head {
@@ -991,7 +992,15 @@ function injectPanelStyles() {
                 width: 100%; max-height: 92vh;
                 border-radius: 20px 20px 0 0;
                 padding-bottom: env(safe-area-inset-bottom, 0px);
+                /* A bottom sheet rises; it does not grow from its own middle.
+                   Same curve and duration as the settings and filter sheets, so
+                   the three read as one piece of software. */
+                transform: translateY(100%) scale(1);
             }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .ifns-overlay, .ifns-sheet { transition-duration: 0.01ms !important; }
         }`;
     document.head.appendChild(style);
 }
