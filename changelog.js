@@ -24,6 +24,40 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.08.26',
+            date: 'August 2026',
+            title: 'Notifications That Actually Arrive',
+            tagline: 'The watchlist can finally tell you something — and your own aeroplane says when it is half an hour out.',
+            entries: [
+                {
+                    tag: 'fixed', icon: 'fa-bell-slash',
+                    text: 'Watchlist alerts have never once reached a browser. The code that raised them called into the old iOS wrapper, and outside that wrapper the call simply did nothing — no error, no notification. Alerts are now raised through the browser and the service worker, so they arrive with Inflight in a background tab, and tapping one opens that pilot on the map.',
+                    visual: `
+                        <div class="cl-vis-card">
+                            <div class="row" style="gap:9px; align-items:flex-start;">
+                                <span style="width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:rgba(56,189,248,.14);border:1px solid rgba(56,189,248,.3);color:#38bdf8;"><i class="fa-solid fa-plane-departure"></i></span>
+                                <span style="flex:1;">
+                                    <b style="color:#fff; font-size:12.5px; display:block;">Airborne</b>
+                                    <b class="cl-vis-dim" style="font-size:10.5px; font-weight:600;">EGLL &rarr; KJFK &middot; Boeing 787-9</b>
+                                </span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-hourglass-half',
+                    text: 'Your own flight now tells you when it is nearing the end. Half an hour from your filed destination — or fifteen, forty-five or sixty minutes, whichever you choose — Inflight works out the distance left against your ground speed and says so, in time to actually plan the descent.'
+                },
+                {
+                    tag: 'new', icon: 'fa-plane-arrival',
+                    text: 'More than just "came online". A pilot you watch now raises an alert when they leave the ground and when they touch back down, each confirmed across several position reports so a bad reading cannot announce a landing that never happened.'
+                },
+                {
+                    tag: 'new', icon: 'fa-sliders',
+                    text: 'A notification settings panel, in Settings &rarr; More on a phone and beside the watchlist on desktop. Every event has its own switch, the arrival warning has its own distance, and a Send a test button says in plain words why nothing is arriving when nothing is — which is how this went unnoticed for so long.'
+                }
+            ]
+        },
+        {
             id: '2026.08.09',
             date: 'August 2026',
             title: 'Rewind The Whole Map',

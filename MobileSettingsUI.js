@@ -10,6 +10,7 @@
  */
 
 import { openLegalDoc } from './firstRunExperience.js';
+import { FlightNotifications } from './flightNotifications.js';
 
 // Maps each map-style value to its Mapbox style owner/id so we can request a
 // real static thumbnail for the preview cards. Mirrors the style constants in
@@ -544,6 +545,28 @@ export const MobileSettingsUI = {
                                 Your stats as one image for your Infinite Flight Community profile — grade,
                                 XP, landings, whichever you pick. Paste one line into your About Me. Pro
                                 keeps the numbers refreshed every month.
+                            </p>
+
+                            <!-- Notifications. The panel is owned by
+                                 flightNotifications.js so that the phone and
+                                 the desktop offer exactly the same switches —
+                                 the previous arrangement had a copy of the
+                                 notification code on each surface, and neither
+                                 copy delivered anything. -->
+                            <div class="mobile-section-header">Notifications</div>
+                            <div class="m-settings-list">
+                                <div class="m-setting-row m-notifications-row">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-bell" style="color: #fbbf24;"></i>
+                                        <span>Flight Alerts</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
+                                </div>
+                            </div>
+                            <p class="m-settings-note">
+                                Tell me when a pilot on my watchlist comes online, takes off or lands —
+                                and when my own aeroplane is half an hour from its destination. Choose
+                                which of those you want, and how far out the arrival warning comes.
                             </p>
 
                             <div class="mobile-section-header">Updates</div>
@@ -2377,6 +2400,14 @@ export const MobileSettingsUI = {
             this.resetTacticalFilters();
         });
 
+        // Notifications row — opens the shared notification settings panel.
+        sheet.querySelectorAll('.m-notifications-row').forEach(row => {
+            row.addEventListener('click', () => {
+                window.InflightHaptics?.select?.();
+                FlightNotifications.openSettings();
+            });
+        });
+
         // What's New row — opens the full changelog modal (changelog.js). The
         // modal overlays this sheet at a higher z-index and closes back to it.
         sheet.querySelectorAll('.m-whatsnew-row').forEach(row => {
@@ -2985,7 +3016,7 @@ export const MobileSettingsUI = {
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
 
-                .m-legal-row, .m-whatsnew-row { cursor: pointer; }
+                .m-legal-row, .m-whatsnew-row, .m-notifications-row { cursor: pointer; }
                 .m-legal-row:active { background: rgba(255,255,255,0.07); }
                 .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
 

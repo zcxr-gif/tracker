@@ -28,6 +28,11 @@ import { AtcReplay } from './atcReplay.js';
 // filters traffic by kind reads Cargo, Heavies and the rest the same way.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
 import { PreferenceSync } from './preferenceSync.js';
+// Flight alerts: watched pilots coming online, taking off and landing, and
+// your own aeroplane nearing its destination. Boots next to the other stores
+// rather than from a dashboard, because a notification's whole job is to
+// arrive when nobody has a panel open. See flightNotifications.js.
+import { FlightNotifications } from './flightNotifications.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
@@ -51,6 +56,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // nothing at all for a free account; see preferenceSync.js for the allowlist of
 // what may travel (and the list of what must never).
 PreferenceSync.init(supabase);
+
+// Watches the same live packet the map draws from and raises the alerts the
+// watchlist has always promised. Independent of ProfileUI/MobileDashboardUI,
+// which previously each carried their own (non-working) copy of this.
+FlightNotifications.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);

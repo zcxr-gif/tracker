@@ -151,3 +151,46 @@ async function trimCache(cache, maxEntries, trimTo) {
         await cache.delete(keys[i]);
     }
 }
+
+/**
+ * Notification taps.
+ *
+ * The worker raises flight alerts on behalf of the page (see
+ * flightNotifications.js — `registration.showNotification` is the only route
+ * that works on Android Chrome, where `new Notification()` throws, and the only
+ * one that survives the tab being backgrounded). A notification raised by a
+ * worker is dismissed by the worker too, and its tap has to be routed from
+ * here: without this handler the banner is inert, which reads to a pilot
+ * exactly like a broken notification.
+ *
+ * Focus an existing Inflight tab if there is one — opening a second copy of a
+ * live map is never what was wanted — and otherwise open the app. The pilot the
+ * notice was about rides along in the notification's `data` so the page can go
+ * and find them.
+ */
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+
+    const data = event.notification.data || {};
+    const target = new URL(data.url || '/', self.location.origin);
+
+    event.waitUntil((async () => {
+        const clientList = await self.clients.matchAll({
+            type: 'window',
+            includeUncontrolled: true,
+        });
+
+        for (const client of clientList) {
+            if (new URL(client.url).origin !== self.location.origin) continue;
+            if ('focus' in client) {
+                await client.focus();
+                // Best effort: the page decides what, if anything, to do with
+                // it. A client that is not listening simply ignores it.
+                try { client.postMessage({ type: 'inflight:notification-click', data }); } catch (_) {}
+                return;
+            }
+        }
+
+        if (self.clients.openWindow) await self.clients.openWindow(target.href);
+    })());
+});
