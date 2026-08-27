@@ -24,6 +24,7 @@ import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
+import { FlightNotifications } from './flightNotifications.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
@@ -179,11 +180,9 @@ export const ProfileUI = {
     // ── Pilot Watchlist ──────────────────────────────────────────────────────
     _watchlist: [],
     _watchedPilotStatus: {},
-    _prevWatchedStatus: {},
 
     // ── Cross-device User Preferences (Supabase persisted) ───────────────────
     _userPrefs: {
-        notification_watchlist_enabled: true,
         cached_if_stats: null,
         cached_if_at: null,
     },
@@ -687,7 +686,6 @@ init(supabaseClient) {
                 }
 
                 if (this._watchlist.length > 0) {
-                    this._prevWatchedStatus = { ...this._watchedPilotStatus };
                     const newStatus = {};
                     for (const entry of this._watchlist) {
                         const un = entry.watched_username.toLowerCase();
@@ -697,41 +695,15 @@ init(supabaseClient) {
                     }
                     this._watchedPilotStatus = newStatus;
 
-                    // Watchlist notifications are an account-gated feature:
-                    // skip entirely if the user isn't signed in.
-                    if (this._currentUser && this._userPrefs.notification_watchlist_enabled) {
-                        for (const [un, cur] of Object.entries(newStatus)) {
-                            const prev = this._prevWatchedStatus[un];
-                            if (cur.isLive && prev && !prev.isLive) {
-                                const f = cur.flight;
-                                const who   = f?.username || un;
-                                const route = (f?.departureIcao && f?.arrivalIcao)
-                                    ? ` on ${f.departureIcao} → ${f.arrivalIcao}`
-                                    : '';
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
-                                try {
-                                    // iOS notification hierarchy:
-                                    //   title   = friend's name (bold)
-                                    //   subtitle= status verb (semibold)
-                                    //   body    = route + aircraft
-                                    const acft = f?.aircraft?.aircraftName || '';
-                                    const bodyParts = [];
-                                    if (f?.departureIcao && f?.arrivalIcao) {
-                                        bodyParts.push(`${f.departureIcao} → ${f.arrivalIcao}`);
-                                    }
-                                    if (acft) bodyParts.push(acft);
-                                    window.InflightLiveActivity?.presentLocalNotification?.({
-                                        title: who,
-                                        subtitle: 'Now online',
-                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just connected',
-                                        identifier: `watchlist-online-${un}`,
-                                        threadIdentifier: 'inflight-watchlist',
-                                        userInfo: { kind: 'watchlist_online', username: un }
-                                    });
-                                } catch (_) { /* best-effort */ }
-                            }
-                        }
-                    }
+                    // Notifications are NOT raised here any more. This block
+                    // used to end in a call to
+                    // `window.InflightLiveActivity.presentLocalNotification`,
+                    // which only exists inside the wrapped iOS app — so in a
+                    // browser the optional chaining swallowed it and nothing
+                    // was ever delivered. flightNotifications.js owns alerts
+                    // now, subscribes to this same packet itself, and covers
+                    // takeoffs, landings and your own flight as well. What
+                    // stays here is only what the watchlist TAB draws.
 
                     if (this._isOpen && this._activeTab === 'watchlist') {
                         this._updateWatchlistDOM();
@@ -5466,9 +5438,17 @@ const contentRoot = document.getElementById('pui-content');
 
             const notifToggle = document.getElementById('pui-watchlist-notif-toggle');
             notifToggle?.addEventListener('change', async () => {
-                this._userPrefs.notification_watchlist_enabled = notifToggle.checked;
-                await this._saveUserPreferences();
+                FlightNotifications.setPref('enabled', notifToggle.checked);
+                // Switching alerts on is the moment to ask for permission —
+                // and it has to be here, inside the click, because every
+                // browser rejects a permission prompt raised outside a gesture.
+                if (notifToggle.checked && FlightNotifications.permission === 'default') {
+                    await FlightNotifications.requestPermission();
+                }
             });
+
+            document.getElementById('pui-notif-settings-btn')
+                ?.addEventListener('click', () => FlightNotifications.openSettings());
         }
     },
 
@@ -5501,9 +5481,12 @@ const contentRoot = document.getElementById('pui-content');
                 .single();
 
             if (data && !error) {
-                if (typeof data.notification_watchlist_enabled === 'boolean') {
-                    this._userPrefs.notification_watchlist_enabled = data.notification_watchlist_enabled;
-                }
+                // notification_watchlist_enabled is deliberately no longer read
+                // here. It named a column of user_preferences that was never
+                // created — see entitlement-and-preferences.sql, which gives
+                // that table a single `preferences` JSON blob — so the read
+                // always missed and the write always failed. Notification
+                // settings live in flightNotifications.js now.
                 if (data.cached_if_stats) {
                     this._userPrefs.cached_if_stats = data.cached_if_stats;
                     this._userPrefs.cached_if_at    = data.cached_if_at;
@@ -5519,7 +5502,6 @@ const contentRoot = document.getElementById('pui-content');
         try {
             await this._supabase.from('user_preferences').upsert({
                 user_id: this._currentUser.id,
-                notification_watchlist_enabled: this._userPrefs.notification_watchlist_enabled,
                 cached_if_stats: this._userPrefs.cached_if_stats,
                 cached_if_at:    this._userPrefs.cached_if_at,
             }, { onConflict: 'user_id' });
@@ -5557,6 +5539,10 @@ const contentRoot = document.getElementById('pui-content');
             this._watchlist.unshift(data);
             this._showToast(`<i class="fa-solid fa-star" style="margin-right:8px;"></i><strong>${username}</strong> added to watchlist.`, 'success');
 
+            // Tell the alert engine to re-read the list, so a pilot added
+            // now is watched from the next packet rather than the next poll.
+            window.dispatchEvent(new CustomEvent('inflight:watchlist-changed'));
+
             // Push the new relation to the live map so the pilot's plane
             // turns purple immediately, without waiting for the next poll.
             if (typeof window !== 'undefined' && typeof window.refreshPilotRelations === 'function') {
@@ -5579,6 +5565,10 @@ const contentRoot = document.getElementById('pui-content');
             if (error) throw error;
             this._watchlist = this._watchlist.filter(e => e.id !== id);
             delete this._watchedPilotStatus[username?.toLowerCase()];
+            // Tell the alert engine to re-read the list, so a pilot dropped now
+            // stops being announced from the next packet rather than the next poll.
+            window.dispatchEvent(new CustomEvent('inflight:watchlist-changed'));
+
             this._showToast(`<i class="fa-solid fa-star-half" style="margin-right:8px;"></i>${username} removed from watchlist.`, 'info');
 
             // Re-tag features so the removed pilot's plane drops back to the
@@ -5607,18 +5597,27 @@ const contentRoot = document.getElementById('pui-content');
     },
 
     _getWatchlistTabHTML() {
-        const notifChecked = this._userPrefs.notification_watchlist_enabled ? 'checked' : '';
+        // Reads the real notification store rather than the phantom
+        // `user_preferences.notification_watchlist_enabled` column this used to
+        // hang off — that column never existed, so the switch could not be
+        // turned off and, once off in memory, could not be turned back on.
+        const notifChecked = FlightNotifications.getPrefs().enabled ? 'checked' : '';
         return `
             <div class="pui-tab-header pui-fade-in">
                 <div>
                     <h2>${this.t('header.watchlist.title')}</h2>
                     <p>${this.t('header.watchlist.sub')}</p>
                 </div>
-                <label class="pui-toggle-label" title="Toast notification when a watched pilot goes live">
-                    <input type="checkbox" id="pui-watchlist-notif-toggle" ${notifChecked}>
-                    <span class="pui-toggle-track"><span class="pui-toggle-thumb"></span></span>
-                    <span class="pui-toggle-text">Live alerts</span>
-                </label>
+                <div style="display:flex; align-items:center; gap: 12px;">
+                    <label class="pui-toggle-label" title="Notify me about the pilots I watch, and about my own flight">
+                        <input type="checkbox" id="pui-watchlist-notif-toggle" ${notifChecked}>
+                        <span class="pui-toggle-track"><span class="pui-toggle-thumb"></span></span>
+                        <span class="pui-toggle-text">Live alerts</span>
+                    </label>
+                    <button type="button" class="pui-btn-ghost" id="pui-notif-settings-btn" title="Notification settings">
+                        <i class="fa-solid fa-sliders"></i> Notifications
+                    </button>
+                </div>
             </div>
 
             <div class="pui-card pui-fade-in" style="margin-bottom: var(--pui-gap-md); overflow: visible; position: relative; z-index: 100;">

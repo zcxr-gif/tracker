@@ -164,20 +164,37 @@ export const MobileLandingUI = {
             }
 
             .mobile-sheet-overlay {
-                position: fixed; inset: 0; background: rgba(0,0,0,0.7); 
-                backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: 0.3s; z-index: 5000;
+                position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+                backdrop-filter: blur(4px); opacity: 0; visibility: hidden;
+                /* Was a bare "transition: 0.3s", which animates every animatable
+                   property — including the backdrop blur, a full-screen re-blur
+                   per frame behind a sheet that is already compositing. Only the
+                   fade needs animating, and it is timed to the sheet's own slide
+                   so the dim and the panel finish together. */
+                transition: opacity 0.44s cubic-bezier(0.22, 1, 0.36, 1),
+                            visibility 0s linear 0.44s;
+                z-index: 5000;
             }
-            .mobile-sheet-overlay.visible { opacity: 1; visibility: visible; }
+            .mobile-sheet-overlay.visible {
+                opacity: 1; visibility: visible;
+                transition: opacity 0.44s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
+            }
 
             .mobile-bottom-sheet {
                 position: fixed; bottom: 0; left: 0; right: 0;
                 background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.1);
                 border-radius: 24px 24px 0 0; z-index: 5001;
-                height: 85vh; transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                height: 85vh; transform: translateY(100%);
+                transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
+                will-change: transform;
                 display: flex; flex-direction: column; color: #fff;
                 box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
             }
             .mobile-bottom-sheet.open { transform: translateY(0); }
+
+            @media (prefers-reduced-motion: reduce) {
+                .mobile-bottom-sheet, .mobile-sheet-overlay { transition-duration: 0.01ms !important; }
+            }
 
             .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto; }
 

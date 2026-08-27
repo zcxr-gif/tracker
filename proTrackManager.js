@@ -60,8 +60,10 @@ export class ProTrackManager {
                 width: 26px; height: 26px; 
                 border-radius: 50%; 
                 cursor: pointer; 
-                display: grid; place-items: center; 
-                transition: 0.2s; 
+                display: grid; place-items: center;
+                transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                            color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
             }
             .pro-track-close:hover { background: #ef4444; color: #fff; }
             

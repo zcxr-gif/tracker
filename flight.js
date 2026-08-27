@@ -28,6 +28,11 @@ import { AtcReplay } from './atcReplay.js';
 // filters traffic by kind reads Cargo, Heavies and the rest the same way.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
 import { PreferenceSync } from './preferenceSync.js';
+// Flight alerts: watched pilots coming online, taking off and landing, and
+// your own aeroplane nearing its destination. Boots next to the other stores
+// rather than from a dashboard, because a notification's whole job is to
+// arrive when nobody has a panel open. See flightNotifications.js.
+import { FlightNotifications } from './flightNotifications.js';
 import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
@@ -51,6 +56,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // nothing at all for a free account; see preferenceSync.js for the allowlist of
 // what may travel (and the list of what must never).
 PreferenceSync.init(supabase);
+
+// Watches the same live packet the map draws from and raises the alerts the
+// watchlist has always promised. Independent of ProfileUI/MobileDashboardUI,
+// which previously each carried their own (non-working) copy of this.
+FlightNotifications.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
@@ -3328,6 +3338,13 @@ function injectCustomStyles() {
     white-space: nowrap; transition: background .15s ease, color .15s ease;
 }
 .iw-seg-btn i { font-size: 0.8rem; }
+/* Four choices no longer fit on one line at every window width, so the row is
+   allowed to wrap rather than squeezing the labels out of legibility. */
+.iw-seg { flex-wrap: wrap; }
+.iw-seg-btn { flex: 1 1 44%; }
+.iw-seg-note {
+    margin: 7px 2px 0; font-size: 0.72rem; line-height: 1.5; color: #71717a;
+}
 .iw-seg-btn:hover { color: #e4e4e7; background: rgba(255,255,255,0.04); }
 .iw-seg-btn.active {
     color: #fff; background: rgba(56,189,248,0.16);
@@ -6415,6 +6432,28 @@ function injectCustomStyles() {
         #simple-flight-window-frame {
             border-radius: var(--radius-md);
             background: var(--bg-glass);
+        }
+
+        /* --- Strip mode: the host gets out of the way -------------------- *
+         * The strip paints its own bar and reserves clear space above it for
+         * the aircraft photo to lift into. That space is only the map if the
+         * window it sits in contributes no surface of its own — otherwise the
+         * photo rises out of the bar and into a pane of frosted glass, which
+         * is a worse picture than not lifting it at all.
+         *
+         * The frame keeps an explicit transparent background rather than just
+         * dropping its declaration, because the rule above would still apply. */
+        .info-window.fw-strip {
+            background: none;
+            -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+            border: none;
+            box-shadow: none;
+            border-radius: 0;
+        }
+        .info-window.fw-strip #simple-flight-window-frame {
+            background: transparent;
+            border-radius: 0;
         }
 
         /* --- Simple Flight Window phases (collapsed bar <-> expanded panel) --- */
@@ -13057,7 +13096,7 @@ function handleSocketFlightUpdate(data) {
                 // serves both. Legacy stays on the avionics DOM path below.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 const _liveFwMode = getFlightWindowMode();
-                if (_liveFwMode !== 'legacy' && simpleIframe && simpleIframe.contentWindow) {
+                if (isFramedFlightWindowMode(_liveFwMode) && simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
                          fullFlightProps,
                          cachedFlightDataForStatsView.plan,
@@ -16941,24 +16980,45 @@ function initializeAircraftLayer() {
  * and re-confirms via SIMPLE_WINDOW_PEEK_HEIGHT. The height table mirrors
  * PEEK_HEIGHTS in flightinfo.html (the source of truth).
  */
+// The modes that are an iframe fed FLIGHT_DATA_UPDATE, as opposed to Legacy's
+// avionics DOM. Named once so a fourth one cannot end up in half the checks.
+const FRAMED_FLIGHT_WINDOW_MODES = ['simple', 'embed', 'strip'];
+
+/**
+ * The strip's opening height, mirroring H_SHUT in strip-flight.html.
+ *
+ * Only ever the OPENING height: the page measures its own bar once it has laid
+ * out and corrects this through SIMPLE_WINDOW_PEEK_HEIGHT, because the real
+ * figure moves with the safe-area inset and the font. Seeding it here is what
+ * stops the window opening at the Simple mode's saved peek preset and visibly
+ * resizing a moment later.
+ */
+const STRIP_WINDOW_HEIGHT = 150;
+
+function isFramedFlightWindowMode(mode) {
+    return FRAMED_FLIGHT_WINDOW_MODES.includes(mode);
+}
+
 /**
  * --- Flight / airport window presentation mode helpers ---
- * `flightWindowMode` is the canonical store ('legacy' | 'simple' | 'embed');
- * the older `useSimpleFlightWindow` boolean is kept mirrored (true only for
- * 'simple') so existing code paths and saved settings still resolve correctly.
+ * `flightWindowMode` is the canonical store ('legacy' | 'simple' | 'embed' |
+ * 'strip'); the older `useSimpleFlightWindow` boolean is kept mirrored (true
+ * only for 'simple') so existing code paths and saved settings still resolve
+ * correctly.
  */
 function getFlightWindowMode() {
     if (typeof mapFilters === 'undefined') return 'legacy';
-    // 'embed' is the only mode tracked solely by flightWindowMode; the
+    // 'embed' and 'strip' are tracked solely by flightWindowMode; the
     // simple/legacy split stays keyed off useSimpleFlightWindow so any legacy
     // code path that flips that boolean keeps working.
     if (mapFilters.flightWindowMode === 'embed') return 'embed';
+    if (mapFilters.flightWindowMode === 'strip') return 'strip';
     return mapFilters.useSimpleFlightWindow ? 'simple' : 'legacy';
 }
 
 function setFlightWindowMode(mode) {
     if (typeof mapFilters === 'undefined') return;
-    if (mode !== 'legacy' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
+    if (mode !== 'legacy' && !isFramedFlightWindowMode(mode)) mode = 'legacy';
     mapFilters.flightWindowMode = mode;
     mapFilters.useSimpleFlightWindow = (mode === 'simple');
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
@@ -16979,6 +17039,7 @@ function setAirportWindowMode(mode) {
 if (typeof window !== 'undefined') {
     window.getFlightWindowMode = getFlightWindowMode;
     window.setFlightWindowMode = setFlightWindowMode;
+    window.isFramedFlightWindowMode = isFramedFlightWindowMode;
     window.getAirportWindowMode = getAirportWindowMode;
     window.setAirportWindowMode = setAirportWindowMode;
 }
@@ -17032,7 +17093,11 @@ function applySimpleWindowPhase(phase) {
         // Collapsed bar height tracks the chosen peek preset (reported by the
         // iframe via SIMPLE_WINDOW_PEEK_HEIGHT); falls back to the classic 236.
         const peekH = window.__simpleWindowPeekHeight || 236;
-        windowEl.style.width = '380px';
+        // The strip is a boarding-pass bar rather than a card: it needs the
+        // width to put a route and a progress track on one line, and 380px
+        // wraps both. It is the only collapsed state that is wider than it is
+        // tall, which is the whole shape of the mode.
+        windowEl.style.width = windowEl.classList.contains('fw-strip') ? '540px' : '380px';
         windowEl.style.height = peekH + 'px';   // compact bar only
         windowEl.style.maxHeight = peekH + 'px';
     }
@@ -18983,7 +19048,9 @@ renderCategory(catId) {
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
+                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'strip' ? ' active' : ''}" data-mode="strip"><i class="fa-solid fa-ticket"></i> Strip</button>
                             </div>
+                            <p class="iw-seg-note">Strip keeps the map. A boarding-pass bar along the bottom carrying the flight number, the airframe, the route and how far through it is — tap it for altitude, speed and ETA.</p>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
@@ -19299,7 +19366,8 @@ renderCategory(catId) {
         });
 
         // --- 4b. Flight- / Airport-window presentation segmented controls ---
-        // Legacy | Simple | Card for flights; Standard | Card for airports.
+        // Legacy | Simple | Card | Strip for flights; Standard | Card for
+        // airports. Driven entirely off data-mode, so a new mode is a button.
         const wireWindowModeSeg = (seg, apply, label) => {
             const wrap = document.querySelector(`.iw-seg[data-seg="${seg}"]`);
             if (!wrap) return;
@@ -22401,7 +22469,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         const _fwMode = getFlightWindowMode();
-        if (_fwMode === 'simple' || _fwMode === 'embed') {
+        // Strip mode draws its own bar and deliberately lets the map show
+        // through above it, so the host's glass shell has to get out of the way
+        // — otherwise the photo lifts out of the bar into a pane of frosted
+        // glass instead of into the map. Set before the branch so switching
+        // AWAY from Strip clears it too. See `.info-window.fw-strip`.
+        windowEl.classList.toggle('fw-strip', _fwMode === 'strip');
+        if (isFramedFlightWindowMode(_fwMode)) {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
             // Prime the peek height from the saved layout preset, then choose the
@@ -22411,7 +22485,13 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             primeSimpleWindowPeekHeight();
             const onMobile = !!(window.MobileUIHandler && typeof window.MobileUIHandler.isMobile === 'function'
                 && window.MobileUIHandler.isMobile());
-            const initialPhase = onMobile ? 'collapsed' : 'expanded';
+            // Strip has no expanded phase to open into — it IS the bar, on
+            // every screen size — and its height is its own rather than the
+            // Simple window's saved peek preset. Seeding it here means the
+            // window opens at the right height instead of at the preset's and
+            // resizing once the iframe reports back.
+            if (_fwMode === 'strip') window.__simpleWindowPeekHeight = STRIP_WINDOW_HEIGHT;
+            const initialPhase = (onMobile || _fwMode === 'strip') ? 'collapsed' : 'expanded';
             applySimpleWindowPhase(initialPhase);
             // The embed ("Card") mode loads the FR24-style card page; Simple loads
             // the full flightinfo.html. Both share the #simple-flight-window-frame
@@ -22425,8 +22505,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // .mobile-legacy-sheet has its own !important rules that win anyway.
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
-                : 'flightinfo.html';
-            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
+                : _fwMode === 'strip'
+                    ? 'strip-flight.html'
+                    : 'flightinfo.html';
+            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no" allowtransparency="true"></iframe>`);
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
             iframe.onload = () => {

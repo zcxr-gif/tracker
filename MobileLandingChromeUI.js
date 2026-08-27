@@ -3173,6 +3173,47 @@ export const MobileLandingChromeUI = {
                 -webkit-backdrop-filter: saturate(200%) blur(40px) !important;
                 backdrop-filter: saturate(200%) blur(40px) !important;
             }
+
+            /* ...except the Strip window, which is not a sheet with something
+               in it. It is a bar that draws its own glass and keeps clear map
+               above itself for the aircraft photo to lift into, and every
+               surface the sheet would contribute — the pane, its blur, its top
+               border, its rounded corners, the grab handle — sits in exactly
+               that space. In this one mode the sheet is a frame and nothing
+               else. Written with !important throughout because the rules it is
+               undoing are !important too. */
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip {
+                background: transparent !important;
+                -webkit-backdrop-filter: none !important;
+                backdrop-filter: none !important;
+                border: none !important;
+                border-top: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+            }
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip > #simple-flight-window-frame {
+                border-radius: 0 !important;
+                background: transparent !important;
+            }
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip .sheet-handle,
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip .mobile-sheet-grabber,
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip .info-window-header {
+                display: none !important;
+            }
+            /* The drag handle stays — it is how the sheet is flicked away, and
+               removing it would leave the strip with no dismissal gesture at
+               all. What goes is everything it draws: its dark gradient and its
+               pill sit exactly in the gutter the photo lifts into, and a grey
+               wash across the top of the map is the one thing this mode is
+               trying not to have. Invisible, still grabbable. */
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip .legacy-sheet-handle.simple-mode {
+                background: none !important;
+                height: 26px !important;
+                padding-bottom: 26px !important;
+            }
+            #aircraft-info-window.mobile-legacy-sheet.fw-strip .legacy-sheet-handle.simple-mode::before {
+                opacity: 0 !important;
+            }
         }
         `;
 

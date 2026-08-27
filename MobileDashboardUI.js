@@ -10,6 +10,7 @@ import { ProAccess } from './proAccess.js';
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
+import { FlightNotifications } from './flightNotifications.js';
 import { AircraftViewer3D } from './AircraftViewer3D.js';
 import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
@@ -81,8 +82,6 @@ export const MobileDashboardUI = {
     _currentAllFlights: [],
     _watchlist:         [],
     _watchedPilotStatus:{},
-    _prevWatchedStatus: {},
-    _userPrefs: { notification_watchlist_enabled: true },
     
     _socketUnsubscribe: null,
     _airspaceNetwork:   null,
@@ -163,7 +162,6 @@ init(supabaseClient) {
                     this._accent = session.user.user_metadata.accent_color;
                 }
                 this._fetchWatchlist();
-                this._fetchUserPreferences();
             } else {
                 this._currentUser = null;
                 this._watchlist = [];
@@ -224,7 +222,6 @@ init(supabaseClient) {
 
                 // Watchlist sync
                 if (this._watchlist.length > 0) {
-                    this._prevWatchedStatus = { ...this._watchedPilotStatus };
                     const newStatus = {};
                     for (const entry of this._watchlist) {
                         const un = entry.watched_username.toLowerCase();
@@ -234,44 +231,12 @@ init(supabaseClient) {
                     }
                     this._watchedPilotStatus = newStatus;
 
-                    // Watchlist notifications are an account-gated feature:
-                    // skip entirely if the user isn't signed in.
-                    if (this._currentUser && this._userPrefs.notification_watchlist_enabled) {
-                        for (const [un, cur] of Object.entries(newStatus)) {
-                            const prev = this._prevWatchedStatus[un];
-                            if (cur.isLive && prev && !prev.isLive) {
-                                const f = cur.flight;
-                                const who   = f?.username || un;
-                                const route = (f?.departureIcao && f?.arrivalIcao) ? ` on ${f.departureIcao} → ${f.arrivalIcao}` : '';
-                                // In-app toast (for users actively looking
-                                // at the app) and an iOS system banner via
-                                // the LiveActivity plugin's notification
-                                // bridge (for users with the app
-                                // backgrounded or another tab open).
-                                this._showToast(`<i class="fa-solid fa-plane-departure" style="margin-right:8px;"></i><strong>${who}</strong> is now online${route}`, 'info');
-                                try {
-                                    // iOS notification hierarchy:
-                                    //   title   = friend's name (bold)
-                                    //   subtitle= status verb (semibold)
-                                    //   body    = route + aircraft
-                                    const acft = f?.aircraft?.aircraftName || '';
-                                    const bodyParts = [];
-                                    if (f?.departureIcao && f?.arrivalIcao) {
-                                        bodyParts.push(`${f.departureIcao} → ${f.arrivalIcao}`);
-                                    }
-                                    if (acft) bodyParts.push(acft);
-                                    window.InflightLiveActivity?.presentLocalNotification?.({
-                                        title: who,
-                                        subtitle: 'Now online',
-                                        body:  bodyParts.join(' · ') || 'Watchlist pilot just connected',
-                                        identifier: `watchlist-online-${un}`,
-                                        threadIdentifier: 'inflight-watchlist',
-                                        userInfo: { kind: 'watchlist_online', username: un }
-                                    });
-                                } catch (_) { /* best-effort */ }
-                            }
-                        }
-                    }
+                    // Notifications are NOT raised here any more — see the
+                    // matching note in profileUI.js. The call this block used
+                    // to end in only existed inside the wrapped iOS app, so on
+                    // the web it delivered nothing at all.
+                    // flightNotifications.js owns alerts now. What stays here
+                    // is only what the watchlist TAB draws.
 
                     if (this._isOpen && this._activeTab === 'watchlist') {
                         this._updateWatchlistDOM();
@@ -336,7 +301,6 @@ init(supabaseClient) {
         this._fetchSubscriptionData();
         this._fetchFlightPlans();
         this._fetchWatchlist();
-        this._fetchUserPreferences();
 
         const ifUsername = user?.user_metadata?.if_username;
         if (ifUsername) this._fetchInfiniteFlightData(ifUsername);
@@ -670,33 +634,14 @@ init(supabaseClient) {
         }
     },
 
-    async _fetchUserPreferences() {
-        if (!this._currentUser || !this._supabase) return;
-        try {
-            const { data, error } = await this._supabase
-                .from('user_preferences')
-                .select('*')
-                .eq('user_id', this._currentUser.id)
-                .single();
-            if (data && !error) {
-                if (typeof data.notification_watchlist_enabled === 'boolean') {
-                    this._userPrefs.notification_watchlist_enabled = data.notification_watchlist_enabled;
-                }
-            }
-        } catch (err) {
-            // defaults
-        }
-    },
-
-    async _saveUserPreferences() {
-        if (!this._currentUser || !this._supabase) return;
-        try {
-            await this._supabase.from('user_preferences').upsert({
-                user_id: this._currentUser.id,
-                notification_watchlist_enabled: this._userPrefs.notification_watchlist_enabled,
-            }, { onConflict: 'user_id' });
-        } catch (err) { }
-    },
+    // _fetchUserPreferences / _saveUserPreferences used to live here. The only
+    // thing they carried was the watchlist notification flag, and it named a
+    // column of user_preferences that was never created (that table holds one
+    // `preferences` JSON blob — see entitlement-and-preferences.sql), so the
+    // read always missed and the write always failed. Notification settings
+    // live in flightNotifications.js now, and nothing else on this screen was
+    // ever stored there — so the pair went with the flag rather than staying
+    // as two round trips that fetched and saved nothing.
 
     async _fetchInfiniteFlightData(ifUsername) {
         if (!ifUsername) return;
@@ -1698,10 +1643,12 @@ init(supabaseClient) {
 
     // ── Watchlist ─────────────────────────────────────────────────────────────
     _tabWatchlist() {
-        const notifChecked = this._userPrefs.notification_watchlist_enabled ? 'checked' : '';
+        // See the note in profileUI._getWatchlistTabHTML: this used to read a
+        // column of user_preferences that does not exist.
+        const notifChecked = FlightNotifications.getPrefs().enabled ? 'checked' : '';
         return `
             <div class="mdui-fade-up">
-                <p class="mdui-page-sub">Track specific pilots in real-time. Get notified the moment they come online.</p>
+                <p class="mdui-page-sub">Track specific pilots in real-time, and hear about them when you are not looking — online, wheels up, wheels down.</p>
 
                 <div class="mdui-section">
                     <div class="mdui-section-title">Add Pilot</div>
@@ -1721,13 +1668,21 @@ init(supabaseClient) {
                         <div class="mdui-row" data-static="true">
                             <span class="mdui-row-glyph tone-orange"><i class="fa-solid fa-bell"></i></span>
                             <div class="mdui-row-main">
-                                <span class="mdui-row-title">Notify when online</span>
-                                <span class="mdui-row-sub">Alert me the moment any tracked pilot connects.</span>
+                                <span class="mdui-row-title">Flight notifications</span>
+                                <span class="mdui-row-sub">Watched pilots coming online, taking off and landing — and your own flight nearing its destination.</span>
                             </div>
                             <label class="mdui-toggle-label">
                                 <input type="checkbox" id="mdui-watchlist-notif-toggle" ${notifChecked}>
                                 <span class="mdui-toggle-track"><span class="mdui-toggle-thumb"></span></span>
                             </label>
+                        </div>
+                        <div class="mdui-row" id="mdui-notif-settings-row">
+                            <span class="mdui-row-glyph tone-blue"><i class="fa-solid fa-sliders"></i></span>
+                            <div class="mdui-row-main">
+                                <span class="mdui-row-title">Choose which alerts</span>
+                                <span class="mdui-row-sub">Per-event switches, and how far out to warn you about your arrival.</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-right" style="opacity:.45;"></i>
                         </div>
                     </div>
                 </div>
@@ -1810,6 +1765,7 @@ init(supabaseClient) {
                     await this._supabase.from('user_watchlist').delete().eq('id', id);
                     this._watchlist = this._watchlist.filter(w => String(w.id) !== String(id));
                     this._showToast(`Removed from watchlist`, 'info');
+                    window.dispatchEvent(new CustomEvent('inflight:watchlist-changed'));
                     this._render();
                 } catch (err) {}
             });
@@ -3931,6 +3887,7 @@ _attachListeners() {
                     if (error) throw error;
                     this._watchlist.unshift(data);
                     this._showToast(`Tracking ${username}`, 'success');
+                    window.dispatchEvent(new CustomEvent('inflight:watchlist-changed'));
                     this._render();
                 } catch (err) {
                     this._showToast(`Failed to add: ${err.message}`, 'error');
@@ -3967,9 +3924,15 @@ _attachListeners() {
 
             const notifToggle = document.getElementById('mdui-watchlist-notif-toggle');
             notifToggle?.addEventListener('change', async () => {
-                this._userPrefs.notification_watchlist_enabled = notifToggle.checked;
-                await this._saveUserPreferences();
+                FlightNotifications.setPref('enabled', notifToggle.checked);
+                // Inside the gesture — see the matching comment in profileUI.
+                if (notifToggle.checked && FlightNotifications.permission === 'default') {
+                    await FlightNotifications.requestPermission();
+                }
             });
+
+            document.getElementById('mdui-notif-settings-row')
+                ?.addEventListener('click', () => FlightNotifications.openSettings());
         }
 
         if (this._activeTab === 'flight-plan') {

@@ -74,7 +74,15 @@ export const SYNCED_KEYS = [
 
     // Discord presence — the two switches, never the token two lines below
     // them in storage.
-    'inflight.discordPresence.autoconnect', 'inflight.discordPresence.follow'
+    'inflight.discordPresence.autoconnect', 'inflight.discordPresence.follow',
+
+    // Which flight alerts to raise, and how far out the arrival warning comes
+    // (flightNotifications.js). Carrying it is the point: a pilot who turned
+    // the landing notice off on their phone did not mean "only on this phone".
+    // The browser's notification PERMISSION is deliberately not in here and
+    // could not be — it is granted per origin per device by the browser
+    // itself, and nothing the app stores can move it.
+    'inflight_notifications'
 ];
 
 /**

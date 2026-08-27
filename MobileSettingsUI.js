@@ -10,6 +10,7 @@
  */
 
 import { openLegalDoc } from './firstRunExperience.js';
+import { FlightNotifications } from './flightNotifications.js';
 
 // Maps each map-style value to its Mapbox style owner/id so we can request a
 // real static thumbnail for the preview cards. Mirrors the style constants in
@@ -450,10 +451,16 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
-                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-3">
+                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="strip"><i class="fa-solid fa-ticket"></i><span>Strip</span></button>
+                            </div>
+                            <div class="m-setting-hint">
+                                Strip is the one that keeps the map. A boarding-pass bar along the
+                                bottom with the flight number, the airframe, the route and how far
+                                through it is — tap it for altitude, speed and ETA.
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
@@ -546,6 +553,28 @@ export const MobileSettingsUI = {
                                 Your stats as one image for your Infinite Flight Community profile — grade,
                                 XP, landings, whichever you pick. Paste one line into your About Me. Pro
                                 keeps the numbers refreshed every month.
+                            </p>
+
+                            <!-- Notifications. The panel is owned by
+                                 flightNotifications.js so that the phone and
+                                 the desktop offer exactly the same switches —
+                                 the previous arrangement had a copy of the
+                                 notification code on each surface, and neither
+                                 copy delivered anything. -->
+                            <div class="mobile-section-header">Notifications</div>
+                            <div class="m-settings-list">
+                                <div class="m-setting-row m-notifications-row">
+                                    <div class="m-row-left">
+                                        <i class="fa-solid fa-bell" style="color: #fbbf24;"></i>
+                                        <span>Flight Alerts</span>
+                                    </div>
+                                    <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
+                                </div>
+                            </div>
+                            <p class="m-settings-note">
+                                Tell me when a pilot on my watchlist comes online, takes off or lands —
+                                and when my own aeroplane is half an hour from its destination. Choose
+                                which of those you want, and how far out the arrival warning comes.
                             </p>
 
                             <div class="mobile-section-header">Updates</div>
@@ -1340,18 +1369,20 @@ export const MobileSettingsUI = {
         `;
     },
 
-    // The mobile flight-window display mode: 'legacy', 'simple', or 'embed'
-    // (the FR24-style Card). Delegates to the shared helper in flight.js when
-    // present so desktop and mobile resolve the mode identically.
+    // The mobile flight-window display mode: 'legacy', 'simple', 'embed' (the
+    // FR24-style Card) or 'strip' (the bottom boarding-pass bar). Delegates to
+    // the shared helper in flight.js when present so desktop and mobile resolve
+    // the mode identically.
     getFlightWindowMode(filters) {
         if (typeof window.getFlightWindowMode === 'function') return window.getFlightWindowMode();
         const f = filters || window.mapFilters || {};
         if (f.flightWindowMode === 'embed') return 'embed';
+        if (f.flightWindowMode === 'strip') return 'strip';
         return f.useSimpleFlightWindow ? 'simple' : 'legacy';
     },
 
-    // Applies a Legacy / Simple / Card choice and lets the user know it takes
-    // effect the next time a flight window is opened.
+    // Applies a Legacy / Simple / Card / Strip choice and lets the user know it
+    // takes effect the next time a flight window is opened.
     setFlightWindowMode(mode) {
         if (!window.mapFilters) return;
         if (typeof window.setFlightWindowMode === 'function') {
@@ -1361,7 +1392,10 @@ export const MobileSettingsUI = {
             window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
             if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
         }
-        if (mode !== 'embed' && mode !== 'simple') {
+        // mobileDisplayMode is the older per-device store and only understands
+        // the two original looks; writing a framed mode's name into it makes
+        // the mobile chrome fall through to its default on the next load.
+        if (mode !== 'embed' && mode !== 'simple' && mode !== 'strip') {
             try { localStorage.setItem('mobileDisplayMode', mode); } catch (e) {}
         }
         if (window.showNotification) window.showNotification('Flight window mode updated — reopen the flight to apply.', 'info');
@@ -2379,6 +2413,14 @@ export const MobileSettingsUI = {
             this.resetTacticalFilters();
         });
 
+        // Notifications row — opens the shared notification settings panel.
+        sheet.querySelectorAll('.m-notifications-row').forEach(row => {
+            row.addEventListener('click', () => {
+                window.InflightHaptics?.select?.();
+                FlightNotifications.openSettings();
+            });
+        });
+
         // What's New row — opens the full changelog modal (changelog.js). The
         // modal overlays this sheet at a higher z-index and closes back to it.
         sheet.querySelectorAll('.m-whatsnew-row').forEach(row => {
@@ -2644,20 +2686,76 @@ export const MobileSettingsUI = {
     injectMobileStyles() {
         if (document.getElementById('mobile-settings-styles')) return;
         const css = `
+            /* One curve and two durations for the whole sheet, so the dim, the
+               panel and the sheet itself arrive together instead of three
+               things each finishing at their own moment.
+
+               On :root rather than on #mobile-settings-nexus because several of
+               the rules below style elements this sheet renders into other
+               hosts (the desktop settings modal reuses renderTacticalBoard and
+               renderAtcTagStudio), and a token that resolves in one host and
+               not the other silently drops the whole transition. */
+            :root {
+                --sheet-ease: cubic-bezier(0.22, 1, 0.36, 1);
+                --sheet-dur: 0.44s;
+                --tap-dur: 0.18s;
+            }
+
+            /* Somebody who has asked their device to stop animating things
+               means it here too: the sheet still opens and closes, it just
+               arrives rather than travels. */
+            @media (prefers-reduced-motion: reduce) {
+                #mobile-settings-nexus .mobile-bottom-sheet,
+                #mobile-settings-nexus .mobile-sheet-overlay,
+                #mobile-settings-nexus .m-panel.active {
+                    transition-duration: 0.01ms !important;
+                    animation-duration: 0.01ms !important;
+                }
+            }
+
             @media (max-width: 768px) {
                 #mobile-settings-nexus .mobile-sheet-overlay {
                     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-                    backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: 0.3s; z-index: 6000;
+                    backdrop-filter: blur(4px); opacity: 0; visibility: hidden;
+                    /* Was a bare "transition: 0.3s", which animates EVERY
+                       animatable property — backdrop-filter included, and
+                       transitioning a blur radius costs a full-screen re-blur
+                       per frame behind a sheet that is already compositing.
+                       Only the fade needs animating; visibility is delayed to
+                       the end of it so the overlay stays hittable until the
+                       fade is actually over. */
+                    transition: opacity var(--sheet-dur) var(--sheet-ease),
+                                visibility 0s linear var(--sheet-dur);
+                    z-index: 6000;
                 }
-                #mobile-settings-nexus .mobile-sheet-overlay.visible { opacity: 1; visibility: visible; }
+                #mobile-settings-nexus .mobile-sheet-overlay.visible {
+                    opacity: 1; visibility: visible;
+                    transition: opacity var(--sheet-dur) var(--sheet-ease), visibility 0s;
+                }
 
                 #mobile-settings-nexus .mobile-bottom-sheet {
-                    position: fixed; bottom: -100%; left: 0; width: 100%; height: 82vh;
+                    position: fixed; bottom: 0; left: 0; width: 100%; height: 82vh;
                     background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.1);
-                    border-radius: 24px 24px 0 0; z-index: 6001; transition: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    border-radius: 24px 24px 0 0; z-index: 6001;
+                    /* This used to slide "bottom" from -100% to 0. That is a
+                       layout property: every frame re-ran layout for a
+                       full-height panel and paint for everything behind it, on
+                       the main thread, which is why opening settings stuttered
+                       while the map was busy. A transform is composited and
+                       costs the same whatever is underneath.
+
+                       It also settles an argument the code was having with
+                       itself: attachSwipeToDismiss drags the sheet by writing
+                       transform, so the drag and the open/close animation were
+                       moving the same panel through two different properties.
+                       Now they are the same one, and releasing a half-swipe
+                       springs back from exactly where the finger left it. */
+                    transform: translateY(100%);
+                    transition: transform var(--sheet-dur) var(--sheet-ease);
+                    will-change: transform;
                     display: flex; flex-direction: column; color: white; padding-bottom: env(safe-area-inset-bottom);
                 }
-                #mobile-settings-nexus .mobile-bottom-sheet.open { bottom: 0; }
+                #mobile-settings-nexus .mobile-bottom-sheet.open { transform: translateY(0); }
 
                 .sheet-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 12px auto 6px; }
                 .mobile-title { padding: 4px 20px 12px; font-size: 1.35rem; font-weight: 800; display: flex; align-items: center; gap: 12px; letter-spacing: -0.02em; }
@@ -2686,15 +2784,23 @@ export const MobileSettingsUI = {
                     flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
                     background: transparent; border: none; color: #71717a;
                     padding: 8px 2px; border-radius: 10px; font-size: 0.62rem; font-weight: 700;
-                    letter-spacing: 0.02em; transition: 0.2s; -webkit-tap-highlight-color: transparent;
+                    letter-spacing: 0.02em; -webkit-tap-highlight-color: transparent;
+                    transition: background var(--tap-dur) var(--sheet-ease),
+                                color var(--tap-dur) var(--sheet-ease),
+                                box-shadow var(--tap-dur) var(--sheet-ease);
                 }
                 .m-tab i { font-size: 0.95rem; }
                 .m-tab.active { background: #18181b; color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
                 .m-tab.active i { color: #38bdf8; }
 
-                .m-panel { display: none; padding-bottom: 24px; animation: mFade 0.25s ease; }
-                .m-panel.active { display: block; }
-                @keyframes mFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+                /* The entrance belongs on .active, not on the base class. On
+                   the base class it also ran for the four hidden panels every
+                   time the sheet opened — four elements animating behind
+                   display:none, and the visible one's fade racing the sheet's
+                   own slide. */
+                .m-panel { display: none; padding-bottom: 24px; }
+                .m-panel.active { display: block; animation: mFade 0.34s var(--sheet-ease) both; }
+                @keyframes mFade { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: none; } }
 
                 .mobile-section-header { padding: 16px 20px 8px; font-size: 0.7rem; font-weight: 900; color: #71717a; text-transform: uppercase; letter-spacing: 1px; }
                 .mobile-section-header.pro-accent { color: #fbbf24; display: flex; align-items: center; gap: 6px; }
@@ -2715,13 +2821,12 @@ export const MobileSettingsUI = {
                 .m-setting-pill.active { background: #38bdf8; color: black; border-color: #38bdf8; }
                 .m-setting-pill:active { transform: scale(0.96); }
                 .m-setting-hint { padding: 8px 20px 0; font-size: 0.74rem; line-height: 1.45; color: #71717a; }
-                /* Flight-window mode picker: stack the icon above the label so all
-                   three read as a clean segmented control that never overflows. */
+                /* Flight-window mode picker: stack the icon above the label so
+                   the four modes read as a clean 2x2 pad that never overflows. */
                 .m-fw-mode-grid .m-setting-pill { flex-direction: column; gap: 5px; padding: 11px 6px; }
                 .m-fw-mode-grid .m-setting-pill i { font-size: 1rem; opacity: 0.9; }
                 .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
                 .m-fw-mode-grid-2 { grid-template-columns: repeat(2, 1fr); }
-                .m-fw-mode-grid-3 { grid-template-columns: repeat(3, 1fr); }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {
@@ -2734,7 +2839,10 @@ export const MobileSettingsUI = {
                 .m-style-thumb {
                     position: relative; display: block; width: 100%; aspect-ratio: 16 / 10;
                     border-radius: 12px; border: 2px solid rgba(255,255,255,0.12);
-                    background-color: #18181b; overflow: hidden; transition: 0.2s;
+                    background-color: #18181b; overflow: hidden;
+                    transition: border-color var(--tap-dur) var(--sheet-ease),
+                                box-shadow var(--tap-dur) var(--sheet-ease),
+                                transform var(--tap-dur) var(--sheet-ease);
                 }
                 .m-style-card.active .m-style-thumb {
                     border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56,189,248,0.35);
@@ -2768,7 +2876,9 @@ export const MobileSettingsUI = {
                 .m-va-filter-row {
                     display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer;
                     padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03);
-                    border: 1px solid rgba(255,255,255,0.08); color: #e4e4e7; font: inherit; transition: 0.15s;
+                    border: 1px solid rgba(255,255,255,0.08); color: #e4e4e7; font: inherit;
+                    transition: background var(--tap-dur) var(--sheet-ease),
+                                border-color var(--tap-dur) var(--sheet-ease);
                 }
                 .m-va-filter-row.active { border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.12); }
                 .m-va-filter-logo { width: 30px; height: 30px; max-width: 30px; max-height: 30px; border-radius: 8px;
@@ -2786,7 +2896,9 @@ export const MobileSettingsUI = {
 
                 .m-setting-row {
                     display: flex; justify-content: space-between; align-items: center;
-                    background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px; transition: 0.2s;
+                    background: rgba(255,255,255,0.03); padding: 14px; border-radius: 14px;
+                    transition: background var(--tap-dur) var(--sheet-ease),
+                                opacity var(--tap-dur) var(--sheet-ease);
                 }
                 .m-row-left { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
                 .m-row-left i { color: #38bdf8; width: 16px; text-align: center; }
@@ -2874,7 +2986,17 @@ export const MobileSettingsUI = {
                     justify-content: center;
                 }
                 .m-label-plane { color: #38bdf8; font-size: 1.4rem; filter: drop-shadow(0 2px 6px rgba(56,189,248,0.5)); }
-                .m-label-preview { text-align: center; line-height: 1.35; font-weight: 600; transition: 0.2s; }
+                /* The one place a bare transition was nearly right: the live
+                   label preview really does re-tint and re-size as the designer
+                   is used. Spelled out so it animates the four things that
+                   change and not, say, its width as the sheet scrolls. */
+                .m-label-preview {
+                    text-align: center; line-height: 1.35; font-weight: 600;
+                    transition: color var(--tap-dur) var(--sheet-ease),
+                                font-size var(--tap-dur) var(--sheet-ease),
+                                text-shadow var(--tap-dur) var(--sheet-ease),
+                                opacity var(--tap-dur) var(--sheet-ease);
+                }
                 .m-label-preview .l-callsign { font-weight: 800; letter-spacing: 0.02em; }
                 .m-label-preview .l-sub { font-size: 0.82em; font-weight: 600; opacity: 0.95; }
                 .m-label-preview .m-label-logo {
@@ -2987,7 +3109,7 @@ export const MobileSettingsUI = {
                 .m-btn { width: 100%; padding: 16px; border-radius: 14px; font-weight: 700; border: none; font-size: 1rem; }
                 .m-primary { background: #38bdf8; color: #000; }
 
-                .m-legal-row, .m-whatsnew-row { cursor: pointer; }
+                .m-legal-row, .m-whatsnew-row, .m-notifications-row { cursor: pointer; }
                 .m-legal-row:active { background: rgba(255,255,255,0.07); }
                 .m-legal-chevron { color: #52525b; font-size: 0.85rem; }
 
@@ -3011,7 +3133,9 @@ export const MobileSettingsUI = {
                 .m-filter-reset {
                     background: rgba(255,255,255,0.06); border: none; color: #f87171;
                     font-size: 0.75rem; font-weight: 700; padding: 6px 12px; border-radius: 999px;
-                    opacity: 0; pointer-events: none; transition: 0.2s; -webkit-tap-highlight-color: transparent;
+                    opacity: 0; pointer-events: none; -webkit-tap-highlight-color: transparent;
+                    transition: opacity var(--tap-dur) var(--sheet-ease),
+                                transform var(--tap-dur) var(--sheet-ease);
                 }
                 .m-filter-reset.visible { opacity: 1; pointer-events: auto; }
                 .m-filter-reset i { margin-right: 4px; }
