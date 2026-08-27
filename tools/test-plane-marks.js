@@ -204,7 +204,66 @@ function categoriesFromFlightJs() {
 
     const flightSrc = fs.readFileSync(path.join(ROOT, 'flight.js'), 'utf8');
     ok('the mark set is the default',
-        /function getIconSet\(\)[\s\S]{0,200}?\|\|\s*'marks'/.test(flightSrc));
+        /function getIconSet\(\)[\s\S]{0,400}?\|\|\s*'marks'/.test(flightSrc));
+
+    /* ---- everybody is moved onto it, not just new visitors ---- */
+    // The set is a saved preference, so a new default reaches only the people
+    // who never opened the setting. Without the migration the phone and the
+    // website go on disagreeing for everyone else, which is the whole thing
+    // the mark set exists to stop.
+    // Asserted as "exactly one, and it is marks" rather than "marks appears
+    // somewhere". mapFilters is one long object literal and it already carried
+    // an `iconSet` further down — a second key silently wins, which is how the
+    // default came to be `shapes` while getIconSet()'s `|| 'marks'` fallback sat
+    // there looking authoritative and never once firing.
+    const iconSetDefaults = flightSrc.match(/^\s*iconSet:\s*'([a-z]+)',/gm) || [];
+    ok('mapFilters declares its icon set exactly once',
+        iconSetDefaults.length === 1,
+        `found ${iconSetDefaults.length}: ${iconSetDefaults.map(d => d.trim()).join(' ')}`);
+
+    ok('the saved default is the mark set',
+        iconSetDefaults.length === 1 && /'marks'/.test(iconSetDefaults[0]),
+        'mapFilters needs iconSet as a real default, or the settings pills have '
+        + 'nothing to highlight and getIconSet() never reaches its fallback');
+
+    ok('a one-time migration moves saved profiles onto it',
+        /const ICON_SET_VERSION\s*=\s*(\d+)/.test(flightSrc)
+        && /const DEFAULT_ICON_SET\s*=\s*'marks'/.test(flightSrc)
+        && /function migrateIconSet\(\)/.test(flightSrc));
+
+    ok('the migration is stamped rather than forced every launch',
+        /mapFilters\.iconSetVersion\s*\|\|\s*0\)\s*>=\s*ICON_SET_VERSION\)\s*return/.test(flightSrc),
+        'without the stamp somebody who deliberately picks another set is '
+        + 'dragged back to this one on every visit');
+
+    ok('it runs after the cloud copy lands, not only after localStorage',
+        (flightSrc.match(/migrateIconSet\(\);/g) || []).length >= 2,
+        'a Pro pilot\'s cloud settings overwrite both the set and the stamp, so '
+        + 'the migration has to run again on that path or the old set comes back');
+
+    /* ---- the opened aircraft ---- */
+    // Selection on iOS is a colour the mark is redrawn in. On the web the layer
+    // for it existed and its filter was never set, so tapping a plane changed
+    // nothing about how it looked.
+    ok('an opened aircraft is marked on the map',
+        /function markSelectedAircraft\(/.test(flightSrc)
+        && /setFilter\(\s*\n?\s*'sector-ops-live-flights-hover-layer'/.test(flightSrc),
+        'the selected layer draws nothing until something sets its filter');
+
+    ok('it is marked when a flight window opens and unmarked when it closes',
+        (flightSrc.match(/markSelectedAircraft\(null\)/g) || []).length >= 2
+        && /currentFlightInWindow = flightProps\.flightId;\s*\n\s*markSelectedAircraft\(/.test(flightSrc),
+        'every place currentFlightInWindow changes has to say so, or the amber '
+        + 'aeroplane is left on the last one you looked at');
+
+    ok('the selected colour is the one the iOS app paints a tapped aircraft',
+        /const SELECTED_AIRCRAFT_COLOR\s*=\s*'#ff9e0a'/i.test(flightSrc),
+        'PlaneSprites.Palette.selected is UIColor(red: 1.00, green: 0.62, blue: 0.04)');
+
+    ok('the palette does not get a vote on the opened aircraft',
+        !/hover-layer',\s*'icon-color',\s*colorExpr/.test(flightSrc),
+        'painting the selected layer with the traffic expression is what made '
+        + 'selecting a plane invisible in the first place');
 
     ok('the mark loader runs before the sheet rather than instead of it',
         !/registerPlaneMarkIcons[\s\S]{0,400}?\n\s*return;/.test(flightSrc),

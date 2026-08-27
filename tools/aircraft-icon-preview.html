@@ -64,6 +64,10 @@
 <div class="grid light" id="nat"></div>
 <div class="grid sat" id="natsat"></div>
 
+<h2>The opened aircraft</h2>
+<p class="note">What a tap does: the <code>_S</code> silhouette tinted amber over the natural sprite, so the body recolours and the dark rim stays — the same treatment the iOS app gives a selected mark. Shown over the three grounds it has to read on.</p>
+<div class="grid" id="sel"></div>
+
 <h2>All four sets, same size</h2>
 <p class="note">Left to right in each group: <b>marks</b> (default) &middot; shapes &middot; vector &middot; classic sheet.</p>
 <div class="grid" id="cmp"></div>
@@ -169,6 +173,39 @@ function section(title, draw) {
 
 section('Vendored planforms — 56px', n => shapeCanvas(n, 56, false));
 section('App marks (the default) — 56px', n => markCanvas(n, 56, false));
+
+// The opened aircraft, drawn the way the map draws it: the natural sprite, and
+// the tinted silhouette over the top. Keep this colour in step with
+// SELECTED_AIRCRAFT_COLOR in flight.js.
+const SELECTED = '#ff9e0a';
+const selHost = document.getElementById('sel');
+for (const [ground, bg] of [['dark', '#1b2430'], ['light', '#e7ecf1'], ['satellite', '#4a5a3e']]) {
+  for (const n of ['B737', 'A380', 'SINGLEPROP']) {
+    for (const open of [false, true]) {
+      const px = 56;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = `position:relative;width:${px}px;height:${px}px;background:${bg};border-radius:8px`;
+      const nat = markCanvas(n, px, true);
+      if (nat) { nat.style.position = 'absolute'; wrap.appendChild(nat); }
+      if (open) {
+        const data = markImages.get('icon-' + n + '_S');
+        if (data) {
+          const off = document.createElement('canvas');
+          off.width = data.width; off.height = data.height;
+          off.getContext('2d').putImageData(data, 0, 0);
+          const { c, g } = canvasFor(px);
+          g.drawImage(off, 0, 0, px, px);
+          g.globalCompositeOperation = 'source-in';
+          g.fillStyle = SELECTED;
+          g.fillRect(0, 0, px, px);
+          c.style.position = 'absolute';
+          wrap.appendChild(c);
+        }
+      }
+      selHost.appendChild(cell(wrap, `${n}${open ? ' · open' : ''} — ${ground}`));
+    }
+  }
+}
 
 // The classic sheet, sliced exactly as flight.js slices it.
 const uvSrc = await (await fetch('../embed-sprites.js')).text();

@@ -47,6 +47,25 @@ Chinook — and widening `_resolveAircraftCategory()` to reach it is a real
 change with a texture-budget cost, not a regeneration. `tools/test-plane-marks.js`
 fails if the resolver and the generated data ever disagree.
 
+### Everybody, not just new visitors
+
+`iconSet` is a saved preference, so changing the default only ever reaches
+people who never opened the setting — and by now the default has changed twice,
+so most saved profiles carry an explicit older value. For them the phone and the
+website went on drawing the same aircraft two different ways, which is the whole
+thing the mark set exists to stop.
+
+`migrateIconSet()` in `flight.js` moves every saved profile across once,
+whatever it had. It is stamped with `iconSetVersion` rather than forced on every
+launch, so it is a migration and not a policy: read the setting afterwards, pick
+the classic sheet deliberately, and it stays picked. Only a bump of
+`ICON_SET_VERSION` moves anyone again.
+
+It runs twice on the load path — once after the localStorage merge and again
+after the cloud copy lands — because a Pro pilot's cloud settings overwrite both
+the set *and* the stamp that says the migration ran. Miss the second call and
+the old set comes back down on the next device they open.
+
 **`shapes`** — the vendored planform set, the default until August 2026. See
 "The decision" below; the artwork is GPL-3.0 and that was accepted deliberately.
 Kept because the artwork is genuinely good and per-type.
@@ -167,6 +186,30 @@ From evaluating the set — kept because they are not obvious from the files:
   than tabulated. A baked table is one more thing that can quietly disagree with
   the artwork it describes, and sixteen measurements cost a few milliseconds.
 
+## The aircraft you have opened
+
+On iOS, tapping an aircraft repaints its mark amber — `PlaneSprites.Palette.selected`,
+`UIColor(red: 1.00, green: 0.62, blue: 0.04)` — leaving the outline alone, so a
+recoloured aeroplane still reads against a dark map.
+
+On the web that tap used to change nothing. The layer for it
+(`sector-ops-live-flights-hover-layer`) has existed all along, registered against
+the `icon-<KEY>_S` sprites every set carries — and its filter was never once set,
+so it never drew anything. Worse, it was painted with the ordinary traffic colour
+expression, so even if it had drawn, the opened aeroplane would have been the
+same colour as every other one.
+
+Both are fixed. `markSelectedAircraft()` sets the filter wherever
+`currentFlightInWindow` changes, and the layer paints
+`SELECTED_AIRCRAFT_COLOR` — the same amber, kept in step with the app by name
+and by a test. The layer sits above both traffic layers, so the opened aircraft
+is drawn twice: the natural sprite underneath keeps its dark rim and this covers
+the body, which is the iOS treatment arrived at from the other direction. The
+layer keeps its old `hover` name; nothing else about it is about hovering.
+
+`tools/aircraft-icon-preview.html` draws the opened treatment over dark, light
+and satellite grounds.
+
 ## Licences
 
 Four sets, four positions:
@@ -184,7 +227,8 @@ their own notices are still present, so a refactor cannot quietly drop one.
 ## Turning any of this off
 
 `mapFilters.iconSet` selects the set — `marks` (default), `shapes`, `vector`,
-or `classic` — and Settings → **Aircraft Icon Set** exposes all four.
+or `classic` — and Settings → **Aircraft Icon Set** exposes all four. A choice
+made there survives: the migration above is stamped and will not overwrite it.
 `loadSpriteSheetAndGenerateIcons()` branches on it and falls back to
 `markers.png` on its own if a set throws.
 
