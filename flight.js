@@ -185,20 +185,29 @@ function getIconEdgeMode() {
 }
 
 // Which artwork the aircraft icons come from.
-// 'shapes'  -> the vendored top-view planforms (aircraftShapes.js) — the default
+// 'marks'   -> the iOS app's own marks (planeMarks.js) — the default
+// 'shapes'  -> the vendored top-view planforms (aircraftShapes.js)
 // 'vector'  -> hand-authored parametric shapes (aircraftIcons.js)
 // 'classic' -> markers.png alone, the original sheet
 //
 // The sheet is 1024×512 for about sixty aircraft, which puts a B737 at 32×32
 // physical pixels while declaring it 128 logical pixels wide — so on a retina
-// phone every plane on the map is a 2× upscale of a small bitmap. Both other
-// sets are vectors and have no fixed resolution to run out of.
+// phone every plane on the map is a 2× upscale of a small bitmap. All three
+// other sets are vectors and have no fixed resolution to run out of.
 //
-// Note that 'shapes' does not replace the sheet, it layers over it: only the
-// sixteen categories _resolveAircraftCategory() can return get a planform, and
+// 'marks' is the default because the phone and the website should not draw the
+// same aeroplane as two different shapes — these are the app's own drawings,
+// carried over as path data. See docs/AIRCRAFT-ICONS.md.
+//
+// Being the default is not enough on its own: this is a saved preference, so a
+// new default only reaches people who never opened the setting. migrateIconSet()
+// is what moves everybody else across, once.
+//
+// None of the vector sets replaces the sheet, they layer over it: only the
+// sixteen categories _resolveAircraftCategory() can return get a drawing, and
 // the sheet still supplies the airport markers and everything else.
 function getIconSet() {
-    return (window.mapFilters && window.mapFilters.iconSet) || 'shapes';
+    return (window.mapFilters && window.mapFilters.iconSet) || 'marks';
 }
 
 async function loadSpriteSheetAndGenerateIcons(map) {
@@ -211,13 +220,25 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     const makeSdf = (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d'));
     const yieldFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
 
-    // Both vector sets register under the same `icon-<KEY>` ids the sheet uses
-    // and run BEFORE it. The sheet's own loader guards every addImage with
+    // Every vector set registers under the same `icon-<KEY>` ids the sheet uses
+    // and runs BEFORE it. The sheet's own loader guards every addImage with
     // hasImage(), so whatever a vector set already claimed is left alone and
     // the sheet quietly supplies the rest — the airport markers above all,
-    // which no aircraft set has. A failure in either one is therefore not
+    // which no aircraft set has. A failure in any of them is therefore not
     // fatal: the sheet fills the gap.
-    if (iconSet === 'shapes') {
+    if (iconSet === 'marks') {
+        try {
+            const { registerPlaneMarkIcons } = await import('./planeMarks.js');
+            await registerPlaneMarkIcons(map, {
+                toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame,
+                // The spread buildSdfImageData adds on every side, so the mark
+                // loader can keep all its variants the same size.
+                sdfPadding: SDF_RADIUS
+            });
+        } catch (e) {
+            console.warn('[icons] Aircraft mark set failed, falling back to markers.png:', e);
+        }
+    } else if (iconSet === 'shapes') {
         try {
             const { registerAircraftShapeIcons } = await import('./aircraftShapes.js');
             await registerAircraftShapeIcons(map, {
@@ -406,9 +427,48 @@ function getNaturalIconImageExpression() {
     return ['case', planeNeedsTintExpr(), '', nat];     // white mode: bulk only
 }
 
+// The aeroplane whose window is open, and the colour it draws in.
+//
+// The same amber the iOS app paints a tapped aircraft (1.00, 0.62, 0.04). The
+// two draw the same fleet from the same artwork now, so "which one am I looking
+// at" should not be a different answer on a phone than on a laptop.
+//
+// One flat colour rather than an expression: this is the answer to a question
+// the palette does not get a vote on. A watchlist pilot's plane is purple until
+// you open it, and then it is the open one.
+const SELECTED_AIRCRAFT_COLOR = '#ff9e0a';
+
+// The `_S` sprite, which every icon set registers alongside its plain one. It
+// is the same drawing — it is the tint that says "this is the one you opened",
+// exactly as on iOS, where selection is a colour the mark is redrawn in rather
+// than a second piece of artwork.
 function getHoverIconImageExpression() {
     return ['concat', 'icon-', ['coalesce', ['get', 'category'], 'B777'], '_S'];
 }
+
+// Draw one aeroplane as the opened one, or none.
+//
+// The layer this drives has always existed — it was added for a hover
+// highlight, keeps that name, and its filter was never once set, so it has
+// never drawn anything. Tapping a plane on the web therefore changed nothing
+// about how it looked, while the same tap on iOS repaints the mark amber. This
+// is that, and it is the layer that was already there for it.
+//
+// It sits above both traffic layers, so the opened aircraft is drawn twice: the
+// natural sprite underneath keeps its dark rim, and this covers the body. That
+// is the iOS treatment as well — `PlaneSprites` recolours the body and leaves
+// the outline alone, so a dark aeroplane still reads against a dark map.
+function markSelectedAircraft(flightId) {
+    if (typeof sectorOpsMap === 'undefined' || !sectorOpsMap) return;
+    if (!sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) return;
+    try {
+        sectorOpsMap.setFilter(
+            'sector-ops-live-flights-hover-layer',
+            ['==', 'flightId', flightId || '']
+        );
+    } catch (_) { /* style swapped out from under us; the rebuild re-applies */ }
+}
+window.markSelectedAircraft = markSelectedAircraft;
 
 /**
  * Publishes boot progress for the splash screen in index.html.
@@ -1281,7 +1341,11 @@ let mapFilters = {
         // 'legacy' -> the previous behaviour (raw sprite handed to Mapbox with
         //             sdf:true), kept switchable for side-by-side comparison
         iconEdgeMode: 'sharp',
-        iconSet: 'shapes',
+        // Which artwork the aircraft icons come from — see getIconSet() for
+        // what each value means, and migrateIconSet() for why the version
+        // number beside it exists.
+        iconSet: 'marks',
+        iconSetVersion: 0,
         proCustomColor: '#38bdf8',
         userPlaneColor: '#f97316',     // Orange — color of the logged-in pilot's own plane
         friendPlaneColor: '#c084fc',   // Purple — color of pilots on the watchlist
@@ -1707,7 +1771,12 @@ function applyAircraftLayerStyles() {
     }
     if (sectorOpsMap.getLayer('sector-ops-live-flights-hover-layer')) {
         sectorOpsMap.setLayoutProperty('sector-ops-live-flights-hover-layer', 'icon-image', getHoverIconImageExpression());
-        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', colorExpr);
+        // Not `colorExpr`. The opened aircraft is the one thing on the map that
+        // is not answering the palette — it is answering "you tapped this one".
+        sectorOpsMap.setPaintProperty('sector-ops-live-flights-hover-layer', 'icon-color', SELECTED_AIRCRAFT_COLOR);
+        // A style change rebuilds the layer with an empty filter, so whatever
+        // is open has to be re-marked here rather than only on the tap.
+        markSelectedAircraft(typeof currentFlightInWindow !== 'undefined' ? currentFlightInWindow : null);
     }
 
     // Anything else drawing traffic on this map needs to restyle at the same
@@ -1868,6 +1937,45 @@ window.getPilotRelation = function (username) {
         if (document.visibilityState === 'hidden') flushPendingCloudSync();
     });
 
+    // Everybody draws the same aeroplanes.
+    //
+    // `iconSet` is a saved preference, so making `marks` the default only ever
+    // reached people who had never opened the setting. Everyone else kept
+    // whichever set was the default the day they last looked — which is most
+    // people, since the default has now changed twice — and for them the phone
+    // and the website went on drawing the same aircraft two different ways,
+    // which is the whole thing the mark set was brought over to stop.
+    //
+    // So this moves every saved profile onto the current set, once, whatever
+    // they had. Stamped with a version rather than forced on every launch,
+    // because it is a migration and not a policy: somebody who reads the
+    // setting afterwards and deliberately picks the classic sheet keeps it, and
+    // only a bump of the number below ever moves them again.
+    const ICON_SET_VERSION = 1;
+    const DEFAULT_ICON_SET = 'marks';
+
+    function migrateIconSet() {
+        if ((mapFilters.iconSetVersion || 0) >= ICON_SET_VERSION) return;
+
+        const previous = mapFilters.iconSet;
+        mapFilters.iconSet = DEFAULT_ICON_SET;
+        mapFilters.iconSetVersion = ICON_SET_VERSION;
+
+        // Written back straight away, and that is the point of the write: the
+        // stamp is what stops this running again next launch. For a Pro pilot
+        // it also has to reach the cloud copy, or the old set comes back down
+        // on the next device they open.
+        saveFiltersToLocalStorage();
+
+        // The first call runs before there is a map, where the loader simply
+        // reads the new value. The cloud pass can land after it, and only then
+        // is there anything drawn to repaint. `reloadAircraftIcons` no-ops
+        // without a map, so this is safe either way.
+        if (previous !== DEFAULT_ICON_SET && typeof window.reloadAircraftIcons === 'function') {
+            window.reloadAircraftIcons();
+        }
+    }
+
     async function loadFiltersFromLocalStorage() {
         // 1. Instant Local Paint
         const savedFilters = localStorage.getItem('mapFilters');
@@ -1885,6 +1993,8 @@ window.getPilotRelation = function (username) {
                 console.warn("Local storage parse failed.", e);
             }
         }
+
+        migrateIconSet();
 
         // 2. Seamless Background Cloud Reconciliation
         try {
@@ -1911,6 +2021,10 @@ window.getPilotRelation = function (username) {
                         localStorage.setItem('mapFilters', cloudJson);
                         applyFreeMapConstraints();
                         applyMapStyleMapping();
+                        // After that write, not before: the cloud copy can be
+                        // older than the migration, and it has just overwritten
+                        // both the setting and the stamp that says it ran.
+                        migrateIconSet();
                         
                         // Force Mapbox and UI to visually update seamlessly
                         if (typeof updateMapFilters === 'function') {
@@ -16685,9 +16799,14 @@ function initializeAircraftLayer() {
                     'icon-rotate': ['get', 'heading']
                 },
                 'paint': {
-                    'icon-color': getPremiumColorExpression()
+                    'icon-color': SELECTED_AIRCRAFT_COLOR
                 }
             });
+
+            // Whatever is already open when the layers are (re)built — a style
+            // switch, a return from playback — is marked straight away rather
+            // than waiting for the next tap.
+            markSelectedAircraft(currentFlightInWindow);
 
             // Bootstrap pilot-relation colors. Covers the case where flight
             // features were already cached (or where ProfileUI populated
@@ -22102,6 +22221,7 @@ function closeAircraftWindow() {
 
     // CRITICAL FIX: Reset state
     currentFlightInWindow = null; 
+    markSelectedAircraft(null);
     currentAircraftPositionForGeocode = null;
     resetPfdState();
 
@@ -22181,6 +22301,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 
     currentFlightInWindow = flightProps.flightId;
+    markSelectedAircraft(currentFlightInWindow);
     currentAircraftPositionForGeocode = flightProps.position;
 
     if (window.MobileUIHandler && window.MobileUIHandler.isMobile()) {
@@ -22933,6 +23054,7 @@ function closeAircraftWindow() {
 
     // CRITICAL FIX: Reset state
     currentFlightInWindow = null; 
+    markSelectedAircraft(null);
     currentAircraftPositionForGeocode = null;
     resetPfdState();
 

@@ -14,9 +14,10 @@
   — a file:// URL will not work, because the page imports ES modules and fetches
   the vendored SVGs.
 
-  Three sets are shown: `shapes` (the vendored planforms, the default), `vector`
-  (hand-drawn, aircraftIcons.js) and `classic` (markers.png). Settings →
-  Aircraft Icon Set switches between them at any time.
+  Four sets are shown: `marks` (the iOS app's own drawings, and the default),
+  `shapes` (the vendored planforms), `vector` (hand-drawn, aircraftIcons.js) and
+  `classic` (markers.png). Settings → Aircraft Icon Set switches between them at
+  any time.
 -->
 <html lang="en">
 <head>
@@ -63,8 +64,12 @@
 <div class="grid light" id="nat"></div>
 <div class="grid sat" id="natsat"></div>
 
-<h2>All three sets, same size</h2>
-<p class="note">Left to right in each group: <b>shapes</b> (default) &middot; vector &middot; classic sheet.</p>
+<h2>The opened aircraft</h2>
+<p class="note">What a tap does: the <code>_S</code> silhouette tinted amber over the natural sprite, so the body recolours and the dark rim stays — the same treatment the iOS app gives a selected mark. Shown over the three grounds it has to read on.</p>
+<div class="grid" id="sel"></div>
+
+<h2>All four sets, same size</h2>
+<p class="note">Left to right in each group: <b>marks</b> (default) &middot; shapes &middot; vector &middot; classic sheet.</p>
 <div class="grid" id="cmp"></div>
 
 <script type="module">
@@ -105,28 +110,23 @@ drawSet('small', 20, false, '#e8eef7');
 drawSet('nat', 28, true, '#ffffff');
 drawSet('natsat', 28, true, '#ffffff');
 
-// The vendored planform set, through its own loader.
-const shapeImages = new Map();
-try {
-  const { registerAircraftShapeIcons } = await import('../aircraftShapes.js');
-  const collector = {
-    hasImage: id => shapeImages.has(id),
-    addImage: (id, data) => shapeImages.set(id, data)
-  };
-  await registerAircraftShapeIcons(collector, { sharp: false });
-} catch (e) {
-  console.warn('shape set unavailable:', e);
+// One set's images, pulled out of its loader by handing it something that
+// looks enough like a map to record what it registers.
+function collector(images) {
+  return { hasImage: id => images.has(id), addImage: (id, data) => images.set(id, data) };
 }
 
-function shapeCanvas(key, px, natural) {
-  const data = shapeImages.get('icon-' + key + (natural ? '-nat' : ''));
+// Paint one registered image at `px`, tinting the SDF mask the way the map
+// would. Shared by both of the loader-driven sets below.
+function paintRegistered(images, key, px, natural) {
+  const data = images.get('icon-' + key + (natural ? '-nat' : ''));
   if (!data) return null;
   const off = document.createElement('canvas');
   off.width = data.width; off.height = data.height;
   off.getContext('2d').putImageData(data, 0, 0);
   const { c, g } = canvasFor(px);
   g.drawImage(off, 0, 0, px, px);
-  if (!natural) {           // tint the mask the way the map would
+  if (!natural) {
     g.globalCompositeOperation = 'source-in';
     g.fillStyle = '#e8eef7';
     g.fillRect(0, 0, px, px);
@@ -134,15 +134,77 @@ function shapeCanvas(key, px, natural) {
   return c;
 }
 
-const shapesHost = document.createElement('div');
-shapesHost.className = 'grid';
-const shapesHead = document.createElement('h2');
-shapesHead.textContent = 'Vendored planforms (the default) — 56px';
-document.querySelector('header').after(shapesHost);
-document.querySelector('header').after(shapesHead);
-for (const n of names) {
-  const c = shapeCanvas(n, 56, false);
-  if (c) shapesHost.appendChild(cell(c, n));
+// The app's own marks, through their own loader.
+const markImages = new Map();
+try {
+  const { registerPlaneMarkIcons } = await import('../planeMarks.js');
+  await registerPlaneMarkIcons(collector(markImages), { sharp: false });
+} catch (e) {
+  console.warn('mark set unavailable:', e);
+}
+
+const markCanvas = (key, px, natural) => paintRegistered(markImages, key, px, natural);
+
+// The vendored planform set, through its own loader.
+const shapeImages = new Map();
+try {
+  const { registerAircraftShapeIcons } = await import('../aircraftShapes.js');
+  await registerAircraftShapeIcons(collector(shapeImages), { sharp: false });
+} catch (e) {
+  console.warn('shape set unavailable:', e);
+}
+
+const shapeCanvas = (key, px, natural) => paintRegistered(shapeImages, key, px, natural);
+
+// Newest first, so the two loader-driven sets sit at the top of the page in the
+// order the settings offer them.
+function section(title, draw) {
+  const host = document.createElement('div');
+  host.className = 'grid';
+  const head = document.createElement('h2');
+  head.textContent = title;
+  document.querySelector('header').after(host);
+  document.querySelector('header').after(head);
+  for (const n of names) {
+    const c = draw(n);
+    if (c) host.appendChild(cell(c, n));
+  }
+}
+
+section('Vendored planforms — 56px', n => shapeCanvas(n, 56, false));
+section('App marks (the default) — 56px', n => markCanvas(n, 56, false));
+
+// The opened aircraft, drawn the way the map draws it: the natural sprite, and
+// the tinted silhouette over the top. Keep this colour in step with
+// SELECTED_AIRCRAFT_COLOR in flight.js.
+const SELECTED = '#ff9e0a';
+const selHost = document.getElementById('sel');
+for (const [ground, bg] of [['dark', '#1b2430'], ['light', '#e7ecf1'], ['satellite', '#4a5a3e']]) {
+  for (const n of ['B737', 'A380', 'SINGLEPROP']) {
+    for (const open of [false, true]) {
+      const px = 56;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = `position:relative;width:${px}px;height:${px}px;background:${bg};border-radius:8px`;
+      const nat = markCanvas(n, px, true);
+      if (nat) { nat.style.position = 'absolute'; wrap.appendChild(nat); }
+      if (open) {
+        const data = markImages.get('icon-' + n + '_S');
+        if (data) {
+          const off = document.createElement('canvas');
+          off.width = data.width; off.height = data.height;
+          off.getContext('2d').putImageData(data, 0, 0);
+          const { c, g } = canvasFor(px);
+          g.drawImage(off, 0, 0, px, px);
+          g.globalCompositeOperation = 'source-in';
+          g.fillStyle = SELECTED;
+          g.fillRect(0, 0, px, px);
+          c.style.position = 'absolute';
+          wrap.appendChild(c);
+        }
+      }
+      selHost.appendChild(cell(wrap, `${n}${open ? ' · open' : ''} — ${ground}`));
+    }
+  }
 }
 
 // The classic sheet, sliced exactly as flight.js slices it.
@@ -156,6 +218,9 @@ const cmp = document.getElementById('cmp');
 for (const n of names) {
   const pair = document.createElement('div'); pair.className = 'pair';
   const px = 24;
+
+  const marked = markCanvas(n, px, false);
+  if (marked) pair.appendChild(marked);
 
   const shaped = shapeCanvas(n, px, false);
   if (shaped) pair.appendChild(shaped);
