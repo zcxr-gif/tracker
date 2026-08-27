@@ -13,20 +13,55 @@ rendering care fixes it — the detail was never in the file.
 
 ## What ships now
 
-**`shapes`** — the vendored planform set, and the default. See "The decision"
-below; the artwork is GPL-3.0 and that was accepted deliberately.
+**`marks`** — the marks the Inflight iOS app draws, and the default since
+August 2026.
 
-Only the sixteen categories `_resolveAircraftCategory()` can return get a
-planform. It layers *over* `markers.png` rather than replacing it: the shape
-loader runs first and the sheet's own `hasImage()` guards leave those alone,
-then the sheet supplies the airport markers and everything else. A failure
-anywhere in the shape path is therefore not fatal — the sheet fills the gap.
+The app and the website should not draw the same aeroplane as two different
+shapes, and the map is the thing people look at hardest in both. So these are
+the app's own drawings, carried over as path data rather than redrawn:
+`tools/gen-plane-marks.js` reads `PlaneArtwork.swift`, `PlaneMarks.swift` and
+`PlaneSprites.swift` out of an Inflight-IOS checkout and writes
+`planeMarks.data.js`, which is committed. Serving the site needs no iOS
+checkout; changing the artwork means re-running the generator and committing
+the result.
+
+What the set says that neither of the others does is engine count, jets against
+props, and a size that tracks the real aircraft: a 747 has four engines under
+its wings in the drawing, and an A380 is a different and bigger drawing again.
+At fifteen pixels that is most of what an icon can usefully tell you. What it
+gives up is a distinct outline per airliner variant — an A320 and a 737 are
+both `medium2jet` — which is a distinction that does not survive twenty pixels
+on a map anyway.
+
+The artwork is Virtual Radar Server's markers (**BSD 3-Clause**) plus the
+community pack written to extend them (**CC0 1.0**). Both notices travel in the
+generated file's header and in the public Terms; see "Licences" below. That is
+not why it was adopted, but it is a relief — the planform set it replaced as
+the default is GPL-3.0, with an open question attached.
+
+Only the sixteen categories `_resolveAircraftCategory()` can return are
+generated, for the same reason the planform set only loads sixteen: nothing
+else ever reaches `icon-<KEY>`, and the icons that are registered are what
+fills the atlas. The app's own table is much larger — it tells an Apache from a
+Chinook — and widening `_resolveAircraftCategory()` to reach it is a real
+change with a texture-budget cost, not a regeneration. `tools/test-plane-marks.js`
+fails if the resolver and the generated data ever disagree.
+
+**`shapes`** — the vendored planform set, the default until August 2026. See
+"The decision" below; the artwork is GPL-3.0 and that was accepted deliberately.
+Kept because the artwork is genuinely good and per-type.
+
+Both layer *over* `markers.png` rather than replacing it: the set's loader runs
+first and the sheet's own `hasImage()` guards leave those alone, then the sheet
+supplies the airport markers and everything else. A failure anywhere in a
+vector path is therefore not fatal — the sheet fills the gap.
 
 Rasterised at load into a canvas sized for the device, ~235 ms for 48 images
-(16 shapes × silhouette, selected, natural) on a desktop browser. The shapes
-are drawn to true relative scale — an A388 really is seven times a C172 — which
-is compressed with a power curve to about 2:1 so the size cue survives without
-half the fleet becoming invisible.
+(16 drawings × silhouette, selected, natural) on a desktop browser. The
+planforms are drawn to true relative scale — an A388 really is seven times a
+C172 — which is compressed with a power curve to about 2:1 so the size cue
+survives without half the fleet becoming invisible. The marks carry the app's
+own per-key scale table instead, which is the same compression done by hand.
 
 ## What else has been tried
 
@@ -42,7 +77,7 @@ convincing aircraft is a drawing problem, not a geometry problem — which is
 what sent this looking for an external set. Kept because it is the only option
 with no licence attached at all.
 
-`tools/aircraft-icon-preview.html` renders all three sets beside each other at
+`tools/aircraft-icon-preview.html` renders all four sets beside each other at
 map sizes.
 
 ### 2. External sets — surveyed August 2026
@@ -58,6 +93,25 @@ The pattern is consistent and worth stating plainly: **realistic per-type
 top-down aircraft artwork is a thing the ADS-B community built, and the ADS-B
 community licenses copyleft.** The permissive icon libraries have a plane
 glyph, not an aircraft set. There is no permissive equivalent to find.
+
+### 3. The iOS app's marks — adopted as the default, August 2026
+
+The survey above was run for the website alone, and its conclusion — that
+realistic per-type top-down artwork is a thing the ADS-B community built and
+licenses copyleft — was right about the *planform* sets. What it missed is that
+Virtual Radar Server's own markers, which are BSD, are a usable set in a
+different style: size-and-engine-count families rather than per-type outlines.
+The iOS app found them, extended them with the CC0 community pack, and has been
+drawing them since.
+
+Adopting them here was not primarily a licence decision. It was that two
+products in the same family were drawing the same aeroplane two different ways.
+The licences are the part that makes it comfortable rather than the part that
+made it happen.
+
+The VRSCustomMarkers row in the table above is worth reading with that in mind:
+it says there is no artwork in the repo, which was true of the file that was
+checked. The marks are in `MyMarkers1.html`.
 
 ## The decision — accepted GPL-3.0, August 2026
 
@@ -113,10 +167,24 @@ From evaluating the set — kept because they are not obvious from the files:
   than tabulated. A baked table is one more thing that can quietly disagree with
   the artwork it describes, and sixteen measurements cost a few milliseconds.
 
+## Licences
+
+Four sets, four positions:
+
+| Set | Artwork | Licence | What that obliges |
+|---|---|---|---|
+| `marks` | Virtual Radar Server markers | BSD 3-Clause | the copyright notice, the conditions and the disclaimer must reach whoever receives the icons — which for a rasterised icon on a web map is the binary-form clause. They are in `planeMarks.data.js` and in the public Terms. |
+| `marks` | VRSCustomMarkers (rikgale, shish0r) | CC0 1.0 | nothing. Credited anyway. |
+| `shapes` | AircraftShapesSVG (RexKramer1, amnesica) | GPL-3.0 | see "The decision" below — the source form is served, the licence text travels with it, and whether the copyleft reaches the rest of the app is still open. |
+| `vector` | ours | — | nothing. |
+
+`tools/test-plane-marks.js` and `tools/test-aircraft-shapes.js` each assert
+their own notices are still present, so a refactor cannot quietly drop one.
+
 ## Turning any of this off
 
-`mapFilters.iconSet` selects the set — `shapes` (default), `vector`, or
-`classic` — and Settings → **Aircraft Icon Set** exposes all three.
+`mapFilters.iconSet` selects the set — `marks` (default), `shapes`, `vector`,
+or `classic` — and Settings → **Aircraft Icon Set** exposes all four.
 `loadSpriteSheetAndGenerateIcons()` branches on it and falls back to
 `markers.png` on its own if a set throws.
 

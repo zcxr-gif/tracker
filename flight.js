@@ -185,20 +185,25 @@ function getIconEdgeMode() {
 }
 
 // Which artwork the aircraft icons come from.
-// 'shapes'  -> the vendored top-view planforms (aircraftShapes.js) — the default
+// 'marks'   -> the iOS app's own marks (planeMarks.js) — the default
+// 'shapes'  -> the vendored top-view planforms (aircraftShapes.js)
 // 'vector'  -> hand-authored parametric shapes (aircraftIcons.js)
 // 'classic' -> markers.png alone, the original sheet
 //
 // The sheet is 1024×512 for about sixty aircraft, which puts a B737 at 32×32
 // physical pixels while declaring it 128 logical pixels wide — so on a retina
-// phone every plane on the map is a 2× upscale of a small bitmap. Both other
-// sets are vectors and have no fixed resolution to run out of.
+// phone every plane on the map is a 2× upscale of a small bitmap. All three
+// other sets are vectors and have no fixed resolution to run out of.
 //
-// Note that 'shapes' does not replace the sheet, it layers over it: only the
-// sixteen categories _resolveAircraftCategory() can return get a planform, and
+// 'marks' is the default because the phone and the website should not draw the
+// same aeroplane as two different shapes — these are the app's own drawings,
+// carried over as path data. See docs/AIRCRAFT-ICONS.md.
+//
+// None of the vector sets replaces the sheet, they layer over it: only the
+// sixteen categories _resolveAircraftCategory() can return get a drawing, and
 // the sheet still supplies the airport markers and everything else.
 function getIconSet() {
-    return (window.mapFilters && window.mapFilters.iconSet) || 'shapes';
+    return (window.mapFilters && window.mapFilters.iconSet) || 'marks';
 }
 
 async function loadSpriteSheetAndGenerateIcons(map) {
@@ -211,13 +216,25 @@ async function loadSpriteSheetAndGenerateIcons(map) {
     const makeSdf = (raw) => buildSdfImageData(raw, document.createElement('canvas').getContext('2d'));
     const yieldFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
 
-    // Both vector sets register under the same `icon-<KEY>` ids the sheet uses
-    // and run BEFORE it. The sheet's own loader guards every addImage with
+    // Every vector set registers under the same `icon-<KEY>` ids the sheet uses
+    // and runs BEFORE it. The sheet's own loader guards every addImage with
     // hasImage(), so whatever a vector set already claimed is left alone and
     // the sheet quietly supplies the rest — the airport markers above all,
-    // which no aircraft set has. A failure in either one is therefore not
+    // which no aircraft set has. A failure in any of them is therefore not
     // fatal: the sheet fills the gap.
-    if (iconSet === 'shapes') {
+    if (iconSet === 'marks') {
+        try {
+            const { registerPlaneMarkIcons } = await import('./planeMarks.js');
+            await registerPlaneMarkIcons(map, {
+                toSdf: makeSdf, sharp: SHARP_EDGES, yieldFrame,
+                // The spread buildSdfImageData adds on every side, so the mark
+                // loader can keep all its variants the same size.
+                sdfPadding: SDF_RADIUS
+            });
+        } catch (e) {
+            console.warn('[icons] Aircraft mark set failed, falling back to markers.png:', e);
+        }
+    } else if (iconSet === 'shapes') {
         try {
             const { registerAircraftShapeIcons } = await import('./aircraftShapes.js');
             await registerAircraftShapeIcons(map, {
