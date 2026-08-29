@@ -23673,18 +23673,16 @@ let totalDistanceNM = 0;
     </div>
             
             <div class="route-visual" style="flex: 1; max-width: 240px; display: flex; flex-direction: column; justify-content: center;">
-                <div class="phase-badge-route" style="display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 8px; max-width: 100%;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 5px; min-width: 0;">
                     <div class="phase-dot" id="ac-phase-dot" style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor}; box-shadow: 0 0 8px ${statusColor}; animation: ${statusPulse} 2s infinite; flex-shrink: 0;"></div>
-                    <span id="ac-phase-text" style="font-size: 9px; font-weight: 800; color: #fff; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${flightPhase}</span>
+                    <span id="ac-phase-text" style="font-size: 0.62rem; font-weight: 700; color: ${statusColor}; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1;">${flightPhase}</span>
                 </div>
-                <div class="flight-progress-track" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative;">
-<div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: #38bdf8; height: 100%; border-radius: 4px; position: relative; transition: width 0.5s ease;">
-    <i class="fa-solid fa-plane flight-progress-plane" style="position: absolute; right: -6px; top: 50%; transform: translateY(-50%) rotate(0deg); color: #fff; font-size: 10px; filter: drop-shadow(0 0 4px #38bdf8);"></i>
-</div>
+                <div class="flight-progress-track" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; position: relative; overflow: hidden;">
+                    <div class="flight-progress-fill" id="ac-progress-bar" style="width: ${progress}%; background: ${statusColor}; box-shadow: 0 0 10px ${statusColor}88; height: 100%; border-radius: 3px; transition: width 0.5s ease, background 0.5s ease;"></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 9px; color: #cbd5e1; font-weight: 700;">
-                    <span>${Math.round(totalDistanceNM)} NM</span>
-                    <span>ETE: ${ete}</span>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; width: 100%; margin-top: 5px; line-height: 1;">
+                    <span style="font-size: 9px; font-weight: 700; color: #e2e8f0;"><span style="color: #64748b; font-size: 8px; letter-spacing: 0.5px;">DIST </span>${Math.round(totalDistanceNM)} NM</span>
+                    <span style="font-size: 9px; font-weight: 700; color: #e2e8f0;"><span style="color: #64748b; font-size: 8px; letter-spacing: 0.5px;">ETE </span>${ete}</span>
                 </div>
             </div>
 
@@ -25448,11 +25446,17 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
 
     document.querySelectorAll('#ac-phase-text').forEach(el => {
         el.textContent = flightPhase;
+        el.style.color = badgeStatusColor;
     });
     document.querySelectorAll('#ac-phase-dot').forEach(el => {
         el.style.background = badgeStatusColor;
         el.style.boxShadow = `0 0 8px ${badgeStatusColor}`;
         el.style.animation = badgeStatusPulse === 'none' ? 'none' : `${badgeStatusPulse} 2s infinite`;
+    });
+    // Keep the route-progress fill coordinated with the flight-state color
+    document.querySelectorAll('#ac-progress-bar').forEach(el => {
+        el.style.background = badgeStatusColor;
+        el.style.boxShadow = `0 0 10px ${badgeStatusColor}88`;
     });
     // VSD card phase chip — color tracks the same palette as the route-bar phase badge
     document.querySelectorAll('#ac-vsd-phase').forEach(el => {
