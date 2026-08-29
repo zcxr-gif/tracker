@@ -54,6 +54,28 @@ function drop(key) {
     try { localStorage.removeItem(key); } catch (_) { /* private mode */ }
 }
 
+/**
+ * Is this error "the `profiles` table isn't there at all"?
+ *
+ * A missing table and a missing row look almost the same from the client — both
+ * end with the entitlement unset — but they are different faults with different
+ * fixes, and only one of them can be repaired by retrying. PostgREST reports the
+ * missing table as PGRST205 ("Could not find the table 'public.profiles' in the
+ * schema cache"); Postgres itself reports 42P01 when the grant runs server-side.
+ * Neither is worth a retry: nothing in the browser can create the table, and
+ * restore-pro-access writes to the same place, so it will fail identically.
+ */
+function isMissingTable(error) {
+    if (!error) return false;
+    const code = String(error.code || '');
+    if (code === 'PGRST205' || code === '42P01') return true;
+    const message = String(error.message || '').toLowerCase();
+    // "…in the schema cache" covers the REST layer; the `relation` wording is
+    // how the same fault surfaces when it comes back from Postgres directly.
+    return message.includes('schema cache')
+        || (message.includes('relation') && message.includes('does not exist'));
+}
+
 export const ProAccess = {
     PENDING_KEY,
 
@@ -70,10 +92,11 @@ export const ProAccess = {
      * upgrade still proceeds, and resolveAfterCheckout() will report the
      * missing row explicitly if the grant then fails.
      *
-     * @returns {Promise<{ok: boolean, existed: boolean, error: string|null}>}
+     * @returns {Promise<{ok: boolean, existed: boolean, error: string|null,
+     *                    missingTable: boolean}>}
      */
     async ensureProfileRow(supabase, user) {
-        if (!supabase || !user?.id) return { ok: false, existed: false, error: 'no-session' };
+        if (!supabase || !user?.id) return { ok: false, existed: false, error: 'no-session', missingTable: false };
         try {
             // maybeSingle(), not single(): "no row" is the case we're here to
             // detect, and single() reports it as a query error.
@@ -83,7 +106,13 @@ export const ProAccess = {
                 .eq('id', user.id)
                 .maybeSingle();
 
-            if (!error && data) return { ok: true, existed: true, error: null };
+            if (!error && data) return { ok: true, existed: true, error: null, missingTable: false };
+            if (isMissingTable(error)) {
+                console.error('[ProAccess] The `profiles` table does not exist in this Supabase project'
+                    + ' — no upgrade can be recorded until it is created.'
+                    + ' Run supabase/sql/fix-pro-entitlement.sql.', error.message);
+                return { ok: false, existed: false, error: error.message, missingTable: true };
+            }
 
             const { error: insertError } = await supabase
                 .from('profiles')
@@ -92,15 +121,16 @@ export const ProAccess = {
             if (insertError) {
                 // 23505 = someone (a trigger, a concurrent tab) beat us to it,
                 // which is a success for our purposes.
-                if (insertError.code === '23505') return { ok: true, existed: true, error: null };
+                if (insertError.code === '23505') return { ok: true, existed: true, error: null, missingTable: false };
+                const missingTable = isMissingTable(insertError);
                 console.warn('[ProAccess] Could not create the profiles row:', insertError.message);
-                return { ok: false, existed: false, error: insertError.message };
+                return { ok: false, existed: false, error: insertError.message, missingTable };
             }
             console.info('[ProAccess] Created the missing profiles row for this account.');
-            return { ok: true, existed: false, error: null };
+            return { ok: true, existed: false, error: null, missingTable: false };
         } catch (err) {
             console.warn('[ProAccess] ensureProfileRow failed:', err.message);
-            return { ok: false, existed: false, error: err.message };
+            return { ok: false, existed: false, error: err.message, missingTable: false };
         }
     },
 
@@ -109,20 +139,21 @@ export const ProAccess = {
      * exists but isn't stamped". Those are different bugs with different fixes,
      * and collapsing them is why this failure has been so hard to see.
      *
-     * @returns {Promise<{hasRow: boolean, isPro: boolean, error: string|null}>}
+     * @returns {Promise<{hasRow: boolean, isPro: boolean, error: string|null,
+     *                    missingTable: boolean}>}
      */
     async readProfileState(supabase, userId) {
-        if (!supabase || !userId) return { hasRow: false, isPro: false, error: 'no-session' };
+        if (!supabase || !userId) return { hasRow: false, isPro: false, error: 'no-session', missingTable: false };
         try {
             const { data, error } = await supabase
                 .from('profiles')
                 .select('is_pro')
                 .eq('id', userId)
                 .maybeSingle();
-            if (error) return { hasRow: false, isPro: false, error: error.message };
-            return { hasRow: !!data, isPro: data?.is_pro === true, error: null };
+            if (error) return { hasRow: false, isPro: false, error: error.message, missingTable: isMissingTable(error) };
+            return { hasRow: !!data, isPro: data?.is_pro === true, error: null, missingTable: false };
         } catch (err) {
-            return { hasRow: false, isPro: false, error: err.message };
+            return { hasRow: false, isPro: false, error: err.message, missingTable: false };
         }
     },
 
@@ -189,6 +220,12 @@ export const ProAccess = {
         const state = await this.readProfileState(supabase, user.id);
         if (state.isPro) { this.clearPending(); return { resolved: true, reason: 'already-pro' }; }
 
+        // The entitlement has nowhere to live yet. Retrying cannot help, and
+        // burning an attempt on it would spend the pilot's six tries on a fault
+        // only the project owner can fix — so keep the claim intact and let the
+        // load after the table is created be the one that resolves it.
+        if (state.missingTable) return { resolved: false, reason: 'missing-table' };
+
         writeJson(PENDING_KEY, Object.assign({}, pending, { attempts: (pending.attempts || 0) + 1 }));
 
         await this.ensureProfileRow(supabase, user);
@@ -221,6 +258,9 @@ export const ProAccess = {
      *     restored         — the stamp never landed; the Stripe re-check fixed it
      *     missing-row      — the account had no `profiles` row for the grant to
      *                        update, and the re-check couldn't fix it either
+     *     missing-table    — there is no `profiles` table in the project at all,
+     *                        so no grant can ever be recorded (see
+     *                        supabase/sql/fix-pro-entitlement.sql)
      *     no-subscription  — Stripe has no active subscription on this account
      *     signed-out       — no session to attach the entitlement to
      */
@@ -236,11 +276,22 @@ export const ProAccess = {
 
         // The grant is asynchronous on the server, so give it a moment before
         // deciding it failed.
-        let state = { hasRow: false, isPro: false, error: null };
+        let state = { hasRow: false, isPro: false, error: null, missingTable: false };
         for (const wait of [0, 800, 1600, 2500]) {
             if (wait) await new Promise(r => setTimeout(r, wait));
             state = await this.readProfileState(supabase, user.id);
             if (state.isPro) return { isPro: true, reason: 'granted', hadRow: true };
+            // Nothing to wait for: the table the grant writes to isn't there, so
+            // the remaining polls and the Stripe re-check below would all fail
+            // the same way. Report the real fault instead of `missing-row`,
+            // which reads as a data problem and hides a setup one.
+            if (state.missingTable) {
+                console.error('[ProAccess] Checkout completed but this Supabase project has no'
+                    + ' `profiles` table, so the Pro entitlement could not be recorded.'
+                    + ' Run supabase/sql/fix-pro-entitlement.sql, then reload — the pending'
+                    + ' claim kept here will finish the upgrade.');
+                return { isPro: false, reason: 'missing-table', hadRow: false };
+            }
         }
 
         // Not stamped. The most likely reason is that there was no row to stamp
