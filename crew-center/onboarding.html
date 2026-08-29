@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crew Center — Setup</title>
+  <link rel="stylesheet" href="crewcenter.css">
+  <style>
+    .cc-wizard { max-width: 720px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    .cc-step { background: var(--cc-surface); border: 1px solid rgba(255,255,255,.08);
+      border-radius: var(--cc-radius); padding: 1.5rem; margin-bottom: 1.25rem; }
+    .cc-step[hidden] { display: none; }
+    .cc-step h2 { margin-top: 0; }
+    .cc-steps-nav { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .cc-steps-nav span { font-size: .8rem; color: var(--cc-muted);
+      padding: .3rem .6rem; border-radius: 999px; background: rgba(255,255,255,.05); }
+    .cc-steps-nav span.active { background: var(--cc-primary); color: #fff; }
+    label { display: block; font-size: .85rem; color: var(--cc-muted); margin: .75rem 0 .2rem; }
+    input, textarea, select { width: 100%; padding: .55rem .7rem; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.15); background: var(--cc-bg); color: var(--cc-text); font: inherit; }
+    textarea.sql { font-family: ui-monospace, monospace; font-size: .78rem; min-height: 160px; white-space: pre; }
+    .cc-two { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 560px) { .cc-two { grid-template-columns: 1fr; } }
+    .cc-actions { margin-top: 1.25rem; display: flex; gap: .5rem; }
+  </style>
+</head>
+<body>
+  <div class="cc-wizard">
+    <h1>Crew Center Setup</h1>
+    <p class="cc-sub" style="color:var(--cc-muted)">Point the engine at your own Supabase project. Your pilots and data stay in your database.</p>
+    <div class="cc-steps-nav" id="cc-steps-nav"></div>
+    <div id="cc-wizard-body"></div>
+  </div>
+  <script type="module" src="onboarding.js"></script>
+</body>
+</html>

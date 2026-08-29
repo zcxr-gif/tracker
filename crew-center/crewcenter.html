@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crew Center</title>
+  <link rel="stylesheet" href="crewcenter.css">
+</head>
+<body>
+  <div id="cc-root" data-state="loading">
+    <div class="cc-boot">Loading crew center…</div>
+  </div>
+  <!-- No build step: supabase-js is imported as ESM from a CDN for the scaffold.
+       Follow-up (see docs/crew-center.md §11): vendor a pinned bundled copy. -->
+  <script type="module" src="engine.js"></script>
+</body>
+</html>

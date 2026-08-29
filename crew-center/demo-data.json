@@ -1,0 +1,67 @@
+{
+  "_comment": "Static data for the no-backend demo (crewcenter.html?demo=1). Mirrors install/seed-demo.sql so the preview matches a real seeded crew center. Roster is illustrative — in a live crew center pilots come from real sign-ups.",
+  "schema_meta": { "version": 1 },
+  "site_config": {
+    "va_name": "Oceanic Virtual",
+    "va_slug": "oceanic",
+    "logo_url": null,
+    "signup_mode": "open",
+    "theme": {
+      "primary": "#0b7285",
+      "accent": "#f59f00",
+      "bg": "#0d1117",
+      "surface": "#161b22",
+      "text": "#e6edf3",
+      "muted": "#8b949e",
+      "radius": "14px",
+      "font": "'Inter', system-ui, sans-serif",
+      "hero_image": null
+    },
+    "blocks": [
+      { "type": "hero",   "enabled": true, "props": { "tagline": "Connecting the Pacific — one leg at a time." } },
+      { "type": "auth",   "enabled": true, "props": { "label": "Pilot Login" } },
+      { "type": "roster", "enabled": true, "props": { "title": "Our Pilots" } },
+      { "type": "ranks",  "enabled": true, "props": { "title": "Rank Structure" } },
+      { "type": "hubs",   "enabled": true, "props": { "title": "Our Hubs" } },
+      { "type": "routes", "enabled": true, "props": { "title": "Route Network" } },
+      { "type": "events", "enabled": true, "props": { "title": "Upcoming Events" } }
+    ]
+  },
+  "pilots": [
+    { "callsign": "OCA001", "display_name": "M. Tanaka",   "status": "active", "total_minutes": 74100, "ranks": { "name": "Training Captain",     "color": "#ef4444" }, "hubs": { "icao": "NZAA" } },
+    { "callsign": "OCA014", "display_name": "R. Okafor",   "status": "active", "total_minutes": 41400, "ranks": { "name": "Senior Captain",       "color": "#f97316" }, "hubs": { "icao": "YSSY" } },
+    { "callsign": "OCA027", "display_name": "L. Fernández", "status": "active", "total_minutes": 22800, "ranks": { "name": "Captain",              "color": "#f59f00" }, "hubs": { "icao": "KLAX" } },
+    { "callsign": "OCA033", "display_name": "S. Nguyen",   "status": "active", "total_minutes": 11700, "ranks": { "name": "Senior First Officer", "color": "#eab308" }, "hubs": { "icao": "PHNL" } },
+    { "callsign": "OCA048", "display_name": "A. Kelly",    "status": "active", "total_minutes": 4200,  "ranks": { "name": "First Officer",        "color": "#22c55e" }, "hubs": { "icao": "NZAA" } },
+    { "callsign": "OCA052", "display_name": "P. Rossi",    "status": "active", "total_minutes": 900,   "ranks": { "name": "Second Officer",       "color": "#38bdf8" }, "hubs": { "icao": "RJTT" } }
+  ],
+  "ranks": [
+    { "name": "Cadet",                "min_hours": 0,    "color": "#94a3b8" },
+    { "name": "Second Officer",       "min_hours": 10,   "color": "#38bdf8" },
+    { "name": "First Officer",        "min_hours": 50,   "color": "#22c55e" },
+    { "name": "Senior First Officer", "min_hours": 150,  "color": "#eab308" },
+    { "name": "Captain",              "min_hours": 300,  "color": "#f59f00" },
+    { "name": "Senior Captain",       "min_hours": 600,  "color": "#f97316" },
+    { "name": "Training Captain",     "min_hours": 1000, "color": "#ef4444" }
+  ],
+  "hubs": [
+    { "icao": "NZAA", "name": "Auckland",     "is_primary": true  },
+    { "icao": "YSSY", "name": "Sydney",       "is_primary": false },
+    { "icao": "KLAX", "name": "Los Angeles",  "is_primary": false },
+    { "icao": "PHNL", "name": "Honolulu",     "is_primary": false },
+    { "icao": "RJTT", "name": "Tokyo Haneda", "is_primary": false }
+  ],
+  "routes": [
+    { "flight_number": "OCA1",  "dep_icao": "NZAA", "arr_icao": "YSSY", "aircraft": "Airbus A320",      "distance_nm": 1345 },
+    { "flight_number": "OCA12", "dep_icao": "NZAA", "arr_icao": "PHNL", "aircraft": "Boeing 787-9",     "distance_nm": 3825 },
+    { "flight_number": "OCA20", "dep_icao": "PHNL", "arr_icao": "KLAX", "aircraft": "Boeing 787-9",     "distance_nm": 2215 },
+    { "flight_number": "OCA44", "dep_icao": "YSSY", "arr_icao": "RJTT", "aircraft": "Boeing 777-300ER", "distance_nm": 4180 },
+    { "flight_number": "OCA7",  "dep_icao": "NZAA", "arr_icao": "RJTT", "aircraft": "Boeing 787-9",     "distance_nm": 4770 },
+    { "flight_number": "OCA31", "dep_icao": "KLAX", "arr_icao": "NZAA", "aircraft": "Boeing 777-300ER", "distance_nm": 5680 }
+  ],
+  "events": [
+    { "title": "Trans-Tasman Group Flight", "description": "Fly OCA1 together from Auckland to Sydney. Formation on approach!", "dep_icao": "NZAA", "arr_icao": "YSSY", "starts_at": "2026-07-29T09:00:00Z" },
+    { "title": "Honolulu Fly-In",           "description": "All hubs converge on PHNL for our monthly fly-in.",                 "dep_icao": null,   "arr_icao": "PHNL", "starts_at": "2026-08-09T18:00:00Z" },
+    { "title": "Founder's Day Longhaul",    "description": "Celebrate with the flagship KLAX–NZAA service.",                    "dep_icao": "KLAX", "arr_icao": "NZAA", "starts_at": "2026-08-21T22:00:00Z" }
+  ]
+}
