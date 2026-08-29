@@ -13,6 +13,7 @@
 
     <script src="flight-graph.js"></script>
     <script src="flight-legs.js"></script>
+    <script src="landing-rates.js"></script>
     <script src="fuelEstimator.js"></script>
     <script src="cabinMap.js"></script>
 
@@ -1295,6 +1296,11 @@
                 <div id="cabin-host"></div>
             </div>
 
+            <div class="sw-block" data-block="landings" id="sec-landings" style="display:none;">
+                <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Landing Performance</div>
+                <div id="landings-host"></div>
+            </div>
+
             <div class="sw-block" data-block="legs" id="sec-legs" style="display:none;">
                 <div class="sw-drag-handle"><i class="fa-solid fa-grip-lines"></i> Previous Flights</div>
                 <div id="legs-host"></div>
@@ -2278,6 +2284,9 @@
             lastFlightData = data;
             renderSpeedAltGraph();
 
+            // Touchdown analysis for every landing in the trail
+            renderLandings();
+
             // Previous flights (multi-leg journey reconstructed from the trail)
             renderLegs();
 
@@ -2331,6 +2340,20 @@
         // kg/lb is a shared preference, so switching it here repaints right
         // away instead of waiting for the next telemetry tick.
         if (window.FuelEstimator) window.FuelEstimator.bindUnitToggle(document, renderFuel);
+
+        // Render the Landing Performance panel from the payload's touchdown
+        // analysis. Detection happens host-side (where the airport and runway
+        // databases live); this window just draws the plain result. The block
+        // hides itself while the flight is still airborne.
+        function renderLandings() {
+            const block = document.getElementById('sec-landings');
+            const host = document.getElementById('landings-host');
+            if (!block || !host) return;
+            const html = (window.LandingRates && lastFlightData && lastFlightData.landings)
+                ? window.LandingRates.renderHTML(lastFlightData.landings) : '';
+            host.innerHTML = html;
+            block.style.display = html ? '' : 'none';
+        }
 
         // Render the "Previous Flights" panel from the payload's detected legs.
         // The block hides itself when there are no completed legs to show.

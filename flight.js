@@ -17543,6 +17543,13 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
             ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
             : null,
+        // Touchdown analysis for every landing in the trail. Detected here for
+        // the same reason as the legs — the airport and runway databases live
+        // on this side — and rendered from the plain result in the iframe.
+        landings: (typeof LandingRates !== 'undefined' && LandingRates)
+            ? LandingRates.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {},
+                { runwayLookup: legacyLandingRunwayLookup })
+            : null,
         // Hypothetical fuel burn, integrated over the flown profile. Computed
         // here (the trail and the weather sample both live on this side) and
         // rendered from the plain result inside the iframe.
@@ -24003,6 +24010,12 @@ let totalDistanceNM = 0;
                 <h2 class="acx-sec" id="ac-cabin-sec" style="display: none;">Cabin</h2>
                 <div id="ac-cabin-host"></div>
 
+                <!-- ════════════ LANDING PERFORMANCE (see landing-rates.js) ════════════ -->
+                <!-- Hidden until a touchdown is reconstructed from the trail, so
+                     a flight still in the air adds no empty section. -->
+                <h2 class="acx-sec" id="ac-landing-sec" style="display: none;">Landing performance</h2>
+                <div id="ac-landing-host"></div>
+
                 <!-- ════════════ NAVIGATION ════════════ -->
                 <h2 class="acx-sec">Navigation</h2>
                 <div class="ac-info-card-bar acx-card nav-card">
@@ -24043,8 +24056,8 @@ let totalDistanceNM = 0;
                     <div class="acx-row"><span class="l">Registration</span><span class="v">${techCardTail}</span></div>
                     <div class="acx-row"><span class="l">Class</span><span class="v" style="font-family: inherit; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span></div>
                     ${filedPlanData ? `
-                    <div class="acx-row"><span class="l">Passengers</span><span class="v">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span></div>
-                    <div class="acx-row"><span class="l">Block fuel</span><span class="v">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'}<span class="unit">kg</span></span></div>` : ''}
+                    <div class="acx-row acx-dispatch-row"><span class="l">Passengers</span><span class="v">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span></div>
+                    <div class="acx-row acx-dispatch-row"><span class="l">Block fuel</span><span class="v">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'}<span class="unit">kg</span></span></div>` : ''}
                     ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
                     <div class="acx-row"><span class="l">Photo</span><span class="v" style="font-family: inherit;">${photographerName}</span></div>` : ''}
                 </div>
@@ -24620,6 +24633,13 @@ function renderPilotStatsHTML(stats, username) {
                     proWrap.id = 'pilot-pro-stats';
                     container.appendChild(proWrap);
                     renderPilotProStats(proWrap, userId, username);
+
+                    // How this pilot's landings actually went — read back out of
+                    // the trails we recorded, since the logbook only counts them.
+                    const landingWrap = document.createElement('div');
+                    landingWrap.id = 'pilot-landing-log';
+                    container.appendChild(landingWrap);
+                    renderPilotLandingLog(landingWrap, userId);
                 }
 
                 // --- Accordion event listeners ---
@@ -24735,6 +24755,54 @@ function renderPilotStatsHTML(stats, username) {
                 </div>`;
         } catch (err) {
             container.innerHTML = `<div class="pilot-pro-block"><p class="pilot-pro-note">Couldn't load this pilot's career right now.</p></div>`;
+        }
+    }
+
+    /**
+     * Landing log for the pilot report: every touchdown we can reconstruct from
+     * the trails this tracker recorded for the pilot, with the career headline
+     * numbers over them.
+     *
+     * The scope note is not optional. Infinite Flight's logbook reports a
+     * landing count and nothing about quality, so these rates come from our own
+     * recording — which reaches back 48 hours, not a career. Presenting a
+     * best-of over two days as a lifetime best would be a lie the numbers
+     * themselves can't correct for.
+     *
+     * Renders nothing at all when no landings are recoverable, rather than
+     * leaving an explanatory husk behind in the panel.
+     */
+    async function renderPilotLandingLog(container, userId) {
+        if (!container || !userId || typeof LandingRates === 'undefined' || !LandingRates) return;
+
+        try {
+            const base = ACARS_USER_API_URL.replace('/users', '/api/users');
+            const res = await fetch(`${base}/${userId}/trails?limit=20`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || !data.ok || !Array.isArray(data.flights) || !data.flights.length) return;
+
+            const airports = (typeof airportsData !== 'undefined') ? airportsData : {};
+            const landings = [];
+            for (const f of data.flights) {
+                try {
+                    landings.push(...LandingRates.detect(f.path, airports, {
+                        runwayLookup: legacyLandingRunwayLookup
+                    }));
+                } catch (_) { /* one unreadable trail shouldn't lose the rest */ }
+            }
+            if (!landings.length) return;
+
+            landings.sort((a, b) => a.time - b.time);
+            const hours = data.windowHours || 48;
+            container.innerHTML = LandingRates.renderLogHTML(landings, {
+                title: 'Landing log',
+                scope: `Reconstructed from the ${data.count} flight${data.count === 1 ? '' : 's'} this tracker `
+                     + `recorded for this pilot in the last ${hours} hours. Infinite Flight's logbook counts `
+                     + `landings but not how they went, so this is what we watched — not a full career.`
+            });
+        } catch (_) {
+            // The pilot report is useful without this block; stay silent.
         }
     }
 
@@ -25774,7 +25842,72 @@ function updateFmsLegsModule(plan, currentPos) {
                 legsHost.dataset.pts = String(ptsLen);
             }
         }
+
+        // --- Landing performance (touchdown rates reconstructed from the trail) ---
+        // Same cadence as the legs panel. Once a landing is on the board its
+        // numbers say far more about the flight than the filed pax/fuel figures,
+        // so those two dispatch rows step aside for it.
+        if (typeof LandingRates !== 'undefined' && LandingRates) {
+            const landingHost = document.getElementById('ac-landing-host');
+            if (landingHost && landingHost.dataset.pts !== String(ptsLen)) {
+                const landings = LandingRates.detect(
+                    sortedRoutePoints,
+                    (typeof airportsData !== 'undefined') ? airportsData : {},
+                    { runwayLookup: legacyLandingRunwayLookup }
+                );
+                const html = LandingRates.renderHTML(landings);
+                landingHost.innerHTML = html;
+                landingHost.dataset.pts = String(ptsLen);
+
+                const landingSec = document.getElementById('ac-landing-sec');
+                if (landingSec) landingSec.style.display = html ? '' : 'none';
+                document.querySelectorAll('.acx-dispatch-row').forEach(row => {
+                    row.style.display = html ? 'none' : '';
+                });
+            }
+        }
     }
+}
+
+/**
+ * Runway resolver handed to LandingRates.detect(). Turns a touchdown position
+ * into the runway end it belongs to, which gives the analyser a surveyed field
+ * elevation (better than inferring it from the trail's own minimum) plus the
+ * threshold position and heading it needs for the alignment and touchdown-point
+ * figures. Returns null when the runway database has nothing nearby, and the
+ * analyser falls back to the trail on its own.
+ */
+function legacyLandingRunwayLookup(lat, lon, icao, headingDeg) {
+    if (!icao || lat == null || lon == null) return null;
+    const runways = runwaysData[icao];
+    if (!runways || !runways.length) return null;
+
+    // Score every runway end at the field. Distance decides, but an end the
+    // aircraft is pointing *away* from is the wrong one — that's the far end of
+    // the runway it just rolled down, and using it would put the touchdown
+    // point a full runway length from the threshold. Penalise those heavily
+    // rather than excluding them, so a field with no heading data still resolves.
+    let best = null, bestScore = Infinity;
+    for (const runway of runways) {
+        const ends = [
+            { ident: runway.le_ident, lat: runway.le_latitude_deg, lon: runway.le_longitude_deg, heading: runway.le_heading_degT, elevation_ft: runway.le_elevation_ft },
+            { ident: runway.he_ident, lat: runway.he_latitude_deg, lon: runway.he_longitude_deg, heading: runway.he_heading_degT, elevation_ft: runway.he_elevation_ft }
+        ];
+        for (const end of ends) {
+            if (end.lat == null || end.lon == null) continue;
+            const distKm = getDistanceKm(lat, lon, end.lat, end.lon);
+            if (distKm > 2.0 * 1.852) continue;
+
+            let score = distKm;
+            if (headingDeg != null && end.heading != null) {
+                let diff = Math.abs(headingDeg - end.heading) % 360;
+                if (diff > 180) diff = 360 - diff;
+                if (diff > 90) score += 10;   // facing away — almost certainly the far end
+            }
+            if (score < bestScore) { bestScore = score; best = { ...end, airport: icao, distanceNM: distKm / 1.852 }; }
+        }
+    }
+    return best;
 }
 
     /**
