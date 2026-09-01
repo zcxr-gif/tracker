@@ -59,7 +59,7 @@ function liftConst(name) {
     return m[0];
 }
 
-const NAMES = ['callsignTokens', 'compactCallsign', 'stripWeightClass', 'tokenHasSuffixTag'];
+const NAMES = ['callsignTokens', 'compactCallsign', 'stripWeightClass', 'tokenHasSuffixTag', 'splitCallsignMask'];
 const source = [liftConst('WEIGHT_CLASS_SUFFIXES'), ...NAMES.map(lift)].join('\n');
 // eslint-disable-next-line no-new-func
 const H = new Function(`${source}\nreturn { ${NAMES.join(', ')} };`)();
@@ -131,6 +131,23 @@ T('tagged: with no suffix registered, the roster does not widen',
     rosterWidens('BAW 42', noTag), false);
 T('airline: the same VA is unaffected',
     rosterWidens('BAW 42', { ...noTag, rosterTrust: 'airline' }), true);
+
+/* ---------------------------------------------------------------------------
+ * splitCallsignMask — the widget reading a registered callsign
+ *
+ * A VA registers "OCEAN ##VA" / "SHAMROCK ###EX", and that string can reach the
+ * widget as a prefix (from the resolve payload, or from a hand-written
+ * ?prefixes=). Fed through whole it left a "#" inside the prefix, no live
+ * callsign ever started with it, and the VA matched nobody. Split, the airline
+ * becomes the prefix and the mask's tag becomes the suffix — which is how a VA
+ * whose tag is "EX" gets a map filtered on "EX" instead of on nothing at all.
+ * ------------------------------------------------------------------------ */
+console.log('\nembed — reading a registered callsign mask');
+T('a "VA" mask splits', H.splitCallsignMask('OCEAN ##VA'), { base: 'OCEAN', tag: 'VA' });
+T('so does any other tag', H.splitCallsignMask('SHAMROCK ###EX'), { base: 'SHAMROCK', tag: 'EX' });
+T('a tagless mask has no tag', H.splitCallsignMask('BAW ###'), { base: 'BAW', tag: '' });
+T('a plain airline name is left alone', H.splitCallsignMask('Air Canada'), { base: 'AIR CANADA', tag: '' });
+T('nothing in, nothing out', H.splitCallsignMask('  '), null);
 
 console.log(failures ? `\n${failures} failure(s)\n` : '\nAll good.\n');
 process.exit(failures ? 1 : 0);

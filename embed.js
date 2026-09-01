@@ -280,23 +280,48 @@
         const code = firstToken(va.code || va.callsign || '');
         if (!code) throw new Error('Embed config is missing a VA callsign code.');
 
+        // A prefix may arrive as a full callsign MASK — "OCEAN ##VA",
+        // "SHAMROCK ###EX" — which is how VAs register their callsigns and how
+        // a hand-written ?prefixes= is most naturally typed. Split it: the part
+        // before the first "#" is the airline, the part after the last one is
+        // the tag. Without this the "#" ends up inside the prefix, the compacted
+        // live callsign never starts with it, and the VA matches nobody.
+        function splitCallsignMask(raw) {
+            const v = String(raw || '').trim().toUpperCase().replace(/\s+/g, ' ');
+            if (!v) return null;
+            const first = v.indexOf('#');
+            if (first === -1) return { base: v, tag: '' };
+            const base = v.slice(0, first).trim();
+            return base ? { base, tag: v.slice(v.lastIndexOf('#') + 1).trim() } : null;
+        }
+
         // Prefixes are the full airline/callsign name the VA flies under, NOT just
         // the first word — IF callsigns are the spoken name, e.g. "Air Canada 001VA"
         // (tokens AIR / CANADA / 001VA). We compact each prefix (strip spaces and
         // separators) so "Air Canada" → "AIRCANADA" and matches the whole airline,
         // not every callsign that merely starts with "AIR".
-        const prefixes = (Array.isArray(raw.callsignPrefixes) && raw.callsignPrefixes.length
+        const prefixMasks = (Array.isArray(raw.callsignPrefixes) && raw.callsignPrefixes.length
             ? raw.callsignPrefixes
             : [code]
-        ).map(compactCallsign).filter(Boolean);
+        ).map(splitCallsignMask).filter(Boolean);
+        const prefixes = [...new Set(prefixMasks.map(m => compactCallsign(m.base)).filter(Boolean))];
 
         // Optional suffix tags. When set, matching requires a declared prefix AND
         // one of these tags on the LAST callsign token (e.g. prefix "Air Canada" +
         // tag "VA" → "Air Canada 001VA"). Uppercased, whitespace stripped.
         // Empty = prefix-only.
-        const suffixes = (Array.isArray(raw.callsignSuffixes) ? raw.callsignSuffixes : [])
-            .map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
-            .filter(Boolean);
+        //
+        // A tag carried by a prefix mask counts as a declared tag: a VA that
+        // registered "SHAMROCK ###EX" has said its tag is "EX", and dropping it
+        // here would silently downgrade them to prefix-only matching — every
+        // "Shamrock" in the sky on their map, which is the opposite of what
+        // registering a tag was for. An explicit suffix list still wins.
+        const suffixes = (Array.isArray(raw.callsignSuffixes) && raw.callsignSuffixes.length
+            ? raw.callsignSuffixes
+            : prefixMasks.map(m => m.tag)
+        ).map(s => String(s || '').trim().toUpperCase().replace(/\s+/g, ''))
+            .filter(Boolean)
+            .filter((s, i, a) => a.indexOf(s) === i);
 
         // "Regular" callsigns — additional full callsign names matched by PREFIX
         // ONLY (never require a suffix tag), always folded into the roster even
@@ -416,6 +441,12 @@
 
         return {
             code,
+            // The VA listing this embed is tied to, straight off the resolve
+            // payload. Everything roster-based needs it, and looking it up by
+            // callsign instead (resolveVaBranding) is a search that can miss —
+            // when it did, the roster came back empty and every rosterTrust
+            // setting in both portals silently did nothing.
+            adId: String(raw.vaAdId || raw.adId || '').trim(),
             name: va.name || code,
             logo: /^https?:\/\//i.test(va.logo || '') ? va.logo : '',
             prefixes,
@@ -2015,7 +2046,11 @@
                 const oub = status.status.outboundFlights || [];
                 out.inbound = inb.length;
                 out.outbound = oub.length;
-                out.vaCount = [...inb, ...oub].filter(f => f && callsignMatches(f.callsign, cfg)).length;
+                // flightIsMember, not callsignMatches: the hub marker has to
+                // count the same pilots the map draws, or a VA whose members
+                // arrive via the roster sees "0 of yours" over a hub with three
+                // of its aircraft parked on it.
+                out.vaCount = [...inb, ...oub].filter(f => f && flightIsMember(f, cfg)).length;
             }
             if (atis && atis.ok && atis.atis) out.atis = parseAtisLite(atis.atis);
         } catch (_) {}
@@ -2672,7 +2707,10 @@
             if (!cfg.logo && brand.logo) cfg.logo = brand.logo;
             if (cfg.name === cfg.code && brand.name) cfg.name = brand.name;
             if (!cfg.hubs.length && brand.hubs && brand.hubs.length) cfg.hubs = brand.hubs;
-            cfg.adId = brand.id || '';
+            // Only as a fallback: the id the resolve payload gave us names THIS
+            // embed's VA, while the directory lookup is a callsign search that
+            // can return nothing (or, for a code two VAs share, the wrong one).
+            if (!cfg.adId) cfg.adId = brand.id || '';
         }
         // Warm the roster so roster-only members (right username, untagged
         // callsign) are counted. Fails soft to no roster.
