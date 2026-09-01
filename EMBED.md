@@ -68,7 +68,7 @@ Implement this endpoint to validate the token and return the VA's embed config.
     "name": "Ocean Virtual",
     "logo": "https://.../logo.png"   // optional
   },
-  "callsignPrefixes": ["OCEAN"],     // optional; defaults to [va.code]
+  "callsignPrefixes": ["OCEAN"],     // optional; blank inherits the VA listing's callsigns
   "callsignSuffixes": ["VA", "EX"],  // optional tags; a match then needs a prefix AND a tag on
                                      // one of the callsign's last two tokens (2nd tag optional)
   "regularCallsigns": ["OCEAN STAFF"], // optional; untagged callsigns matched by prefix only,
@@ -215,7 +215,16 @@ A pilot is matched to the VA by their callsign:
 - **Prefix** — the callsign (spaces/separators ignored) starts with one of the
   VA's `callsignPrefixes`. These are the **full** airline/callsign names the VA
   flies under, e.g. `Air Canada` matches `Air Canada 001` (and only Air Canada,
-  not Air France). Defaults to `[va.code]`.
+  not Air France). Defaults to `[va.code]`, and the resolve endpoint fills a
+  blank list in from the VA listing's registered callsigns before it gets here.
+
+  A prefix may also arrive as a whole callsign **mask** — `OCEAN ##VA`,
+  `SHAMROCK ###EX` — which is how VAs register their callsigns and how a
+  hand-written `?prefixes=` is most naturally typed. The widget splits it: the
+  part before the first `#` is the airline, the part after the last one is the
+  tag, and that tag joins `callsignSuffixes` when no explicit suffix list was
+  given. Fed through whole the `#` would sit inside the prefix, no live callsign
+  would start with it, and the VA would match nobody.
 - **Suffix tags** — optional `callsignSuffixes` (e.g. `VA`, `EX`). When a VA
   supplies tags, a flight must match a declared prefix **AND** carry one of the
   tags on one of its **last two tokens** (e.g. `Air Canada 001VA`). Checking the
