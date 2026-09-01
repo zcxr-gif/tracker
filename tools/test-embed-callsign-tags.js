@@ -59,7 +59,7 @@ function liftConst(name) {
     return m[0];
 }
 
-const NAMES = ['callsignTokens', 'compactCallsign', 'stripWeightClass', 'tokenHasSuffixTag', 'splitCallsignMask', 'isDistinctiveTag', 'tailCarriesTag'];
+const NAMES = ['callsignTokens', 'compactCallsign', 'stripWeightClass', 'tokenHasSuffixTag', 'splitCallsignMask', 'isDistinctiveTag', 'tailCarriesTag', 'callsignFitsShape', 'callsignMatches'];
 const source = [liftConst('WEIGHT_CLASS_SUFFIXES'), ...NAMES.map(lift)].join('\n');
 // eslint-disable-next-line no-new-func
 const H = new Function(`${source}\nreturn { ${NAMES.join(', ')} };`)();
@@ -170,6 +170,27 @@ T('…and behind a second trailing tag', H.tailCarriesTag(H.callsignTokens('Sham
 T('an untagged codeshare carries nothing', H.tailCarriesTag(H.callsignTokens('Shamrock 12'), 'NV'), false);
 T('a word merely ending in the letters is not the tag',
     H.tailCarriesTag(H.callsignTokens('Shamrock CONV'), 'NV'), false);
+
+// The tag written as its OWN token — "000 NV" rather than "000NV". Both forms
+// are typed in the wild; the tail window is two tokens wide, so whatever a pilot
+// appends after the tag has to be peeled off or the tag falls out of range.
+console.log('\nembed — the tag as a separate token, "000 NV"');
+T('a standalone tag is a tag', H.tailCarriesTag(H.callsignTokens('Shamrock 000 NV'), 'NV'), true);
+T('…behind a weight class', H.tailCarriesTag(H.callsignTokens('Shamrock 000 NV Heavy'), 'NV'), true);
+T('…behind a word and a weight class',
+    H.tailCarriesTag(H.callsignTokens('Shamrock 000 NV Cargo Heavy'), 'NV'), true);
+T('a standalone foreign tag is not ours',
+    H.tailCarriesTag(H.callsignTokens('Shamrock 000 EX'), 'NV'), false);
+// The full widget rule agrees, on the VA's own airline and on a partner's.
+const NOR = { prefixes: ['REDNOSE'], suffixes: ['NV'], regulars: [] };
+T('tag mode takes the spaced codeshare',
+    H.callsignMatches('Shamrock 000 NV', { ...NOR, match: 'tag' }), true);
+T('strict takes the spaced tag on our own airline',
+    H.callsignMatches('Red Nose 000 NV', { ...NOR, match: 'strict' }), true);
+T('strict still refuses our airline untagged',
+    H.callsignMatches('Red Nose 000', { ...NOR, match: 'strict' }), false);
+T('tag mode still refuses an untagged codeshare',
+    H.callsignMatches('Shamrock 000', { ...NOR, match: 'tag' }), false);
 
 console.log(failures ? `\n${failures} failure(s)\n` : '\nAll good.\n');
 process.exit(failures ? 1 : 0);
