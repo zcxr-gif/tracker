@@ -225,6 +225,13 @@ A pilot is matched to the VA by their callsign:
   tag, and that tag joins `callsignSuffixes` when no explicit suffix list was
   given. Fed through whole the `#` would sit inside the prefix, no live callsign
   would start with it, and the VA would match nobody.
+- **Tag on any airline** — in `callsignMatch: "tag"` only, a **distinctive**
+  configured tag claims a flight whatever airline precedes it. The codeshare
+  case: Norwegian registers `Red Nose ##NV`, and its pilots keep the `NV` when
+  they fly a partner's metal (`Shamrock 12NV`). Every other rule tests the
+  prefix first and returns early, so that leg matched nothing. A tag qualifies
+  only if it identifies one VA — `VA` is what nearly everyone appends, so it is
+  excluded, as are single letters.
 - **Suffix tags** — optional `callsignSuffixes` (e.g. `VA`, `EX`). When a VA
   supplies tags, a flight must match a declared prefix **AND** carry one of the
   tags on one of its **last two tokens** (e.g. `Air Canada 001VA`). Checking the

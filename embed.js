@@ -343,8 +343,11 @@
         //              mistypes their callsign drops off.
         //   'strict' — (default) declared prefix AND the tag on one of the last
         //              two tokens.
+        //   'tag'    — 'strict', plus the VA's own distinctive tag on ANY
+        //              airline. The codeshare answer for a VA that keeps its
+        //              tag on partner metal ("Shamrock 12NV" for Norwegian).
         //   'broad'  — the declared prefix alone is enough, tag or no tag.
-        const match = ['exact', 'strict', 'broad'].includes(String(raw.callsignMatch || '').trim().toLowerCase())
+        const match = ['exact', 'strict', 'tag', 'broad'].includes(String(raw.callsignMatch || '').trim().toLowerCase())
             ? String(raw.callsignMatch).trim().toLowerCase()
             : 'strict';
 
@@ -533,36 +536,40 @@
         // Everything below this line WIDENS the callsign rule, and each widening
         // is something the VA turned on rather than something we assume.
 
-        // The pilot roster, as far as the VA lets it speak (cfg.rosterTrust):
+        // The pilot roster, as far as the VA lets it speak (cfg.rosterTrust).
+        // 'tagged' and 'airline' keep DIFFERENT halves of the callsign, so
+        // neither is a tighter version of the other:
         //
-        //   'airline' — the default. It waives the suffix TAG only, so an
+        //   'airline' — the default. Keeps the airline, waives the TAG, so an
         //     untagged "Air Norway 123" by a registered pilot counts. It must
         //     not vouch for whatever else that pilot is flying: their "Etihad
         //     456FR" for some other VA stays out.
-        //   'any' — the codeshare opt-in. The callsign stops mattering: a pilot
-        //     on this VA's roster is flying for this VA, full stop. The VA has
-        //     accepted that their members' other flights arrive too.
+        //   'tagged'  — keeps the TAG, waives the airline. A rostered Norwegian
+        //     pilot's codeshare "Shamrock 12NV" counts, because the "NV" is them
+        //     saying the flight is Norwegian's; their untagged "Shamrock 12"
+        //     does not. This used to require the airline AND the tag, which made
+        //     it narrower than 'airline' and useless for the codeshare leg it is
+        //     named after — that leg was rejected on the airline before its tag
+        //     was ever read.
+        //   'any' — the callsign stops mattering: a pilot on this VA's roster is
+        //     flying for this VA, full stop. The VA has accepted that their
+        //     members' other flights arrive too.
         //   'off' — the roster never widens anything.
+        //
+        // Each branch falls THROUGH rather than returning false: the roster is
+        // one of several widenings and a 'broad' listing has another below.
+        // Returning here would answer the whole question on behalf of a rule
+        // that had only declined to help.
         const trust = cfg.rosterTrust || 'airline';
         const uname = normUsername(f.username);
         if (trust !== 'off' && uname && cfg.rosterSet && cfg.rosterSet.has(uname)) {
             if (trust === 'any') return true;
-            const compact = compactCallsign(f.callsign);
-            const onAirline = (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)))
-                || (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p)));
-            if (onAirline) {
-                // 'airline' waives the tag here; 'tagged' will not. A VA on
-                // 'tagged' has said the suffix is not decoration, so the roster
-                // may vouch for the pilot and for the rest of the callsign's
-                // shape — "UPS 123UP Cargo" — but never for its absence.
-                //
-                // Falls THROUGH rather than returning false: the roster is one
-                // of several widenings and a 'broad' listing has another below.
-                // Returning here would answer the whole question on behalf of a
-                // rule that had only declined to help.
-                if (trust !== 'tagged') return true;
-                const tail = stripWeightClass(callsignTokens(f.callsign)).slice(-2);
-                if (cfg.suffixes && cfg.suffixes.some(s => s && tail.some(t => tokenHasSuffixTag(t, s)))) return true;
+            if (trust === 'tagged') {
+                if (cfg.suffixes && cfg.suffixes.some(t => tailCarriesTag(tokensOf(f.callsign), t))) return true;
+            } else {
+                const compact = compactCallsign(f.callsign);
+                if ((cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)))
+                    || (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p)))) return true;
             }
         }
 
@@ -618,6 +625,26 @@
         return before >= '0' && before <= '9';                // tag on a number: "01VA"
     }
 
+    // Is a tag distinctive enough to claim a flight on its OWN, with none of the
+    // VA's airlines in front of it? "VA" is not: nearly every virtual airline
+    // appends it, so it says "some VA" and nothing more. Single letters collide
+    // the same way. Mirrors isDistinctiveVaTag on the backend and
+    // isDistinctiveTag in the ACARS matcher.
+    // Uppercased tokens of a live callsign, weight-class word included — callers
+    // that care strip it via tailCarriesTag.
+    function tokensOf(callsign) { return callsignTokens(callsign); }
+
+    function isDistinctiveTag(tag) {
+        const t = String(tag || '').trim().toUpperCase();
+        return t.length >= 2 && t !== 'VA';
+    }
+
+    // Does one of the last two tokens carry `tag` as a real tag? Two tokens
+    // because a pilot routinely appends a second one ("Shamrock 12NV Heavy").
+    function tailCarriesTag(tokens, tag) {
+        return !!tag && stripWeightClass(tokens).slice(-2).some(t => tokenHasSuffixTag(t, tag));
+    }
+
     // Does a flight callsign belong to this VA? Prefixes are matched against the
     // WHOLE leading callsign (separators removed), so a full airline name like
     // "Air Canada" matches "Air Canada 001VA" and only Air Canada — not Air France
@@ -662,6 +689,12 @@
             const rest = compact.slice(p.length);
             return rest === '' || /^\d+$/.test(rest);
         })) return true;
+
+        // 'tag' mode asks about the TAG first, because the flight it exists for
+        // — a codeshare on a partner's metal — carries none of this VA's
+        // airlines. Only a distinctive tag may claim a flight that way.
+        if (mode === 'tag' && cfg.suffixes
+            && cfg.suffixes.some(t => isDistinctiveTag(t) && tailCarriesTag(tokens, t))) return true;
 
         const prefixHit = !!(cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)));
         if (!prefixHit) return false;

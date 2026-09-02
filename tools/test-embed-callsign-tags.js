@@ -59,7 +59,7 @@ function liftConst(name) {
     return m[0];
 }
 
-const NAMES = ['callsignTokens', 'compactCallsign', 'stripWeightClass', 'tokenHasSuffixTag', 'splitCallsignMask'];
+const NAMES = ['callsignTokens', 'compactCallsign', 'stripWeightClass', 'tokenHasSuffixTag', 'splitCallsignMask', 'isDistinctiveTag', 'tailCarriesTag', 'callsignFitsShape', 'callsignMatches'];
 const source = [liftConst('WEIGHT_CLASS_SUFFIXES'), ...NAMES.map(lift)].join('\n');
 // eslint-disable-next-line no-new-func
 const H = new Function(`${source}\nreturn { ${NAMES.join(', ')} };`)();
@@ -78,13 +78,14 @@ function rosterWidens(callsign, cfg) {
     const trust = cfg.rosterTrust || 'airline';
     if (trust === 'off') return false;
     if (trust === 'any') return true;
+    // 'tagged' keeps the TAG and waives the airline; 'airline' does the
+    // opposite. Neither contains the other.
+    if (trust === 'tagged') {
+        return !!(cfg.suffixes && cfg.suffixes.some(t => H.tailCarriesTag(H.callsignTokens(callsign), t)));
+    }
     const compact = H.compactCallsign(callsign);
-    const onAirline = (cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)))
-        || (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p)));
-    if (!onAirline) return false;
-    if (trust !== 'tagged') return true;
-    const tail = H.stripWeightClass(H.callsignTokens(callsign)).slice(-2);
-    return !!(cfg.suffixes && cfg.suffixes.some(s => s && tail.some(t => H.tokenHasSuffixTag(t, s))));
+    return !!((cfg.prefixes && cfg.prefixes.some(p => p && compact.startsWith(p)))
+        || (cfg.regulars && cfg.regulars.some(p => p && compact.startsWith(p))));
 }
 
 const UPS = { prefixes: ['UPS'], suffixes: ['UP'], regulars: [] };
@@ -107,9 +108,12 @@ T('a trailing word does not hide the tag',
     rosterWidens('UPS 123UP Cargo', cfg('tagged')), true);
 T('…nor does a weight class',
     rosterWidens('UPS 123UP Heavy', cfg('tagged')), true);
-T('our tag on somebody else’s airline does not count',
-    rosterWidens('DELTA 9UP', cfg('tagged')), false);
-T('another airline entirely does not count',
+// The airline is exactly what 'tagged' waives — that is the codeshare answer,
+// and requiring it as well is what made this level useless for the case it is
+// named after.
+T('our tag on somebody else’s airline DOES count — that is the point',
+    rosterWidens('DELTA 9UP', cfg('tagged')), true);
+T('another airline WITHOUT our tag still does not',
     rosterWidens('ETIHAD 456FR', cfg('tagged')), false);
 
 console.log('\nembed — the existing modes are unchanged');
@@ -148,6 +152,45 @@ T('so does any other tag', H.splitCallsignMask('SHAMROCK ###EX'), { base: 'SHAMR
 T('a tagless mask has no tag', H.splitCallsignMask('BAW ###'), { base: 'BAW', tag: '' });
 T('a plain airline name is left alone', H.splitCallsignMask('Air Canada'), { base: 'AIR CANADA', tag: '' });
 T('nothing in, nothing out', H.splitCallsignMask('  '), null);
+
+/* ---------------------------------------------------------------------------
+ * 'tag' mode — Norwegian's codeshare on the map
+ *
+ * The widget's rule tested the prefix first and returned early, so a partner
+ * callsign wearing the VA's tag matched nothing. Only a DISTINCTIVE tag may
+ * claim a flight this way: "VA" is what everyone appends.
+ * ------------------------------------------------------------------------ */
+console.log('\nembed — a distinctive tag claims a flight on its own');
+T('"NV" identifies one VA', H.isDistinctiveTag('NV'), true);
+T('"VA" identifies none', H.isDistinctiveTag('VA'), false);
+T('a single letter does not', H.isDistinctiveTag('X'), false);
+T('the tag is found on the last token', H.tailCarriesTag(H.callsignTokens('Shamrock 12NV'), 'NV'), true);
+T('…and behind a weight class', H.tailCarriesTag(H.callsignTokens('Shamrock 12NV Heavy'), 'NV'), true);
+T('…and behind a second trailing tag', H.tailCarriesTag(H.callsignTokens('Shamrock 12NV CX'), 'NV'), true);
+T('an untagged codeshare carries nothing', H.tailCarriesTag(H.callsignTokens('Shamrock 12'), 'NV'), false);
+T('a word merely ending in the letters is not the tag',
+    H.tailCarriesTag(H.callsignTokens('Shamrock CONV'), 'NV'), false);
+
+// The tag written as its OWN token — "000 NV" rather than "000NV". Both forms
+// are typed in the wild; the tail window is two tokens wide, so whatever a pilot
+// appends after the tag has to be peeled off or the tag falls out of range.
+console.log('\nembed — the tag as a separate token, "000 NV"');
+T('a standalone tag is a tag', H.tailCarriesTag(H.callsignTokens('Shamrock 000 NV'), 'NV'), true);
+T('…behind a weight class', H.tailCarriesTag(H.callsignTokens('Shamrock 000 NV Heavy'), 'NV'), true);
+T('…behind a word and a weight class',
+    H.tailCarriesTag(H.callsignTokens('Shamrock 000 NV Cargo Heavy'), 'NV'), true);
+T('a standalone foreign tag is not ours',
+    H.tailCarriesTag(H.callsignTokens('Shamrock 000 EX'), 'NV'), false);
+// The full widget rule agrees, on the VA's own airline and on a partner's.
+const NOR = { prefixes: ['REDNOSE'], suffixes: ['NV'], regulars: [] };
+T('tag mode takes the spaced codeshare',
+    H.callsignMatches('Shamrock 000 NV', { ...NOR, match: 'tag' }), true);
+T('strict takes the spaced tag on our own airline',
+    H.callsignMatches('Red Nose 000 NV', { ...NOR, match: 'strict' }), true);
+T('strict still refuses our airline untagged',
+    H.callsignMatches('Red Nose 000', { ...NOR, match: 'strict' }), false);
+T('tag mode still refuses an untagged codeshare',
+    H.callsignMatches('Shamrock 000', { ...NOR, match: 'tag' }), false);
 
 console.log(failures ? `\n${failures} failure(s)\n` : '\nAll good.\n');
 process.exit(failures ? 1 : 0);
