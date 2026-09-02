@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Back to Inflight</title>
+<meta name="robots" content="noindex">
+<!--
+  Where Stripe sends the browser when a checkout that STARTED IN THE IOS APP is
+  over — see AppConfig.webCheckoutReturnURL in the Inflight-IOS repo.
+
+  Its only job is to hand the pilot back. It deliberately does not grant
+  anything: the app asks the server (restore-pro-access) what changed the
+  moment it comes forward, because a page in Safari is the one place in this
+  flow that can be closed before it finishes, and an entitlement that depends
+  on a redirect completing is an entitlement somebody paid for and did not get.
+
+  So: no Supabase client, no Stripe.js, nothing to fetch. It bounces to
+  `inflight://open`, which brings the app forward, and says the true thing if
+  the bounce does not take.
+
+  Nothing here is styled from the app's stylesheet either. It is on screen for
+  well under a second and it has to render on a cold cache over airport wifi.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    padding: 28px;
+    background: #09090b;
+    color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: 100%; max-width: 380px; text-align: center; }
+  .mark {
+    width: 62px; height: 62px; margin: 0 auto 22px;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.32);
+    font-size: 27px; line-height: 1;
+  }
+  body[data-state="cancel"] .mark {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+  h1 { margin: 0 0 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  p { margin: 0 auto; max-width: 34ch; font-size: 14px; line-height: 1.55; color: #a1a1aa; }
+  .open {
+    display: inline-block;
+    margin-top: 26px;
+    padding: 14px 30px;
+    border-radius: 13px;
+    background: #38bdf8;
+    color: #04131c;
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .hint { margin-top: 16px; font-size: 12px; color: #52525b; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" id="mark">✓</div>
+  <h1 id="headline">Payment received</h1>
+  <p id="detail">Head back to Inflight — Pro unlocks as soon as the app is open again.</p>
+  <a class="open" href="inflight://open" id="open">Open Inflight</a>
+  <p class="hint" id="hint">Not opening? Switch to the app yourself; it checks on its own.</p>
+</main>
+<script>
+  (function () {
+    var paid = new URLSearchParams(location.search).get('payment') !== 'cancel';
+
+    if (!paid) {
+      document.body.dataset.state = 'cancel';
+      document.getElementById('mark').textContent = '↩';
+      document.getElementById('headline').textContent = 'Checkout cancelled';
+      document.getElementById('detail').textContent =
+        'Nothing was charged. You can pick it up again from the app whenever you like.';
+      document.getElementById('hint').textContent = '';
+    }
+
+    // One attempt, on a short delay so the page has actually painted before
+    // iOS puts the "Open in Inflight?" sheet over it. If the app is not
+    // installed this does nothing at all, which is why the button stays.
+    setTimeout(function () { location.href = 'inflight://open'; }, 700);
+  })();
+</script>
+</body>
+</html>
