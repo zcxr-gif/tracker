@@ -1,13 +1,16 @@
 // ─── Stripe Hosted Checkout Function ──────────────────────────────────────
 // Optimized for Supabase Edge Functions (Deno)
 //
-// Creates the hosted Checkout session for both flows:
+// Creates the hosted Checkout session. Three callers, two flows:
 //   • paid sign-up — no account exists yet. The credentials ride along in the
 //     subscription metadata so process-stripe-payment can provision the
 //     account once Stripe confirms the payment.
 //   • upgrade / renewal — the pilot is already signed in. `user_id` is passed
 //     through as client_reference_id so the payment processor can resolve the
-//     account exactly instead of scanning users by email.
+//     account exactly instead of scanning users by email. The iOS app takes
+//     this same path: it is always signed in, and it points success_url at
+//     /app-return.html rather than at the site. Nothing here is app-specific
+//     and nothing should become so — see supabase/functions/README.md.
 //
 // ── Why the metadata is built key by key ──────────────────────────────────
 // On an upgrade the client sends neither `password` nor `name`, so the previous
