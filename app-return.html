@@ -16,8 +16,10 @@
   on a redirect completing is an entitlement somebody paid for and did not get.
 
   So: no Supabase client, no Stripe.js, nothing to fetch. It bounces to
-  `inflight://open`, which brings the app forward, and says the true thing if
-  the bounce does not take.
+  `inflight://open?payment=…`, which brings the app forward and tells it which
+  of the two happened — from inside the app a cancelled checkout and a payment
+  still settling look identical, and this page is the only thing that knows the
+  difference. And it says the true thing if the bounce does not take.
 
   Nothing here is styled from the app's stylesheet either. It is on screen for
   well under a second and it has to render on a cold cache over airport wifi.
@@ -70,12 +72,14 @@
   <div class="mark" id="mark">✓</div>
   <h1 id="headline">Payment received</h1>
   <p id="detail">Head back to Inflight — Pro unlocks as soon as the app is open again.</p>
-  <a class="open" href="inflight://open" id="open">Open Inflight</a>
+  <a class="open" href="inflight://open?payment=success" id="open">Open Inflight</a>
   <p class="hint" id="hint">Not opening? Switch to the app yourself; it checks on its own.</p>
 </main>
 <script>
   (function () {
     var paid = new URLSearchParams(location.search).get('payment') !== 'cancel';
+    var back = 'inflight://open?payment=' + (paid ? 'success' : 'cancel');
+    document.getElementById('open').href = back;
 
     if (!paid) {
       document.body.dataset.state = 'cancel';
@@ -89,7 +93,7 @@
     // One attempt, on a short delay so the page has actually painted before
     // iOS puts the "Open in Inflight?" sheet over it. If the app is not
     // installed this does nothing at all, which is why the button stays.
-    setTimeout(function () { location.href = 'inflight://open'; }, 700);
+    setTimeout(function () { location.href = back; }, 700);
   })();
 </script>
 </body>
