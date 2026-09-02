@@ -49,11 +49,20 @@ and why `restore-pro-access` exists. Two things follow that are worth knowing:
 - Renewals never refresh `current_period_end`, and cancellations never revoke.
 - Eleven active rows carry a **NULL** `current_period_end`, which
   `pro_entitlement()` reads as "never expires" — so those accounts hold Pro
-  regardless of whether they are still paying. Why the field arrives empty has
-  not been traced; every writer above reads `subscription.current_period_end`,
-  so something is handing them a subscription object without it. Worth finding
-  before it is worked around, since a NULL there is the difference between a
-  subscription and a permanent grant.
+  regardless of whether they are still paying. A NULL there is the difference
+  between a subscription and a permanent grant, so it is worth fixing rather
+  than working around.
+
+  The NULLs are **interleaved by date**, not split at one — so this is not an
+  API version changing under the project on some day; it is per-write. The
+  lead worth checking first: `process-stripe-payment` calls Stripe over raw
+  `fetch` with only an `Authorization` header and **no `Stripe-Version`**, so
+  it gets the account's *default* API version, while `restore-pro-access` and
+  `stripe-webhook` go through the SDK pinned to `2024-12-18.acacia`. Stripe
+  moved `current_period_end` off the subscription and onto the subscription
+  *item* in `2025-03-31.basil`. If the account default is at or past that, the
+  redirect path writes NULL and the SDK paths do not — which is the shape of
+  the data. Unverified: confirming it needs the Stripe dashboard.
 
 ## The same checkout, from the iOS app
 
