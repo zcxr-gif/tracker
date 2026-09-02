@@ -22,12 +22,38 @@ alongside the client code that calls it.
 | 5 | **process-stripe-payment** *(not in this repo)* | verifies the session with Stripe and writes `profiles.is_pro = true` |
 | 6 | `proAccess.js` `resolveAfterCheckout()` | confirms the stamp landed; if not, falls back to **restore-pro-access** and reports why |
 
-`stripe-webhook` *(not in this repo)* now backs all of this up: Stripe calls it
-directly on `checkout.session.completed`, `customer.subscription.updated` and
-`customer.subscription.deleted`, and retries for days. Steps 3–6 above are
-therefore a **speed-up**, not the grant — a pilot who pays and closes the tab
-still gets Pro. The pending claim in `proAccess.js` stays because it is what
-makes the answer arrive while they are still looking at the page.
+`stripe-webhook` *(not in this repo)* is deployed to do exactly that — it
+handles `checkout.session.completed`, `customer.subscription.updated` and
+`customer.subscription.deleted`, and Stripe retries it for days. **It is not
+currently receiving anything.**
+
+Checked 2026-09-02 against the live project:
+
+- No row in `public.subscriptions` has ever been written a second time. There
+  are 19 rows going back to 2026-07-29, fifteen of them active monthly
+  subscriptions — renewals have certainly happened, and none of them moved a
+  row. Only a webhook writes a row twice; the redirect path writes once, at
+  checkout.
+- The function had no invocations at all in the available log window, while
+  `create-stripe-checkout` and `restore-pro-access` both did.
+
+That points at the endpoint not being registered in the Stripe dashboard
+(Developers → Webhooks → `https://<project-ref>.supabase.co/functions/v1/stripe-webhook`),
+or `STRIPE_WEBHOOK_SECRET` not matching it. **Nothing in this repo can fix
+that** — it is a dashboard change.
+
+Until it is fixed, every grant still depends on the pilot's browser returning
+to the success URL, which is why the pending claim in `proAccess.js` matters
+and why `restore-pro-access` exists. Two things follow that are worth knowing:
+
+- Renewals never refresh `current_period_end`, and cancellations never revoke.
+- Eleven active rows carry a **NULL** `current_period_end`, which
+  `pro_entitlement()` reads as "never expires" — so those accounts hold Pro
+  regardless of whether they are still paying. Why the field arrives empty has
+  not been traced; every writer above reads `subscription.current_period_end`,
+  so something is handing them a subscription object without it. Worth finding
+  before it is worked around, since a NULL there is the difference between a
+  subscription and a permanent grant.
 
 ## The same checkout, from the iOS app
 
@@ -41,9 +67,12 @@ Two differences from the web flow, both on purpose:
 - **`success_url` is `/app-return.html`**, a page whose only job is to bounce
   to `inflight://open`. It grants nothing and calls nothing — there is no
   signed-in Supabase session in that browser to grant with.
-- **The grant is the webhook's**, entirely. The app asks `restore-pro-access`
-  on its way back so the answer arrives while the paywall is still up, and
-  re-reads `pro_entitlement()` on every foreground regardless.
+- **The grant is `restore-pro-access`'s.** The app asks it on the way back,
+  and again on every foreground until the checkout is accounted for — the
+  claim is persisted, because iOS may kill the app while Safari has the
+  screen. This is deliberately not written to depend on the webhook, given
+  the above; if the endpoint is registered later it simply finds the row
+  already there.
 
 There is **no yearly price on Stripe**, so the app offers one plan and no
 choice, and it never sends `trial_days`.
