@@ -7,6 +7,7 @@
  */
 
 import { ProAccess } from './proAccess.js';
+import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
 import { socketDataHub } from './SocketDataHub.js';
@@ -446,11 +447,19 @@ init(supabaseClient) {
 
     async _startProUpgrade(btn = null) {
         const restore = btn ? btn.innerHTML : null;
+
+        // No account, nothing to upgrade — route to sign-up instead of payment.
+        if (!this._currentUser?.email) {
+            this._promptAccountForUpgrade();
+            return;
+        }
+
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
         try {
-            if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+            if (!this._supabase) throw new Error('No active session.');
 
-            // Claim the checkout before we leave (mirrors ProfileUI). Stripe
+            // Claim the checkout before it starts (mirrors ProfileUI). The
+            // in-page modal finalises the receipt itself; the hosted fallback
             // returns to `?payment=success`, where AuthUI.checkPaymentStatus()
             // calls process-stripe-payment — the step that actually grants Pro.
             try {
@@ -483,15 +492,86 @@ init(supabaseClient) {
                 cancel_url:  window.location.origin + '?payment=cancel',
                 is_renew: true,
             };
-            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
-            if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
-            window.location.href = data.url;
+
+            const result = await StripeCheckoutModal.open({
+                supabase: this._supabase,
+                payload,
+                heading: 'Upgrade to InFlight Pro',
+                subheading: '$1.99/mo · cancel anytime',
+            });
+
+            // The hosted fallback is navigating away — leave the button alone.
+            if (result.status === 'redirected') return;
+
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+
+            if (result.status === 'complete') {
+                await this._settleUpgrade(result.sessionId);
+                return;
+            }
+
+            if (result.status === 'dismissed') {
+                // Nothing was charged, so the pending claim must not survive.
+                try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
+                ProAccess.clearPending();
+                return;
+            }
+
+            throw new Error(result.error || 'Checkout unavailable.');
         } catch (err) {
             try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
             ProAccess.clearPending();
             if (btn) { btn.disabled = false; btn.innerHTML = restore; }
             if (this._activeTab !== 'settings') this.switchTab('settings');
         }
+    },
+
+    /**
+     * Finish an upgrade that completed inside the modal — the page never left
+     * for Stripe, so the verification the success URL would have triggered has
+     * to run here (mirrors ProfileUI._settleUpgrade).
+     */
+    async _settleUpgrade(sessionId) {
+        this._showToast('<i class="fa-solid fa-circle-notch fa-spin" style="margin-right:8px;"></i>Payment received — activating Pro…', 'info');
+
+        const outcome = await ProAccess.finalizeCheckout(this._supabase, sessionId);
+        // The receipt has been claimed either way; only ProAccess's pending
+        // marker (which survives) is allowed to drive a retry from here.
+        try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
+
+        if (outcome.isPro) {
+            this._isPro = true;
+            if (this._currentUser) this._currentUser.isPro = true;
+            this._showToast('<i class="fa-solid fa-circle-check" style="margin-right:8px;"></i>Welcome to InFlight Pro — everything is unlocked.', 'success');
+            try { this.switchTab(this._activeTab || 'settings'); } catch (_) { /* next open picks it up */ }
+            return;
+        }
+
+        // Paid but not provisioned. The claim stays on file for the next load's
+        // retry; say so plainly rather than showing a success that isn't one.
+        // Switch first: the tab re-render would wipe a message written before it.
+        if (this._activeTab !== 'settings') this.switchTab('settings');
+        this._showMessage(
+            'mdui-billing-msg',
+            'Your payment went through, but Pro hasn\'t activated yet. We\'ll keep retrying — '
+            + 'reload in a minute, or use “Restore Pro access” below. Reference: ' + outcome.reason,
+            'error'
+        );
+    },
+
+    /**
+     * Someone tried to upgrade without an account. Send them to create one —
+     * sign-up leads straight into this same checkout.
+     */
+    _promptAccountForUpgrade() {
+        try {
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                this.close();
+                window.AuthUI.open('signup');
+                return;
+            }
+        } catch (_) { /* fall through to the message below */ }
+        this._showMessage('mdui-billing-msg', 'Please sign in or create an account before upgrading.', 'error');
     },
 
     /**

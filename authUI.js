@@ -1,9 +1,10 @@
 // ─── Stripe configuration ─────────────────────────────────────────────────
-// Replace with your Stripe publishable key if needed for client-side redirection.
-const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TRhge6y7GsJq8x0sd1UDluQGEmHK1i32pEubTnbDMji6PvqKINhgK1CNkDj3drjUcHcu5fpfGw5MK24363yDmGL00OInUnl1t';
+// The publishable key lives with the checkout modal that mounts Stripe.js —
+// one copy, imported wherever it is needed.
 // ──────────────────────────────────────────────────────────────────────────
 
 import { ProAccess } from './proAccess.js';
+import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 
 export const AuthUI = {
     _isOpen: false,
@@ -72,35 +73,7 @@ export const AuthUI = {
 
                 if (sessionId && (userData || signedIn)) {
                     try {
-                        // 1. Invoke the Stripe Edge Function
-                        const { data: result, error: functionError } = await this._supabase.functions.invoke('process-stripe-payment', {
-                            body: { sessionId: sessionId }
-                        });
-
-                        if (functionError || (result && result.error)) {
-                            throw new Error(result?.error || functionError?.message || "Failed to verify Stripe payment on the server.");
-                        }
-
-                        // 2. Only a brand-new paid sign-up needs logging in. A
-                        //    renewal/upgrade is already in an active session.
-                        if (userData && !userData.is_renew) {
-                            const { error: loginError } = await this._supabase.auth.signInWithPassword({
-                                email: userData.email,
-                                password: userData.password
-                            });
-
-                            if (loginError) {
-                                throw new Error("Account created, but auto-login failed: " + loginError.message);
-                            }
-                        }
-
-                        localStorage.removeItem('inflight_pending_signup');
-
-                        // 3. The browser is still holding the pre-payment
-                        //    session and entitlement cache. Pull the new Pro
-                        //    flag through before opening anything, otherwise the
-                        //    pilot lands back in the app still locked out.
-                        const outcome = await this._activateProEntitlement();
+                        const outcome = await this.finalizePaidCheckout(sessionId, userData);
 
                         this.open();
                         if (!outcome.isPro) {
@@ -154,6 +127,55 @@ export const AuthUI = {
                 }, 500);
             }
         }
+    },
+
+    /**
+     * Turn a paid checkout into a working Pro account.
+     *
+     * Both routes back from Stripe land here: the hosted page's
+     * `?payment=success` redirect, and the in-page modal, which never navigates
+     * and so has to run the very same steps itself once Stripe reports the
+     * payment complete. Keeping them on one implementation is the point — the
+     * order matters (verify, then log in, only then resolve the entitlement),
+     * and a second copy is where the two flows would quietly drift apart.
+     *
+     * @param {string} sessionId  the Stripe Checkout session that was paid
+     * @param {object|null} userData  the pending sign-up blob, when a brand-new
+     *        paid account has just been provisioned and still needs logging in
+     * @throws when the payment cannot be verified or the auto-login fails
+     * @returns {Promise<{isPro: boolean, reason: string, hadRow: boolean}>}
+     */
+    async finalizePaidCheckout(sessionId, userData) {
+        // 1. Verify with Stripe and provision server-side. Nothing else grants
+        //    Pro, so this has to run for every kind of checkout.
+        const { data: result, error: functionError } = await this._supabase.functions.invoke('process-stripe-payment', {
+            body: { sessionId: sessionId }
+        });
+
+        if (functionError || (result && result.error)) {
+            throw new Error(result?.error || functionError?.message || "Failed to verify Stripe payment on the server.");
+        }
+
+        // 2. Only a brand-new paid sign-up needs logging in. A renewal/upgrade
+        //    is already in an active session.
+        if (userData && !userData.is_renew) {
+            const { error: loginError } = await this._supabase.auth.signInWithPassword({
+                email: userData.email,
+                password: userData.password
+            });
+
+            if (loginError) {
+                throw new Error("Account created, but auto-login failed: " + loginError.message);
+            }
+        }
+
+        localStorage.removeItem('inflight_pending_signup');
+
+        // 3. The browser is still holding the pre-payment session and
+        //    entitlement cache. Pull the new Pro flag through before opening
+        //    anything, otherwise the pilot lands back in the app still locked
+        //    out.
+        return await this._activateProEntitlement();
     },
 
     /**
@@ -425,14 +447,14 @@ export const AuthUI = {
                     
                     <p class="stripe-security-notice">
                         <i class="fa-solid fa-shield-halved"></i>
-                        Secure checkout hosted by <strong>Stripe</strong>
+                        Secure checkout, right here — powered by <strong>Stripe</strong>
                     </p>
                 </div>
 
                 <div id="auth-error-message" class="auth-error" style="display: none;"></div>
                 <div id="auth-loading-message" style="display: none; text-align: center; color: #64748b; margin-bottom: 20px;">
                     <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 12px; color: #2563eb;"></i>
-                    <p style="margin: 0; font-size: 0.95rem; font-weight: 600;">Redirecting to Secure Payment...</p>
+                    <p style="margin: 0; font-size: 0.95rem; font-weight: 600;">Opening secure checkout…</p>
                 </div>
                 
             `;
@@ -704,71 +726,178 @@ export const AuthUI = {
         }
     },
 
+    /**
+     * Warm Stripe.js up while the pilot is still reading the payment screen, so
+     * the modal has it ready the moment they tap. The modal loads it too — this
+     * only buys the head start.
+     */
     async loadStripeAndRender() {
-        if (typeof window !== 'undefined' && window.isIOSNative && window.isIOSNative()) return;
-        if (!window.Stripe) {
-            const script = document.createElement('script');
-            script.src = 'https://js.stripe.com/v3/';
-            script.async = true;
-            document.head.appendChild(script);
-        }
+        StripeCheckoutModal.preload();
     },
 
-    async handleStripeHostedCheckout() {
-        if (!this._tempSignUpData) {
-            this.showError("Data missing. Please try again.");
-            return;
+    /**
+     * Work out who is about to pay.
+     *
+     * The sign-up flow fills `_tempSignUpData` on its way to the payment step,
+     * but the *renew* screen has no such handoff, and a reload (or a return
+     * from `?payment=cancel`) drops it. Rather than the old dead-end "Data
+     * missing", resolve it: a signed-in pilot is renewing, and anyone else is
+     * someone without an account — so send them to create one instead of
+     * asking them to pay for an account that does not exist yet.
+     *
+     * @returns {Promise<object|null>} checkout identity, or null once the
+     *          pilot has been routed somewhere more useful.
+     */
+    async _resolveCheckoutIdentity() {
+        if (this._tempSignUpData) return this._tempSignUpData;
+
+        let user = null;
+        try {
+            const { data } = await this._supabase.auth.getSession();
+            user = data?.session?.user || null;
+        } catch (_) { /* treated as signed out */ }
+
+        if (user?.email) {
+            this._tempSignUpData = { email: user.email, userId: user.id, is_renew: true };
+            return this._tempSignUpData;
         }
+
+        // A reactivation belongs to an account that already exists, so that one
+        // goes to sign-in; anyone else needs an account before they can buy
+        // anything for it.
+        const renewing = this._mode === 'renew';
+        this.switchMode(renewing ? 'signin' : 'signup');
+        setTimeout(() => this.showError(renewing
+            ? "Sign in first and we'll take you straight to reactivating Pro."
+            : "Let's set up your account first — create it below and you'll go straight to payment."
+        ), 50);
+        return null;
+    },
+
+    /**
+     * Take the payment without leaving the app.
+     *
+     * Stripe's checkout mounts in a modal over the page (see
+     * stripeCheckoutModal.js), so a completed payment is finalised right here
+     * with the session still live — no redirect out, no redirect back, and no
+     * window for a dropped return trip to strand a paid pilot on the free tier.
+     * The hosted redirect is still the fallback and still lands on
+     * `?payment=success`, which is why the payload keeps its success/cancel
+     * URLs.
+     */
+    async handleStripeHostedCheckout() {
+        const identity = await this._resolveCheckoutIdentity();
+        if (!identity) return;
 
         this.hideError();
         const loadingDiv = document.getElementById('auth-loading-message');
+        const loadingText = loadingDiv?.querySelector('p');
         const checkoutSection = document.getElementById('stripe-checkout-section');
         const backBtn = document.getElementById('auth-back-to-signup') || document.getElementById('auth-signout-btn');
 
-        if (loadingDiv) loadingDiv.style.display = 'block';
-        if (checkoutSection) checkoutSection.style.display = 'none';
-        if (backBtn) backBtn.style.display = 'none';
+        const showBusy = (message) => {
+            if (loadingText) loadingText.textContent = message;
+            if (loadingDiv) loadingDiv.style.display = 'block';
+            if (checkoutSection) checkoutSection.style.display = 'none';
+            if (backBtn) backBtn.style.display = 'none';
+        };
+        const showForm = () => {
+            if (loadingDiv) loadingDiv.style.display = 'none';
+            if (checkoutSection) checkoutSection.style.display = 'block';
+            if (backBtn) backBtn.style.display = 'block';
+        };
+
+        showBusy('Opening secure checkout…');
 
         try {
-            // Save state for cross-domain redirect
+            // Keep the credentials on file: they are what logs the new account
+            // in once the payment clears, and the hosted fallback needs them to
+            // survive a full page navigation.
             localStorage.setItem('inflight_pending_signup', JSON.stringify({
-                email: this._tempSignUpData.email,
-                name: this._tempSignUpData.name,
-                password: this._tempSignUpData.password,
-                is_renew: this._tempSignUpData.is_renew || false
+                email: identity.email,
+                name: identity.name,
+                password: identity.password,
+                is_renew: identity.is_renew || false
             }));
             // Same claim the in-app upgrades record: if this checkout never
             // makes it back to the success URL, a later load finishes it.
-            ProAccess.markPending({ email: this._tempSignUpData.email });
+            ProAccess.markPending({ email: identity.email, userId: identity.userId });
 
             const payload = {
-                email: this._tempSignUpData.email,
+                email: identity.email,
                 success_url: window.location.origin + '?payment=success&session_id={CHECKOUT_SESSION_ID}',
                 cancel_url: window.location.origin + '?payment=cancel',
-                is_renew: this._tempSignUpData.is_renew || false
+                is_renew: identity.is_renew || false
             };
 
-            if (!payload.is_renew) {
-                payload.name = this._tempSignUpData.name;
-                payload.password = this._tempSignUpData.password;
+            if (payload.is_renew) {
+                // An upgrade must be attributable to the account that is paying.
+                if (identity.userId) payload.user_id = identity.userId;
+            } else {
+                payload.name = identity.name;
+                payload.password = identity.password;
             }
 
-            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
+            const result = await StripeCheckoutModal.open({
+                supabase: this._supabase,
+                payload,
+                heading: payload.is_renew ? 'Reactivate InFlight Pro' : 'Subscribe to InFlight Pro',
+                subheading: '$1.99/mo · cancel anytime',
+            });
 
-            if (error || !data?.url) {
-                throw new Error(data?.error || error?.message || 'Could not initialize Stripe Checkout.');
+            // The hosted fallback is already navigating away — leave the
+            // "redirecting" state on screen for the moment the page has left.
+            if (result.status === 'redirected') return;
+
+            if (result.status === 'complete') {
+                showBusy('Payment received — setting up your account…');
+
+                let pending = null;
+                try { pending = JSON.parse(localStorage.getItem('inflight_pending_signup') || 'null'); }
+                catch (_) { pending = null; }
+
+                const outcome = await this.finalizePaidCheckout(result.sessionId, pending);
+
+                // Straight into the app, the way the success-URL return does.
+                this.close();
+                this.open();
+
+                if (!outcome.isPro) {
+                    // The auth modal has just closed behind the app, so an
+                    // inline error would be written into hidden DOM.
+                    const message = "Your payment went through, but we couldn't activate Pro yet. "
+                        + "We'll keep retrying — reload in a minute, or use “Restore Pro access” "
+                        + "in Settings. If it still won't unlock, quote: " + outcome.reason;
+                    try {
+                        if (typeof window.showNotification === 'function') {
+                            window.showNotification(message, 'error');
+                        } else {
+                            setTimeout(() => this.showError(message), 400);
+                        }
+                    } catch (_) { /* the pending claim retries on the next load */ }
+                }
+                return;
             }
 
-            window.location.href = data.url;
+            if (result.status === 'dismissed') {
+                // Nothing was charged, so the claim must not outlive the modal —
+                // otherwise every closed checkout leaves a pending upgrade for
+                // the next app load to chase.
+                localStorage.removeItem('inflight_pending_signup');
+                ProAccess.clearPending();
+                showForm();
+                this.showError("Payment was cancelled. You can complete it whenever you're ready.");
+                return;
+            }
+
+            throw new Error(result.error || 'Could not initialize Stripe Checkout.');
 
         } catch (err) {
             localStorage.removeItem('inflight_pending_signup');
             ProAccess.clearPending();
 
-            if (loadingDiv) loadingDiv.style.display = 'none';
-            if (checkoutSection) checkoutSection.style.display = 'block';
-            if (backBtn) backBtn.style.display = 'block';
-            this.showError(err.message || 'Payment redirection failed. Please try again.');
+            showForm();
+            this.showError(err.message || 'Payment could not be started. Please try again.');
         }
     },
 

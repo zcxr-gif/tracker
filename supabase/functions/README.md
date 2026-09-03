@@ -15,12 +15,19 @@ alongside the client code that calls it.
 
 | Step | Where | What it does |
 | --- | --- | --- |
-| 1 | `profileUI.js` / `MobileDashboardUI.js` `_startProUpgrade()` | ensures a `profiles` row exists, records a pending-activation claim, calls **create-stripe-checkout** |
-| 2 | **create-stripe-checkout** (here) | creates the Stripe customer + hosted Checkout session, stamping the account id on both |
-| 3 | Stripe | takes the payment, redirects to `/?payment=success&session_id=…` |
-| 4 | `authUI.js` `checkPaymentStatus()` | calls **process-stripe-payment** |
-| 5 | **process-stripe-payment** *(not in this repo)* | verifies the session with Stripe and writes `profiles.is_pro = true` |
-| 6 | `proAccess.js` `resolveAfterCheckout()` | confirms the stamp landed; if not, falls back to **restore-pro-access** and reports why |
+| 1 | `profileUI.js` / `MobileDashboardUI.js` `_startProUpgrade()`, `authUI.js` `handleStripeHostedCheckout()` | ensures a `profiles` row exists, records a pending-activation claim, opens `stripeCheckoutModal.js` |
+| 2 | `stripeCheckoutModal.js` | calls **create-stripe-checkout** with `ui_mode: "embedded"` and mounts the returned session in a modal over the app |
+| 3 | **create-stripe-checkout** (here) | creates the Stripe customer + Checkout session, stamping the account id on both. Returns a `client_secret` + `session_id` for an embedded session, or the hosted `url` when `ui_mode` is absent |
+| 4a | Stripe (in the modal) | takes the payment and fires `onComplete` — the page never navigates |
+| 4b | Stripe (redirect) | only for the fallbacks and redirect-based payment methods: sends the browser to `/?payment=success&session_id=…` |
+| 5 | `proAccess.js` `finalizeCheckout()` (4a) / `authUI.js` `checkPaymentStatus()` (4b) | calls **process-stripe-payment** |
+| 6 | **process-stripe-payment** *(not in this repo)* | verifies the session with Stripe and writes `profiles.is_pro = true` |
+| 7 | `proAccess.js` `resolveAfterCheckout()` | confirms the stamp landed; if not, falls back to **restore-pro-access** and reports why |
+
+The hosted redirect (4b) is still a live path, not legacy: it runs when Stripe.js
+is blocked, when the caller is the iOS shell, and for any payment method that
+must leave the page. Both routes end at the same two functions, so neither can
+be changed alone. `tools/test-checkout-modal.js` covers the branch points.
 
 `stripe-webhook` *(not in this repo)* is deployed to do exactly that — it
 handles `checkout.session.completed`, `customer.subscription.updated` and
