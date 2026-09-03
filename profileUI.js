@@ -20,6 +20,7 @@
  */
 
 import { ProAccess } from './proAccess.js';
+import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
@@ -1446,20 +1447,31 @@ if (type === 'flights') {
     /**
      * Start the Pro upgrade for the signed-in pilot via the same Stripe
      * checkout the sign-up flow uses (as a logged-in renewal — no password
-     * needed). On any failure we fall back to the Settings/billing screen so
-     * the button is never a dead end.
+     * needed). Payment happens in a modal over the app; only the fallbacks
+     * (see stripeCheckoutModal.js) still leave the page. On any failure we drop
+     * to the Settings/billing screen so the button is never a dead end.
+     *
+     * Nobody can upgrade an account they don't have: a pilot who somehow gets
+     * here signed out is sent to create one rather than to a payment form.
      */
     async _startProUpgrade(btn = null) {
         const restore = btn ? btn.innerHTML : null;
+
+        if (!this._currentUser?.email) {
+            this._promptAccountForUpgrade();
+            return;
+        }
+
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Starting checkout…'; }
         try {
-            if (!this._supabase || !this._currentUser?.email) throw new Error('No active session.');
+            if (!this._supabase) throw new Error('No active session.');
 
-            // Mark the checkout as ours before leaving the page. Stripe returns
-            // to `?payment=success`, where AuthUI.checkPaymentStatus() claims the
-            // receipt and calls process-stripe-payment — the step that actually
-            // grants Pro. Without this marker an upgrade was charged and the
-            // account stayed on the free tier.
+            // Mark the checkout as ours before it starts. The in-page modal
+            // finalises the receipt itself; the hosted fallback returns to
+            // `?payment=success`, where AuthUI.checkPaymentStatus() claims it
+            // and calls process-stripe-payment — the step that actually grants
+            // Pro. Without this marker an upgrade was charged and the account
+            // stayed on the free tier.
             try {
                 localStorage.setItem('inflight_pending_signup', JSON.stringify({
                     email: this._currentUser.email,
@@ -1492,9 +1504,33 @@ if (type === 'flights') {
                 cancel_url:  window.location.origin + '?payment=cancel',
                 is_renew: true,
             };
-            const { data, error } = await this._supabase.functions.invoke('create-stripe-checkout', { body: payload });
-            if (error || !data?.url) throw new Error(data?.error || error?.message || 'Checkout unavailable.');
-            window.location.href = data.url;
+
+            const result = await StripeCheckoutModal.open({
+                supabase: this._supabase,
+                payload,
+                heading: 'Upgrade to InFlight Pro',
+                subheading: '$1.99/mo · cancel anytime',
+            });
+
+            // The hosted fallback is navigating away — leave the button as it is.
+            if (result.status === 'redirected') return;
+
+            if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+
+            if (result.status === 'complete') {
+                await this._settleUpgrade(result.sessionId);
+                return;
+            }
+
+            if (result.status === 'dismissed') {
+                // Nothing was charged; drop the claim so the next app load
+                // doesn't go chasing a payment that never happened.
+                try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
+                ProAccess.clearPending();
+                return;
+            }
+
+            throw new Error(result.error || 'Checkout unavailable.');
         } catch (err) {
             console.warn('[ProfileUI] Upgrade checkout failed, showing billing screen:', err.message);
             try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
@@ -1503,6 +1539,62 @@ if (type === 'flights') {
             if (this._activeTab !== 'settings') this.switchTab('settings');
             setTimeout(() => document.getElementById('pui-billing-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
         }
+    },
+
+    /**
+     * Finish an upgrade that completed inside the modal.
+     *
+     * The page never went to Stripe and never came back, so the work
+     * `AuthUI.checkPaymentStatus()` does on the success URL has to happen here:
+     * verify the session, then confirm the entitlement actually landed before
+     * telling the pilot anything.
+     */
+    async _settleUpgrade(sessionId) {
+        this._showMessage('pui-billing-msg', 'Payment received — activating Pro…', 'success');
+
+        const outcome = await ProAccess.finalizeCheckout(this._supabase, sessionId);
+        // The receipt has been claimed either way; only ProAccess's pending
+        // marker (which survives) is allowed to drive a retry from here.
+        try { localStorage.removeItem('inflight_pending_signup'); } catch (_) {}
+
+        if (outcome.isPro) {
+            this._isPro = true;
+            if (this._currentUser) this._currentUser.isPro = true;
+            try {
+                if (typeof window.showNotification === 'function') {
+                    window.showNotification('Welcome to InFlight Pro — everything is unlocked.', 'success');
+                }
+            } catch (_) { /* the repaint below is what matters */ }
+            // Repaint the tab so the Pro surfaces stop showing their locks. The
+            // message goes after it, or the re-render would take it with it.
+            try { this.switchTab(this._activeTab || 'settings'); } catch (_) { /* next open picks it up */ }
+            this._showMessage('pui-billing-msg', 'You\'re on InFlight Pro. Everything is unlocked — enjoy.', 'success');
+            return;
+        }
+
+        // Paid but not provisioned: the claim stays on file and the next app
+        // load retries it, so say what is true rather than implying it worked.
+        this._showMessage(
+            'pui-billing-msg',
+            'Your payment went through, but Pro hasn\'t activated yet. We\'ll keep retrying — '
+            + 'reload in a minute, or use “Restore Pro access” below. Reference: ' + outcome.reason,
+            'error'
+        );
+    },
+
+    /**
+     * Someone tried to upgrade without an account. Send them to create one —
+     * the sign-up flow leads straight into this same checkout.
+     */
+    _promptAccountForUpgrade() {
+        try {
+            if (window.AuthUI && typeof window.AuthUI.open === 'function') {
+                this.close();
+                window.AuthUI.open('signup');
+                return;
+            }
+        } catch (_) { /* fall through to the message below */ }
+        this._showMessage('pui-billing-msg', 'Please sign in or create an account before upgrading.', 'error');
     },
 
     /**

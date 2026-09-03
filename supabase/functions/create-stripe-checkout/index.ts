@@ -12,6 +12,19 @@
 //     /app-return.html rather than at the site. Nothing here is app-specific
 //     and nothing should become so — see supabase/functions/README.md.
 //
+// ── Two presentations of the same session ─────────────────────────────────
+// `ui_mode: "embedded"` asks for a session that mounts inside the page (the
+// in-app payment modal) and returns a `client_secret` instead of a hosted URL.
+// Anything that does not ask for it — the iOS app included — still gets the
+// hosted `url` exactly as before, so this stays additive.
+//
+// Embedded sessions take `return_url`, never `cancel_url`: Stripe rejects the
+// pair. With `redirect_on_completion: "if_required"` a card / wallet payment
+// finishes in the modal (the page never navigates, and the client finalises
+// from the session id it already holds), while a payment method that genuinely
+// needs a redirect still lands on the same success URL the hosted flow uses —
+// which is why the client sends its success URL through as `return_url`.
+//
 // ── Why the metadata is built key by key ──────────────────────────────────
 // On an upgrade the client sends neither `password` nor `name`, so the previous
 // version put `temp_password: undefined` and `user_name: undefined` into the
@@ -93,7 +106,10 @@ serve(async (req) => {
     const {
       email, name, password, user_id, is_renew,
       success_url, cancel_url, trial_days, allow_promotion_codes,
+      ui_mode, return_url,
     } = await req.json();
+
+    const embedded = ui_mode === "embedded";
 
     if (!email) return jsonResponse({ error: "Email is required." }, 400);
     if (!PRICE_ID) return jsonResponse({ error: "Server configuration error: Missing PRICE_ID." }, 500);
@@ -155,7 +171,11 @@ serve(async (req) => {
     //    {CHECKOUT_SESSION_ID} placeholder — appending a second one produced
     //    `…&session_id=cs_x&session_id=cs_x` on every return trip.
     const origin = req.headers.get("origin") || "";
-    const finalSuccessUrl = success_url || `${origin}/?payment=success`;
+    // An embedded checkout has no "success page" of its own — its return_url is
+    // only used by the payment methods that must leave the page — so it falls
+    // back to the same success URL the hosted flow would have used.
+    const finalSuccessUrl = (embedded ? (return_url || success_url) : success_url)
+      || `${origin}/?payment=success`;
     let successWithSession = finalSuccessUrl;
     if (!finalSuccessUrl.includes("{CHECKOUT_SESSION_ID}")) {
       const separator = finalSuccessUrl.includes("?") ? "&" : "?";
@@ -188,8 +208,8 @@ serve(async (req) => {
       subscriptionData.trial_period_days = parseInt(trial_days, 10);
     }
 
-    // 5. Create the Hosted Checkout Session
-    const session = await stripe.checkout.sessions.create({
+    // 5. Create the Checkout Session — hosted by default, embedded on request.
+    const sessionParams: Record<string, unknown> = {
       customer: customerId,
       // Upgrades know exactly which account is paying. Sent through as the
       // session's own reference so the payment processor never has to guess
@@ -207,16 +227,39 @@ serve(async (req) => {
         },
       ],
       mode: "subscription",
-      success_url: successWithSession,
-      cancel_url: finalCancelUrl,
       subscription_data: subscriptionData,
       payment_method_collection: "always",
-      // Let customers enter promo/discount codes on the hosted checkout page.
+      // Let customers enter promo/discount codes on the checkout page.
       // Defaults to true so codes are accepted unless the client explicitly opts out.
       allow_promotion_codes: allow_promotion_codes !== false,
-    });
+    };
 
-    return jsonResponse({ url: session.url });
+    if (embedded) {
+      sessionParams.ui_mode = "embedded";
+      sessionParams.return_url = successWithSession;
+      // Stay in the modal whenever the payment method allows it; only the ones
+      // that must leave the page do, and they land on the success URL where the
+      // existing return handler picks them up.
+      sessionParams.redirect_on_completion = "if_required";
+    } else {
+      sessionParams.success_url = successWithSession;
+      sessionParams.cancel_url = finalCancelUrl;
+    }
+
+    type SessionParams = Parameters<typeof stripe.checkout.sessions.create>[0];
+    const session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+
+    // The session id goes back either way: the embedded flow finalises without
+    // ever visiting the success URL, so the client needs it up front.
+    if (embedded) {
+      return jsonResponse({
+        client_secret: session.client_secret,
+        session_id: session.id,
+        ui_mode: "embedded",
+      });
+    }
+
+    return jsonResponse({ url: session.url, session_id: session.id });
 
   } catch (err) {
     console.error("Stripe Checkout Error:", err);

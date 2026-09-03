@@ -209,6 +209,62 @@ export const ProAccess = {
     },
 
     /**
+     * Verify a finished checkout and settle the entitlement, in one call.
+     *
+     * The in-page payment modal never visits the success URL — it holds the
+     * session id from the moment the session is created — so it has to do here
+     * what `AuthUI.checkPaymentStatus()` does on the way back from the hosted
+     * page: run `process-stripe-payment` (the only thing that grants Pro), then
+     * confirm the stamp actually landed.
+     *
+     * @returns {Promise<{isPro: boolean, reason: string, hadRow: boolean, processed: boolean, error: string|null}>}
+     */
+    async finalizeCheckout(supabase, sessionId) {
+        if (!supabase || !sessionId) {
+            return { isPro: false, reason: 'no-session-id', hadRow: false, processed: false, error: 'Missing checkout session id.' };
+        }
+
+        let processed = false;
+        let processError = null;
+        try {
+            const { data, error } = await supabase.functions.invoke('process-stripe-payment', {
+                body: { sessionId }
+            });
+            if (error || data?.error) {
+                processError = data?.error || error?.message || 'Could not verify the payment.';
+            } else {
+                processed = true;
+            }
+        } catch (err) {
+            processError = err.message || 'Could not verify the payment.';
+        }
+
+        // Even a failed verification is worth resolving: the webhook may have
+        // granted already, and resolveAfterCheckout() falls back to asking
+        // Stripe directly rather than trusting either side's optimism.
+        const result = await this.resolveAfterCheckout(supabase);
+
+        if (result.isPro) {
+            this.clearPending();
+        } else {
+            // Leave the claim on file so the next app load retries it.
+            console.error('[ProAccess] Checkout finalised without an entitlement:', result.reason);
+        }
+
+        // Repaint the gated surfaces from the authoritative flag. The page was
+        // never reloaded — without this the pilot stays behind the same locks
+        // they just paid to remove.
+        try {
+            if (typeof window !== 'undefined' && typeof window.refreshProStatus === 'function') {
+                const resolved = await window.refreshProStatus();
+                if (resolved === true) result.isPro = true;
+            }
+        } catch (_) { /* the next load picks it up */ }
+
+        return Object.assign({ processed, error: processError }, result);
+    },
+
+    /**
      * Confirm (or rescue) the entitlement right after a checkout returns.
      *
      * `process-stripe-payment` has already run by this point. We poll for the
