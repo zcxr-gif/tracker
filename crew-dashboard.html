@@ -2911,7 +2911,7 @@
                 fillEmail(d); document.getElementById('emKey').value=''; setEmailNote(okMsg,'ok');
             }catch{ setEmailNote('Server unreachable. Try again.','err'); }
         }
-        function saveEmail(){ postEmail(emailPayload(), document.getElementById('emProvider').value?'Email provider saved.':'Reverted to the Inflight default.'); }
+        function saveEmail(){ postEmail(emailPayload(), document.getElementById('emProvider').value?'Email provider saved.':'Email turned off — applicants will only see their status page.'); }
         function testEmail(){ const to=document.getElementById('emTestTo').value.trim(); postEmail(emailPayload({test:true, testTo:to}), 'Test sent — check that inbox.'); }
 
         function wireRecruitment(){
