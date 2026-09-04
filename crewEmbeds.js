@@ -10,7 +10,7 @@
 
    WHAT IT DOES
 
-   Four things, in order of how much of the job they are:
+   Five things, in order of how much of the job they are:
 
      1. Lists what we actually provide, with an honest note about what each one
         costs. Map mode bills Mapbox map loads to whoever owns the token, which
@@ -22,6 +22,12 @@
         not a mock-up of one — so what a VA sees here is what their visitors
         will see, including when it says "nothing published yet".
      4. Hands over the <iframe> to paste.
+     5. For a VA that has built its own website and wants the data in its OWN
+        typography rather than in ours, hands over the data instead: the public
+        JSON endpoints, and a one-line script that fills their markup in from
+        them. An iframe is the right answer for a Wix site and the wrong answer
+        for a designed one, and until this panel offered both, the second kind
+        of VA had no answer at all.
 
    WHY THE PREVIEW IS THE REAL WIDGET
 
@@ -45,11 +51,16 @@
     // right on a staging deploy, which a hardcoded inflight.info would not.
     const HOST = location.origin;
 
+    // The service that answers for crew centers. Passed in by the dashboard so
+    // a staging deploy quotes its own backend in the snippet it hands over.
+    const DEFAULT_BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
     const S = {
         slug: '',
         code: '',
         name: '',
         accent: '',
+        backend: DEFAULT_BACKEND,
         pick: 'roster',
         opts: {},          // per-widget option state, keyed by widget id
     };
@@ -149,6 +160,52 @@
             }),
         },
         {
+            id: 'routes',
+            label: 'Route network',
+            icon: 'route',
+            blurb: 'Every sector you have published — flight number, city pair, aircraft and '
+                + 'distance. Add a route here and it appears on your website; switch one off '
+                + 'and it leaves.',
+            cost: 'Free. Active routes only — a sector you have switched off never leaves the crew center.',
+            height: 520,
+            needs: 'slug',
+            options: [
+                { key: 'theme', label: 'Theme', type: 'select', values: [['dark', 'Dark'], ['light', 'Light']], def: 'dark' },
+                { key: 'limit', label: 'How many sectors', type: 'number', def: '20', min: 1, max: 50 },
+                { key: 'kind', label: 'Which sectors', type: 'select', values: [['', 'All'], ['own', 'Our own metal'], ['codeshare', 'Codeshares only']], def: '' },
+                { key: 'sort', label: 'Order', type: 'select', values: [['', 'By airport pair'], ['distance', 'Longest first'], ['shortest', 'Shortest first'], ['flight', 'By flight number']], def: '' },
+                { key: 'aircraft', label: 'Only this aircraft', type: 'text', placeholder: 'e.g. 787' },
+                { key: 'header', label: 'Header bar', type: 'select', values: [['on', 'Show'], ['off', 'Hide']], def: 'on' },
+                { key: 'accent', label: 'Accent', type: 'color' },
+            ],
+            build: (o) => url('/embed-crew.html', {
+                va: S.slug, view: 'routes', name: S.name,
+                theme: o.theme, limit: o.limit, kind: o.kind, sort: o.sort, aircraft: o.aircraft,
+                header: o.header === 'off' ? 'off' : '', accent: o.accent,
+            }),
+        },
+        {
+            id: 'stats',
+            label: 'By the numbers',
+            icon: 'bar-chart-3',
+            blurb: 'Your pilots, hours, flights filed and the size of your network — the figures '
+                + 'this crew center already holds, on your own site and correct the day after '
+                + 'they change.',
+            cost: 'Free. A figure we did not get is left out rather than printed as zero.',
+            height: 300,
+            needs: 'slug',
+            options: [
+                { key: 'theme', label: 'Theme', type: 'select', values: [['dark', 'Dark'], ['light', 'Light']], def: 'dark' },
+                { key: 'limit', label: 'How many figures', type: 'number', def: '6', min: 1, max: 9 },
+                { key: 'header', label: 'Header bar', type: 'select', values: [['on', 'Show'], ['off', 'Hide']], def: 'on' },
+                { key: 'accent', label: 'Accent', type: 'color' },
+            ],
+            build: (o) => url('/embed-crew.html', {
+                va: S.slug, view: 'stats', name: S.name,
+                theme: o.theme, limit: o.limit, header: o.header === 'off' ? 'off' : '', accent: o.accent,
+            }),
+        },
+        {
             id: 'schedule',
             label: 'Schedule',
             icon: 'calendar-clock',
@@ -167,6 +224,20 @@
                 va: S.slug, view: 'schedule', name: S.name,
                 theme: o.theme, limit: o.limit, header: o.header === 'off' ? 'off' : '', accent: o.accent,
             }),
+        },
+        {
+            id: 'feed',
+            label: 'Live data (JSON)',
+            icon: 'plug',
+            feed: true,
+            blurb: 'The same routes, figures, events and notices as plain data, with no markup '
+                + 'and no styling attached — for a site that wants them in its own typography, '
+                + 'on its own grid. Read the endpoints directly, or drop in the one-line script '
+                + 'and mark up the page.',
+            cost: 'Free, public and CORS-open — no key, nothing to keep secret. These are read '
+                + 'endpoints only: nothing here can change anything in your crew center.',
+            needs: 'slug',
+            options: [],
         },
     ];
 
@@ -204,6 +275,45 @@
   loading="lazy"
   title="${(S.name || 'Crew Center').replace(/"/g, '')} — ${w.label}"></iframe>`;
 
+    /* ---------------------------------------------------------------------
+     * The direct-integration path.
+     *
+     * The endpoints are listed as URLs rather than described, because the VA
+     * pasting them into their own code is the whole point — and every one is a
+     * plain GET they can open in a browser tab right now to see exactly what
+     * comes back. What a developer needs from this panel is the address, not a
+     * paragraph about the address.
+     * ------------------------------------------------------------------- */
+    const FEEDS = [
+        { path: '/routes',        what: 'Your route network — every published sector.' },
+        { path: '/stats',         what: 'Pilots, hours, flights filed, the size of the network.' },
+        { path: '/events',        what: 'The events calendar you publish.' },
+        { path: '/schedules',     what: 'Published departures and the seats left on each.' },
+        { path: '/announcements', what: 'The noticeboard.' },
+        { path: '/route-map',     what: 'The same routes joined to airport coordinates, for drawing a map.' },
+    ];
+
+    const feedUrl = (path) => `${S.backend}/api/crew/${encodeURIComponent(S.slug)}${path}`;
+
+    const feedSnippet = () => `<script src="${HOST}/crew-feed.js" data-va="${S.slug}"><\/script>
+
+<!-- Your own markup. Any figure the crew center holds, in your type, on your grid.
+     A figure it could not tell us is removed rather than printed as zero. -->
+<p><b data-crew-stat="pilots">—</b> pilots · <b data-crew-stat="hours">—</b> hours flown</p>
+
+<!-- Your route network, in your own template. {{fields}}: from, to, flight,
+     aircraft, distanceNm, notes, partner, minRank -->
+<ul data-crew-list="routes" data-crew-limit="10">
+  <template>
+    <li><b>{{from}} → {{to}}</b> {{aircraft}}</li>
+  </template>
+</ul>`;
+
+    const feedJs = () => `// Or read it yourself. Every call resolves to null on any
+// failure, so your page keeps whatever it already showed.
+const routes  = await CrewFeed.routes();   // [{ from, to, flight, aircraft, … }]
+const figures = await CrewFeed.stats();    // { pilots, hours, pireps, … }`;
+
     /* =====================================================================
      * RENDER
      * =================================================================== */
@@ -212,7 +322,7 @@
         const w = widget(S.pick);
         const o = optsFor(w);
         const missing = w.needs === 'code' ? !S.code : !S.slug;
-        const src = missing ? '' : w.build(o);
+        const src = missing || w.feed ? '' : w.build(o);
 
         const picker = WIDGETS.map((x) => `
             <button class="ce-pick${x.id === S.pick ? ' ce-pick-on' : ''}" data-pick="${esc(x.id)}">
@@ -258,7 +368,7 @@
                 ${w.needs === 'code'
                     ? 'This widget needs your VA callsign code, which your Inflight listing hasn’t got yet.'
                     : 'This widget needs your crew center’s address, which we couldn’t read from this page.'}
-            </div>` : `
+            </div>` : w.feed ? feedBody() : `
             <section class="cp-card">
                 <div class="ce-opts">${controls}</div>
             </section>
@@ -290,8 +400,49 @@
         wire(w, src);
     }
 
+    /** The Live-data view: the endpoints, then the drop-in snippet. */
+    function feedBody() {
+        const rows = FEEDS.map((f) => `
+            <div class="ce-feed-row">
+                <div class="ce-feed-main">
+                    <code>${esc(feedUrl(f.path))}</code>
+                    <p class="cp-note">${esc(f.what)}</p>
+                </div>
+                <div class="ce-feed-acts">
+                    <a class="cp-btn cp-btn-sm" href="${esc(feedUrl(f.path))}" target="_blank" rel="noopener">
+                        <i data-lucide="external-link"></i> Open
+                    </a>
+                    <button class="cp-btn cp-btn-sm" data-copy-url="${esc(feedUrl(f.path))}">
+                        <i data-lucide="copy"></i> Copy
+                    </button>
+                </div>
+            </div>`).join('');
+
+        return `
+            <section class="cp-card">
+                <label class="cp-label">Your endpoints</label>
+                <div class="ce-feeds">${rows}</div>
+                <p class="cp-note">Plain GETs. Open one now and you will see exactly what your
+                    site will get. Drafts are never in them — an unauthenticated caller sees
+                    only what your crew center already shows the public.</p>
+            </section>
+
+            <section class="cp-card">
+                <label class="cp-label" for="ceSnippet">Or drop this in and mark up your page</label>
+                <textarea id="ceSnippet" class="cp-textarea ce-snippet" readonly rows="14">${esc(feedSnippet())}</textarea>
+                <div class="ce-copy-row">
+                    <button class="cp-btn cp-btn-primary" id="ceCopy"><i data-lucide="copy"></i> Copy the snippet</button>
+                </div>
+                <pre class="ce-code">${esc(feedJs())}</pre>
+            </section>`;
+    }
+
     function wire(w, src) {
         const body = panel.body;
+
+        body.querySelectorAll('[data-copy-url]').forEach((b) => {
+            b.addEventListener('click', () => copyText(b.getAttribute('data-copy-url'), 'URL copied.'));
+        });
 
         body.querySelectorAll('[data-pick]').forEach((b) => {
             b.addEventListener('click', () => { S.pick = b.getAttribute('data-pick'); render(); });
@@ -403,6 +554,23 @@
 
         .ce-snippet{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.75rem;
             line-height:1.5; }
+
+        /* Live data. The URL is the thing being handed over, so it gets the
+           room: it wraps rather than truncating, because a half-shown endpoint
+           is one a VA has to come back for. */
+        .ce-feeds{ display:grid; gap:.1rem; }
+        .ce-feed-row{ display:flex; align-items:flex-start; gap:.6rem; padding:.6rem 0;
+            border-top:1px solid var(--line,#e5e5e5); }
+        .ce-feed-row:first-child{ border-top:0; }
+        .ce-feed-main{ flex:1; min-width:0; }
+        .ce-feed-main code{ display:block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+            font-size:.72rem; color:var(--ink,#1C1A16); word-break:break-all; }
+        .ce-feed-main .cp-note{ margin:.15rem 0 0; }
+        .ce-feed-acts{ display:flex; gap:.3rem; flex-shrink:0; }
+        .ce-code{ margin:.7rem 0 0; padding:.6rem .7rem; border-radius:.5rem; overflow-x:auto;
+            background:color-mix(in srgb, var(--ink,#1C1A16) 6%, transparent);
+            font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.72rem;
+            line-height:1.55; color:var(--muted,#736E64); }
         .ce-copy-row{ display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap; }
 
         /* Mobile. The widget picker becomes a scrolling rail with the edge
@@ -420,6 +588,8 @@
             .ce-preview iframe{ height:min(var(--ce-h,480px), 52vh); height:min(var(--ce-h,480px), 52dvh); }
             .ce-copy-row .cp-btn{ flex:1 1 100%; justify-content:center; }
             .ce-snippet{ font-size:.72rem; }
+            .ce-feed-row{ flex-direction:column; gap:.4rem; }
+            .ce-feed-acts .cp-btn{ min-height:2.25rem; }
         }`);
     }
 
@@ -434,12 +604,13 @@
      * themed their crew center gets a snippet themed to match without this
      * panel having to know anything about crewBrand.js.
      */
-    function open({ slug, code, name } = {}) {
+    function open({ slug, code, name, backend } = {}) {
         injectStyles();
         if (!panel) panel = P.sheet({ id: 'cePanel', title: 'Embeds', icon: 'code-xml', wide: true });
         S.slug = String(slug || '').toLowerCase();
         S.code = String(code || '').trim();
         S.name = String(name || '').trim();
+        S.backend = String(backend || DEFAULT_BACKEND).replace(/\/+$/, '');
         S.accent = readAccent();
         panel.open();
         render();

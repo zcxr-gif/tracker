@@ -12,6 +12,13 @@ Files:
 There are no framing restrictions (`_headers`/`netlify.toml` set none), so the
 page can be iframed from any site.
 
+> **Looking for the crew center's own data — routes, figures, events, the
+> noticeboard?** That is a different widget and a different document:
+> [`docs/CREW-DATA.md`](docs/CREW-DATA.md). It needs no token and no Mapbox
+> account, and it also covers the direct route — `crew-feed.js` — for a VA that
+> wants the data in its own markup rather than in an iframe. This file is only
+> about live Infinite Flight traffic.
+
 ---
 
 ## The two render modes
