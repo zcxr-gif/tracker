@@ -622,11 +622,32 @@
         if (ev.key === 'Escape') recoverScroll();
     });
 
+    /* ---------------------------------------------------------------------
+     * Is this route published?
+     *
+     * ONE definition, because there were four and they disagreed. The route
+     * panel on the staff dashboard hid a route unless `active` was truthy; the
+     * pilot's network panel, the event editor's route picker and the flight
+     * filer all showed it unless `active` was exactly false. A route the
+     * backend returned without the field — an older row, a CSV import, a
+     * partner's codeshare leg synced in — was therefore ON the network on
+     * three screens and missing from the fourth, and a VA's own website (the
+     * embed widgets) had no rule at all.
+     *
+     * A route is on the network unless somebody parked it as a draft. That is
+     * what the checkbox in the route form says ("Active — visible to pilots"),
+     * so it is what an absent field cannot mean; only an explicit false is a
+     * draft. Staff still see drafts — that is a separate question, asked with
+     * `canManage`, not with this.
+     * ------------------------------------------------------------------- */
+    const isPublishedRoute = (r) => !!r && r.active !== false;
+
     window.CrewPanels = {
         esc, safeUrl, icons,
         whenText, timeText, dayKey, dayLabel, relativeText, durationText,
         style, baseStyles, toast, sheet, api,
         lockScroll, unlockScroll, recoverScroll,
         isSchemaGap, schemaGapHtml,
+        isPublishedRoute,
     };
 })();

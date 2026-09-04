@@ -1122,7 +1122,13 @@
         ensureRoutes().then((routes) => {
             const sel = document.getElementById('cevfRoute');
             if (!sel) return;    // the editor was closed while this was loading
-            const active = routes.filter((r) => r.active !== false);
+            // The crew center's one rule for "is this route on the network".
+            // crewEvents loads before crewPanels (it brings its own chrome), so
+            // the shared helper is read at call time and the same rule is
+            // spelled out inline for the load order where it is not there yet.
+            const published = (window.CrewPanels && window.CrewPanels.isPublishedRoute)
+                || ((r) => !!r && r.active !== false);
+            const active = routes.filter(published);
             sel.innerHTML = '<option value="">A one-off — I’ll type the leg</option>'
                 + active.map((r) => `<option value="${esc(r.id)}" ${v.routeId === r.id ? 'selected' : ''}>${esc(routeLabel(r))}</option>`).join('');
             sel.addEventListener('change', () => {
