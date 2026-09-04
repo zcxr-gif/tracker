@@ -9,23 +9,34 @@
 
   A self-contained, dependency-free embed a VA drops on their own website to
   show what their crew center already holds: the noticeboard, the published
-  events, or the week's schedule. One file, three views, because they are the
-  same shape — a heading, a list of rows, a footer — and three near-identical
-  pages would drift apart by the second change.
+  events, the week's schedule, the route network or the airline's own figures.
+  One file, five views, because they are the same shape — a heading, a body, a
+  footer — and five near-identical pages would drift apart by the second
+  change.
 
     /embed-crew.html?va=<slug>&view=notices
     /embed-crew.html?va=<slug>&view=events
     /embed-crew.html?va=<slug>&view=schedule
+    /embed-crew.html?va=<slug>&view=routes
+    /embed-crew.html?va=<slug>&view=stats
 
   WHY IT NEEDS NO TOKEN
 
   Unlike embed.html, this reads nothing that costs anybody money and nothing
-  that is not already public. The three endpoints it calls are the same ones a
+  that is not already public. The endpoints it calls are the same ones a
   visitor to the crew center reads:
 
     GET /api/crew/<slug>/announcements    the noticeboard
     GET /api/crew/<slug>/events           published + cancelled events
     GET /api/crew/<slug>/schedules        published + cancelled departures
+    GET /api/crew/<slug>/routes           the route network
+    GET /api/crew/<slug>/stats            the airline's own figures
+
+  The route network and the figures are the two things a VA's own website wants
+  most, and the two it is most likely to have typed in by hand — so they drift
+  the moment a sector is added or a pilot joins. Reading them from here is what
+  makes a website and a crew center the same airline rather than two accounts
+  of one.
 
   Drafts never appear in any of them for an unauthenticated caller — that is
   enforced by row-level security in the VA's own database, not by this page —
@@ -137,6 +148,16 @@
 
   .state { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 13px; }
 
+  /* Figures. A hairline grid — the 1px gap over the border colour is the rule
+     between tiles, so a row of three and a row of two still line up. */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+           gap: 1px; background: var(--border); }
+  .stat { background: var(--surface); padding: 13px 14px; }
+  .stat b { display: block; font-size: 23px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
+  .stat i { display: block; font-style: normal; font-size: 10.5px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin-top: 5px; }
+  .stat em { display: block; font-style: normal; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
   .powered {
     display: flex; align-items: center; justify-content: center; gap: 6px;
     padding: 10px 0 2px; color: var(--faint); font-size: 11px;
@@ -156,6 +177,8 @@
     .row-when { width: 100%; order: 3; }
     .ports { font-size: 14px; }
     .day { padding: 7px 12px; }
+    .stats { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+    .stat b { font-size: 20px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -177,14 +200,21 @@
 
   var SLUG = (qs.get("va") || qs.get("slug") || "").trim().toLowerCase();
   var VIEW = (qs.get("view") || "notices").trim().toLowerCase();
-  var LIMIT = Math.max(1, Math.min(50, parseInt(qs.get("limit"), 10) || 8));
 
   var VIEWS = {
     notices:  { path: "/announcements", key: "announcements", title: "Noticeboard" },
     events:   { path: "/events",        key: "events",        title: "Events" },
-    schedule: { path: "/schedules",     key: "schedules",     title: "Schedule" }
+    schedule: { path: "/schedules",     key: "schedules",     title: "Schedule" },
+    routes:   { path: "/routes",        key: "routes",        title: "Route network", limit: 20 },
+    // The one view whose payload is an object rather than a list. It is still
+    // a view here rather than a page of its own, because everything around the
+    // figures — the header, the theming, the empty states, the attribution —
+    // is the same, and a second page would only exist to hold a second copy.
+    stats:    { path: "/stats",         key: "stats",         title: "By the numbers", limit: 6, object: true }
   };
   if (!VIEWS[VIEW]) VIEW = "notices";
+
+  var LIMIT = Math.max(1, Math.min(50, parseInt(qs.get("limit"), 10) || VIEWS[VIEW].limit || 8));
 
   var wrap = document.getElementById("wrap");
 
@@ -317,29 +347,119 @@
     return out;
   }
 
-  var RENDER = { notices: renderNotices, events: renderEvents, schedule: renderSchedule };
+  function renderRoutes(rows) {
+    return rows.slice(0, LIMIT).map(function (r) {
+      var tags = [];
+      // A codeshare is somebody else's metal. Saying so is the difference
+      // between a network map and an overstated one, so the partner's name is
+      // on the row rather than the sector being printed as ours.
+      if (r.kind === "codeshare") tags.push('<span class="tag">' + esc(r.partnerName || "Codeshare") + "</span>");
+      if (r.minRank) tags.push('<span class="tag">' + esc(r.minRank) + "+</span>");
+      var dist = Number(r.distanceNm);
+      return '<div class="row"><div class="row-main">' +
+        '<div class="ports">' +
+          (r.flightNumber ? '<span class="fno">' + esc(r.flightNumber) + "</span>" : "") +
+          esc(r.origin || "???") + ' <span class="arrow">→</span> ' + esc(r.destination || "???") +
+        "</div>" +
+        '<div class="meta">' +
+          (r.aircraft ? "<span>" + esc(r.aircraft) + "</span>" : "") +
+          (isFinite(dist) && dist > 0 ? "<span>" + dist.toLocaleString() + " nm</span>" : "") +
+        "</div>" +
+        (tags.length ? "<div>" + tags.join("") + "</div>" : "") +
+        (r.notes ? '<p class="row-sub">' + esc(r.notes) + "</p>" : "") +
+        "</div></div>";
+    }).join("");
+  }
+
+  // ---- Figures ----
+  //
+  // ABSENT IS NOT ZERO. A field the backend did not send is a field we did not
+  // learn; printing 0 for it would put a fabricated number in 23px numerals on
+  // an airline's homepage, which is the one thing this widget must never do.
+  // A real 0 that the backend DID send is a true answer and is shown.
+  var STAT_FIELDS = [
+    { key: "pilots",         label: "Pilots",        sub: "pilotsActive",   subWord: "active" },
+    { key: "hours",          label: "Hours",         round: true },
+    { key: "pirepsApproved", label: "Flights filed", alias: "pireps" },
+    { key: "flights30d",     label: "Last 30 days",  sub: "flightHours30d", subWord: "hours", subRound: true },
+    { key: "routesActive",   label: "Routes" },
+    { key: "destinations",   label: "Destinations" },
+    { key: "landings",       label: "Landings" },
+    { key: "flightHours",    label: "Hours on reports", round: true },
+    { key: "pilotsActive",   label: "Active pilots" }
+  ];
+
+  function statNum(s, key, alias) {
+    var v = s[key];
+    if ((v == null || !isFinite(Number(v))) && alias) v = s[alias];
+    return v != null && isFinite(Number(v)) ? Number(v) : null;
+  }
+
+  function renderStats(s) {
+    // `fields` picks and orders the tiles; without it the widget shows whatever
+    // figures the crew center actually returned, in the order above.
+    var want = (qs.get("fields") || "").split(",").map(function (f) { return f.trim(); }).filter(Boolean);
+    var order = want.length
+      ? want.map(function (k) {
+          var f = null;
+          STAT_FIELDS.forEach(function (x) { if (x.key === k || x.alias === k) f = x; });
+          return f;
+        }).filter(Boolean)
+      : STAT_FIELDS;
+
+    var tiles = [];
+    order.forEach(function (f) {
+      if (tiles.length >= LIMIT) return;
+      var n = statNum(s, f.key, f.alias);
+      if (n === null) return;
+      // Hours come back to one decimal. That precision is right against a rank
+      // threshold and wrong in a headline: "3,984.4" reads as a measurement.
+      var main = (f.round ? Math.round(n) : n).toLocaleString();
+      var sub = "";
+      if (f.sub) {
+        var sn = statNum(s, f.sub);
+        if (sn !== null) sub = (f.subRound ? Math.round(sn) : sn).toLocaleString() + " " + f.subWord;
+      }
+      tiles.push('<div class="stat"><b>' + esc(main) + "</b>" +
+        "<i>" + esc(f.label) + "</i>" +
+        (sub ? "<em>" + esc(sub) + "</em>" : "") + "</div>");
+    });
+    return tiles.length ? '<div class="stats">' + tiles.join("") + "</div>" : "";
+  }
+
+  var RENDER = {
+    notices: renderNotices,
+    events: renderEvents,
+    schedule: renderSchedule,
+    routes: renderRoutes,
+    stats: renderStats
+  };
 
   var EMPTY = {
     notices: "Nothing on the noticeboard yet.",
     events: "No events published yet.",
-    schedule: "Nothing scheduled yet."
+    schedule: "Nothing scheduled yet.",
+    routes: "No routes published yet.",
+    stats: "This crew center has no figures to show yet."
   };
 
-  function paint(rows) {
+  function paint(data) {
     var cfg = VIEWS[VIEW];
     var name = qs.get("name") || "";
     var logo = safeImg(qs.get("logo") || "");
     var title = qs.get("title") || (name ? name + " · " + cfg.title : cfg.title);
 
+    // A list view counts its rows in the header; the figures view has nothing
+    // to count, and a "1" there would be read as a number about the airline.
+    var count = cfg.object ? "" : String(Math.min(data.length, LIMIT));
+    var body = RENDER[VIEW](data) ||
+      '<div class="state">' + esc(EMPTY[VIEW]) + "</div>";
+
     var head = '<div class="head">' +
       (logo ? '<img src="' + esc(logo) + '" alt="">' : "") +
       "<h1>" + esc(title) + "</h1>" +
-      (rows.length ? '<span class="count">' + Math.min(rows.length, LIMIT) + "</span>" : "") +
+      (count !== "" && count !== "0" ? '<span class="count">' + count + "</span>" : "") +
       "</div>";
-
-    var body = rows.length
-      ? RENDER[VIEW](rows)
-      : '<div class="state">' + esc(EMPTY[VIEW]) + "</div>";
 
     var powered = qs.get("powered") === "off" ? "" :
       '<a class="powered" href="https://inflight.info" target="_blank" rel="noopener">Powered by Inflight</a>';
@@ -365,6 +485,40 @@
     if (isFinite(maxw)) root.setProperty("--maxw", Math.max(240, Math.min(1600, maxw)) + "px");
   }
 
+  /**
+   * Routes, narrowed and ordered.
+   *
+   * The endpoint hands back the whole network, including the sectors staff have
+   * switched off. A route that is not active is not one a visitor can be asked
+   * to fly, so it never leaves the crew center — and `active` is only tested
+   * when the field is actually present, so a sector saved before that column
+   * existed is published rather than silently lost.
+   */
+  function prepareRoutes(rows) {
+    var kind = (qs.get("kind") || "").trim().toLowerCase();
+    var ac = (qs.get("aircraft") || "").trim().toLowerCase();
+    var sort = (qs.get("sort") || "").trim().toLowerCase();
+
+    var out = rows.filter(function (r) { return r && r.origin && r.destination; })
+                  .filter(function (r) { return r.active !== false; });
+
+    if (kind === "own") out = out.filter(function (r) { return r.kind !== "codeshare"; });
+    else if (kind === "codeshare") out = out.filter(function (r) { return r.kind === "codeshare"; });
+    if (ac) out = out.filter(function (r) { return String(r.aircraft || "").toLowerCase().indexOf(ac) > -1; });
+
+    if (sort === "distance") out.sort(function (a, b) { return (Number(b.distanceNm) || 0) - (Number(a.distanceNm) || 0); });
+    else if (sort === "shortest") out.sort(function (a, b) { return (Number(a.distanceNm) || 0) - (Number(b.distanceNm) || 0); });
+    else if (sort === "flight") out.sort(function (a, b) { return String(a.flightNumber || "").localeCompare(String(b.flightNumber || "")); });
+    else out.sort(function (a, b) {
+      // Default: by airport pair, so the same network reads the same way on
+      // every refresh rather than in whatever order rows came back.
+      return (a.origin + a.destination).localeCompare(b.origin + b.destination);
+    });
+    return out;
+  }
+
+  var PREPARE = { routes: prepareRoutes };
+
   function boot() {
     applyAppearance();
     if (!SLUG) return fail("Add ?va=<your crew center slug> to this embed’s URL.");
@@ -378,12 +532,21 @@
         return r.json();
       })
       .then(function (d) {
+        if (cfg.object) {
+          // `connected: false` means the VA has not attached a data store, not
+          // that the airline has flown nothing. Those are different sentences
+          // and only one of them is true, so the empty state says so.
+          var s = d && d[cfg.key];
+          if (!s || d.connected === false) return paint({});
+          return paint(s);
+        }
         var rows = Array.isArray(d[cfg.key]) ? d[cfg.key] : [];
         // The API returns drafts only to a signed-in manager, and this page
         // sends no session — but filtering here too means a future change to
         // that endpoint cannot quietly publish somebody's working copy onto
         // their own homepage.
         rows = rows.filter(function (r) { return r.status !== "draft"; });
+        if (PREPARE[VIEW]) rows = PREPARE[VIEW](rows);
         paint(rows);
       })
       .catch(function (err) {

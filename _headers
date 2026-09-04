@@ -54,3 +54,15 @@
 /.well-known/apple-app-site-association
   Content-Type: application/json
   Cache-Control: public, max-age=3600
+
+# The crew-center data client.
+#
+# Other people's websites load this cross-origin with a plain <script src>, so
+# it needs no CORS header to run — but a site that would rather import it as a
+# module, or read it with fetch, gets a 200 either way with the header below.
+#
+# Cached for an hour rather than a day: it is small, and a site that pasted the
+# snippet in should pick up a fix within a session rather than the day after.
+/crew-feed.js
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400

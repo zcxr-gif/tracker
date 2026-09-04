@@ -328,6 +328,37 @@ function api(route, over = {}) {
     const noticeSnippet = await page.inputValue('#ceSnippet');
     check('the noticeboard widget is keyed by slug', /embed-crew\.html/.test(noticeSnippet) && /va=testva/.test(noticeSnippet),
         noticeSnippet.slice(0, 160));
+    // The two the airline's own website most wants, and the reason a VA who
+    // has one asks for this panel at all.
+    await page.click('[data-pick="routes"]');
+    await page.waitForTimeout(300);
+    const routeSnippet = await page.inputValue('#ceSnippet');
+    check('the route-network widget is keyed by slug',
+        /embed-crew\.html/.test(routeSnippet) && /view=routes/.test(routeSnippet) && /va=testva/.test(routeSnippet),
+        routeSnippet.slice(0, 200));
+
+    await page.click('[data-pick="stats"]');
+    await page.waitForTimeout(300);
+    const statSnippet = await page.inputValue('#ceSnippet');
+    check('the figures widget is too', /view=stats/.test(statSnippet) && /va=testva/.test(statSnippet),
+        statSnippet.slice(0, 200));
+
+    // The direct path: no iframe at all, because the whole point is that the
+    // VA renders it in their own markup.
+    await page.click('[data-pick="feed"]');
+    await page.waitForTimeout(300);
+    const feedSnippet = await page.inputValue('#ceSnippet');
+    check('the live-data view hands over a script, not an iframe',
+        /^<script src=".*\/crew-feed\.js" data-va="testva">/.test(feedSnippet.trim()), feedSnippet.slice(0, 120));
+    check('…and shows the markup that fills a page in',
+        /data-crew-stat="pilots"/.test(feedSnippet) && /data-crew-list="routes"/.test(feedSnippet));
+    const feedBody = await page.textContent('#cePanel .ce-feeds');
+    check('…alongside the endpoints themselves',
+        /\/api\/crew\/testva\/routes/.test(feedBody) && /\/api\/crew\/testva\/stats/.test(feedBody),
+        feedBody.slice(0, 200));
+    check('the live-data view renders no preview iframe',
+        await page.isHidden('#cePreview').catch(() => true));
+
     await page.click('#cePanel .cp-head [data-cp-close]');
 
     // ---- 5. Partnership ----------------------------------------------------

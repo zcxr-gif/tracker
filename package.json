@@ -3,7 +3,8 @@
     "build:data": "node tools/build-data.js",
     "verify:data": "node tools/verify-data.js",
     "test:panels": "node tools/test-crew-panel-render.js",
-    "test:checkout": "node tools/test-checkout-modal.js"
+    "test:checkout": "node tools/test-checkout-modal.js",
+    "test:crew-data": "node tools/test-crew-data-feed.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
