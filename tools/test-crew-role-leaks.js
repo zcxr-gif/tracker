@@ -9,6 +9,11 @@
 //   * an owner sees everything, and the permission tick boxes actually render
 //   * when the permission catalogue does not arrive, the role editor SAYS so
 //     instead of drawing a role card with nothing underneath it
+//   * the team editor lists the VA's REAL staff logins with a role dropdown
+//     each, rather than asking an owner to type a username from memory — the
+//     typo that saved cleanly and granted nothing
+//   * the "Staff" tick on a crew ROLE says it is a badge and points at the
+//     screen that actually grants permissions
 //
 // Run:  node tools/test-crew-role-leaks.js
 const { chromium } = require('playwright-core');
@@ -42,6 +47,8 @@ const CAPABILITIES = [
 
 let ME = {};
 let sendCatalogue = true;
+// null → the backend has no such route, which is the out-of-date-backend case.
+let ACCOUNTS = null;
 
 function api(route) {
     const p = new URL(route.request().url()).pathname;
@@ -54,6 +61,7 @@ function api(route) {
             rolePresets: [{ id: 'pirep-manager', name: 'PIREP manager', color: '#0EA5E9', description: 'Reviews flight reports.', permissions: ['flights.review'] }],
         });
     }
+    if (p.endsWith('/staff-accounts')) return ACCOUNTS ? json({ accounts: ACCOUNTS }) : json({ error: 'nope' }, 404);
     if (p.endsWith('/branding')) return json({ name: 'Test VA', code: 'TVA', layout: 'editorial', allowedLayouts: ['editorial'] });
     if (p.endsWith('/announcements')) return json({ announcements: [], canManage: false });
     if (p.endsWith('/events')) return json({ events: [], canManage: false, mine: [], ranks: [] });
@@ -160,6 +168,68 @@ const head = (s) => console.log(`\n${s}`);
     ok('…rather than drawing a role card with nothing under it', !/^\s*$/.test(rowText));
     await c5.close();
     sendCatalogue = true;
+
+    // ------------------------------------------------------------------
+    head('The team editor lists the real staff logins');
+
+    ACCOUNTS = [
+        { username: 'skypilot', displayName: 'Sky Pilot', role: 'owner', active: true },
+        { username: 'routeguy', displayName: 'Route Guy', role: 'staff', active: true },
+        { username: 'oldhand', displayName: 'Old Hand', role: 'staff', active: false },
+    ];
+    ME = {
+        role: 'owner', view: 'staff', caps: CAPABILITIES.map((c) => c.id),
+        staffRoles: [{ id: 'role-rm', name: 'Route manager', color: '#4f46e5', permissions: ['routes.manage'] }],
+        staffAssignments: [],
+    };
+    const { ctx: c6, page: p6 } = await openDash();
+    await p6.evaluate(() => window.openSettings('team'));
+    await p6.waitForTimeout(400);
+
+    const acctText = await p6.innerText('#accountRows');
+    ok('a staff login is listed by name', /Route Guy/.test(acctText), acctText.slice(0, 160));
+    ok('…with the username it actually signs in with', /@routeguy/.test(acctText));
+    ok('a disabled account is marked as such', /disabled/.test(acctText));
+    ok('the owner is listed without a dropdown to change', /Owner · full access/.test(acctText));
+    const selCount = await p6.$$eval('#accountRows [data-acctrole]', (e) => e.length);
+    ok('…so only the two non-owner accounts get one', selCount === 2, `${selCount} dropdowns`);
+    const optText = await p6.$eval('#accountRows [data-acctrole]', (e) => e.textContent);
+    ok('the dropdown offers the VA’s own role', /Route manager/.test(optText), optText);
+    ok('…and “no role” is an option, not a blank', /No role/.test(optText));
+
+    // The whole point: choosing a role here becomes a real assignment keyed on
+    // the login username, with no typing involved.
+    await p6.selectOption('#accountRows [data-acct="routeguy"] [data-acctrole]', 'role-rm');
+    await p6.waitForTimeout(150);
+    const asn1 = await p6.evaluate(() => JSON.parse(JSON.stringify(window.STAFF_ASSIGN ?? STAFF_ASSIGN)));
+    ok('picking a role assigns that exact username', asn1.length === 1 && asn1[0].username === 'routeguy' && asn1[0].roleId === 'role-rm', JSON.stringify(asn1));
+
+    // Back to "no role" removes the row rather than saving a blank one, which
+    // sanitizeAssignments would drop anyway.
+    await p6.selectOption('#accountRows [data-acct="routeguy"] [data-acctrole]', '');
+    await p6.waitForTimeout(150);
+    const asn2 = await p6.evaluate(() => JSON.parse(JSON.stringify(window.STAFF_ASSIGN ?? STAFF_ASSIGN)));
+    ok('…and “no role” clears it rather than saving an empty one', asn2.length === 0, JSON.stringify(asn2));
+
+    // The confusion that started this: the crew-role Staff tick is a badge.
+    await p6.evaluate(() => window.openSettings('crew'));
+    await p6.waitForTimeout(250);
+    const crewText = await p6.innerText('#crewStructureBlock');
+    ok('the crew-role Staff tick says it grants no access', /grants no access/.test(crewText), crewText.slice(0, 200));
+    ok('…and points at the screen that does', /Settings › Team/.test(crewText));
+    await c6.close();
+
+    // ------------------------------------------------------------------
+    head('An out-of-date backend says so instead of showing nothing');
+
+    ACCOUNTS = null;
+    const { ctx: c7, page: p7 } = await openDash();
+    await p7.evaluate(() => window.openSettings('team'));
+    await p7.waitForTimeout(400);
+    ok('the missing route is explained', /out of date/.test(await p7.innerText('#accountsNote')));
+    ok('…and the manual username route is still offered',
+        await p7.isVisible('#assignRows') || /isn’t listed/.test(await p7.innerText('[data-panel="team"]')));
+    await c7.close();
 
     await browser.close();
     server.close();

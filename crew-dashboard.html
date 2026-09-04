@@ -486,6 +486,14 @@
                             <span class="text-sm font-semibold">Roles</span>
                             <button onclick="addRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
+                        <!-- The "Staff" tick here is a BADGE, not a permission,
+                             and the two were being confused: an owner naming a
+                             role "Route manager", ticking Staff and saving would
+                             reasonably expect that person to gain something, and
+                             nothing in the product read that flag. Say what it
+                             does, and say where the permissions actually are. -->
+                        <p class="text-xs muted mb-2">Roles are <b>badges on the roster</b> — a title next to a pilot's name. The <b>Staff</b> tick only marks the badge as a staff one; it grants no access.
+                            To choose what somebody can <b>do</b>, use <button type="button" onclick="setCat('team')" class="accent-text font-semibold underline">Settings › Team</button>.</p>
                         <div id="rolePreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <div id="roleRows" class="space-y-2"></div>
                         <button onclick="saveStructure('roles')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save roles</button>
@@ -874,10 +882,21 @@
                 <div>
                     <div class="flex items-center justify-between mb-1">
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Assign staff</h3>
-                        <button onclick="addAssignment()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                     </div>
-                    <p class="text-xs muted mb-3">Match a staff member’s <b>login username</b> to a role. Anyone not listed here keeps full access.</p>
-                    <div id="assignRows" class="space-y-2"></div>
+                    <p class="text-xs muted mb-3">Every staff login on this crew center is listed below. Pick the role each one holds. <b>No role</b> means they keep the everyday permissions — everything except the owner-level lines.</p>
+                    <!-- The accounts, fetched from the backend, so nobody has to
+                         remember a login username and type it exactly. Typing it
+                         wrong was the silent failure this whole panel had: the
+                         save succeeded, the assignment matched nobody, and the
+                         person carried on with full access. -->
+                    <div id="accountRows" class="space-y-2"></div>
+                    <p id="accountsNote" class="text-xs muted mt-2 hidden"></p>
+                    <details class="mt-3">
+                        <summary class="text-xs muted cursor-pointer select-none">Assign a username that isn’t listed</summary>
+                        <p class="text-xs muted mt-2 mb-2">For a login that lives outside this crew center’s account list. Enter it exactly as they sign in.</p>
+                        <div id="assignRows" class="space-y-2"></div>
+                        <button onclick="addAssignment()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1 mt-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a username</button>
+                    </details>
                 </div>
 
                 <button onclick="saveTeam()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save team</button>
@@ -5694,7 +5713,12 @@
                 retention.classList.toggle('hidden', !ownsSweep);
                 if(ownsSweep && RETENTION_PREFS===null) loadRetention();
             }
-            if(ME_LOADED){ renderRolePresets(); renderStaffRoles(); renderAssignments(); }
+            if(ME_LOADED){
+                renderRolePresets(); renderStaffRoles(); renderAccounts(); renderAssignments();
+                // Only for someone who may actually see the team editor — this
+                // returns colleagues' login names and is gated the same way.
+                if(vis.team && !ACCOUNTS_LOADED) loadStaffAccounts();
+            }
             // The tiles are gated on the same capabilities, and they are drawn
             // once before /me answers — when CAPS is still empty and everything
             // would be hidden. Redraw now that we know who this is.
@@ -5730,7 +5754,7 @@
                 name, color:pr.color||'#4f46e5',
                 permissions:(pr.permissions||[]).filter(c=>CAP_CATALOG.some(x=>x.id===c)),
             });
-            renderStaffRoles(); renderAssignments();
+            renderStaffRoles(); renderAccounts(); renderAssignments();
             const note=document.getElementById('teamNote');
             note.textContent='Added — check the ticks, then Save team.'; note.className='text-sm muted'; note.classList.remove('hidden');
         }
@@ -5801,9 +5825,87 @@
                 <button data-asndel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>`;
         }
+        // The crew center's real staff logins, so an assignment is a choice from
+        // a list rather than a username typed from memory. A typo used to save
+        // cleanly and match nobody — the person kept full access and no screen
+        // ever said why the role "did nothing".
+        let STAFF_ACCOUNTS=[];
+        let ACCOUNTS_LOADED=false;
+        async function loadStaffAccounts(){
+            const token=sessionToken(), slug=getSlug();
+            const note=document.getElementById('accountsNote');
+            if(!slug||!token){
+                // Preview mode (no session) has no accounts to list, and that is
+                // not an error worth shouting about.
+                STAFF_ACCOUNTS=[]; ACCOUNTS_LOADED=true; renderAccounts(); return;
+            }
+            ACCOUNTS_LOADED=true;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/staff-accounts`,
+                    { headers:{ Accept:'application/json', 'Authorization':'Bearer '+token } });
+                if(!res.ok){
+                    STAFF_ACCOUNTS=[]; renderAccounts();
+                    if(note){
+                        note.textContent = res.status===404
+                            ? 'Your crew center backend is out of date, so the account list is unavailable. Use “Assign a username that isn’t listed” below.'
+                            : 'Couldn’t load the staff accounts.';
+                        note.classList.remove('hidden');
+                    }
+                    return;
+                }
+                const d=await res.json();
+                STAFF_ACCOUNTS=Array.isArray(d.accounts)?d.accounts:[];
+                if(note) note.classList.add('hidden');
+            }catch{
+                STAFF_ACCOUNTS=[];
+                if(note){ note.textContent='Server unreachable — couldn’t load the staff accounts.'; note.classList.remove('hidden'); }
+            }
+            renderAccounts(); renderAssignments();
+        }
+        function accountRoleOptionsHtml(sel){
+            return '<option value="">No role — everyday access</option>'
+                + STAFF_ROLES.filter(r=>r.name&&r.id).map(r=>`<option value="${escapeHtml(r.id)}" ${sel===r.id?'selected':''}>${escapeHtml(r.name)}</option>`).join('');
+        }
+        function accountRowHtml(a){
+            const uname=String(a.username||'').toLowerCase();
+            const asn=STAFF_ASSIGN.find(x=>String(x.username||'').toLowerCase()===uname);
+            const label = (a.displayName && a.displayName!==a.username)
+                ? `${escapeHtml(a.displayName)} <span class="faint">@${escapeHtml(uname)}</span>`
+                : `<span>@${escapeHtml(uname)}</span>`;
+            const dead = a.active ? '' : ' <span class="text-xs text-red-500">· disabled</span>';
+            // The owner is not assignable and never was — effectiveCaps gives
+            // them everything before roles are consulted. Showing them with a
+            // dropdown would offer a choice that changes nothing.
+            if(a.role==='owner'){
+                return `<div class="flex items-center gap-2 py-1">
+                    <span class="flex-1 min-w-0 text-sm truncate">${label}${dead}</span>
+                    <span class="text-xs muted shrink-0">Owner · full access</span>
+                </div>`;
+            }
+            return `<div class="flex items-center gap-2" data-acct="${escapeHtml(uname)}">
+                <span class="flex-1 min-w-0 text-sm truncate">${label}${dead}</span>
+                <select data-acctrole class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${accountRoleOptionsHtml(asn?asn.roleId:'')}</select>
+            </div>`;
+        }
+        function renderAccounts(){
+            const el=document.getElementById('accountRows'); if(!el) return;
+            if(!STAFF_ACCOUNTS.length){
+                el.innerHTML = ACCOUNTS_LOADED
+                    ? '<p class="text-sm faint">No staff logins found for this crew center. Staff accounts are created in the VA portal, under Team.</p>'
+                    : '<p class="text-sm faint">Loading…</p>';
+                return;
+            }
+            el.innerHTML = STAFF_ACCOUNTS.map(accountRowHtml).join('');
+        }
         function renderAssignments(){
             const el=document.getElementById('assignRows'); if(!el) return;
-            el.innerHTML = STAFF_ASSIGN.length ? STAFF_ASSIGN.map(assignRowHtml).join('') : '<p class="text-sm faint">No assignments yet.</p>';
+            // Anyone already listed above is edited there. Rendering them twice
+            // would give one person two dropdowns that disagree.
+            const known=new Set(STAFF_ACCOUNTS.map(a=>String(a.username||'').toLowerCase()));
+            // Indices stay the ORIGINAL STAFF_ASSIGN indices — the row wiring
+            // writes back through them.
+            const rows=STAFF_ASSIGN.map((a,i)=>known.has(String(a.username||'').toLowerCase())?'':assignRowHtml(a,i)).join('');
+            el.innerHTML = rows.trim() ? rows : '<p class="text-sm faint">Nothing here.</p>';
             if(window.lucide) lucide.createIcons();
         }
         function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); }
@@ -5827,8 +5929,22 @@
                         const sum=row.querySelector('[data-rolesummary]');
                         if(sum) sum.textContent=roleSummary(STAFF_ROLES[i]);
                     } });
-                rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAssignments(); });
+                rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAccounts(); renderAssignments(); });
             }
+            const acctHost=document.getElementById('accountRows');
+            if(acctHost) acctHost.addEventListener('change', e=>{
+                const sel=e.target.closest('[data-acctrole]'); if(!sel) return;
+                const uname=String(sel.closest('[data-acct]').getAttribute('data-acct')||'').toLowerCase();
+                const roleId=sel.value;
+                const i=STAFF_ASSIGN.findIndex(x=>String(x.username||'').toLowerCase()===uname);
+                // No role is the ABSENCE of an assignment, not an assignment to
+                // nothing — sanitizeAssignments drops a blank roleId anyway, and
+                // leaving the row behind would make the next save look changed.
+                if(!roleId){ if(i>=0) STAFF_ASSIGN.splice(i,1); }
+                else if(i>=0) STAFF_ASSIGN[i].roleId=roleId;
+                else STAFF_ASSIGN.push({username:uname, roleId});
+                renderAssignments();
+            });
             const asnHost=document.getElementById('assignRows');
             if(asnHost){
                 asnHost.addEventListener('input', e=>{ const row=e.target.closest('[data-asn]'); if(!row) return; const i=+row.getAttribute('data-asn'); const f=e.target.getAttribute('data-af'); if(f) STAFF_ASSIGN[i][f]=e.target.value; });
@@ -5847,7 +5963,7 @@
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
                 STAFF_ROLES=Array.isArray(d.staffRoles)?d.staffRoles:roles; STAFF_ASSIGN=Array.isArray(d.staffAssignments)?d.staffAssignments:asn;
-                renderStaffRoles(); renderAssignments();
+                renderStaffRoles(); renderAccounts(); renderAssignments();
                 note.textContent='Team saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
         }
