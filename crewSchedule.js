@@ -137,12 +137,20 @@
         return S.schedules;
     }
 
-    /** The network, for the editor's route picker. Fetched once, on demand. */
+    /**
+     * The network, for the editor's route picker. Fetched once, on demand.
+     *
+     * Published legs only. A draft route is one the airline has not started
+     * flying; offering it in the picker put it on the schedule — and from
+     * there onto every pilot's week and onto the VA's own website — without it
+     * ever having been published. Same rule as everywhere else the network is
+     * read (crewPanels.isPublishedRoute).
+     */
     async function loadRoutes() {
         if (S.routesLoaded) return S.routes;
         try {
             const d = await S.api('/routes');
-            S.routes = Array.isArray(d.routes) ? d.routes : [];
+            S.routes = (Array.isArray(d.routes) ? d.routes : []).filter(P.isPublishedRoute);
         } catch { S.routes = []; }
         S.routesLoaded = true;
         return S.routes;

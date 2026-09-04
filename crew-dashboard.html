@@ -3130,6 +3130,14 @@
                 title="Show ${escapeHtml(code)} on the map"
                 class="font-semibold tracking-tight hover:accent-text hover:underline underline-offset-2 transition-colors">${escapeHtml(code)}</button>`;
         }
+        // Is a route on the network? One definition, shared with every other
+        // surface that reads it (see crewPanels.js). Read through a function so
+        // load order cannot matter, and spelled out again as the fallback for
+        // the preview, where crewPanels may not have loaded.
+        const isPublishedRoute = (r) => (window.CrewPanels && window.CrewPanels.isPublishedRoute)
+            ? window.CrewPanels.isPublishedRoute(r)
+            : (!!r && r.active !== false);
+
         function routeCardHtml(r){
             const dist=r.distanceNm?`<span class="text-xs muted">${Math.round(r.distanceNm)} nm</span>`:'';
             const ac=r.aircraft?`<span class="text-[11px] muted surface hair rounded px-1.5 py-0.5">${escapeHtml(r.aircraft)}</span>`:'';
@@ -3221,8 +3229,14 @@
         function renderRoutes(){
             ROUTES_CANMANAGE = can('routes.manage');
             document.getElementById('addRouteBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
-            // Pilots see only active routes; managers see drafts too.
-            const visible = ROUTES_CANMANAGE ? ROUTES : ROUTES.filter(r=>r.active);
+            // Pilots see only published routes; managers see drafts too. The
+            // rule for "published" is crewPanels' one, shared with the pilot's
+            // network panel, the event and schedule route pickers and the
+            // embed widgets — this screen used to require `active` to be
+            // truthy while all of those required only that it not be false, so
+            // a route the backend returned without the field appeared on the
+            // VA's website and on their pilots' page but not here.
+            const visible = ROUTES_CANMANAGE ? ROUTES : ROUTES.filter(isPublishedRoute);
             const own=visible.filter(r=>r.kind!=='codeshare'), cs=visible.filter(r=>r.kind==='codeshare');
 
             // The split only earns screen space once there is something to
@@ -3649,7 +3663,11 @@
         function rmComputeFeatures(){
             RM.routeFeat=(RM.data.routes||[]).filter(r=>r.mapped&&r.o&&r.d).map(r=>({
                 type:'Feature',
-                properties:{ id:String(r.id), origin:r.origin, destination:r.destination, flightNumber:r.flightNumber||'', aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, active:!!r.active,
+                // The map draws drafts greyed and dashes them out of the
+                // active-only view, so it needs the SAME answer to "is this
+                // published" as the route list beside it — not `!!r.active`,
+                // which greyed out every route whose row omitted the field.
+                properties:{ id:String(r.id), origin:r.origin, destination:r.destination, flightNumber:r.flightNumber||'', aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, active:isPublishedRoute(r),
                     // Codeshares are drawn dashed and in a muted colour. A
                     // network map that renders someone else's metal identically
                     // to your own overstates the airline — which is the one
@@ -4139,7 +4157,7 @@
             if(!o||!d) return null;
             const norm=s=>String(s||'').trim().toLowerCase();
             const acHit=(ra)=>{ const x=norm(ra), y=norm(aircraft); return x&&y&&(x===y||x.includes(y)||y.includes(x)); };
-            const cands=(ROUTES||[]).filter(r=>r.active!==false && (r.origin||'').toUpperCase()===o && (r.destination||'').toUpperCase()===d);
+            const cands=(ROUTES||[]).filter(r=>isPublishedRoute(r) && (r.origin||'').toUpperCase()===o && (r.destination||'').toUpperCase()===d);
             if(!cands.length) return null;
             return cands.find(r=>r.aircraft&&acHit(r.aircraft)) || cands[0];
         }

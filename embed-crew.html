@@ -9,23 +9,40 @@
 
   A self-contained, dependency-free embed a VA drops on their own website to
   show what their crew center already holds: the noticeboard, the published
-  events, or the week's schedule. One file, three views, because they are the
-  same shape — a heading, a list of rows, a footer — and three near-identical
+  events, the week's schedule, the route network, the pilots on the roster or
+  the airline's headline figures. One file, six views, because they are the
+  same shape — a heading, a list of rows, a footer — and six near-identical
   pages would drift apart by the second change.
 
     /embed-crew.html?va=<slug>&view=notices
     /embed-crew.html?va=<slug>&view=events
     /embed-crew.html?va=<slug>&view=schedule
+    /embed-crew.html?va=<slug>&view=routes
+    /embed-crew.html?va=<slug>&view=pilots
+    /embed-crew.html?va=<slug>&view=stats
+
+  THE SAME ROWS THE CREW CENTER SHOWS
+
+  Every view reads the endpoint the crew center itself reads, and applies the
+  crew center's own publication rule to what comes back — a route is on the
+  network unless it has been parked as a draft (`active === false`), an event
+  or a departure is on the board unless it is a draft. That is what keeps a
+  VA's own website and their crew center telling their pilots the same thing.
+  Where the two could differ, they are wrong; this page is not allowed to
+  invent a rule of its own.
 
   WHY IT NEEDS NO TOKEN
 
   Unlike embed.html, this reads nothing that costs anybody money and nothing
-  that is not already public. The three endpoints it calls are the same ones a
+  that is not already public. The endpoints it calls are the same ones a
   visitor to the crew center reads:
 
     GET /api/crew/<slug>/announcements    the noticeboard
     GET /api/crew/<slug>/events           published + cancelled events
     GET /api/crew/<slug>/schedules        published + cancelled departures
+    GET /api/crew/<slug>/routes           the published route network
+    GET /api/crew/<slug>/roster           the pilots
+    GET /api/crew/<slug>/stats            the airline's headline figures
 
   Drafts never appear in any of them for an unauthenticated caller — that is
   enforced by row-level security in the VA's own database, not by this page —
@@ -135,6 +152,32 @@
   }
   .panel > .day:first-child { border-top: 0; }
 
+  /* A pilot's initials, so the roster reads as people rather than as a table.
+     Never an avatar image: the roster endpoint carries no photograph, and a
+     silhouette per row would be six identical grey circles. */
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent); color: #fff;
+    font-size: 12px; font-weight: 800; letter-spacing: .02em;
+  }
+
+  /* The figures view. A grid of tiles rather than rows, because four numbers
+     read as a scoreboard and four rows read as a list of settings. */
+  /* Every tile carries its own top and left rule and the grid is pulled a
+     pixel up and left, so the outer edges slide under the panel's own border
+     instead of doubling it. Which tile starts a row is not knowable here —
+     the columns auto-fit to whatever width the VA's page gives us — so no
+     :first-child rule could do this job. */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin: -1px 0 0 -1px; }
+  .tile { padding: 16px 14px; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+  .tile-lbl {
+    font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--faint);
+  }
+  .tile-num { font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin-top: 4px; }
+  .tile-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
   .state { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 13px; }
 
   .powered {
@@ -156,6 +199,9 @@
     .row-when { width: 100%; order: 3; }
     .ports { font-size: 14px; }
     .day { padding: 7px 12px; }
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .tile { padding: 13px 12px; }
+    .tile-num { font-size: 21px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -179,12 +225,31 @@
   var VIEW = (qs.get("view") || "notices").trim().toLowerCase();
   var LIMIT = Math.max(1, Math.min(50, parseInt(qs.get("limit"), 10) || 8));
 
+  // `roster` and `network` are accepted as aliases because they are what the
+  // crew center calls these two panels, and a VA copying a view name out of
+  // their own crew center should not land on the noticeboard.
+  var ALIAS = { roster: "pilots", network: "routes", figures: "stats", numbers: "stats" };
+  if (ALIAS[VIEW]) VIEW = ALIAS[VIEW];
+
+  // `single` marks a view whose endpoint answers with ONE object rather than a
+  // list — the figures. It is wrapped into a one-row list so the rest of this
+  // file has exactly one shape to deal with.
   var VIEWS = {
     notices:  { path: "/announcements", key: "announcements", title: "Noticeboard" },
     events:   { path: "/events",        key: "events",        title: "Events" },
-    schedule: { path: "/schedules",     key: "schedules",     title: "Schedule" }
+    schedule: { path: "/schedules",     key: "schedules",     title: "Schedule" },
+    routes:   { path: "/routes",        key: "routes",        title: "Route network" },
+    pilots:   { path: "/roster",        key: "roster",        title: "Pilots" },
+    stats:    { path: "/stats",         key: "stats",         title: "By the numbers", single: true }
   };
   if (!VIEWS[VIEW]) VIEW = "notices";
+
+  // How the pilots view is ordered. "roster" is the order the crew center's
+  // own roster is in, which is the default because a website that disagrees
+  // with the crew center about who is at the top of the list is the drift this
+  // widget exists to avoid. "hours" is the leaderboard a VA usually wants on a
+  // public page, and is opt-in.
+  var SORT = (qs.get("sort") || "").trim().toLowerCase();
 
   var wrap = document.getElementById("wrap");
 
@@ -245,6 +310,30 @@
     var days = Math.round(hrs / 24);
     if (days < 30) return ahead ? "in " + days + "d" : days + "d ago";
     return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+
+  // A figure, grouped for the reader's locale. Returns "" for anything that is
+  // not a number, which is what stops a missing field rendering as "0" or as
+  // "NaN" — see the note about invented figures at the top of this file.
+  function num(v) {
+    return v == null || !isFinite(Number(v)) ? "" : Number(v).toLocaleString();
+  }
+  // Hours come back to one decimal. That precision is right for a pilot's own
+  // total against a rank threshold and wrong for a headline: "3,984.4" reads as
+  // a measurement, "3,984" as a figure. Same rounding the crew center uses.
+  function hours(v) {
+    return v == null || !isFinite(Number(v)) ? "" : Math.round(Number(v)).toLocaleString();
+  }
+  function initials(name) {
+    var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0].charAt(0) + (parts.length > 1 ? parts[parts.length - 1].charAt(0) : "")).toUpperCase();
+  }
+  // A rank or a role arrives either as a plain name or as the badge object the
+  // crew center draws (name + colour + icon). Only the name is of use here.
+  function label(v) {
+    if (!v) return "";
+    return String(typeof v === "object" ? (v.name || "") : v);
   }
 
   // ==== Renderers, one per view ====
@@ -317,12 +406,116 @@
     return out;
   }
 
-  var RENDER = { notices: renderNotices, events: renderEvents, schedule: renderSchedule };
+  function renderRoutes(rows) {
+    // Ordered exactly as the crew center's route panel orders them — the
+    // server's order — so a pilot reading the network on the VA's website and
+    // a pilot reading it in the crew center are looking at the same list.
+    return rows.slice(0, LIMIT).map(function (r) {
+      var tags = [];
+      // A codeshare is somebody else's aeroplane. Marked plainly, for the same
+      // reason the crew center marks it: a route list that renders a partner's
+      // metal identically to your own overstates the airline.
+      if (r.kind === "codeshare") {
+        tags.push('<span class="tag">Codeshare' + (r.partnerName ? " · " + esc(r.partnerName) : "") + "</span>");
+      }
+      // The rank gate, as a fact about the route. Never "locked" — that is a
+      // fact about one signed-in pilot, and this page has no pilot.
+      if (r.minRank) tags.push('<span class="tag">' + esc(r.minRank) + "+</span>");
+
+      return '<div class="row"><div class="row-main">' +
+        '<div class="ports">' +
+          (r.flightNumber ? '<span class="fno">' + esc(r.flightNumber) + "</span>" : "") +
+          esc(r.origin || "???") + ' <span class="arrow">→</span> ' + esc(r.destination || "???") +
+        "</div>" +
+        '<div class="meta">' +
+          (r.aircraft ? "<span>" + esc(r.aircraft) + "</span>" : "") +
+          (isFinite(Number(r.distanceNm)) && Number(r.distanceNm) > 0
+            ? "<span>" + num(Math.round(r.distanceNm)) + " nm</span>" : "") +
+        "</div>" +
+        (tags.length ? "<div>" + tags.join("") + "</div>" : "") +
+        (r.notes ? '<p class="row-sub">' + esc(r.notes) + "</p>" : "") +
+        "</div></div>";
+    }).join("");
+  }
+
+  function renderPilots(rows) {
+    var list = rows.slice();
+    // Only when asked for. Left alone, the order is the roster's own.
+    if (SORT === "hours") {
+      list.sort(function (a, b) { return (Number(b.hours) || 0) - (Number(a.hours) || 0); });
+    }
+    return list.slice(0, LIMIT).map(function (m) {
+      var name = m.name || m.callsign || "Unnamed";
+      var rank = label(m.rank), role = label(m.role);
+      var tags = [];
+      if (rank) tags.push('<span class="tag">' + esc(rank) + "</span>");
+      if (role && role !== rank) tags.push('<span class="tag">' + esc(role) + "</span>");
+      // "active" is the ordinary case and says nothing; leave and inactive are
+      // the states a visitor to the VA's website is owed.
+      if (m.status && m.status !== "active") tags.push('<span class="tag">' + esc(m.status) + "</span>");
+      var h = hours(m.hours);
+      var fleet = Array.isArray(m.aircraft) ? m.aircraft.filter(Boolean) : [];
+
+      return '<div class="row">' +
+        '<div class="avatar">' + esc(initials(name)) + "</div>" +
+        '<div class="row-main">' +
+          '<p class="row-title">' + esc(name) +
+            (m.callsign ? ' <span style="color:var(--faint);font-weight:600;font-size:12px">' + esc(m.callsign) + "</span>" : "") +
+          "</p>" +
+          (tags.length ? "<div>" + tags.join("") + "</div>" : "") +
+          (fleet.length ? '<div class="meta"><span>' + esc(fleet.join(" · ")) + "</span></div>" : "") +
+        "</div>" +
+        (h ? '<span class="row-when">' + esc(h) + " h</span>" : "") +
+        "</div>";
+    }).join("");
+  }
+
+  // The figures, in the order the crew center's own stat strip puts them, and
+  // reading the same fields off the same endpoint.
+  //
+  // What is NOT here is deliberate: `pirepsPending` and `applicationsPending`
+  // are staff to-do counts, not achievements, and "3 applications awaiting
+  // review" on an airline's public homepage is a fact about the staff's inbox.
+  // They stay in the crew center, and are documented in docs/CREW-EMBEDS.md for
+  // a VA who wants to build something of their own with them.
+  var TILES = [
+    { key: "pilots",         label: "Pilots",         sub: "pilotsActive",   subText: " active",                fmt: num },
+    { key: "flights30d",     label: "Flights · 30d",  sub: "flightHours30d", subText: " hours",                 fmt: num,  subFmt: hours },
+    { key: "hours",          label: "Hours logged",   sub: "flightHours",    subText: " from flight reports",   fmt: hours, subFmt: hours },
+    { key: "routes",         label: "Routes",         sub: "destinations",   subText: " destinations",          fmt: num },
+    { key: "pirepsApproved", label: "Flight reports", sub: null,             subText: "",                       fmt: num }
+  ];
+
+  function renderStats(rows) {
+    var s = rows[0] || {};
+    var tiles = TILES.map(function (t) {
+      var v = t.fmt(s[t.key]);
+      // A tile with no figure behind it is not drawn. An em dash would be
+      // honest in the crew center, where staff know the airline; on a public
+      // page it is a gap a visitor reads as a broken widget.
+      if (!v) return "";
+      var sv = t.sub ? (t.subFmt || num)(s[t.sub]) : "";
+      return '<div class="tile">' +
+        '<div class="tile-lbl">' + esc(t.label) + "</div>" +
+        '<div class="tile-num">' + esc(v) + "</div>" +
+        (sv ? '<div class="tile-sub">' + esc(sv + t.subText) + "</div>" : "") +
+        "</div>";
+    }).join("");
+    return tiles ? '<div class="tiles">' + tiles + "</div>" : "";
+  }
+
+  var RENDER = {
+    notices: renderNotices, events: renderEvents, schedule: renderSchedule,
+    routes: renderRoutes, pilots: renderPilots, stats: renderStats
+  };
 
   var EMPTY = {
     notices: "Nothing on the noticeboard yet.",
     events: "No events published yet.",
-    schedule: "Nothing scheduled yet."
+    schedule: "Nothing scheduled yet.",
+    routes: "This airline hasn’t published any routes yet.",
+    pilots: "No pilots on the roster yet.",
+    stats: "This airline hasn’t published any figures yet."
   };
 
   function paint(rows) {
@@ -331,15 +524,18 @@
     var logo = safeImg(qs.get("logo") || "");
     var title = qs.get("title") || (name ? name + " · " + cfg.title : cfg.title);
 
+    // The count is how many rows are on screen. The figures view has one row —
+    // the stats object — and "1" beside "By the numbers" means nothing.
+    var count = cfg.single ? "" : (rows.length ? String(Math.min(rows.length, LIMIT)) : "");
+
     var head = '<div class="head">' +
       (logo ? '<img src="' + esc(logo) + '" alt="">' : "") +
       "<h1>" + esc(title) + "</h1>" +
-      (rows.length ? '<span class="count">' + Math.min(rows.length, LIMIT) + "</span>" : "") +
+      (count ? '<span class="count">' + esc(count) + "</span>" : "") +
       "</div>";
 
-    var body = rows.length
-      ? RENDER[VIEW](rows)
-      : '<div class="state">' + esc(EMPTY[VIEW]) + "</div>";
+    var body = (rows.length && RENDER[VIEW](rows))
+      || '<div class="state">' + esc(EMPTY[VIEW]) + "</div>";
 
     var powered = qs.get("powered") === "off" ? "" :
       '<a class="powered" href="https://inflight.info" target="_blank" rel="noopener">Powered by Inflight</a>';
@@ -378,12 +574,27 @@
         return r.json();
       })
       .then(function (d) {
-        var rows = Array.isArray(d[cfg.key]) ? d[cfg.key] : [];
+        var rows;
+        if (cfg.single) {
+          // One object, wrapped. A `stats` that came back as anything but an
+          // object is no figures at all, not an empty one.
+          rows = d && d[cfg.key] && typeof d[cfg.key] === "object" ? [d[cfg.key]] : [];
+        } else {
+          rows = Array.isArray(d[cfg.key]) ? d[cfg.key] : [];
+        }
         // The API returns drafts only to a signed-in manager, and this page
         // sends no session — but filtering here too means a future change to
         // that endpoint cannot quietly publish somebody's working copy onto
         // their own homepage.
-        rows = rows.filter(function (r) { return r.status !== "draft"; });
+        //
+        // Two rules, because the crew center has two: an announcement, an event
+        // and a departure carry `status`, and a route is parked with
+        // `active: false` instead. Both are "this is not published yet", and
+        // this page has to honour whichever one the row uses — the crew center's
+        // rule, not a rule of its own.
+        rows = rows.filter(function (r) {
+          return r.status !== "draft" && r.active !== false;
+        });
         paint(rows);
       })
       .catch(function (err) {

@@ -102,7 +102,7 @@
             // Retired routes are the network's history, not its map. A pilot
             // asking where they can fly should not be offered a leg the airline
             // stopped operating.
-            S.routes = (Array.isArray(d.routes) ? d.routes : []).filter((r) => r.active !== false);
+            S.routes = (Array.isArray(d.routes) ? d.routes : []).filter(P.isPublishedRoute);
         } catch (err) {
             S.error = err;
             S.routes = [];

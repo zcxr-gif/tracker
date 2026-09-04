@@ -9,6 +9,12 @@ Files:
 - **`embed.html`** — the standalone widget page (served at `/embed.html`).
 - **`embed.js`** — all the logic (token resolve → live data → render).
 
+> This page is about **live flights**. The VA's *crew center* — their route
+> network, their pilots, the schedule, the events, the noticeboard and their
+> headline figures — is a separate widget (`embed-crew.html`) that needs no
+> token, plus the public JSON behind it. Both are documented in
+> [`docs/CREW-EMBEDS.md`](docs/CREW-EMBEDS.md).
+
 There are no framing restrictions (`_headers`/`netlify.toml` set none), so the
 page can be iframed from any site.
 

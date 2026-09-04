@@ -328,12 +328,37 @@ function api(route, over = {}) {
     const noticeSnippet = await page.inputValue('#ceSnippet');
     check('the noticeboard widget is keyed by slug', /embed-crew\.html/.test(noticeSnippet) && /va=testva/.test(noticeSnippet),
         noticeSnippet.slice(0, 160));
+
+    // The three views a VA asked for and had to build themselves: the network,
+    // the pilots and the figures. Offered here or they may as well not exist.
+    for (const [pick, view] of [['routes', 'routes'], ['pilots', 'pilots'], ['stats', 'stats']]) {
+        await page.click(`[data-pick="${pick}"]`);
+        await page.waitForTimeout(300);
+        const snip = await page.inputValue('#ceSnippet');
+        check(`the ${pick} widget is offered, keyed by slug`,
+            new RegExp(`view=${view}`).test(snip) && /va=testva/.test(snip), snip.slice(0, 160));
+    }
+
+    // And for the VA whose site will not take an iframe: where the rows live.
+    const feed = await page.textContent('#cePanel .ce-feed');
+    check('the raw feeds are listed for a VA building their own page',
+        /\/api\/crew\/testva\/routes/.test(feed) && /\/api\/crew\/testva\/roster/.test(feed)
+        && /\/api\/crew\/testva\/stats/.test(feed), feed.replace(/\s+/g, ' ').slice(0, 200));
+    check('…and said to carry no drafts', /draft/i.test(feed));
+
     await page.click('#cePanel .cp-head [data-cp-close]');
 
     // ---- 5. Partnership ----------------------------------------------------
     console.log('\nPartnership');
     await page.click('#toolGrid a:has-text("Partnership")');
     await page.waitForSelector('#cptPanel:not(.cp-hidden)', { timeout: 5000 });
+    // Visible is not painted: the panel opens on the click and fills in when its
+    // fetch lands. Reading it on the frame it appeared was passing on timing
+    // alone, and started failing the moment the Embeds section above it did a
+    // little more work first.
+    await page.waitForFunction(
+        () => { const b = document.querySelector('#cptPanel .cp-body'); return b && b.textContent.trim().length > 80; },
+        null, { timeout: 5000 });
     const partner = await page.textContent('#cptPanel');
     check('the Partnership tile opens the panel', true);
     // A warning nobody reads is the failure this panel exists to prevent, so

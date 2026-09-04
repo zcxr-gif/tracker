@@ -168,7 +168,95 @@
                 theme: o.theme, limit: o.limit, header: o.header === 'off' ? 'off' : '', accent: o.accent,
             }),
         },
+        {
+            id: 'routes',
+            label: 'Route network',
+            icon: 'route',
+            blurb: 'The legs your airline flies — the same network your pilots see in the crew '
+                + 'center, codeshares marked as codeshares.',
+            cost: 'Free. Published routes only; a route parked as a draft never leaves the crew center.',
+            height: 520,
+            needs: 'slug',
+            options: [
+                { key: 'theme', label: 'Theme', type: 'select', values: [['dark', 'Dark'], ['light', 'Light']], def: 'dark' },
+                { key: 'limit', label: 'How many routes', type: 'number', def: '10', min: 1, max: 50 },
+                { key: 'header', label: 'Header bar', type: 'select', values: [['on', 'Show'], ['off', 'Hide']], def: 'on' },
+                { key: 'accent', label: 'Accent', type: 'color' },
+            ],
+            build: (o) => url('/embed-crew.html', {
+                va: S.slug, view: 'routes', name: S.name,
+                theme: o.theme, limit: o.limit, header: o.header === 'off' ? 'off' : '', accent: o.accent,
+            }),
+        },
+        {
+            id: 'pilots',
+            label: 'Pilots',
+            icon: 'users',
+            blurb: 'Your roster — who flies for you, their rank and their hours. The same rows '
+                + 'the crew center’s Roster panel shows.',
+            cost: 'Free. Reads the same public roster your crew center shows; nothing a visitor '
+                + 'to your crew center could not already see.',
+            height: 520,
+            needs: 'slug',
+            options: [
+                { key: 'theme', label: 'Theme', type: 'select', values: [['dark', 'Dark'], ['light', 'Light']], def: 'dark' },
+                { key: 'sort', label: 'Order', type: 'select', values: [['', 'As on your roster'], ['hours', 'Most hours first']], def: '' },
+                { key: 'limit', label: 'How many pilots', type: 'number', def: '10', min: 1, max: 50 },
+                { key: 'header', label: 'Header bar', type: 'select', values: [['on', 'Show'], ['off', 'Hide']], def: 'on' },
+                { key: 'accent', label: 'Accent', type: 'color' },
+            ],
+            build: (o) => url('/embed-crew.html', {
+                va: S.slug, view: 'pilots', name: S.name, sort: o.sort,
+                theme: o.theme, limit: o.limit, header: o.header === 'off' ? 'off' : '', accent: o.accent,
+            }),
+        },
+        {
+            id: 'stats',
+            label: 'By the numbers',
+            icon: 'gauge',
+            blurb: 'Pilots, flights, hours and flight reports — the figures off your dashboard, '
+                + 'as a strip of tiles for your homepage.',
+            cost: 'Free. The same public figures your crew center reads. Staff to-do counts '
+                + '(applications and reports awaiting review) stay in the crew center.',
+            height: 260,
+            needs: 'slug',
+            options: [
+                { key: 'theme', label: 'Theme', type: 'select', values: [['dark', 'Dark'], ['light', 'Light']], def: 'dark' },
+                { key: 'header', label: 'Header bar', type: 'select', values: [['on', 'Show'], ['off', 'Hide']], def: 'on' },
+                { key: 'accent', label: 'Accent', type: 'color' },
+            ],
+            build: (o) => url('/embed-crew.html', {
+                va: S.slug, view: 'stats', name: S.name,
+                theme: o.theme, header: o.header === 'off' ? 'off' : '', accent: o.accent,
+            }),
+        },
     ];
+
+    /* ---------------------------------------------------------------------
+     * The raw feed
+     *
+     * The widgets above cover the VA that wants our look on their page. The
+     * one that has a designer, or a Wix template, or a Discord bot, wants the
+     * rows — and was previously reverse-engineering them out of the crew
+     * center's network tab.
+     *
+     * These are the same public endpoints the widgets read: no token, no
+     * session, CORS-open, and never a draft. Listing them here is the
+     * difference between "we publish an API" and "a VA can find it".
+     * ------------------------------------------------------------------- */
+    const FEEDS = [
+        { path: 'routes', key: 'routes', label: 'Route network', note: 'origin, destination, flight number, aircraft, distance, codeshare partner, rank gate' },
+        { path: 'roster', key: 'roster', label: 'Pilots', note: 'name, callsign, rank, role, hours, status, aircraft' },
+        { path: 'stats', key: 'stats', label: 'Figures', note: 'pilots, flights (30d), hours, flight reports' },
+        { path: 'schedules', key: 'schedules', label: 'Schedule', note: 'published departures, times, seats left' },
+        { path: 'events', key: 'events', label: 'Events', note: 'published events, with those that were cancelled' },
+        { path: 'announcements', key: 'announcements', label: 'Noticeboard', note: 'notices, joins and promotions' },
+    ];
+
+    // Where the feeds are served from. Not `location.origin` — these live on
+    // the crew API, not on the site the widgets are served from.
+    const API = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+    const feedUrl = (f) => `${API}/api/crew/${encodeURIComponent(S.slug)}/${f.path}`;
 
     const widget = (id) => WIDGETS.find((w) => w.id === id) || WIDGETS[0];
 
@@ -284,14 +372,57 @@
                 <p class="cp-note">Anywhere that accepts HTML will do — a page on your site, a
                     widget block, a Notion or Carrd embed. It resizes itself to whatever width
                     you give it.</p>
-            </section>`}`;
+            </section>`}
+
+            ${feedCardHtml()}`;
 
         icons();
         wire(w, src);
     }
 
+    /**
+     * "Build your own", for the VA whose site is not going to take an iframe.
+     *
+     * Collapsed by default, because the VA this panel is mostly for wants the
+     * snippet above and nothing else — but an airline that has outgrown our
+     * look should not have to email us to find out where the rows live.
+     */
+    function feedCardHtml() {
+        if (!S.slug) return '';
+        const rows = FEEDS.map((f) => `
+            <div class="ce-feed-row">
+                <div class="ce-feed-main">
+                    <span class="ce-feed-label">${esc(f.label)}</span>
+                    <code class="ce-feed-url">${esc(feedUrl(f))}</code>
+                    <span class="cp-note ce-feed-note">Answers <code>{ "${esc(f.key)}": … }</code> — ${esc(f.note)}</span>
+                </div>
+                <button class="cp-btn cp-btn-sm" data-feed-copy="${esc(f.path)}" title="Copy this address">
+                    <i data-lucide="copy"></i>
+                </button>
+            </div>`).join('');
+
+        return `
+            <details class="cp-card ce-feed">
+                <summary><i data-lucide="database"></i> Rather build it yourself? Here is the data.</summary>
+                <p class="cp-note">Plain JSON over GET, no key and no session — the same rows the
+                    widgets above draw, and the same rows your crew center shows. Drafts are never
+                    in them. Call them from your own site, your CMS or a bot.</p>
+                ${rows}
+                <p class="cp-note">Times are ISO-8601 in UTC; render them in your reader's zone.
+                    A field we have no value for is <b>absent</b> rather than zero — treat a missing
+                    figure as unknown, never as none.</p>
+            </details>`;
+    }
+
     function wire(w, src) {
         const body = panel.body;
+
+        body.querySelectorAll('[data-feed-copy]').forEach((b) => {
+            b.addEventListener('click', () => {
+                const f = FEEDS.find((x) => x.path === b.getAttribute('data-feed-copy'));
+                if (f) copyText(feedUrl(f), `${f.label} feed copied.`);
+            });
+        });
 
         body.querySelectorAll('[data-pick]').forEach((b) => {
             b.addEventListener('click', () => { S.pick = b.getAttribute('data-pick'); render(); });
@@ -400,6 +531,20 @@
         .ce-preview iframe{ width:100%; height:var(--ce-h,480px);
             border:1px solid var(--line,#e5e5e5); border-radius:.75rem;
             background:var(--bg,#f6f3ed); display:block; }
+
+        .ce-feed summary{ cursor:pointer; font-weight:700; font-size:.85rem; color:var(--ink,#1C1A16);
+            display:flex; align-items:center; gap:.4rem; list-style:none; }
+        .ce-feed summary::-webkit-details-marker{ display:none; }
+        .ce-feed summary i{ width:1rem; height:1rem; }
+        .ce-feed[open] summary{ margin-bottom:.5rem; }
+        .ce-feed-row{ display:flex; align-items:flex-start; gap:.5rem; padding:.55rem 0;
+            border-top:1px solid var(--line,#e5e5e5); }
+        .ce-feed-main{ min-width:0; flex:1; display:grid; gap:.15rem; }
+        .ce-feed-label{ font-size:.8rem; font-weight:700; }
+        .ce-feed-url{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.72rem;
+            color:var(--muted,#736E64); overflow-wrap:anywhere; }
+        .ce-feed-note{ font-size:.72rem; }
+        .ce-feed-note code{ font-size:.72rem; }
 
         .ce-snippet{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.75rem;
             line-height:1.5; }
