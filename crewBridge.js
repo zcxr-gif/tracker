@@ -64,6 +64,14 @@
         if (!EMBEDDED || !doc.body) return;
         doc.body.classList.add('embed');
         doc.documentElement.style.background = 'transparent';
+        // Our scroll stops at our own edges. Without this, running out of
+        // content here hands the rest of the gesture to the host page, which
+        // scrolls the frame we live in partly off screen — and the crew center
+        // then looks frozen until you tap back inside it. Set on the ROOT and
+        // not in the stylesheet below: overscroll-behavior propagates to the
+        // viewport from the root element, and it is the viewport's scroll that
+        // is chaining.
+        doc.documentElement.style.overscrollBehavior = 'contain';
 
         if (doc.getElementById('crew-embed-shell')) return;
         const style = doc.createElement('style');

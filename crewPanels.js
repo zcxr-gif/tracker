@@ -166,10 +166,14 @@
         .cp-toast.cp-out{ opacity:0; transform:translateY(6px); }
 
         .cp-panel{ position:fixed; inset:0; z-index:70; }
-        .cp-scrim{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
+        /* touch-action:none so dragging the dimmed area does nothing at all.
+           It used to scroll the page BEHIND the open panel, which left you
+           looking at a sheet floating over content that had moved on without
+           it — and, framed, handed the gesture on to the host page. */
+        .cp-scrim{ position:absolute; inset:0; background:rgba(0,0,0,.45); touch-action:none; }
         .cp-sheet{ position:absolute; right:0; top:0; height:100%; width:100%;
             max-width:46rem; background:var(--surface,#fff); border-left:1px solid var(--line,#e5e5e5);
-            overflow-y:auto; display:flex; flex-direction:column; }
+            overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column; }
         .cp-sheet-wide{ max-width:64rem; }
         .cp-head{ position:sticky; top:0; z-index:3; display:flex; align-items:center;
             justify-content:space-between; gap:.75rem; padding:0 1rem; height:3.75rem;
