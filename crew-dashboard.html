@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Crew Center — Inflight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -105,6 +105,18 @@
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
+        /* iOS Safari zooms the whole page in when you focus a form control
+           whose text is smaller than 16px, and there is no way to ask it not
+           to: maximum-scale has been deliberately ignored since iOS 10,
+           because pinch-zoom is an accessibility feature. So the fix is the
+           font size itself, applied only where the pointer is coarse — the
+           desktop layout keeps its 14px controls.
+
+           !important because these controls carry Tailwind's text-sm, and a
+           class beats any number of element selectors. */
+        @media (pointer: coarse){
+            input,select,textarea{ font-size:16px !important; }
+        }
         .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
         a:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
         @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
@@ -861,7 +873,7 @@
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
                         <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
-                    <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. Roles belong to this crew center only; another VA’s roles are its own.</p>
+                    <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. A role is a reusable <b>job</b>: use one when several people do the same thing, and fine-tune an individual below when it is one person’s exception. Not sure where to start? Pick a job from the row underneath — it comes with the ticks already worked out. Roles belong to this crew center only; another VA’s roles are its own.</p>
                     <p class="text-xs muted mb-3">Only you, the owner — and anyone you give <b>“Create staff roles &amp; assign the team”</b> to — can see or change this. Owners always have full access. A staff member with no role assigned keeps the everyday permissions until you give them one, but never the owner-level ones below. Nobody can grant a permission they don’t hold themselves, so handing someone this page cannot make them the owner.</p>
 
                     <!-- Presets. The permission system worked before this and
@@ -883,7 +895,7 @@
                     <div class="flex items-center justify-between mb-1">
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Assign staff</h3>
                     </div>
-                    <p class="text-xs muted mb-3">Every staff login on this crew center is listed below. Pick the role each one holds. <b>No role</b> means they keep the everyday permissions — everything except the owner-level lines.</p>
+                    <p class="text-xs muted mb-3">Every staff login on this crew center is listed below. Pick the role each one holds, then open <b>Fine-tune</b> to tick anything extra for that <b>one person</b> — you don’t need a whole new role to give somebody a single extra permission. <b>No role</b> and no ticks means they keep the everyday permissions: everything except the owner-level lines.</p>
                     <!-- The accounts, fetched from the backend, so nobody has to
                          remember a login username and type it exactly. Typing it
                          wrong was the silent failure this whole panel had: the
@@ -5882,9 +5894,55 @@
                     <span class="text-xs muted shrink-0">Owner · full access</span>
                 </div>`;
             }
-            return `<div class="flex items-center gap-2" data-acct="${escapeHtml(uname)}">
-                <span class="flex-1 min-w-0 text-sm truncate">${label}${dead}</span>
-                <select data-acctrole class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${accountRoleOptionsHtml(asn?asn.roleId:'')}</select>
+            // What the ROLE gives this person, and what has been ticked for
+            // them personally. The two are a union (see effectiveCaps), and
+            // the screen has to show which is which or "why can Sam do that?"
+            // has no answer on it.
+            const role = asn && asn.roleId ? STAFF_ROLES.find(r=>r.id===asn.roleId) : null;
+            const fromRole = new Set(role ? (role.permissions||[]) : []);
+            const own = new Set((asn && asn.permissions) || []);
+            const extras = [...own].filter(c=>!fromRole.has(c)).length;
+            const total = new Set([...fromRole, ...own]).size;
+
+            const groups={};
+            CAP_CATALOG.forEach(c=>{ (groups[c.group]=groups[c.group]||[]).push(c); });
+            const ticks = CAP_CATALOG.length ? Object.entries(groups).map(([g,caps])=>`
+                <div class="mt-2">
+                    <div class="text-[11px] uppercase tracking-wide faint mb-1">${escapeHtml(g)}</div>
+                    ${caps.map(c=>{
+                        const viaRole=fromRole.has(c.id);
+                        // A capability the ROLE carries is shown ticked and
+                        // locked: unticking it here would be a lie, because
+                        // the role would put it straight back. Change the
+                        // role, or move the person off it.
+                        const locked = viaRole || !canGrant(c.id);
+                        const title = viaRole
+                            ? ` title="Comes from the “${escapeHtml(role.name||'role')}” role. Edit the role to remove it."`
+                            : (!canGrant(c.id) ? ' title="Only someone who holds this permission can grant it."' : '');
+                        return `<label class="flex items-start gap-2 text-sm py-0.5 ${locked?'opacity-60 cursor-not-allowed':'cursor-pointer'}"${title}>
+                        <input type="checkbox" data-acctperm="${escapeHtml(c.id)}" ${(viaRole||own.has(c.id))?'checked':''} ${locked?'disabled':''} class="mt-0.5 accent-[var(--accent)]">
+                        <span>${escapeHtml(c.label)}${viaRole?' <span class="faint text-xs">· from role</span>':''}</span></label>`;
+                    }).join('')}
+                </div>`).join('')
+                : '<p class="text-xs mt-2 text-red-500">Couldn’t load the permission list, so there is nothing to tick.</p>';
+
+            const summary = total
+                ? `${total} permission${total===1?'':'s'}${extras?` · ${extras} just for them`:''}`
+                : 'Nothing yet';
+
+            return `<div class="surface hair rounded-xl px-3 py-2.5" data-acct="${escapeHtml(uname)}">
+                <div class="flex items-center gap-2">
+                    <span class="flex-1 min-w-0 text-sm truncate">${label}${dead}</span>
+                    <select data-acctrole class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${accountRoleOptionsHtml(asn?asn.roleId:'')}</select>
+                </div>
+                <!-- Collapsed by default: a role IS the answer for most people,
+                     and a wall of tick boxes per head would bury the one line
+                     that matters. Open it only when this person is an exception. -->
+                <details class="mt-1.5"${own.size&&extras?' open':''}>
+                    <summary class="text-xs muted cursor-pointer select-none">Fine-tune what ${escapeHtml(a.displayName||('@'+uname))} can do <span class="faint">· ${escapeHtml(summary)}</span></summary>
+                    <p class="text-xs muted mt-1.5">Tick anything extra this one person should have. Lines marked <b>from role</b> come with the role above — change the role to remove those.</p>
+                    ${ticks}
+                </details>
             </div>`;
         }
         function renderAccounts(){
@@ -5933,17 +5991,45 @@
             }
             const acctHost=document.getElementById('accountRows');
             if(acctHost) acctHost.addEventListener('change', e=>{
-                const sel=e.target.closest('[data-acctrole]'); if(!sel) return;
-                const uname=String(sel.closest('[data-acct]').getAttribute('data-acct')||'').toLowerCase();
-                const roleId=sel.value;
+                const row=e.target.closest('[data-acct]'); if(!row) return;
+                const uname=String(row.getAttribute('data-acct')||'').toLowerCase();
                 const i=STAFF_ASSIGN.findIndex(x=>String(x.username||'').toLowerCase()===uname);
-                // No role is the ABSENCE of an assignment, not an assignment to
-                // nothing — sanitizeAssignments drops a blank roleId anyway, and
-                // leaving the row behind would make the next save look changed.
-                if(!roleId){ if(i>=0) STAFF_ASSIGN.splice(i,1); }
-                else if(i>=0) STAFF_ASSIGN[i].roleId=roleId;
-                else STAFF_ASSIGN.push({username:uname, roleId});
-                renderAssignments();
+
+                // A tick made for this ONE person, on top of whatever the role
+                // carries. This is what lets an airline give the events
+                // organiser flight review without building a near-duplicate
+                // role that differs by a single box.
+                const perm=e.target.getAttribute('data-acctperm');
+                if(perm){
+                    const own=new Set(i>=0?(STAFF_ASSIGN[i].permissions||[]):[]);
+                    e.target.checked?own.add(perm):own.delete(perm);
+                    if(i>=0) STAFF_ASSIGN[i].permissions=[...own];
+                    else if(own.size) STAFF_ASSIGN.push({username:uname, roleId:'', permissions:[...own]});
+                    // An assignment that now carries neither a role nor a tick
+                    // is not an assignment; drop it rather than saving a shell.
+                    if(i>=0 && !STAFF_ASSIGN[i].roleId && !STAFF_ASSIGN[i].permissions.length) STAFF_ASSIGN.splice(i,1);
+                    renderAccounts(); renderAssignments();
+                    // Re-rendering closes the disclosure the person was working
+                    // in, so put them back where they were.
+                    const back=acctHost.querySelector(`[data-acct="${CSS.escape(uname)}"] details`);
+                    if(back) back.open=true;
+                    return;
+                }
+
+                const sel=e.target.closest('[data-acctrole]'); if(!sel) return;
+                const roleId=sel.value;
+                // No role is the ABSENCE of a role, not an assignment to
+                // nothing. Per-person ticks survive it — they were made against
+                // the person, not the job — and the row only goes when both
+                // halves are empty.
+                if(roleId){
+                    if(i>=0) STAFF_ASSIGN[i].roleId=roleId;
+                    else STAFF_ASSIGN.push({username:uname, roleId, permissions:[]});
+                }else if(i>=0){
+                    STAFF_ASSIGN[i].roleId='';
+                    if(!(STAFF_ASSIGN[i].permissions||[]).length) STAFF_ASSIGN.splice(i,1);
+                }
+                renderAccounts(); renderAssignments();
             });
             const asnHost=document.getElementById('assignRows');
             if(asnHost){
@@ -5955,7 +6041,14 @@
         async function saveTeam(){
             const note=document.getElementById('teamNote');
             const roles=STAFF_ROLES.map(r=>({ id:r.id, name:String(r.name||'').trim(), color:r.color||'', permissions:r.permissions||[] })).filter(r=>r.name);
-            const asn=STAFF_ASSIGN.map(a=>({ username:String(a.username||'').trim().toLowerCase(), roleId:a.roleId||'' })).filter(a=>a.username&&a.roleId);
+            // An assignment is worth sending if it carries a role OR ticks of
+            // its own — a person configured entirely by hand has no roleId and
+            // must not be filtered away here.
+            const asn=STAFF_ASSIGN.map(a=>({
+                username:String(a.username||'').trim().toLowerCase(),
+                roleId:a.roleId||'',
+                permissions:Array.isArray(a.permissions)?a.permissions:[],
+            })).filter(a=>a.username&&(a.roleId||a.permissions.length));
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Sign in as owner to manage the team.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             try{

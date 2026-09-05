@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Join — Crew Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -15,6 +15,18 @@
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
+        /* iOS Safari zooms the whole page in when you focus a form control
+           whose text is smaller than 16px, and there is no way to ask it not
+           to: maximum-scale has been deliberately ignored since iOS 10,
+           because pinch-zoom is an accessibility feature. So the fix is the
+           font size itself, applied only where the pointer is coarse — the
+           desktop layout keeps its 14px controls.
+
+           !important because these controls carry Tailwind's text-sm, and a
+           class beats any number of element selectors. */
+        @media (pointer: coarse){
+            input,select,textarea{ font-size:16px !important; }
+        }
         :root{ --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4; --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#4f46e5; color-scheme: light dark; }
         .dark{ --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A; --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D; }
         *{ -webkit-tap-highlight-color: transparent; }
