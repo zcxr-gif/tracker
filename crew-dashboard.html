@@ -1600,6 +1600,59 @@
         }
         // Liveries offered for a given aircraft type (empty array if unknown).
         function liveriesFor(type){ const k=String(type||'').trim(); return (k && LIV_MAP[k]) ? LIV_MAP[k] : []; }
+        // ONE SHAPE FOR A FLEET ENTRY: {type: aircraft, name: livery}.
+        //
+        // Fleet entries predate the aircraft/livery split, and the old ones
+        // carry the aircraft in `name` with no `type` at all. Every reader
+        // since has coped with `a.type || a.name`, which works but leaves two
+        // problems: the editor shows a legacy aircraft sitting in the box
+        // labelled "Livery", and a row carrying a livery and NO aircraft — the
+        // easy mistake, the livery field being the wide one — is indis-
+        // tinguishable from a legacy row, so it cannot be flagged.
+        //
+        // Normalising once, at the door, settles both: after this an entry
+        // without a `type` is always a genuine mistake, never history.
+        function normalizeFleet(list){
+            return (Array.isArray(list) ? list : []).map(f => {
+                const o = Object.assign({}, f);
+                if(!String(o.type||'').trim() && String(o.name||'').trim()){ o.type = o.name; o.name = ''; }
+                return o;
+            });
+        }
+        // WHAT THE REST OF THE CREW CENTER MAY OFFER AS AN AIRCRAFT.
+        //
+        // A fleet entry becomes a real aircraft when it names a livery. Until
+        // then it is half-filled, and offering it meant a route could be bound
+        // to "Boeing 787-9" in the abstract — the VA picks it, and nothing ever
+        // matches it, because what gets flown and tracked is a painted
+        // aeroplane. So an aircraft appears once its livery is chosen, and not
+        // while only the type is there.
+        //
+        // Everything that OFFERS a choice goes through here. The editor in
+        // Settings deliberately does not: it still lists every row, finished or
+        // not, because it is where they get finished.
+        function routableFleet(){
+            return FLEET.filter(a => String(a.type||'').trim() && String(a.name||'').trim());
+        }
+        // How one reads wherever it is offered. Two 787-9s in different liveries
+        // are two different aircraft to a pilot and have to look like it.
+        function fleetLabel(a){
+            const type=String(a.type||'').trim(), liv=String(a.name||'').trim();
+            return liv ? `${type} · ${liv}` : type;
+        }
+        // The VALUE stays the aircraft type, not the label. It is what gets
+        // stored on the route and what the backend matches an Infinite Flight
+        // flight's aircraft against; putting the livery into it would quietly
+        // stop those matching. The livery earns the entry its place in the list
+        // and tells the two apart — it is not a new key.
+        function fleetValue(a){ return String(a.type||'').trim(); }
+        // Said in the picker, not in the editor: an aircraft that is simply
+        // absent reads as a bug. Only ever shown when something really was held
+        // back.
+        function fleetHeldBack(){
+            const held = FLEET.filter(a => String(a.type||'').trim() && !String(a.name||'').trim()).length;
+            return held ? `${held} aircraft need a livery before they can be picked` : '';
+        }
         let SUPA={connected:false,url:'',anonKey:''}, IS_OWNER=false;
         // Staff permissions: the caller's effective caps, the catalog, and (owner
         // only) the editable role + assignment config.
@@ -2771,17 +2824,80 @@
             RANKS=[{name:'Cadet',minHours:0,color:'#64748b',icon:'star'},{name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},{name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},{name:'Captain',minHours:300,color:'#d97706',icon:'medal'},{name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'}];
             renderStructure();
         }
+        // The one thing about a fleet row the VA can get wrong and we can tell:
+        // a livery with no aircraft under it. A livery is a paint scheme OF
+        // something, so such a row is not an entry the server can store or the
+        // route picker can offer — and it is the easy mistake to make, the
+        // livery box being the wide one and the aircraft box the narrow one.
+        // Named by row here rather than sent and bounced back as "some error".
+        // (Rows normalizeFleet has been through cannot reach this state by
+        // accident: a legacy entry's aircraft is moved into `type` on load.)
+        function fleetRowProblem(){
+            for(let i=0;i<FLEET.length;i++){
+                const type=String(FLEET[i].type||'').trim(), liv=String(FLEET[i].name||'').trim();
+                if(!type && liv) return `Row ${i+1}: “${liv}” has no aircraft. Put the aircraft in the first box and the livery in the second.`;
+            }
+            return '';
+        }
+        // A failure with nothing in it. Each of these lands the VA somewhere
+        // they can act — sign in again, wait, or tell us a number that means
+        // something — rather than on "Could not save."
+        function saveFailureReason(status){
+            if(status===401 || status===403) return `Your sign-in has expired, or this account can’t change the fleet (${status}). Sign out and back in, then try again.`;
+            if(status===413) return 'That is too much to save in one go (413). Remove an aircraft image and try again.';
+            if(status===429) return 'Too many saves in a row (429). Wait a moment and try again.';
+            if(status>=500)  return `The server could not save it (${status}). It is not something you have typed wrong — try again shortly.`;
+            if(status>=400)  return `The server refused the save (${status}) without saying why. Please report this number.`;
+            return `Could not save (server said ${status}).`;
+        }
         async function saveStructure(kind){
             const note=document.getElementById(noteIdFor(kind));
-            const clean = arrForKind(kind).filter(x=>String(kind==='fleet'?(x.type||x.name):x.name||'').trim());
+            const warn=(msg)=>{ note.textContent=msg; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); };
+            if(kind==='fleet'){
+                const problem=fleetRowProblem();
+                if(problem){ warn(problem); return; }
+            }
+            // Blank rows are dropped rather than refused — an empty row is
+            // someone who pressed Add and changed their mind. A fleet row is
+            // keyed by its aircraft; the `||''` matters, because without it an
+            // entry missing both fields stringifies to "undefined" and is kept.
+            const clean = arrForKind(kind).filter(x=>String((kind==='fleet'?x.type:x.name)||'').trim());
             const token=sessionToken(), slug=getSlug();
             if(!slug || !token){ note.textContent='Applied on this device. Sign in to save for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({[kind]:clean}) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
-                else { if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else if(kind==='roles')ROLES=d[kind]; else FLEET=d[kind]; renderStructure(); } note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                if(!res.ok){
+                    // A project missing the columns this write needs is one
+                    // button away from working, and it used to land here as a
+                    // bare red "Could not save" with nowhere to go — the route
+                    // form has offered the way out since it was built, and this
+                    // form, saving the fleet those routes are picked from, did
+                    // not. Same treatment, same button.
+                    if(d.code==='store_schema_outdated'){
+                        noteStoreDrift(d.error||'');
+                        note.innerHTML=escapeHtml(d.error||'Your database is on an older version.')+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>';
+                        note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return;
+                    }
+                    // "Could not save." on its own is what this reported as, and
+                    // it is not something a VA can act on: it means the reply
+                    // carried no message at all — a non-JSON error page, or an
+                    // empty body — so `d.error` was undefined and the fallback
+                    // was all that was left. Say what the status actually means,
+                    // and keep the number for when it has to be reported.
+                    note.textContent=d.error||saveFailureReason(res.status);
+                    note.className='text-sm text-red-500';
+                }
+                else {
+                    if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else if(kind==='roles')ROLES=d[kind]; else FLEET=normalizeFleet(d[kind]); renderStructure(); }
+                    // A save the project could only partly hold is not a clean
+                    // save, and the VA should hear that here rather than find a
+                    // field missing later.
+                    const drift=checkResponseDrift(d);
+                    if(drift){ warn(drift+' '); note.innerHTML=escapeHtml(drift)+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>'; return; }
+                    note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                }
             }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
             note.classList.remove('hidden');
         }
@@ -3119,9 +3235,11 @@
         function buildAircraftChips(selected){
             NP_AIRCRAFT = new Set(selected || []);
             const host=document.getElementById('np_aircraft');
-            host.innerHTML = FLEET.length ? FLEET.map(a=>{ const v=a.type||a.name; const on=NP_AIRCRAFT.has(v);
-                return `<button type="button" data-ac="${escapeHtml(v)}" class="text-xs rounded-full px-2.5 py-1 ${on?'accent-bg text-white':'surface hair'}">${escapeHtml(v)}</button>`; }).join('')
-                : '<span class="text-xs faint">Add aircraft in Settings → Crew → Fleet.</span>';
+            const offer=routableFleet(), held=fleetHeldBack();
+            host.innerHTML = offer.length ? offer.map(a=>{ const v=fleetValue(a); const on=NP_AIRCRAFT.has(v);
+                return `<button type="button" data-ac="${escapeHtml(v)}" class="text-xs rounded-full px-2.5 py-1 ${on?'accent-bg text-white':'surface hair'}">${escapeHtml(fleetLabel(a))}</button>`; }).join('')
+                  +(held?`<span class="text-xs faint w-full">${escapeHtml(held)}.</span>`:'')
+                : `<span class="text-xs faint">${held?escapeHtml(held)+' — finish them in':'Add aircraft in'} Settings → Crew → Fleet.</span>`;
             host.querySelectorAll('[data-ac]').forEach(b=>b.addEventListener('click',()=>{
                 const v=b.getAttribute('data-ac');
                 if(NP_AIRCRAFT.has(v)){ NP_AIRCRAFT.delete(v); b.classList.remove('accent-bg','text-white'); b.classList.add('surface','hair'); }
@@ -3544,7 +3662,10 @@
         function closeRoutes(){ const r=document.getElementById('routes'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
         function openRouteForm(route){
             ROUTE_EDITING = route ? String(route.id) : null;
-            document.getElementById('nr_aircraft').innerHTML='<option value="">Any aircraft</option>'+FLEET.map(a=>{ const v=a.type||a.name; return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`; }).join('');
+            const rtHeld=fleetHeldBack();
+            document.getElementById('nr_aircraft').innerHTML='<option value="">Any aircraft</option>'
+                +routableFleet().map(a=>`<option value="${escapeHtml(fleetValue(a))}">${escapeHtml(fleetLabel(a))}</option>`).join('')
+                +(rtHeld?`<option value="" disabled>— ${escapeHtml(rtHeld)} —</option>`:'');
             document.getElementById('nr_flight').value = route ? (route.flightNumber||'') : '';
             document.getElementById('nr_from').value = route ? (route.origin||'') : '';
             document.getElementById('nr_to').value = route ? (route.destination||'') : '';
@@ -4255,7 +4376,8 @@
             const pilotSel=document.getElementById('pf_pilot');
             pilotSel.innerHTML='<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${m.id}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('');
             const acSel=document.getElementById('pf_aircraft');
-            acSel.innerHTML='<option value="">Aircraft (optional)</option>'+FLEET.map(a=>{ const v=a.type||a.name; return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`; }).join('');
+            acSel.innerHTML='<option value="">Aircraft (optional)</option>'
+                +routableFleet().map(a=>`<option value="${escapeHtml(fleetValue(a))}">${escapeHtml(fleetLabel(a))}</option>`).join('');
             ['pf_from','pf_to','pf_flight','pf_land','pf_h','pf_m'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
             const p=prefill||{};
             PIREP_SCHEDULE_ID=p.scheduleId||'';
@@ -6195,7 +6317,7 @@
             // what the crew record says and this is only one of the three.
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
-            if(Array.isArray(b.fleet)) FLEET=b.fleet;
+            if(Array.isArray(b.fleet)) FLEET=normalizeFleet(b.fleet);
             PIREP_AUTO = !!b.pirepAutoApprove;
             if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
