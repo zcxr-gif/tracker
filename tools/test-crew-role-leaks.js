@@ -9,6 +9,11 @@
 //   * an owner sees everything, and the permission tick boxes actually render
 //   * when the permission catalogue does not arrive, the role editor SAYS so
 //     instead of drawing a role card with nothing underneath it
+//   * the team editor lists the VA's REAL staff logins with a role dropdown
+//     each, rather than asking an owner to type a username from memory — the
+//     typo that saved cleanly and granted nothing
+//   * the "Staff" tick on a crew ROLE says it is a badge and points at the
+//     screen that actually grants permissions
 //
 // Run:  node tools/test-crew-role-leaks.js
 const { chromium } = require('playwright-core');
@@ -42,6 +47,8 @@ const CAPABILITIES = [
 
 let ME = {};
 let sendCatalogue = true;
+// null → the backend has no such route, which is the out-of-date-backend case.
+let ACCOUNTS = null;
 
 function api(route) {
     const p = new URL(route.request().url()).pathname;
@@ -54,6 +61,7 @@ function api(route) {
             rolePresets: [{ id: 'pirep-manager', name: 'PIREP manager', color: '#0EA5E9', description: 'Reviews flight reports.', permissions: ['flights.review'] }],
         });
     }
+    if (p.endsWith('/staff-accounts')) return ACCOUNTS ? json({ accounts: ACCOUNTS }) : json({ error: 'nope' }, 404);
     if (p.endsWith('/branding')) return json({ name: 'Test VA', code: 'TVA', layout: 'editorial', allowedLayouts: ['editorial'] });
     if (p.endsWith('/announcements')) return json({ announcements: [], canManage: false });
     if (p.endsWith('/events')) return json({ events: [], canManage: false, mine: [], ranks: [] });
@@ -160,6 +168,155 @@ const head = (s) => console.log(`\n${s}`);
     ok('…rather than drawing a role card with nothing under it', !/^\s*$/.test(rowText));
     await c5.close();
     sendCatalogue = true;
+
+    // ------------------------------------------------------------------
+    head('The team editor lists the real staff logins');
+
+    ACCOUNTS = [
+        { username: 'skypilot', displayName: 'Sky Pilot', role: 'owner', active: true },
+        { username: 'routeguy', displayName: 'Route Guy', role: 'staff', active: true },
+        { username: 'oldhand', displayName: 'Old Hand', role: 'staff', active: false },
+    ];
+    ME = {
+        role: 'owner', view: 'staff', caps: CAPABILITIES.map((c) => c.id),
+        staffRoles: [{ id: 'role-rm', name: 'Route manager', color: '#4f46e5', permissions: ['routes.manage'] }],
+        staffAssignments: [],
+    };
+    const { ctx: c6, page: p6 } = await openDash();
+    await p6.evaluate(() => window.openSettings('team'));
+    await p6.waitForTimeout(400);
+
+    const acctText = await p6.innerText('#accountRows');
+    ok('a staff login is listed by name', /Route Guy/.test(acctText), acctText.slice(0, 160));
+    ok('…with the username it actually signs in with', /@routeguy/.test(acctText));
+    ok('a disabled account is marked as such', /disabled/.test(acctText));
+    ok('the owner is listed without a dropdown to change', /Owner · full access/.test(acctText));
+    const selCount = await p6.$$eval('#accountRows [data-acctrole]', (e) => e.length);
+    ok('…so only the two non-owner accounts get one', selCount === 2, `${selCount} dropdowns`);
+    const optText = await p6.$eval('#accountRows [data-acctrole]', (e) => e.textContent);
+    ok('the dropdown offers the VA’s own role', /Route manager/.test(optText), optText);
+    ok('…and “no role” is an option, not a blank', /No role/.test(optText));
+
+    // The whole point: choosing a role here becomes a real assignment keyed on
+    // the login username, with no typing involved.
+    await p6.selectOption('#accountRows [data-acct="routeguy"] [data-acctrole]', 'role-rm');
+    await p6.waitForTimeout(150);
+    const asn1 = await p6.evaluate(() => JSON.parse(JSON.stringify(window.STAFF_ASSIGN ?? STAFF_ASSIGN)));
+    ok('picking a role assigns that exact username', asn1.length === 1 && asn1[0].username === 'routeguy' && asn1[0].roleId === 'role-rm', JSON.stringify(asn1));
+
+    // Back to "no role" removes the row rather than saving a blank one, which
+    // sanitizeAssignments would drop anyway.
+    await p6.selectOption('#accountRows [data-acct="routeguy"] [data-acctrole]', '');
+    await p6.waitForTimeout(150);
+    const asn2 = await p6.evaluate(() => JSON.parse(JSON.stringify(window.STAFF_ASSIGN ?? STAFF_ASSIGN)));
+    ok('…and “no role” clears it rather than saving an empty one', asn2.length === 0, JSON.stringify(asn2));
+
+    // The confusion that started this: the crew-role Staff tick is a badge.
+    await p6.evaluate(() => window.openSettings('crew'));
+    await p6.waitForTimeout(250);
+    const crewText = await p6.innerText('#crewStructureBlock');
+    ok('the crew-role Staff tick says it grants no access', /grants no access/.test(crewText), crewText.slice(0, 200));
+    ok('…and points at the screen that does', /Settings › Team/.test(crewText));
+    await c6.close();
+
+    // ------------------------------------------------------------------
+    head('One person can be given one extra thing, without a new role');
+
+    ACCOUNTS = [
+        { username: 'skypilot', displayName: 'Sky Pilot', role: 'owner', active: true },
+        { username: 'evie', displayName: 'Evie', role: 'staff', active: true },
+    ];
+    ME = {
+        role: 'owner', view: 'staff', caps: CAPABILITIES.map((c) => c.id),
+        staffRoles: [{ id: 'role-ev', name: 'Events', color: '#4f46e5', permissions: ['events.manage'] }],
+        staffAssignments: [],
+    };
+    const { ctx: c8, page: p8 } = await openDash();
+    await p8.evaluate(() => window.openSettings('team'));
+    await p8.waitForTimeout(400);
+
+    const row = '#accountRows [data-acct="evie"]';
+    ok('each person gets their own tick boxes',
+        (await p8.$$eval(`${row} [data-acctperm]`, (e) => e.length)) === CAPABILITIES.length,
+        `${await p8.$$eval(`${row} [data-acctperm]`, (e) => e.length)} boxes`);
+    ok('…collapsed behind a fine-tune disclosure, not dumped on the page',
+        await p8.$eval(`${row} details`, (e) => !e.open));
+
+    // The whole ask: one extra permission for one person, no second role.
+    await p8.$eval(`${row} details`, (e) => { e.open = true; });
+    await p8.check(`${row} [data-acctperm="flights.review"]`);
+    await p8.waitForTimeout(150);
+    const a1 = await p8.evaluate(() => JSON.parse(JSON.stringify(STAFF_ASSIGN)));
+    ok('ticking one box grants that one person that one thing',
+        a1.length === 1 && a1[0].username === 'evie' && a1[0].permissions.includes('flights.review'), JSON.stringify(a1));
+    ok('…without inventing a role for it', a1[0].roleId === '', JSON.stringify(a1));
+    ok('…and the role list is untouched',
+        (await p8.evaluate(() => STAFF_ROLES.length)) === 1);
+
+    // A role on top: the two are a union, and the screen has to say which is
+    // which or "why can Evie do that?" has no answer on it.
+    await p8.selectOption(`${row} [data-acctrole]`, 'role-ev');
+    await p8.waitForTimeout(200);
+    await p8.$eval(`${row} details`, (e) => { e.open = true; });
+    const a2 = await p8.evaluate(() => JSON.parse(JSON.stringify(STAFF_ASSIGN)));
+    ok('a role and a personal tick coexist',
+        a2[0].roleId === 'role-ev' && a2[0].permissions.includes('flights.review'), JSON.stringify(a2));
+    ok('what the role carries shows as ticked',
+        await p8.isChecked(`${row} [data-acctperm="events.manage"]`));
+    ok('…and locked, because unticking it here would be a lie',
+        await p8.isDisabled(`${row} [data-acctperm="events.manage"]`));
+    ok('…and labelled as coming from the role',
+        /from role/.test(await p8.innerText(`${row} details`)));
+    ok('the personal extra stays unlocked',
+        !(await p8.isDisabled(`${row} [data-acctperm="flights.review"]`)));
+
+    // Dropping the role must not revoke a tick made against the PERSON.
+    await p8.selectOption(`${row} [data-acctrole]`, '');
+    await p8.waitForTimeout(200);
+    const a3 = await p8.evaluate(() => JSON.parse(JSON.stringify(STAFF_ASSIGN)));
+    ok('removing the role keeps what was ticked for the person',
+        a3.length === 1 && a3[0].roleId === '' && a3[0].permissions.includes('flights.review'), JSON.stringify(a3));
+
+    // …but with both halves empty there is no assignment left to save.
+    await p8.$eval(`${row} details`, (e) => { e.open = true; });
+    await p8.uncheck(`${row} [data-acctperm="flights.review"]`);
+    await p8.waitForTimeout(150);
+    ok('clearing the last tick with no role removes the assignment entirely',
+        (await p8.evaluate(() => STAFF_ASSIGN.length)) === 0);
+    await c8.close();
+
+    // ------------------------------------------------------------------
+    head('Tapping a text box does not zoom the page in');
+
+    // iOS Safari zooms when a focused control's text is under 16px, and
+    // ignores maximum-scale, so the font size is the only real fix.
+    const { ctx: c9, page: p9 } = await browser.newContext({
+        viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    }).then(async (ctx) => ({ ctx, page: await ctx.newPage() }));
+    await p9.route('**/api/**', api);
+    await p9.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Someone', role: 'staff' })));
+    await p9.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
+    await p9.waitForTimeout(900);
+
+    const vp = await p9.$eval('meta[name="viewport"]', (e) => e.getAttribute('content'));
+    ok('the viewport no longer tries to block zoom', !/maximum-scale|user-scalable/.test(vp), vp);
+    const small = await p9.evaluate(() => [...document.querySelectorAll('input:not([type=color]):not([type=checkbox]):not([type=radio]),select,textarea')]
+        .filter((el) => el.offsetParent !== null && parseFloat(getComputedStyle(el).fontSize) < 16).length);
+    ok('no visible form control renders under 16px on a touch device', small === 0, `${small} too small`);
+    await c9.close();
+
+    // ------------------------------------------------------------------
+    head('An out-of-date backend says so instead of showing nothing');
+
+    ACCOUNTS = null;
+    const { ctx: c7, page: p7 } = await openDash();
+    await p7.evaluate(() => window.openSettings('team'));
+    await p7.waitForTimeout(400);
+    ok('the missing route is explained', /out of date/.test(await p7.innerText('#accountsNote')));
+    ok('…and the manual username route is still offered',
+        await p7.isVisible('#assignRows') || /isn’t listed/.test(await p7.innerText('[data-panel="team"]')));
+    await c7.close();
 
     await browser.close();
     server.close();
