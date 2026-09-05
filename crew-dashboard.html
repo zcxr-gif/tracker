@@ -116,6 +116,53 @@
            class beats any number of element selectors. */
         @media (pointer: coarse){
             input,select,textarea{ font-size:16px !important; }
+            /* A 13px tick box is a 13px target. The permission ticks are the
+               whole point of the Team tab, and on a phone they were smaller
+               than the fingertip pressing them. */
+            input[type=checkbox],input[type=radio]{ width:1.15rem; height:1.15rem; }
+            /* Text-only actions — "Add", "Add role" — are 16px tall lines of
+               text with nothing around them to hit. */
+            .tap-target{ min-height:2.75rem; }
+        }
+
+        /* =====================================================================
+           A CREW CENTER ON A PHONE
+
+           Every drawer in here opens with the same header: a title or a tab
+           group on the left, the actions on the right, all on ONE line that
+           was never allowed to wrap. A desktop has the room. A 390px phone
+           does not, and what falls off the right-hand end is the end of the
+           row — CSV, Add, and the X that closes the drawer. They were in the
+           DOM the whole time, just past the edge of the screen, which is why
+           "the Add button isn't there" and "I can't get out of the roster"
+           were one bug.
+
+           So: the header wraps, the actions never shrink and never leave, and
+           a tab group too wide for the screen scrolls sideways on its own
+           rather than pushing its neighbours off.
+           ===================================================================== */
+        .drawer-head{ min-height:4rem; flex-wrap:wrap; row-gap:.5rem; padding-top:.5rem; padding-bottom:.5rem; }
+        .drawer-head > *{ min-width:0; max-width:100%; }
+        .drawer-actions{ flex-shrink:0; margin-left:auto; }
+        .hscroll{ overflow-x:auto; max-width:100%; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+        .hscroll::-webkit-scrollbar{ display:none; }
+        .hscroll > *{ flex-shrink:0; }
+
+        /* Rank, role, fleet and assignment rows put a colour, a badge, a name,
+           a number and a delete on one line. The name is the only elastic part
+           of that row, so on a phone it is the part that disappeared: a 22px
+           box, in the panel where a rank is named. Let the row wrap, and keep
+           every text field wide enough to read what is in it. */
+        .struct-row{ flex-wrap:wrap; row-gap:.4rem; }
+        .struct-row [data-f="name"], .struct-row [data-f="type"], .struct-row [data-af="username"]{ flex:1 1 9rem; min-width:9rem; }
+
+        /* Six settings tabs on one line need ~330px. Under that the last one —
+           Data, and on a narrow-enough phone Team, the tab that grants
+           permissions — sat off the edge of the panel with no scrollbar to
+           say so. Two rows of three fit any phone, and nothing is hidden. */
+        @media (max-width:430px){
+            #settingsTabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.25rem; }
+            #settingsTabs .settings-tab{ min-height:2.5rem; }
         }
         .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
         a:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
@@ -417,7 +464,7 @@
             </div>
             <!-- Category tabs -->
             <div class="px-5 pt-4 sticky top-16 z-10" style="background:var(--surface);">
-                <div class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
+                <div id="settingsTabs" class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
                     <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
                     <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
                     <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
@@ -482,7 +529,7 @@
                     <div class="mb-5">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Ranks</span>
-                            <button onclick="addRank()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            <button onclick="addRank()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
                         <div id="rankPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <div id="rankRows" class="space-y-2"></div>
@@ -496,7 +543,7 @@
                     <div>
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Roles</span>
-                            <button onclick="addRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            <button onclick="addRole()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
                         <!-- The "Staff" tick here is a BADGE, not a permission,
                              and the two were being confused: an owner naming a
@@ -515,7 +562,7 @@
                     <div class="mt-5">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Fleet</span>
-                            <button onclick="addFleet()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            <button onclick="addFleet()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
                         <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft &amp; livery from Infinite Flight so flights track correctly — we’ll try to find a matching photo automatically (<i data-lucide="image" class="inline w-3 h-3 align-[-1px]"></i>). Upload your own or leave it as a plane.</p>
                         <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
@@ -712,7 +759,7 @@
                     <div class="mt-4">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Application questions</span>
-                            <button onclick="addQuestion()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            <button onclick="addQuestion()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
                         <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
                         <div id="qRows" class="space-y-2"></div>
@@ -720,7 +767,7 @@
                     <div class="mt-4">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Join requirements</span>
-                            <button onclick="addRequirement()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            <button onclick="addRequirement()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
                         <p class="text-xs muted mb-2">Auto-checked against each applicant’s <b>real Infinite Flight stats</b> when they join — or a custom agreement they must accept. Grade is set above.</p>
                         <div id="reqRows" class="space-y-2"></div>
@@ -871,7 +918,7 @@
                 <div>
                     <div class="flex items-center justify-between mb-1">
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
-                        <button onclick="addStaffRole()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
+                        <button onclick="addStaffRole()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
                     <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. A role is a reusable <b>job</b>: use one when several people do the same thing, and fine-tune an individual below when it is one person’s exception. Not sure where to start? Pick a job from the row underneath — it comes with the ticks already worked out. Roles belong to this crew center only; another VA’s roles are its own.</p>
                     <p class="text-xs muted mb-3">Only you, the owner — and anyone you give <b>“Create staff roles &amp; assign the team”</b> to — can see or change this. Owners always have full access. A staff member with no role assigned keeps the everyday permissions until you give them one, but never the owner-level ones below. Nobody can grant a permission they don’t hold themselves, so handing someone this page cannot make them the owner.</p>
@@ -907,7 +954,7 @@
                         <summary class="text-xs muted cursor-pointer select-none">Assign a username that isn’t listed</summary>
                         <p class="text-xs muted mt-2 mb-2">For a login that lives outside this crew center’s account list. Enter it exactly as they sign in.</p>
                         <div id="assignRows" class="space-y-2"></div>
-                        <button onclick="addAssignment()" class="text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1 mt-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a username</button>
+                        <button onclick="addAssignment()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1 mt-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a username</button>
                     </details>
                 </div>
 
@@ -1233,13 +1280,13 @@
         <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 z-10 border-b hair" style="background:var(--surface);">
-                <div class="flex items-center justify-between px-5 h-16">
-                    <div id="rosterViewTabs" class="inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
+                <div class="drawer-head flex items-center justify-between gap-2 px-5">
+                    <div id="rosterViewTabs" class="hscroll inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
                         <button data-view="roster" onclick="switchRosterView('roster')" class="px-3 py-1.5 rounded-md transition">Roster<span id="rosterCount" class="text-xs muted"></span></button>
                         <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
                         <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Invitations<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="drawer-actions flex items-center gap-2">
                         <button id="rosterCsvBtn" onclick="openCsv('roster')" title="Export or import the roster as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
                         <button id="addPilotBtn" onclick="openPilotForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="user-plus" class="w-4 h-4"></i> Add</button>
                         <button onclick="closeRoster()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -1276,9 +1323,9 @@
     <div id="routes" data-topic="routes" class="hidden fixed inset-0 z-50">
         <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeRoutes()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
-            <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+            <div class="drawer-head sticky top-0 z-10 flex items-center justify-between gap-2 px-5 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="route" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Route network</span><span id="routeCount" class="text-xs muted"></span></div>
-                <div class="flex items-center gap-2">
+                <div class="drawer-actions flex items-center gap-2">
                     <button id="viewMapBtn" onclick="openRouteMap()" title="View the network on a map" class="surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="map" class="w-4 h-4"></i> Map</button>
                     <button id="routesCsvBtn" onclick="openCsv('routes')" title="Export or import the network as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
                     <button id="addRouteBtn" onclick="openRouteForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
@@ -1471,9 +1518,9 @@
     <div id="pireps" data-topic="pireps" class="hidden fixed inset-0 z-50">
         <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closePireps()"></div>
         <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
-            <div class="sticky top-0 z-10 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+            <div class="drawer-head sticky top-0 z-10 flex items-center justify-between gap-2 px-5 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="plane" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Flights</span><span id="pirepCount" class="text-xs muted"></span></div>
-                <div class="flex items-center gap-2">
+                <div class="drawer-actions flex items-center gap-2">
                     <button id="filePirepBtn" onclick="openPirepForm()" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> File</button>
                     <button id="syncPirepsBtn" onclick="syncPireps()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync</button>
                     <button onclick="closePireps()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -1507,9 +1554,9 @@
                     <span>Auto-approve fleet flights <span class="muted">— credit hours the moment a matching flight is captured</span></span>
                 </label>
                 <div class="flex gap-1.5 mt-3" id="pirepTabs">
-                    <button data-ptab="pending" class="text-xs font-semibold px-3 py-1.5 rounded-full accent-bg text-white">Pending</button>
-                    <button data-ptab="approved" class="text-xs font-semibold px-3 py-1.5 rounded-full surface hair">Approved</button>
-                    <button data-ptab="rejected" class="text-xs font-semibold px-3 py-1.5 rounded-full surface hair">Rejected</button>
+                    <button data-ptab="pending" class="tap-target text-xs font-semibold px-3 py-1.5 rounded-full accent-bg text-white inline-flex items-center">Pending</button>
+                    <button data-ptab="approved" class="tap-target text-xs font-semibold px-3 py-1.5 rounded-full surface hair inline-flex items-center">Approved</button>
+                    <button data-ptab="rejected" class="tap-target text-xs font-semibold px-3 py-1.5 rounded-full surface hair inline-flex items-center">Rejected</button>
                 </div>
             </div>
             <div id="pirepList" class="p-5 space-y-2.5"></div>
@@ -2540,7 +2587,7 @@
                 ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
                 : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
             const livList = liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
-            return `<div class="flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
+            return `<div class="struct-row flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
                 <input data-f="type" list="acTypeList" value="${escapeHtml(f.type||'')}" placeholder="Aircraft (e.g. Airbus A320)" class="w-40 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="Livery (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <datalist id="livList-${i}">${livList}</datalist>
@@ -2612,7 +2659,7 @@
         // so it is worth writing.
         function rankRowHtml(r,i){
             return `<div class="space-y-1.5" data-kind="ranks" data-idx="${i}">
-                <div class="flex items-center gap-2">
+                <div class="struct-row flex items-center gap-2">
                     <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
                     ${badgeControl(r)}
                     <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Rank name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
@@ -2629,7 +2676,7 @@
             </div>`;
         }
         function roleRowHtml(r,i){
-            return `<div class="flex items-center gap-2" data-kind="roles" data-idx="${i}">
+            return `<div class="struct-row flex items-center gap-2" data-kind="roles" data-idx="${i}">
                 <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
                 ${badgeControl(r)}
                 <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Role name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
@@ -4089,7 +4136,7 @@
             document.getElementById('pirepAuto').checked = !!PIREP_AUTO;
             document.querySelectorAll('#pirepTabs [data-ptab]').forEach(b=>{
                 const on=b.getAttribute('data-ptab')===PIREP_TAB;
-                b.className=`text-xs font-semibold px-3 py-1.5 rounded-full ${on?'accent-bg text-white':'surface hair'}`;
+                b.className=`tap-target inline-flex items-center text-xs font-semibold px-3 py-1.5 rounded-full ${on?'accent-bg text-white':'surface hair'}`;
             });
             const empty = PIREPS_CANREVIEW ? `No ${PIREP_TAB} flights.` : 'No flights logged yet.';
             document.getElementById('pirepList').innerHTML = PIREPS.length ? PIREPS.map(pirepCardHtml).join('') : `<p class="text-sm faint text-center py-10">${empty}</p>`;
@@ -5831,7 +5878,7 @@
         function addStaffRole(){ STAFF_ROLES.push({id:'role-'+Math.random().toString(36).slice(2,9),name:'',color:'#4f46e5',permissions:[]}); renderStaffRoles(); }
         function roleOptionsHtml(sel){ return '<option value="">— role —</option>'+STAFF_ROLES.filter(r=>r.name&&r.id).map(r=>`<option value="${escapeHtml(r.id)}" ${sel===r.id?'selected':''}>${escapeHtml(r.name)}</option>`).join(''); }
         function assignRowHtml(a,i){
-            return `<div class="flex items-center gap-2" data-asn="${i}">
+            return `<div class="struct-row flex items-center gap-2" data-asn="${i}">
                 <input data-af="username" value="${escapeHtml(a.username||'')}" placeholder="staff login username" autocapitalize="off" spellcheck="false" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <select data-af="roleId" class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${roleOptionsHtml(a.roleId)}</select>
                 <button data-asndel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
@@ -5889,8 +5936,8 @@
             // them everything before roles are consulted. Showing them with a
             // dropdown would offer a choice that changes nothing.
             if(a.role==='owner'){
-                return `<div class="flex items-center gap-2 py-1">
-                    <span class="flex-1 min-w-0 text-sm truncate">${label}${dead}</span>
+                return `<div class="flex items-center flex-wrap gap-x-2 gap-y-0.5 py-1">
+                    <span class="min-w-0 flex-1 text-sm truncate">${label}${dead}</span>
                     <span class="text-xs muted shrink-0">Owner · full access</span>
                 </div>`;
             }
@@ -5931,9 +5978,9 @@
                 : 'Nothing yet';
 
             return `<div class="surface hair rounded-xl px-3 py-2.5" data-acct="${escapeHtml(uname)}">
-                <div class="flex items-center gap-2">
-                    <span class="flex-1 min-w-0 text-sm truncate">${label}${dead}</span>
-                    <select data-acctrole class="surface hair rounded-md text-sm py-2 px-1.5 shrink-0 text-[var(--ink)]">${accountRoleOptionsHtml(asn?asn.roleId:'')}</select>
+                <div class="min-w-0">
+                    <div class="text-sm truncate">${label}${dead}</div>
+                    <select data-acctrole class="mt-1.5 w-full surface hair rounded-md text-sm py-2 px-2 text-[var(--ink)]">${accountRoleOptionsHtml(asn?asn.roleId:'')}</select>
                 </div>
                 <!-- Collapsed by default: a role IS the answer for most people,
                      and a wall of tick boxes per head would bury the one line
