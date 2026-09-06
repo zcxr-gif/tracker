@@ -211,7 +211,7 @@
                     <p class="text-[11px] font-semibold muted uppercase tracking-wide mb-1">Published before</p>
                     <div id="versions" class="space-y-1"></div>
                 </div>
-                <div class="border-t hair pt-3">
+                <div class="border-t hair pt-3" id="ejectBlock">
                     <p class="text-[11px] font-semibold muted uppercase tracking-wide mb-1">Write the files yourself</p>
                     <p class="text-[11px] muted leading-relaxed mb-2">
                         Take the HTML, CSS and JavaScript of this site and edit them by hand. You get exactly
@@ -219,6 +219,7 @@
                         every page becomes yours to maintain.
                     </p>
                     <button id="ejectBtn" class="btn-quiet text-xs py-1.5" type="button">Switch to files</button>
+                    <p id="ejectNote" class="hidden text-[11px] muted mt-2 leading-relaxed"></p>
                 </div>
             </div>
         </details>
@@ -406,9 +407,6 @@
         } catch (err) {
             if (err.status === 401) return gate('Sign in again', 'Your session has expired. Sign in at your crew center and open this page again.', true);
             if (err.status === 403) return gate('Not your job — yet', 'Building the website needs the website permission. An owner can give it to you in Settings → Team.', true);
-            if (err.code === 'hosting_off' || err.status === 503) {
-                return gate('Websites are not switched on', 'This Inflight deployment is not hosting virtual airline websites yet. Nothing you do here would have an address to live at.', true);
-            }
             return gate('That did not load', err.message, true);
         }
 
@@ -483,6 +481,19 @@
     function renderStatus() {
         const s = SITE;
         $('siteUrl').textContent = s.url || '—';
+
+        /* Writing the files means running the VA's own JavaScript, and that can
+         * only happen on an address of their own — never on the platform's,
+         * which is what the /va/<slug> address is. Where this deployment hands
+         * out no subdomains the button is disabled and says why, rather than
+         * failing at the press. */
+        if (!s.subdomain) {
+            $('ejectBtn').disabled = true;
+            $('ejectBtn').style.opacity = '.45';
+            $('ejectNote').textContent = 'Not available on this Inflight deployment: your site is served from an '
+                + 'Inflight address, and your own code cannot run there. Ask Inflight if you need the files.';
+            $('ejectNote').classList.remove('hidden');
+        }
         $('enabledInput').checked = !!s.enabled;
         let line = '', pub = 'Publish';
         if (s.blocked) { line = 'On hold by Inflight' + (s.blockedReason ? ' — ' + s.blockedReason : ''); }
