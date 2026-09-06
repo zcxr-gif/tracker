@@ -36,6 +36,10 @@
     <!-- Quick links: the Discord, SimBrief, the livery pack. A board on the page
          rather than a panel — a link you have to open a panel for is not quick. -->
     <script src="/crewLinks.js"></script>
+    <!-- The VA's Instagram wall: posts staff have pinned, a rail on a
+         desktop and a swipe row on a phone. Inert for a VA that has not
+         pasted any. -->
+    <script src="/crewSocial.js"></script>
     <!-- Every aircraft gets a picture. Loaded BEFORE the Live panel, which asks
          it for one on every row — a self-contained silhouette straight away,
          upgraded to a real photograph where one exists. -->
@@ -188,6 +192,19 @@
             /* Split leads with a big live map on mobile. */
             :root[data-layout="split"] .r-live{ min-height:360px; }
         }
+        /* THE INSTAGRAM RAIL ONLY EXISTS WHEN THERE IS SOMETHING IN IT.
+           Every layout below is a named-area map, and an area with no element
+           in it still reserves its row or column. So rather than adding
+           "social" to eight templates and leaving a hole in every VA that has
+           not pasted a link, the rail is a variant: `has-social` is put on the
+           grid at render time and only then does the column appear. A crew
+           center with no Instagram is byte-for-byte the layout it was. */
+        .r-social{ grid-area:social; }
+        :root[data-layout] .crew-grid.has-social{ grid-template-areas:"identity" "stats" "live" "tools" "myflying" "social" "activity" "event" "trust"; }
+        :root[data-layout="console"] .crew-grid.has-social{ grid-template-areas:"identity" "tools" "stats" "live" "myflying" "social" "activity" "event" "trust"; }
+        :root[data-layout="split"]   .crew-grid.has-social{ grid-template-areas:"identity" "live" "stats" "tools" "myflying" "social" "activity" "event" "trust"; }
+        :root[data-layout="classic"] .crew-grid.has-social{ grid-template-areas:"identity" "stats" "myflying" "social" "activity" "event" "tools" "live" "trust"; }
+
         .r-identity{ grid-area:identity; } .r-stats{ grid-area:stats; } .r-live{ grid-area:live; }
         .r-myflying{ grid-area:myflying; }
         .r-tools{ grid-area:tools; } .r-activity{ grid-area:activity; } .r-event{ grid-area:event; } .r-trust{ grid-area:trust; }
@@ -239,7 +256,81 @@
                     "trust    trust"; }
             :root[data-layout="classic"] #toolGrid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
             :root[data-layout="classic"] .surface{ border-radius:1rem; }
+
+            /* The rail. 360px rather than the 320px the classic sidebar uses,
+               because an Instagram embed refuses to lay out under 326px and a
+               narrower column would have every post scaled down to fit. It runs
+               beside the reading part of each layout and stays with you as that
+               scrolls — a wall you glance at, not a section you arrive at. */
+            :root[data-layout="editorial"] .crew-grid.has-social{
+                grid-template-columns:minmax(0,1fr) 360px;
+                grid-template-areas:
+                    "identity identity"
+                    "stats    stats"
+                    "live     live"
+                    "tools    social"
+                    "myflying social"
+                    "activity social"
+                    "event    event"
+                    "trust    trust"; }
+            :root[data-layout="console"] .crew-grid.has-social{
+                grid-template-columns:250px minmax(0,1fr) 360px;
+                grid-template-areas:
+                    "identity identity identity"
+                    "tools    stats    social"
+                    "tools    live     social"
+                    "tools    myflying social"
+                    "tools    activity event"
+                    "trust    trust    trust"; }
+            :root[data-layout="split"] .crew-grid.has-social{
+                grid-template-columns:1.5fr 1fr 360px;
+                grid-template-areas:
+                    "identity identity identity"
+                    "live     stats    social"
+                    "live     tools    social"
+                    "live     myflying social"
+                    "activity event    event"
+                    "trust    trust    trust"; }
+            :root[data-layout="classic"] .crew-grid.has-social{
+                grid-template-columns:minmax(0,1fr) 360px;
+                grid-template-areas:
+                    "identity identity"
+                    "tools    stats"
+                    "activity social"
+                    "event    social"
+                    "myflying social"
+                    "live     live"
+                    "trust    trust"; }
+            .r-social{ align-self:start; position:sticky; top:5rem; }
+            .r-social .cs-strip{ max-height:calc(100vh - 8rem); overflow-y:auto; overscroll-behavior:contain; }
         }
+
+        /* ---- The wall itself ------------------------------------------------
+           On a phone it is a row you swipe, which is the same gesture the
+           console layout already uses for its tools — a vertical feed here would
+           put a screen and a half of Instagram between the dashboard and the
+           rest of it. On a desktop the same markup stacks into the rail. */
+        .cs-strip{ display:flex; gap:.75rem; overflow-x:auto; padding-bottom:.25rem;
+            scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; }
+        .cs-strip > .cs-slot{ flex:0 0 86%; max-width:326px; scroll-snap-align:start; }
+        @media (min-width:1024px){
+            .cs-strip{ display:block; overflow-x:visible; }
+            .cs-strip > .cs-slot{ max-width:none; margin-bottom:.75rem; }
+            .cs-strip > .cs-slot:last-child{ margin-bottom:0; }
+        }
+        .cs-slot{ border:1px solid var(--line); border-radius:.75rem; overflow:hidden;
+            background:var(--surface); position:relative; }
+        /* What is there before the frame is built. A link rather than a dead
+           box, so a post is reachable even if the embed is blocked. */
+        .cs-placeholder{ position:absolute; inset:0; display:flex; flex-direction:column;
+            align-items:center; justify-content:center; gap:.5rem; text-decoration:none;
+            color:var(--muted); background:color-mix(in srgb, var(--ink) 4%, transparent); }
+        .cs-ph-mark{ width:2.25rem; height:2.25rem; display:grid; place-items:center;
+            border-radius:.6rem; border:1px solid var(--line); }
+        .cs-ph-mark i{ width:1.1rem; height:1.1rem; }
+        .cs-ph-text{ font-size:.75rem; font-weight:600; }
+        .cs-follow{ display:inline-block; margin-top:.75rem; font-size:.8rem; font-weight:700; }
+        .cs-empty{ font-size:.85rem; color:var(--muted); }
 
         /* Full-page topics float a menu button over the top-left corner, which
            with nothing open lands on this header's logo. The module cannot fix
@@ -439,6 +530,17 @@
                 <div id="nextEvent"></div>
             </section>
 
+            <!-- THE INSTAGRAM WALL. Hidden outright until staff pin a post or
+                 name a handle; the grid only opens a column for it then. -->
+            <section id="socialCard" class="r-social surface rounded-xl p-6 hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold tracking-tight">Instagram</h2>
+                    <button id="socialEditBtn" onclick="openSettings('appearance')"
+                        class="text-sm accent-text font-semibold hover:opacity-80 hidden">Edit</button>
+                </div>
+                <div id="socialWall"></div>
+            </section>
+
             <!-- TRUST -->
             <section class="r-trust">
                 <div class="flex items-start gap-3 rounded-xl border hair-soft p-4">
@@ -483,6 +585,24 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
                     <div id="layoutOpts" class="space-y-2.5"></div>
                     <p id="layoutLocked" class="hidden text-xs muted mt-3"></p>
+                </div>
+
+                <!-- The Instagram wall. Links, not a feed: Instagram has not
+                     allowed a profile to be embedded for years, and pulling
+                     "the latest posts" needs a Meta developer app. Staff pin
+                     what they want on the wall. -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Instagram</h3>
+                    <p class="text-xs muted mb-2.5">Paste the link to a post and it goes up on the dashboard — a rail down the side on a computer, a row you swipe on a phone. Up to <span id="socialMax">12</span>, newest first is however you order them here.</p>
+                    <label class="block text-xs font-semibold muted mb-1.5" for="socialHandle">Account</label>
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-sm muted">@</span>
+                        <input id="socialHandle" placeholder="aeromexicovirtual" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    </div>
+                    <div id="socialRows" class="space-y-2"></div>
+                    <button onclick="addSocialPost()" class="tap-target mt-2 text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a post</button>
+                    <button onclick="saveSocial()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save Instagram</button>
+                    <p id="socialNote" class="hidden text-sm mt-2"></p>
                 </div>
 
                 <!-- How a topic opens. Layout is where things sit on the
@@ -1571,6 +1691,9 @@
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
+        // The Instagram wall. `posts` is the raw links staff pasted — kept as
+        // typed so the editor shows them back, parsed only where they are drawn.
+        let SOCIAL={ handle:'', posts:[] };
         // Canonical Infinite Flight aircraft + liveries (from the ACARS API, via
         // the crew backend). The fleet editor offers these so a VA's fleet uses the
         // exact names the tracker matches live flights against. Empty until loaded;
@@ -2900,6 +3023,123 @@
                 }
             }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
             note.classList.remove('hidden');
+        }
+
+        /* ---------------------------------------------------------------------
+           The Instagram wall
+
+           Staff pin posts; everyone sees them. The editor keeps what was pasted
+           verbatim so a staff member can see and correct their own typing —
+           CrewSocial does the parsing, and only at the point of drawing.
+        --------------------------------------------------------------------- */
+        function socialRowHtml(url,i){
+            const good = !!(window.CrewSocial && CrewSocial.parsePost(url));
+            const flag = (url.trim() && !good)
+                ? `<span class="shrink-0 text-amber-500" title="That is not an Instagram post link"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>` : '';
+            return `<div class="struct-row flex items-center gap-2" data-social-idx="${i}">
+                <input data-sf="url" value="${escapeHtml(url||'')}" placeholder="https://www.instagram.com/p/…"
+                    class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                ${flag}
+                <button data-sdel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>`;
+        }
+        function renderSocialEditor(){
+            const rows=document.getElementById('socialRows'); if(!rows) return;
+            rows.innerHTML=SOCIAL.posts.map(socialRowHtml).join('');
+            const h=document.getElementById('socialHandle'); if(h && h.value!==SOCIAL.handle) h.value=SOCIAL.handle;
+            const max=document.getElementById('socialMax');
+            if(max && window.CrewSocial) max.textContent=CrewSocial.MAX_POSTS;
+            if(window.lucide) lucide.createIcons();
+        }
+        function addSocialPost(){
+            const cap = window.CrewSocial ? CrewSocial.MAX_POSTS : 12;
+            if(SOCIAL.posts.length>=cap){
+                const n=document.getElementById('socialNote');
+                n.textContent=`That is the most the wall holds (${cap}). Remove one to add another.`;
+                n.className='text-sm text-amber-600 dark:text-amber-400'; n.classList.remove('hidden'); return;
+            }
+            SOCIAL.posts.push(''); renderSocialEditor();
+        }
+        function wireSocial(){
+            const rows=document.getElementById('socialRows');
+            if(rows){
+                rows.addEventListener('input', e=>{
+                    const row=e.target.closest('[data-social-idx]'); if(!row) return;
+                    if(e.target.getAttribute('data-sf')!=='url') return;
+                    SOCIAL.posts[+row.getAttribute('data-social-idx')]=e.target.value;
+                });
+                // Re-render on blur, not on every keystroke: the warning flag
+                // would otherwise flicker on and off as a link is typed out.
+                rows.addEventListener('focusout', ()=>renderSocialEditor());
+                rows.addEventListener('click', e=>{
+                    const del=e.target.closest('[data-sdel]'); if(!del) return;
+                    const row=del.closest('[data-social-idx]'); if(!row) return;
+                    SOCIAL.posts.splice(+row.getAttribute('data-social-idx'),1); renderSocialEditor();
+                });
+            }
+            const h=document.getElementById('socialHandle');
+            if(h) h.addEventListener('input', ()=>{ SOCIAL.handle=h.value.trim().replace(/^@+/,''); });
+        }
+        // Draw the wall, and open a column for it only if there is one to draw.
+        function renderSocial(){
+            const card=document.getElementById('socialCard'), grid=document.getElementById('grid');
+            if(!card||!window.CrewSocial) return;
+            const on=CrewSocial.hasContent(SOCIAL);
+            card.classList.toggle('hidden', !on);
+            if(grid) grid.classList.toggle('has-social', on);
+            const edit=document.getElementById('socialEditBtn');
+            if(edit) edit.classList.toggle('hidden', !can('settings.branding'));
+            if(on) CrewSocial.render(document.getElementById('socialWall'), SOCIAL);
+        }
+        async function saveSocial(){
+            const note=document.getElementById('socialNote');
+            const say=(msg,cls)=>{ note.textContent=msg; note.className='text-sm '+cls; note.classList.remove('hidden'); };
+            // Drop blanks; refuse anything that is not a post rather than saving
+            // a link that will draw as a hole.
+            const typed=SOCIAL.posts.map(u=>String(u||'').trim()).filter(Boolean);
+            const bad=typed.find(u=>!CrewSocial.parsePost(u));
+            if(bad){ say(`“${bad.slice(0,60)}” is not a link to an Instagram post. Open the post, Share → Copy link.`,'text-amber-600 dark:text-amber-400'); return; }
+            const payload={ handle:SOCIAL.handle, posts:typed };
+            SOCIAL.posts=typed; renderSocialEditor(); renderSocial();
+
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ say('Applied on this device. Sign in to save it for your whole crew.','muted'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ social:payload }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    if(d.code==='store_schema_outdated'){
+                        noteStoreDrift(d.error||'');
+                        note.innerHTML=escapeHtml(d.error||'Your database is on an older version.')+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>';
+                        note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return;
+                    }
+                    say(d.error||saveFailureReason(res.status),'text-red-500'); return;
+                }
+                // THE ONE THING THAT CANNOT BE ASSUMED. Every other settings key
+                // here predates this screen, and the backend that stores them is
+                // a separate service. If it does not know `social` yet it will
+                // answer 200 and quietly keep nothing — which would look exactly
+                // like a save, until the next reload emptied the wall. It echoes
+                // back what it stored, so the absence of `social` in the reply is
+                // the tell, and it is worth saying out loud.
+                if(!d.social){
+                    say('Saved on this device, but your crew center’s server does not store Instagram links yet — the wall will be empty again after a reload. The backend needs a `social` settings key.','text-amber-600 dark:text-amber-400');
+                    return;
+                }
+                SOCIAL=normalizeSocialConfig(d.social);
+                renderSocialEditor(); renderSocial();
+                say('Saved for your crew.','text-emerald-600 dark:text-emerald-400');
+            }catch{ say('Server unreachable. Try again.','muted'); }
+        }
+        // A stored config into the editor's shape: links stay strings.
+        function normalizeSocialConfig(raw){
+            const o = raw && typeof raw==='object' ? raw : {};
+            return {
+                handle: String(o.handle||'').trim().replace(/^@+/,''),
+                posts: (Array.isArray(o.posts)?o.posts:[]).map(x=>typeof x==='string'?x:String((x&&x.url)||'')).filter(Boolean),
+            };
         }
 
         // ---- Recruitment (staff form builder) ----
@@ -6318,6 +6558,7 @@
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=normalizeFleet(b.fleet);
+            if(b.social) SOCIAL=normalizeSocialConfig(b.social);
             PIREP_AUTO = !!b.pirepAutoApprove;
             if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
@@ -6417,6 +6658,7 @@
             renderSwatches(); syncAccentPicker();
             renderLookOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
+            wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor
             renderSchedulePrefs();          // the rank picker needs the ladder, which renderStructure has now
             renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
             wireTeam(); applyCapState();     // render team editors + gate tabs by caps
