@@ -27,6 +27,14 @@
 
      const routes = await CrewFeed.routes();      // [] of sectors, or null
      const figures = await CrewFeed.stats();      // { pilots, hours, … } or null
+     const wall = await CrewFeed.posts();         // [] of Instagram posts, or null
+     const pulse = await CrewFeed.activity();     // [] of what the airline did
+
+   The full set: routes, network, stats, events, schedule, notices, activity,
+   posts, handle. `notices` is the noticeboard as the crew center reads it;
+   `notices({written:true})` is only what a person typed, and `activity()` only
+   what the crew center recorded happening. Those two halves want different
+   places on a page, which is why they are separate calls over one fetch.
 
    …or mark up the page and let it fill in the numbers:
 
@@ -361,7 +369,15 @@
         return crew('/announcements').then(function (d) {
             if (!d || !Array.isArray(d.announcements)) return null;
             var rows = d.announcements
-                .filter(function (n) { return n && n.status !== 'draft' && text(n.title); })
+                .filter(function (n) {
+                    if (!n || n.status === 'draft' || !text(n.title)) return false;
+                    // Opt-in: `notices()` keeps returning the board as it reads
+                    // on the crew center — written rows and automatic ones
+                    // together — because that is what every page using it today
+                    // already prints. `{ written: true }` narrows it to what a
+                    // person actually typed, leaving the pulse to activity().
+                    return opts.written ? !n.auto : true;
+                })
                 .slice(0, limit)
                 .map(function (n) {
                     return {
@@ -372,6 +388,118 @@
                     };
                 });
             return rows.length ? rows : null;
+        });
+    }
+
+    /* =====================================================================
+     * ACTIVITY
+     *
+     * GET /api/crew/<slug>/announcements   (the same fetch `notices` uses)
+     *
+     * The noticeboard carries two kinds of row. A human writes one — "Winter
+     * schedule is up, bids close Friday". The crew center writes the other,
+     * with `auto: true`: a pilot joined, somebody made Captain, an event was
+     * published, a schedule went up. `notices` above returns the first kind
+     * plus the second, undifferentiated, because that is what a noticeboard
+     * is when you are standing in front of it.
+     *
+     * On a public website they are not the same thing at all. The written
+     * notice is an announcement and wants a headline. The automatic row is a
+     * pulse — proof that the airline is being flown this week rather than
+     * described — and wants a ticker. So this returns only the automatic ones,
+     * and `notices({ written: true })` returns only the written ones, and a
+     * page can put each where it belongs.
+     *
+     * NOTHING HERE IS A NAME YOU DID NOT ALREADY PUBLISH. The rows carry the
+     * roster name the crew center shows on its own public noticeboard and
+     * nothing more — no email, no application, no IFC handle the pilot did not
+     * put on their profile. If a VA would rather its website not carry even
+     * that, the answer is to not mark the page up for it; there is no filter
+     * here that can put a name back once a site has printed it.
+     * =================================================================== */
+    function activity(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 8;
+        var kind = text(opts.kind);
+        return crew('/announcements').then(function (d) {
+            if (!d || !Array.isArray(d.announcements)) return null;
+            var rows = d.announcements
+                .filter(function (n) {
+                    if (!n || n.status === 'draft' || !text(n.title)) return false;
+                    if (!n.auto) return false;
+                    return kind ? String(n.kind || '') === kind : true;
+                })
+                .slice(0, limit)
+                .map(function (n) {
+                    return {
+                        title: text(n.title),
+                        body: text(n.body),
+                        // 'joined', 'promotion', 'checkride', 'event',
+                        // 'schedule' — whatever the crew center recorded. A site
+                        // that wants one sort of row asks for it by name; one
+                        // that wants an icon per sort keys off this.
+                        kind: text(n.kind),
+                        createdAt: n.createdAt || null,
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* =====================================================================
+     * POSTS — the Instagram wall
+     *
+     * GET /api/crew/<slug>/social  →  { handle, posts: [{kind, code, url,
+     *                                   embedUrl}] }
+     *
+     * The posts the VA's staff hung on their crew center, handed over so the
+     * airline's own site can hang the same wall. There is no Graph API here
+     * and no token to keep alive: a single Instagram post embeds with nothing
+     * but its shortcode, which is why the crew center stores chosen posts
+     * rather than pulling a profile feed.
+     *
+     * THE ADDRESS IS REBUILT HERE TOO, from `code` and `kind`, even though the
+     * backend already sent a `url` and an `embedUrl` it had itself assembled
+     * from a closed alphabet. That is not distrust of the backend — it is that
+     * this file's whole promise is that a page which drops it in cannot be made
+     * to frame something hostile, and a promise that depends on a service
+     * across the network continuing to behave is not one this file can keep on
+     * its own. `code` is checked against [A-Za-z0-9_-] before it is used.
+     *
+     * Returns null — not [] — when there is no wall, so a site's own markup
+     * survives a VA that has not set one up. See the rule at the top.
+     * =================================================================== */
+    var POST_KINDS = { p: 1, reel: 1, tv: 1 };
+
+    function posts(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 12;
+        return crew('/social').then(function (d) {
+            if (!d || !Array.isArray(d.posts)) return null;
+            var handle = text(d.handle);
+            var rows = d.posts
+                .filter(function (p) {
+                    return p && POST_KINDS[p.kind] && /^[A-Za-z0-9_-]{1,64}$/.test(String(p.code || ''));
+                })
+                .slice(0, limit)
+                .map(function (p) {
+                    return {
+                        kind: p.kind,
+                        code: p.code,
+                        handle: handle,
+                        url: 'https://www.instagram.com/' + p.kind + '/' + p.code + '/',
+                        embedUrl: 'https://www.instagram.com/' + p.kind + '/' + p.code + '/embed/',
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /** The handle on its own, for a "follow us" line. null when unset. */
+    function handle() {
+        return crew('/social').then(function (d) {
+            var h = d && text(d.handle);
+            return h || null;
         });
     }
 
@@ -434,7 +562,10 @@
      * HTML. A row is only rendered if the feed answered — a quiet backend
      * leaves whatever the page already had inside the container.
      * ------------------------------------------------------------------- */
-    var LISTS = { routes: routes, events: events, schedule: schedule, notices: notices };
+    var LISTS = {
+        routes: routes, events: events, schedule: schedule,
+        notices: notices, activity: activity, posts: posts,
+    };
 
     function escapeHtml(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -460,6 +591,7 @@
         if (isFinite(limit) && limit > 0) opts.limit = limit;
         if (host.getAttribute('data-crew-kind')) opts.kind = host.getAttribute('data-crew-kind');
         if (host.getAttribute('data-crew-past') === 'on') opts.past = true;
+        if (host.getAttribute('data-crew-written') === 'on') opts.written = true;
 
         return reader(opts).then(function (rows) {
             if (!rows) return null;            // quiet backend — keep the page
@@ -491,6 +623,7 @@
         configure: configure, refresh: refresh,
         routes: routes, network: network, stats: stats,
         events: events, schedule: schedule, notices: notices,
+        activity: activity, posts: posts, handle: handle,
         paintStats: paintStats, mount: mount,
         get va() { return CFG.va; },
         get backend() { return CFG.backend; },

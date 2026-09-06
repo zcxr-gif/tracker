@@ -270,6 +270,60 @@ const ROUTES = [
         ok('airports come back keyed by ICAO with coordinates', net.airports.MMMX.lat === 19.4);
     }
 
+    section('crew-feed.js — the wall and the pulse');
+    {
+        // One board, two kinds of row: what a person typed, and what the crew
+        // center recorded happening. A public page wants them apart.
+        const BOARD = { announcements: [
+            { title: 'Winter schedule is up', body: 'Bids close Friday.', auto: false, kind: 'notice', createdAt: '2026-01-02' },
+            { title: 'Ana joined as First Officer', auto: true, kind: 'joined', createdAt: '2026-01-03' },
+            { title: 'Luis made Captain', auto: true, kind: 'promotion', createdAt: '2026-01-04' },
+            { title: 'A draft nobody published', auto: false, status: 'draft' },
+            { title: '', auto: true, kind: 'joined' },
+        ] };
+        const { feed, calls } = loadFeed({ '/announcements': { body: BOARD } });
+        const pulse = await feed.activity();
+        ok('activity keeps only what the crew center wrote', pulse.length === 2, JSON.stringify(pulse.map(r => r.title)));
+        ok('…and carries the kind, so a page can pick an icon', pulse[0].kind === 'joined', pulse[0].kind);
+        ok('activity can be narrowed to one kind', (await feed.activity({ kind: 'promotion' })).length === 1);
+        const written = await feed.notices({ written: true });
+        ok('notices({written}) keeps only what a person typed', written.length === 1 && written[0].title === 'Winter schedule is up');
+        const both = await feed.notices();
+        ok('a bare notices() is unchanged — the board as the crew center reads it', both.length === 3);
+        ok('a draft never reaches either', both.every((n) => n.title !== 'A draft nobody published'));
+        ok('one fetch feeds the wall, the pulse and the board', calls.length === 1, calls.join(' '));
+    }
+    {
+        // The refusal that matters. `posts` ends up in an iframe src, so a code
+        // the backend sent that is not a shortcode must not survive the reader —
+        // even though the backend is supposed to have refused it first.
+        const { feed } = loadFeed({ '/social': { body: { handle: 'aeromexicovirtual', posts: [
+            { kind: 'p', code: 'ABC123_-x' },
+            { kind: 'reel', code: 'XY9' },
+            { kind: 'p', code: '../../evil' },
+            { kind: 'javascript', code: 'alert' },
+            { kind: 'p', code: 'a b' },
+        ] } } });
+        const wall = await feed.posts();
+        ok('the wall keeps the posts that are posts', wall.length === 2, JSON.stringify(wall.map(p => p.code)));
+        ok('a code that is not a shortcode is dropped', !wall.some((p) => /evil|alert| /.test(p.code)));
+        ok('the embed address is rebuilt here, not echoed',
+            wall[0].embedUrl === 'https://www.instagram.com/p/ABC123_-x/embed/', wall[0].embedUrl);
+        ok('…and the canonical link too', wall[0].url === 'https://www.instagram.com/p/ABC123_-x/');
+        ok('the handle rides along for a follow line', wall[0].handle === 'aeromexicovirtual');
+        ok('handle() answers on its own', (await feed.handle()) === 'aeromexicovirtual');
+    }
+    {
+        const { feed } = loadFeed({ '/social': { body: { handle: '', posts: [] } } });
+        ok('a VA with no wall resolves null, so the site keeps its own markup', (await feed.posts()) === null);
+        ok('…and no handle resolves null too', (await feed.handle()) === null);
+    }
+    {
+        const { feed } = loadFeed({});   // every fetch rejects
+        ok('a quiet backend leaves the wall null', (await feed.posts()) === null);
+        ok('…and the pulse null', (await feed.activity()) === null);
+    }
+
     section('crew-feed.js — painting somebody else’s page');
     {
         const { feed } = loadFeed({});
