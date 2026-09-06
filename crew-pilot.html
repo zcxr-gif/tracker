@@ -155,7 +155,11 @@
     <!-- ============ TOP BAR ============ -->
     <header class="sticky top-0 z-40 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
         <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
-            <div class="flex items-center gap-2.5 min-w-0">
+            <!-- The VA's identity. Hidden when framed: the host page IS the VA's
+                 site and its own header has already said whose crew center this
+                 is, so repeating the logo and the name directly underneath it is
+                 what reads as two stacked top bars. -->
+            <div class="flex items-center gap-2.5 min-w-0" data-embed-hide>
                 <img id="navLogo" alt="" class="hidden h-7 w-auto max-w-[130px] object-contain">
                 <div id="navMonogram" class="accent-bg w-8 h-8 rounded-md grid place-items-center text-white text-sm font-bold shrink-0">VA</div>
                 <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
@@ -403,6 +407,9 @@
             try{ localStorage.setItem('crew-theme', dark?'dark':'light'); }catch{}
             applyThemeIcon();
             applyEmbeds();
+            // Framed under a host that has its own toggle, tell it — otherwise
+            // the two disagree from the first click. No-op in a plain tab.
+            if(window.CrewBridge) CrewBridge.notifyTheme(dark?'dark':'light');
         }
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{}
             const dark=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;

@@ -41,16 +41,17 @@
     let hostReady = false;
     const hostListeners = [];
 
-    function send(type, payload) {
+    // The overlay is same-origin. A VA site framing us is not, and does not
+    // answer this protocol, so messages are addressed to our own origin: a
+    // cross-origin embedder never receives them and nothing leaks to a framer
+    // we did not expect. `to` overrides that, and there is exactly one caller —
+    // see notifyTheme.
+    function send(type, payload, to) {
         if (!EMBEDDED) return false;
         try {
-            // The overlay is same-origin. A VA site framing us is not, and does
-            // not answer this protocol — it only pushes themes — so targeting
-            // our own origin is correct and keeps the messages from leaking to
-            // an unexpected embedder.
             global.parent.postMessage(
                 Object.assign({ type: 'inflight:crew:' + type }, payload || {}),
-                global.location.origin
+                to || global.location.origin
             );
             return true;
         } catch (_) { return false; }
@@ -63,6 +64,14 @@
         if (!EMBEDDED || !doc.body) return;
         doc.body.classList.add('embed');
         doc.documentElement.style.background = 'transparent';
+        // Our scroll stops at our own edges. Without this, running out of
+        // content here hands the rest of the gesture to the host page, which
+        // scrolls the frame we live in partly off screen — and the crew center
+        // then looks frozen until you tap back inside it. Set on the ROOT and
+        // not in the stylesheet below: overscroll-behavior propagates to the
+        // viewport from the root element, and it is the viewport's scroll that
+        // is chaining.
+        doc.documentElement.style.overscrollBehavior = 'contain';
 
         if (doc.getElementById('crew-embed-shell')) return;
         const style = doc.createElement('style');
@@ -72,15 +81,27 @@
             body.embed { background: transparent !important; min-height: 0 !important; }
             body.embed { min-height: 100% !important; }
 
-            /* The host's own close button sits top-right; ours would collide. */
+            /* Anything the host already provides: its own close button, and the
+               VA identity its page header has stated once already. */
             body.embed [data-embed-hide] { display: none !important; }
 
-            /* A sticky header inside a framed card should stick to the card,
-               not to a viewport the frame doesn't own. */
-            body.embed header.sticky { position: relative !important; top: auto !important; }
-
-            /* Scroll inside the card rather than growing the frame. */
+            /* Scroll inside the card rather than growing the frame. Declared
+               BEFORE the header rule below, which depends on it: this is what
+               makes <body> the scroll container. */
             body.embed { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+            /* THE CREW HEADER STAYS STICKY. It used to be forced to
+               position:relative here, on the reasoning that a sticky header
+               should not stick to a viewport the frame doesn't own — but the
+               rule above makes <body> the scroll container, so top:0 sticks to
+               the card, which is exactly what was wanted. Pinning it to nothing
+               instead meant search, settings and sign-out scrolled away inside
+               the frame and could only be reached by scrolling all the way back
+               up. It is pinned to the card, and slimmer than it is standalone
+               because the host's header is directly above it and the two
+               together should not cost a third of a phone screen. */
+            body.embed > header.sticky { position: sticky !important; top: 0 !important; }
+            body.embed > header.sticky > div { height: 3rem !important; }
         `;
         doc.head.appendChild(style);
     }
@@ -120,6 +141,28 @@
 
         /** Label the host's dialog, e.g. with the VA name. */
         setTitle(title) { return send('title', { title: String(title || '').slice(0, 120) }); },
+
+        /**
+         * Report a theme change made inside the frame.
+         *
+         * The host already pushes its light/dark state DOWN to us (crewBrand.js
+         * listens for `inflight:crew:theme`). Nothing went back the other way,
+         * so a host with its own toggle — a VA framing us under their own site
+         * header — ended up with two toggles that disagreed the moment either
+         * was used. This closes the loop; a host that doesn't listen is
+         * unaffected.
+         *
+         * This is the one message addressed to `*` rather than to our own
+         * origin, because the host that needs it is by definition the
+         * cross-origin one — a same-origin overlay shares our storage and
+         * already knows. The payload is the single word "dark" or "light",
+         * which is not information an embedder could not read off the pixels
+         * it is already displaying, so the wildcard costs nothing.
+         */
+        notifyTheme(mode) {
+            if (mode !== 'dark' && mode !== 'light') return false;
+            return send('theme-changed', { theme: mode }, '*');
+        },
 
         /**
          * Show a live flight on the app's map.
