@@ -1074,6 +1074,20 @@
                          person carried on with full access. -->
                     <div id="accountRows" class="space-y-2"></div>
                     <p id="accountsNote" class="text-xs muted mt-2 hidden"></p>
+
+                    <!-- MAKE SOMEBODY STAFF, FROM THE ROSTER YOU ALREADY HAVE.
+                         The step this screen was missing. Staff logins and
+                         roster pilots were two identities in two places, and
+                         only the first could hold a role — so an airline with
+                         three pilots opened a page full of permissions with
+                         nobody to give them to but the owner. -->
+                    <div id="promoteBlock" class="mt-5 pt-4 border-t hair hidden">
+                        <h4 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Make someone staff</h4>
+                        <p class="text-xs muted mb-3">Your pilots don’t have staff logins until you give them one. Pick the job first — a staff account with no role would keep the everyday permissions, which is more than you probably mean.</p>
+                        <div id="promoteRows" class="space-y-2"></div>
+                        <p id="promoteNote" class="text-sm mt-2 hidden"></p>
+                    </div>
+
                     <details class="mt-3">
                         <summary class="text-xs muted cursor-pointer select-none">Assign a username that isn’t listed</summary>
                         <p class="text-xs muted mt-2 mb-2">For a login that lives outside this crew center’s account list. Enter it exactly as they sign in.</p>
@@ -6142,7 +6156,7 @@
                 if(ownsSweep && RETENTION_PREFS===null) loadRetention();
             }
             if(ME_LOADED){
-                renderRolePresets(); renderStaffRoles(); renderAccounts(); renderAssignments();
+                renderRolePresets(); renderStaffRoles(); renderAccounts(); renderAssignments(); renderPromote();
                 // Only for someone who may actually see the team editor — this
                 // returns colleagues' login names and is gated the same way.
                 if(vis.team && !ACCOUNTS_LOADED) loadStaffAccounts();
@@ -6283,12 +6297,90 @@
                 }
                 const d=await res.json();
                 STAFF_ACCOUNTS=Array.isArray(d.accounts)?d.accounts:[];
+                // The roster rides along with the accounts: same screen, same
+                // gate, and one round trip. An older backend doesn't send it,
+                // in which case the promote block simply stays hidden and the
+                // panel is what it was.
+                ROSTER_CANDIDATES=Array.isArray(d.roster)?d.roster:[];
                 if(note) note.classList.add('hidden');
             }catch{
-                STAFF_ACCOUNTS=[];
+                STAFF_ACCOUNTS=[]; ROSTER_CANDIDATES=[];
                 if(note){ note.textContent='Server unreachable — couldn’t load the staff accounts.'; note.classList.remove('hidden'); }
             }
-            renderAccounts(); renderAssignments();
+            renderAccounts(); renderAssignments(); renderPromote();
+        }
+
+        /* ---- Making a roster pilot staff ---------------------------------
+         *
+         * Only the owner may, and the backend is the gate — this just avoids
+         * offering a button that would answer 403. A role (or a tick) is
+         * required there too, so the dropdown starts on "choose" rather than
+         * on a default that would quietly hand over everyday access.
+         */
+        let ROSTER_CANDIDATES=[];
+        function renderPromote(){
+            const block=document.getElementById('promoteBlock');
+            const host=document.getElementById('promoteRows');
+            if(!block||!host) return;
+            // Anyone who already has a staff login is in the list above.
+            const free=ROSTER_CANDIDATES.filter(m=>!m.staffUsername);
+            const mayPromote=IS_OWNER||!sessionToken();
+            block.classList.toggle('hidden', !mayPromote || !ROSTER_CANDIDATES.length);
+            if(!mayPromote||!ROSTER_CANDIDATES.length) return;
+            if(!free.length){
+                host.innerHTML='<p class="text-sm faint">Everybody on your roster already has a staff login.</p>';
+                return;
+            }
+            const roles=STAFF_ROLES.filter(r=>r.name&&r.id);
+            host.innerHTML=free.map(m=>`
+                <div class="flex items-center gap-2 flex-wrap" data-promote="${escapeHtml(m.memberId)}">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm font-semibold truncate">${escapeHtml(m.name||'A pilot')}</div>
+                        ${m.callsign?`<div class="text-xs muted truncate">${escapeHtml(m.callsign)}</div>`:''}
+                    </div>
+                    <select data-promoterole class="surface hair rounded-md px-2 py-1.5 text-sm">
+                        <option value="">Choose a role…</option>
+                        ${roles.map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+                    </select>
+                    <button data-promotego class="tap-target accent-bg text-white rounded-md px-3 py-1.5 text-sm font-semibold hover:opacity-90 transition disabled:opacity-50">Make staff</button>
+                </div>`).join('')
+                + (roles.length?'':'<p class="text-xs muted mt-2">Add a role above first — a staff account needs one, or it would keep the everyday permissions.</p>');
+            if(window.lucide) lucide.createIcons();
+        }
+        async function promoteMember(memberId, roleId, btn){
+            const note=document.getElementById('promoteNote');
+            const say=(msg,tone)=>{
+                note.textContent=msg;
+                note.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500'}[tone]||'muted');
+                note.classList.remove('hidden');
+            };
+            if(!roleId){ say('Pick what they’ll be doing first.','bad'); return; }
+            const token=sessionToken(), slug=getSlug();
+            if(!token||!slug){ say('Sign in as the owner to do that.','bad'); return; }
+            const prev=btn.textContent; btn.disabled=true; btn.textContent='Working…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/staff-accounts`,{
+                    method:'POST',
+                    headers:{ 'Content-Type':'application/json', Accept:'application/json', 'Authorization':'Bearer '+token },
+                    body:JSON.stringify({ memberId, roleId }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ say(d.error||'That didn’t work.','bad'); btn.disabled=false; btn.textContent=prev; return; }
+                // The password is shown ONCE, and only when one was issued. A
+                // pilot whose own login was taken over keeps the password they
+                // already use, and telling them to expect a new one would send
+                // the owner hunting for something that does not exist.
+                say(d.keptTheirLogin
+                    ? `Done — @${d.account.username} signs in with the password they already use, and is now staff.`
+                    : `Done — @${d.account.username}, password ${d.password}. Copy it now; it isn’t shown again.`, 'ok');
+                ACCOUNTS_LOADED=false;
+                await loadStaffAccounts();
+                // The assignment was written server-side, so /me's copy is stale.
+                await loadMe();
+                renderStaffRoles(); renderAssignments();
+            }catch{
+                say('Couldn’t reach the server.','bad');
+                btn.disabled=false; btn.textContent=prev;
+            }
         }
         function accountRoleOptionsHtml(sel){
             return '<option value="">No role — everyday access</option>'
@@ -6384,6 +6476,14 @@
         }
         function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); }
         function wireTeam(){
+            // Delegated: the promote rows are rebuilt on every reload.
+            const promoteHost=document.getElementById('promoteRows');
+            if(promoteHost) promoteHost.addEventListener('click', e=>{
+                const btn=e.target.closest('[data-promotego]'); if(!btn) return;
+                const row=btn.closest('[data-promote]'); if(!row) return;
+                const sel=row.querySelector('[data-promoterole]');
+                promoteMember(row.getAttribute('data-promote'), sel?sel.value:'', btn);
+            });
             const presetHost=document.getElementById('rolePresetRow');
             if(presetHost) presetHost.addEventListener('click', e=>{
                 const b=e.target.closest('[data-preset]'); if(b) addPresetRole(b.getAttribute('data-preset'));
