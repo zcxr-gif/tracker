@@ -85,10 +85,24 @@
                VA identity its page header has stated once already. */
             body.embed [data-embed-hide] { display: none !important; }
 
-            /* Scroll inside the card rather than growing the frame. Declared
-               BEFORE the header rule below, which depends on it: this is what
-               makes <body> the scroll container. */
-            body.embed { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+            /* Scroll inside the card rather than growing the frame.
+
+               NO height:100% HERE, AND THAT IS DELIBERATE. It used to carry
+               one, on the reasoning that it made <body> the scroll container.
+               It never did — <html> has no height, so the percentage resolved
+               to auto and the frame's viewport went on being what scrolls,
+               which is also why the sticky header below works.
+
+               What it did do was collapse the page. crewPanels' scroll lock
+               puts <body> at position:fixed, and a percentage height then
+               resolves against the initial containing block instead: one
+               screen. So opening any panel shrank the document to a single
+               viewport and parked it above the screen, and the schedule,
+               noticeboard, documents, messages and statistics all opened onto
+               a blank frame. See lockScroll in crewPanels.js, which now pins
+               the height across its own lock so neither half depends on the
+               other being right, and tools/test-crew-framed-scroll-lock.js. */
+            body.embed { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
             /* THE CREW HEADER STAYS STICKY. It used to be forced to
                position:relative here, on the reasoning that a sticky header
