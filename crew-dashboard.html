@@ -1845,6 +1845,7 @@
             {icon:'mail',label:'Messages',desc:'Message pilots directly',action:'inbox'},
             {icon:'link',label:'Quick links',desc:'Where the crew gets sent',action:'links'},
             {icon:'plane',label:'Infinite Flight',desc:'Live fleet & aircraft schedules',action:'ifLive'},
+            {icon:'globe',label:'Website',desc:'Your public site',action:'website'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
@@ -1866,6 +1867,7 @@
             // instead, which is the read-only half.
             ifLive:'schedules.manage',
             embeds:'settings.branding',
+            website:'site.manage',
             partnership:'partnership.view',
             // Statistics name individual pilots and rank them, which is roster
             // business — the same gate the endpoint enforces.
@@ -1886,6 +1888,12 @@
             const tools=TOOLS.filter(t=>{
                 // A VA that has switched the schedule off gets no Schedules tile.
                 if(t.action==='schedule' && SCHEDULE_PREFS.enabled===false) return false;
+                // Websites are a deployment-level switch (VA_SITES_DOMAIN, in
+                // the database repo). Where they are off there is no address a
+                // site could live at, so the tile would open a page that can
+                // only apologise. /me says which it is; before /me lands we
+                // assume off, so the tile appears rather than disappearing.
+                if(t.action==='website' && ME_LOADED && !SITE_HOSTING) return false;
                 // Every tile is gated on the capability its panel actually
                 // needs. Only Partnership was, which meant a staff member hired
                 // to review flight reports still saw Roster, Routes, Embeds and
@@ -1935,6 +1943,7 @@
                 if(t.action==='inbox') el.addEventListener('click', openInbox);
                 if(t.action==='links') el.addEventListener('click', openLinks);
                 if(t.action==='ifLive') el.addEventListener('click', openIfLive);
+                if(t.action==='website') el.addEventListener('click', openWebsite);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
@@ -2552,6 +2561,18 @@
                 const b=e.target.closest('[data-insdays]');
                 if(b) setInsightDays(parseInt(b.getAttribute('data-insdays'),10));
             });
+        }
+
+        // ---- The website ----
+        //
+        // The one tool that is a PAGE and not a panel. Building a website is
+        // pages, sections, words and a preview beside them; a slide-over on top
+        // of the dashboard cannot hold that and should not try. /crew/<slug>/
+        // website is the same crew center, signed in with the same session.
+        let SITE_HOSTING=false, SITE_URL='';
+        function openWebsite(){
+            const slug=getSlug();
+            location.href = slug ? `/crew/${encodeURIComponent(slug)}/website` : '/crew';
         }
 
         // ---- Embeds & partnership ----
@@ -6074,6 +6095,8 @@
                 }
 
                 IS_OWNER = !!(d.role==='owner' || d.oversight);
+                SITE_HOSTING = !!d.siteHosting;
+                SITE_URL = d.siteUrl || '';
                 CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
                 CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
                 ROLE_PRESETS = Array.isArray(d.rolePresets)?d.rolePresets:[];

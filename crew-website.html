@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Website — Crew Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
+    <!-- The VA's own design tokens over the stock crew-center look, exactly as
+         the dashboard does it. A VA editing their website should not have to
+         leave their own crew center to do it. -->
+    <script src="/crewBrand.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        :root{
+            --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4;
+            --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#1C1A16;
+            color-scheme: light dark;
+        }
+        .dark{
+            --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A;
+            --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D;
+        }
+        *{ -webkit-tap-highlight-color: transparent; }
+        html,body{ max-width:100%; }
+        body{ font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; background:var(--bg); color:var(--ink); }
+        [data-lucide]{ width:1.15em; height:1.15em; }
+        svg.lucide{ stroke-width:1.6; }
+        .surface{ background:var(--surface); border:1px solid var(--line); }
+        .hair{ border-color:var(--line); }
+        .muted{ color:var(--muted); } .faint{ color:var(--faint); }
+        .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
+        ::placeholder{ color:var(--faint); }
+        input,select,textarea{ font-family:inherit; max-width:100%; }
+        .field{
+            width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
+            border-radius:.6rem; padding:.5rem .65rem; font-size:.875rem; outline:none;
+        }
+        .field:focus{ border-color:var(--accent); }
+        .btn{
+            background:var(--accent); color:var(--surface); border-radius:.6rem;
+            padding:.5rem .9rem; font-size:.875rem; font-weight:600; display:inline-flex;
+            align-items:center; gap:.4rem; justify-content:center;
+        }
+        .btn[disabled]{ opacity:.45; }
+        .btn-quiet{
+            background:transparent; color:var(--ink); border:1px solid var(--line);
+            border-radius:.6rem; padding:.5rem .9rem; font-size:.875rem; font-weight:600;
+            display:inline-flex; align-items:center; gap:.4rem; justify-content:center;
+        }
+        .btn-quiet:hover{ border-color:var(--accent); }
+        .chip{ font-size:11px; font-weight:700; letter-spacing:.02em; padding:.2rem .5rem; border-radius:999px; }
+        .row{ border:1px solid var(--line); border-radius:.7rem; background:var(--surface); }
+        .row-on{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+        .drag-over{ border-top:2px solid var(--accent); }
+        .dragging{ opacity:.4; }
+        /* The preview is somebody else's site on somebody else's origin. It gets
+           a plain frame and nothing else — no styling of ours reaches inside. */
+        #pvFrame{ width:100%; height:100%; border:0; background:#fff; border-radius:.7rem; }
+        /* Tailwind's `hidden` does the work of every state switch on this page,
+           and Tailwind arrives from a CDN. If that request fails the page would
+           otherwise render every state at once. One line makes the failure
+           mode "unstyled but correct" rather than "all of it, all at once". */
+        .hidden{ display:none !important; }
+        .pane{ min-height:0; }
+        @media (pointer: coarse){
+            input,select,textarea{ font-size:16px !important; }
+            input[type=checkbox]{ width:1.15rem; height:1.15rem; }
+        }
+        @media (max-width:1023px){
+            /* Phone and tablet: build and preview are two screens, not three
+               columns. A section list squeezed beside a 300px preview helps
+               nobody. */
+            .pane{ display:none; }
+            .pane-on{ display:flex; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- ===== The bar ===================================================== -->
+<header class="sticky top-0 z-30 border-b hair" style="background:var(--surface)">
+    <div class="px-3 sm:px-5 h-14 flex items-center gap-3">
+        <a id="backLink" href="/crew" class="shrink-0 flex items-center gap-2 text-sm font-semibold muted hover:accent-text">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i><span class="hidden sm:inline">Crew center</span>
+        </a>
+        <div class="min-w-0 flex-1">
+            <p class="font-semibold tracking-tight truncate leading-tight" id="vaName">Your website</p>
+            <p class="text-[11px] muted truncate leading-tight" id="siteState">Loading…</p>
+        </div>
+        <button id="themeBtn" class="shrink-0 w-9 h-9 grid place-items-center rounded-lg border hair" title="Light or dark">
+            <i data-lucide="moon" class="w-4 h-4" id="themeIcon"></i>
+        </button>
+        <button id="previewBtn" class="btn-quiet shrink-0 hidden sm:inline-flex" type="button">
+            <i data-lucide="external-link" class="w-4 h-4"></i> Open
+        </button>
+        <button id="publishBtn" class="btn shrink-0" type="button" disabled>
+            <i data-lucide="upload-cloud" class="w-4 h-4"></i> <span id="publishLabel">Publish</span>
+        </button>
+    </div>
+    <!-- Phone: two screens rather than three columns. -->
+    <div class="lg:hidden px-3 pb-2 flex gap-2" id="mobileTabs">
+        <button data-pane="build" class="flex-1 btn-quiet text-xs py-1.5">Build</button>
+        <button data-pane="preview" class="flex-1 btn-quiet text-xs py-1.5">Preview</button>
+    </div>
+</header>
+
+<!-- ===== States before the builder ================================== -->
+<div id="gate" class="hidden flex-1 grid place-items-center p-6">
+    <div class="surface rounded-2xl p-6 sm:p-8 max-w-lg text-center">
+        <span class="w-12 h-12 rounded-xl grid place-items-center mx-auto mb-4" style="background:var(--bg)">
+            <i data-lucide="globe" class="w-6 h-6 muted"></i>
+        </span>
+        <h1 class="text-lg font-bold tracking-tight mb-2" id="gateTitle">One moment</h1>
+        <p class="text-sm muted" id="gateBody">Loading your website.</p>
+        <a id="gateLink" href="/crew" class="btn-quiet mt-5 hidden">Back to the crew center</a>
+    </div>
+</div>
+
+<!-- ===== Pick a design ============================================== -->
+<section id="start" class="hidden flex-1 overflow-y-auto p-4 sm:p-8">
+    <div class="max-w-5xl mx-auto">
+        <h1 class="text-2xl font-bold tracking-tight">Give your airline a website.</h1>
+        <p class="text-sm muted mt-1 max-w-2xl">
+            Pick a look to start from. Your fleet, your routes, your ranks and your numbers are
+            filled in from this crew center — you write the words. You can change the look later
+            and keep everything you have written.
+        </p>
+        <div id="startGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6"></div>
+        <p class="text-xs muted mt-6">
+            Nothing is public until you press Publish, and you can take the site down at any time.
+        </p>
+    </div>
+</section>
+
+<!-- ===== The builder ================================================ -->
+<main id="builder" class="hidden flex-1 min-h-0 grid lg:grid-cols-[19rem_23rem_1fr] gap-3 p-3">
+
+    <!-- Outline: pages, then the sections on the open page -->
+    <aside class="pane pane-on flex-col gap-3 overflow-y-auto lg:overflow-visible" data-pane="build">
+        <div class="surface rounded-xl p-3">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs font-bold uppercase tracking-wide muted">Pages</p>
+                <button id="addPageBtn" class="text-xs font-semibold muted hover:accent-text" type="button">Add</button>
+            </div>
+            <div id="pageList" class="space-y-1"></div>
+        </div>
+
+        <div class="surface rounded-xl p-3 flex-1 min-h-0 flex flex-col">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs font-bold uppercase tracking-wide muted">Sections</p>
+                <button id="addBlockBtn" class="text-xs font-semibold accent-text" type="button">+ Add a section</button>
+            </div>
+            <div id="blockList" class="space-y-1 overflow-y-auto"></div>
+            <p id="blockEmpty" class="text-xs muted hidden py-6 text-center">
+                This page is empty.<br>Add a section to start.
+            </p>
+        </div>
+
+        <div class="surface rounded-xl p-3">
+            <p class="text-xs font-bold uppercase tracking-wide muted mb-2">Look</p>
+            <button id="designBtn" class="w-full flex items-center gap-3 text-left p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" type="button">
+                <span id="accentDot" class="w-8 h-8 rounded-lg shrink-0 border hair"></span>
+                <span class="min-w-0">
+                    <span class="block text-sm font-semibold truncate" id="designName">—</span>
+                    <span class="block text-[11px] muted">Change the design</span>
+                </span>
+            </button>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+                <label class="text-[11px] font-semibold muted">Colour
+                    <input id="accentInput" type="color" class="mt-1 w-full h-8 rounded-lg border hair bg-transparent p-0.5 cursor-pointer">
+                </label>
+                <label class="text-[11px] font-semibold muted">Type
+                    <select id="fontInput" class="field mt-1 text-xs py-1.5"></select>
+                </label>
+                <label class="text-[11px] font-semibold muted col-span-2">Light or dark
+                    <select id="modeInput" class="field mt-1 text-xs py-1.5"></select>
+                </label>
+            </div>
+        </div>
+    </aside>
+
+    <!-- The open section's fields, or the file editor once ejected -->
+    <section class="pane pane-on flex-col gap-3 overflow-y-auto" data-pane="build">
+        <div class="surface rounded-xl p-4 flex-1">
+            <div class="flex items-start justify-between gap-2 mb-3">
+                <div class="min-w-0">
+                    <p class="text-sm font-bold tracking-tight" id="formTitle">Nothing open</p>
+                    <p class="text-[11px] muted" id="formNote">Pick a section on the left to edit its words.</p>
+                </div>
+                <button id="blockDeleteBtn" class="hidden text-xs font-semibold text-rose-600 dark:text-rose-400 shrink-0" type="button">Remove</button>
+            </div>
+            <div id="form" class="space-y-3"></div>
+            <p id="liveNote" class="hidden mt-4 text-[11px] muted leading-relaxed border-t hair pt-3"></p>
+        </div>
+
+        <details class="surface rounded-xl p-4">
+            <summary class="text-xs font-bold uppercase tracking-wide muted cursor-pointer">Address, history &amp; advanced</summary>
+            <div class="mt-3 space-y-4">
+                <div>
+                    <p class="text-[11px] font-semibold muted uppercase tracking-wide">Live at</p>
+                    <p class="font-mono text-xs break-all" id="siteUrl">—</p>
+                    <label class="flex items-center gap-2 text-sm mt-2">
+                        <input id="enabledInput" type="checkbox" class="w-4 h-4 rounded">
+                        <span>The site is switched on</span>
+                    </label>
+                    <p class="text-[11px] muted mt-1">Switched off, the address answers as if nothing were there.</p>
+                </div>
+                <div>
+                    <p class="text-[11px] font-semibold muted uppercase tracking-wide mb-1">Published before</p>
+                    <div id="versions" class="space-y-1"></div>
+                </div>
+                <div class="border-t hair pt-3" id="ejectBlock">
+                    <p class="text-[11px] font-semibold muted uppercase tracking-wide mb-1">Write the files yourself</p>
+                    <p class="text-[11px] muted leading-relaxed mb-2">
+                        Take the HTML, CSS and JavaScript of this site and edit them by hand. You get exactly
+                        the site you have now. It cannot be undone — the builder stops writing this site — and
+                        every page becomes yours to maintain.
+                    </p>
+                    <button id="ejectBtn" class="btn-quiet text-xs py-1.5" type="button">Switch to files</button>
+                    <p id="ejectNote" class="hidden text-[11px] muted mt-2 leading-relaxed"></p>
+                </div>
+            </div>
+        </details>
+    </section>
+
+    <!-- The preview: the draft, on the origin it will actually run on -->
+    <section class="pane flex-col gap-2 min-h-0" data-pane="preview">
+        <div class="flex items-center gap-2">
+            <select id="pvPage" class="field text-xs py-1.5 w-auto"></select>
+            <div class="flex-1"></div>
+            <span id="pvState" class="text-[11px] muted"></span>
+            <button id="pvRefresh" class="btn-quiet text-xs py-1.5" type="button">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+            </button>
+        </div>
+        <div class="flex-1 min-h-[60vh] lg:min-h-0 surface rounded-xl p-2">
+            <iframe id="pvFrame" title="A preview of your website" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+        </div>
+    </section>
+</main>
+
+<!-- ===== The file editor (only after ejecting) ======================= -->
+<main id="files" class="hidden flex-1 min-h-0 grid lg:grid-cols-[19rem_1fr] gap-3 p-3">
+    <aside class="surface rounded-xl p-3 overflow-y-auto">
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-bold uppercase tracking-wide muted">Files</p>
+            <button id="newFileBtn" class="text-xs font-semibold muted hover:accent-text" type="button">New file</button>
+        </div>
+        <div id="fileList" class="space-y-1"></div>
+        <p id="fileUsage" class="mt-3 text-[11px] faint font-mono"></p>
+    </aside>
+    <section class="surface rounded-xl p-3 flex flex-col min-h-0">
+        <div class="flex items-center justify-between gap-2 mb-2">
+            <p class="font-mono text-xs truncate muted" id="openFile">Pick a file to edit it.</p>
+            <div class="flex items-center gap-2 shrink-0">
+                <button id="fileDeleteBtn" class="hidden text-xs font-semibold text-rose-600 dark:text-rose-400" type="button">Delete</button>
+                <button id="filePreviewBtn" class="btn-quiet text-xs py-1.5" type="button">Preview draft</button>
+                <button id="fileSaveBtn" class="btn text-xs py-1.5" type="button" disabled>Save</button>
+            </div>
+        </div>
+        <textarea id="fileEditor" spellcheck="false" wrap="off" disabled
+            class="field flex-1 min-h-[50vh] font-mono text-[13px] leading-relaxed resize-none"></textarea>
+    </section>
+</main>
+
+<!-- ===== Overlays =================================================== -->
+<div id="sheet" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto">
+    <div class="surface rounded-2xl max-w-3xl mx-auto my-6 p-4 sm:p-6" id="sheetBody"></div>
+</div>
+<div id="toast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-xl text-sm font-semibold shadow-lg"></div>
+
+<script>
+/* =============================================================================
+ * crew-website.html — a virtual airline's public website, built in their own
+ * crew center.
+ *
+ * WHAT THIS PAGE IS
+ * -----------------
+ * A whole screen, not a drawer. Every other staff tool in the crew center is a
+ * panel over the dashboard, and this one is not, for a plain reason: building a
+ * website is not a task you complete in a slide-over and dismiss. It is pages,
+ * sections, words and a preview, and it wants the whole window.
+ *
+ * WHAT IT EDITS
+ * -------------
+ * A document — pages, and an ordered list of sections on each — which the
+ * backend renders into the HTML and CSS actually served. This page never
+ * composes markup. It sends the document, gets the rendered file list back, and
+ * shows the result in an iframe pointed at the VA's own preview address. That
+ * is why "try another design" keeps every word: the words are in the document
+ * and the design is not.
+ *
+ * WHAT THE FORMS ARE MADE OF
+ * --------------------------
+ * Nothing here knows what a hero or a fleet list is. The backend's block
+ * catalogue describes each section as a list of fields, and renderForm draws
+ * whatever it is handed. A new kind of section is a change in vaSiteBuilder.js
+ * and no change here at all.
+ *
+ * SAVING
+ * ------
+ * Typing saves, quietly, a second after you stop. There is no Save button for
+ * the same reason there is no Save button in a notes app: the failure mode of
+ * forgetting to press one is losing an afternoon, and the draft is not public.
+ * Publish is the deliberate act, and it is the only one.
+ * ========================================================================== */
+(function () {
+    'use strict';
+
+    const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+    /* ---- Where we are and who we are ---------------------------------- */
+    function getSlug() {
+        const m = location.pathname.match(/\/crew\/([^\/?#]+)/i);
+        if (m && m[1]) return decodeURIComponent(m[1]).trim().toLowerCase();
+        const q = new URLSearchParams(location.search).get('va');
+        return q ? q.trim().toLowerCase() : '';
+    }
+    const SLUG = getSlug();
+    function session() {
+        try { return JSON.parse(localStorage.getItem('crew:session:' + SLUG) || 'null'); } catch { return null; }
+    }
+    const SESSION = session();
+    const TOKEN = SESSION && SESSION.token;
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const icons = () => { if (window.lucide) lucide.createIcons(); };
+
+    /* ---- Light or dark, the crew center's own switch ------------------ */
+    (function theme() {
+        let p = null;
+        try { p = localStorage.getItem('crew-theme'); } catch {}
+        const dark = p ? p === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+    })();
+    function paintThemeIcon() {
+        const el = $('themeIcon');
+        if (el) el.setAttribute('data-lucide', document.documentElement.classList.contains('dark') ? 'sun' : 'moon');
+        icons();
+    }
+
+    /* ---- Talking to the backend --------------------------------------- */
+    async function api(path, opts) {
+        const o = opts || {};
+        const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(SLUG)}/site${path}`, {
+            method: o.method || 'GET',
+            headers: Object.assign(
+                { Accept: 'application/json', Authorization: 'Bearer ' + TOKEN },
+                o.body ? { 'Content-Type': 'application/json' } : {},
+            ),
+            body: o.body ? JSON.stringify(o.body) : undefined,
+        });
+        let data = null;
+        try { data = await res.json(); } catch { /* some errors are not JSON */ }
+        if (!res.ok) {
+            const err = new Error((data && data.error) || 'That did not work.');
+            err.status = res.status;
+            err.code = data && data.code;
+            throw err;
+        }
+        return data;
+    }
+
+    function toast(msg, tone) {
+        const el = $('toast');
+        el.textContent = msg;
+        el.style.background = tone === 'bad' ? '#b91c1c' : 'var(--ink)';
+        el.style.color = 'var(--bg)';
+        el.classList.remove('hidden');
+        clearTimeout(toast._t);
+        toast._t = setTimeout(() => el.classList.add('hidden'), 3200);
+    }
+
+    /* ---- State --------------------------------------------------------- */
+    let SITE = null;      // the last payload from GET /site
+    let CAT = null;       // designs, fonts, modes, and the block catalogue
+    let doc = null;       // the document being edited
+    let pageIx = 0;
+    let openBlock = null; // the id of the section whose form is showing
+    let openFile = null;  // the path being edited, once ejected
+    let preview = { url: '', expires: 0 };
+    let saveTimer = null;
+    let saving = false;
+    let pendingSave = false;
+
+    const blockDef = (type) => (CAT && CAT.builder.blocks.find(b => b.type === type)) || null;
+    const page = () => (doc && doc.pages[pageIx]) || null;
+
+    /* =====================================================================
+     * BOOT
+     * ================================================================== */
+    async function boot() {
+        paintThemeIcon();
+        $('backLink').href = SLUG ? `/crew/${encodeURIComponent(SLUG)}` : '/crew';
+
+        if (!SLUG || !TOKEN) {
+            return gate('Sign in first', 'Open your crew center and sign in, then come back to this page.', true);
+        }
+        brand();
+
+        try {
+            const [site, cat] = await Promise.all([api(''), api('/templates')]);
+            SITE = site; CAT = cat;
+        } catch (err) {
+            if (err.status === 401) return gate('Sign in again', 'Your session has expired. Sign in at your crew center and open this page again.', true);
+            if (err.status === 403) return gate('Not your job — yet', 'Building the website needs the website permission. An owner can give it to you in Settings → Team.', true);
+            return gate('That did not load', err.message, true);
+        }
+
+        wire();
+        render();
+    }
+
+    function gate(title, body, back) {
+        $('gate').classList.remove('hidden');
+        $('gate').classList.add('flex');
+        $('builder').classList.add('hidden');
+        $('start').classList.add('hidden');
+        $('files').classList.add('hidden');
+        $('gateTitle').textContent = title;
+        $('gateBody').textContent = body;
+        $('siteState').textContent = '';
+        $('publishBtn').classList.add('hidden');
+        if (back) {
+            const a = $('gateLink');
+            a.href = SLUG ? `/crew/${encodeURIComponent(SLUG)}` : '/crew';
+            a.classList.remove('hidden');
+        }
+        icons();
+    }
+
+    /* The VA's name, logo colours and theme — the same call the dashboard
+     * makes, so this page looks like the rest of their crew center. */
+    async function brand() {
+        try {
+            const res = await fetch(`${BACKEND}/api/va-ads/by-slug/${encodeURIComponent(SLUG)}`, { headers: { Accept: 'application/json' } });
+            if (!res.ok) return;
+            const b = await res.json();
+            const va = b && (b.va || b);
+            if (va && va.name) {
+                $('vaName').textContent = va.name;
+                document.title = va.name + ' — Website';
+            }
+            if (window.CrewBrand) CrewBrand.apply(b);
+        } catch { /* the page works without it */ }
+    }
+
+    /* =====================================================================
+     * RENDER
+     * ================================================================== */
+    function render() {
+        $('gate').classList.add('hidden');
+        const designed = SITE.mode !== 'code';
+        const started = designed
+            ? !!(SITE.builder && SITE.builder.pages && SITE.builder.pages.length && SITE.draft.files.length)
+            : SITE.draft.files.length > 0;
+
+        $('start').classList.toggle('hidden', started);
+        $('builder').classList.toggle('hidden', !started || !designed);
+        $('files').classList.toggle('hidden', !started || designed);
+        $('publishBtn').classList.toggle('hidden', !started);
+
+        renderStatus();
+        if (!started) return renderStart();
+        if (!designed) return renderFiles();
+
+        doc = SITE.builder;
+        if (pageIx >= doc.pages.length) pageIx = 0;
+        renderPages();
+        renderBlocks();
+        renderForm();
+        renderLook();
+        renderVersions();
+        renderPreviewPages();
+        icons();
+    }
+
+    function renderStatus() {
+        const s = SITE;
+        $('siteUrl').textContent = s.url || '—';
+
+        /* Writing the files means running the VA's own JavaScript, and that can
+         * only happen on an address of their own — never on the platform's,
+         * which is what the /va/<slug> address is. Where this deployment hands
+         * out no subdomains the button is disabled and says why, rather than
+         * failing at the press. */
+        if (!s.subdomain) {
+            $('ejectBtn').disabled = true;
+            $('ejectBtn').style.opacity = '.45';
+            $('ejectNote').textContent = 'Not available on this Inflight deployment: your site is served from an '
+                + 'Inflight address, and your own code cannot run there. Ask Inflight if you need the files.';
+            $('ejectNote').classList.remove('hidden');
+        }
+        $('enabledInput').checked = !!s.enabled;
+        let line = '', pub = 'Publish';
+        if (s.blocked) { line = 'On hold by Inflight' + (s.blockedReason ? ' — ' + s.blockedReason : ''); }
+        else if (!s.enabled) line = 'Switched off — the address answers as if nothing were there';
+        else if (!s.published.version) line = 'Not published yet';
+        else if (s.hasUnpublishedChanges) { line = 'Changes not published yet'; pub = 'Publish changes'; }
+        else { line = 'Published and live at ' + (s.url || '').replace(/^https:\/\//, ''); pub = 'Published'; }
+        $('siteState').textContent = line;
+        $('publishLabel').textContent = pub;
+        $('publishBtn').disabled = !!s.blocked || (!s.hasUnpublishedChanges && !!s.published.version);
+        $('previewBtn').classList.toggle('hidden', !s.published.version);
+    }
+
+    /* ---- Picking a design ---------------------------------------------- */
+    function designCard(t, current) {
+        return `
+        <button type="button" data-design="${esc(t.id)}"
+            class="row text-left overflow-hidden ${current === t.id ? 'row-on' : ''}">
+            <span class="block" style="background:var(--bg)">
+                <svg viewBox="0 0 160 120" class="w-full h-auto block">${t.thumb}</svg>
+            </span>
+            <span class="block p-3">
+                <span class="flex items-center gap-2">
+                    <span class="w-3.5 h-3.5 rounded-full shrink-0" style="background:${esc(t.accent)}"></span>
+                    <span class="text-sm font-bold tracking-tight">${esc(t.name)}</span>
+                </span>
+                <span class="block text-[11px] muted mt-1 leading-snug">${esc(t.blurb)}</span>
+            </span>
+        </button>`;
+    }
+
+    function renderStart() {
+        $('startGrid').innerHTML = CAT.templates.map(t => designCard(t, SITE.template)).join('');
+        $('startGrid').querySelectorAll('[data-design]').forEach((el) => {
+            el.addEventListener('click', () => chooseDesign(el.getAttribute('data-design')));
+        });
+        icons();
+    }
+
+    async function chooseDesign(id) {
+        try {
+            toast('Laying it out…');
+            SITE = await api('/design', { method: 'POST', body: { template: id, keepTheme: !!(SITE.builder && SITE.builder.pages) } });
+            closeSheet();
+            render();
+            refreshPreview(true);
+            toast('Design applied. Nothing is public until you publish.');
+        } catch (err) { toast(err.message, 'bad'); }
+    }
+
+    /* ---- Pages ---------------------------------------------------------- */
+    function renderPages() {
+        $('pageList').innerHTML = doc.pages.map((p, i) => `
+            <div class="row px-2.5 py-2 flex items-center gap-2 ${i === pageIx ? 'row-on' : ''}">
+                <button type="button" data-page="${i}" class="min-w-0 flex-1 text-left">
+                    <span class="block text-sm font-semibold truncate">${esc(p.navLabel || p.title || (p.path === 'index.html' ? 'Home' : p.path))}</span>
+                    <span class="block text-[11px] faint font-mono truncate">/${p.path === 'index.html' ? '' : esc(p.path)}</span>
+                </button>
+                <button type="button" data-page-edit="${i}" class="shrink-0 muted hover:accent-text" title="Rename"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+                ${p.path === 'index.html' ? '' : `<button type="button" data-page-del="${i}" class="shrink-0 muted hover:text-rose-600" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`}
+            </div>`).join('');
+        $('pageList').querySelectorAll('[data-page]').forEach(el => el.addEventListener('click', () => {
+            pageIx = +el.getAttribute('data-page'); openBlock = null; renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
+        }));
+        $('pageList').querySelectorAll('[data-page-edit]').forEach(el => el.addEventListener('click', () => editPage(+el.getAttribute('data-page-edit'))));
+        $('pageList').querySelectorAll('[data-page-del]').forEach(el => el.addEventListener('click', () => {
+            const i = +el.getAttribute('data-page-del');
+            if (!confirm(`Delete ${doc.pages[i].path} and everything on it?`)) return;
+            doc.pages.splice(i, 1);
+            if (pageIx >= doc.pages.length) pageIx = doc.pages.length - 1;
+            openBlock = null; queueSave(); renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
+        }));
+    }
+
+    function editPage(i) {
+        const p = doc.pages[i];
+        const isHome = p.path === 'index.html';
+        openSheet(`
+            <h2 class="text-lg font-bold tracking-tight mb-1">Page</h2>
+            <p class="text-xs muted mb-4">What it is called in the menu, and its address.</p>
+            <label class="block text-xs font-semibold muted">Menu label
+                <input id="pgLabel" class="field mt-1" value="${esc(p.navLabel || p.title || (isHome ? 'Home' : ''))}">
+            </label>
+            <label class="block text-xs font-semibold muted mt-3">Address
+                <input id="pgPath" class="field mt-1 font-mono" value="${esc(p.path)}" ${isHome ? 'disabled' : ''}>
+                <span class="block text-[11px] faint mt-1">${isHome ? 'The homepage always lives at /.' : 'Letters, numbers and dashes, ending in .html'}</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm mt-3">
+                <input id="pgNav" type="checkbox" class="w-4 h-4 rounded" ${p.nav ? 'checked' : ''}>
+                <span>Show it in the menu</span>
+            </label>
+            <div class="flex gap-2 mt-5">
+                <button id="pgSave" class="btn flex-1" type="button">Done</button>
+                <button id="pgCancel" class="btn-quiet" type="button">Cancel</button>
+            </div>`);
+        $('pgCancel').addEventListener('click', closeSheet);
+        $('pgSave').addEventListener('click', () => {
+            const path = isHome ? 'index.html' : String($('pgPath').value || '').trim().toLowerCase();
+            if (!isHome && !/^[a-z0-9][a-z0-9-]*\.html$/.test(path)) return toast('An address looks like about.html', 'bad');
+            if (!isHome && doc.pages.some((x, j) => j !== i && x.path === path)) return toast('There is already a page at that address.', 'bad');
+            p.path = path;
+            p.navLabel = String($('pgLabel').value || '').trim();
+            p.title = p.navLabel;
+            p.nav = $('pgNav').checked;
+            closeSheet(); queueSave(); renderPages(); renderPreviewPages(); icons();
+        });
+    }
+
+    function addPage() {
+        if (doc.pages.length >= (CAT.builder.limits.pages || 12)) return toast('That is as many pages as a site can have.', 'bad');
+        let n = doc.pages.length, path;
+        do { path = 'page' + (++n) + '.html'; } while (doc.pages.some(p => p.path === path));
+        doc.pages.push({ path, title: 'New page', navLabel: 'New page', nav: true, blocks: [] });
+        pageIx = doc.pages.length - 1;
+        openBlock = null;
+        queueSave(); renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
+        editPage(pageIx);
+    }
+
+    /* ---- Sections ------------------------------------------------------- */
+    function renderBlocks() {
+        const p = page();
+        const blocks = (p && p.blocks) || [];
+        $('blockEmpty').classList.toggle('hidden', blocks.length > 0);
+        $('blockList').innerHTML = blocks.map((b, i) => {
+            const def = blockDef(b.type);
+            return `
+            <div class="row px-2.5 py-2 flex items-center gap-2 ${b.id === openBlock ? 'row-on' : ''}" draggable="true" data-ix="${i}">
+                <i data-lucide="grip-vertical" class="w-3.5 h-3.5 faint shrink-0 cursor-grab"></i>
+                <button type="button" data-block="${esc(b.id)}" class="min-w-0 flex-1 text-left flex items-center gap-2">
+                    <i data-lucide="${esc(def ? def.icon : 'square')}" class="w-4 h-4 muted shrink-0"></i>
+                    <span class="min-w-0">
+                        <span class="block text-sm font-semibold truncate">${esc(def ? def.label : b.type)}</span>
+                        <span class="js-sum block text-[11px] muted truncate">${esc(blockSummary(b, def))}</span>
+                    </span>
+                </button>
+                <span class="flex flex-col shrink-0">
+                    <button type="button" data-up="${i}" class="muted hover:accent-text leading-none" title="Move up"><i data-lucide="chevron-up" class="w-3.5 h-3.5"></i></button>
+                    <button type="button" data-down="${i}" class="muted hover:accent-text leading-none" title="Move down"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>
+                </span>
+            </div>`;
+        }).join('');
+
+        $('blockList').querySelectorAll('[data-block]').forEach(el => el.addEventListener('click', () => {
+            openBlock = el.getAttribute('data-block'); renderBlocks(); renderForm(); icons();
+        }));
+        $('blockList').querySelectorAll('[data-up]').forEach(el => el.addEventListener('click', () => moveBlock(+el.getAttribute('data-up'), -1)));
+        $('blockList').querySelectorAll('[data-down]').forEach(el => el.addEventListener('click', () => moveBlock(+el.getAttribute('data-down'), 1)));
+        wireDrag();
+    }
+
+    /* A section's one-line description in the outline: the first thing the VA
+     * actually typed into it, so a page of four "Your own words" sections is
+     * still a page they can navigate. */
+    const SUMMARY_KEYS = ['headline', 'heading', 'title', 'label'];
+    function blockSummary(b, def) {
+        if (!def) return '';
+        const named = SUMMARY_KEYS.find(k => b.props[k]);
+        const first = named || (def.fields.find(f => (f.type === 'line' || f.type === 'text') && b.props[f.key]) || {}).key;
+        if (first) return String(b.props[first]).split('\n')[0].slice(0, 60);
+        return def.live ? 'From your crew center' : def.note;
+    }
+
+    function moveBlock(i, dir) {
+        const b = page().blocks;
+        const j = i + dir;
+        if (j < 0 || j >= b.length) return;
+        const [row] = b.splice(i, 1);
+        b.splice(j, 0, row);
+        queueSave(); renderBlocks(); icons();
+    }
+
+    function wireDrag() {
+        let from = null;
+        $('blockList').querySelectorAll('[data-ix]').forEach((el) => {
+            el.addEventListener('dragstart', () => { from = +el.getAttribute('data-ix'); el.classList.add('dragging'); });
+            el.addEventListener('dragend', () => { el.classList.remove('dragging'); $('blockList').querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over')); });
+            el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drag-over'); });
+            el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+            el.addEventListener('drop', (e) => {
+                e.preventDefault();
+                el.classList.remove('drag-over');
+                const to = +el.getAttribute('data-ix');
+                if (from === null || from === to) return;
+                const b = page().blocks;
+                const [row] = b.splice(from, 1);
+                b.splice(to, 0, row);
+                from = null;
+                queueSave(); renderBlocks(); icons();
+            });
+        });
+    }
+
+    function addBlock() {
+        openSheet(`
+            <h2 class="text-lg font-bold tracking-tight mb-1">Add a section</h2>
+            <p class="text-xs muted mb-4">
+                Sections marked <span class="chip" style="background:var(--bg)">live</span> fill themselves in
+                from this crew center — change your fleet or your ranks there and every page follows.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                ${CAT.builder.blocks.map(b => `
+                <button type="button" data-add="${esc(b.type)}" class="row p-3 text-left flex gap-3 items-start">
+                    <i data-lucide="${esc(b.icon)}" class="w-4 h-4 muted shrink-0 mt-0.5"></i>
+                    <span class="min-w-0">
+                        <span class="text-sm font-semibold flex items-center gap-2">${esc(b.label)}
+                            ${b.live ? '<span class="chip" style="background:var(--bg)">live</span>' : ''}</span>
+                        <span class="block text-[11px] muted mt-0.5 leading-snug">${esc(b.note)}</span>
+                    </span>
+                </button>`).join('')}
+            </div>`);
+        $('sheetBody').querySelectorAll('[data-add]').forEach(el => el.addEventListener('click', async () => {
+            const type = el.getAttribute('data-add');
+            const def = blockDef(type);
+            const p = page();
+            if (p.blocks.length >= (CAT.builder.limits.blocks || 30)) return toast('That is as many sections as one page can hold.', 'bad');
+            // No defaults are invented here: the backend fills a new block's
+            // fields from the catalogue, which is the same code that renders it.
+            const b = { id: 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), type, props: {} };
+            p.blocks.push(b);
+            openBlock = b.id;
+            closeSheet();
+            await save();          // the server fills the blanks and hands them back
+            syncOpenBlock();
+            renderBlocks(); renderForm(); icons();
+        }));
+        icons();
+    }
+
+    /* After a save the document is the SERVER's copy — ids survive, but values
+     * have been cleaned and defaults filled in. Re-point the open section at
+     * the row that came back. */
+    function syncOpenBlock() {
+        doc = SITE.builder;
+        if (pageIx >= doc.pages.length) pageIx = 0;
+    }
+
+    /* ---- The form for one section --------------------------------------- */
+    function renderForm() {
+        const p = page();
+        const b = p && p.blocks.find(x => x.id === openBlock);
+        const def = b && blockDef(b.type);
+        $('blockDeleteBtn').classList.toggle('hidden', !b);
+        $('liveNote').classList.add('hidden');
+
+        if (!b || !def) {
+            $('formTitle').textContent = 'Nothing open';
+            $('formNote').textContent = p && p.blocks.length ? 'Pick a section on the left to edit its words.' : 'Add a section to start this page.';
+            $('form').innerHTML = '';
+            return;
+        }
+        $('formTitle').textContent = def.label;
+        $('formNote').textContent = def.note;
+        $('form').innerHTML = def.fields.map(f => fieldHtml(f, b.props[f.key])).join('');
+        if (def.live) {
+            $('liveNote').textContent = 'The rows in this section are read from your crew center every time somebody opens the page. You choose the heading and how many; the airline fills in the rest.';
+            $('liveNote').classList.remove('hidden');
+        }
+        wireForm(b);
+        icons();
+    }
+
+    function fieldHtml(f, val) {
+        const help = f.help ? `<span class="block text-[11px] faint mt-1">${esc(f.help)}</span>` : '';
+        const label = `<span class="block text-xs font-semibold muted mb-1">${esc(f.label)}</span>`;
+        const ph = f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : '';
+        if (f.type === 'bool') {
+            return `<label class="flex items-start gap-2 text-sm">
+                <input type="checkbox" data-k="${esc(f.key)}" class="w-4 h-4 rounded mt-0.5" ${val ? 'checked' : ''}>
+                <span><span class="font-semibold">${esc(f.label)}</span>${help}</span></label>`;
+        }
+        if (f.type === 'text') {
+            return `<label class="block">${label}<textarea data-k="${esc(f.key)}" rows="5" class="field leading-relaxed"${ph}>${esc(val)}</textarea>${help}</label>`;
+        }
+        if (f.type === 'number') {
+            return `<label class="block">${label}<input type="number" data-k="${esc(f.key)}" class="field" min="${f.min || 1}" max="${f.max || 40}" value="${esc(val)}">${help}</label>`;
+        }
+        if (f.type === 'select') {
+            return `<label class="block">${label}<select data-k="${esc(f.key)}" class="field">
+                ${(f.options || []).map(o => `<option value="${esc(o.value)}" ${String(val) === String(o.value) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
+            </select>${help}</label>`;
+        }
+        if (f.type === 'list') {
+            const rows = (Array.isArray(val) ? val : []).map((row, i) => `
+                <div class="row p-2.5 mt-2" data-row="${i}">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-[11px] font-bold faint">${i + 1}</span>
+                        <span class="flex items-center gap-2">
+                            <button type="button" data-row-up="${i}" class="muted hover:accent-text"><i data-lucide="chevron-up" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" data-row-down="${i}" class="muted hover:accent-text"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" data-row-del="${i}" class="muted hover:text-rose-600"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                    </div>
+                    ${(f.of || []).map(sub => subFieldHtml(f.key, i, sub, row[sub.key])).join('')}
+                </div>`).join('');
+            const full = (Array.isArray(val) ? val.length : 0) >= (f.max || 24);
+            return `<div>${label}<div data-list="${esc(f.key)}">${rows}</div>
+                <button type="button" data-list-add="${esc(f.key)}" class="btn-quiet text-xs py-1.5 mt-2 w-full" ${full ? 'disabled' : ''}>
+                    + Add${full ? ' (that is the limit)' : ''}</button>${help}</div>`;
+        }
+        // line, url, image
+        const thumb = f.type === 'image' && val
+            ? `<img src="${esc(val)}" alt="" class="mt-1.5 rounded-lg border hair max-h-24">` : '';
+        return `<label class="block">${label}<input type="text" data-k="${esc(f.key)}" class="field${f.type === 'url' || f.type === 'image' ? ' font-mono text-xs' : ''}" value="${esc(val)}"${ph}>${thumb}${help}</label>`;
+    }
+
+    function subFieldHtml(listKey, i, f, val) {
+        const attrs = `data-list-k="${esc(listKey)}" data-i="${i}" data-k="${esc(f.key)}"`;
+        const label = `<span class="block text-[11px] font-semibold muted mb-0.5">${esc(f.label)}</span>`;
+        if (f.type === 'select') {
+            return `<label class="block mb-1.5">${label}<select ${attrs} class="field text-xs py-1.5">
+                ${(f.options || []).map(o => `<option value="${esc(o.value)}" ${String(val) === String(o.value) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
+            </select></label>`;
+        }
+        if (f.type === 'text') {
+            return `<label class="block mb-1.5">${label}<textarea ${attrs} rows="2" class="field text-xs">${esc(val)}</textarea></label>`;
+        }
+        return `<label class="block mb-1.5">${label}<input type="text" ${attrs} class="field text-xs py-1.5${f.type === 'url' || f.type === 'image' ? ' font-mono' : ''}" value="${esc(val)}"${f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : ''}></label>`;
+    }
+
+    function wireForm(b) {
+        const form = $('form');
+        form.oninput = (e) => {
+            const el = e.target;
+            const k = el.getAttribute('data-k');
+            if (!k) return;
+            const listKey = el.getAttribute('data-list-k');
+            const value = el.type === 'checkbox' ? el.checked : el.value;
+            if (listKey) {
+                const i = +el.getAttribute('data-i');
+                b.props[listKey] = b.props[listKey] || [];
+                b.props[listKey][i] = b.props[listKey][i] || {};
+                b.props[listKey][i][k] = value;
+            } else {
+                b.props[k] = value;
+            }
+            // The outline shows the first words of each section, so it has to
+            // keep up with the typing that changes them.
+            const row = $('blockList').querySelector(`[data-block="${b.id}"] .js-sum`);
+            if (row) row.textContent = blockSummary(b, blockDef(b.type));
+            queueSave();
+        };
+        form.onclick = (e) => {
+            const add = e.target.closest('[data-list-add]');
+            if (add) {
+                const key = add.getAttribute('data-list-add');
+                const f = blockDef(b.type).fields.find(x => x.key === key);
+                b.props[key] = b.props[key] || [];
+                if (b.props[key].length >= (f.max || 24)) return;
+                const row = {};
+                (f.of || []).forEach(sub => { row[sub.key] = sub.type === 'select' ? (sub.options[0] || {}).value : ''; });
+                b.props[key].push(row);
+                queueSave(); renderForm();
+                return;
+            }
+            const del = e.target.closest('[data-row-del]');
+            const up = e.target.closest('[data-row-up]');
+            const down = e.target.closest('[data-row-down]');
+            if (!del && !up && !down) return;
+            const holder = (del || up || down).closest('[data-row]').parentElement;
+            const key = holder.getAttribute('data-list');
+            const list = b.props[key] || [];
+            const i = +((del || up || down).getAttribute('data-row-del') || (del || up || down).getAttribute('data-row-up') || (del || up || down).getAttribute('data-row-down'));
+            if (del) list.splice(i, 1);
+            else {
+                const j = i + (up ? -1 : 1);
+                if (j < 0 || j >= list.length) return;
+                const [r] = list.splice(i, 1);
+                list.splice(j, 0, r);
+            }
+            queueSave(); renderForm();
+        };
+    }
+
+    /* ---- The look -------------------------------------------------------- */
+    function renderLook() {
+        const t = CAT.templates.find(x => x.id === SITE.template) || CAT.templates[0];
+        $('designName').textContent = t ? t.name : '—';
+        $('accentDot').style.background = SITE.theme.accent;
+        $('accentInput').value = SITE.theme.accent;
+        $('fontInput').innerHTML = CAT.fonts.map(f => `<option value="${esc(f.id)}" ${f.id === SITE.theme.font ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
+        $('modeInput').innerHTML = CAT.modes.map(m => `<option value="${esc(m.id)}" ${m.id === SITE.theme.mode ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
+    }
+
+    async function saveTheme(patch) {
+        try {
+            SITE = await api('/theme', { method: 'POST', body: patch });
+            renderLook(); renderStatus(); refreshPreview(true);
+        } catch (err) { toast(err.message, 'bad'); }
+    }
+
+    function openDesigns() {
+        openSheet(`
+            <h2 class="text-lg font-bold tracking-tight mb-1">Change the design</h2>
+            <p class="text-xs muted mb-4">Every word you have written comes with you. Only the look changes.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                ${CAT.templates.map(t => designCard(t, SITE.template)).join('')}
+            </div>`);
+        $('sheetBody').querySelectorAll('[data-design]').forEach(el =>
+            el.addEventListener('click', () => chooseDesign(el.getAttribute('data-design'))));
+        icons();
+    }
+
+    /* ---- Saving ---------------------------------------------------------- */
+    function queueSave() {
+        clearTimeout(saveTimer);
+        $('siteState').textContent = 'Saving…';
+        saveTimer = setTimeout(save, 900);
+    }
+
+    async function save() {
+        clearTimeout(saveTimer);
+        if (saving) { pendingSave = true; return; }
+        saving = true;
+        try {
+            SITE = await api('/builder', { method: 'PUT', body: { doc } });
+            syncOpenBlock();
+            renderStatus();
+            schedulePreview();
+        } catch (err) {
+            toast(err.message, 'bad');
+            $('siteState').textContent = 'Not saved — ' + err.message;
+        } finally {
+            saving = false;
+            if (pendingSave) { pendingSave = false; save(); }
+        }
+    }
+
+    /* ---- The preview ------------------------------------------------------
+     * The draft, served from the VA's own address on a short-lived token, in an
+     * iframe. It is a different origin from this page — that separation is the
+     * whole security model of hosted sites — so nothing here can reach into it
+     * and it cannot reach out.
+     * -------------------------------------------------------------------- */
+    let previewTimer = null;
+    function schedulePreview() {
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(() => refreshPreview(false), 400);
+    }
+
+    async function refreshPreview(force) {
+        if (!SITE || !SITE.draft.files.length) return;
+        try {
+            if (force || !preview.url || Date.now() > preview.expires - 120000) {
+                const r = await api('/preview', { method: 'POST' });
+                preview = { url: r.url, expires: +new Date(r.expiresAt) };
+            }
+            const path = $('pvPage').value || '';
+            const url = preview.url + (path && path !== 'index.html' ? path : '') + '?r=' + Date.now();
+            $('pvFrame').src = url;
+            $('pvState').textContent = 'Draft — not published';
+        } catch (err) {
+            $('pvState').textContent = err.message;
+        }
+    }
+
+    function renderPreviewPages() {
+        const cur = $('pvPage').value;
+        const pages = SITE.mode === 'code'
+            ? SITE.draft.files.filter(f => /\.html$/.test(f.path)).map(f => ({ path: f.path, label: f.path }))
+            : doc.pages.map(p => ({ path: p.path, label: p.navLabel || p.title || p.path }));
+        $('pvPage').innerHTML = pages.map(p => `<option value="${esc(p.path)}" ${p.path === cur ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
+        // Only the builder has the preview beside it; an ejected site previews
+        // in a tab (see filePreviewBtn), so nothing is loaded here for one.
+        if (SITE.mode !== 'code' && !$('pvFrame').src) refreshPreview(true);
+    }
+
+    /* ---- Publishing, history, the switch ---------------------------------- */
+    async function publish() {
+        $('publishBtn').disabled = true;
+        try {
+            SITE = await api('/publish', { method: 'POST' });
+            renderStatus(); renderVersions();
+            toast('Published. Your site is live at ' + (SITE.url || '').replace(/^https:\/\//, ''));
+        } catch (err) {
+            toast(err.message, 'bad');
+            renderStatus();
+        }
+    }
+
+    function renderVersions() {
+        const v = SITE.versions || [];
+        $('versions').innerHTML = v.length ? v.map(x => `
+            <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="truncate muted">v${x.version} · ${esc(new Date(x.at).toLocaleDateString())} · ${x.files} file(s)</span>
+                <button type="button" data-restore="${x.version}" class="font-semibold muted hover:accent-text shrink-0">Restore</button>
+            </div>`).join('') : '<p class="text-xs faint">Nothing published yet.</p>';
+        $('versions').querySelectorAll('[data-restore]').forEach(el => el.addEventListener('click', async () => {
+            if (!confirm('Bring that version back as your draft? Nothing goes live until you publish.')) return;
+            try {
+                SITE = await api('/restore', { method: 'POST', body: { version: +el.getAttribute('data-restore') } });
+                render(); refreshPreview(true);
+                toast('Restored into your draft.');
+            } catch (err) { toast(err.message, 'bad'); }
+        }));
+    }
+
+    async function eject() {
+        openSheet(`
+            <h2 class="text-lg font-bold tracking-tight mb-1">Write the files yourself?</h2>
+            <p class="text-sm muted mb-4 leading-relaxed">
+                You will get exactly the site you have now — its HTML, its CSS and its JavaScript — as files
+                you edit here by hand. Your visitors see no change.
+            </p>
+            <p class="text-sm muted mb-4 leading-relaxed">
+                <b class="text-rose-600 dark:text-rose-400">This cannot be undone.</b> The builder stops writing
+                this site, so the sections, the design picker and the colour controls no longer apply to it.
+            </p>
+            <div class="flex gap-2">
+                <button id="ejYes" class="btn flex-1" type="button">Switch to files</button>
+                <button id="ejNo" class="btn-quiet" type="button">Keep the builder</button>
+            </div>`);
+        $('ejNo').addEventListener('click', closeSheet);
+        $('ejYes').addEventListener('click', async () => {
+            try {
+                SITE = await api('/eject', { method: 'POST', body: { confirm: true } });
+                closeSheet(); render();
+                toast('This site is yours to edit as files now.');
+            } catch (err) { toast(err.message, 'bad'); }
+        });
+    }
+
+    /* ---- The file editor, once ejected ------------------------------------ */
+    function renderFiles() {
+        const files = SITE.draft.files.slice().sort((a, b) => a.path.localeCompare(b.path));
+        $('fileList').innerHTML = files.map(f => `
+            <button type="button" data-file="${esc(f.path)}"
+                class="row w-full text-left px-2.5 py-1.5 font-mono text-[12px] truncate ${f.path === openFile ? 'row-on' : ''}">${esc(f.path)}</button>`).join('');
+        $('fileUsage').textContent = `${SITE.usage.files}/${SITE.limits.files} files · ${Math.round(SITE.usage.bytes / 1024)} KB of ${Math.round(SITE.limits.totalBytes / 1024)} KB`;
+        $('fileList').querySelectorAll('[data-file]').forEach(el => el.addEventListener('click', () => {
+            openFile = el.getAttribute('data-file');
+            const f = SITE.draft.files.find(x => x.path === openFile);
+            $('openFile').textContent = openFile;
+            $('fileEditor').value = (f && f.content) || '';
+            $('fileEditor').disabled = false;
+            $('fileSaveBtn').disabled = false;
+            $('fileDeleteBtn').classList.remove('hidden');
+            renderFiles();
+        }));
+        renderPreviewPages();
+    }
+
+    async function saveFile() {
+        if (!openFile) return;
+        try {
+            await api('/file', { method: 'PUT', body: { path: openFile, content: $('fileEditor').value } });
+            SITE = await api('');
+            renderStatus(); renderFiles(); refreshPreview(true);
+            toast('Saved.');
+        } catch (err) { toast(err.message, 'bad'); }
+    }
+
+    /* ---- Overlay ---------------------------------------------------------- */
+    function openSheet(html) {
+        $('sheetBody').innerHTML = html;
+        $('sheet').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        icons();
+    }
+    function closeSheet() {
+        $('sheet').classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+
+    /* ---- Wiring ----------------------------------------------------------- */
+    function wire() {
+        $('themeBtn').addEventListener('click', () => {
+            const dark = !document.documentElement.classList.contains('dark');
+            document.documentElement.classList.toggle('dark', dark);
+            try { localStorage.setItem('crew-theme', dark ? 'dark' : 'light'); } catch {}
+            paintThemeIcon();
+        });
+        $('publishBtn').addEventListener('click', publish);
+        $('previewBtn').addEventListener('click', () => { if (SITE.url) window.open(SITE.url, '_blank', 'noopener'); });
+        $('addPageBtn').addEventListener('click', addPage);
+        $('addBlockBtn').addEventListener('click', addBlock);
+        $('designBtn').addEventListener('click', openDesigns);
+        $('blockDeleteBtn').addEventListener('click', () => {
+            const p = page();
+            const i = p.blocks.findIndex(x => x.id === openBlock);
+            if (i < 0) return;
+            p.blocks.splice(i, 1);
+            openBlock = null;
+            queueSave(); renderBlocks(); renderForm(); icons();
+        });
+        $('accentInput').addEventListener('change', (e) => saveTheme({ accent: e.target.value }));
+        $('fontInput').addEventListener('change', (e) => saveTheme({ font: e.target.value }));
+        $('modeInput').addEventListener('change', (e) => saveTheme({ mode: e.target.value }));
+        $('enabledInput').addEventListener('change', async (e) => {
+            try {
+                SITE = await api('/enabled', { method: 'POST', body: { enabled: e.target.checked } });
+                renderStatus();
+            } catch (err) { toast(err.message, 'bad'); e.target.checked = !e.target.checked; }
+        });
+        $('ejectBtn').addEventListener('click', eject);
+        $('pvRefresh').addEventListener('click', () => refreshPreview(true));
+        $('pvPage').addEventListener('change', () => refreshPreview(false));
+        $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+        $('newFileBtn').addEventListener('click', async () => {
+            const path = prompt('A name for the new file — about.html, style.css, and so on.');
+            if (!path) return;
+            try {
+                await api('/file', { method: 'PUT', body: { path, content: '' } });
+                SITE = await api('');
+                openFile = path.trim().toLowerCase();
+                renderFiles(); renderStatus();
+            } catch (err) { toast(err.message, 'bad'); }
+        });
+        $('fileSaveBtn').addEventListener('click', saveFile);
+        $('filePreviewBtn').addEventListener('click', async () => {
+            try {
+                const r = await api('/preview', { method: 'POST' });
+                preview = { url: r.url, expires: +new Date(r.expiresAt) };
+                window.open(r.url, '_blank', 'noopener');
+            } catch (err) { toast(err.message, 'bad'); }
+        });
+        $('fileDeleteBtn').addEventListener('click', async () => {
+            if (!openFile || !confirm(`Delete ${openFile}?`)) return;
+            try {
+                await api('/file?path=' + encodeURIComponent(openFile), { method: 'DELETE' });
+                SITE = await api('');
+                openFile = null;
+                $('fileEditor').value = ''; $('fileEditor').disabled = true;
+                $('openFile').textContent = 'Pick a file to edit it.';
+                $('fileDeleteBtn').classList.add('hidden');
+                renderFiles(); renderStatus();
+            } catch (err) { toast(err.message, 'bad'); }
+        });
+        $('mobileTabs').addEventListener('click', (e) => {
+            const b = e.target.closest('[data-pane]');
+            if (!b) return;
+            const want = b.getAttribute('data-pane');
+            document.querySelectorAll('.pane').forEach(p => p.classList.toggle('pane-on', p.getAttribute('data-pane') === want));
+            if (want === 'preview') refreshPreview(false);
+        });
+        // A save in flight when the tab closes is a save that never happened.
+        window.addEventListener('beforeunload', (e) => {
+            if (saveTimer) { save(); e.preventDefault(); e.returnValue = ''; }
+        });
+    }
+
+    boot();
+})();
+</script>
+</body>
+</html>

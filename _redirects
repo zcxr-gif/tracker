@@ -15,6 +15,9 @@
 # the catch-all below, so it must come first.
 /crew/:slug/join  /crew-join.html  200
 /crew/:slug/status  /crew-status.html  200
+# The website builder. A whole page rather than a panel on the dashboard —
+# see crew-website.html. Same session, same slug in the path.
+/crew/:slug/website  /crew-website.html  200
 /crew      /crew.html  200
 /crew/*    /crew.html  200
 
@@ -37,3 +40,14 @@
 # inflight.info, which is what makes it a universal link the app can claim and
 # what makes the Open Graph unfurl show our domain.
 /pilot/*  https://site--indgo-backend--6dmjph8ltlhv.code.run/pilot/:splat  200
+
+# Virtual airline websites. A VA builds one in their crew centre and it is
+# served here, at inflight.info/va/<their slug>/ — the same proxy trick as
+# /pilot above, and for the same reason: 200 keeps the address on inflight.info,
+# which is what makes it the airline's address rather than a redirect to one.
+#
+# Only sites built in the builder are served this way. Every byte of their
+# markup is rendered by us from the airline's words, so nothing of theirs runs
+# on this origin; a VA who writes their own files needs their own subdomain, and
+# the backend refuses to serve one here. See vaSites.js.
+/va/*  https://site--indgo-backend--6dmjph8ltlhv.code.run/va-site/:splat  200
