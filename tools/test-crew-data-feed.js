@@ -324,6 +324,83 @@ const ROUTES = [
         ok('…and the pulse null', (await feed.activity()) === null);
     }
 
+    section('crew-feed.js — the airline’s identity');
+    {
+        // The directory record, as /api/va-ads/by-slug returns it — including
+        // the two things that must NOT come out the other side.
+        const BRAND = {
+            name: 'Ocean Virtual', code: 'OCN', tagline: 'The long way round.',
+            logo: 'https://cdn.test/logo.png',
+            banner: 'http://cdn.test/banner.jpg',          // not https
+            accent: '#14375e',
+            ranks: [
+                { name: 'Captain', minHours: 120, color: '#c00', icon: 'star', image: 'https://cdn.test/cap.png' },
+                { name: 'Cadet', minHours: 0, color: 'not-a-colour' },
+                { name: 'First Officer', minHours: 40, image: 'javascript:alert(1)' },
+                { name: '' },
+            ],
+            fleet: [
+                { type: 'Boeing 787-10 Dreamliner', name: 'Ocean', image: 'https://cdn.test/789.jpg' },
+                { type: '', name: '' },
+            ],
+            roles: [{ name: 'Events', color: '#0a0' }],
+            join: { minGrade: 3, callsignPrefix: 'OCN', discordInvite: 'https://discord.gg/abc' },
+            supabase: { url: 'https://x.supabase.co', anonKey: 'ey.SECRETISH' },
+        };
+        const { feed, calls } = loadFeed({ '/api/va-ads/by-slug/amv': { body: BRAND } });
+
+        const b = await feed.brand();
+        ok('the airline names itself', b.name === 'Ocean Virtual' && b.code === 'OCN');
+        ok('an https logo comes through', b.logo === 'https://cdn.test/logo.png', b.logo);
+        ok('a plain-http banner does not', b.banner === '', JSON.stringify(b.banner));
+        ok('the join details a public page can use are there',
+            b.callsignPrefix === 'OCN' && b.minGrade === 3 && /discord\.gg/.test(b.discord));
+        // The anon key is not a secret and it is still not a website's business.
+        ok('the Supabase block never leaves', b.supabase === undefined && !JSON.stringify(b).includes('SECRETISH'));
+
+        const ladder = await feed.ranks();
+        ok('the ladder reads upward whatever order it was stored in',
+            ladder.map(r => r.name).join(' < ') === 'Cadet < First Officer < Captain',
+            ladder.map(r => r.name).join(','));
+        ok('a rank with no name is dropped', ladder.length === 3, String(ladder.length));
+        ok('hours become a phrase a page can print', ladder[2].from === '120 hours', ladder[2].from);
+        ok('the first rung says nothing rather than “0 hours”', ladder[0].from === '', JSON.stringify(ladder[0].from));
+        ok('a colour that is not one is dropped', ladder[0].color === '', JSON.stringify(ladder[0].color));
+        // A badge goes in an <img src>. This is the one that matters.
+        ok('a javascript: badge never survives', ladder[1].image === '', JSON.stringify(ladder[1].image));
+        ok('a real badge does', ladder[2].image === 'https://cdn.test/cap.png');
+
+        const air = await feed.fleet();
+        ok('the fleet reads as aircraft and livery, not type and name',
+            air[0].aircraft === 'Boeing 787-10 Dreamliner' && air[0].livery === 'Ocean');
+        ok('a half-typed fleet row is dropped', air.length === 1, String(air.length));
+        ok('roles come through as definitions', (await feed.roles())[0].name === 'Events');
+
+        ok('one request serves brand, ranks, fleet and roles', calls.length === 1, calls.join(' '));
+        ok('…and it is the directory record, not a crew endpoint',
+            /\/api\/va-ads\/by-slug\/amv$/.test(calls[0]), calls[0]);
+    }
+    {
+        const { feed } = loadFeed({});   // every fetch rejects
+        ok('a quiet backend leaves the brand null', (await feed.brand()) === null);
+        ok('…and the ladder null', (await feed.ranks()) === null);
+    }
+
+    section('crew-feed.js — an image field most rows will not have');
+    {
+        const { feed } = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', ranks: [
+            { name: 'Cadet', minHours: 0 },
+            { name: 'Captain', minHours: 120, image: 'https://cdn.test/cap.png' },
+        ] } } });
+        const ladder = await feed.ranks();
+        ok('a rank with a badge carries it', ladder[1].image === 'https://cdn.test/cap.png');
+        // fill() leaves an absent field empty, and <img src=""> is a broken
+        // image icon in every browser. paintList strips those; keeping the rows
+        // in one column afterwards is the template's job, with :has(img).
+        ok('a rank without one carries an empty string, never undefined',
+            ladder[0].image === '', JSON.stringify(ladder[0].image));
+    }
+
     section('crew-feed.js — painting somebody else’s page');
     {
         const { feed } = loadFeed({});
