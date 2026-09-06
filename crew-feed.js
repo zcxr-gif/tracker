@@ -27,6 +27,14 @@
 
      const routes = await CrewFeed.routes();      // [] of sectors, or null
      const figures = await CrewFeed.stats();      // { pilots, hours, … } or null
+     const wall = await CrewFeed.posts();         // [] of Instagram posts, or null
+     const pulse = await CrewFeed.activity();     // [] of what the airline did
+
+   The full set: routes, network, stats, events, schedule, notices, activity,
+   posts, handle. `notices` is the noticeboard as the crew center reads it;
+   `notices({written:true})` is only what a person typed, and `activity()` only
+   what the crew center recorded happening. Those two halves want different
+   places on a page, which is why they are separate calls over one fetch.
 
    …or mark up the page and let it fill in the numbers:
 
@@ -361,7 +369,15 @@
         return crew('/announcements').then(function (d) {
             if (!d || !Array.isArray(d.announcements)) return null;
             var rows = d.announcements
-                .filter(function (n) { return n && n.status !== 'draft' && text(n.title); })
+                .filter(function (n) {
+                    if (!n || n.status === 'draft' || !text(n.title)) return false;
+                    // Opt-in: `notices()` keeps returning the board as it reads
+                    // on the crew center — written rows and automatic ones
+                    // together — because that is what every page using it today
+                    // already prints. `{ written: true }` narrows it to what a
+                    // person actually typed, leaving the pulse to activity().
+                    return opts.written ? !n.auto : true;
+                })
                 .slice(0, limit)
                 .map(function (n) {
                     return {
@@ -369,6 +385,257 @@
                         body: text(n.body),
                         pinned: !!n.pinned,
                         createdAt: n.createdAt || null,
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* =====================================================================
+     * ACTIVITY
+     *
+     * GET /api/crew/<slug>/announcements   (the same fetch `notices` uses)
+     *
+     * The noticeboard carries two kinds of row. A human writes one — "Winter
+     * schedule is up, bids close Friday". The crew center writes the other,
+     * with `auto: true`: a pilot joined, somebody made Captain, an event was
+     * published, a schedule went up. `notices` above returns the first kind
+     * plus the second, undifferentiated, because that is what a noticeboard
+     * is when you are standing in front of it.
+     *
+     * On a public website they are not the same thing at all. The written
+     * notice is an announcement and wants a headline. The automatic row is a
+     * pulse — proof that the airline is being flown this week rather than
+     * described — and wants a ticker. So this returns only the automatic ones,
+     * and `notices({ written: true })` returns only the written ones, and a
+     * page can put each where it belongs.
+     *
+     * NOTHING HERE IS A NAME YOU DID NOT ALREADY PUBLISH. The rows carry the
+     * roster name the crew center shows on its own public noticeboard and
+     * nothing more — no email, no application, no IFC handle the pilot did not
+     * put on their profile. If a VA would rather its website not carry even
+     * that, the answer is to not mark the page up for it; there is no filter
+     * here that can put a name back once a site has printed it.
+     * =================================================================== */
+    function activity(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 8;
+        var kind = text(opts.kind);
+        return crew('/announcements').then(function (d) {
+            if (!d || !Array.isArray(d.announcements)) return null;
+            var rows = d.announcements
+                .filter(function (n) {
+                    if (!n || n.status === 'draft' || !text(n.title)) return false;
+                    if (!n.auto) return false;
+                    return kind ? String(n.kind || '') === kind : true;
+                })
+                .slice(0, limit)
+                .map(function (n) {
+                    return {
+                        title: text(n.title),
+                        body: text(n.body),
+                        // 'joined', 'promotion', 'checkride', 'event',
+                        // 'schedule' — whatever the crew center recorded. A site
+                        // that wants one sort of row asks for it by name; one
+                        // that wants an icon per sort keys off this.
+                        kind: text(n.kind),
+                        createdAt: n.createdAt || null,
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* =====================================================================
+     * POSTS — the Instagram wall
+     *
+     * GET /api/crew/<slug>/social  →  { handle, posts: [{kind, code, url,
+     *                                   embedUrl}] }
+     *
+     * The posts the VA's staff hung on their crew center, handed over so the
+     * airline's own site can hang the same wall. There is no Graph API here
+     * and no token to keep alive: a single Instagram post embeds with nothing
+     * but its shortcode, which is why the crew center stores chosen posts
+     * rather than pulling a profile feed.
+     *
+     * THE ADDRESS IS REBUILT HERE TOO, from `code` and `kind`, even though the
+     * backend already sent a `url` and an `embedUrl` it had itself assembled
+     * from a closed alphabet. That is not distrust of the backend — it is that
+     * this file's whole promise is that a page which drops it in cannot be made
+     * to frame something hostile, and a promise that depends on a service
+     * across the network continuing to behave is not one this file can keep on
+     * its own. `code` is checked against [A-Za-z0-9_-] before it is used.
+     *
+     * Returns null — not [] — when there is no wall, so a site's own markup
+     * survives a VA that has not set one up. See the rule at the top.
+     * =================================================================== */
+    var POST_KINDS = { p: 1, reel: 1, tv: 1 };
+
+    function posts(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 12;
+        return crew('/social').then(function (d) {
+            if (!d || !Array.isArray(d.posts)) return null;
+            var handle = text(d.handle);
+            var rows = d.posts
+                .filter(function (p) {
+                    return p && POST_KINDS[p.kind] && /^[A-Za-z0-9_-]{1,64}$/.test(String(p.code || ''));
+                })
+                .slice(0, limit)
+                .map(function (p) {
+                    return {
+                        kind: p.kind,
+                        code: p.code,
+                        handle: handle,
+                        url: 'https://www.instagram.com/' + p.kind + '/' + p.code + '/',
+                        embedUrl: 'https://www.instagram.com/' + p.kind + '/' + p.code + '/embed/',
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /** The handle on its own, for a "follow us" line. null when unset. */
+    function handle() {
+        return crew('/social').then(function (d) {
+            var h = d && text(d.handle);
+            return h || null;
+        });
+    }
+
+    /* =====================================================================
+     * BRAND — the airline's identity, not its operations
+     *
+     * GET /api/va-ads/<slug>  →  the crew centre's own record: name, callsign,
+     * tagline, logo, banner, accent, the rank ladder, the roles, the fleet, and
+     * how to join.
+     *
+     * NOT under /api/crew/, and that is not an oversight. Everything else this
+     * file reads is DATA THE VA'S CREW CENTRE PRODUCED — sectors flown, hours
+     * accrued, pilots joined — and lives in the VA's own store. This is the
+     * directory record: what the airline IS rather than what it has been doing.
+     * Two different things, in two different places, so two paths.
+     *
+     * It is the same endpoint the crew centre login reads before it has a
+     * session, so it is public, CORS-open and cached for five minutes. There is
+     * no secret in it: the Supabase block it also carries is the ANON key, and
+     * this reader drops it anyway rather than hand a website a field it has no
+     * business holding.
+     *
+     * EVERY URL IS RE-CHECKED FOR https:. A logo goes in an `src`, and an
+     * `src` is where a wrong string stops being a broken image and starts
+     * being somebody else's script. `https()` is the same guard the rest of
+     * this file uses.
+     * =================================================================== */
+    function brandRaw() {
+        if (!CFG.va) return Promise.resolve(null);
+        return get('/api/va-ads/by-slug/' + encodeURIComponent(CFG.va));
+    }
+
+    function brand() {
+        return brandRaw().then(function (d) {
+            if (!d || !text(d.name)) return null;
+            var join = d.join || {};
+            return {
+                name: text(d.name),
+                code: text(d.code),
+                tagline: text(d.tagline),
+                logo: https(d.logo),
+                banner: https(d.banner),
+                website: https(d.website),
+                // '' when the VA has not chosen one — a site that wants to
+                // follow the crew centre's accent can read it, and a site with
+                // its own theme.css simply does not ask.
+                accent: /^#([0-9a-f]{3}|[0-9a-f]{6})$/.test(text(d.accent)) ? text(d.accent) : '',
+                callsignPrefix: text(join.callsignPrefix),
+                minGrade: num(join.minGrade) || 0,
+                discord: https(join.discordInvite),
+                // Deliberately absent: d.supabase. A public anon key is not a
+                // secret, and it is still not something a marketing page has
+                // any use for. Nothing that has no reason to leave gets to.
+            };
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+     * RANKS — the ladder a pilot climbs.
+     *
+     * The one list on a VA's website that is genuinely persuasive to somebody
+     * deciding whether to apply, and the one nobody keeps up to date by hand.
+     * Sorted by the hours each rank asks for, so the ladder reads upward
+     * whatever order it happens to be stored in.
+     * ------------------------------------------------------------------- */
+    function ranks(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 20;
+        return brandRaw().then(function (d) {
+            if (!d || !Array.isArray(d.ranks)) return null;
+            var rows = d.ranks
+                .filter(function (r) { return r && text(r.name); })
+                .map(function (r) {
+                    var hours = num(r.minHours);
+                    return {
+                        name: text(r.name),
+                        hours: hours === undefined ? 0 : hours,
+                        // A rank with no hours set reads as "0 hours", which is
+                        // true of the first rung and misleading on any other.
+                        // `from` is the human string and is left EMPTY rather
+                        // than saying nothing at length.
+                        from: hours ? hours.toLocaleString() + ' hours' : '',
+                        color: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(r.color)) ? text(r.color) : '',
+                        icon: text(r.icon),
+                        image: https(r.image),
+                    };
+                })
+                .sort(function (a, b) { return a.hours - b.hours; })
+                .slice(0, limit);
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+     * FLEET — the aircraft the VA declared, and the liveries they fly them in.
+     *
+     * `type` is the aircraft and `name` is the livery, both as the canonical
+     * Infinite Flight API strings, because that is what the tracker matches a
+     * live flight against. A website wants them the other way round in a
+     * sentence, so this hands over both under names that read correctly:
+     * `aircraft` and `livery`.
+     * ------------------------------------------------------------------- */
+    function fleet(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 40;
+        return brandRaw().then(function (d) {
+            if (!d || !Array.isArray(d.fleet)) return null;
+            var rows = d.fleet
+                .filter(function (f) { return f && (text(f.type) || text(f.name)); })
+                .slice(0, limit)
+                .map(function (f) {
+                    return {
+                        aircraft: text(f.type),
+                        livery: text(f.name),
+                        image: https(f.image),
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /** The staff/crew roles a VA defined. Definitions only — never who holds one. */
+    function roles(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 30;
+        return brandRaw().then(function (d) {
+            if (!d || !Array.isArray(d.roles)) return null;
+            var rows = d.roles
+                .filter(function (r) { return r && text(r.name); })
+                .slice(0, limit)
+                .map(function (r) {
+                    return {
+                        name: text(r.name),
+                        color: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(r.color)) ? text(r.color) : '',
+                        icon: text(r.icon),
+                        image: https(r.image),
                     };
                 });
             return rows.length ? rows : null;
@@ -420,6 +687,57 @@
     }
 
     /* ---------------------------------------------------------------------
+     * Brand painting.
+     *
+     *   <img data-crew-brand="logo" alt="">
+     *   <h1 data-crew-brand="name">Ocean Virtual</h1>
+     *   <p data-crew-brand="tagline">Write something true here.</p>
+     *
+     * On an <img> the value becomes the `src`; on anything else it becomes the
+     * text. An element whose field the crew centre does not hold is REMOVED —
+     * a VA with no banner gets a hero with no banner, not a broken image icon
+     * with alt text where a photograph should be.
+     *
+     * That removal is why the same rule cannot be "leave what is on the page".
+     * A figure has a true fallback a VA can type; a logo does not — there is no
+     * placeholder image that is honest about an airline that has not uploaded
+     * one. So: it arrives, or the element goes.
+     * ------------------------------------------------------------------- */
+    var BRAND_URL_FIELDS = { logo: 1, banner: 1, website: 1, discord: 1 };
+
+    function paintBrand(b, root) {
+        var scope = root || document;
+        var slots = scope.querySelectorAll('[data-crew-brand]');
+        if (!slots.length) return;
+
+        Array.prototype.forEach.call(slots, function (el) {
+            var key = el.getAttribute('data-crew-brand');
+            var value = b ? b[key] : '';
+            var holder = el.closest ? el.closest('[data-crew-figure]') : null;
+
+            if (!value) {
+                if (holder) holder.parentNode && holder.parentNode.removeChild(holder);
+                else el.parentNode && el.parentNode.removeChild(el);
+                return;
+            }
+            var tag = (el.tagName || '').toLowerCase();
+            if (tag === 'img') {
+                el.setAttribute('src', value);
+                // An alt the page already wrote wins; otherwise the airline's
+                // name, because "logo" is not what a screen reader should say.
+                if (!el.getAttribute('alt')) el.setAttribute('alt', (b && b.name) || '');
+            } else if (tag === 'a' && BRAND_URL_FIELDS[key]) {
+                el.setAttribute('href', value);
+                if (!text(el.textContent)) el.textContent = value;
+            } else {
+                el.textContent = value;
+            }
+            if (holder) holder.removeAttribute('hidden');
+            el.setAttribute('data-crew-filled', '1');
+        });
+    }
+
+    /* ---------------------------------------------------------------------
      * List painting.
      *
      *   <div data-crew-list="routes" data-crew-limit="10">
@@ -434,7 +752,11 @@
      * HTML. A row is only rendered if the feed answered — a quiet backend
      * leaves whatever the page already had inside the container.
      * ------------------------------------------------------------------- */
-    var LISTS = { routes: routes, events: events, schedule: schedule, notices: notices };
+    var LISTS = {
+        routes: routes, events: events, schedule: schedule,
+        notices: notices, activity: activity, posts: posts,
+        ranks: ranks, fleet: fleet, roles: roles,
+    };
 
     function escapeHtml(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -460,11 +782,25 @@
         if (isFinite(limit) && limit > 0) opts.limit = limit;
         if (host.getAttribute('data-crew-kind')) opts.kind = host.getAttribute('data-crew-kind');
         if (host.getAttribute('data-crew-past') === 'on') opts.past = true;
+        if (host.getAttribute('data-crew-written') === 'on') opts.written = true;
 
         return reader(opts).then(function (rows) {
             if (!rows) return null;            // quiet backend — keep the page
             var src = tpl.innerHTML;
             host.innerHTML = rows.map(function (r) { return fill(src, r); }).join('');
+            // A template can carry <img src="{{image}}"> for a rank badge or an
+            // aircraft photo, and most rows will not have one. `fill` leaves an
+            // absent field empty, and an <img src=""> is a broken-image icon in
+            // every browser — so an image that never arrived is taken out.
+            //
+            // Keeping the ROWS aligned when only some have a picture is not
+            // this file's job and deliberately so: wrap the img in a span in
+            // the template and let CSS reserve the column with :has(img). A
+            // stand-in element invented here would be a class name every site
+            // using this feed had to know about.
+            Array.prototype.forEach.call(host.querySelectorAll('img'), function (img) {
+                if (!img.getAttribute('src')) img.parentNode && img.parentNode.removeChild(img);
+            });
             host.setAttribute('data-crew-filled', String(rows.length));
             return rows;
         });
@@ -481,6 +817,9 @@
         if (scope.querySelector('[data-crew-stat], [data-crew-when]')) {
             jobs.push(stats().then(function (f) { paintStats(f, scope); return f; }));
         }
+        if (scope.querySelector('[data-crew-brand]')) {
+            jobs.push(brand().then(function (b) { paintBrand(b, scope); return b; }));
+        }
         Array.prototype.forEach.call(scope.querySelectorAll('[data-crew-list]'), function (host) {
             jobs.push(paintList(host));
         });
@@ -491,6 +830,9 @@
         configure: configure, refresh: refresh,
         routes: routes, network: network, stats: stats,
         events: events, schedule: schedule, notices: notices,
+        activity: activity, posts: posts, handle: handle,
+        brand: brand, ranks: ranks, fleet: fleet, roles: roles,
+        paintBrand: paintBrand,
         paintStats: paintStats, mount: mount,
         get va() { return CFG.va; },
         get backend() { return CFG.backend; },

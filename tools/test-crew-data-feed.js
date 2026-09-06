@@ -270,6 +270,137 @@ const ROUTES = [
         ok('airports come back keyed by ICAO with coordinates', net.airports.MMMX.lat === 19.4);
     }
 
+    section('crew-feed.js — the wall and the pulse');
+    {
+        // One board, two kinds of row: what a person typed, and what the crew
+        // center recorded happening. A public page wants them apart.
+        const BOARD = { announcements: [
+            { title: 'Winter schedule is up', body: 'Bids close Friday.', auto: false, kind: 'notice', createdAt: '2026-01-02' },
+            { title: 'Ana joined as First Officer', auto: true, kind: 'joined', createdAt: '2026-01-03' },
+            { title: 'Luis made Captain', auto: true, kind: 'promotion', createdAt: '2026-01-04' },
+            { title: 'A draft nobody published', auto: false, status: 'draft' },
+            { title: '', auto: true, kind: 'joined' },
+        ] };
+        const { feed, calls } = loadFeed({ '/announcements': { body: BOARD } });
+        const pulse = await feed.activity();
+        ok('activity keeps only what the crew center wrote', pulse.length === 2, JSON.stringify(pulse.map(r => r.title)));
+        ok('…and carries the kind, so a page can pick an icon', pulse[0].kind === 'joined', pulse[0].kind);
+        ok('activity can be narrowed to one kind', (await feed.activity({ kind: 'promotion' })).length === 1);
+        const written = await feed.notices({ written: true });
+        ok('notices({written}) keeps only what a person typed', written.length === 1 && written[0].title === 'Winter schedule is up');
+        const both = await feed.notices();
+        ok('a bare notices() is unchanged — the board as the crew center reads it', both.length === 3);
+        ok('a draft never reaches either', both.every((n) => n.title !== 'A draft nobody published'));
+        ok('one fetch feeds the wall, the pulse and the board', calls.length === 1, calls.join(' '));
+    }
+    {
+        // The refusal that matters. `posts` ends up in an iframe src, so a code
+        // the backend sent that is not a shortcode must not survive the reader —
+        // even though the backend is supposed to have refused it first.
+        const { feed } = loadFeed({ '/social': { body: { handle: 'aeromexicovirtual', posts: [
+            { kind: 'p', code: 'ABC123_-x' },
+            { kind: 'reel', code: 'XY9' },
+            { kind: 'p', code: '../../evil' },
+            { kind: 'javascript', code: 'alert' },
+            { kind: 'p', code: 'a b' },
+        ] } } });
+        const wall = await feed.posts();
+        ok('the wall keeps the posts that are posts', wall.length === 2, JSON.stringify(wall.map(p => p.code)));
+        ok('a code that is not a shortcode is dropped', !wall.some((p) => /evil|alert| /.test(p.code)));
+        ok('the embed address is rebuilt here, not echoed',
+            wall[0].embedUrl === 'https://www.instagram.com/p/ABC123_-x/embed/', wall[0].embedUrl);
+        ok('…and the canonical link too', wall[0].url === 'https://www.instagram.com/p/ABC123_-x/');
+        ok('the handle rides along for a follow line', wall[0].handle === 'aeromexicovirtual');
+        ok('handle() answers on its own', (await feed.handle()) === 'aeromexicovirtual');
+    }
+    {
+        const { feed } = loadFeed({ '/social': { body: { handle: '', posts: [] } } });
+        ok('a VA with no wall resolves null, so the site keeps its own markup', (await feed.posts()) === null);
+        ok('…and no handle resolves null too', (await feed.handle()) === null);
+    }
+    {
+        const { feed } = loadFeed({});   // every fetch rejects
+        ok('a quiet backend leaves the wall null', (await feed.posts()) === null);
+        ok('…and the pulse null', (await feed.activity()) === null);
+    }
+
+    section('crew-feed.js — the airline’s identity');
+    {
+        // The directory record, as /api/va-ads/by-slug returns it — including
+        // the two things that must NOT come out the other side.
+        const BRAND = {
+            name: 'Ocean Virtual', code: 'OCN', tagline: 'The long way round.',
+            logo: 'https://cdn.test/logo.png',
+            banner: 'http://cdn.test/banner.jpg',          // not https
+            accent: '#14375e',
+            ranks: [
+                { name: 'Captain', minHours: 120, color: '#c00', icon: 'star', image: 'https://cdn.test/cap.png' },
+                { name: 'Cadet', minHours: 0, color: 'not-a-colour' },
+                { name: 'First Officer', minHours: 40, image: 'javascript:alert(1)' },
+                { name: '' },
+            ],
+            fleet: [
+                { type: 'Boeing 787-10 Dreamliner', name: 'Ocean', image: 'https://cdn.test/789.jpg' },
+                { type: '', name: '' },
+            ],
+            roles: [{ name: 'Events', color: '#0a0' }],
+            join: { minGrade: 3, callsignPrefix: 'OCN', discordInvite: 'https://discord.gg/abc' },
+            supabase: { url: 'https://x.supabase.co', anonKey: 'ey.SECRETISH' },
+        };
+        const { feed, calls } = loadFeed({ '/api/va-ads/by-slug/amv': { body: BRAND } });
+
+        const b = await feed.brand();
+        ok('the airline names itself', b.name === 'Ocean Virtual' && b.code === 'OCN');
+        ok('an https logo comes through', b.logo === 'https://cdn.test/logo.png', b.logo);
+        ok('a plain-http banner does not', b.banner === '', JSON.stringify(b.banner));
+        ok('the join details a public page can use are there',
+            b.callsignPrefix === 'OCN' && b.minGrade === 3 && /discord\.gg/.test(b.discord));
+        // The anon key is not a secret and it is still not a website's business.
+        ok('the Supabase block never leaves', b.supabase === undefined && !JSON.stringify(b).includes('SECRETISH'));
+
+        const ladder = await feed.ranks();
+        ok('the ladder reads upward whatever order it was stored in',
+            ladder.map(r => r.name).join(' < ') === 'Cadet < First Officer < Captain',
+            ladder.map(r => r.name).join(','));
+        ok('a rank with no name is dropped', ladder.length === 3, String(ladder.length));
+        ok('hours become a phrase a page can print', ladder[2].from === '120 hours', ladder[2].from);
+        ok('the first rung says nothing rather than “0 hours”', ladder[0].from === '', JSON.stringify(ladder[0].from));
+        ok('a colour that is not one is dropped', ladder[0].color === '', JSON.stringify(ladder[0].color));
+        // A badge goes in an <img src>. This is the one that matters.
+        ok('a javascript: badge never survives', ladder[1].image === '', JSON.stringify(ladder[1].image));
+        ok('a real badge does', ladder[2].image === 'https://cdn.test/cap.png');
+
+        const air = await feed.fleet();
+        ok('the fleet reads as aircraft and livery, not type and name',
+            air[0].aircraft === 'Boeing 787-10 Dreamliner' && air[0].livery === 'Ocean');
+        ok('a half-typed fleet row is dropped', air.length === 1, String(air.length));
+        ok('roles come through as definitions', (await feed.roles())[0].name === 'Events');
+
+        ok('one request serves brand, ranks, fleet and roles', calls.length === 1, calls.join(' '));
+        ok('…and it is the directory record, not a crew endpoint',
+            /\/api\/va-ads\/by-slug\/amv$/.test(calls[0]), calls[0]);
+    }
+    {
+        const { feed } = loadFeed({});   // every fetch rejects
+        ok('a quiet backend leaves the brand null', (await feed.brand()) === null);
+        ok('…and the ladder null', (await feed.ranks()) === null);
+    }
+
+    section('crew-feed.js — an image field most rows will not have');
+    {
+        const { feed } = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', ranks: [
+            { name: 'Cadet', minHours: 0 },
+            { name: 'Captain', minHours: 120, image: 'https://cdn.test/cap.png' },
+        ] } } });
+        const ladder = await feed.ranks();
+        ok('a rank with a badge carries it', ladder[1].image === 'https://cdn.test/cap.png');
+        // fill() leaves an absent field empty, and <img src=""> is a broken
+        // image icon in every browser. paintList strips those; keeping the rows
+        // in one column afterwards is the template's job, with :has(img).
+        ok('a rank without one carries an empty string, never undefined',
+            ladder[0].image === '', JSON.stringify(ladder[0].image));
+    }
+
     section('crew-feed.js — painting somebody else’s page');
     {
         const { feed } = loadFeed({});
