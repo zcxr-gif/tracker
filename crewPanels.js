@@ -311,11 +311,31 @@
      * ------------------------------------------------------------------- */
     let lockCount = 0;
     let lockedScrollY = 0;
+    let lockedHeight = '';
 
     function lockScroll() {
         if (lockCount++ > 0) return;
         lockedScrollY = window.scrollY || 0;
         const b = document.body;
+        // PIN THE HEIGHT BEFORE GOING OUT OF FLOW.
+        //
+        // `position:fixed` does not only move the body, it changes what a
+        // percentage height on it resolves against: in flow that is <html>,
+        // which has no height, so `height:100%` means `auto` and the body
+        // keeps its content height. Fixed, it is the initial containing block,
+        // which is exactly one screen tall — so the same rule that was a no-op
+        // a moment ago collapses the document to a single viewport and, with
+        // `top:-<scrollY>` already applied, parks it above the screen.
+        //
+        // The framed crew center had such a rule (crewBridge's embed shell),
+        // and the result was every panel opening onto a blank frame: the sheet
+        // itself is fixed and drew fine, but the entire page behind it had
+        // gone. That rule is gone too, but this is the half that holds for a
+        // VA's own stylesheet, a future host shell, or anything else that ever
+        // sets a percentage height on the body. The lock's job is to stop the
+        // page scrolling, never to resize it.
+        lockedHeight = b.style.height;
+        b.style.height = b.getBoundingClientRect().height + 'px';
         b.style.position = 'fixed';
         b.style.top = `-${lockedScrollY}px`;
         b.style.left = '0';
@@ -332,6 +352,8 @@
         b.style.left = '';
         b.style.right = '';
         b.style.width = '';
+        b.style.height = lockedHeight;
+        lockedHeight = '';
         // position:fixed dropped the page to the top; put it back where the
         // reader was, or opening a panel becomes a way to lose your place.
         window.scrollTo(0, lockedScrollY);
