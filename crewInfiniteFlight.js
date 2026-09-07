@@ -131,6 +131,14 @@
         .cai{ width:3.75rem; height:2.25rem; border-radius:.35rem; object-fit:cover;
             background:var(--line,#e5e5e5); flex:0 0 auto; display:block; }
         .cif-idrow{ display:flex; align-items:center; gap:.6rem; min-width:0; }
+        /* The photographer's line. Only ever visible on a row whose silhouette
+           was replaced by somebody's real photograph — crewAircraftImage.js
+           unhides it, and only then. Small and faint on purpose: it is a debt
+           being paid, not a caption competing with the registration. */
+        .cai-credit{ display:block; font-size:.66rem; line-height:1.3; color:var(--faint,#A8A296);
+            margin-top:.15rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .cai-credit a{ color:inherit; text-decoration:underline; text-underline-offset:2px; }
+        .cai-credit a:hover{ color:var(--accent,#1C1A16); }
         .cif-row-top{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; }
         .cif-reg{ font-weight:700; letter-spacing:-.01em; color:var(--ink,#1C1A16); }
         .cif-rank{ font-size:.7rem; color:var(--faint,#A8A296); font-weight:600; }
@@ -205,6 +213,17 @@
      */
     const picture = (a) => (window.CrewAircraftImage
         ? window.CrewAircraftImage.img(a || {})
+        : '');
+
+    /* Whose photograph it is.
+     *
+     * Empty and hidden until a real Planespotters photo actually replaces the
+     * silhouette, which for most of a VA's fleet is never — so a board of
+     * invented registrations gains nothing at all. Placed by the caller rather
+     * than emitted next to the picture, because in a row the credit belongs
+     * under the aircraft type and in a tile it belongs under the image. */
+    const pictureCredit = (a) => (window.CrewAircraftImage && window.CrewAircraftImage.creditSlot
+        ? window.CrewAircraftImage.creditSlot(a || {})
         : '');
 
     const chip = (text, tone) => (text
@@ -761,6 +780,7 @@
                         <span class="cif-reg">${esc(a.registration || 'Unregistered')}</span>
                         ${a.fleetRank ? `<span class="cif-rank"> · #${esc(String(a.fleetRank))} in fleet</span>` : ''}
                         ${a.type && a.type.name ? `<div class="cp-note cp-faint">${esc(a.type.name)}${a.type.livery ? ' · ' + esc(a.type.livery) : ''}</div>` : ''}
+                        ${pictureCredit(a)}
                     </div>
                 </div>
                 <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
@@ -999,6 +1019,7 @@
                         <span class="cif-reg">${esc(r.registration || 'Unregistered')}</span>
                         ${r.fleetRank ? `<span class="cif-rank"> · #${esc(String(r.fleetRank))}</span>` : ''}
                         ${r.type && r.type.name ? `<div class="cp-note cp-faint">${esc(r.type.name)}</div>` : ''}
+                        ${pictureCredit(r)}
                     </div>
                 </div>
                 <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
@@ -1493,6 +1514,7 @@
             : (p && p.hasFix && !p.stale) ? 'gnd' : 'off';
         return `<div class="cif-tile">
             ${picture(a)}
+            ${pictureCredit(a)}
             <b>${esc(a.registration || 'Unregistered')}</b>
             <small><span class="cif-dot cif-dot-${dot}"></span>
                 ${live ? esc(live.callsign || 'Flying now')
