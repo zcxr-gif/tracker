@@ -162,6 +162,20 @@
             </p>
         </div>
 
+        <!-- PICTURES.
+
+             Its own panel rather than a field buried in one section, because a
+             picture gets used in several places and is uploaded once. This is
+             the door; the sheet it opens is the library. -->
+        <div class="surface rounded-xl p-3">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs font-bold uppercase tracking-wide muted">Pictures</p>
+                <button id="mediaBtn" class="text-xs font-semibold accent-text" type="button">Open</button>
+            </div>
+            <div id="mediaStrip" class="grid grid-cols-4 gap-1.5"></div>
+            <p id="mediaUsage" class="text-[11px] faint mt-2"></p>
+        </div>
+
         <div class="surface rounded-xl p-3">
             <p class="text-xs font-bold uppercase tracking-wide muted mb-2">Look</p>
             <button id="designBtn" class="w-full flex items-center gap-3 text-left p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" type="button">
@@ -511,6 +525,7 @@
         renderBlocks();
         renderForm();
         renderLook();
+        renderMedia();
         renderVersions();
         renderPreviewPages();
         icons();
@@ -657,6 +672,7 @@
                         <span class="js-sum block text-[11px] muted truncate">${esc(blockSummary(b, def))}</span>
                     </span>
                 </button>
+                <button type="button" data-dup="${i}" class="shrink-0 muted hover:accent-text" title="Make a copy of this section"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
                 <span class="flex flex-col shrink-0">
                     <button type="button" data-up="${i}" class="muted hover:accent-text leading-none" title="Move up"><i data-lucide="chevron-up" class="w-3.5 h-3.5"></i></button>
                     <button type="button" data-down="${i}" class="muted hover:accent-text leading-none" title="Move down"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>
@@ -669,6 +685,7 @@
         }));
         $('blockList').querySelectorAll('[data-up]').forEach(el => el.addEventListener('click', () => moveBlock(+el.getAttribute('data-up'), -1)));
         $('blockList').querySelectorAll('[data-down]').forEach(el => el.addEventListener('click', () => moveBlock(+el.getAttribute('data-down'), 1)));
+        $('blockList').querySelectorAll('[data-dup]').forEach(el => el.addEventListener('click', () => duplicateBlock(+el.getAttribute('data-dup'))));
         wireDrag();
     }
 
@@ -682,6 +699,29 @@
         const first = named || (def.fields.find(f => (f.type === 'line' || f.type === 'text') && b.props[f.key]) || {}).key;
         if (first) return String(b.props[first]).split('\n')[0].slice(0, 60);
         return def.live ? 'From your crew center' : def.note;
+    }
+
+    /* A COPY OF THIS SECTION, DIRECTLY UNDER IT.
+     *
+     * The cheapest way to build a page: get one section right, then copy it
+     * three times and change the words. Everything comes with it including the
+     * background picture — the copy is a copy, not a fresh block of the same
+     * type, which is what "duplicate" means everywhere else.
+     *
+     * The id is new. Two sections sharing one id is two sections the editor
+     * cannot tell apart, and every open/select/delete would hit the first. */
+    function duplicateBlock(i) {
+        const blocks = page().blocks;
+        const src = blocks[i];
+        if (!src) return;
+        if (blocks.length >= ((CAT.builder.limits && CAT.builder.limits.blocks) || 30)) {
+            return toast('That is as many sections as one page holds.', 'bad');
+        }
+        const copy = JSON.parse(JSON.stringify(src));
+        copy.id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        blocks.splice(i + 1, 0, copy);
+        openBlock = copy.id;
+        queueSave(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
     }
 
     function moveBlock(i, dir) {
@@ -774,7 +814,23 @@
         }
         $('formTitle').textContent = def.label;
         $('formNote').textContent = def.note;
-        $('form').innerHTML = def.fields.map(f => fieldHtml(f, b.props[f.key])).join('');
+        /* THE SECTION'S OWN FIELDS, THEN THE ONES EVERY SECTION HAS.
+         *
+         * The background controls arrive on every block from the server, and
+         * putting them inline would end a four-field form with four more that
+         * are the same on every section — so they are folded into a disclosure
+         * at the bottom. Open when a picture is already set, because then they
+         * are the fields somebody came here to change. */
+        const own = def.fields.filter(f => f.group !== 'background');
+        const bg = def.fields.filter(f => f.group === 'background');
+        $('form').innerHTML = own.map(f => fieldHtml(f, b.props[f.key])).join('')
+            + (bg.length ? `
+                <details class="border-t hair pt-3 mt-3" ${b.props.bgImage ? 'open' : ''}>
+                    <summary class="text-xs font-bold uppercase tracking-wide muted cursor-pointer">
+                        Picture behind this section${b.props.bgImage ? ' <span class="accent-text normal-case">· on</span>' : ''}
+                    </summary>
+                    <div class="space-y-3 mt-3">${bg.map(f => fieldHtml(f, b.props[f.key])).join('')}</div>
+                </details>` : '');
         if (def.live) {
             $('liveNote').textContent = 'The rows in this section are read from your crew center every time somebody opens the page. You choose the heading and how many; the airline fills in the rest.';
             $('liveNote').classList.remove('hidden');
@@ -821,10 +877,33 @@
                 <button type="button" data-list-add="${esc(f.key)}" class="btn-quiet text-xs py-1.5 mt-2 w-full" ${full ? 'disabled' : ''}>
                     + Add${full ? ' (that is the limit)' : ''}</button>${help}</div>`;
         }
-        // line, url, image
-        const thumb = f.type === 'image' && val
-            ? `<img src="${esc(val)}" alt="" class="mt-1.5 rounded-lg border hair max-h-24">` : '';
-        return `<label class="block">${label}<input type="text" data-k="${esc(f.key)}" class="field${f.type === 'url' || f.type === 'image' ? ' font-mono text-xs' : ''}" value="${esc(val)}"${ph}>${thumb}${help}</label>`;
+        /* AN IMAGE FIELD IS A PICKER, NOT A BOX FOR A URL.
+         *
+         * The address is still there, under a disclosure, because a VA who
+         * already hosts their pictures somewhere should not have to re-upload
+         * them to use this. But it is no longer the first thing offered: asking
+         * somebody to paste a URL is asking them to go and find one, and that is
+         * the step at which most people stop putting pictures on their site. */
+        if (f.type === 'image') {
+            return `<div>${label}
+                <div class="rounded-xl border hair overflow-hidden">
+                    ${val
+                        ? `<img src="${esc(val)}" alt="" class="block w-full max-h-40 object-cover">`
+                        : '<div class="h-20 grid place-items-center text-[11px] muted">No picture</div>'}
+                    <div class="flex gap-2 p-2">
+                        <button type="button" data-img-pick="${esc(f.key)}" class="btn-quiet text-xs py-1.5 flex-1">
+                            ${val ? 'Change' : 'Choose a picture'}
+                        </button>
+                        ${val ? `<button type="button" data-img-clear="${esc(f.key)}" class="btn-quiet text-xs py-1.5">Remove</button>` : ''}
+                    </div>
+                </div>
+                <details class="mt-1.5">
+                    <summary class="text-[11px] muted cursor-pointer">…or paste an address</summary>
+                    <input type="text" data-k="${esc(f.key)}" class="field font-mono text-xs mt-1" value="${esc(val)}"${ph}>
+                </details>${help}</div>`;
+        }
+        // line, url
+        return `<label class="block">${label}<input type="text" data-k="${esc(f.key)}" class="field${f.type === 'url' ? ' font-mono text-xs' : ''}" value="${esc(val)}"${ph}>${help}</label>`;
     }
 
     function subFieldHtml(listKey, i, f, val) {
@@ -838,7 +917,20 @@
         if (f.type === 'text') {
             return `<label class="block mb-1.5">${label}<textarea ${attrs} rows="2" class="field text-xs">${esc(val)}</textarea></label>`;
         }
-        return `<label class="block mb-1.5">${label}<input type="text" ${attrs} class="field text-xs py-1.5${f.type === 'url' || f.type === 'image' ? ' font-mono' : ''}" value="${esc(val)}"${f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : ''}></label>`;
+        if (f.type === 'image') {
+            return `<div class="mb-1.5">${label}
+                <div class="flex items-center gap-2">
+                    <span class="w-12 h-9 rounded-md border hair overflow-hidden shrink-0 grid place-items-center bg-black/5 dark:bg-white/5">
+                        ${val ? `<img src="${esc(val)}" alt="" class="w-full h-full object-cover">` : '<i data-lucide="image" class="w-3.5 h-3.5 faint"></i>'}
+                    </span>
+                    <button type="button" data-img-pick="${esc(f.key)}" data-img-list="${esc(listKey)}" data-img-i="${i}"
+                        class="btn-quiet text-xs py-1.5 flex-1">${val ? 'Change' : 'Choose'}</button>
+                    ${val ? `<button type="button" data-img-clear="${esc(f.key)}" data-img-list="${esc(listKey)}" data-img-i="${i}"
+                        class="btn-quiet text-xs py-1.5">Remove</button>` : ''}
+                </div>
+                <input type="text" ${attrs} class="field text-xs py-1 mt-1 font-mono" value="${esc(val)}" placeholder="https://…"></div>`;
+        }
+        return `<label class="block mb-1.5">${label}<input type="text" ${attrs} class="field text-xs py-1.5${f.type === 'url' ? ' font-mono' : ''}" value="${esc(val)}"${f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : ''}></label>`;
     }
 
     function wireForm(b) {
@@ -864,6 +956,33 @@
             queueSave();
         };
         form.onclick = (e) => {
+            /* THE PICTURE PICKER.
+             *
+             * Sets the value the same way typing into the address box under it
+             * would — one path in, so a picture chosen from the library and a
+             * URL pasted by hand cannot end up handled differently. */
+            const pick = e.target.closest('[data-img-pick]');
+            const clear = e.target.closest('[data-img-clear]');
+            if (pick || clear) {
+                const el = pick || clear;
+                const key = el.getAttribute('data-img-pick') || el.getAttribute('data-img-clear');
+                const listKey = el.getAttribute('data-img-list');
+                const i = +el.getAttribute('data-img-i');
+                const set = (url) => {
+                    if (listKey) {
+                        b.props[listKey] = b.props[listKey] || [];
+                        b.props[listKey][i] = b.props[listKey][i] || {};
+                        b.props[listKey][i][key] = url;
+                    } else {
+                        b.props[key] = url;
+                    }
+                    queueSave(); renderForm(); refreshPreview(true);
+                };
+                if (clear) set('');
+                else openMedia((url) => set(url));
+                return;
+            }
+
             const add = e.target.closest('[data-list-add]');
             if (add) {
                 const key = add.getAttribute('data-list-add');
@@ -1046,6 +1165,245 @@
         icons();
     }
 
+    /* =====================================================================
+     * PICTURES
+     *
+     * A library per site, on our storage, uploaded once and used anywhere.
+     *
+     * TWO THINGS THIS DOES NOT DO, ON PURPOSE
+     *
+     * It does not upload on drop into a section. A picture belongs to the
+     * airline, not to the paragraph it happens to sit next to — a VA who
+     * uploads a photograph into their hero and then wants it on the fleet page
+     * should not upload it twice.
+     *
+     * And it does not stop you deleting a picture a section is still using.
+     * The section keeps the address, the <img> 404s, and the VA can see that
+     * and fix it. Quietly emptying somebody's hero because they tidied their
+     * library is a worse surprise than a missing picture in front of them.
+     * =================================================================== */
+    const KB = (n) => (n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+
+    /** Multipart, so this cannot go through api() — that one is JSON. */
+    async function uploadPicture(file) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('name', (file.name || 'Picture').replace(/\.[a-z0-9]+$/i, ''));
+        const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(SLUG)}/site/media`, {
+            method: 'POST',
+            // No Content-Type: the browser sets it, with the multipart boundary.
+            headers: { Accept: 'application/json', Authorization: 'Bearer ' + TOKEN },
+            body: form,
+        });
+        let data = null;
+        try { data = await res.json(); } catch { /* not every error is JSON */ }
+        if (!res.ok) throw new Error((data && data.error) || 'That picture would not upload.');
+        return data;
+    }
+
+    /** Upload a list of files one at a time, reporting as it goes.
+     *
+     *  One at a time rather than all at once: each upload is a sharp pipeline on
+     *  the server, and firing six in parallel is how you turn a slow request
+     *  into a failed one. It also means a batch that hits the quota stops at the
+     *  picture that hit it, with the ones before it already saved. */
+    async function uploadPictures(files) {
+        const list = Array.prototype.slice.call(files || []).filter(f => /^image\//.test(f.type || ''));
+        if (!list.length) { toast('Those were not pictures.', 'bad'); return; }
+        let done = 0;
+        for (const file of list) {
+            toast(list.length > 1 ? `Uploading ${done + 1} of ${list.length}…` : 'Uploading…');
+            try {
+                SITE = await uploadPicture(file);
+                done += 1;
+            } catch (err) {
+                renderMedia();
+                toast(err.message, 'bad');
+                break;
+            }
+        }
+        renderMedia();
+        renderPreviewPages();
+        if (done) toast(done === 1 ? 'Picture added.' : `${done} pictures added.`);
+    }
+
+    const mediaList = () => (SITE && SITE.media) || [];
+
+    /** The strip in the sidebar: the last few, and the room left. */
+    function renderMedia() {
+        const all = mediaList();
+        const strip = $('mediaStrip');
+        if (!strip) return;
+        strip.innerHTML = all.slice(0, 8).map(m => `
+            <button type="button" data-media-open="${esc(m.id)}" class="aspect-square rounded-lg overflow-hidden border hair"
+                title="${esc(m.name || 'Picture')}">
+                <img src="${esc(m.url)}" alt="" loading="lazy" class="w-full h-full object-cover">
+            </button>`).join('')
+            || '<p class="col-span-4 text-[11px] muted py-2">No pictures yet.</p>';
+        strip.querySelectorAll('[data-media-open]').forEach(el =>
+            el.addEventListener('click', () => openMedia()));
+
+        const u = (SITE && SITE.usage) || {};
+        const l = (SITE && SITE.limits) || {};
+        $('mediaUsage').textContent = l.media
+            ? `${u.media || 0} of ${l.media} · ${KB(u.mediaBytes || 0)} of ${KB(l.mediaBytes || 0)}`
+            : '';
+        if (mediaPicking !== null) renderMediaSheet();
+    }
+
+    /* When this holds a function, the library is being used to CHOOSE a
+     * picture for a field rather than to manage the collection, and a tile is a
+     * pick rather than a selection. Null means the library is just open. */
+    let mediaPicking = null;
+
+    function openMedia(onPick) {
+        mediaPicking = onPick || null;
+        openSheet('<div id="mediaSheet"></div>');
+        renderMediaSheet();
+        wireMediaSheet();
+    }
+
+    function renderMediaSheet() {
+        const host = $('mediaSheet');
+        if (!host) return;
+        const all = mediaList();
+        const u = (SITE && SITE.usage) || {};
+        const l = (SITE && SITE.limits) || {};
+        const full = (u.media || 0) >= (l.media || 0);
+        const picking = typeof mediaPicking === 'function';
+
+        host.innerHTML = `
+            <div class="flex items-start justify-between gap-3 mb-1">
+                <h2 class="text-lg font-bold tracking-tight">${picking ? 'Choose a picture' : 'Your pictures'}</h2>
+                <button id="mdClose" class="text-xs font-semibold muted hover:accent-text shrink-0" type="button">Close</button>
+            </div>
+            <p class="text-xs muted mb-4">
+                Uploaded once and used anywhere on your site. Everything is resized and re-encoded,
+                so a photograph off a phone lands at about a tenth of what it arrived as.
+                ${l.media ? `<span class="faint">${u.media || 0} of ${l.media} · ${KB(u.mediaBytes || 0)} of ${KB(l.mediaBytes || 0)}</span>` : ''}
+            </p>
+
+            <div id="mdDrop" class="rounded-xl border-2 border-dashed hair p-5 text-center mb-4 ${full ? 'opacity-50' : ''}">
+                <p class="text-sm font-semibold">${full ? 'That is the limit' : 'Drop pictures here'}</p>
+                <p class="text-[11px] muted mt-1">
+                    ${full ? 'Delete one you are not using to make room.' : 'JPEG, PNG, WebP, GIF or AVIF — up to 15 MB each.'}
+                </p>
+                ${full ? '' : `<button type="button" id="mdPick" class="btn-quiet text-xs py-1.5 mt-3">Choose files</button>
+                <input type="file" id="mdFile" accept="image/*" multiple class="hidden">`}
+            </div>
+
+            ${picking ? `<button type="button" id="mdNone" class="btn-quiet text-xs py-1.5 mb-3 w-full">Use no picture</button>` : ''}
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                ${all.map(m => `
+                <div class="row overflow-hidden">
+                    <button type="button" data-pick="${esc(m.id)}" class="block w-full aspect-[4/3] bg-black/5 dark:bg-white/5">
+                        <img src="${esc(m.url)}" alt="" loading="lazy" class="w-full h-full object-cover">
+                    </button>
+                    <div class="p-2">
+                        <input type="text" data-md-name="${esc(m.id)}" value="${esc(m.name || '')}"
+                            class="field text-xs py-1 mb-1" placeholder="Name it">
+                        <input type="text" data-md-alt="${esc(m.id)}" value="${esc(m.alt || '')}"
+                            class="field text-xs py-1" placeholder="Describe it for a screen reader">
+                        <div class="flex items-center justify-between mt-1.5">
+                            <span class="text-[10px] faint">${m.width}×${m.height} · ${KB(m.bytes || 0)}</span>
+                            <button type="button" data-md-del="${esc(m.id)}"
+                                class="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Delete</button>
+                        </div>
+                    </div>
+                </div>`).join('')
+                || '<p class="col-span-full text-sm muted py-6 text-center">Nothing here yet. Drop a picture above.</p>'}
+            </div>`;
+        icons();
+    }
+
+    function wireMediaSheet() {
+        const host = $('mediaSheet');
+        if (!host) return;
+
+        host.addEventListener('click', async (e) => {
+            const t = e.target.closest ? e.target.closest('[data-pick],[data-md-del],#mdClose,#mdPick,#mdNone') : null;
+            if (!t) return;
+
+            if (t.id === 'mdClose') { mediaPicking = null; closeSheet(); return; }
+            if (t.id === 'mdPick') { const f = $('mdFile'); if (f) f.click(); return; }
+            if (t.id === 'mdNone') {
+                const pick = mediaPicking; mediaPicking = null; closeSheet();
+                if (pick) pick('');
+                return;
+            }
+
+            const pickId = t.getAttribute('data-pick');
+            if (pickId) {
+                const row = mediaList().find(m => m.id === pickId);
+                if (!row) return;
+                if (typeof mediaPicking === 'function') {
+                    const pick = mediaPicking; mediaPicking = null; closeSheet();
+                    pick(row.url, row);
+                }
+                return;
+            }
+
+            const delId = t.getAttribute('data-md-del');
+            if (delId) {
+                const row = mediaList().find(m => m.id === delId);
+                const used = countUses(row && row.url);
+                const warn = used
+                    ? `\n\nIt is used in ${used} ${used === 1 ? 'section' : 'sections'}. Those will show a missing picture until you change them.`
+                    : '';
+                if (!confirm(`Delete "${(row && row.name) || 'this picture'}"? This cannot be undone.${warn}`)) return;
+                try {
+                    SITE = await api('/media', { method: 'DELETE', body: { id: delId } });
+                    renderMedia();
+                    toast('Picture deleted.');
+                } catch (err) { toast(err.message, 'bad'); }
+            }
+        });
+
+        // Renaming and describing. 'change', not 'input': every keystroke would
+        // be a request, and neither field is worth one.
+        host.addEventListener('change', async (e) => {
+            const el = e.target;
+            const id = el.getAttribute('data-md-name') || el.getAttribute('data-md-alt');
+            if (!id) return;
+            const key = el.hasAttribute('data-md-name') ? 'name' : 'alt';
+            try {
+                const body = { id }; body[key] = el.value;
+                SITE = await api('/media/describe', { method: 'POST', body });
+            } catch (err) { toast(err.message, 'bad'); }
+        });
+
+        const file = $('mdFile');
+        if (file) file.addEventListener('change', () => { uploadPictures(file.files); file.value = ''; });
+
+        const drop = $('mdDrop');
+        if (drop) {
+            ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, (e) => {
+                e.preventDefault(); drop.classList.add('accent-border');
+            }));
+            ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, (e) => {
+                e.preventDefault(); drop.classList.remove('accent-border');
+            }));
+            drop.addEventListener('drop', (e) => {
+                if (e.dataTransfer && e.dataTransfer.files) uploadPictures(e.dataTransfer.files);
+            });
+        }
+    }
+
+    /** How many sections point at this address. Used only to warn before a
+     *  delete — the delete happens either way. */
+    function countUses(url) {
+        if (!url || !doc) return 0;
+        let n = 0;
+        const scan = (v) => {
+            if (typeof v === 'string') { if (v === url) n += 1; return; }
+            if (Array.isArray(v)) { v.forEach(scan); return; }
+            if (v && typeof v === 'object') Object.keys(v).forEach(k => scan(v[k]));
+        };
+        doc.pages.forEach(pg => pg.blocks.forEach(b => scan(b.props)));
+        return n;
+    }
+
     /* ---- Saving ---------------------------------------------------------- */
     function queueSave() {
         clearTimeout(saveTimer);
@@ -1205,6 +1563,9 @@
     function closeSheet() {
         $('sheet').classList.add('hidden');
         document.body.style.overflow = '';
+        // A picker left armed would fire on the NEXT thing opened from the
+        // library, which is a picture landing in a field nobody was editing.
+        mediaPicking = null;
     }
 
     /* ---- Wiring ----------------------------------------------------------- */
@@ -1220,6 +1581,7 @@
         $('addPageBtn').addEventListener('click', addPage);
         $('addBlockBtn').addEventListener('click', addBlock);
         $('designBtn').addEventListener('click', openDesigns);
+        $('mediaBtn').addEventListener('click', () => openMedia());
         $('blockDeleteBtn').addEventListener('click', () => {
             const p = page();
             const i = p.blocks.findIndex(x => x.id === openBlock);

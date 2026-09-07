@@ -892,6 +892,20 @@
      * Nothing is ever filled with 0 as a stand-in for "we did not find out".
      * =================================================================== */
     function paintStats(figures, root) {
+        /* NULL IS NOT AN EMPTY ANSWER.
+         *
+         * `null` from stats() means we never found out — offline, slow, backend
+         * down. An OBJECT without a key means the crew centre genuinely does not
+         * hold that figure. Those are opposite instructions and this function
+         * used to treat them the same, so a backend that was down for thirty
+         * seconds stripped the whole figures band off every hosted site: the
+         * exact failure the rule at the top of this file exists to prevent.
+         *
+         * A page must already be correct before this script runs, and when we
+         * have learned nothing the correct thing is to change nothing.
+         */
+        if (figures === null || figures === undefined) return;
+
         var scope = root || document;
         var slots = scope.querySelectorAll('[data-crew-stat]');
 
@@ -938,6 +952,17 @@
     var BRAND_URL_FIELDS = { logo: 1, banner: 1, website: 1, discord: 1 };
 
     function paintBrand(b, root) {
+        /* NULL IS NOT AN EMPTY ANSWER — the same distinction paintStats makes,
+         * and the consequence here is worse. A [data-crew-brand="name"] element
+         * carries the airline's OWN NAME as the text between its tags, so
+         * treating an unreachable backend as "the VA has no name" deleted the
+         * wordmark out of the header of every page on the site.
+         *
+         * A field genuinely absent from a brand record we DID receive is still
+         * removed: there is no honest placeholder for a logo an airline has not
+         * uploaded, which is the rule the removal exists for. */
+        if (b === null || b === undefined) return;
+
         var scope = root || document;
         var slots = scope.querySelectorAll('[data-crew-brand]');
         if (!slots.length) return;

@@ -544,6 +544,59 @@ const ROUTES = [
         ok('a section that needs a figure is removed when there is none', root.children.indexOf(when) === -1);
     }
     {
+        /* NULL IS NOT AN EMPTY ANSWER.
+         *
+         * A backend that is down for thirty seconds must not strip the figures
+         * band off a VA's website. `null` means we never found out; an object
+         * without a key means the crew centre does not hold that figure. Those
+         * are opposite instructions, and treating them the same is how a page
+         * goes blank because a fetch timed out. */
+        const { feed } = loadFeed({});
+        const root = makeEl('div');
+        const figure = root.appendChild(makeEl('div', { 'data-crew-figure': '' }));
+        const b = figure.appendChild(makeEl('b', { 'data-crew-stat': 'pilots' }));
+        b.textContent = '—';
+        const when = root.appendChild(makeEl('section', { 'data-crew-when': 'pireps' }));
+
+        feed.paintStats(null, root);
+        ok('a backend we could not reach leaves every figure alone',
+            root.children.indexOf(figure) === 0 && b.textContent === '—');
+        ok('…and leaves the section that needed one', root.children.indexOf(when) === 1);
+
+        // And the whole automatic pass, not just the painter: mount() must not
+        // hand a null through to it either.
+        const host = makeEl('div');
+        const fig2 = host.appendChild(makeEl('div', { 'data-crew-figure': '' }));
+        fig2.appendChild(makeEl('b', { 'data-crew-stat': 'pilots' }));
+        await feed.mount({
+            querySelector: (sel) => (/data-crew-stat/.test(sel) ? fig2 : null),
+            querySelectorAll: (sel) => (/data-crew-stat/.test(sel) ? [fig2] : []),
+        });
+        ok('…and the automatic pass does not either', host.children.length === 1);
+    }
+    {
+        /* The same distinction for the brand, where getting it wrong is worse:
+         * [data-crew-brand="name"] holds the airline's OWN NAME between its
+         * tags, so a backend blip used to delete the wordmark out of the header
+         * of every page. */
+        const { feed } = loadFeed({});
+        const bar = makeEl('div');
+        const name = bar.appendChild(makeEl('span', { 'data-crew-brand': 'name' }));
+        name.textContent = 'Ocean Virtual';
+        feed.paintBrand(null, bar);
+        ok('a backend we could not reach leaves the wordmark alone',
+            bar.children.indexOf(name) === 0 && name.textContent === 'Ocean Virtual');
+
+        // A field genuinely absent from a record we DID receive still goes:
+        // there is no honest placeholder for a logo nobody uploaded.
+        const bar2 = makeEl('div');
+        const holder = bar2.appendChild(makeEl('span', { 'data-crew-figure': '' }));
+        holder.appendChild(makeEl('img', { 'data-crew-brand': 'logo' }));
+        feed.paintBrand({ name: 'Ocean Virtual', logo: '' }, bar2);
+        ok('…but a logo the airline has not uploaded still takes its holder with it',
+            bar2.children.length === 0);
+    }
+    {
         const { feed } = loadFeed({ '/routes': { body: { routes: [
             { origin: 'MMMX', destination: 'KJFK', aircraft: 'B789', active: true, notes: '<b>hi</b>' },
         ] } } });
