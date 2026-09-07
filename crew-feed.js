@@ -31,7 +31,19 @@
      const pulse = await CrewFeed.activity();     // [] of what the airline did
 
    The full set: routes, network, stats, events, schedule, notices, activity,
-   posts, handle. `notices` is the noticeboard as the crew center reads it;
+   posts, handle, brand, ranks, fleet, roles, hubs, partners.
+
+   `hubs` and `partners` are WORKED OUT from the route map rather than stored
+   anywhere — a route map already knows which airports carry the most sectors
+   and which of those are flown with somebody else — so neither can go stale,
+   which is the whole point of this file.
+
+   `fleet` guarantees a picture for every aircraft: the airline's own livery
+   upload where there is one, and a silhouette this file DRAWS where there is
+   not. It carries the credit that goes with the picture, because a photograph
+   we show is a photograph we credit.
+
+   `notices` is the noticeboard as the crew center reads it;
    `notices({written:true})` is only what a person typed, and `activity()` only
    what the crew center recorded happening. Those two halves want different
    places on a page, which is why they are separate calls over one fetch.
@@ -594,6 +606,125 @@
     }
 
     /* ---------------------------------------------------------------------
+     * AIRCRAFT PICTURES, AND WHO THEY BELONG TO
+     *
+     * THE PROBLEM. A VA's fleet page is the page with the most holes in it. The
+     * crew centre's fleet editor takes an optional livery image and most
+     * airlines fill in two of them and stop, so a grid of twelve aircraft comes
+     * out as two pictures and ten grey boxes — which reads as "this airline's
+     * data is broken", not as "this airline has not uploaded ten pictures".
+     *
+     * THE GUARANTEE. Every aircraft gets a picture, it is available
+     * synchronously, and it cannot fail to load. The picture is DRAWN here as
+     * an inline SVG data URI: no network, no host, no cache, no 404, no taint,
+     * nothing to block. A VA's own upload is better and is used whenever it
+     * exists; this is the floor, not the ceiling.
+     *
+     * Note the direction. Most image code starts with the good source and falls
+     * back to a placeholder; this starts with the one that cannot fail. That
+     * inversion is why there is no flicker, no layout shift and no broken-image
+     * glyph: the <img> is born with a valid src.
+     *
+     * AND CREDIT. A picture on a website belongs to whoever made it, and that
+     * does not stop being true because the picture is small or because it was
+     * convenient. Every row therefore carries `credit` — plain text — and
+     * `creditHref` alongside the image, and the templates print it under the
+     * card. A VA's OWN upload is credited to nobody, because it is theirs.
+     * These outlines are ours, so they say so.
+     *
+     * The shapes are deliberately simple. At the size a fleet card renders one,
+     * detail is noise: what a reader actually decodes is the wing planform and
+     * the engine count, and those are the two things each path gets right.
+     * ------------------------------------------------------------------- */
+
+    // Matched on the canonical Infinite Flight type string the crew centre
+    // stores ("Boeing 787-10 Dreamliner", "Airbus A320-200"). Order matters —
+    // the first hit wins, so "747" is tested before "Boeing" and "A380" before
+    // anything that merely starts with an A.
+    var SHAPES = [
+        [/a380|747|a340|\b380\b|\b340\b/i, 'quad'],
+        [/787|777|a350|a330|767|a300|a310|md-?11|dc-?10|\b350\b|\b330\b/i, 'wide'],
+        [/737|a32[0-9]|a319|a318|757|md-?8|md-?9|717|727|707|dc-?9/i, 'narrow'],
+        [/crj|erj|embraer|e-?jet|dash|q400|atr|saab|dornier|f-?50|regional/i, 'regional'],
+        [/c-?130|c-?17|kc-?|a400|globemaster|hercules/i, 'quad'],
+        [/f-?1[456]|f-?22|f-?18|f-?35|fighter|eurofighter|tornado|hawk|a-?10/i, 'fighter'],
+        [/spitfire|cessna|c-?172|c-?152|piper|cub|sr-?22|tbm|caravan|\b208\b|\b172\b/i, 'ga'],
+        [/heli|ec-?135|as-?350|uh-?|ah-?|bell|copter/i, 'heli'],
+    ];
+
+    // Top-view planforms on a 120x72 viewBox, nose left.
+    var PLANFORMS = {
+        narrow: 'M8 36 L30 33 L52 33 L58 20 L64 20 L62 33 L84 32 L96 26 L100 27 L96 34 '
+            + 'L106 35 L112 36 L106 37 L96 38 L100 45 L96 46 L84 40 L62 39 L64 52 L58 52 L52 39 L30 39 Z',
+        wide: 'M6 36 L26 32 L48 32 L54 16 L62 16 L60 32 L82 31 L96 24 L102 25 L97 34 '
+            + 'L110 35 L116 36 L110 37 L97 38 L102 47 L96 48 L82 41 L60 40 L62 56 L54 56 L48 40 L26 40 Z',
+        quad: 'M6 36 L24 32 L46 32 L50 14 L60 14 L58 32 L80 31 L96 22 L104 23 L98 34 '
+            + 'L112 35 L118 36 L112 37 L98 38 L104 49 L96 50 L80 41 L58 40 L60 58 L50 58 L46 40 L24 40 Z '
+            + 'M52 22 L58 22 L57 27 L51 27 Z M52 45 L58 45 L57 50 L51 50 Z',
+        regional: 'M14 36 L34 34 L56 34 L62 24 L68 24 L66 34 L86 33 L96 29 L99 30 L96 35 '
+            + 'L104 36 L108 36 L104 37 L96 38 L99 42 L96 43 L86 39 L66 38 L68 48 L62 48 L56 38 L34 38 Z',
+        fighter: 'M18 36 L44 34 L58 22 L66 22 L64 34 L84 33 L98 30 L102 32 L104 36 '
+            + 'L102 40 L98 42 L84 39 L64 38 L66 50 L58 50 L44 38 Z',
+        ga: 'M22 36 L40 34 L48 22 L54 22 L52 34 L78 33 L92 32 L96 34 L98 36 L96 38 '
+            + 'L92 40 L78 39 L52 38 L54 50 L48 50 L40 38 Z',
+        heli: 'M30 36 L44 33 L74 33 L88 34 L96 36 L88 38 L74 39 L44 39 Z '
+            + 'M14 35.4 L106 35.4 L106 36.6 L14 36.6 Z M56 20 L60 20 L60 52 L56 52 Z',
+    };
+
+    /* 'wide' is the default rather than 'narrow' because an unrecognised type in
+     * a VA's fleet is more often a large aircraft than a small one, and a
+     * widebody outline reads as "an airliner" to a glancing eye in a way a
+     * Cessna does not. */
+    function shapeFor(name) {
+        var s = text(name);
+        if (!s) return 'wide';
+        for (var i = 0; i < SHAPES.length; i++) if (SHAPES[i][0].test(s)) return SHAPES[i][1];
+        return 'wide';
+    }
+
+    /* THE COLOUR IS THE AIRLINE'S, AND THE FIELD IS THE PAGE'S.
+     *
+     * Two decisions, and the crew centre makes both of them the other way round
+     * for good reasons that do not apply here.
+     *
+     * COLOUR. The crew centre tints these per registration, so an airframe is
+     * recognisable at a glance in a list of forty. On the airline's OWN
+     * WEBSITE that is wrong: twelve randomly hued tiles next to their wordmark
+     * is a paint chart sitting where a livery should be. So the mark is drawn
+     * in the accent they chose in the crew centre — the same colour as their
+     * buttons and their links — and a VA who has chosen none gets a neutral
+     * grey rather than a colour we invented for them.
+     *
+     * FIELD. There isn't one. The crew centre paints a coloured rectangle
+     * behind the outline because it sits in a list with no container of its
+     * own; a card on a website already HAS a well, with the design's own
+     * surface colour in it. Painting a second rectangle inside the first is a
+     * picture inside a picture — a letterboxed block in not-quite the same
+     * grey, which reads as a rendering fault. So the artwork is the mark and
+     * nothing else, and the card supplies the ground.
+     *
+     * The accent is legible on that ground by construction: it is the same
+     * colour the design already puts links and buttons in, on the same surface.
+     */
+    var NEUTRAL_MARK = '#8b94a3';
+
+    /* encodeURIComponent rather than base64: the SVG is small, the encoded form
+     * is smaller than base64 would be, and it stays readable in devtools —
+     * which matters the first time somebody wonders where a picture came from.
+     *
+     * No external references of any kind, which is what makes this incapable of
+     * failing: there is nothing to fetch, so there is nothing to 404, block or
+     * time out. */
+    function silhouette(name, accent) {
+        var shape = shapeFor(name);
+        var mark = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(accent || '')) ? accent : NEUTRAL_MARK;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 72" width="120" height="72">'
+            + '<path d="' + (PLANFORMS[shape] || PLANFORMS.wide) + '" fill="' + mark + '"/>'
+            + '</svg>';
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+
+    /* ---------------------------------------------------------------------
      * FLEET — the aircraft the VA declared, and the liveries they fly them in.
      *
      * `type` is the aircraft and `name` is the livery, both as the canonical
@@ -607,16 +738,117 @@
         var limit = Number(opts.limit) || 40;
         return brandRaw().then(function (d) {
             if (!d || !Array.isArray(d.fleet)) return null;
+            var accent = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(d.accent)) ? text(d.accent) : '';
             var rows = d.fleet
                 .filter(function (f) { return f && (text(f.type) || text(f.name)); })
                 .slice(0, limit)
                 .map(function (f) {
+                    var aircraft = text(f.type);
+                    var livery = text(f.name);
+                    var own = https(f.image);
+                    // Drawn in the airline's own accent — see THE COLOUR IS THE
+                    // AIRLINE'S above. Also the standby for an upload that has
+                    // rotted: a URL that worked when it was typed and 404s two
+                    // years later is the common way a fleet page grows holes.
+                    var drawn = silhouette(aircraft || livery, accent);
+                    // A photographer's name and a link, if the crew centre ever
+                    // carries one for this airframe. Read defensively rather
+                    // than assumed absent: the day the fleet editor gains the
+                    // field, every hosted site starts crediting it correctly
+                    // without a line changing here.
+                    var by = text(f.photographer || f.credit);
+                    var byHref = https(f.photoLink || f.creditUrl);
+
+                    if (own) {
+                        return {
+                            aircraft: aircraft, livery: livery,
+                            image: own, fit: 'cover',
+                            fallback: drawn,
+                            // The VA's own upload. Credited to nobody, because
+                            // it is theirs — unless they named a photographer.
+                            credit: by ? 'Photo: ' + by : '',
+                            creditHref: by ? byHref : '',
+                        };
+                    }
                     return {
-                        aircraft: text(f.type),
-                        livery: text(f.name),
-                        image: https(f.image),
+                        aircraft: aircraft, livery: livery,
+                        // Drawn, not fetched. See AIRCRAFT PICTURES above.
+                        image: drawn,
+                        fallback: drawn,
+                        // 'contain', because this is artwork on a flat field
+                        // and cropping it to fill cuts the wingtips off.
+                        fit: 'contain',
+                        credit: 'Outline by Inflight',
+                        // Deliberately not a link. The credit is owed and is
+                        // paid in words; turning it into an advert on somebody
+                        // else's website is not the same thing.
+                        creditHref: '',
                     };
                 });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+     * HUBS — where the airline is BASED.
+     *
+     * A different question from where it flies, and the one an applicant asks
+     * first: nobody joins an airline whose whole network is on the far side of
+     * the world from the time of day they play. Almost no VA website answers it.
+     *
+     * Worked out from the route map rather than typed anywhere, so it cannot go
+     * stale — an airport becomes a hub by having the most sectors on it, which
+     * is a fact the crew centre already holds. Ranked by routes, then by
+     * departures, so a tie breaks on the busier airport rather than on
+     * whichever order the store happened to return.
+     * ------------------------------------------------------------------- */
+    function hubs(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 6;
+        return network().then(function (n) {
+            if (!n || !n.airports) return null;
+            var rows = Object.keys(n.airports)
+                .map(function (k) { return n.airports[k]; })
+                .filter(function (a) { return a && a.icao && (a.routes || a.departures || a.arrivals); })
+                .sort(function (a, b) { return (b.routes - a.routes) || (b.departures - a.departures); })
+                .slice(0, limit)
+                .map(function (a) {
+                    return {
+                        icao: a.icao,
+                        routes: a.routes,
+                        departures: a.departures,
+                        arrivals: a.arrivals,
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* CODESHARES — who the airline flies with.
+     *
+     * Also off the route map: a sector already knows whether it is shared and
+     * with whom. A partner list typed by hand is a list that outlives the
+     * partnership, which is the failure mode this whole file exists to avoid.
+     *
+     * Deduplicated case-insensitively but printed in the casing the crew centre
+     * stored, because that is how the partner writes its own name.
+     * ------------------------------------------------------------------- */
+    function partners(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 12;
+        return network().then(function (n) {
+            if (!n || !Array.isArray(n.routes)) return null;
+            var seen = {}, rows = [];
+            n.routes.forEach(function (r) {
+                var name = text(r && r.partner);
+                if (!name) return;
+                var key = name.toLowerCase();
+                if (seen[key]) { seen[key].sectors += 1; return; }
+                seen[key] = { name: name, sectors: 1 };
+                rows.push(seen[key]);
+            });
+            rows.sort(function (a, b) { return b.sectors - a.sectors; });
+            rows = rows.slice(0, limit);
             return rows.length ? rows : null;
         });
     }
@@ -756,6 +988,7 @@
         routes: routes, events: events, schedule: schedule,
         notices: notices, activity: activity, posts: posts,
         ranks: ranks, fleet: fleet, roles: roles,
+        hubs: hubs, partners: partners,
     };
 
     function escapeHtml(s) {
@@ -799,7 +1032,43 @@
             // stand-in element invented here would be a class name every site
             // using this feed had to know about.
             Array.prototype.forEach.call(host.querySelectorAll('img'), function (img) {
-                if (!img.getAttribute('src')) img.parentNode && img.parentNode.removeChild(img);
+                if (!img.getAttribute('src')) { img.parentNode && img.parentNode.removeChild(img); return; }
+                /* A STANDBY FOR A PICTURE THAT ROTS.
+                 *
+                 * The other half of the same problem. An <img> with no src is a
+                 * broken-image glyph, and so is one whose src 404s — and the
+                 * second is the one that arrives LATER: a VA types a working
+                 * image address, and two years on the host it was on is gone.
+                 * Nobody is watching, so the fleet page quietly grows holes.
+                 *
+                 * A template that offers data-crew-fallback is saying it has
+                 * something to put there instead. The handler clears the
+                 * attribute before it swaps, so a fallback that itself fails
+                 * cannot loop. */
+                var standby = img.getAttribute('data-crew-fallback');
+                if (!standby || standby === img.getAttribute('src')) return;
+                img.addEventListener('error', function once() {
+                    img.removeEventListener('error', once);
+                    img.removeAttribute('data-crew-fallback');
+                    img.src = standby;
+                    // The standby is artwork on a flat field, not a photograph:
+                    // cropping it to fill cuts the wingtips off.
+                    if (img.hasAttribute('data-fit')) img.setAttribute('data-fit', 'contain');
+                });
+            });
+            // The same problem one element along. A template can carry
+            // <a href="{{creditHref}}">{{credit}}</a> for a photographer, and
+            // most rows have the name without a page to point at. An anchor
+            // with no address is not a link — but its WORDS are usually the
+            // row's only copy of that fact, and an attribution deleted for want
+            // of a URL is an attribution not paid. So it is UNWRAPPED rather
+            // than removed: the text stays, the dead link goes.
+            Array.prototype.forEach.call(host.querySelectorAll('a'), function (a) {
+                if (a.getAttribute('href')) return;
+                var parent = a.parentNode;
+                if (!parent) return;
+                while (a.firstChild) parent.insertBefore(a.firstChild, a);
+                parent.removeChild(a);
             });
             host.setAttribute('data-crew-filled', String(rows.length));
             return rows;
@@ -832,6 +1101,7 @@
         events: events, schedule: schedule, notices: notices,
         activity: activity, posts: posts, handle: handle,
         brand: brand, ranks: ranks, fleet: fleet, roles: roles,
+        hubs: hubs, partners: partners, silhouette: silhouette,
         paintBrand: paintBrand,
         paintStats: paintStats, mount: mount,
         get va() { return CFG.va; },
