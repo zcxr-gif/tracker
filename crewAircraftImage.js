@@ -21,7 +21,11 @@
               Still tier 3's mechanism — same inline SVG — just a better shape.
      tier 1   a real photograph of the actual airframe, by registration, from
               Planespotters. Best when it exists, absent more often than not,
-              and NEVER waited on.
+              and NEVER waited on. It is also the only tier that is somebody
+              else's work, so it is the only one that carries a credit — see
+              paintCredit below. The name and the link come out of the same
+              call as the src, because a picture we are entitled to show and a
+              picture we are not are the same bytes with and without them.
 
    Note the direction. Most image code starts with the good source and falls
    back; this starts with the one that cannot fail and upgrades. That inversion
@@ -45,7 +49,9 @@
 
        CrewAircraftImage.src({ registration, type })   -> a src, always
        CrewAircraftImage.img({ registration, type })   -> a full <img> tag
-       CrewAircraftImage.upgrade(rootEl)               -> swap in real photos
+       CrewAircraftImage.creditSlot({ registration })  -> the hidden credit line
+       CrewAircraftImage.upgrade(rootEl)               -> swap in real photos,
+                                                          and say who took them
 
    `img()` returns markup safe to drop into any innerHTML. `upgrade()` is
    optional and idempotent: call it after painting and any airframe with a photo
@@ -183,13 +189,27 @@
      * dependency.
      * ------------------------------------------------------------------- */
     const PHOTO_API = 'https://api.planespotters.net/pubapi/v1/photos/reg/';
-    const photos = new Map();          // REG -> Promise<src|null>
+    const photos = new Map();          // REG -> Promise<{src, by, link}|null>
 
     // A registration real enough to be worth asking about. A VA's fleet is
     // full of placeholders, and "N/A", "TBD" or a bare number are not
     // registrations — asking about them spends a request to be told nothing.
     const askable = (reg) => /^[A-Z0-9]{2,3}-?[A-Z0-9]{2,5}$/i.test(String(reg || '').trim());
 
+    /**
+     * A photograph of this airframe, AND WHO TOOK IT.
+     *
+     * The photographer's name and the link back are not extra fields to use if
+     * a caller feels like it. Planespotters' public API is free to read on the
+     * condition that its photographers are credited, so a src fetched without
+     * the name beside it is a src we are not entitled to display. They travel
+     * together, out of one function, so there is no way to take the picture
+     * and leave the credit behind.
+     *
+     * Resolves to null on any miss — no photo on file, offline, a 500, a
+     * placeholder registration. A miss is CACHED, so forty airframes with no
+     * photo cost forty lookups once and nothing thereafter.
+     */
     function photoFor(registration) {
         const reg = String(registration || '').trim().toUpperCase();
         if (!reg || !askable(reg)) return Promise.resolve(null);
@@ -198,12 +218,28 @@
             .then((r) => (r.ok ? r.json() : null))
             .then((j) => {
                 const first = j && Array.isArray(j.photos) ? j.photos[0] : null;
-                return (first && ((first.thumbnail_large && first.thumbnail_large.src)
-                    || (first.thumbnail && first.thumbnail.src))) || null;
+                if (!first) return null;
+                const src = (first.thumbnail_large && first.thumbnail_large.src)
+                    || (first.thumbnail && first.thumbnail.src) || '';
+                if (!src) return null;
+                return {
+                    src,
+                    by: String(first.photographer || '').trim(),
+                    // Only ever an https link, and only ever to a page. This
+                    // string ends up in an href.
+                    link: /^https:\/\//i.test(String(first.link || '')) ? String(first.link) : '',
+                };
             })
             .catch(() => null);       // a miss, not an error
         photos.set(reg, p);
         return p;
+    }
+
+    /** How a credit reads. One place, so the wording cannot drift between the
+     *  tooltip and the visible line. */
+    function creditLine(photo) {
+        if (!photo) return '';
+        return photo.by ? `Photo: ${photo.by} / Planespotters` : 'Photo: Planespotters';
     }
 
     /* ---------------------------------------------------------------------
@@ -233,15 +269,42 @@
      *     information — a screen reader should get "N682XL, Boeing 787-10", not
      *     "aircraft".
      */
-    function img(aircraft, { className = 'cai', width = 60, height = 36 } = {}) {
+    function img(aircraft, { className = 'cai', width = 60, height = 36, credit = false } = {}) {
         const a = aircraft || {};
         const fallback = silhouette(a);
         const label = [a.registration, a.type && a.type.name].filter(Boolean).join(', ') || 'Aircraft';
-        return `<img class="${esc(className)}" src="${fallback}" alt="${esc(label)}"`
+        const reg = esc(a.registration || '');
+        const tag = `<img class="${esc(className)}" src="${fallback}" alt="${esc(label)}"`
             + ` width="${Number(width) || 60}" height="${Number(height) || 36}" loading="lazy" decoding="async"`
-            + ` data-cai-reg="${esc(a.registration || '')}"`
+            + ` data-cai-reg="${reg}"`
             + ` data-cai-fallback="${fallback}"`
             + ` onerror="this.onerror=null;this.src=this.getAttribute('data-cai-fallback');">`;
+        // The slot ships EMPTY and HIDDEN, and upgrade() fills it only if a real
+        // photograph arrives. Almost every row is a silhouette we drew, which is
+        // owed no credit, so this must cost that row nothing — an empty caption
+        // reserving a line under forty tiles would be a visible change to every
+        // fleet board for the sake of the handful that need it.
+        return credit ? tag + creditSlot(a) : tag;
+    }
+
+    /**
+     * The empty, hidden line a credit will be written into.
+     *
+     * Separate from img() because the two do not always belong next to each
+     * other: in a grid tile the credit sits under the picture, and in a flex
+     * row it belongs under the aircraft type, three elements away. A caller
+     * that can take `img() + creditSlot()` adjacent passes {credit:true} and
+     * gets both; one that cannot places this itself.
+     *
+     * It ships EMPTY and HIDDEN and upgrade() fills it only if a real
+     * photograph arrives. Almost every row is a silhouette we drew, which is
+     * owed no credit — so this must cost that row nothing, or every fleet board
+     * on the platform gains a blank line under forty tiles for the sake of the
+     * handful that need one.
+     */
+    function creditSlot(aircraft) {
+        const reg = esc((aircraft && aircraft.registration) || '');
+        return `<small class="cai-credit" data-cai-credit="${reg}" hidden></small>`;
     }
 
     /**
@@ -266,7 +329,9 @@
                 photoFor(reg).then((found) => {
                     // Re-checked because the panel may have repainted and
                     // replaced this node while the lookup was in flight.
-                    if (found && el.isConnected) el.src = found;
+                    if (!found || !el.isConnected) return;
+                    el.src = found.src;
+                    paintCredit(el, reg, found);
                 }).catch(() => {});
             }
         } catch (err) {
@@ -274,5 +339,66 @@
         }
     }
 
-    window.CrewAircraftImage = { src, img, upgrade, silhouette, shapeFor, photoFor };
+    /**
+     * Say whose photograph this is.
+     *
+     * Three places, deliberately, because a fleet board is not the only shape
+     * this image gets used in and an attribution that only works in one layout
+     * is an attribution that will be missing from the next one:
+     *
+     *   · the img's own `title`, so the credit is reachable by hovering
+     *     wherever the picture ends up, with no cooperation from the caller
+     *   · `data-cai-by` / `data-cai-link`, so a caller that lays the credit out
+     *     itself can read it off the element
+     *   · a `[data-cai-credit]` slot for this registration, which is the
+     *     VISIBLE line — img({credit:true}) emits one, hidden, and this is what
+     *     unhides it
+     *
+     * The slot is searched from the image's own parent outwards rather than
+     * from the document, so two tiles for two airframes cannot fill each
+     * other's caption.
+     *
+     * Never throws. This runs after somebody else's panel has painted, and an
+     * exception here would be an exception inside their render.
+     */
+    function paintCredit(el, reg, photo) {
+        const line = creditLine(photo);
+        if (!line) return;
+        try {
+            el.title = line;
+            if (photo.by) el.setAttribute('data-cai-by', photo.by);
+            if (photo.link) el.setAttribute('data-cai-link', photo.link);
+
+            const scope = el.parentNode || el.ownerDocument;
+            if (!scope || !scope.querySelector) return;
+            const slot = scope.querySelector(`[data-cai-credit="${cssEscape(reg)}"]`);
+            if (!slot) return;
+            slot.textContent = '';
+            if (photo.link) {
+                const a = (el.ownerDocument || document).createElement('a');
+                a.href = photo.link;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = line;
+                slot.appendChild(a);
+            } else {
+                slot.textContent = line;
+            }
+            slot.hidden = false;
+        } catch (err) {
+            console.warn('crewAircraftImage: credit skipped —', err && err.message);
+        }
+    }
+
+    /* A registration is [A-Z0-9-] by the time it gets here, but it arrives from
+     * a VA's own database and this string goes into a selector. Quoting it is
+     * cheaper than trusting it. */
+    function cssEscape(v) {
+        const s = String(v == null ? '' : v);
+        return (window.CSS && typeof CSS.escape === 'function')
+            ? CSS.escape(s)
+            : s.replace(/["'\\\]\[]/g, '');
+    }
+
+    window.CrewAircraftImage = { src, img, creditSlot, upgrade, silhouette, shapeFor, photoFor, creditLine };
 })();

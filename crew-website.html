@@ -82,8 +82,12 @@
 <!-- ===== The bar ===================================================== -->
 <header class="sticky top-0 z-30 border-b hair" style="background:var(--surface)">
     <div class="px-3 sm:px-5 h-14 flex items-center gap-3">
-        <a id="backLink" href="/crew" class="shrink-0 flex items-center gap-2 text-sm font-semibold muted hover:accent-text">
-            <i data-lucide="arrow-left" class="w-4 h-4"></i><span class="hidden sm:inline">Crew center</span>
+        <!-- The way out. Labelled on every screen size on purpose: a lone
+             back-arrow on a phone is a guess, and the alternative a VA reaches
+             for when they cannot find the way back is signing out. -->
+        <a id="backLink" href="/crew" class="shrink-0 flex items-center gap-1.5 text-sm font-semibold muted hover:accent-text"
+           title="Back to the crew center">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i><span>Crew center</span>
         </a>
         <div class="min-w-0 flex-1">
             <p class="font-semibold tracking-tight truncate leading-tight" id="vaName">Your website</p>
@@ -167,6 +171,20 @@
                     <span class="block text-[11px] muted">Change the design</span>
                 </span>
             </button>
+            <!-- UNDO.
+
+                 Hidden until a design is actually swapped, and then it names
+                 the design you came FROM. Changing the look is the one action
+                 in this editor that changes every page at once, and it is the
+                 one a VA is most likely to want to take back — so taking it
+                 back is a button, not an instruction to remember which design
+                 you had and go and find it again. -->
+            <div id="undoDesign" class="hidden mt-2 rounded-lg p-2 text-[11px] leading-snug"
+                 style="background:var(--bg);border:1px solid var(--line)">
+                <span class="muted" id="undoDesignText"></span>
+                <button id="undoDesignBtn" class="font-semibold accent-text ml-1" type="button">Undo</button>
+            </div>
+
             <div class="grid grid-cols-2 gap-2 mt-2">
                 <label class="text-[11px] font-semibold muted">Colour
                     <input id="accentInput" type="color" class="mt-1 w-full h-8 rounded-lg border hair bg-transparent p-0.5 cursor-pointer">
@@ -178,6 +196,22 @@
                     <select id="modeInput" class="field mt-1 text-xs py-1.5"></select>
                 </label>
             </div>
+
+            <!-- THE MOTIF.
+
+                 The half of a brand a colour picker cannot reach: two airlines
+                 both in navy are still nothing alike, and what separates them
+                 is the marks. Each swatch is drawn with the REAL gradients the
+                 site will use, handed over by the catalogue — a swatch that is
+                 a picture of a pattern is a promise the site then breaks. -->
+            <p class="text-[11px] font-semibold muted mt-3 mb-1">Pattern</p>
+            <div id="patternGrid" class="grid grid-cols-4 gap-1.5"></div>
+            <p class="text-[11px] muted mt-1" id="patternNote"></p>
+
+            <label class="block text-[11px] font-semibold muted mt-3">
+                Corners <span class="font-normal" id="radiusValue"></span>
+                <input id="radiusInput" type="range" min="0" max="28" step="2" class="mt-1 w-full accent-current">
+            </label>
         </div>
     </aside>
 
@@ -319,6 +353,10 @@
         return q ? q.trim().toLowerCase() : '';
     }
     const SLUG = getSlug();
+    // Where "back" goes, in one place: the bar, the gate and the design sheet
+    // all point at it. A VA who cannot find the way out of a full-screen editor
+    // signs out instead, and signing out is not a way back.
+    const CREW_HOME = SLUG ? `/crew/${encodeURIComponent(SLUG)}` : '/crew';
     function session() {
         try { return JSON.parse(localStorage.getItem('crew:session:' + SLUG) || 'null'); } catch { return null; }
     }
@@ -394,7 +432,7 @@
      * ================================================================== */
     async function boot() {
         paintThemeIcon();
-        $('backLink').href = SLUG ? `/crew/${encodeURIComponent(SLUG)}` : '/crew';
+        $('backLink').href = CREW_HOME;
 
         if (!SLUG || !TOKEN) {
             return gate('Sign in first', 'Open your crew center and sign in, then come back to this page.', true);
@@ -426,7 +464,7 @@
         $('publishBtn').classList.add('hidden');
         if (back) {
             const a = $('gateLink');
-            a.href = SLUG ? `/crew/${encodeURIComponent(SLUG)}` : '/crew';
+            a.href = CREW_HOME;
             a.classList.remove('hidden');
         }
         icons();
@@ -531,17 +569,6 @@
             el.addEventListener('click', () => chooseDesign(el.getAttribute('data-design')));
         });
         icons();
-    }
-
-    async function chooseDesign(id) {
-        try {
-            toast('Laying it out…');
-            SITE = await api('/design', { method: 'POST', body: { template: id, keepTheme: !!(SITE.builder && SITE.builder.pages) } });
-            closeSheet();
-            render();
-            refreshPreview(true);
-            toast('Design applied. Nothing is public until you publish.');
-        } catch (err) { toast(err.message, 'bad'); }
     }
 
     /* ---- Pages ---------------------------------------------------------- */
@@ -876,6 +903,49 @@
         $('accentInput').value = SITE.theme.accent;
         $('fontInput').innerHTML = CAT.fonts.map(f => `<option value="${esc(f.id)}" ${f.id === SITE.theme.font ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
         $('modeInput').innerHTML = CAT.modes.map(m => `<option value="${esc(m.id)}" ${m.id === SITE.theme.mode ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
+        renderPatterns();
+        renderRadius();
+        renderUndo();
+    }
+
+    /* THE MOTIF SWATCHES.
+     *
+     * Each one is painted with the SAME declarations the published site will
+     * use — the catalogue hands over the real background-image, size and
+     * position, so the swatch cannot drift from the pattern it is offering.
+     *
+     * The gradients are mixed from currentColor, which is what makes one
+     * definition correct behind dark text on a page and light text on a block
+     * of the accent. Nothing here sets a colour, deliberately: a swatch
+     * inherits this panel's own text colour, so it previews at the same
+     * whisper the published page will draw it at. */
+    function renderPatterns() {
+        const list = (CAT && CAT.patterns) || [];
+        const grid = $('patternGrid');
+        if (!list.length) { grid.innerHTML = ''; $('patternNote').textContent = ''; return; }
+        const current = SITE.theme.pattern || (CAT.defaultPattern || 'none');
+        grid.innerHTML = list.map((p) => {
+            const on = p.id === current;
+            const swatch = p.image === 'none'
+                ? ''
+                : `background-image:${p.image};background-size:${p.size};background-position:${p.position};`;
+            return `<button type="button" data-pattern="${esc(p.id)}" title="${esc(p.label)} — ${esc(p.note)}"
+                aria-pressed="${on ? 'true' : 'false'}"
+                class="h-9 rounded-lg border ${on ? 'ring-2' : ''}"
+                style="${swatch}border-color:var(--line);${on ? 'box-shadow:0 0 0 2px var(--accent)' : ''}">
+                ${p.image === 'none' ? '<span class="text-[10px] muted">None</span>' : ''}
+            </button>`;
+        }).join('');
+        const now = list.find(p => p.id === current);
+        $('patternNote').textContent = now ? now.label + ' — ' + now.note : '';
+        grid.querySelectorAll('[data-pattern]').forEach(el =>
+            el.addEventListener('click', () => saveTheme({ pattern: el.getAttribute('data-pattern') })));
+    }
+
+    function renderRadius() {
+        const r = SITE.theme.radius;
+        $('radiusInput').value = r;
+        $('radiusValue').textContent = r === 0 ? '(square)' : r + 'px';
     }
 
     async function saveTheme(patch) {
@@ -885,15 +955,94 @@
         } catch (err) { toast(err.message, 'bad'); }
     }
 
+    /* ---- Changing the design, and changing it back ----------------------
+     *
+     * Swapping the design is the only action in this editor that changes every
+     * page at once. It is also completely safe — the words live in the site
+     * document and the design is only a stylesheet over them — but a VA cannot
+     * know that until they have tried it, and the way people find out whether
+     * something is safe is by being able to undo it.
+     *
+     * So the design and the theme a VA had BEFORE the swap are held here, and
+     * the Look panel offers them back by name. Held in memory only, and on
+     * purpose: this is an undo for the change you just made, not a history, and
+     * a stale "undo to Concourse" three sessions later would restore a design
+     * somebody has since deliberately moved on from.
+     * ------------------------------------------------------------------- */
+    let undoTo = null;
+
+    function renderUndo() {
+        const box = $('undoDesign');
+        if (!undoTo || undoTo.template === SITE.template) { box.classList.add('hidden'); return; }
+        const was = CAT.templates.find(x => x.id === undoTo.template);
+        $('undoDesignText').textContent = 'You were using ' + (was ? was.name : undoTo.template) + '.';
+        box.classList.remove('hidden');
+    }
+
+    async function applyDesign(id, theme) {
+        const body = { template: id };
+        // A theme means "put these exact colours back" — an undo. No theme
+        // means "keep what I have chosen", which is what a VA expects when they
+        // are trying a different layout with their own colours on it.
+        if (theme) body.theme = theme; else body.keepTheme = !!(SITE.builder && SITE.builder.pages);
+        SITE = await api('/design', { method: 'POST', body });
+        closeSheet();
+        render();
+        refreshPreview(true);
+    }
+
+    async function chooseDesign(id) {
+        if (id === SITE.template) { closeSheet(); return; }
+        const from = { template: SITE.template, theme: Object.assign({}, SITE.theme) };
+        try {
+            toast('Laying it out…');
+            await applyDesign(id);
+            // Only remembered once the swap has actually landed, so a failed
+            // request cannot leave an undo pointing at a change never made.
+            undoTo = from.template ? from : null;
+            renderUndo();
+            toast('Design applied. Nothing is public until you publish.');
+        } catch (err) { toast(err.message, 'bad'); }
+    }
+
+    async function undoDesign() {
+        if (!undoTo) return;
+        const back = undoTo;
+        try {
+            toast('Putting it back…');
+            await applyDesign(back.template, back.theme);
+            undoTo = null;
+            renderUndo();
+            toast('Back to how it was.');
+        } catch (err) { toast(err.message, 'bad'); }
+    }
+
     function openDesigns() {
+        const current = CAT.templates.find(t => t.id === SITE.template);
         openSheet(`
-            <h2 class="text-lg font-bold tracking-tight mb-1">Change the design</h2>
-            <p class="text-xs muted mb-4">Every word you have written comes with you. Only the look changes.</p>
+            <div class="flex items-start justify-between gap-3 mb-1">
+                <h2 class="text-lg font-bold tracking-tight">Change the design</h2>
+                <button id="dsClose" class="text-xs font-semibold muted hover:accent-text shrink-0" type="button">
+                    Keep ${esc(current ? current.name : 'what I have')}
+                </button>
+            </div>
+            <p class="text-xs muted mb-4">
+                Every word you have written comes with you, and so do your colours — only the
+                layout changes. Nothing here is public until you publish, and you can put it
+                back afterwards.
+            </p>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 ${CAT.templates.map(t => designCard(t, SITE.template)).join('')}
-            </div>`);
+            </div>
+            <p class="text-xs muted mt-4">
+                Changed your mind about the website altogether?
+                <a href="${esc(CREW_HOME)}" class="font-semibold accent-text">Go back to the crew center</a> —
+                your draft stays exactly where it is.
+            </p>`);
         $('sheetBody').querySelectorAll('[data-design]').forEach(el =>
             el.addEventListener('click', () => chooseDesign(el.getAttribute('data-design'))));
+        const close = $('dsClose');
+        if (close) close.addEventListener('click', closeSheet);
         icons();
     }
 
@@ -1082,6 +1231,15 @@
         $('accentInput').addEventListener('change', (e) => saveTheme({ accent: e.target.value }));
         $('fontInput').addEventListener('change', (e) => saveTheme({ font: e.target.value }));
         $('modeInput').addEventListener('change', (e) => saveTheme({ mode: e.target.value }));
+        // 'change', not 'input': a slider fires input on every pixel of the
+        // drag, and each one of those would be a request that rewrites
+        // theme.css and reloads the preview.
+        $('radiusInput').addEventListener('change', (e) => saveTheme({ radius: Number(e.target.value) }));
+        $('radiusInput').addEventListener('input', (e) => {
+            const v = Number(e.target.value);
+            $('radiusValue').textContent = v === 0 ? '(square)' : v + 'px';
+        });
+        $('undoDesignBtn').addEventListener('click', undoDesign);
         $('enabledInput').addEventListener('change', async (e) => {
             try {
                 SITE = await api('/enabled', { method: 'POST', body: { enabled: e.target.checked } });

@@ -41,30 +41,153 @@ const tick = () => new Promise((r) => setImmediate(r));
 /* =========================================================================
  * A DOM, only as big as these two files actually use.
  * ===================================================================== */
+/* WHY innerHTML IS PARSED HERE AND NOT JUST STORED
+ *
+ * crew-feed.js does two pieces of DOM surgery AFTER it writes a list's markup:
+ * it removes an <img> whose src never arrived, and it unwraps an <a> whose
+ * href never arrived. Both exist because the alternative a visitor sees is a
+ * broken-image glyph or a dead link — and neither was reachable by this harness
+ * while innerHTML was an inert string, so neither was ever really tested.
+ *
+ * So the setter parses. Deliberately minimally: tags, attributes, void
+ * elements, and text taken VERBATIM — no entity decoding, which is what lets
+ * the round trip be exact and keeps the escaping tests honest (a stored
+ * "&lt;b&gt;" has to come back out as "&lt;b&gt;", not as "<b>").
+ *
+ * The getter still returns the string that was set, so every assertion written
+ * against the old harness reads the same value. It is only re-serialised when
+ * something actually mutated the parsed children — which is exactly the case
+ * these two rules are about.
+ */
+const VOID_TAGS = { IMG: 1, BR: 1, HR: 1, INPUT: 1, META: 1, LINK: 1, SOURCE: 1 };
+
+function parseHtml(html, parent) {
+    const out = [];
+    const stack = [{ el: null, kids: out }];
+    // Flat, not nested. "(?:\s+attr(?:="v")?)*" is a quantifier inside a
+    // quantifier and backtracks catastrophically on real markup; [^>]* cannot.
+    const re = /<\/([a-zA-Z][\w-]*)\s*>|<([a-zA-Z][\w-]*)([^>]*)>/g;
+    let last = 0, m;
+    const pushText = (t) => { if (t) stack[stack.length - 1].kids.push({ text: t }); };
+    while ((m = re.exec(html))) {
+        pushText(html.slice(last, m.index));
+        last = re.lastIndex;
+        if (m[1]) {                                   // closing tag
+            if (stack.length > 1) stack.pop();
+            continue;
+        }
+        const tag = m[2];
+        const attrs = {};
+        const ar = /([\w:-]+)(?:="([^"]*)")?/g;
+        let a;
+        while ((a = ar.exec(m[3] || ''))) attrs[a[1]] = a[2] === undefined ? '' : a[2];
+        const el = makeEl(tag, attrs);
+        stack[stack.length - 1].kids.push(el);
+        if (!VOID_TAGS[el.tagName] && !/\/\s*$/.test(m[3] || '')) stack.push({ el, kids: el.children });
+    }
+    pushText(html.slice(last));
+
+    // Link the tree up now that it is built.
+    (function link(kids, p) {
+        kids.forEach((k) => { if (k.tagName) { k.parentNode = p; link(k.children, k); } else { k.parentNode = p; } });
+    })(out, parent);
+    return out;
+}
+
+function serialize(nodes) {
+    return nodes.map((n) => {
+        if (!n.tagName) return n.text;
+        const tag = n.tagName.toLowerCase();
+        const attrs = Object.keys(n.attrs).map((k) => ` ${k}="${n.attrs[k]}"`).join('');
+        if (VOID_TAGS[n.tagName]) return `<${tag}${attrs}>`;
+        return `<${tag}${attrs}>${serialize(n.children)}</${tag}>`;
+    }).join('');
+}
+
 function makeEl(tag, attrs) {
     const el = {
         tagName: (tag || 'div').toUpperCase(),
         attrs: Object.assign({}, attrs),
-        innerHTML: '',
+        _html: '',
+        _text: null,
+        _fromHtml: false,
+        _on: Object.create(null),
         children: [],
         parentNode: null,
         style: { setProperty() {} },
+        get innerHTML() { return this._html; },
+        set innerHTML(v) {
+            this._html = String(v);
+            this._text = null;
+            this.children = parseHtml(this._html, this);
+            this._fromHtml = true;
+        },
+        get textContent() { return this._text != null ? this._text : this._html; },
+        set textContent(v) {
+            // A real DOM keeps these two in step: setting textContent replaces
+            // the children AND the markup, with the text escaped. Holding the
+            // raw text alongside is what lets a reader get back what was set
+            // without this harness having to decode entities.
+            this._text = String(v);
+            this._html = this._text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+            this.children = [];
+            this._fromHtml = false;
+        },
+        // The parsed children and the string have to stay in step, or a removal
+        // is invisible to the very assertion that is checking for it.
+        /* The string and the parsed children have to stay in step, or a
+         * removal is invisible to the very assertion checking for it. The
+         * mutations happen deep in the tree and the string lives on whichever
+         * ancestor innerHTML was set on, so this walks up to find it. */
+        _resync() {
+            let n = this;
+            while (n && !n._fromHtml) n = n.parentNode;
+            if (n) n._html = serialize(n.children);
+        },
         getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
         setAttribute(k, v) { this.attrs[k] = String(v); },
         removeAttribute(k) { delete this.attrs[k]; },
         hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k); },
-        appendChild(c) { c.parentNode = this; this.children.push(c); return c; },
-        removeChild(c) { const i = this.children.indexOf(c); if (i > -1) this.children.splice(i, 1); c.parentNode = null; return c; },
-        // Only the selectors these files use: [data-x] and [data-x], [data-y].
-        querySelectorAll(sel) { return descendants(this).filter((e) => matches(e, sel)); },
-        querySelector(sel) { return descendants(this).find((e) => matches(e, sel)) || null; },
-        closest(sel) { let n = this; while (n) { if (matches(n, sel)) return n; n = n.parentNode; } return null; },
+        appendChild(c) { c.parentNode = this; this.children.push(c); this._resync(); return c; },
+        insertBefore(c, ref) {
+            // A real insertBefore MOVES the node — it is detached from whatever
+            // parent it had first. Without that, unwrapping an element by
+            // walking its firstChild out never terminates, because the child is
+            // still the child.
+            if (c.parentNode) {
+                const j = c.parentNode.children.indexOf(c);
+                if (j > -1) c.parentNode.children.splice(j, 1);
+            }
+            const i = this.children.indexOf(ref);
+            c.parentNode = this;
+            this.children.splice(i < 0 ? this.children.length : i, 0, c);
+            this._resync();
+            return c;
+        },
+        removeChild(c) {
+            const i = this.children.indexOf(c);
+            if (i > -1) this.children.splice(i, 1);
+            c.parentNode = null;
+            this._resync();
+            return c;
+        },
+        get firstChild() { return this.children[0] || null; },
+        // Only as much of the event API as crew-feed.js uses. The handler is
+        // parked on _on so a test can fire it without a real browser.
+        addEventListener(type, fn) { this._on[type] = fn; },
+        removeEventListener(type) { delete this._on[type]; },
+        // Only the selectors these files use: [data-x], a tag name, and lists.
+        querySelectorAll(sel) { return descendants(this).filter((e) => e.tagName && matches(e, sel)); },
+        querySelector(sel) { return descendants(this).find((e) => e.tagName && matches(e, sel)) || null; },
+        closest(sel) { let n = this; while (n) { if (n.tagName && matches(n, sel)) return n; n = n.parentNode; } return null; },
     };
     return el;
 }
 function descendants(root) {
     const out = [];
-    (function walk(n) { n.children.forEach((c) => { out.push(c); walk(c); }); })(root);
+    (function walk(n) {
+        (n.children || []).forEach((c) => { out.push(c); if (c.children) walk(c); });
+    })(root);
     return out;
 }
 function matches(el, sel) {
@@ -411,7 +534,11 @@ const ROUTES = [
         const when = root.appendChild(makeEl('section', { 'data-crew-when': 'flights30d' }));
 
         feed.paintStats({ pilots: 412 }, root);
-        ok('a figure we have is written in', keep.innerHTML === '' && keep.textContent === '412', keep.textContent);
+        // Written in as TEXT, not as markup — which is the property that
+        // matters, and the one a real browser also reports: setting
+        // textContent leaves no child elements behind.
+        ok('a figure we have is written in',
+            keep.textContent === '412' && keep.children.length === 0, keep.textContent);
         ok('a figure we do not have takes its whole block with it', root.children.indexOf(figure) === -1);
         ok('…and the element inside it goes too', inside.parentNode === figure && figure.parentNode === null);
         ok('a section that needs a figure is removed when there is none', root.children.indexOf(when) === -1);
@@ -436,6 +563,166 @@ const ROUTES = [
         const before = host.innerHTML;
         await feed.mount({ querySelector: () => null, querySelectorAll: (s) => (s === '[data-crew-list]' ? [host] : []) });
         ok('a quiet backend leaves the host page exactly as it was', host.innerHTML === before);
+    }
+
+    /* =====================================================================
+     * THE FLEET PICTURE, AND WHOSE IT IS
+     *
+     * The guarantee under test: every aircraft has a picture, it needs no
+     * network, and whatever is not the airline's own work says whose it is.
+     * =================================================================== */
+    section('crew-feed.js — every aircraft gets a picture');
+    {
+        const { feed } = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', fleet: [
+            { type: 'Boeing 787-10 Dreamliner', name: 'Ocean', image: 'https://cdn.test/789.jpg' },
+            { type: 'Airbus A320-200', name: 'Standard' },
+            { type: 'Boeing 747-8', name: 'Freighter' },
+            { type: 'Cessna 172 Skyhawk', name: 'Trainer' },
+            { type: 'Boeing 777-300ER', name: 'Retro', image: 'http://cdn.test/insecure.jpg' },
+        ] } } });
+        const air = await feed.fleet();
+
+        ok('the VA’s own upload wins', air[0].image === 'https://cdn.test/789.jpg' && air[0].fit === 'cover');
+        // A URL that worked when it was typed and 404s two years later is how a
+        // fleet page quietly grows holes. Every row carries the standby.
+        ok('…and still carries a standby for the day it 404s',
+            /^data:image\/svg\+xml/.test(air[0].fallback), String(air[0].fallback).slice(0, 30));
+        ok('…and is credited to nobody, because it is theirs', air[0].credit === '', JSON.stringify(air[0].credit));
+
+        // The floor. No fetch, no host, nothing that can 404.
+        ok('an aircraft with no picture still has one',
+            /^data:image\/svg\+xml/.test(air[1].image), air[1].image.slice(0, 40));
+        // The XML namespace is a URI and is not fetched. What matters is that
+        // there is nothing in here the browser will go and ASK for.
+        ok('…drawn here, so it cannot fail to load',
+            !/(src|xlink:href|url\()/i.test(decodeURIComponent(air[1].image)),
+            air[1].image.slice(0, 60));
+        ok('…contained rather than cropped, so the wingtips survive', air[1].fit === 'contain');
+        ok('…and it says whose outline it is', air[2].credit === 'Outline by Inflight');
+        ok('a credit we cannot link is words, not a dead link', air[2].creditHref === '');
+
+        // A 747 must not come out looking like an A320: the planform is the
+        // whole reason for drawing these rather than shipping one grey plane.
+        const four = decodeURIComponent(air[2].image);
+        const two = decodeURIComponent(air[1].image);
+        const light = decodeURIComponent(air[3].image);
+        ok('a quad is not drawn as a narrowbody', four !== two);
+        ok('…nor a light aircraft as either', light !== two && light !== four);
+        ok('the same type always gets the same tile',
+            feed.silhouette('Airbus A320-200') === air[1].image);
+
+        // A plain-http upload is not usable in an https page, and falling back
+        // to the drawn outline is better than a blocked image.
+        ok('an insecure upload falls through to the outline',
+            /^data:image/.test(air[4].image), air[4].image.slice(0, 24));
+    }
+
+    {
+        /* THE OUTLINE IS DRAWN IN THE AIRLINE'S OWN COLOUR.
+         *
+         * The crew centre tints these per registration so an airframe is
+         * recognisable in a list of forty. On the airline's own website that is
+         * wrong: twelve randomly hued tiles next to their wordmark is a paint
+         * chart sitting where a livery should be. */
+        const withAccent = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', accent: '#d8102f', fleet: [
+            { type: 'Airbus A320-200', name: 'Standard' },
+        ] } } });
+        const a = await withAccent.feed.fleet();
+        const svg = decodeURIComponent(a[0].image);
+        ok('the outline is drawn in the airline’s accent', svg.includes('fill="#d8102f"'), svg.slice(0, 200));
+        // No field of its own: the card well is the ground. A second rectangle
+        // inside the first is a picture inside a picture.
+        ok('…as a mark, with no rectangle of its own', !svg.includes('<rect'), svg.slice(0, 200));
+
+        const none = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', fleet: [
+            { type: 'Airbus A320-200', name: 'Standard' },
+        ] } } });
+        const n2 = decodeURIComponent((await none.feed.fleet())[0].image);
+        ok('an airline with no accent gets a neutral mark, not one we invented',
+            n2.includes('fill="#8b94a3"'), n2.slice(0, 200));
+
+        const junk = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', accent: 'red; }', fleet: [
+            { type: 'Airbus A320-200', name: 'Standard' },
+        ] } } });
+        const j2 = decodeURIComponent((await junk.feed.fleet())[0].image);
+        ok('an accent that is not a colour never reaches the SVG',
+            !j2.includes('red') && j2.includes('#8b94a3'), j2.slice(0, 200));
+    }
+    {
+        // The swap itself. An <img> whose src 404s is the same broken glyph as
+        // one with no src at all, and it is the one that arrives LATER.
+        const { feed } = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', fleet: [
+            { type: 'Boeing 737-800', name: 'Standard', image: 'https://cdn.test/gone.jpg' },
+        ] } } });
+        const host = makeEl('ul', { 'data-crew-list': 'fleet' });
+        const tpl = host.appendChild(makeEl('template'));
+        tpl.innerHTML = '<li><img src="{{image}}" data-fit="{{fit}}" data-crew-fallback="{{fallback}}"></li>';
+        await feed.mount({ querySelector: () => null, querySelectorAll: (s) => (s === '[data-crew-list]' ? [host] : []) });
+        const img = host.querySelectorAll('img')[0];
+        ok('the upload is used while it works', img.getAttribute('src') === 'https://cdn.test/gone.jpg');
+        ok('…and an error handler is waiting', typeof img._on.error === 'function');
+        img._on.error();
+        ok('a picture that 404s falls back to the drawn outline',
+            /^data:image\/svg\+xml/.test(img.src), String(img.src).slice(0, 30));
+        ok('…contained, so the wingtips survive', img.getAttribute('data-fit') === 'contain');
+        ok('…and cannot loop on a standby that fails too',
+            img.getAttribute('data-crew-fallback') === null);
+    }
+
+    section('crew-feed.js — hubs and codeshares, off the route map');
+    {
+        const MAP = { body: {
+            routes: [
+                { origin: 'MMMX', destination: 'KJFK', o: [19.4, -99], d: [40.6, -73.7], mapped: true, active: true },
+                { origin: 'MMMX', destination: 'KLAX', o: [19.4, -99], d: [33.9, -118.4], mapped: true, active: true, kind: 'codeshare', partnerName: 'Delta Virtual' },
+                { origin: 'MMMY', destination: 'KDFW', o: [25.8, -100.2], d: [32.9, -97], mapped: true, active: true, kind: 'codeshare', partnerName: 'delta virtual' },
+                { origin: 'MMMY', destination: 'KIAH', o: [25.8, -100.2], d: [30, -95.3], mapped: true, active: false },
+            ],
+            airports: [
+                { icao: 'MMMX', lat: 19.4, lon: -99, dep: 9, arr: 4, routes: 12 },
+                { icao: 'MMMY', lat: 25.8, lon: -100.2, dep: 3, arr: 2, routes: 5 },
+                { icao: 'MMGL', lat: 20.5, lon: -103.3, dep: 1, arr: 1, routes: 5 },
+            ],
+        } };
+        const { feed } = loadFeed({ '/route-map': MAP });
+        const bases = await feed.hubs({ limit: 2 });
+        ok('the busiest airport is the hub', bases[0].icao === 'MMMX', JSON.stringify(bases));
+        ok('a tie on routes breaks on departures', bases[1].icao === 'MMMY', JSON.stringify(bases[1]));
+        ok('the limit is honoured', bases.length === 2);
+
+        const { feed: f2 } = loadFeed({ '/route-map': MAP });
+        const co = await f2.partners();
+        ok('a codeshare partner is listed once, not per sector', co.length === 1, JSON.stringify(co));
+        ok('…in the casing the crew centre stored', co[0].name === 'Delta Virtual', co[0].name);
+        ok('…and it counts the sectors', co[0].sectors === 2, String(co[0].sectors));
+    }
+    {
+        // A VA that flies alone has no partner section, and an empty list is
+        // null so the page keeps whatever it already said.
+        const { feed } = loadFeed({ '/route-map': { body: { routes: [
+            { origin: 'MMMX', destination: 'KJFK', o: [1, 1], d: [2, 2], mapped: true, active: true },
+        ], airports: [] } } });
+        ok('no codeshares is null, not an empty list', (await feed.partners()) === null);
+        ok('no airports is null too', (await feed.hubs()) === null);
+    }
+    {
+        const { feed } = loadFeed({});
+        ok('a quiet backend leaves hubs null', (await feed.hubs()) === null);
+        ok('…and partners null', (await feed.partners()) === null);
+    }
+
+    section('crew-feed.js — an attribution is never deleted for want of a link');
+    {
+        const { feed } = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', fleet: [
+            { type: 'Airbus A320-200', name: 'Standard' },
+        ] } } });
+        const host = makeEl('ul', { 'data-crew-list': 'fleet' });
+        const tpl = host.appendChild(makeEl('template'));
+        tpl.innerHTML = '<li><img src="{{image}}"><a href="{{creditHref}}">{{credit}}</a></li>';
+        await feed.mount({ querySelector: () => null, querySelectorAll: (s) => (s === '[data-crew-list]' ? [host] : []) });
+        ok('the words of the credit survive', host.innerHTML.includes('Outline by Inflight'), host.innerHTML);
+        ok('…while the empty link around them does not',
+            !/<a[^>]*href=""/.test(host.innerHTML), host.innerHTML);
     }
 
     console.log(`\n${pass} passed, ${fail} failed`);
