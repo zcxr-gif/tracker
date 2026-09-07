@@ -1248,7 +1248,10 @@
         $('mediaUsage').textContent = l.media
             ? `${u.media || 0} of ${l.media} · ${KB(u.mediaBytes || 0)} of ${KB(l.mediaBytes || 0)}`
             : '';
-        if (mediaPicking !== null) renderMediaSheet();
+        // Whenever the library is open, not only while it is picking. Uploading
+        // a picture with the library open and watching the grid not change is
+        // the first thing anybody does.
+        if ($('mediaSheet')) renderMediaSheet();
     }
 
     /* When this holds a function, the library is being used to CHOOSE a
@@ -1315,6 +1318,7 @@
                 || '<p class="col-span-full text-sm muted py-6 text-center">Nothing here yet. Drop a picture above.</p>'}
             </div>`;
         icons();
+        wireUpload();
     }
 
     function wireMediaSheet() {
@@ -1373,21 +1377,27 @@
             } catch (err) { toast(err.message, 'bad'); }
         });
 
+    }
+
+    /* THE FILE INPUT AND THE DROP ZONE ARE REPLACED ON EVERY RE-RENDER.
+     *
+     * The handlers above are delegated onto #mediaSheet, which survives —
+     * renderMediaSheet() replaces its innerHTML, not the element. These two are
+     * not: they are attached to elements inside that innerHTML, so the first
+     * upload destroyed the very controls that started it and the second one had
+     * to be done by reloading the page. Re-attached after every render instead. */
+    function wireUpload() {
         const file = $('mdFile');
         if (file) file.addEventListener('change', () => { uploadPictures(file.files); file.value = ''; });
 
         const drop = $('mdDrop');
-        if (drop) {
-            ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, (e) => {
-                e.preventDefault(); drop.classList.add('accent-border');
-            }));
-            ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, (e) => {
-                e.preventDefault(); drop.classList.remove('accent-border');
-            }));
-            drop.addEventListener('drop', (e) => {
-                if (e.dataTransfer && e.dataTransfer.files) uploadPictures(e.dataTransfer.files);
-            });
-        }
+        if (!drop) return;
+        const lit = (on) => { drop.style.borderColor = on ? 'var(--accent)' : ''; };
+        ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); lit(true); }));
+        ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); lit(false); }));
+        drop.addEventListener('drop', (e) => {
+            if (e.dataTransfer && e.dataTransfer.files) uploadPictures(e.dataTransfer.files);
+        });
     }
 
     /** How many sections point at this address. Used only to warn before a

@@ -894,15 +894,21 @@
     function paintStats(figures, root) {
         /* NULL IS NOT AN EMPTY ANSWER.
          *
-         * `null` from stats() means we never found out — offline, slow, backend
-         * down. An OBJECT without a key means the crew centre genuinely does not
-         * hold that figure. Those are opposite instructions and this function
-         * used to treat them the same, so a backend that was down for thirty
-         * seconds stripped the whole figures band off every hosted site: the
-         * exact failure the rule at the top of this file exists to prevent.
+         * An OBJECT without a key means the crew centre genuinely does not hold
+         * that figure, and the element goes. `null` means no figures reached us
+         * at all, and the page is left exactly as its author wrote it.
          *
-         * A page must already be correct before this script runs, and when we
-         * have learned nothing the correct thing is to change nothing.
+         * This function used to treat those the same, so a backend that was down
+         * for thirty seconds stripped the whole figures band off every hosted
+         * site — the exact failure the rule at the top of this file exists to
+         * prevent, and it was live.
+         *
+         * Being straight about the cost: stats() returns null both for "we could
+         * not ask" AND for an airline that has flown nothing yet, so a brand-new
+         * VA now keeps whatever their page says instead of losing the band. That
+         * is the right way round. The fallback in the markup is a dash the page
+         * author chose; the alternative was every established airline's figures
+         * disappearing on a slow request.
          */
         if (figures === null || figures === undefined) return;
 
