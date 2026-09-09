@@ -152,12 +152,45 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
   await page.evaluate(()=>openRoutes()); await page.waitForTimeout(400);
   await page.evaluate(()=>openRouteForm()); await page.waitForTimeout(300);
   const opts=await page.$$eval('#nr_aircraft option', els=>els.map(o=>({t:o.textContent,v:o.value,d:o.disabled})));
-  ok('an aircraft with a livery is offered', opts.some(o=>o.t==='Boeing 787-9 · Aeromexico'), JSON.stringify(opts));
-  ok('…the two 787-9s are told apart by livery', opts.some(o=>o.t==='Boeing 787-9 · Retro'), JSON.stringify(opts));
+  ok('an aircraft with a livery is offered', opts.some(o=>/^Boeing 787-9 · /.test(o.t)), JSON.stringify(opts));
+  // Two options carrying one value are one option wearing two coats: a <select>
+  // set to "Boeing 787-9" lands on whichever is listed first, so editing the
+  // Retro route came back showing Aeromexico. The liveries collect onto the
+  // aircraft they paint instead.
+  ok('…the two 787-9s are ONE choice, naming both liveries',
+     opts.filter(o=>o.v==='Boeing 787-9').length===1
+     && opts.some(o=>o.t==='Boeing 787-9 · Aeromexico, Retro'), JSON.stringify(opts));
   ok('a type-only aircraft is NOT offered', !opts.some(o=>/A320/.test(o.t) && !o.d), JSON.stringify(opts));
   ok('…and the picker says why it is missing', opts.some(o=>o.d && /need a livery/.test(o.t)), JSON.stringify(opts));
   ok('the stored value stays the bare type, so matching is unchanged',
      opts.filter(o=>o.t.includes('787-9')).every(o=>o.v==='Boeing 787-9'), JSON.stringify(opts));
+  // The bug that shape caused: what a route was saved as has to come back
+  // SELECTED, not merely present somewhere in the list.
+  const rt=await page.evaluate(()=>{
+    openRouteForm({id:'r9',origin:'EGLL',destination:'KJFK',aircraft:'Boeing 787-9',active:true,kind:'own'});
+    const s=document.getElementById('nr_aircraft');
+    return { shown:s.options[s.selectedIndex].textContent, value:s.value };
+  });
+  ok('editing a route comes back on the aircraft it was saved as',
+     rt.value==='Boeing 787-9' && /Aeromexico, Retro/.test(rt.shown), JSON.stringify(rt));
+
+  console.log('\nThe pilot form’s aircraft chips');
+  const chips=await page.evaluate(()=>{
+    buildAircraftChips([]);
+    const all=()=>[...document.querySelectorAll('#np_aircraft [data-ac]')]
+      .map(e=>({label:e.textContent.trim(), value:e.getAttribute('data-ac'), lit:e.classList.contains('accent-bg')}));
+    const before=all();
+    [...document.querySelectorAll('#np_aircraft [data-ac]')].find(x=>/787-9/.test(x.textContent)).click();
+    const set=[...NP_AIRCRAFT];
+    buildAircraftChips(set);            // what reopening the form does
+    return { before, set, reopened:all() };
+  });
+  ok('one chip per aircraft, not one per livery',
+     chips.before.filter(c=>c.value==='Boeing 787-9').length===1, JSON.stringify(chips.before));
+  ok('ticking it selects that aircraft', JSON.stringify(chips.set)===JSON.stringify(['Boeing 787-9']), JSON.stringify(chips.set));
+  ok('…and reopening the form lights exactly what was saved',
+     chips.reopened.filter(c=>c.lit).length===1 && chips.reopened.find(c=>c.lit).value==='Boeing 787-9',
+     JSON.stringify(chips.reopened));
   ok('no page errors', errs.length===0, errs.join('|'));
 
   console.log('\nThe reported failure: getting the RIGHT photo');

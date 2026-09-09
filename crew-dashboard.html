@@ -1845,6 +1845,48 @@
         // stop those matching. The livery earns the entry its place in the list
         // and tells the two apart — it is not a new key.
         function fleetValue(a){ return String(a.type||'').trim(); }
+        /* --------------------------------------------------------------------
+           ONE ENTRY PER AIRCRAFT THAT CAN ACTUALLY BE PICKED
+
+           fleetValue() above is right: what a route, a PIREP or a pilot's
+           aircraft list stores is the TYPE, because that is what the live API
+           matches an Infinite Flight flight against. But the pickers offered one
+           entry per FLEET ROW, and a value is all that ever comes back from one.
+           So a VA who paints a 787-9 twice got two choices carrying one value,
+           and both ways of reading a choice broke:
+
+             * a <select> set to "Boeing 787-9" lands on whichever livery is
+               listed first, so editing a route bound to the Retro 787 always
+               came back showing Aeromexico
+             * the pilot form's chips are keyed by value too, so ticking one lit
+               one chip and saved "Boeing 787-9" — and reopening the form lit
+               BOTH, because both ask the same question of the same Set
+
+           No amount of labelling fixes that: two options with one value are one
+           option wearing two coats. So the liveries collect onto the aircraft
+           they paint and the label names all of them — "Boeing 787-9 ·
+           Aeromexico, Retro". One choice per thing that can be chosen. Nothing
+           about what is stored, sent or matched changes.
+
+           The EDITOR still shows every row separately. That is where liveries
+           are added and removed, and there they really are separate things.
+        -------------------------------------------------------------------- */
+        function pickableFleet(){
+            const by=new Map();
+            for(const a of routableFleet()){
+                const v=fleetValue(a); if(!v) continue;
+                if(!by.has(v)) by.set(v,{ type:v, liveries:[] });
+                const liv=String(a.name||'').trim(), e=by.get(v);
+                if(liv && !e.liveries.some(x=>x.toLowerCase()===liv.toLowerCase())) e.liveries.push(liv);
+            }
+            return [...by.values()];
+        }
+        function pickableLabel(e){ return e.liveries.length ? `${e.type} \u00b7 ${e.liveries.join(', ')}` : e.type; }
+        // The three pickers all want the same <option> list; they used to build
+        // it three times and could drift apart while doing it.
+        function fleetOptionsHtml(){
+            return pickableFleet().map(e=>`<option value="${escapeHtml(e.type)}">${escapeHtml(pickableLabel(e))}</option>`).join('');
+        }
         // Said in the picker, not in the editor: an aircraft that is simply
         // absent reads as a bug. Only ever shown when something really was held
         // back.
@@ -3350,16 +3392,30 @@
            verbatim so a staff member can see and correct their own typing —
            CrewSocial does the parsing, and only at the point of drawing.
         --------------------------------------------------------------------- */
-        function socialRowHtml(url,i){
+        // The flag ships as an ALWAYS-PRESENT span, empty when the link is fine.
+        // It used to be conditional markup, which left nothing to update in
+        // place and forced a full re-render to show or hide it — see
+        // refreshSocialRow.
+        function socialFlagHtml(url){
             const good = !!(window.CrewSocial && CrewSocial.parsePost(url));
-            const flag = (url.trim() && !good)
-                ? `<span class="shrink-0 text-amber-500" title="That is not an Instagram post link"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>` : '';
+            return (String(url||'').trim() && !good)
+                ? `<i data-lucide="alert-triangle" class="w-4 h-4" title="That is not an Instagram post link"></i>` : '';
+        }
+        function socialRowHtml(url,i){
             return `<div class="struct-row flex items-center gap-2" data-social-idx="${i}">
                 <input data-sf="url" value="${escapeHtml(url||'')}" placeholder="https://www.instagram.com/p/…"
                     class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                ${flag}
+                <span data-sflag class="shrink-0 text-amber-500">${socialFlagHtml(url)}</span>
                 <button data-sdel title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>`;
+        }
+        // Just this row's flag. Nothing else is touched, so whatever the focus
+        // is on the way to survives.
+        function refreshSocialRow(row){
+            const i=+row.getAttribute('data-social-idx');
+            const f=row.querySelector('[data-sflag]'); if(!f) return;
+            f.innerHTML=socialFlagHtml(SOCIAL.posts[i]);
+            if(window.lucide) lucide.createIcons();
         }
         function renderSocialEditor(){
             const rows=document.getElementById('socialRows'); if(!rows) return;
@@ -3386,9 +3442,19 @@
                     if(e.target.getAttribute('data-sf')!=='url') return;
                     SOCIAL.posts[+row.getAttribute('data-social-idx')]=e.target.value;
                 });
-                // Re-render on blur, not on every keystroke: the warning flag
-                // would otherwise flicker on and off as a link is typed out.
-                rows.addEventListener('focusout', ()=>renderSocialEditor());
+                // Judge the link on blur, not on every keystroke: the warning
+                // flag would otherwise flicker on and off as one is typed out.
+                //
+                // ONE ROW, IN PLACE. This re-rendered the whole list, and
+                // focusout fires BEFORE the focus lands — so tabbing from one
+                // link field to the next destroyed the element the focus was
+                // moving to. Focus fell out of the list and the next keystrokes
+                // went nowhere, which made a wall of more than one post very
+                // nearly untypeable.
+                rows.addEventListener('focusout', e=>{
+                    const row=e.target.closest && e.target.closest('[data-social-idx]');
+                    if(row) refreshSocialRow(row);
+                });
                 rows.addEventListener('click', e=>{
                     const del=e.target.closest('[data-sdel]'); if(!del) return;
                     const row=del.closest('[data-social-idx]'); if(!row) return;
@@ -3793,9 +3859,9 @@
         function buildAircraftChips(selected){
             NP_AIRCRAFT = new Set(selected || []);
             const host=document.getElementById('np_aircraft');
-            const offer=routableFleet(), held=fleetHeldBack();
-            host.innerHTML = offer.length ? offer.map(a=>{ const v=fleetValue(a); const on=NP_AIRCRAFT.has(v);
-                return `<button type="button" data-ac="${escapeHtml(v)}" class="text-xs rounded-full px-2.5 py-1 ${on?'accent-bg text-white':'surface hair'}">${escapeHtml(fleetLabel(a))}</button>`; }).join('')
+            const offer=pickableFleet(), held=fleetHeldBack();
+            host.innerHTML = offer.length ? offer.map(e=>{ const v=e.type; const on=NP_AIRCRAFT.has(v);
+                return `<button type="button" data-ac="${escapeHtml(v)}" class="text-xs rounded-full px-2.5 py-1 ${on?'accent-bg text-white':'surface hair'}">${escapeHtml(pickableLabel(e))}</button>`; }).join('')
                   +(held?`<span class="text-xs faint w-full">${escapeHtml(held)}.</span>`:'')
                 : `<span class="text-xs faint">${held?escapeHtml(held)+' — finish them in':'Add aircraft in'} Settings → Crew → Fleet.</span>`;
             host.querySelectorAll('[data-ac]').forEach(b=>b.addEventListener('click',()=>{
@@ -4222,7 +4288,7 @@
             ROUTE_EDITING = route ? String(route.id) : null;
             const rtHeld=fleetHeldBack();
             document.getElementById('nr_aircraft').innerHTML='<option value="">Any aircraft</option>'
-                +routableFleet().map(a=>`<option value="${escapeHtml(fleetValue(a))}">${escapeHtml(fleetLabel(a))}</option>`).join('')
+                +fleetOptionsHtml()
                 +(rtHeld?`<option value="" disabled>— ${escapeHtml(rtHeld)} —</option>`:'');
             document.getElementById('nr_flight').value = route ? (route.flightNumber||'') : '';
             document.getElementById('nr_from').value = route ? (route.origin||'') : '';
@@ -4932,10 +4998,17 @@
         let PIREP_SCHEDULE_ID='';
         function openPirepForm(prefill){
             const pilotSel=document.getElementById('pf_pilot');
-            pilotSel.innerHTML='<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${m.id}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('');
+            // The id is escaped like the name beside it. It is a server id today,
+            // but it lands in an attribute and nothing here guarantees its shape.
+            pilotSel.innerHTML='<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${escapeHtml(m.id)}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('');
             const acSel=document.getElementById('pf_aircraft');
+            const pfHeld=fleetHeldBack();
             acSel.innerHTML='<option value="">Aircraft (optional)</option>'
-                +routableFleet().map(a=>`<option value="${escapeHtml(fleetValue(a))}">${escapeHtml(fleetLabel(a))}</option>`).join('');
+                +fleetOptionsHtml()
+                // An aircraft that is simply absent reads as a bug — the route
+                // form has said why since it was built, and this picker, reading
+                // the same fleet, said nothing.
+                +(pfHeld?`<option value="" disabled>— ${escapeHtml(pfHeld)} —</option>`:'');
             ['pf_from','pf_to','pf_flight','pf_land','pf_h','pf_m'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
             const p=prefill||{};
             PIREP_SCHEDULE_ID=p.scheduleId||'';
