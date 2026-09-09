@@ -29,8 +29,22 @@ const server = http.createServer((req,res)=>{
 let posts = [];
 let settingsReply = null;              // set to [status, body] to force a failure
 let brandingFleet = [];
-const AC = ['Boeing 787-9','Airbus A320'];
-const LIV = { 'Boeing 787-9':['Aeromexico','Generic'], 'Airbus A320':['Aeromexico'] };
+// Every /api/aircraft/lookup this page makes, so a test can assert not only
+// which picture came back but WHAT WAS ASKED — the reported bug was a query
+// that never carried the livery at all.
+let lookups = [];
+// The community photo library, keyed the way the real one is: type + livery.
+// A type asked about with NO livery answers with the first paint on file,
+// which is exactly the behaviour that made the wrong picture stick.
+let PHOTOS = {
+  'Boeing 787-9|Aeromexico': 'https://cdn.example/787-aeromexico.jpg',
+  'Boeing 787-9|Retro':      'https://cdn.example/787-retro.jpg',
+  'Boeing 787-9|Generic':    'https://cdn.example/787-generic.jpg',
+  'Airbus A320|Aeromexico':  'https://cdn.example/a320-aeromexico.jpg',
+};
+let photoAsArray = false;              // the library answers with a list for some types
+const AC = ['Boeing 787-9','Boeing 787-10','Airbus A320'];
+const LIV = { 'Boeing 787-9':['Aeromexico','Retro','Generic'], 'Boeing 787-10':['Generic'], 'Airbus A320':['Aeromexico'] };
 function api(route){
   const url=new URL(route.request().url()); const p=url.pathname; const m=route.request().method();
   const json=(b,s=200)=>route.fulfill({status:s,contentType:'application/json',body:JSON.stringify(b)});
@@ -43,7 +57,20 @@ function api(route){
   if(p.includes('/va-ads/by-slug/')) return json({name:'Test VA',code:'TVA',layout:'editorial',allowedLayouts:['editorial'],fleet:brandingFleet});
   if(p.endsWith('/branding')) return json({name:'Test VA',code:'TVA',layout:'editorial',allowedLayouts:['editorial'],fleet:brandingFleet});
   if(p.endsWith('/me')) return json({role:'owner',capabilities:[],name:'Owner'});
-  if(p.includes('/aircraft/lookup')) return json({isPlaceholder:true});
+  if(p.endsWith('/badge-image')) return json({url:'https://cdn.example/uploaded.png'});
+  if(p.includes('/aircraft/lookup')){
+    const type=url.searchParams.get('type')||'';
+    const livery=url.searchParams.get('livery')||'';
+    lookups.push({type,livery,raw:url.search});
+    // No livery asked for -> the first paint on file for that type. The
+    // library does this; the editor's job is not to ask that question.
+    const key = livery ? `${type}|${livery}`
+      : Object.keys(PHOTOS).find(k=>k.split('|')[0]===type);
+    const hit = key ? PHOTOS[key] : '';
+    if(!hit) return json({isPlaceholder:true});
+    const rec={imageUrl:hit,isPlaceholder:false};
+    return json(photoAsArray?[rec]:rec);
+  }
   return json({});
 }
 let pass=0, fail=0;
@@ -133,9 +160,96 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
      opts.filter(o=>o.t.includes('787-9')).every(o=>o.v==='Boeing 787-9'), JSON.stringify(opts));
   ok('no page errors', errs.length===0, errs.join('|'));
 
+  console.log('\nThe reported failure: getting the RIGHT photo');
+  settingsReply=null; brandingFleet=[]; photoAsArray=false;
+  await ctx.close();
+  ({ctx,page,errs}=await open());
+  const rowImg=()=>page.evaluate(()=>{const i=document.querySelector('#fleetRows [data-idx="0"] img');return i?i.getAttribute('src'):'';});
+  const stateOf=()=>page.evaluate(()=>{const s=document.querySelector('#fleetRows [data-idx="0"] [data-fleetstate]');return s?s.textContent.trim():'';});
+  await page.evaluate(()=>addFleet()); await page.waitForTimeout(150);
+  lookups=[];
+  // Typing only the aircraft used to fetch a photo immediately — whichever
+  // livery the library held first — and that picture then blocked the right one.
+  await page.fill('#fleetRows [data-idx="0"] [data-f="type"]','Boeing 787-9');
+  await page.waitForTimeout(900);
+  ok('the bare aircraft is NOT asked about, so no arbitrary livery lands', lookups.length===0, JSON.stringify(lookups));
+  ok('…and the row says what it is waiting for', /Pick one of its 3 liveries/.test(await stateOf()), await stateOf());
+  ok('no photo yet', !(await rowImg()), await rowImg());
+
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Aeromexico');
+  await page.waitForTimeout(1000);
+  ok('choosing the livery asks for it under the name the library reads (`livery`)',
+     lookups.length>0 && lookups[0].livery==='Aeromexico' && /[?&]livery=/.test(lookups[0].raw), JSON.stringify(lookups));
+  ok('…and the photo is that livery’s', (await rowImg())==='https://cdn.example/787-aeromexico.jpg', await rowImg());
+
+  // The heart of the report: the picture was already set, so changing the
+  // livery changed nothing.
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Retro');
+  await page.waitForTimeout(1000);
+  ok('changing the livery REPLACES the photo', (await rowImg())==='https://cdn.example/787-retro.jpg', await rowImg());
+
+  // A livery with no photo of its own falls back to the type's generic paint,
+  // never to another airline's.
+  PHOTOS['Boeing 787-9|Retro']=undefined; delete PHOTOS['Boeing 787-9|Retro'];
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Aeromexico'); await page.waitForTimeout(900);
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Retro'); await page.waitForTimeout(1000);
+  ok('a livery with no photo falls back to the aircraft’s generic paint',
+     (await rowImg())==='https://cdn.example/787-generic.jpg', await rowImg());
+  PHOTOS['Boeing 787-9|Retro']='https://cdn.example/787-retro.jpg';
+
+  console.log('\nThe aircraft box does not guess');
+  await page.evaluate(()=>{ FLEET.length=0; addFleet(); }); await page.waitForTimeout(150);
+  lookups=[];
+  await page.fill('#fleetRows [data-idx="0"] [data-f="type"]','787');
+  await page.waitForTimeout(900);
+  ok('a name matching several aircraft picks none of them', lookups.length===0, JSON.stringify(lookups));
+  ok('…and says how many it matches', /2 Infinite Flight aircraft match/.test(await stateOf()), await stateOf());
+  // Typed loosely, settled on blur to the catalogue's own spelling.
+  await page.fill('#fleetRows [data-idx="0"] [data-f="type"]','boeing 787-10');
+  await page.evaluate(()=>document.querySelector('#fleetRows [data-idx="0"] [data-f="type"]').blur());
+  await page.waitForTimeout(900);
+  const typed=await page.evaluate(()=>({box:document.querySelector('#fleetRows [data-idx="0"] [data-f="type"]').value, stored:FLEET[0].type}));
+  ok('a loosely typed aircraft settles on the catalogue’s exact name', typed.box==='Boeing 787-10' && typed.stored==='Boeing 787-10', JSON.stringify(typed));
+
+  console.log('\nA photo the VA uploaded is theirs');
+  await page.evaluate(()=>{ FLEET.length=0; FLEET.push({type:'Boeing 787-9',name:'Aeromexico',image:'https://cdn.example/mine.png',imageOwn:true}); renderStructure(); });
+  await page.waitForTimeout(150);
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Retro'); await page.waitForTimeout(1000);
+  ok('changing the livery never replaces an upload', (await rowImg())==='https://cdn.example/mine.png', await rowImg());
+  await page.evaluate(()=>document.querySelector('#fleetRows [data-idx="0"] [data-autopic]').click());
+  await page.waitForTimeout(1000);
+  ok('…but the picture button still does', (await rowImg())==='https://cdn.example/787-retro.jpg', await rowImg());
+
+  console.log('\nThe library answering with a list, not an object');
+  photoAsArray=true;
+  await page.evaluate(()=>{ FLEET.length=0; FLEET.push({type:'Airbus A320',name:'Aeromexico'}); renderStructure(); });
+  await page.waitForTimeout(150);
+  await page.evaluate(()=>document.querySelector('#fleetRows [data-idx="0"] [data-autopic]').click());
+  await page.waitForTimeout(1000);
+  ok('is read, not silently discarded', (await rowImg())==='https://cdn.example/a320-aeromexico.jpg', await rowImg());
+  photoAsArray=false;
+
+  console.log('\nWhat actually gets posted');
+  await page.evaluate(()=>{ FLEET.length=0; FLEET.push({type:'  Boeing 787-9 ',name:' Aeromexico ',image:'https://cdn.example/x.jpg',imageAuto:'boeing 787-9|aeromexico',imageOwn:false,stray:'junk'}); renderStructure(); });
+  posts=[]; await page.evaluate(()=>saveStructure('fleet')); await page.waitForTimeout(600);
+  const sent=posts[0] && posts[0].fleet && posts[0].fleet[0];
+  ok('only the three fields the store knows', sent && JSON.stringify(Object.keys(sent).sort())===JSON.stringify(['image','name','type']), JSON.stringify(sent));
+  ok('…trimmed', sent && sent.type==='Boeing 787-9' && sent.name==='Aeromexico', JSON.stringify(sent));
+  ok('the auto-photo bookkeeping survives the round trip', await page.evaluate(()=>FLEET[0].imageAuto==='boeing 787-9|aeromexico'), '');
+
+  console.log('\nA save that cannot reach the server');
+  await page.route('**/settings', r=>r.abort());
+  await page.evaluate(()=>saveStructure('fleet')); await page.waitForTimeout(600);
+  n=await noteOf(page);
+  ok('says nothing was lost', /nothing you typed is lost/i.test(n.t), n.t);
+  ok('…and offers one click to try again', await page.evaluate(()=>!!document.querySelector('#fleetNote button')), n.t);
+  ok('the fleet is still there', await page.evaluate(()=>FLEET.length===1 && FLEET[0].type==='Boeing 787-9'), '');
+  await page.unroute('**/settings');
+  ok('no page errors throughout the photo work', errs.length===0, errs.join('|'));
+  await ctx.close();
+  ({ctx,page,errs}=await open());
+
   console.log('\nThe reported failure: "Could not save." with nothing in it');
-  await page.evaluate(()=>{ closeRouteForm(); closeRoutes(); openSettings(); setCat('crew'); });
-  await page.waitForTimeout(400);
   settingsReply=[401,{}];
   await page.evaluate(()=>saveStructure('fleet')); await page.waitForTimeout(400);
   n=await noteOf(page);

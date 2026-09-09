@@ -688,7 +688,7 @@
                             <span class="text-sm font-semibold">Fleet</span>
                             <button onclick="addFleet()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
-                        <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft &amp; livery from Infinite Flight so flights track correctly — we’ll try to find a matching photo automatically (<i data-lucide="image" class="inline w-3 h-3 align-[-1px]"></i>). Upload your own or leave it as a plane.</p>
+                        <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft first, then its livery — both from Infinite Flight’s own lists, which is what makes your pilots’ flights track. The photo follows the livery and arrives on its own; <i data-lucide="image" class="inline w-3 h-3 align-[-1px]"></i> fetches it again, and an image you upload yourself is never replaced. Each row says underneath if something is not settled yet.</p>
                         <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <datalist id="acTypeList"></datalist>
                         <div id="fleetRows" class="space-y-2"></div>
@@ -1733,10 +1733,72 @@
         function syncFleetMetaDom(){
             const dl=document.getElementById('acTypeList');
             if(dl) dl.innerHTML=AC_LIST.map(n=>`<option value="${escapeHtml(n)}">`).join('');
-            if(document.getElementById('fleetRows')) renderStructure();
+            // In place, row by row. This can land while somebody is mid-word in
+            // an aircraft box, and re-rendering the list under them would take
+            // the caret out of it — the catalogue arriving is not a reason to
+            // interrupt the person waiting for it.
+            document.querySelectorAll('#fleetRows [data-kind="fleet"][data-idx]').forEach(refreshFleetRow);
+        }
+        // WHICH AIRCRAFT DID THEY MEAN — AND THE REFUSAL TO GUESS.
+        //
+        // The type box is a free-text field with a suggestion list behind it, so
+        // what arrives here is whatever was typed: "787", "boeing 787-9", half a
+        // name abandoned mid-word. Everything downstream — the livery list, the
+        // photo, whether a live flight matches — is keyed on the aircraft's
+        // exact Infinite Flight name, so the typed text has to be turned into
+        // one before any of it can work.
+        //
+        // It resolves an EXACT name (any case), or a substring that fits ONE
+        // aircraft and no other. A substring that fits several resolves to
+        // NOTHING, deliberately: "787" is three aeroplanes, and answering it
+        // with the first of them is precisely how a VA ends up with a livery
+        // and a photograph they never chose. `hits` is handed back so the row
+        // can say "3 aircraft match — keep typing" instead of silently picking.
+        //
+        // With no catalogue loaded every typed name is accepted as-is; the
+        // editor must never become unusable because a metadata call failed.
+        function matchAircraft(text){
+            const typed=String(text||'').trim();
+            if(!typed) return { name:'', hits:0, typed };
+            if(!AC_LIST.length) return { name:typed, hits:1, typed, unchecked:true };
+            const lc=typed.toLowerCase();
+            const exact=AC_LIST.find(n=>String(n).toLowerCase()===lc);
+            if(exact) return { name:exact, hits:1, typed };
+            const near=AC_LIST.filter(n=>String(n).toLowerCase().includes(lc));
+            if(near.length===1) return { name:near[0], hits:1, typed };
+            return { name:'', hits:near.length, typed };
         }
         // Liveries offered for a given aircraft type (empty array if unknown).
-        function liveriesFor(type){ const k=String(type||'').trim(); return (k && LIV_MAP[k]) ? LIV_MAP[k] : []; }
+        // Keyed on the RESOLVED name, so "boeing 787-9" and "787-9" reach the
+        // same list the exact name does.
+        function liveriesFor(type){
+            const name=matchAircraft(type).name;
+            if(!name) return [];
+            if(Array.isArray(LIV_MAP[name])) return LIV_MAP[name];
+            const lc=name.toLowerCase();
+            const k=Object.keys(LIV_MAP).find(x=>String(x).toLowerCase()===lc);
+            return (k && Array.isArray(LIV_MAP[k])) ? LIV_MAP[k] : [];
+        }
+        // The livery's own exact name, resolved the same way and with the same
+        // refusal to guess between several.
+        function matchLivery(type, text){
+            const typed=String(text||'').trim();
+            if(!typed) return { name:'', hits:0, typed };
+            const list=liveriesFor(type);
+            if(!list.length) return { name:typed, hits:1, typed, unchecked:true };
+            const lc=typed.toLowerCase();
+            const exact=list.find(n=>String(n).toLowerCase()===lc);
+            if(exact) return { name:exact, hits:1, typed };
+            const near=list.filter(n=>String(n).toLowerCase().includes(lc));
+            if(near.length===1) return { name:near[0], hits:1, typed };
+            return { name:'', hits:near.length, typed };
+        }
+        // What a photograph in a fleet row is a photograph OF. Two rows with the
+        // same pair want the same picture; a row whose pair has changed is
+        // carrying a picture of a different aeroplane.
+        function fleetPicKey(f){
+            return `${String((f&&f.type)||'').trim().toLowerCase()}|${String((f&&f.name)||'').trim().toLowerCase()}`;
+        }
         // ONE SHAPE FOR A FLEET ENTRY: {type: aircraft, name: livery}.
         //
         // Fleet entries predate the aircraft/livery split, and the old ones
@@ -2798,67 +2860,217 @@
         function noteIdFor(k){ return k==='ranks'?'rankNote' : k==='roles'?'roleNote' : 'fleetNote'; }
         function fleetChip(f){
             const mark=(f.image && isSafeImageUrl(f.image))?`<img src="${escapeHtml(f.image)}" class="w-4 h-4 rounded object-contain">`:`<i data-lucide="plane" class="w-3.5 h-3.5"></i>`;
-            return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full surface hair">${mark}${escapeHtml(f.type||f.name||'Aircraft')}</span>`;
+            return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full surface hair">${mark}${escapeHtml(fleetLabel(f)||'Aircraft')}</span>`;
+        }
+        // The picture cell. Split out of the row because it is the one part that
+        // changes on its own, after a lookup comes back — and repainting the
+        // whole row to swap a thumbnail takes the caret out of the box the VA is
+        // still typing in.
+        function fleetImgHtml(f){
+            return (f.image && isSafeImageUrl(f.image))
+                ? `<span data-fleetimg class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
+                : `<label data-fleetimg class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
         }
         function fleetRowHtml(f,i){
-            const img=(f.image && isSafeImageUrl(f.image))
-                ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
-                : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
             const livList = liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
-            return `<div class="struct-row flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
+            const livs = liveriesFor(f.type).length;
+            return `<div class="space-y-1" data-kind="fleet" data-idx="${i}">
+                <div class="struct-row flex items-center gap-2">${fleetImgHtml(f)}
                 <input data-f="type" list="acTypeList" value="${escapeHtml(f.type||'')}" placeholder="Aircraft (e.g. Airbus A320)" class="w-40 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="Livery (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="${livs?`Livery — ${livs} to choose from`:'Livery'}" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <datalist id="livList-${i}">${livList}</datalist>
-                <span data-fleetwarn class="shrink-0 text-amber-500">${fleetWarnHtml(f)}</span>
                 <button data-autopic title="Find a photo for this aircraft &amp; livery" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="image" class="w-4 h-4"></i></button>
-                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>
+                <p data-fleetstate class="pl-10 text-[11px] leading-snug ${fleetStateClass(f)}">${fleetStateHtml(f)}</p></div>`;
         }
-        // Auto-resolve a real plane photo for a fleet entry from the community
-        // aircraft library, keyed by the (now canonical) aircraft + livery names.
-        // Best-effort: fills the row's image so the VA rarely has to upload one.
-        // Won't clobber an existing image unless forced (the explicit button).
+        /* --------------------------------------------------------------------
+           WHAT THIS ROW IS DOING, IN WORDS
+
+           This used to be a lone amber triangle with the explanation hidden in a
+           `title`, which is a tooltip on a desktop and nothing at all on a
+           phone. So the two states a VA actually gets stuck in — a name that
+           fits several aeroplanes, and an aircraft still waiting on its livery —
+           had no way of saying so, and the row simply appeared not to work.
+
+           One line under the row, saying the single most useful thing about it.
+           Silence means the row is finished and correct.
+        -------------------------------------------------------------------- */
+        function fleetStateInfo(f){
+            const typed=String(f.type||'').trim(), liv=String(f.name||'').trim();
+            if(!typed){
+                return liv
+                    ? { kind:'warn', text:'A livery is the paint on something — put the aircraft in the first box.' }
+                    : { kind:'', text:'' };
+            }
+            if(FLEET_META_STATE==='loading') return { kind:'', text:'Checking the Infinite Flight catalogue…' };
+            if(FLEET_META_STATE!=='ready' || !AC_LIST.length) return { kind:'', text:'' };
+            const ac=matchAircraft(typed);
+            if(!ac.name){
+                return ac.hits>1
+                    ? { kind:'warn', text:`${ac.hits} Infinite Flight aircraft match “${typed}” — keep typing, or pick one from the list.` }
+                    : { kind:'warn', text:'Not an Infinite Flight aircraft — flights in it will not be tracked.' };
+            }
+            if(ac.name.toLowerCase()!==typed.toLowerCase()) return { kind:'', text:`Will be saved as “${ac.name}”.` };
+            const livs=liveriesFor(typed);
+            if(!liv){
+                return livs.length
+                    ? { kind:'', text:`Pick one of its ${livs.length} liveries — the photo follows the livery, and pilots pick the painted aircraft.` }
+                    : { kind:'', text:'Add the livery so pilots can pick this aircraft.' };
+            }
+            const lv=matchLivery(typed, liv);
+            if(!lv.name){
+                return lv.hits>1
+                    ? { kind:'warn', text:`${lv.hits} liveries match “${liv}” — keep typing, or pick one from the list.` }
+                    : { kind:'warn', text:`Infinite Flight does not paint a “${liv}” ${ac.name} — flights will not be tracked.` };
+            }
+            if(lv.name.toLowerCase()!==liv.toLowerCase() && !lv.unchecked) return { kind:'', text:`Will be saved as “${lv.name}”.` };
+            return { kind:'', text:'' };
+        }
+        function fleetStateHtml(f){ const s=fleetStateInfo(f); return s.text?escapeHtml(s.text):''; }
+        function fleetStateClass(f){ return fleetStateInfo(f).kind==='warn' ? 'text-amber-600 dark:text-amber-400' : 'muted'; }
+        /* --------------------------------------------------------------------
+           THE PHOTOGRAPH, AND THE FIRST ONE IT FINDS
+
+           Two things made the right picture nearly unreachable.
+
+           The query said `liveryName`. The library reads `livery` — every other
+           caller in this codebase sends that — so the livery was never sent at
+           all and the answer was whichever paint the library happened to hold
+           first for the type. Type "Airbus A320", get somebody else's airline.
+
+           And the result stuck. The old guard was `if(f.image && !opts.force)
+           return`, so once that first wrong photo was in the row, choosing the
+           livery the VA actually flies changed nothing: the picture is of a
+           PAIR, and the pair had changed underneath it.
+
+           So: the livery is sent under the name the library reads; the lookup
+           re-runs whenever the pair changes; a photo that no longer matches its
+           pair is taken away rather than left to be believed; and a photograph
+           the VA uploaded themselves is never touched by any of it.
+        -------------------------------------------------------------------- */
+        async function lookupAircraftPhoto(type, liv){
+            const want=String(liv||'').trim();
+            // The chosen livery, then the type's own generic paint — a plain
+            // aeroplane of the right type beats another airline's. With no
+            // livery to go on there is only the bare type to ask about, which
+            // is why nothing asks that unless the VA presses the button.
+            const tries = want ? (want.toLowerCase()==='generic' ? [want] : [want,'Generic']) : [''];
+            let errs=0;
+            for(const l of tries){
+                const qs=new URLSearchParams({ type }); if(l) qs.set('livery', l);
+                try{
+                    const r=await fetch(`${BACKEND}/api/aircraft/lookup?${qs.toString()}`);
+                    if(!r.ok){ errs++; continue; }
+                    let d=await r.json().catch(()=>null);
+                    // The library answers with a list for some types and a bare
+                    // object for others. This read one shape and quietly found
+                    // nothing in the other.
+                    if(Array.isArray(d)) d=d.length?d[0]:null;
+                    if(!d || d.isPlaceholder) continue;
+                    const url=String(d.imageUrl || (Array.isArray(d.imageUrls) && d.imageUrls[0]) || '').trim();
+                    if(/^https:\/\//i.test(url)) return { url, exact: !want || String(l).toLowerCase()===want.toLowerCase() };
+                }catch{ errs++; }
+            }
+            if(errs===tries.length) throw new Error('photo library unreachable');
+            return null;
+        }
         async function resolveFleetPicture(idx, opts){
             opts = opts || {};
             const f = FLEET[idx]; if(!f) return;
-            const type=String(f.type||'').trim(), liv=String(f.name||'').trim();
-            if(!type) return;
-            if(f.image && !opts.force) return;
             const note = opts.notify ? document.getElementById('fleetNote') : null;
-            if(note){ note.textContent='Finding a photo…'; note.className='text-sm muted'; note.classList.remove('hidden'); }
-            try{
-                const qs=new URLSearchParams({ type }); if(liv) qs.set('liveryName', liv);
-                const r=await fetch(`${BACKEND}/api/aircraft/lookup?${qs.toString()}`);
-                const d=await r.json().catch(()=>null);
-                const url = (d && !d.isPlaceholder) ? (d.imageUrl || (Array.isArray(d.imageUrls) && d.imageUrls[0]) || '') : '';
-                if(url && /^https:\/\//i.test(url)){
-                    f.image=url; renderStructure();
-                    if(note){ note.textContent='Photo added — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
-                } else if(note){
-                    note.textContent='No photo found for that aircraft & livery yet — upload one if you like.'; note.className='text-sm muted';
-                }
-            }catch{ if(note){ note.textContent='Couldn’t reach the photo library.'; note.className='text-sm text-red-500'; } }
+            const say=(msg,cls)=>{ if(!note) return; note.textContent=msg; note.className='text-sm '+(cls||'muted'); note.classList.remove('hidden'); };
+            const ac   = matchAircraft(f.type);
+            const type = ac.name || String(f.type||'').trim();
+            const liv  = String(f.name||'').trim();
+            if(!type){ say('Type the aircraft first — the photo follows the aircraft and its livery.'); return; }
+            // A name that fits several aeroplanes is not an aeroplane. The
+            // library will still answer it, and the answer is a guess — the
+            // same guess that put the wrong picture in the row and kept it there.
+            if(!ac.name && ac.hits>1){
+                say(`“${ac.typed}” matches ${ac.hits} aircraft — pick one, then its livery.`, 'text-amber-600 dark:text-amber-400');
+                return;
+            }
+            if(!ac.name && !opts.force) return;   // the row's own line already says why
+            // Theirs, not ours. Only the explicit button overrides an upload.
+            if(f.imageOwn && !opts.force) return;
+            const key = fleetPicKey(f);
+            if(f.image && f.imageAuto===key && !opts.force) return;   // already this pair's photo
+            // A type whose liveries we know is never asked about on its own:
+            // the answer to a bare type is an arbitrary paint scheme, and it is
+            // exactly the wrong picture that then blocks the right one.
+            if(!liv && !opts.force && liveriesFor(type).length){
+                say('Pick the livery — the photo follows it.');
+                return;
+            }
+            say('Finding a photo…');
+            let found=null;
+            try{ found = await lookupAircraftPhoto(type, liv); }
+            catch{ if(note) say('Couldn’t reach the photo library. Try the picture button again in a moment.','text-red-500'); return; }
+            // They kept typing while that was in flight; this answer is about an
+            // aeroplane the row is no longer describing.
+            if(!FLEET[idx] || fleetPicKey(FLEET[idx])!==key) return;
+            if(found){
+                f.image=found.url; f.imageAuto=key; f.imageOwn=false;
+                repaintFleetImage(idx);
+                say(found.exact ? 'Photo added — remember to Save.'
+                                : 'No photo of that livery yet, so this is the aircraft’s generic paint. Remember to Save.',
+                    found.exact ? 'text-emerald-600 dark:text-emerald-400' : 'muted');
+                return;
+            }
+            // Nothing for this pair, and what is sitting there is a photo of a
+            // different aeroplane. Better an empty slot than a confident lie.
+            if(f.image && f.imageAuto && f.imageAuto!==key){ f.image=''; f.imageAuto=''; repaintFleetImage(idx); }
+            say('No photo of that aircraft and livery in the library yet — upload one if you like.');
         }
-        // Warn about a fleet entry that won't match the live API, so the VA can fix
-        // it before it silently breaks tracking. Judged only once the catalogue is
-        // loaded (unknown liveries for a valid type aren't flagged — IF adds them).
-        function fleetWarnHtml(f){
-            if(FLEET_META_STATE!=='ready' || !AC_LIST.length) return '';
-            const livOptions = liveriesFor(f.type);
-            const typeBad = f.type && !AC_LIST.includes(f.type);
-            const livBad  = f.name && livOptions.length>0 && !livOptions.includes(f.name);
-            if(!typeBad && !livBad) return '';
-            const msg = typeBad ? "Aircraft isn't an exact Infinite Flight match — flights may not track."
-                                : "Livery isn't an exact Infinite Flight match — flights may not track.";
-            return `<i data-lucide="alert-triangle" class="w-4 h-4" title="${msg}"></i>`;
+        // Swap just the thumbnail. Nothing else in the row is touched, so the
+        // box being typed in keeps its caret and its selection.
+        function repaintFleetImage(idx){
+            const cell=document.querySelector(`#fleetRows [data-kind="fleet"][data-idx="${idx}"] [data-fleetimg]`);
+            if(cell && FLEET[idx]) cell.outerHTML=fleetImgHtml(FLEET[idx]);
+            renderBadgePreview();
+            if(window.lucide) lucide.createIcons();
         }
-        // Refresh a fleet row's livery suggestions + warning in place (no re-render,
-        // so the field the VA is typing in keeps focus).
+        // A photo lands one keystroke behind the typing rather than one per
+        // keystroke: picking from the suggestion list fires `input` too, so
+        // this is what makes choosing a livery just work.
+        const FLEET_PIC_TIMERS={};
+        function scheduleFleetPicture(idx){
+            clearTimeout(FLEET_PIC_TIMERS[idx]);
+            FLEET_PIC_TIMERS[idx]=setTimeout(()=>resolveFleetPicture(idx), 500);
+        }
+        // Refresh a fleet row's livery suggestions + state line in place (no
+        // re-render, so the field the VA is typing in keeps focus).
         function refreshFleetRow(row){
             const idx=+row.getAttribute('data-idx'); const f=FLEET[idx]; if(!f) return;
+            const livs=liveriesFor(f.type);
             const dl=document.getElementById('livList-'+idx);
-            if(dl) dl.innerHTML=liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
-            const w=row.querySelector('[data-fleetwarn]');
-            if(w){ w.innerHTML=fleetWarnHtml(f); if(window.lucide) lucide.createIcons(); }
+            if(dl) dl.innerHTML=livs.map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            const box=row.querySelector('[data-f="name"]');
+            if(box) box.placeholder = livs.length?`Livery — ${livs.length} to choose from`:'Livery';
+            const s=row.querySelector('[data-fleetstate]');
+            if(s){ s.textContent=fleetStateInfo(f).text; s.className=`pl-10 text-[11px] leading-snug ${fleetStateClass(f)}`; }
+        }
+        // Settle a row on the catalogue's own spelling once the VA leaves the
+        // box. What gets stored is what the live API matches against, so "boeing
+        // 787-9" has to become "Boeing 787-9" somewhere — and doing it here,
+        // rather than while they type, never fights the typist mid-word.
+        function canonicaliseFleetRow(idx){
+            const f=FLEET[idx]; if(!f) return false;
+            let changed=false;
+            const ac=matchAircraft(f.type);
+            if(ac.name && !ac.unchecked && ac.name!==String(f.type||'').trim()){ f.type=ac.name; changed=true; }
+            const lv=matchLivery(f.type, f.name);
+            if(lv.name && !lv.unchecked && lv.name!==String(f.name||'').trim()){ f.name=lv.name; changed=true; }
+            if(changed){
+                const row=document.querySelector(`#fleetRows [data-kind="fleet"][data-idx="${idx}"]`);
+                if(row){
+                    const t=row.querySelector('[data-f="type"]'); if(t && t.value!==f.type) t.value=f.type;
+                    const n=row.querySelector('[data-f="name"]'); if(n && n.value!==f.name) n.value=f.name;
+                    refreshFleetRow(row);
+                }
+                renderBadgePreview();
+            }
+            return changed;
         }
         function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); }
         function renderBadgePreview(){
@@ -2937,9 +3149,11 @@
                         const note=row.querySelector('[data-f="checkNote"]');
                         if(note) note.classList.toggle('hidden', !e.target.checked);
                     }
-                    // Fleet rows: keep the livery suggestions + match warning in sync
-                    // with the aircraft the VA just picked, without a focus-losing re-render.
-                    if(row.getAttribute('data-kind')==='fleet') refreshFleetRow(row);
+                    // Fleet rows: keep the livery suggestions + state line in sync
+                    // with the aircraft the VA just picked, without a focus-losing
+                    // re-render — and chase the photo for the pair as it stands
+                    // now, since picking off the suggestion list fires only this.
+                    if(row.getAttribute('data-kind')==='fleet'){ refreshFleetRow(row); scheduleFleetPicture(idx); }
                     renderBadgePreview();
                 });
                 host.addEventListener('click', e=>{
@@ -2947,15 +3161,23 @@
                     const row=(del||clr||pic)&&(del||clr||pic).closest('[data-idx]'); if(!row) return;
                     const arr=arrForKind(row.getAttribute('data-kind')); const idx=+row.getAttribute('data-idx');
                     if(del){ arr.splice(idx,1); renderStructure(); }
-                    else if(clr){ arr[idx].image=''; renderStructure(); }
-                    else if(pic){ resolveFleetPicture(idx, { force:true, notify:true }); }
+                    // Taking the picture away also forgets where it came from,
+                    // so the row is a blank slate rather than one still claiming
+                    // to hold somebody's upload.
+                    else if(clr){ arr[idx].image=''; arr[idx].imageAuto=''; arr[idx].imageOwn=false; renderStructure(); }
+                    else if(pic){ clearTimeout(FLEET_PIC_TIMERS[idx]); resolveFleetPicture(idx, { force:true, notify:true }); }
                 });
                 host.addEventListener('change', async e=>{
                     // When a fleet aircraft/livery is chosen, quietly try to fill a
                     // matching photo (only if the VA hasn't set one already).
                     const cf=e.target.getAttribute('data-f');
                     if((cf==='type'||cf==='name') && e.target.closest('[data-kind="fleet"]')){
-                        const row=e.target.closest('[data-idx]'); resolveFleetPicture(+row.getAttribute('data-idx'));
+                        const row=e.target.closest('[data-idx]'); const i=+row.getAttribute('data-idx');
+                        // Settle the spelling first: the photo is looked up under
+                        // the catalogue's own name, not under half of it.
+                        canonicaliseFleetRow(i);
+                        clearTimeout(FLEET_PIC_TIMERS[i]);
+                        resolveFleetPicture(i);
                         return;
                     }
                     if(cf!=='imagefile') return;
@@ -2970,7 +3192,9 @@
                         const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
                         const d=await res.json().catch(()=>({}));
                         if(!res.ok){ note.textContent=d.error||'Upload failed.'; note.className='text-sm text-red-500'; return; }
-                        arr[idx].image=d.url; renderStructure();
+                        // Marked as theirs, so no later lookup for this row's
+                        // aircraft or livery ever replaces it.
+                        arr[idx].image=d.url; arr[idx].imageOwn=true; arr[idx].imageAuto=''; renderStructure();
                         note.textContent='Image uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     }catch{ note.textContent='Upload failed. Try again.'; note.className='text-sm text-red-500'; }
                 });
@@ -3008,9 +3232,57 @@
             if(status>=400)  return `The server refused the save (${status}) without saying why. Please report this number.`;
             return `Could not save (server said ${status}).`;
         }
+        // EXACTLY THE THREE FIELDS THE CREW STORE KNOWS.
+        //
+        // A fleet row also carries local bookkeeping — which pair a photo was
+        // fetched for, whether the VA uploaded it — that exists to make the
+        // editor behave and means nothing to the server. Posting it back invites
+        // a strict column write to refuse the save with nothing to say, which is
+        // the "it just fails" with no reason attached. Whitespace goes here too,
+        // so a trailing space cannot be the difference between an aircraft that
+        // tracks and one that does not.
+        function fleetForSave(){
+            return FLEET
+                .filter(f=>String((f&&f.type)||'').trim())
+                .map(f=>({ type:String(f.type).trim(), name:String(f.name||'').trim(), image:String(f.image||'').trim() }));
+        }
+        // Carry the local bookkeeping across the round trip. The server echoes
+        // the three stored fields, so without this a save quietly turns every
+        // auto-fetched photo into an untouchable one and changing the livery
+        // afterwards stops replacing the picture.
+        function mergeFleetLocalState(next, prev){
+            const by=new Map();
+            (prev||[]).forEach(f=>{ if(f && f.image) by.set(fleetPicKey(f), f); });
+            return (next||[]).map(f=>{
+                const p=by.get(fleetPicKey(f));
+                if(p && p.image===f.image){ if(p.imageAuto) f.imageAuto=p.imageAuto; if(p.imageOwn) f.imageOwn=true; }
+                return f;
+            });
+        }
+        // How many rows the live API will not recognise. Said after a SUCCESSFUL
+        // save, because it is not a reason to refuse one — a VA may fly a type
+        // Infinite Flight has not added yet — but it is the reason their hours
+        // will not turn up, and finding that out weeks later is worse.
+        function fleetTrackingNote(){
+            if(FLEET_META_STATE!=='ready' || !AC_LIST.length) return '';
+            const bad=FLEET.filter(f=>{
+                const t=String(f.type||'').trim(); if(!t) return false;
+                const ac=matchAircraft(t); if(!ac.name) return true;
+                const liv=String(f.name||'').trim(); if(!liv) return false;
+                return !matchLivery(t, liv).name;
+            }).length;
+            return bad ? ` ${bad} aircraft ${bad===1?'does':'do'} not match Infinite Flight exactly — flights in ${bad===1?'it':'them'} will not be tracked.` : '';
+        }
         async function saveStructure(kind){
             const note=document.getElementById(noteIdFor(kind));
             const warn=(msg)=>{ note.textContent=msg; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); };
+            // A failure the VA can act on without leaving the row they are in.
+            // "Could not save" with no way forward is what made this feel broken
+            // even when the next attempt would have worked.
+            const retry=(msg,cls)=>{
+                note.innerHTML=escapeHtml(msg)+` <button onclick="saveStructure('${kind}')" class="font-semibold underline">Try again</button>`;
+                note.className='text-sm '+cls; note.classList.remove('hidden');
+            };
             if(kind==='fleet'){
                 const problem=fleetRowProblem();
                 if(problem){ warn(problem); return; }
@@ -3019,7 +3291,8 @@
             // someone who pressed Add and changed their mind. A fleet row is
             // keyed by its aircraft; the `||''` matters, because without it an
             // entry missing both fields stringifies to "undefined" and is kept.
-            const clean = arrForKind(kind).filter(x=>String((kind==='fleet'?x.type:x.name)||'').trim());
+            const clean = kind==='fleet' ? fleetForSave()
+                : arrForKind(kind).filter(x=>String(x.name||'').trim());
             const token=sessionToken(), slug=getSlug();
             if(!slug || !token){ note.textContent='Applied on this device. Sign in to save for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             try{
@@ -3044,19 +3317,29 @@
                     // empty body — so `d.error` was undefined and the fallback
                     // was all that was left. Say what the status actually means,
                     // and keep the number for when it has to be reported.
-                    note.textContent=d.error||saveFailureReason(res.status);
-                    note.className='text-sm text-red-500';
+                    const msg=d.error||saveFailureReason(res.status);
+                    // Anything that might work on a second attempt gets one, in
+                    // one click, without retyping the fleet.
+                    if(res.status>=500 || res.status===429) retry(msg,'text-red-500');
+                    else { note.textContent=msg; note.className='text-sm text-red-500'; }
                 }
                 else {
-                    if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else if(kind==='roles')ROLES=d[kind]; else FLEET=normalizeFleet(d[kind]); renderStructure(); }
+                    if(Array.isArray(d[kind])){
+                        if(kind==='ranks')RANKS=d[kind];
+                        else if(kind==='roles')ROLES=d[kind];
+                        else FLEET=mergeFleetLocalState(normalizeFleet(d[kind]), FLEET);
+                        renderStructure();
+                    }
                     // A save the project could only partly hold is not a clean
                     // save, and the VA should hear that here rather than find a
                     // field missing later.
                     const drift=checkResponseDrift(d);
                     if(drift){ warn(drift+' '); note.innerHTML=escapeHtml(drift)+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>'; return; }
+                    const tracking = kind==='fleet' ? fleetTrackingNote() : '';
+                    if(tracking){ warn('Saved for your crew.'+tracking); return; }
                     note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                 }
-            }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
+            }catch{ retry('Could not reach the server — nothing was saved, and nothing you typed is lost.','text-red-500'); return; }
             note.classList.remove('hidden');
         }
 
