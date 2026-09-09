@@ -26946,10 +26946,45 @@ window.addEventListener('proStatusChanged', () => {
 
 // VA hub markers: opt-in (mapFilters.showVaHubMarkers, off by default) logo
 // pins dropped on each partner VA's hub airport. They live in their own DOM
-// marker layer on sectorOpsMap, independent of the airport/ATC markers, so
-// they survive ATC data polls and only change when the user toggles them.
+// marker layer on sectorOpsMap, independent of the airport/ATC markers.
+//
+// SHARED HUBS. A pin used to be one airport, one logo — the first partner in
+// the roster won and everybody else hubbed at that field was simply not drawn.
+// At the fields that matter that is most of them: KJFK is a hub for whoever
+// happens to sort first and for nobody else, which is worse than not drawing
+// the pin at all, because it looks like an answer. Every VA hubbed at a field
+// is now on its pin, and there are two ways of showing them:
+//
+//   SIDE BY SIDE, which is the default. One box, one tile per VA, a hairline
+//   between them. You can see the whole set at a glance and click the one you
+//   want. It costs width, so it is capped — past the cap it cycles instead.
+//
+//   CYCLING, one tile that turns itself over every few seconds with a count in
+//   the corner. This is what an airport with a controller on frequency gets,
+//   whatever the cap says: the ATC tag is already at that coordinate and a row
+//   of logos growing out sideways underneath it is two pieces of chrome
+//   fighting over the same point. A pin that stays one box wide loses to the
+//   tag gracefully. It is also what a field over the cap gets, for the same
+//   reason in a different direction — eight logos side by side is a banner.
+//
+// Cycling markers are stepped by ONE shared interval rather than a timer each,
+// pause under the cursor so the logo you are reaching for holds still, and stop
+// entirely while the tab is hidden.
 let vaHubMarkers = [];
 let vaHubStylesInjected = false;
+let vaHubCyclers = [];
+let vaHubCycleTimer = null;
+let vaHubAtcWatchBound = false;
+
+// How many logos a pin will stand side by side before it gives up and cycles.
+// Four 30px tiles is 126px of box, which is about as wide as anything else the
+// map draws at a point and still narrower than the event pins.
+const VA_HUB_MAX_SIDE_BY_SIDE = 4;
+
+// How long each logo holds. Long enough to read a livery, short enough that
+// watching one turn over is not a wait — and slow enough that a screen full of
+// them is not a strobe.
+const VA_HUB_CYCLE_MS = 3200;
 
 function injectVaHubMarkerStyles() {
     if (vaHubStylesInjected || typeof document === 'undefined') return;
@@ -26964,20 +26999,228 @@ function injectVaHubMarkerStyles() {
            logo drift/lag behind the map. All visuals live on the inner box. */
         .va-hub-marker { cursor: pointer; will-change: transform; }
         .va-hub-marker-inner {
-            width: 30px; height: 30px; border-radius: 8px;
+            height: 30px; border-radius: 8px;
             background: rgba(0,0,0,0.55); border: 1.5px solid rgba(125,211,252,0.85);
             box-shadow: 0 2px 8px rgba(0,0,0,0.5); overflow: hidden;
-            display: flex; align-items: center; justify-content: center;
+            display: flex; align-items: stretch;
             transition: transform .15s ease, border-color .15s ease;
         }
         .va-hub-marker:hover .va-hub-marker-inner { transform: scale(1.12); border-color: #7dd3fc; }
-        .va-hub-marker-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }`;
+        /* One cell per logo. Fixed width so a row of four is exactly four
+           times a row of one — the box grows by whole tiles rather than by
+           whatever aspect ratio each VA uploaded. */
+        .va-hub-cell {
+            position: relative; display: block;
+            flex: 0 0 30px; width: 30px; height: 100%;
+        }
+        .va-hub-cell + .va-hub-cell { border-left: 1px solid rgba(125,211,252,0.35); }
+        .va-hub-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        /* Cycling: every logo stacked in the one cell, only the live one shown.
+           A cross-fade rather than a cut, because a pin that changes picture
+           between two frames reads as the map glitching. */
+        .va-hub-face {
+            position: absolute; inset: 0;
+            opacity: 0; transition: opacity .45s ease;
+        }
+        .va-hub-face.is-on { opacity: 1; }
+        /* How many are in the stack. Without it a cycling pin is indis-
+           tinguishable from a single-VA pin that happens to have been looked
+           at twice. */
+        .va-hub-count {
+            position: absolute; right: 1px; bottom: 1px; pointer-events: none;
+            min-width: 12px; height: 12px; padding: 0 2px; border-radius: 6px;
+            background: rgba(2,6,23,0.88); color: #7dd3fc;
+            font: 800 8px/12px system-ui,-apple-system,"Segoe UI",sans-serif;
+            text-align: center;
+        }`;
     document.head.appendChild(style);
 }
 
 function clearVaHubMarkers() {
-    vaHubMarkers.forEach((m) => { try { m.remove(); } catch (_) {} });
+    vaHubMarkers.forEach((entry) => { try { entry.marker.remove(); } catch (_) {} });
     vaHubMarkers = [];
+    vaHubCyclers = [];
+    stopVaHubCycle();
+}
+
+// The airports with somebody on frequency right now. A Set rather than a
+// filter per pin: this is asked once per render and once per ATC poll, and the
+// roster is every partner's every hub.
+function vaHubAtcIcaos() {
+    const out = new Set();
+    if (!Array.isArray(activeAtcFacilities)) return out;
+    activeAtcFacilities.forEach((f) => {
+        // Type 6 is a centre — it has no airport, and a centre being open says
+        // nothing about the field this pin is sitting on.
+        if (!f || !f.airportName || Number(f.type) === 6) return;
+        out.add(String(f.airportName).toUpperCase());
+    });
+    return out;
+}
+
+function startVaHubCycle() {
+    if (vaHubCycleTimer || !vaHubCyclers.length) return;
+    vaHubCycleTimer = setInterval(stepVaHubCycles, VA_HUB_CYCLE_MS);
+}
+
+function stopVaHubCycle() {
+    if (!vaHubCycleTimer) return;
+    clearInterval(vaHubCycleTimer);
+    vaHubCycleTimer = null;
+}
+
+// One tick for every cycling pin on the map.
+//
+// Deliberately one interval and not one per marker: a busy roster is dozens of
+// pins, and dozens of timers all firing on their own phase is dozens of style
+// recalculations spread across the second instead of one.
+function stepVaHubCycles() {
+    // A hidden tab is a cross-fade nobody is watching. Browsers already throttle
+    // the interval; this stops the work rather than doing it slowly.
+    if (typeof document !== 'undefined' && document.hidden) return;
+
+    vaHubCyclers.forEach((entry) => {
+        if (entry.paused || entry.faces.length < 2) return;
+
+        // Skip logos whose image never loaded, rather than cycling to a blank
+        // cell. Bounded by the length of the stack, so an entry where every
+        // image failed simply stays where it is.
+        let next = entry.index;
+        for (let i = 0; i < entry.faces.length; i++) {
+            next = (next + 1) % entry.faces.length;
+            if (!entry.faces[next].dataset.broken) break;
+        }
+        if (next === entry.index) return;
+
+        entry.faces[entry.index].classList.remove('is-on');
+        entry.faces[next].classList.add('is-on');
+        entry.index = next;
+    });
+}
+
+// Fills one pin's box, in whichever of the two modes the field calls for.
+//
+// Rebuildable in place: ATC coming on frequency at a field flips that pin from
+// a row to a stack without the marker leaving the map, so nothing blinks and
+// Mapbox keeps the element it is already positioning.
+function dressVaHubMarker(entry, cycles) {
+    const VA = window.InflightVaAds;
+    const ads = entry.ads;
+
+    // Whatever this pin was doing before, it is not doing it now. Emptying the
+    // root drops the old box and every listener that was on it, which is why
+    // the cycling handlers below go on the box rather than on the root — a
+    // handler left on the root would outlive the stack it closes over and open
+    // whichever VA a dead index happened to point at.
+    if (entry.cycler) vaHubCyclers = vaHubCyclers.filter((c) => c !== entry.cycler);
+    entry.cycler = null;
+    entry.el.innerHTML = '';
+    // A pin hidden because every logo in the last arrangement failed is a pin
+    // that gets to try again in this one.
+    entry.el.style.display = '';
+
+    const inner = document.createElement('div');
+    inner.className = 'va-hub-marker-inner';
+
+    const names = ads.map((ad) => ad.name).filter(Boolean);
+    entry.el.title = names.length > 1
+        ? `${entry.icao} · VA hub for ${names.join(', ')}`
+        : `${names[0] || entry.icao} · VA hub`;
+
+    const open = (ad) => {
+        if (ad && VA && VA.openPartners) VA.openPartners(ad.id);
+    };
+
+    if (!cycles) {
+        // Side by side: one cell each, each its own click target.
+        ads.forEach((ad) => {
+            const cell = document.createElement('span');
+            cell.className = 'va-hub-cell';
+            cell.title = `${ad.name} · VA hub`;
+            cell.addEventListener('click', (e) => { e.stopPropagation(); open(ad); });
+
+            const img = document.createElement('img');
+            img.alt = '';
+            cell.appendChild(img);
+            inner.appendChild(cell);
+
+            // A logo that 404s takes its own cell out of the row rather than
+            // the whole pin off the map — the other VAs at this field are still
+            // hubbed here.
+            img.addEventListener('error', () => {
+                cell.remove();
+                if (!inner.querySelector('.va-hub-cell')) entry.el.style.display = 'none';
+            });
+            // Src last, and the cell already in the box: a failure that arrives
+            // before the cell is attached would remove nothing and then be
+            // appended anyway. The browser fires `error` on a later task so it
+            // would not bite there, but the row should not depend on that.
+            img.src = ad.logo;
+        });
+        entry.el.appendChild(inner);
+        return;
+    }
+
+    // Cycling: every logo in the one cell, the live one faded up.
+    const cell = document.createElement('span');
+    cell.className = 'va-hub-cell';
+
+    const faces = [];
+    ads.forEach((ad, i) => {
+        const img = document.createElement('img');
+        img.className = i === 0 ? 'va-hub-face is-on' : 'va-hub-face';
+        img.alt = '';
+        cell.appendChild(img);
+        faces.push(img);
+        // Marked rather than removed: the stack is indexed, and pulling an
+        // element out from under a running cycle is how an index ends up
+        // pointing at the wrong VA. `stepVaHubCycles` skips what is marked.
+        img.addEventListener('error', () => { img.dataset.broken = '1'; });
+        img.src = ad.logo;
+    });
+
+    if (ads.length > 1) {
+        const count = document.createElement('span');
+        count.className = 'va-hub-count';
+        count.textContent = String(ads.length);
+        cell.appendChild(count);
+    }
+
+    inner.appendChild(cell);
+    entry.el.appendChild(inner);
+
+    const cycler = { faces, index: 0, paused: false };
+    entry.cycler = cycler;
+    vaHubCyclers.push(cycler);
+
+    // Held still under the cursor. The whole point of the stack is that you
+    // wait for the one you want; a logo that turns over as you reach for it is
+    // the pin taking it away again.
+    inner.addEventListener('mouseenter', () => { cycler.paused = true; });
+    inner.addEventListener('mouseleave', () => { cycler.paused = false; });
+
+    // The click follows the face on screen, not the first VA in the list.
+    inner.addEventListener('click', (e) => {
+        e.stopPropagation();
+        open(ads[cycler.index]);
+    });
+
+    startVaHubCycle();
+}
+
+// Re-dress every pin whose field has just gained or lost a controller. Cheap:
+// one Set, then a comparison per pin, and the DOM is only touched where the
+// answer actually changed.
+function refreshVaHubMarkerModes() {
+    if (!vaHubMarkers.length) return;
+    const atc = vaHubAtcIcaos();
+    vaHubMarkers.forEach((entry) => {
+        const cycles = atc.has(entry.icao) || entry.ads.length > VA_HUB_MAX_SIDE_BY_SIDE;
+        if (cycles === entry.cycles) return;
+        entry.cycles = cycles;
+        dressVaHubMarker(entry, cycles);
+    });
+    if (!vaHubCyclers.length) stopVaHubCycle();
 }
 
 function renderVaHubMarkers() {
@@ -26989,47 +27232,66 @@ function renderVaHubMarkers() {
     if (!VA || typeof VA.allPartners !== 'function') return;
     injectVaHubMarkerStyles();
 
+    // A pin's mode depends on who is on frequency, and the ATC feed polls long
+    // after these are placed. Bound once, for the life of the page.
+    if (!vaHubAtcWatchBound && typeof window !== 'undefined') {
+        vaHubAtcWatchBound = true;
+        window.addEventListener('activeAtcUpdated', () => {
+            try { refreshVaHubMarkerModes(); } catch (_) {}
+        });
+    }
+
     const place = () => {
         // The user may have toggled it back off while the directory loaded.
         if (!mapFilters.showVaHubMarkers || !sectorOpsMap) return;
         const ads = VA.allPartners() || [];
-        // One marker per hub airport (first partner wins) so shared hubs don't
-        // stack overlapping logos on the same point.
-        const seen = new Set();
+
+        // One marker per hub airport, carrying every partner hubbed there —
+        // in roster order, so a field's logos are in the same order on every
+        // reload rather than in whatever order the last fetch happened to
+        // resolve in.
+        const byIcao = new Map();
         ads.forEach((ad) => {
             if (!ad || !ad.logo || !Array.isArray(ad.icao)) return;
             ad.icao.forEach((code) => {
                 const icao = String(code || '').toUpperCase();
-                if (!icao || seen.has(icao)) return;
+                if (!icao) return;
                 const airport = airportsData[icao];
                 if (!airport || airport.lat == null || airport.lon == null) return;
-                seen.add(icao);
-
-                const el = document.createElement('div');
-                el.className = 'va-hub-marker';
-                el.title = `${ad.name} · VA hub`;
-                // Logo lives in an inner box so hover/scale never touches the
-                // root element's Mapbox-managed transform (onerror hides the
-                // whole marker, root included).
-                el.innerHTML = `<div class="va-hub-marker-inner"><img src="${ad.logo}" alt="" onerror="this.closest('.va-hub-marker').style.display='none'"></div>`;
-                el.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (VA.openPartners) VA.openPartners(ad.id);
-                });
-
-                // anchor 'center' pins the box on the airport coordinate;
-                // viewport alignment keeps it upright and a constant pixel size
-                // at every zoom/pitch/bearing (no scaling, no tilt).
-                const marker = new mapboxgl.Marker({
-                    element: el,
-                    anchor: 'center',
-                    rotationAlignment: 'viewport',
-                    pitchAlignment: 'viewport'
-                })
-                    .setLngLat([airport.lon, airport.lat])
-                    .addTo(sectorOpsMap);
-                vaHubMarkers.push(marker);
+                let list = byIcao.get(icao);
+                if (!list) { list = []; byIcao.set(icao, list); }
+                // A VA that lists the same field twice is one logo, not two.
+                if (!list.some((other) => String(other.id) === String(ad.id))) list.push(ad);
             });
+        });
+
+        const atc = vaHubAtcIcaos();
+
+        byIcao.forEach((list, icao) => {
+            const airport = airportsData[icao];
+            if (!airport) return;
+
+            const el = document.createElement('div');
+            el.className = 'va-hub-marker';
+
+            const entry = { el, icao, ads: list, cycler: null, cycles: false, marker: null };
+            // Cycling when the field is staffed — the ATC tag is already at
+            // this coordinate — or when the row would be wider than the cap.
+            entry.cycles = atc.has(icao) || list.length > VA_HUB_MAX_SIDE_BY_SIDE;
+            dressVaHubMarker(entry, entry.cycles);
+
+            // anchor 'center' pins the box on the airport coordinate;
+            // viewport alignment keeps it upright and a constant pixel size
+            // at every zoom/pitch/bearing (no scaling, no tilt).
+            entry.marker = new mapboxgl.Marker({
+                element: el,
+                anchor: 'center',
+                rotationAlignment: 'viewport',
+                pitchAlignment: 'viewport'
+            })
+                .setLngLat([airport.lon, airport.lat])
+                .addTo(sectorOpsMap);
+            vaHubMarkers.push(entry);
         });
     };
 
