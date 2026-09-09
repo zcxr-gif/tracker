@@ -247,6 +247,48 @@ const head = (s) => console.log(`\n${s}`);
     note = await page.textContent('#socialNote');
     ok('a server that stores nothing does not report a save', !/Saved for your crew/.test(note), note);
     ok('…it says the backend has no place for it yet', /does not store Instagram links yet/.test(note), note);
+
+    // TYPING A SECOND LINK.
+    //
+    // The flag telling you a link is not a post is judged on blur rather than
+    // on every keystroke, so it does not flicker while one is typed out. It did
+    // that by re-rendering the whole list — and focusout fires BEFORE the focus
+    // lands, so tabbing from one link field to the next destroyed the element
+    // the focus was moving to. Focus fell out of the list onto <body> and the
+    // next keystrokes went nowhere, which is most of the way to untypeable for
+    // a wall of more than one post.
+    head('Tabbing from one link to the next');
+    settingsReply = null;
+    await page.evaluate(() => {
+        SOCIAL.posts = ['https://www.instagram.com/p/AAA111/', 'https://www.instagram.com/p/BBB222/'];
+        renderSocialEditor();
+    });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => { window.__rerenders = 0; const o = window.renderSocialEditor;
+        window.renderSocialEditor = function () { window.__rerenders++; return o.apply(this, arguments); }; });
+    await page.evaluate(() => document.querySelector('#socialRows [data-social-idx="0"]').setAttribute('data-probe', '1'));
+    await page.focus('#socialRows [data-social-idx="0"] [data-sf="url"]');
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(150);
+    const landed = await page.evaluate(() => {
+        const a = document.activeElement;
+        return { onBody: a === document.body, inList: !!(a && a.closest && a.closest('#socialRows')),
+                 rerenders: window.__rerenders, rowKept: !!document.querySelector('#socialRows [data-probe]') };
+    });
+    ok('focus stays inside the list', landed.inList && !landed.onBody, JSON.stringify(landed));
+    ok('…because the row it left is not rebuilt under it', landed.rowKept && landed.rerenders === 0, JSON.stringify(landed));
+
+    // And the flag it was blurring for still appears, in place.
+    await page.fill('#socialRows [data-social-idx="1"] [data-sf="url"]', 'https://example.com/nope');
+    await page.evaluate(() => document.querySelector('#socialRows [data-social-idx="1"] [data-sf="url"]').blur());
+    await page.waitForTimeout(200);
+    const flagged = await page.evaluate(() => ({
+        one: !!document.querySelector('#socialRows [data-social-idx="1"] [data-sflag] [data-lucide],#socialRows [data-social-idx="1"] [data-sflag] svg'),
+        zero: (document.querySelector('#socialRows [data-social-idx="0"] [data-sflag]') || {}).innerHTML,
+    }));
+    ok('a bad link is still flagged on blur', flagged.one, JSON.stringify(flagged));
+    ok('…and only on its own row', !String(flagged.zero || '').trim(), JSON.stringify(flagged));
+
     ok('no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
 
