@@ -517,7 +517,19 @@
         el.dataset.cpMsg = text;
         host.appendChild(el);
         el.dataset.cpT = String(setTimeout(() => retire(el), 4200));
-        while (host.children.length > TOAST_MAX) retire(host.firstElementChild, true);
+        // Trim to the cap by REMOVING, not by retiring.
+        //
+        // retire() fades and then removes on a timer, so the element it was
+        // given is still a child when this condition is re-tested — and its own
+        // first line makes it a no-op the second time it is handed the same
+        // node. The loop therefore never terminated: five distinct messages
+        // froze the tab outright. (Four did not, which is why every test that
+        // coalesced or stopped at three walked straight past it.)
+        while (host.children.length > TOAST_MAX) {
+            const oldest = host.firstElementChild;
+            clearTimeout(Number(oldest.dataset.cpT));
+            oldest.remove();
+        }
         announce(text, tone);
     }
 
