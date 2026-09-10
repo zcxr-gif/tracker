@@ -396,7 +396,24 @@
         </article>`;
     }
 
+    /**
+     * Draw the panel, keeping the reader where they were.
+     *
+     * This panel is re-drawn by everything that changes anything in it, and a
+     * plain innerHTML assignment drops the caret every time and the scroll
+     * offset whenever the new content is shorter than where the reader was — so
+     * a list that filters down under an action puts them back at the top, which
+     * reads as the page having scrolled itself.
+     *
+     * The view key is what stops that becoming the opposite mistake: this
+     * function draws more than one kind of screen, and an editor reached from
+     * half way down a list must open at ITS top, not at the list's offset.
+     */
     function renderPanel() {
+        P.keepPlace(panel.body, drawPanel, S.reading ? 'reader' : S.editing ? 'editor' : 'library');
+    }
+
+    function drawPanel() {
         const body = panel.body;
 
         if (S.reading) {

@@ -371,7 +371,20 @@
         return [...days.values()];
     }
 
-    function render() {
+    /**
+     * Draw the panel, keeping the reader where they were.
+     *
+     * This panel is re-drawn by everything that changes anything in it, and a
+     * plain innerHTML assignment drops the caret every time and the scroll
+     * offset whenever the new content is shorter than where the reader was — so
+     * a list that filters down under an action puts them back at the top, which
+     * reads as the page having scrolled itself. keepPlace restores all three.
+     *
+     * No view key: this panel only ever draws a week of departures.
+     */
+    function render() { P.keepPlace(panel.body, drawPanel); }
+
+    function drawPanel() {
         const body = panel.body;
 
         if (!S.loaded) {

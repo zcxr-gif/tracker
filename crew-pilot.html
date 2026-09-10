@@ -1100,8 +1100,37 @@
             finally{ btn.disabled=false; btn.textContent=prev; }
         }
 
+        /* ---------------------------------------------------------------------
+           CATCHING UP AFTER BEING AWAY
+
+           Nothing on this page changes because the pilot did something — it
+           changes because STAFF did: a flight they filed last night is approved
+           this morning, and with it their hours, their rank and their logbook.
+           A pilot home left open in a tab was the last place to find out.
+
+           So a tab that comes back re-reads the pilot's own flying. On return
+           only, never on a timer — this is the VA's own database, and polling it
+           for a screen nobody is looking at spends their quota. Throttled,
+           because flicking between two tabs fires this every time.
+
+           paintMyFlying() redraws the hero, the figures, the rank card, the
+           recent flights and the logbook if it is open, so there is nothing else
+           to wire up here.
+           ------------------------------------------------------------------- */
+        let LAST_CATCH_UP=0;
+        function catchUpMyFlying(){
+            if(document.visibilityState==='hidden') return;
+            if(!sessionToken()) return;
+            if(Date.now()-LAST_CATCH_UP < 20000) return;
+            LAST_CATCH_UP=Date.now();
+            loadMyFlying();
+            loadNotices();
+        }
+
         (async function(){
             renderActions(); renderFlights(); renderNotices([]); readSession();
+            document.addEventListener('visibilitychange', catchUpMyFlying);
+            window.addEventListener('focus', catchUpMyFlying);
             // The pilot's own flying — hours, rank, flights, logbook. Everything
             // this page used to invent.
             loadMyFlying();

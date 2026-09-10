@@ -287,10 +287,26 @@
             </article>`;
     }
 
+    /**
+     * The calendar, keeping the reader where they were.
+     *
+     * Signing up for an event redraws this whole list, and a plain innerHTML
+     * assignment drops the caret every time and the scroll offset whenever the
+     * new content is shorter than where the reader was — so a calendar that
+     * shortens under a press puts them back at its top, which reads as the page
+     * having scrolled itself. crewPanels is
+     * loaded on every page that mounts this one, so its keepPlace is used here
+     * even though the rest of this file keeps its own chrome; the guard is for
+     * the same reason the rest of this file guards on lucide.
+     */
     function renderList() {
         const host = document.getElementById('cevList');
         if (!host) return;
+        if (window.CrewPanels) CrewPanels.keepPlace(host, () => drawList(host));
+        else drawList(host);
+    }
 
+    function drawList(host) {
         if (!S.loaded) {
             host.innerHTML = '<div class="cev-empty">Loading the calendar…</div>';
             return;

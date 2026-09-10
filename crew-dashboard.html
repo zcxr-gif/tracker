@@ -341,9 +341,33 @@
             :root[data-topic-mode="page"] header > .max-w-6xl{ padding-left:3.6rem; }
         }
 
-        /* Settings slide-over */
+        /* =====================================================================
+           THE DRAWERS
+
+           Settings, Roster, Routes and Flight reports are the same object four
+           times, and for a long time only the first one behaved like it.
+
+           · Only #settings had the slide transition, so the other three
+             APPEARED — no direction, no sense of having come from anywhere, and
+             nothing to tell a reader that the dashboard is still behind it.
+             One selector, all four.
+           · None of them contained their scroll. A drawer is a tall scrolling
+             column over a tall scrolling page: flick a roster to its end and
+             the gesture carries on into the dashboard underneath, so closing
+             the drawer returned the reader to a page that had moved while they
+             were not looking at it. `overscroll-behavior:contain` stops the
+             chain; the page itself is held still by CrewPanels.lockScroll (see
+             openDrawer()), which is what the cp- panels have always done.
+           ===================================================================== */
         #settings{ transition:opacity .25s; }
-        #settings .panel{ transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+        [data-topic] > .panel{
+            transition:transform .3s cubic-bezier(.2,.8,.2,1);
+            overscroll-behavior:contain;
+        }
+        /* A card the drawer scrolls to — a reviewed application, a flight that
+           just changed tab — must not land under the sticky header. */
+        [data-topic] > .panel [data-app],[data-topic] > .panel [data-pid],
+        [data-topic] > .panel [data-id],[data-topic] > .panel [data-rid]{ scroll-margin-top:5rem; }
         #settings.hidden{ display:none; }
         /* `hidden` is Tailwind's, and Tailwind is a CDN script. When it is
            slow, blocked by a network or an ad blocker, or simply down, every
@@ -601,7 +625,7 @@
                     </div>
                     <div id="socialRows" class="space-y-2"></div>
                     <button onclick="addSocialPost()" class="tap-target mt-2 text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a post</button>
-                    <button onclick="saveSocial()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save Instagram</button>
+                    <button onclick="saveSocial(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save Instagram</button>
                     <p id="socialNote" class="hidden text-sm mt-2"></p>
                 </div>
 
@@ -637,7 +661,7 @@
                         <input id="accentPick" type="color" value="#1c1a16" class="w-10 h-10 rounded-lg border hair bg-transparent cursor-pointer p-0 shrink-0" oninput="applyAccent(this.value)">
                         <div id="accentSwatches" class="flex flex-wrap gap-1.5"></div>
                     </div>
-                    <button onclick="saveColors()" class="mt-3 w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save color</button>
+                    <button onclick="saveColors(this)" class="mt-3 w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">Save color</button>
                     <p id="colorNote" class="hidden text-sm mt-2"></p>
                 </div>
 
@@ -658,7 +682,7 @@
                         <div id="rankPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <div id="rankRows" class="space-y-2"></div>
                         <div class="flex items-center gap-2 mt-2.5">
-                            <button onclick="saveStructure('ranks')" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save ranks</button>
+                            <button onclick="saveStructure('ranks',this)" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save ranks</button>
                             <button id="rankStarter" onclick="starterRanks()" class="text-xs muted hover:text-[var(--ink)] font-medium">Use a starter ladder</button>
                         </div>
                         <p id="rankNote" class="hidden text-sm mt-2"></p>
@@ -679,7 +703,7 @@
                             To choose what somebody can <b>do</b>, use <button type="button" onclick="setCat('team')" class="accent-text font-semibold underline">Settings › Team</button>.</p>
                         <div id="rolePreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <div id="roleRows" class="space-y-2"></div>
-                        <button onclick="saveStructure('roles')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save roles</button>
+                        <button onclick="saveStructure('roles',this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save roles</button>
                         <p id="roleNote" class="hidden text-sm mt-2"></p>
                     </div>
 
@@ -692,7 +716,7 @@
                         <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <datalist id="acTypeList"></datalist>
                         <div id="fleetRows" class="space-y-2"></div>
-                        <button onclick="saveStructure('fleet')" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
+                        <button onclick="saveStructure('fleet',this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
                         <p id="fleetNote" class="hidden text-sm mt-2"></p>
                     </div>
                 </div>
@@ -756,7 +780,7 @@
                         </label>
                     </div>
 
-                    <button onclick="saveSchedulePrefs()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save schedule settings</button>
+                    <button onclick="saveSchedulePrefs(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save schedule settings</button>
                     <p id="sch_note" class="hidden text-sm mt-2"></p>
                 </div>
 
@@ -857,7 +881,7 @@
                         </div>
                     </div>
 
-                    <button onclick="saveRetentionPrefs()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save roster sweep</button>
+                    <button onclick="saveRetentionPrefs(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save roster sweep</button>
                     <button id="ret_runBtn" onclick="runRetentionNow()" class="w-full surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition mt-2">Run it now</button>
                     <p id="ret_note" class="hidden text-sm mt-2"></p>
                 </div>
@@ -902,7 +926,7 @@
                         <input id="joinDiscord" type="url" placeholder="https://discord.gg/…" autocomplete="off" spellcheck="false"
                             class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
                     </div>
-                    <button onclick="saveRecruitment()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
+                    <button onclick="saveRecruitment(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
                     <p id="recruitNote" class="hidden text-sm mt-2"></p>
                 </div>
 
@@ -1096,7 +1120,7 @@
                     </details>
                 </div>
 
-                <button onclick="saveTeam()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save team</button>
+                <button onclick="saveTeam(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save team</button>
                 <p id="teamNote" class="hidden text-sm mt-2"></p>
               </div><!-- /team -->
 
@@ -1703,6 +1727,40 @@
 
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+
+        /* =====================================================================
+           HOW AN UPDATE BEHAVES ON THIS SCREEN
+
+           Five one-line wrappers over crewPanels.js, and every action in this
+           file goes through them. They exist so that "press a button, see what
+           changed" means the same thing in all eleven places this dashboard
+           lets staff change something — the roster, the route network, flight
+           reports, applications, invitations, the ranks and fleet, recruitment,
+           the team, the noticeboard and the data store.
+
+             keepPlace(el, draw)   redraw without losing the caret or the place
+             busy(btn, 'Saving…')  the button says it is working; returns done()
+             say(msg, tone)        a toast, so feedback is never off-screen
+             ask({...})            a confirm the page draws itself, not the browser
+             changed('roster')     tell every other view that shows this
+
+           Each guards on CrewPanels being there. It is loaded as a classic
+           script above, so it always is — but this page already refuses to
+           depend on Tailwind arriving (see the .hidden rule in <style>), and a
+           save that throws because a script did not load is a worse failure
+           than a save that happens without the polish.
+           ===================================================================== */
+        const keepPlace=(el,draw)=>window.CrewPanels?CrewPanels.keepPlace(el,draw):draw();
+        const busy=(btn,label)=>window.CrewPanels?CrewPanels.busy(btn,label):()=>{};
+        const say=(msg,tone)=>{ if(window.CrewPanels) CrewPanels.toast(msg,tone); };
+        const ask=(opts)=>window.CrewPanels
+            ? CrewPanels.ask(opts)
+            // No module: fall back to the browser's own, which is still better
+            // than deleting somebody's roster without asking.
+            : Promise.resolve(window.confirm([opts.title,opts.body].filter(Boolean).join('\n\n')));
+        const changed=(topics,detail)=>{ if(window.CrewPanels) CrewPanels.emit(topics,detail); };
+        const onChanged=(topics,fn)=>{ if(window.CrewPanels) CrewPanels.on(topics,fn); };
+
         let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
         // The Instagram wall. `posts` is the raw links staff pasted — kept as
@@ -2263,7 +2321,7 @@
                 const r=l.querySelector('input'); l.classList.toggle('sch-opt-on', !!(r&&r.checked));
             });
         }
-        async function saveSchedulePrefs(){
+        async function saveSchedulePrefs(btn){
             const note=document.getElementById('sch_note');
             const num=(id,lo,hi)=>Math.max(lo,Math.min(hi,Math.round(Number(document.getElementById(id).value)||0)));
             const picked=document.querySelector('input[name="sch_booking"]:checked');
@@ -2276,11 +2334,18 @@
                 cancelHoursBefore: num('sch_cancelHoursBefore',0,336),
             };
             applyScheduleVisibility();
-            await saveSettings({ schedule: SCHEDULE_PREFS });
-            // The panel holds its own copy for greying buttons out; re-read so a
-            // rule that has just changed is the rule it shows.
-            if(window.CrewSchedule) CrewSchedule.reload();
-            note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+            const stop=busy(btn,'Saving…');
+            try{
+                await saveSettings({ schedule: SCHEDULE_PREFS });
+                // The panel holds its own copy for greying buttons out; re-read so a
+                // rule that has just changed is the rule it shows.
+                if(window.CrewSchedule) CrewSchedule.reload();
+                note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+                say(SCHEDULE_PREFS.enabled?'Schedule settings saved.':'Schedule turned off for your crew.','ok');
+                // Turning the schedule on or off adds or removes a tile and a
+                // drawer, and those are drawn from the settings, not re-fetched.
+                changed('settings');
+            } finally{ stop(); }
         }
         // A VA that does not use the schedule should not be shown a Schedule
         // button or a Schedules tile. Applied on load and whenever it changes,
@@ -2400,7 +2465,7 @@
                 : `Nobody. ${p.checked} pilot${p.checked===1?'':'s'} checked.`;
         }
 
-        async function saveRetentionPrefs(){
+        async function saveRetentionPrefs(btn){
             const e=retentionEls(); const note=document.getElementById('ret_note');
             const num=(el,lo,hi,def)=>{ const n=Math.round(Number(el.value)); return Number.isFinite(n)?Math.max(lo,Math.min(hi,n)):def; };
             RETENTION_PREFS={
@@ -2415,12 +2480,16 @@
                 inactivityAction: e.inactivityAction.value,
                 exemptStaff: e.exemptStaff.checked,
             };
-            await saveSettings({ retention: RETENTION_PREFS });
-            note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
-            // Re-read rather than trusting what was sent: the server normalises
-            // and clamps these, and the preview must reflect what will actually
-            // run, not what was typed.
-            loadRetention();
+            const stop=busy(btn,'Saving…');
+            try{
+                await saveSettings({ retention: RETENTION_PREFS });
+                note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
+                say(RETENTION_PREFS.enabled?'Roster sweep saved.':'Roster sweep turned off.','ok');
+                // Re-read rather than trusting what was sent: the server normalises
+                // and clamps these, and the preview must reflect what will actually
+                // run, not what was typed.
+                loadRetention();
+            } finally{ stop(); }
         }
 
         async function runRetentionNow(){
@@ -2430,10 +2499,12 @@
             // The one confirm in this drawer, and only when the run can delete.
             // Marking somebody inactive is undone with a click; deleting them
             // is not, so that is where the friction belongs.
-            if(willDelete && !window.confirm('Run the sweep now? Pilots past their deadline will be deleted, and that cannot be undone.')) return;
+            if(willDelete && !await ask({ title:'Run the sweep now?', danger:true, confirm:'Run it now',
+                body:'Pilots past their deadline will be deleted, and that cannot be undone.' })) return;
             const slug=getSlug(), token=sessionToken();
             if(!slug || !token) return;
             note.textContent='Running…'; note.className='text-sm muted'; note.classList.remove('hidden');
+            const stop=busy('ret_runBtn','Running…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/retention/run`,
                     { method:'POST', headers:{ Accept:'application/json', Authorization:'Bearer '+token } });
@@ -2444,14 +2515,18 @@
                 if(d.deactivated?.length) bits.push(`${d.deactivated.length} marked inactive`);
                 if(d.warned?.length) bits.push(`${d.warned.length} warned`);
                 if(d.failed?.length) bits.push(`${d.failed.length} failed`);
-                note.textContent = bits.length ? `Done — ${bits.join(', ')}.` : `Done — nothing was due (${d.checked} checked).`;
+                const summary = bits.length ? `Done — ${bits.join(', ')}.` : `Done — nothing was due (${d.checked} checked).`;
+                note.textContent = summary;
                 note.className='text-sm text-emerald-600 dark:text-emerald-400';
-                fetchRoster().then(renderRoster).catch(()=>{});
+                say(summary, d.failed?.length ? 'info' : 'ok');
+                fetchRoster().then(()=>changed('roster retention')).catch(()=>{});
                 loadRetention();
             }catch(err){
                 note.textContent = err.message || 'Could not run the sweep.';
                 note.className='text-sm text-red-600 dark:text-red-400';
+                say(err.message || 'Could not run the sweep.','bad');
             }
+            finally{ stop(); }
         }
 
         /* ================================================================
@@ -2672,7 +2747,7 @@
             if(!ALLOWED.includes(k)) return;
             applyLayout(k);                                   // live, instant
             try{ localStorage.setItem('crew:layout:'+getSlug(), k); }catch{}
-            saveSettings({ layout:k });                       // persist for the whole crew (best-effort)
+            saveSettings({ layout:k }, `Layout set to ${(LAYOUT_META[k]||{}).name||k} for your whole crew.`);
         }
 
         // ---- How a topic opens (slide-over vs its own page) ----
@@ -2708,7 +2783,8 @@
             if(!window.CrewTopics || !CrewTopics.MODES.includes(k)) return;
             CrewTopics.setMode(k, { persist:true });           // live, instant, and remembered on this device
             renderTopicOpts();
-            saveSettings({ topicMode:k });                     // the crew's default, for everyone's first visit
+            // The crew's default, for everyone's first visit.
+            saveSettings({ topicMode:k }, `Panels now open ${k==='page'?'as full pages':'as slide-overs'} for your crew.`);
         }
 
         // ---- Settings panel ----
@@ -2742,37 +2818,169 @@
             // screen they are not looking at.
             if(show.has('storage')) refreshStorage();
             if(show.has('datamanage')) refreshDataSummary();
+            // A settings tab is a different screen, and switching to one while
+            // scrolled down a long Crew tab landed the reader half way into
+            // Recruit with no heading in sight. Same reasoning as showListTop():
+            // keep your place within a screen, start at the top of a new one.
+            const panel=drawerPanel('settings');
+            if(panel) panel.scrollTop=0;
         }
+        /* =====================================================================
+           OPENING AND CLOSING A DRAWER
+
+           Four drawers, four copies of the same six lines, and the copies had
+           drifted: one reset its scroll, none of them held the page still, and
+           the close animation existed in exactly one of them. The reader felt
+           every one of those differences as the drawers behaving differently
+           from each other for no reason they could name.
+
+           So: one pair of functions, and everything a drawer needs is in them.
+
+           HOLDING THE PAGE STILL is the important part. The dashboard behind a
+           drawer is a tall scrolling page; the drawer is a tall scrolling
+           column on top of it. Without a lock, a flick that reaches the end of
+           the drawer keeps going into the page, a wheel over the dimmed strip
+           scrolls the page directly, and closing the drawer drops the reader
+           somewhere they never navigated to — read as "the page scrolls on its
+           own when I press things". CrewPanels' lock is counted, so a dialog
+           opened on top of a drawer and closed again does not release it.
+
+           STARTING AT THE TOP matters too, and only on open: a drawer reopened
+           halfway down its own list looks like it failed to load the thing the
+           reader asked for. Once open, the reader's place is theirs — which is
+           what keepPlace() protects on every redraw inside it.
+           ===================================================================== */
+        function drawerPanel(id){ const el=document.getElementById(id); return el && el.querySelector('.panel'); }
+        /**
+         * Show an inline form and take the reader to it.
+         *
+         * Every drawer puts its add/edit form ABOVE the list it edits, which is
+         * right — it is the first thing on the screen when the drawer is fresh.
+         * It is wrong the rest of the time: pressing Edit on the fortieth pilot
+         * un-hid a form forty cards above where the reader was looking, so the
+         * button did nothing they could see and the fix was to scroll up and
+         * find it. Now the form comes to them, and the first field is ready to
+         * type into.
+         */
+        function revealForm(formId, firstFieldId){
+            const form=document.getElementById(formId); if(!form) return;
+            form.classList.remove('hidden');
+            // After the frame that un-hid it, or there is nothing laid out to
+            // scroll to yet.
+            requestAnimationFrame(()=>{
+                form.scrollIntoView({block:'nearest',behavior:'smooth'});
+                const first=firstFieldId && document.getElementById(firstFieldId);
+                // preventScroll: the smooth scroll above is already on its way,
+                // and focus() would jump straight to the end of it.
+                if(first) first.focus({preventScroll:true});
+            });
+        }
+        /**
+         * Put a list back at its top after a tab change.
+         *
+         * keepPlace() holds the reader's place through a redraw of the SAME
+         * list, which is what an update wants. A tab change is the opposite: it
+         * is a different list, and arriving 600px down a short one — or at the
+         * clamped bottom of it — reads as the tab having failed to load.
+         */
+        function showListTop(id){
+            const el=document.getElementById(id); if(!el) return;
+            const panel=el.closest('.panel');
+            if(panel) panel.scrollTop=0; else el.scrollIntoView({block:'start'});
+        }
+        // The close animation runs for 300ms before `hidden` is applied, so a
+        // drawer reopened inside that window would be un-hidden by open() and
+        // then hidden again by the timer the close left behind — the drawer
+        // vanishing a third of a second after being asked for. One timer per
+        // drawer, cancelled on open.
+        const DRAWER_HIDE={};
+        function openDrawer(id){
+            const el=document.getElementById(id); if(!el) return null;
+            const panel=el.querySelector('.panel');
+            clearTimeout(DRAWER_HIDE[id]);
+            if(el.dataset.open==='1') return panel;   // already up: never lock twice
+            el.dataset.open='1';
+            el.classList.remove('hidden');
+            if(panel) panel.scrollTop=0;
+            if(window.CrewPanels) CrewPanels.lockScroll();
+            requestAnimationFrame(()=>{ if(panel) panel.classList.remove('translate-x-full'); });
+            return panel;
+        }
+        function closeDrawer(id){
+            const el=document.getElementById(id); if(!el) return;
+            if(el.dataset.open!=='1') return;
+            delete el.dataset.open;
+            const panel=el.querySelector('.panel');
+            if(panel) panel.classList.add('translate-x-full');
+            if(window.CrewPanels) CrewPanels.unlockScroll();
+            clearTimeout(DRAWER_HIDE[id]);
+            DRAWER_HIDE[id]=setTimeout(()=>el.classList.add('hidden'),300);
+        }
+        // Escape closes the drawer on top, and only if nothing is stacked over
+        // it — a CSV dialog, the route map or a CrewPanels confirm owns the key
+        // while it is up. Before this, the only way out of a drawer was finding
+        // the X, which on a phone is the corner furthest from a thumb.
+        document.addEventListener('keydown', e=>{
+            if(e.key!=='Escape') return;
+            // Anything stacked over a drawer owns the key. The dashboard's own
+            // two overlays are checked by id; everything else on this page is a
+            // crewPanels or crewEvents shell, and those close themselves.
+            if(document.querySelector('.cp-dialog, .cs-dialog, .cev-modal:not(.cev-hidden),'
+                +' .cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden)')) return;
+            if(!document.getElementById('csvModal').classList.contains('hidden')) return;
+            if(!document.getElementById('routeMap').classList.contains('hidden')) return;
+            // Topmost first, so a drawer opened from a drawer closes in order.
+            const open=['pireps','routes','roster','settings'].filter(id=>document.getElementById(id)?.dataset.open==='1');
+            if(open.length) closeDrawer(open[0]);
+        });
+
         // `cat` lands the panel on a specific tab — the onboarding nudge sends
         // an owner straight to Data store, since that is the whole point of it.
         function openSettings(cat){
-            const s=document.getElementById('settings');
-            s.classList.remove('hidden');
             if(cat) setCat(cat);
             else if(!document.querySelector('.settings-tab.active')) setCat('appearance');
-            requestAnimationFrame(()=>s.querySelector('.panel').classList.remove('translate-x-full'));
+            openDrawer('settings');
             if(window.lucide) lucide.createIcons();
         }
-        function closeSettings(){
-            const s=document.getElementById('settings');
-            s.querySelector('.panel').classList.add('translate-x-full');
-            setTimeout(()=>s.classList.add('hidden'),300);
-        }
+        function closeSettings(){ closeDrawer('settings'); }
         function sessionToken(){ try{ return (JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null')||{}).token||''; }catch{ return ''; } }
-        async function saveSettings(patch){
+        /**
+         * Write a patch to the crew's settings.
+         *
+         * `okMsg` is spoken as a toast on success. It is optional because some
+         * callers (the schedule and sweep forms) say their own thing — but
+         * whenever a caller has nothing better, passing one here is strictly
+         * right: #settingsNote is the LAST element in the drawer, below eight
+         * panels, so "Saved for your crew." was written where nobody choosing a
+         * layout at the top could possibly see it. That is the whole of why
+         * changing a setting felt like it had not worked.
+         */
+        async function saveSettings(patch, okMsg){
             const note=document.getElementById('settingsNote');
             const token=sessionToken(); const slug=getSlug();
             if(!slug || !token){ // preview / not signed in — the live change already applied and cached locally
                 note.textContent='Applied on this device. Sign in to save it for your whole crew.';
-                note.className='text-sm muted'; note.classList.remove('hidden'); return;
+                note.className='text-sm muted'; note.classList.remove('hidden');
+                say('Applied on this device. Sign in to save it for your whole crew.','info');
+                return;
             }
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
                     body:JSON.stringify(patch) });
-                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
-                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device (couldn’t sync to the server).'; note.className='text-sm muted'; }
-            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; }
+                if(res.ok){
+                    note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    if(okMsg) say(okMsg,'ok');
+                }
+                else {
+                    const d=await res.json().catch(()=>({}));
+                    const msg=d.error||'Saved on this device (couldn’t sync to the server).';
+                    note.textContent=msg; note.className='text-sm muted'; say(msg,'bad');
+                }
+            }catch{
+                note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted';
+                say('Saved on this device — the server was unreachable, so your crew will not see it yet.','bad');
+            }
             note.classList.remove('hidden');
         }
 
@@ -2911,7 +3119,7 @@
             const w=row.querySelector('[data-fleetwarn]');
             if(w){ w.innerHTML=fleetWarnHtml(f); if(window.lucide) lucide.createIcons(); }
         }
-        function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); }
+        function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); focusNewRow('fleetRows'); }
         function renderBadgePreview(){
             document.getElementById('rankPreview').innerHTML = RANKS.length?RANKS.map(badgeHtml).join(''):'<span class="text-xs faint">No ranks yet.</span>';
             document.getElementById('rolePreview').innerHTML = ROLES.length?ROLES.map(r=>badgeHtml(r)).join(''):'<span class="text-xs faint">No roles yet.</span>';
@@ -2954,12 +3162,40 @@
             </div>`;
         }
         function renderStructure(){
-            document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
-            document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
-            const fr=document.getElementById('fleetRows'); if(fr) fr.innerHTML = FLEET.map(fleetRowHtml).join('');
-            document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
-            renderBadgePreview();
-            if(window.lucide) lucide.createIcons();
+            // All three lists live in one scrolling drawer, so one keepPlace
+            // around the lot is enough. What it buys here is the caret: an
+            // innerHTML replacement drops focus every time, so adding a rank
+            // while halfway through naming the one above took the reader out of
+            // the box they were typing in.
+            keepPlace('#rankRows',()=>{
+                document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
+                document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
+                const fr=document.getElementById('fleetRows'); if(fr) fr.innerHTML = FLEET.map(fleetRowHtml).join('');
+                document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
+                renderBadgePreview();
+                if(window.lucide) lucide.createIcons();
+            });
+        }
+        /**
+         * Put the caret in the row that was just added.
+         *
+         * Pressing "Add rank" and being given an empty row somewhere below the
+         * fold, with the focus still on the button, is the step that used to go
+         * missing: the VA pressed Add again because nothing appeared to happen.
+         * Now the new row's first field is focused and scrolled to, which says
+         * both "here it is" and "type here" without a word of instruction.
+         */
+        function focusNewRow(hostId){
+            const host=document.getElementById(hostId); if(!host) return;
+            const row=host.lastElementChild; if(!row) return;
+            // The field worth typing in, not simply the first one: every row in
+            // here opens with a colour swatch or a kind dropdown, and landing on
+            // either leaves the reader back at "which box do I fill in?".
+            const field=row.querySelector('[data-f="name"],[data-f="type"],[data-rf="name"],[data-qf="label"],[data-af="username"]')
+                || row.querySelector('input:not([type="color"]):not([type="checkbox"]):not([type="radio"]),textarea,select');
+            if(!field) return;
+            row.scrollIntoView({block:'nearest',behavior:'smooth'});
+            field.focus({preventScroll:true});
         }
         // Live-edit via delegation (no re-render, so inputs keep focus).
         function wireStructure(){
@@ -3046,8 +3282,8 @@
                 });
             });
         }
-        function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star',requiresCheck:false,checkNote:''}); renderStructure(); }
-        function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false}); renderStructure(); }
+        function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star',requiresCheck:false,checkNote:''}); renderStructure(); focusNewRow('rankRows'); }
+        function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false}); renderStructure(); focusNewRow('roleRows'); }
         function starterRanks(){
             RANKS=[{name:'Cadet',minHours:0,color:'#64748b',icon:'star'},{name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},{name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},{name:'Captain',minHours:300,color:'#d97706',icon:'medal'},{name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'}];
             renderStructure();
@@ -3078,7 +3314,11 @@
             if(status>=400)  return `The server refused the save (${status}) without saying why. Please report this number.`;
             return `Could not save (server said ${status}).`;
         }
-        async function saveStructure(kind){
+        async function saveStructure(kind, btn){
+            const stop=busy(btn,'Saving…');
+            try{ await saveStructureInner(kind); } finally{ stop(); }
+        }
+        async function saveStructureInner(kind){
             const note=document.getElementById(noteIdFor(kind));
             const warn=(msg)=>{ note.textContent=msg; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); };
             if(kind==='fleet'){
@@ -3125,6 +3365,13 @@
                     const drift=checkResponseDrift(d);
                     if(drift){ warn(drift+' '); note.innerHTML=escapeHtml(drift)+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>'; return; }
                     note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    // The note sits beside the Save button, which after a long
+                    // ladder is a long way from where the reader is looking.
+                    say(kind==='fleet'?'Fleet saved for your crew.':kind==='ranks'?'Ranks saved for your crew.':'Roles saved for your crew.','ok');
+                    // A rank is drawn on every roster card and gates routes; an
+                    // aircraft fills every picker. Everything that shows one is
+                    // now out of date.
+                    changed('structure');
                 }
             }catch{ note.textContent='Server unreachable. Try again.'; note.className='text-sm muted'; }
             note.classList.remove('hidden');
@@ -3150,11 +3397,13 @@
         }
         function renderSocialEditor(){
             const rows=document.getElementById('socialRows'); if(!rows) return;
-            rows.innerHTML=SOCIAL.posts.map(socialRowHtml).join('');
+            keepPlace(rows,()=>{
+                rows.innerHTML=SOCIAL.posts.map(socialRowHtml).join('');
+                if(window.lucide) lucide.createIcons();
+            });
             const h=document.getElementById('socialHandle'); if(h && h.value!==SOCIAL.handle) h.value=SOCIAL.handle;
             const max=document.getElementById('socialMax');
             if(max && window.CrewSocial) max.textContent=CrewSocial.MAX_POSTS;
-            if(window.lucide) lucide.createIcons();
         }
         function addSocialPost(){
             const cap = window.CrewSocial ? CrewSocial.MAX_POSTS : 12;
@@ -3196,19 +3445,22 @@
             if(edit) edit.classList.toggle('hidden', !can('settings.branding'));
             if(on) CrewSocial.render(document.getElementById('socialWall'), SOCIAL);
         }
-        async function saveSocial(){
+        async function saveSocial(btn){
             const note=document.getElementById('socialNote');
-            const say=(msg,cls)=>{ note.textContent=msg; note.className='text-sm '+cls; note.classList.remove('hidden'); };
+            // Named `inline` rather than `say`, which is the toast — this one
+            // writes beside the button, and several messages want both.
+            const inline=(msg,cls)=>{ note.textContent=msg; note.className='text-sm '+cls; note.classList.remove('hidden'); };
             // Drop blanks; refuse anything that is not a post rather than saving
             // a link that will draw as a hole.
             const typed=SOCIAL.posts.map(u=>String(u||'').trim()).filter(Boolean);
             const bad=typed.find(u=>!CrewSocial.parsePost(u));
-            if(bad){ say(`“${bad.slice(0,60)}” is not a link to an Instagram post. Open the post, Share → Copy link.`,'text-amber-600 dark:text-amber-400'); return; }
+            if(bad){ inline(`“${bad.slice(0,60)}” is not a link to an Instagram post. Open the post, Share → Copy link.`,'text-amber-600 dark:text-amber-400'); return; }
             const payload={ handle:SOCIAL.handle, posts:typed };
             SOCIAL.posts=typed; renderSocialEditor(); renderSocial();
 
             const token=sessionToken(), slug=getSlug();
-            if(!slug||!token){ say('Applied on this device. Sign in to save it for your whole crew.','muted'); return; }
+            if(!slug||!token){ inline('Applied on this device. Sign in to save it for your whole crew.','muted'); say('Applied on this device. Sign in to save it for your whole crew.','info'); return; }
+            const stop=busy(btn,'Saving…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
@@ -3220,7 +3472,8 @@
                         note.innerHTML=escapeHtml(d.error||'Your database is on an older version.')+' <button onclick="openDbUpgrade()" class="font-semibold underline">Update it →</button>';
                         note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return;
                     }
-                    say(d.error||saveFailureReason(res.status),'text-red-500'); return;
+                    const why=d.error||saveFailureReason(res.status);
+                    inline(why,'text-red-500'); say(why,'bad'); return;
                 }
                 // THE ONE THING THAT CANNOT BE ASSUMED. Every other settings key
                 // here predates this screen, and the backend that stores them is
@@ -3230,13 +3483,15 @@
                 // back what it stored, so the absence of `social` in the reply is
                 // the tell, and it is worth saying out loud.
                 if(!d.social){
-                    say('Saved on this device, but your crew center’s server does not store Instagram links yet — the wall will be empty again after a reload. The backend needs a `social` settings key.','text-amber-600 dark:text-amber-400');
+                    inline('Saved on this device, but your crew center’s server does not store Instagram links yet — the wall will be empty again after a reload. The backend needs a `social` settings key.','text-amber-600 dark:text-amber-400');
                     return;
                 }
                 SOCIAL=normalizeSocialConfig(d.social);
                 renderSocialEditor(); renderSocial();
-                say('Saved for your crew.','text-emerald-600 dark:text-emerald-400');
-            }catch{ say('Server unreachable. Try again.','muted'); }
+                inline('Saved for your crew.','text-emerald-600 dark:text-emerald-400');
+                say('Instagram wall saved for your crew.','ok');
+            }catch{ inline('Server unreachable. Try again.','muted'); say('Server unreachable. Try again.','bad'); }
+            finally{ stop(); }
         }
         // A stored config into the editor's shape: links stay strings.
         function normalizeSocialConfig(raw){
@@ -3271,8 +3526,8 @@
                 <button data-rdel class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>`;
         }
-        function renderRequirements(){ const el=document.getElementById('reqRows'); if(!el) return; el.innerHTML=JOIN.reqs.map(reqRowHtml).join(''); if(window.lucide) lucide.createIcons(); }
-        function addRequirement(){ JOIN.reqs.push({type:'hours',value:''}); renderRequirements(); }
+        function renderRequirements(){ const el=document.getElementById('reqRows'); if(!el) return; keepPlace(el,()=>{ el.innerHTML=JOIN.reqs.map(reqRowHtml).join(''); if(window.lucide) lucide.createIcons(); }); }
+        function addRequirement(){ JOIN.reqs.push({type:'hours',value:''}); renderRequirements(); focusNewRow('reqRows'); }
         function wireRequirements(){
             const host=document.getElementById('reqRows'); if(!host) return;
             host.addEventListener('input', e=>{ const row=e.target.closest('[data-r]'); if(!row) return; const i=+row.getAttribute('data-r'); const f=e.target.getAttribute('data-rf'); if(f==='value'||f==='label') JOIN.reqs[i][f]=e.target.value; });
@@ -3303,8 +3558,8 @@
                 <button data-qdel class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>`;
         }
-        function renderQuestions(){ document.getElementById('qRows').innerHTML=JOIN.form.map(qRowHtml).join(''); if(window.lucide) lucide.createIcons(); }
-        function addQuestion(){ JOIN.form.push({label:'',type:'text',required:false}); renderQuestions(); }
+        function renderQuestions(){ const el=document.getElementById('qRows'); if(!el) return; keepPlace(el,()=>{ el.innerHTML=JOIN.form.map(qRowHtml).join(''); if(window.lucide) lucide.createIcons(); }); }
+        function addQuestion(){ JOIN.form.push({label:'',type:'text',required:false}); renderQuestions(); focusNewRow('qRows'); }
         function renderRecruitment(){
             renderJoinMode();
             document.getElementById('minGrade').value=String(JOIN.minGrade||0);
@@ -3328,7 +3583,17 @@
             note.classList.remove('hidden');
         }
         // ---- Discord webhook (recruitment notifications) ----
-        function setHookNote(msg, kind){ const n=document.getElementById('hookNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
+        // Every webhook action reports through here, so the toast goes here too
+        // rather than at six call sites. Only for the two kinds that are a RESULT
+        // — 'muted' is guidance ("paste a URL first"), and toasting that would
+        // put a notification over a field the reader is already looking at.
+        function setHookNote(msg, kind){
+            const n=document.getElementById('hookNote'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted');
+            n.classList.remove('hidden');
+            if(kind==='ok'||kind==='err') say(msg, kind==='ok'?'ok':'bad');
+        }
         function renderHookStatus(d){
             const s=document.getElementById('hookStatus'); if(!s) return;
             if(d && d.configured){ s.innerHTML='<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> connected</span>'; }
@@ -3413,7 +3678,14 @@
         });
 
         // ---- Email provider (bring-your-own; no platform default) ----
-        function setEmailNote(msg, kind){ const n=document.getElementById('emailNote'); if(!n) return; n.textContent=msg; n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted'); n.classList.remove('hidden'); }
+        // Same reasoning as setHookNote above.
+        function setEmailNote(msg, kind){
+            const n=document.getElementById('emailNote'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted');
+            n.classList.remove('hidden');
+            if(kind==='ok'||kind==='err') say(msg, kind==='ok'?'ok':'bad');
+        }
         function emToggleFields(){
             const prov=document.getElementById('emProvider').value;
             document.getElementById('emFields').classList.toggle('hidden', !prov);
@@ -3466,19 +3738,26 @@
             host.addEventListener('change', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(f==='type'||f==='required') JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
             host.addEventListener('click', e=>{ const d=e.target.closest('[data-qdel]'); if(!d) return; JOIN.form.splice(+d.closest('[data-q]').getAttribute('data-q'),1); renderQuestions(); });
         }
-        async function saveRecruitment(){
+        async function saveRecruitment(btn){
             const note=document.getElementById('recruitNote');
             JOIN.minGrade=Number(document.getElementById('minGrade').value)||0;
             JOIN.callsignPrefix=document.getElementById('callsignPrefix').value.trim();
             JOIN.discordInvite=(document.getElementById('joinDiscord')||{}).value?.trim()||'';
             const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, discordInvite:JOIN.discordInvite||'', applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
             const token=sessionToken(), slug=getSlug();
-            if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); say('Applied on this device. Sign in to save it for your crew.','info'); return; }
+            const stop=busy(btn,'Saving…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(payload) });
-                if(res.ok){ note.textContent='Recruitment saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
-                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; }
-            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+                if(res.ok){
+                    note.textContent='Recruitment saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    say(JOIN.mode==='closed'?'Recruitment saved — applications are closed.':'Recruitment saved — your join page is live.','ok');
+                    // The join page and its embed are drawn from these.
+                    changed('settings');
+                }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; say(d.error||'Could not save recruitment.','bad'); }
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; say('Server unreachable. Nothing was saved.','bad'); }
+            finally{ stop(); }
             note.classList.remove('hidden');
         }
 
@@ -3535,8 +3814,10 @@
             document.getElementById('addPilotBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
             const list=document.getElementById('rosterList');
             document.getElementById('rosterCount').textContent = ROSTER.length?`· ${ROSTER.length}`:'';
-            list.innerHTML = ROSTER.length ? ROSTER.map(memberCardHtml).join('') : '<p class="text-sm faint text-center py-10">No pilots yet.</p>';
-            if(window.lucide) lucide.createIcons();
+            keepPlace(list,()=>{
+                list.innerHTML = ROSTER.length ? ROSTER.map(memberCardHtml).join('') : '<p class="text-sm faint text-center py-10">No pilots yet.</p>';
+                if(window.lucide) lucide.createIcons();
+            });
         }
         async function fetchRoster(){
             const slug=getSlug();
@@ -3552,7 +3833,7 @@
             ];
         }
         function openRoster(){
-            const r=document.getElementById('roster'); r.classList.remove('hidden');
+            openDrawer('roster');
             // Only surface the Applications tab to those who can review them.
             const appsTab=document.querySelector('#rosterViewTabs [data-view=\"apps\"]');
             if(appsTab) appsTab.classList.toggle('hidden', !can('applications.review'));
@@ -3566,7 +3847,6 @@
             document.getElementById('invitesList').classList.add('hidden');
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
             renderRoster(); updateRosterTabs();
-            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
             fetchRoster().then(renderRoster);
             // Load pending applications in the background so the tab badge is live.
             fetchApps().then(()=>{ refreshAppsBadge(); if(ROSTER_VIEW==='apps') renderApps(); });
@@ -3575,7 +3855,7 @@
             if(can('applications.review')) fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length); });
             if(window.lucide) lucide.createIcons();
         }
-        function closeRoster(){ const r=document.getElementById('roster'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
+        function closeRoster(){ closeDrawer('roster'); }
         // Aircraft chips, preselecting whatever the pilot already flies.
         function buildAircraftChips(selected){
             NP_AIRCRAFT = new Set(selected || []);
@@ -3605,7 +3885,7 @@
             document.getElementById('pilotFormTitle').textContent = member ? 'Edit pilot' : 'Add pilot';
             document.getElementById('pilotSubmitBtn').textContent = member ? 'Save changes' : 'Add pilot';
             const note=document.getElementById('pilotNote'); if(note) note.classList.add('hidden');
-            document.getElementById('addPilotForm').classList.remove('hidden');
+            revealForm('addPilotForm','np_name');
             if(window.lucide) lucide.createIcons();
         }
         function closePilotForm(){ EDITING=null; document.getElementById('addPilotForm').classList.add('hidden'); }
@@ -3617,6 +3897,7 @@
             if(!slug||!token){ note.textContent='Sign in as owner/staff to manage the roster.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             const editing=EDITING;
             const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster${editing?('/'+encodeURIComponent(editing)):''}`;
+            const done=busy('pilotSubmitBtn', editing?'Saving…':'Adding…');
             try{
                 const res=await fetch(url,{ method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
@@ -3624,15 +3905,33 @@
                 if(editing){ ROSTER=ROSTER.map(m=>String(m.id)===String(editing)?d.member:m); }
                 else { ROSTER.unshift(d.member); }
                 closePilotForm(); renderRoster();
+                say(editing?`${body.name} updated.`:`${body.name} is on the roster.`,'ok');
+                changed('roster');
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+            finally{ done(); }
         }
+        // Removing a pilot used to be one unguarded click with no reply of any
+        // kind: it either quietly worked or quietly did not, and the bin icon
+        // sits next to Edit. Ask, then say which it was.
         async function removePilot(id, el){
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
+            const who=(ROSTER.find(m=>String(m.id)===String(id))||{}).name||'this pilot';
+            if(!await ask({ title:`Remove ${who} from the roster?`, danger:true, confirm:'Remove them',
+                body:'Their flight reports and hours stay in your database — this takes them off the roster.' })) return;
+            const done=busy(el && el.querySelector('[data-remove]'), false);
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
-                if(res.ok){ ROSTER=ROSTER.filter(m=>String(m.id)!==String(id)); if(String(EDITING)===String(id)) closePilotForm(); renderRoster(); }
-            }catch{}
+                if(res.ok){
+                    ROSTER=ROSTER.filter(m=>String(m.id)!==String(id));
+                    if(String(EDITING)===String(id)) closePilotForm();
+                    renderRoster(); say(`${who} removed from the roster.`,'ok'); changed('roster');
+                } else {
+                    const d=await res.json().catch(()=>({}));
+                    say(d.error||'Could not remove them. Nothing was changed.','bad');
+                }
+            }catch{ say('Server unreachable — nothing was changed.','bad'); }
+            finally{ done(); }
         }
         // Pass a pilot's check-ride. The promotion this causes is announced by
         // the server, exactly as an hours-driven one is — from the pilot's side
@@ -3641,18 +3940,21 @@
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
             const who=(ROSTER.find(x=>String(x.id)===String(id))||{}).name||'this pilot';
-            if(!confirm(`Sign ${who} off for ${rank}? They're promoted straight away, and the crew is told.`)) return;
+            if(!await ask({ title:`Sign ${who} off for ${rank}?`, confirm:'Sign them off',
+                body:'They are promoted straight away, and the crew is told.' })) return;
+            const done=busy(card && card.querySelector('[data-checkride]'), 'Signing off…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}/checkride`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
                     body:JSON.stringify({ rank }) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ alert(d.error||'Could not record the check-ride.'); return; }
+                if(!res.ok){ say(d.error||'Could not record the check-ride.','bad'); return; }
                 // Swap the one row rather than refetching the roster: the reply
                 // carries the pilot exactly as the server now sees them.
                 if(d.member) ROSTER=ROSTER.map(m=>String(m.id)===String(id)?d.member:m);
-                renderRoster();
-            }catch{ alert('Server unreachable. Try again.'); }
+                renderRoster(); say(`${who} is now ${rank}.`,'ok'); changed('roster');
+            }catch{ say('Server unreachable. Try again.','bad'); }
+            finally{ done(); }
         }
         document.addEventListener('click', e=>{
             const pt=e.target.closest('#routePartners [data-partner]');
@@ -3723,7 +4025,7 @@
         // codeshare airline, so the tiles and the network map cannot disagree
         // about how many legs a partner has.
         let ROUTE_PARTNERS=[];
-        function setRouteKindView(v){ ROUTE_KIND_VIEW=v; if(v==='own') ROUTE_PARTNER=''; renderRoutes(); }
+        function setRouteKindView(v){ ROUTE_KIND_VIEW=v; if(v==='own') ROUTE_PARTNER=''; renderRoutes(); showListTop('routeList'); }
         function setRoutePartner(name){
             // Tapping the airline you are already looking at takes the filter
             // off, which is what a pressed-looking tile should do.
@@ -3797,8 +4099,11 @@
             renderPartnerStrip(cs);
             document.getElementById('routeCount').textContent = visible.length
                 ? `· ${visible.length}${cs.length?` (${own.length} own)`:''}` : '';
-            document.getElementById('routeList').innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes here yet.</p>';
-            if(window.lucide) lucide.createIcons();
+            const host=document.getElementById('routeList');
+            keepPlace(host,()=>{
+                host.innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes here yet.</p>';
+                if(window.lucide) lucide.createIcons();
+            });
         }
         // The VA's ladder, as the routes endpoint reports it — used to fill the
         // "opens at" picker with the VA's own rank names rather than hours.
@@ -3831,9 +4136,8 @@
             ];
         }
         function openRoutes(){
-            const r=document.getElementById('routes'); r.classList.remove('hidden');
+            openDrawer('routes');
             renderRoutes();
-            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
             fetchRoutes().then(()=>{
                 renderRoutes();
                 document.getElementById('routesCsvBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
@@ -3871,13 +4175,24 @@
             document.getElementById('csvBlurb').textContent=k.blurb;
             document.getElementById('csvMatchHint').textContent=k.match;
             csvReset();
-            document.getElementById('csvModal').classList.remove('hidden');
+            const m=document.getElementById('csvModal');
+            m.classList.remove('hidden');
+            // Opened from inside a drawer that already holds the page. The lock
+            // is counted, so taking a second one is right: this dialog closing
+            // must not hand scrolling back to a page still behind a drawer.
+            if(m.dataset.open!=='1'){ m.dataset.open='1'; if(window.CrewPanels) CrewPanels.lockScroll(); }
             if(window.lucide) lucide.createIcons();
         }
-        function closeCsv(){ document.getElementById('csvModal').classList.add('hidden'); }
+        function closeCsv(){
+            const m=document.getElementById('csvModal');
+            m.classList.add('hidden');
+            if(m.dataset.open==='1'){ delete m.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
+        }
         function csvReset(){
             CSV_TEXT=''; CSV_PLAN=null;
             const f=document.getElementById('csvFile'); if(f) f.value='';
+            const commit=document.getElementById('csvCommitBtn'); if(commit) commit.disabled=false;
+            const exp=document.getElementById('csvExportBtn'); if(exp) exp.disabled=false;
             document.getElementById('csvPreview').classList.add('hidden');
             document.getElementById('csvActions').classList.add('hidden');
             document.getElementById('csvNote').classList.add('hidden');
@@ -3994,17 +4309,31 @@
                 // no column for them lands the routes and loses the flag, which
                 // is worth saying out loud rather than reporting "42 added".
                 const drift=checkResponseDrift(d);
-                csvMsg(`${d.created||0} added, ${d.updated||0} updated.${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`, (failed||drift)?'warn':'ok');
+                const summary=`${d.created||0} added, ${d.updated||0} updated.${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`;
+                csvMsg(summary, (failed||drift)?'warn':'ok');
+                // The dialog this is reported in is about to be closed, so the
+                // result has to outlive it.
+                say(summary, (failed||drift)?'info':'ok');
                 document.getElementById('csvPreview').classList.add('hidden');
                 document.getElementById('csvActions').classList.add('hidden');
                 CSV_PLAN=null; CSV_TEXT='';
                 const f=document.getElementById('csvFile'); if(f) f.value='';
-                // Redraw whichever list this changed.
-                if(CSV_KIND==='roster') fetchRoster().then(renderRoster);
-                else fetchRoutes().then(renderRoutes);
-            }catch{ csvMsg('Server unreachable.','error'); btn.disabled=false; }
+                // Redraw whichever list this changed, and tell the figures: an
+                // import is the single biggest change anyone makes here, and it
+                // used to leave the pilot count on the dashboard behind by a
+                // whole spreadsheet.
+                if(CSV_KIND==='roster') fetchRoster().then(()=>{ renderRoster(); changed('roster'); });
+                else fetchRoutes().then(()=>{ renderRoutes(); changed('routes'); });
+                // An import worth doing is worth seeing: close the dialog and
+                // leave the reader looking at what it changed.
+                closeCsv();
+            }catch{ csvMsg('Server unreachable.','error'); }
+            // Always give the button back. It used to be re-enabled only on the
+            // two failure paths, so importing a second spreadsheet in the same
+            // visit found Apply permanently greyed out.
+            finally{ btn.disabled=false; }
         }
-        function closeRoutes(){ const r=document.getElementById('routes'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
+        function closeRoutes(){ closeDrawer('routes'); }
         function openRouteForm(route){
             ROUTE_EDITING = route ? String(route.id) : null;
             const rtHeld=fleetHeldBack();
@@ -4043,7 +4372,7 @@
             document.getElementById('routeFormTitle').textContent = route ? 'Edit route' : 'Add route';
             document.getElementById('routeSubmitBtn').textContent = route ? 'Save changes' : 'Add route';
             const note=document.getElementById('routeNote'); if(note) note.classList.add('hidden');
-            document.getElementById('addRouteForm').classList.remove('hidden');
+            revealForm('addRouteForm','nr_flight');
             if(window.lucide) lucide.createIcons();
         }
         let NR_KIND='own';
@@ -4081,6 +4410,7 @@
             if(!slug||!token){ note.textContent='Sign in with route permissions to manage routes.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             const editing=ROUTE_EDITING;
             const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes${editing?('/'+encodeURIComponent(editing)):''}`;
+            const done=busy('routeSubmitBtn', editing?'Saving…':'Adding…');
             try{
                 const res=await fetch(url,{ method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
@@ -4101,21 +4431,41 @@
                 // list says which, and stays up until it is fixed.
                 checkResponseDrift(d);
                 closeRouteForm(); renderRoutes();
+                const leg=`${body.origin}–${body.destination}`;
+                say(editing?`${leg} updated.`:`${leg} added to the network.`,'ok');
+                changed('routes');
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+            finally{ done(); }
         }
-        async function removeRoute(id){
+        // Same reasoning as removePilot: a bin icon on a card, no confirmation
+        // and a silent `catch{}` meant a route that failed to delete looked
+        // exactly like one that did.
+        async function removeRoute(id, card){
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
+            const r=ROUTES.find(x=>String(x.id)===String(id))||{};
+            const leg=(r.origin&&r.destination)?`${r.origin}–${r.destination}`:'this route';
+            if(!await ask({ title:`Delete ${leg}?`, danger:true, confirm:'Delete it',
+                body:'It comes off the network and out of the map. Flights already filed against it are not touched.' })) return;
+            const done=busy(card && card.querySelector('[data-rdel]'), false);
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
-                if(res.ok){ ROUTES=ROUTES.filter(x=>String(x.id)!==String(id)); if(String(ROUTE_EDITING)===String(id)) closeRouteForm(); renderRoutes(); }
-            }catch{}
+                if(res.ok){
+                    ROUTES=ROUTES.filter(x=>String(x.id)!==String(id));
+                    if(String(ROUTE_EDITING)===String(id)) closeRouteForm();
+                    renderRoutes(); say(`${leg} deleted.`,'ok'); changed('routes');
+                } else {
+                    const d=await res.json().catch(()=>({}));
+                    say(d.error||'Could not delete it. Nothing was changed.','bad');
+                }
+            }catch{ say('Server unreachable — nothing was changed.','bad'); }
+            finally{ done(); }
         }
         document.addEventListener('click', e=>{
             const ed=e.target.closest('#routeList [data-redit]');
             if(ed){ const c=ed.closest('[data-rid]'); const id=c&&c.getAttribute('data-rid'); const r=ROUTES.find(x=>String(x.id)===String(id)); if(r) openRouteForm(r); return; }
             const rm=e.target.closest('#routeList [data-rdel]'); if(!rm) return;
-            const c=rm.closest('[data-rid]'); if(c) removeRoute(c.getAttribute('data-rid'));
+            const c=rm.closest('[data-rid]'); if(c) removeRoute(c.getAttribute('data-rid'), c);
         });
 
         /* =====================================================================
@@ -4229,6 +4579,9 @@
 
         async function openRouteMap(){
             const ov=document.getElementById('routeMap'); ov.classList.remove('hidden');
+            // A full-screen map over a scrolling page: without the lock, a drag
+            // that the map does not claim pans the dashboard behind it instead.
+            if(ov.dataset.open!=='1'){ ov.dataset.open='1'; if(window.CrewPanels) CrewPanels.lockScroll(); }
             document.getElementById('rmLoading').classList.remove('hidden');
             document.getElementById('rmEmpty').classList.add('hidden');
             // Mirror the routes list: managers (and preview mode) may reveal drafts;
@@ -4246,6 +4599,7 @@
         function rmEsc(e){ if(e.key==='Escape') closeRouteMap(); }
         function closeRouteMap(){
             const ov=document.getElementById('routeMap'); ov.classList.add('hidden');
+            if(ov.dataset.open==='1'){ delete ov.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
             document.removeEventListener('keydown',rmEsc);
             RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
             if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; } RM.ready=false;
@@ -4612,8 +4966,11 @@
                 b.className=`tap-target inline-flex items-center text-xs font-semibold px-3 py-1.5 rounded-full ${on?'accent-bg text-white':'surface hair'}`;
             });
             const empty = PIREPS_CANREVIEW ? `No ${PIREP_TAB} flights.` : 'No flights logged yet.';
-            document.getElementById('pirepList').innerHTML = PIREPS.length ? PIREPS.map(pirepCardHtml).join('') : `<p class="text-sm faint text-center py-10">${empty}</p>`;
-            if(window.lucide) lucide.createIcons();
+            const list=document.getElementById('pirepList');
+            keepPlace(list,()=>{
+                list.innerHTML = PIREPS.length ? PIREPS.map(pirepCardHtml).join('') : `<p class="text-sm faint text-center py-10">${empty}</p>`;
+                if(window.lucide) lucide.createIcons();
+            });
         }
         async function fetchPireps(){
             const slug=getSlug(); const token=sessionToken();
@@ -4625,9 +4982,8 @@
             PIREPS=[];
         }
         function openPireps(){
-            const r=document.getElementById('pireps'); r.classList.remove('hidden');
+            openDrawer('pireps');
             renderPireps();
-            requestAnimationFrame(()=>r.querySelector('.panel').classList.remove('translate-x-full'));
             fetchPireps().then(renderPireps);
             // Warm the roster + route network so the File form's pilot picker and
             // on-network check are ready.
@@ -4635,8 +4991,12 @@
             if(!ROUTES||!ROUTES.length) fetchRoutes().then(()=>{});
             if(window.lucide) lucide.createIcons();
         }
-        function closePireps(){ const r=document.getElementById('pireps'); r.querySelector('.panel').classList.add('translate-x-full'); setTimeout(()=>r.classList.add('hidden'),300); }
-        function setPirepTab(tab){ if(tab===PIREP_TAB) return; PIREP_TAB=tab; renderPireps(); fetchPireps().then(renderPireps); }
+        function closePireps(){ closeDrawer('pireps'); }
+        function setPirepTab(tab){
+            if(tab===PIREP_TAB) return;
+            PIREP_TAB=tab; renderPireps(); showListTop('pirepList');
+            fetchPireps().then(renderPireps);
+        }
         async function syncPireps(){
             const slug=getSlug(), token=sessionToken(); const note=document.getElementById('pirepSyncNote');
             if(!slug||!token){ if(note){ note.textContent='Sign in with flight permissions to sync.'; } return; }
@@ -4646,24 +5006,57 @@
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/sync`,{ method:'POST', headers:{Authorization:'Bearer '+token} });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ if(note) note.textContent=d.error||'Sync failed.'; }
-                else if(note){ note.textContent = d.created ? `Captured ${d.created} new flight${d.created===1?'':'s'}${d.approved?` (${d.approved} auto-approved)`:''} from ${d.pilots} pilot${d.pilots===1?'':'s'}.` : `No new flights from ${d.pilots} linked pilot${d.pilots===1?'':'s'}.`; }
+                else if(note){
+                    const msg = d.created
+                        ? `Captured ${d.created} new flight${d.created===1?'':'s'}${d.approved?` (${d.approved} auto-approved)`:''} from ${d.pilots} pilot${d.pilots===1?'':'s'}.`
+                        : `No new flights from ${d.pilots} linked pilot${d.pilots===1?'':'s'}.`;
+                    note.textContent=msg;
+                    if(d.created) say(msg,'ok');
+                }
                 await fetchPireps(); renderPireps();
+                changed('pireps');
             }catch{ if(note) note.textContent='Server unreachable.'; }
             finally{ if(btn) btn.disabled=false; }
         }
-        async function reviewPirep(id, action){
+        // Approving and rejecting are the two most-pressed buttons in the crew
+        // center, and they used to be the quietest: a card silently left the
+        // list, the hours it credited appeared nowhere until a reload, and a
+        // failure looked identical to a success.
+        async function reviewPirep(id, action, card){
             const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
+            const done=busy(card && card.querySelector(action==='approve'?'[data-papprove]':'[data-preject]'),
+                action==='approve'?'Approving…':'Rejecting…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/${encodeURIComponent(id)}`,{ method:'PATCH', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify({action}) });
-                if(res.ok){ await fetchPireps(); renderPireps(); }
-            }catch{}
+                if(res.ok){
+                    await fetchPireps(); renderPireps();
+                    // The reviewed flight is no longer in the tab being looked
+                    // at, which is the one thing a toast has to explain — the
+                    // card did not fail to update, it moved.
+                    say(action==='approve'
+                        ? `Flight approved — the hours are credited. It is under Approved now.`
+                        : `Flight rejected. It is under Rejected now.`, 'ok');
+                    // Approving credits hours, which moves the headline figures
+                    // and can promote the pilot who filed it.
+                    changed('pireps');
+                } else {
+                    const d=await res.json().catch(()=>({}));
+                    say(d.error||'Could not review that flight.','bad');
+                }
+            }catch{ say('Server unreachable — nothing was changed.','bad'); }
+            finally{ done(); }
         }
-        async function deletePirep(id){
+        async function deletePirep(id, card){
             const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
+            if(!await ask({ title:'Delete this flight report?', danger:true, confirm:'Delete it',
+                body:'Any hours it credited come back off the pilot. This cannot be undone.' })) return;
+            const done=busy(card && card.querySelector('[data-pdel]'), false);
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
-                if(res.ok){ PIREPS=PIREPS.filter(x=>String(x.id)!==String(id)); renderPireps(); }
-            }catch{}
+                if(res.ok){ PIREPS=PIREPS.filter(x=>String(x.id)!==String(id)); renderPireps(); say('Flight report deleted.','ok'); changed('pireps'); }
+                else { const d=await res.json().catch(()=>({})); say(d.error||'Could not delete it. Nothing was changed.','bad'); }
+            }catch{ say('Server unreachable — nothing was changed.','bad'); }
+            finally{ done(); }
         }
         async function savePirepAuto(checked){
             const slug=getSlug(), token=sessionToken(); const note=document.getElementById('pirepSyncNote');
@@ -4671,17 +5064,22 @@
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify({ pirepAutoApprove: !!checked }) });
                 const d=await res.json().catch(()=>({}));
-                if(res.ok){ PIREP_AUTO=!!d.pirepAutoApprove; if(note) note.textContent = PIREP_AUTO?'Auto-approve on — matching fleet flights credit hours automatically.':'Auto-approve off — flights wait for review.'; }
-                else { document.getElementById('pirepAuto').checked=PIREP_AUTO; if(note) note.textContent=d.error||'Could not save.'; }
+                if(res.ok){
+                    PIREP_AUTO=!!d.pirepAutoApprove;
+                    const msg = PIREP_AUTO?'Auto-approve on — matching fleet flights credit hours automatically.':'Auto-approve off — flights wait for review.';
+                    if(note) note.textContent=msg;
+                    say(msg,'ok');
+                }
+                else { document.getElementById('pirepAuto').checked=PIREP_AUTO; if(note) note.textContent=d.error||'Could not save.'; say(d.error||'Could not save that.','bad'); }
             }catch{ document.getElementById('pirepAuto').checked=PIREP_AUTO; }
         }
         document.addEventListener('click', e=>{
             const tab=e.target.closest('#pirepTabs [data-ptab]'); if(tab){ setPirepTab(tab.getAttribute('data-ptab')); return; }
             const card=e.target.closest('#pirepList [data-pid]'); if(!card) return;
             const id=card.getAttribute('data-pid');
-            if(e.target.closest('[data-papprove]')) reviewPirep(id,'approve');
-            else if(e.target.closest('[data-preject]')) reviewPirep(id,'reject');
-            else if(e.target.closest('[data-pdel]')) deletePirep(id);
+            if(e.target.closest('[data-papprove]')) reviewPirep(id,'approve',card);
+            else if(e.target.closest('[data-preject]')) reviewPirep(id,'reject',card);
+            else if(e.target.closest('[data-pdel]')) deletePirep(id,card);
         });
         // Find the active route (if any) that matches what's typed in the file form,
         // so we can tell the pilot up front whether the leg is really on the network.
@@ -4735,7 +5133,7 @@
             if(p.aircraft) acSel.value=p.aircraft;
             document.getElementById('pf_routecheck').innerHTML='';
             const note=document.getElementById('pirepFormNote'); if(note) note.classList.add('hidden');
-            document.getElementById('addPirepForm').classList.remove('hidden');
+            revealForm('addPirepForm','pf_from');
             // Routes power the on-network check; make sure they're loaded.
             if(!ROUTES||!ROUTES.length) fetchRoutes().then(()=>{});
         }
@@ -4759,19 +5157,28 @@
                 minutes: Number(document.getElementById('pf_m').value)||0,
             };
             if(!body.origin||!body.destination){ note.textContent='Enter a departure and arrival airport.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
+            const done=busy('pirepSubmitBtn','Filing…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps`,{ method:'POST', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ note.textContent=d.error||'Could not file the flight.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
-                const verdict = d.routeMatched ? (d.flightNumberMismatch ? 'Filed — route matched, but the flight number differs from the network.' : 'Filed — route confirmed on your network.') : 'Filed off-network — no matching route. Pending review.';
-                note.textContent=verdict; note.className=`text-sm ${d.routeMatched && !d.flightNumberMismatch ?'text-emerald-600 dark:text-emerald-400':'text-amber-600 dark:text-amber-400'}`; note.classList.remove('hidden');
+                const verdict = d.routeMatched ? (d.flightNumberMismatch ? 'Filed — route matched, but the flight number differs from the network.' : 'Filed — route confirmed on your network.') : 'Filed off-network — no matching route. It is waiting under Pending.';
+                // The verdict went into a note inside the form, and the next
+                // line hid the form — so the one thing the pilot needed to read
+                // was written and immediately taken away. It goes to a toast,
+                // which outlives the form it was filed from.
+                say(verdict, d.routeMatched && !d.flightNumberMismatch ? 'ok' : 'info');
                 closePirepForm();
                 PIREP_SCHEDULE_ID='';
                 // The booking is now flown, so the schedule row that said
                 // "yours" should say so too.
                 if(window.CrewSchedule) CrewSchedule.reload();
+                // Land on the tab the flight is actually in, so it is visible
+                // rather than filed into a list the reader is not looking at.
                 PIREP_TAB='pending'; await fetchPireps(); renderPireps();
+                changed('pireps');
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+            finally{ done(); }
         }
         // Live route check as the leg is typed.
         ['pf_from','pf_to','pf_aircraft','pf_flight'].forEach(id=>{
@@ -4798,6 +5205,7 @@
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
             if(v==='invites'){ closePilotForm(); renderInvites(); fetchInvites().then(renderInvites); }
+            showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
         // Split out so the figures panel can raise the badge on load. The
@@ -4924,9 +5332,11 @@
             // Waiting first — those are the ones with something still to do.
             const order={live:0,expired:1,revoked:2,claimed:3};
             const sorted=[...INVITES].sort((x,y)=>(order[x.invite.state]??9)-(order[y.invite.state]??9));
-            list.innerHTML = sorted.length ? sorted.map(inviteCardHtml).join('')
-                : '<p class="text-sm faint text-center py-10">No invitations yet. Accepting an application with a login creates one, and it waits here until the pilot signs in.</p>';
-            if(window.lucide) lucide.createIcons();
+            keepPlace(list,()=>{
+                list.innerHTML = sorted.length ? sorted.map(inviteCardHtml).join('')
+                    : '<p class="text-sm faint text-center py-10">No invitations yet. Accepting an application with a login creates one, and it waits here until the pilot signs in.</p>';
+                if(window.lucide) lucide.createIcons();
+            });
         }
         function inviteNote(card,msg,kind){
             const n=card.querySelector('[data-invite-note]'); if(!n) return;
@@ -4937,10 +5347,10 @@
         // One helper for all three invitation actions: they differ only in verb,
         // URL and confirmation, and all three replace the card with whatever the
         // backend says the invitation now is.
-        async function inviteAction(id, card, {method, path, confirm: ask, working}){
+        async function inviteAction(id, card, {method, path, check, working}){
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
-            if(ask && !confirm(ask)) return;
+            if(check && !(await ask(check))) return;
             card.querySelectorAll('button').forEach(b=>b.disabled=true);
             inviteNote(card, working, 'muted');
             try{
@@ -4951,6 +5361,7 @@
                 const i=INVITES.findIndex(a=>String(a._id||a.id)===String(id));
                 if(i>=0) INVITES[i]={...INVITES[i], invite:d.invite};
                 renderInvites();
+                changed('invites');
             }catch{
                 inviteNote(card,'Server unreachable.','error');
                 card.querySelectorAll('button').forEach(b=>b.disabled=false);
@@ -4978,12 +5389,14 @@
             }
             if(e.target.closest('[data-invite-regen]')){
                 inviteAction(id, card, { method:'POST', path:'/regenerate', working:'Issuing…',
-                    confirm:'Issue a new temporary password?\n\nThis replaces their current one — anything you have already sent them will stop working.' });
+                    check:{ title:'Issue a new temporary password?', confirm:'Issue a new one',
+                        body:'This replaces their current one — anything you have already sent them will stop working.' } });
                 return;
             }
             if(e.target.closest('[data-invite-trash]')){
-                inviteAction(id, card, { method:'DELETE', working:'Discarding…',
-                    confirm:'Throw this invitation away?\n\nThe password stops being shown here. Their account is not touched — they keep it, and you can issue a new password later.' });
+                inviteAction(id, card, { method:'DELETE', working:'Discarding…', check:{
+                    title:'Throw this invitation away?', confirm:'Throw it away', danger:true,
+                    body:'The password stops being shown here. Their account is not touched — they keep it, and you can issue a new password later.' } });
             }
         });
         function appCardHtml(a){
@@ -5038,9 +5451,11 @@
             const list=document.getElementById('appsList');
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to review applications.</p>'; return; }
             const pending=APPS.filter(a=>a.status==='pending');
-            list.innerHTML = pending.length ? pending.map(appCardHtml).join('')
-                : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
-            if(window.lucide) lucide.createIcons();
+            keepPlace(list,()=>{
+                list.innerHTML = pending.length ? pending.map(appCardHtml).join('')
+                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
+                if(window.lucide) lucide.createIcons();
+            });
         }
         // The VA's name as the page is currently showing it, for text a staff
         // member is about to send a pilot.
@@ -5128,14 +5543,18 @@
                 if(action==='accept'){
                     renderHandover(card, name.trim(), d);
                     refreshAppsBadge();
+                    say(`${name.trim()} accepted — they are on the roster.`,'ok');
                     // Accepting adds a pilot — refresh the roster so it shows up.
-                    fetchRoster().then(()=>{ if(ROSTER_VIEW==='roster') renderRoster(); });
+                    fetchRoster().then(()=>{ changed('roster'); });
                     // …and mints an invitation, so the tab that holds it until
                     // the pilot signs in should say so straight away.
-                    fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length); });
+                    fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); changed('invites'); });
+                    changed('applications');
                 }else{
                     card.style.transition='opacity .25s'; card.style.opacity='0';
                     setTimeout(()=>{ renderApps(); }, 250);
+                    say(`${name.trim()} declined.${message?' Your message was sent.':''}`,'ok');
+                    changed('applications');
                 }
             }catch{ fail('Server unreachable.'); }
         }
@@ -5169,18 +5588,20 @@
             const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
             if(isHex(cur)) document.getElementById('accentPick').value=cur;
         }
-        async function saveColors(){
+        async function saveColors(btn){
             const hex=document.getElementById('accentPick').value;
             applyAccent(hex);
             const note=document.getElementById('colorNote');
             const token=sessionToken(), slug=getSlug();
-            if(!slug || !token){ note.textContent='Applied on this device. Sign in to save it for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            if(!slug || !token){ note.textContent='Applied on this device. Sign in to save it for your whole crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); say('Applied on this device. Sign in to save it for your whole crew.','info'); return; }
+            const stop=busy(btn,'Saving…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({accent:hex}) });
-                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
-                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
-            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; }
+                if(res.ok){ note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; say('Colour saved for your crew.','ok'); }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; say(d.error||'Saved on this device only.','bad'); }
+            }catch{ note.textContent='Saved on this device (server unreachable).'; note.className='text-sm muted'; say('Server unreachable — saved on this device only.','bad'); }
+            finally{ stop(); }
             note.classList.remove('hidden');
         }
 
@@ -5300,13 +5721,16 @@
         }
         // Take them from wherever they noticed to the thing that fixes it.
         function openDbUpgrade(){
-            closeRoutes(); closeRoster();
+            closeRoutes(); closeRoster(); closePireps();
             openSettings('data');
             setTimeout(()=>{
                 const box=document.getElementById('dbUpgrade');
                 if(box && !box.classList.contains('hidden')) box.scrollIntoView({behavior:'smooth',block:'center'});
                 const field=document.getElementById('dbUpgradeToken');
-                if(field) field.focus();
+                // preventScroll: focus() would jump straight to the end of the
+                // smooth scroll that is already on its way, which is the one
+                // place on this screen a scroll is WANTED and ought to be seen.
+                if(field) field.focus({preventScroll:true});
             }, 400);
         }
         // Every crew write goes through here: it surfaces the "saved, but…"
@@ -5444,7 +5868,8 @@
             // Worth a confirm: the cost is not immediate, it is the next update
             // going quiet, which is exactly the failure this whole thing exists
             // to prevent.
-            if(!confirm('Forget the saved token?\n\nFuture database updates will ask you to paste a new one. This does not revoke the token — do that in your Supabase account.')) return;
+            if(!await ask({ title:'Forget the saved token?', confirm:'Forget it', danger:true,
+                body:'Future database updates will ask you to paste a new one. This does not revoke the token — do that in your Supabase account.' })) return;
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/store/token`,{
                     method:'DELETE', headers:{Accept:'application/json',Authorization:'Bearer '+sess} });
@@ -5857,14 +6282,24 @@
             // path differ by one field, so the confirmation is what makes them
             // feel like the different decisions they are — and the server asks
             // for the same word, so a client bug cannot skip it.
+            //
+            // Both used to be browser dialogs, which is the worst place for
+            // them: window.prompt and window.confirm are blocked outright in a
+            // cross-origin iframe on some browsers, and this dashboard runs
+            // framed inside a VA's own site and inside the app's Crew Center
+            // overlay. Blocked, prompt returns null and confirm returns false —
+            // so the most destructive button in the product silently did
+            // nothing, with no way to tell that from "I changed my mind".
             let body;
             if(all){
-                const typed=window.prompt(`Delete ALL ${n} ${label}? This cannot be undone.\n\nType “${dataset}” to confirm.`);
-                if(typed===null) return;
-                if(typed.trim()!==dataset){ dataNote('That didn’t match — nothing was deleted.',false); return; }
+                if(!await ask({ title:`Delete all ${n.toLocaleString()} ${label}?`, danger:true,
+                    confirm:'Delete them all', type:dataset,
+                    body:'They are removed from your Supabase project. This cannot be undone.' })) return;
                 body={ all:true, confirm:dataset };
             }else{
-                if(!window.confirm(`Delete ${n} ${label} older than ${days} days?\n\nThis removes them from your Supabase project and cannot be undone.`)) return;
+                if(!await ask({ title:`Delete ${n.toLocaleString()} ${label} older than ${days} days?`, danger:true,
+                    confirm:'Delete them',
+                    body:'They are removed from your Supabase project. This cannot be undone.' })) return;
                 body={ olderThanDays:days };
             }
 
@@ -5877,8 +6312,12 @@
                 const out=await res.json().catch(()=>({}));
                 if(!res.ok){ dataNote(out.error||'Could not delete that.',false); return; }
                 dataNote(`Deleted ${out.deleted} ${label}.`,true);
+                say(`Deleted ${Number(out.deleted||0).toLocaleString()} ${label}.`,'ok');
                 DATA_SUMMARY_LOADED=false;
                 refreshDataSummary();
+                // A purge can take pilots, flights or routes out from under
+                // every list and figure on the screen.
+                changed('data roster pireps routes');
                 // The bar next door is now wrong — a purge is the one thing that
                 // moves it, and leaving it stale would make the deletion look
                 // like it did nothing.
@@ -6346,12 +6785,14 @@
         }
         function renderStaffRoles(){
             const el=document.getElementById('staffRoleRows'); if(!el) return;
-            el.innerHTML = STAFF_ROLES.length ? STAFF_ROLES.map(staffRoleRowHtml).join('') : '<p class="text-sm faint">No custom roles yet. Add one to limit what a staff member can do.</p>';
-            if(window.lucide) lucide.createIcons();
+            keepPlace(el,()=>{
+                el.innerHTML = STAFF_ROLES.length ? STAFF_ROLES.map(staffRoleRowHtml).join('') : '<p class="text-sm faint">No custom roles yet. Add one to limit what a staff member can do.</p>';
+                if(window.lucide) lucide.createIcons();
+            });
         }
         // Give new roles a stable, slug-safe id up front so assignments keep
         // pointing at the right role even before the first save.
-        function addStaffRole(){ STAFF_ROLES.push({id:'role-'+Math.random().toString(36).slice(2,9),name:'',color:'#4f46e5',permissions:[]}); renderStaffRoles(); }
+        function addStaffRole(){ STAFF_ROLES.push({id:'role-'+Math.random().toString(36).slice(2,9),name:'',color:'#4f46e5',permissions:[]}); renderStaffRoles(); focusNewRow('staffRoleRows'); }
         function roleOptionsHtml(sel){ return '<option value="">— role —</option>'+STAFF_ROLES.filter(r=>r.name&&r.id).map(r=>`<option value="${escapeHtml(r.id)}" ${sel===r.id?'selected':''}>${escapeHtml(r.name)}</option>`).join(''); }
         function assignRowHtml(a,i){
             return `<div class="struct-row flex items-center gap-2" data-asn="${i}">
@@ -6418,8 +6859,16 @@
             // Anyone who already has a staff login is in the list above.
             const free=ROSTER_CANDIDATES.filter(m=>!m.staffUsername);
             const mayPromote=IS_OWNER||!sessionToken();
-            block.classList.toggle('hidden', !mayPromote || !ROSTER_CANDIDATES.length);
-            if(!mayPromote||!ROSTER_CANDIDATES.length) return;
+            // Never hide this block while it is carrying a message, because that
+            // message may be a one-time password. Promoting the LAST pilot
+            // without a login empties the list, and hiding the block with it
+            // took away the only copy of the password that had just been issued
+            // — the re-render triggered BY the promotion destroyed its own
+            // result.
+            const holdingNote=!document.getElementById('promoteNote').classList.contains('hidden');
+            const gone=!mayPromote || !ROSTER_CANDIDATES.length;
+            block.classList.toggle('hidden', gone && !holdingNote);
+            if(gone) return;
             if(!free.length){
                 host.innerHTML='<p class="text-sm faint">Everybody on your roster already has a staff login.</p>';
                 return;
@@ -6465,11 +6914,19 @@
                 say(d.keptTheirLogin
                     ? `Done — @${d.account.username} signs in with the password they already use, and is now staff.`
                     : `Done — @${d.account.username}, password ${d.password}. Copy it now; it isn’t shown again.`, 'ok');
+                // The toast deliberately does NOT repeat the password: it
+                // disappears after four seconds, and a password nobody had time
+                // to copy is worse than none. It points at the line that keeps it.
+                if(window.CrewPanels) CrewPanels.toast(d.keptTheirLogin
+                    ? `@${d.account.username} is now staff.`
+                    : `@${d.account.username} is now staff — their password is in the box below. Copy it before you close Settings.`, 'ok');
                 ACCOUNTS_LOADED=false;
                 await loadStaffAccounts();
                 // The assignment was written server-side, so /me's copy is stale.
                 await loadMe();
                 renderStaffRoles(); renderAssignments();
+                // A new staff login changes who can see what on this very screen.
+                applyCapState();
             }catch{
                 say('Couldn’t reach the server.','bad');
                 btn.disabled=false; btn.textContent=prev;
@@ -6554,7 +7011,7 @@
                     : '<p class="text-sm faint">Loading…</p>';
                 return;
             }
-            el.innerHTML = STAFF_ACCOUNTS.map(accountRowHtml).join('');
+            keepPlace(el,()=>{ el.innerHTML = STAFF_ACCOUNTS.map(accountRowHtml).join(''); });
         }
         function renderAssignments(){
             const el=document.getElementById('assignRows'); if(!el) return;
@@ -6564,10 +7021,12 @@
             // Indices stay the ORIGINAL STAFF_ASSIGN indices — the row wiring
             // writes back through them.
             const rows=STAFF_ASSIGN.map((a,i)=>known.has(String(a.username||'').toLowerCase())?'':assignRowHtml(a,i)).join('');
-            el.innerHTML = rows.trim() ? rows : '<p class="text-sm faint">Nothing here.</p>';
-            if(window.lucide) lucide.createIcons();
+            keepPlace(el,()=>{
+                el.innerHTML = rows.trim() ? rows : '<p class="text-sm faint">Nothing here.</p>';
+                if(window.lucide) lucide.createIcons();
+            });
         }
-        function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); }
+        function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); focusNewRow('assignRows'); }
         function wireTeam(){
             // Delegated: the promote rows are rebuilt on every reload.
             const promoteHost=document.getElementById('promoteRows');
@@ -6647,7 +7106,7 @@
                 asnHost.addEventListener('click', e=>{ const d=e.target.closest('[data-asndel]'); if(!d) return; STAFF_ASSIGN.splice(+d.closest('[data-asn]').getAttribute('data-asn'),1); renderAssignments(); });
             }
         }
-        async function saveTeam(){
+        async function saveTeam(btn){
             const note=document.getElementById('teamNote');
             const roles=STAFF_ROLES.map(r=>({ id:r.id, name:String(r.name||'').trim(), color:r.color||'', permissions:r.permissions||[] })).filter(r=>r.name);
             // An assignment is worth sending if it carries a role OR ticks of
@@ -6660,14 +7119,22 @@
             })).filter(a=>a.username&&(a.roleId||a.permissions.length));
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Sign in as owner to manage the team.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const stop=busy(btn,'Saving…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({ staffRoles:roles, staffAssignments:asn }) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
+                if(!res.ok){ note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); say(d.error||'Could not save the team.','bad'); return; }
                 STAFF_ROLES=Array.isArray(d.staffRoles)?d.staffRoles:roles; STAFF_ASSIGN=Array.isArray(d.staffAssignments)?d.staffAssignments:asn;
                 renderStaffRoles(); renderAccounts(); renderAssignments();
                 note.textContent='Team saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
-            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
+                say(`Team saved — ${roles.length} role${roles.length===1?'':'s'}, ${asn.length} ${asn.length===1?'person':'people'} assigned.`,'ok');
+                // A permission change decides which tabs, tiles and buttons this
+                // staff member can even see. Re-read rather than wait for a
+                // reload: an owner who has just given themselves a capability
+                // should find it there.
+                applyCapState();
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); say('Server unreachable. Nothing was saved.','bad'); }
+            finally{ stop(); }
         }
 
         function applyOwnerState(){
@@ -6814,9 +7281,107 @@
         }
         function logout(){ try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{} const s=getSlug(); location.href=s?`/crew/${encodeURIComponent(s)}`:'/crew'; }
 
+        /* =====================================================================
+           WHO HEARS ABOUT A CHANGE
+
+           The other half of "I shouldn't have to refresh". Every action in this
+           file calls changed('<topic>') when it has written something; this is
+           the single place that decides what redraws as a result.
+
+           It is wired this way round — views subscribe, actions announce —
+           because the dashboard draws the same fact in several places and the
+           action has no business knowing how many. Approving a flight moves the
+           Flight reports figure, the hours figure, the "awaiting review" line
+           under it and the pilot's hours on their roster card. Before this it
+           moved the one list the button was in, and everything else on screen
+           stayed wrong until the page was reloaded.
+
+           The figures come from the server (one aggregate over the VA's own
+           database) rather than being recomputed here, so they are debounced:
+           approving six flights in a row is one refetch, not six. 400ms is
+           below the point where a number that changed feels disconnected from
+           the press that changed it, and above the gap between two quick clicks.
+           ===================================================================== */
+        let STATS_T=null;
+        function refreshFigures(){ clearTimeout(STATS_T); STATS_T=setTimeout(()=>renderCrewStats(),400); }
+        function wireLiveUpdates(){
+            // The headline figures read from everything.
+            onChanged('roster pireps applications routes structure retention data', refreshFigures);
+
+            // A rank, role or aircraft changed shape: every card that draws one
+            // is now out of date. Only redraw what is actually on screen —
+            // a closed drawer redraws itself when it opens.
+            onChanged('structure', ()=>{
+                if(document.getElementById('roster')?.dataset.open==='1' && ROSTER_VIEW==='roster') renderRoster();
+                if(document.getElementById('routes')?.dataset.open==='1') renderRoutes();
+                renderSchedulePrefs();      // the booking rank picker reads the ladder
+            });
+
+            // Hours moved, so the rank a pilot holds may have: their roster card
+            // is drawn from the ladder and their hours together.
+            onChanged('pireps', ()=>{
+                if(document.getElementById('roster')?.dataset.open==='1' && ROSTER_VIEW==='roster'){
+                    fetchRoster().then(renderRoster);
+                }
+            });
+
+            // The roster changed from somewhere other than the roster list —
+            // an accepted application, a CSV import, a retention sweep.
+            onChanged('roster', ()=>{
+                const open=document.getElementById('roster')?.dataset.open==='1';
+                if(open && ROSTER_VIEW==='roster') renderRoster();
+                // The team tab offers "promote a pilot to staff" from the same
+                // list, and it was the last thing to find out about a new pilot.
+                if(document.getElementById('promoteBlock') && !document.getElementById('promoteBlock').classList.contains('hidden')) loadStaffAccounts();
+            });
+
+            // Badges are cheap and always worth keeping true: they are the only
+            // thing telling staff there is work waiting behind a closed drawer.
+            onChanged('applications', refreshAppsBadge);
+            onChanged('invites', ()=>setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length));
+
+            /* -----------------------------------------------------------------
+               COMING BACK TO A TAB THAT HAS BEEN SITTING THERE
+
+               The other half of "I shouldn't have to refresh", and the half no
+               button can fix: a crew center is run by several people at once,
+               and this screen is the kind that stays open in a tab all evening.
+               Another staff member approves six flights and accepts two pilots;
+               this tab still shows the numbers from three hours ago, and the
+               only way anyone finds out is by reloading.
+
+               So a tab that has been away and comes back catches up by itself —
+               the figures, the badges, and whichever drawer is actually open.
+
+               On return only, never on a timer: polling a VA's own database
+               every thirty seconds for a screen nobody is looking at is their
+               quota, not ours. And throttled, because switching between two tabs
+               fires this on every flick.
+               ----------------------------------------------------------------- */
+            let lastCatchUp=0;
+            function catchUp(){
+                if(document.visibilityState==='hidden') return;
+                if(Date.now()-lastCatchUp < 20000) return;
+                lastCatchUp=Date.now();
+                renderCrewStats();
+                // Badges, so work waiting behind a closed drawer still announces
+                // itself — this is the one that matters when nothing is open.
+                fetchApps().then(refreshAppsBadge).catch(()=>{});
+                if(document.getElementById('roster')?.dataset.open==='1'){
+                    if(ROSTER_VIEW==='roster') fetchRoster().then(renderRoster).catch(()=>{});
+                    else if(ROSTER_VIEW==='apps') fetchApps().then(renderApps).catch(()=>{});
+                    else fetchInvites().then(renderInvites).catch(()=>{});
+                }
+                if(document.getElementById('routes')?.dataset.open==='1') fetchRoutes().then(renderRoutes).catch(()=>{});
+                if(document.getElementById('pireps')?.dataset.open==='1') fetchPireps().then(renderPireps).catch(()=>{});
+            }
+            document.addEventListener('visibilitychange', catchUp);
+            window.addEventListener('focus', catchUp);
+        }
+
         // ---- Boot ----
-        document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeSettings(); closeRoster(); closeRoutes(); } });
         (async function(){
+            wireLiveUpdates();
             renderTiles(); readSession();
             const b = await resolveBranding();
             applyBranding(b);
