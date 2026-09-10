@@ -2360,9 +2360,10 @@
                 if(window.CrewSchedule) CrewSchedule.reload();
                 note.textContent='Saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; note.classList.remove('hidden');
                 say(SCHEDULE_PREFS.enabled?'Schedule settings saved.':'Schedule turned off for your crew.','ok');
-                // Turning the schedule on or off adds or removes a tile and a
-                // drawer, and those are drawn from the settings, not re-fetched.
-                changed('settings');
+                // No changed() here: turning the schedule off removes a tile and
+                // the hero button, and applyScheduleVisibility() above has
+                // already done both. Announcing a topic nothing listens for
+                // reads like wiring that exists.
             } finally{ stop(); }
         }
         // A VA that does not use the schedule should not be shown a Schedule
@@ -3853,8 +3854,9 @@
                 if(res.ok){
                     note.textContent='Recruitment saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     say(JOIN.mode==='closed'?'Recruitment saved — applications are closed.':'Recruitment saved — your join page is live.','ok');
-                    // The join page and its embed are drawn from these.
-                    changed('settings');
+                    // No changed() here either: what these settings drive is the
+                    // JOIN PAGE, which is a different page and reads them fresh.
+                    // Nothing on this screen shows them.
                 }
                 else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Could not save.'; note.className='text-sm text-red-500'; say(d.error||'Could not save recruitment.','bad'); }
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; say('Server unreachable. Nothing was saved.','bad'); }

@@ -172,8 +172,22 @@
      * RENDER
      * =================================================================== */
 
+    /**
+     * Draw the picker, keeping the pilot's place.
+     *
+     * The list here is a real Infinite Flight logbook — long, and paged. Picking
+     * a flight swaps the whole body for a confirm screen, and backing out of it
+     * used to land back at the TOP of that logbook, so a pilot who had scrolled
+     * to last Tuesday had to scroll to last Tuesday again. The view key gives
+     * the list and the confirmation each their own remembered offset.
+     */
     function render() {
         if (!S.panel || !S.panel.isOpen()) return;
+        if (P && P.keepPlace) P.keepPlace(S.panel.body, drawPanel, S.picked ? 'confirm' : 'list');
+        else drawPanel();
+    }
+
+    function drawPanel() {
         const body = S.panel.body;
 
         if (S.error && P.isSchemaGap(S.error)) { body.innerHTML = P.schemaGapHtml(S.error); icons(); return; }

@@ -128,8 +128,17 @@
         });
     }
 
+    /**
+     * Draw the network, keeping the reader's place. The last of the panels: a
+     * pilot browsing a long route list should not be returned to its top by a
+     * redraw they did not ask for. One screen, so no view key.
+     */
     function render() {
         if (!S.panel || !S.panel.isOpen()) return;
+        if (P && P.keepPlace) P.keepPlace(S.panel.body, drawPanel); else drawPanel();
+    }
+
+    function drawPanel() {
         const body = S.panel.body;
 
         if (S.error && P.isSchemaGap(S.error)) { body.innerHTML = P.schemaGapHtml(S.error); icons(); return; }
