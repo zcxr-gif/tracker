@@ -1713,6 +1713,14 @@
         // exact names the tracker matches live flights against. Empty until loaded;
         // the editor falls back to free text so it never blocks on this.
         let AC_LIST=[], LIV_MAP={}, FLEET_META_STATE='idle'; // idle | loading | ready | error
+        // Lookups keyed by a loosened aircraft name. A native <datalist> SUGGESTS
+        // but never constrains — the VA can type "airbus a320" or leave a stray
+        // double space and the box keeps it — and the livery list was a strict
+        // LIV_MAP[exact] hit, so a near-miss silently offered no liveries at all.
+        // That is the "it never waits for a livery" complaint: not an empty
+        // catalogue, a key that missed by a capital letter.
+        let AC_INDEX=new Map(), LIV_INDEX=new Map(); // loose name -> canonical name / livery list
+        const acNorm = (s) => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
         async function loadFleetMeta(force){
             if(FLEET_META_STATE==='loading') return;
             if(FLEET_META_STATE==='ready' && !force) return;
@@ -1723,6 +1731,16 @@
                 if(d && d.ok){
                     AC_LIST=Array.isArray(d.aircraft)?d.aircraft:[];
                     LIV_MAP=(d.liveries && typeof d.liveries==='object')?d.liveries:{};
+                    AC_INDEX=new Map(AC_LIST.map(n=>[acNorm(n), n]));
+                    LIV_INDEX=new Map(Object.keys(LIV_MAP).map(k=>[acNorm(k), LIV_MAP[k]]));
+                    // The liveries are keyed by the aircraft NAME upstream, and the
+                    // two lists are built from different fields, so they can drift.
+                    // If nothing lines up the editor is about to offer zero liveries
+                    // for every aircraft, which looks like a dead field rather than a
+                    // data problem — leave a trace that says which it is.
+                    if(AC_LIST.length && ![...AC_INDEX.keys()].some(k=>LIV_INDEX.has(k))){
+                        console.warn('[fleet] aircraft catalogue and livery catalogue share no keys — livery suggestions will be empty.');
+                    }
                     FLEET_META_STATE='ready';
                     syncFleetMetaDom();
                 } else { FLEET_META_STATE='error'; }
@@ -1736,7 +1754,34 @@
             if(document.getElementById('fleetRows')) renderStructure();
         }
         // Liveries offered for a given aircraft type (empty array if unknown).
-        function liveriesFor(type){ const k=String(type||'').trim(); return (k && LIV_MAP[k]) ? LIV_MAP[k] : []; }
+        // Matched loosely, so a typed "airbus a320" still finds the liveries filed
+        // under "Airbus A320".
+        function liveriesFor(type){
+            const k=acNorm(type); if(!k) return [];
+            return LIV_INDEX.get(k) || LIV_MAP[String(type||'').trim()] || [];
+        }
+        // The catalogue's own spelling of a typed aircraft, or '' if it isn't one.
+        // What gets STORED has to be the canonical string — the tracker matches a
+        // live flight's aircraft against it verbatim — so a row the VA typed by
+        // hand is snapped to the catalogue before it is saved rather than being
+        // kept as-is and quietly never matching anything.
+        function canonicalAircraft(type){
+            const k=acNorm(type); if(!k) return '';
+            return AC_INDEX.get(k) || '';
+        }
+        // The livery box used to read "Livery (optional)" and offer nothing until
+        // the aircraft happened to match a catalogue key exactly. It is not
+        // optional — routableFleet() holds back any aircraft without one — and
+        // saying so here, with the count once it is known, is the difference
+        // between a field that looks broken and one that is visibly waiting.
+        function liveryPlaceholder(f){
+            if(!String(f && f.type||'').trim()) return 'Pick an aircraft first';
+            const n=liveriesFor(f.type).length;
+            if(n) return `Livery — ${n} to choose from`;
+            return FLEET_META_STATE==='ready'
+                ? 'Livery — type it exactly as Infinite Flight spells it'
+                : 'Livery — loading…';
+        }
         // ONE SHAPE FOR A FLEET ENTRY: {type: aircraft, name: livery}.
         //
         // Fleet entries predate the aircraft/livery split, and the old ones
@@ -2804,10 +2849,11 @@
             const img=(f.image && isSafeImageUrl(f.image))
                 ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(f.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-clearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
                 : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
-            const livList = liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            const livs = liveriesFor(f.type);
+            const livList = livs.map(n=>`<option value="${escapeHtml(n)}">`).join('');
             return `<div class="struct-row flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
                 <input data-f="type" list="acTypeList" value="${escapeHtml(f.type||'')}" placeholder="Aircraft (e.g. Airbus A320)" class="w-40 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="Livery (optional)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="${escapeHtml(liveryPlaceholder(f))}" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <datalist id="livList-${i}">${livList}</datalist>
                 <span data-fleetwarn class="shrink-0 text-amber-500">${fleetWarnHtml(f)}</span>
                 <button data-autopic title="Find a photo for this aircraft &amp; livery" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="image" class="w-4 h-4"></i></button>
@@ -2857,6 +2903,11 @@
             const idx=+row.getAttribute('data-idx'); const f=FLEET[idx]; if(!f) return;
             const dl=document.getElementById('livList-'+idx);
             if(dl) dl.innerHTML=liveriesFor(f.type).map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            // The prompt has to move with the aircraft, not just the options behind
+            // it: the whole point is that finishing the first box visibly arms the
+            // second one.
+            const liv=row.querySelector('[data-f="name"]');
+            if(liv) liv.placeholder=liveryPlaceholder(f);
             const w=row.querySelector('[data-fleetwarn]');
             if(w){ w.innerHTML=fleetWarnHtml(f); if(window.lucide) lucide.createIcons(); }
         }
@@ -2955,7 +3006,26 @@
                     // matching photo (only if the VA hasn't set one already).
                     const cf=e.target.getAttribute('data-f');
                     if((cf==='type'||cf==='name') && e.target.closest('[data-kind="fleet"]')){
-                        const row=e.target.closest('[data-idx]'); resolveFleetPicture(+row.getAttribute('data-idx'));
+                        const row=e.target.closest('[data-idx]'); const fidx=+row.getAttribute('data-idx');
+                        // Snap what was typed to the catalogue's own spelling before
+                        // anything downstream reads it. A <datalist> only suggests,
+                        // so "airbus a320" survives the box unchanged and then fails
+                        // every exact-match check after it — the livery lookup here,
+                        // and the backend's live-flight matching later. Done on
+                        // change (commit) rather than input, so it never rewrites
+                        // the field mid-word.
+                        const f=FLEET[fidx];
+                        if(f){
+                            if(cf==='type'){
+                                const canon=canonicalAircraft(f.type);
+                                if(canon && canon!==f.type){ f.type=canon; e.target.value=canon; }
+                            } else {
+                                const canon=liveriesFor(f.type).find(n=>acNorm(n)===acNorm(f.name));
+                                if(canon && canon!==f.name){ f.name=canon; e.target.value=canon; }
+                            }
+                            refreshFleetRow(row); renderBadgePreview();
+                        }
+                        resolveFleetPicture(fidx);
                         return;
                     }
                     if(cf!=='imagefile') return;
