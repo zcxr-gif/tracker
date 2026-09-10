@@ -3916,17 +3916,73 @@
             const list=document.getElementById('rosterList');
             document.getElementById('rosterCount').textContent = ROSTER.length?`· ${ROSTER.length}`:'';
             keepPlace(list,()=>{
-                list.innerHTML = ROSTER.length ? ROSTER.map(memberCardHtml).join('') : '<p class="text-sm faint text-center py-10">No pilots yet.</p>';
+                // "No pilots yet." is a claim, and a read that failed cannot make
+                // it. Say which it is, and offer the retry.
+                list.innerHTML = ROSTER.length ? ROSTER.map(memberCardHtml).join('')
+                    : ROSTER_READ_FAILED ? readFailedHtml('roster','retryRoster()')
+                    : '<p class="text-sm faint text-center py-10">No pilots yet.</p>';
                 if(window.lucide) lucide.createIcons();
             });
         }
+        /* =====================================================================
+           A READ THAT FAILED IS NOT AN ANSWER
+
+           These two used to fall back to a demo roster and a demo network on ANY
+           failure, and the demo is three invented people — Jordan Lee, Sam Park,
+           Robin Diaz — and two invented legs.
+
+           That is right for the preview, which is what it was written for: a
+           crew center with no slug and no backend has to show the design to
+           somebody, and inventing a Jordan Lee is the only way to do it.
+
+           It is completely wrong for a REAL crew center. A signed-in owner whose
+           roster read blipped was shown three strangers as their crew, with the
+           tab counting "· 3", and every control on those cards live — they could
+           edit Jordan Lee, or press remove on him. It is the same bug the
+           headline figures were rewritten to remove ("four hardcoded numbers
+           that every VA saw as their own"), still in place one drawer along.
+
+           So the demo is now reached only where it belongs, and a real read that
+           failed says so and keeps whatever was already on screen. Nothing
+           invented, nothing silently emptied, and a button to try again.
+           ===================================================================== */
+        let ROSTER_READ_FAILED=false, ROUTES_READ_FAILED=false;
+        /** The preview: no crew center to read, so the demo is all there is. */
+        const isPreview=()=>!getSlug();
+        /**
+         * What a list says when it could not be read.
+         *
+         * Deliberately NOT the empty state. "No pilots yet." is an answer, and a
+         * request that never landed does not have one — a VA whose connection
+         * dropped for a second should not be told their crew has left.
+         */
+        function readFailedHtml(what, retry){
+            return `<div class="text-center py-10">
+                <p class="text-sm muted">We couldn’t read your ${escapeHtml(what)} just now.</p>
+                <p class="text-xs faint mt-1">Nothing has changed — this is only what we could load.</p>
+                <button onclick="${retry}" class="mt-3 accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition">Try again</button>
+            </div>`;
+        }
+        async function retryRoster(){ await fetchRoster(); renderRoster(); if(!ROSTER_READ_FAILED) changed('roster'); }
+        async function retryRoutes(){ await fetchRoutes(); renderRoutes(); if(!ROUTES_READ_FAILED) changed('routes'); }
         async function fetchRoster(){
             const slug=getSlug();
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster`,{ headers:{Accept:'application/json'} });
-                if(res.ok){ const d=await res.json(); ROSTER=Array.isArray(d.roster)?d.roster:[]; return; }
+                if(res.ok){
+                    const d=await res.json();
+                    ROSTER=Array.isArray(d.roster)?d.roster:[];
+                    ROSTER_READ_FAILED=false;
+                    return;
+                }
             }catch{}
-            // Preview / not-live fallback so the design is visible.
+            if(!isPreview()){
+                // Keep what we had. An owner who was looking at their 40 pilots
+                // must not have them replaced by three strangers, or by nothing.
+                ROSTER_READ_FAILED=true;
+                return;
+            }
+            // Preview only: no crew center to read, so show the design.
             ROSTER=[
                 {id:'m1',name:'Jordan Lee',callsign:'ACA1174',hours:214,role:(ROLES[0]&&ROLES[0].name)||'',aircraft:['A320','B789'],status:'active'},
                 {id:'m2',name:'Sam Park',callsign:'ACA085',hours:412,role:'',aircraft:['B789'],status:'active'},
@@ -4209,7 +4265,9 @@
                 ? `· ${visible.length}${cs.length?` (${own.length} own)`:''}` : '';
             const host=document.getElementById('routeList');
             keepPlace(host,()=>{
-                host.innerHTML = list.length ? list.map(routeCardHtml).join('') : '<p class="text-sm faint text-center py-10">No routes here yet.</p>';
+                host.innerHTML = list.length ? list.map(routeCardHtml).join('')
+                    : ROUTES_READ_FAILED ? readFailedHtml('route network','retryRoutes()')
+                    : '<p class="text-sm faint text-center py-10">No routes here yet.</p>';
                 if(window.lucide) lucide.createIcons();
             });
         }
@@ -4229,6 +4287,7 @@
                     if(Array.isArray(d.ranks)) ROUTE_RANKS=d.ranks;
                     // Grouped by the server so the strip, the panel counts and
                     // the network map all quote the same figures.
+                    ROUTES_READ_FAILED=false;
                     ROUTE_PARTNERS=Array.isArray(d.partners)?d.partners:[];
                     // A partner that has just lost its last leg must not leave
                     // the list filtered to an airline that is no longer there.
@@ -4238,6 +4297,9 @@
                     return;
                 }
             }catch{}
+            // Same reasoning as fetchRoster: the demo network belongs to the
+            // preview, not to a VA whose read failed.
+            if(!isPreview()){ ROUTES_READ_FAILED=true; return; }
             ROUTES=[
                 {id:'r1',flightNumber:'ACA123',origin:'CYYZ',destination:'EGLL',aircraft:'B789',distanceNm:3050,notes:'Daily flagship',active:true,kind:'own'},
                 {id:'r2',flightNumber:'ACA88',origin:'CYVR',destination:'RJTT',aircraft:'B77W',distanceNm:4180,notes:'',active:true,kind:'own'},
@@ -5077,19 +5139,34 @@
             const empty = PIREPS_CANREVIEW ? `No ${PIREP_TAB} flights.` : 'No flights logged yet.';
             const list=document.getElementById('pirepList');
             keepPlace(list,()=>{
-                list.innerHTML = PIREPS.length ? PIREPS.map(pirepCardHtml).join('') : `<p class="text-sm faint text-center py-10">${empty}</p>`;
+                list.innerHTML = PIREPS.length ? PIREPS.map(pirepCardHtml).join('')
+                    : PIREPS_READ_FAILED ? readFailedHtml('flight reports','retryPireps()')
+                    : `<p class="text-sm faint text-center py-10">${empty}</p>`;
                 if(window.lucide) lucide.createIcons();
             });
         }
+        let PIREPS_READ_FAILED=false;
         async function fetchPireps(){
             const slug=getSlug(); const token=sessionToken();
             const qs = new URLSearchParams(); if(PIREP_TAB) qs.set('status', PIREP_TAB);
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps?${qs.toString()}`,{ headers: token?{Authorization:'Bearer '+token}:{} });
-                if(res.ok){ const d=await res.json(); PIREPS=Array.isArray(d.pireps)?d.pireps:[]; PIREPS_CANREVIEW=!!d.canReview; return; }
+                if(res.ok){
+                    const d=await res.json();
+                    PIREPS=Array.isArray(d.pireps)?d.pireps:[];
+                    PIREPS_CANREVIEW=!!d.canReview;
+                    PIREPS_READ_FAILED=false;
+                    return;
+                }
             }catch{}
+            // Emptying the list here is how "No pending flights." came to be
+            // shown to staff whose read had failed — and of everything on this
+            // screen that is the one wrong answer that looks like good news.
+            // Keep what we had and say we could not ask. See fetchRoster.
+            if(!isPreview()){ PIREPS_READ_FAILED=true; return; }
             PIREPS=[];
         }
+        async function retryPireps(){ await fetchPireps(); renderPireps(); if(!PIREPS_READ_FAILED) changed('pireps'); }
         function openPireps(){
             openDrawer('pireps');
             renderPireps();
