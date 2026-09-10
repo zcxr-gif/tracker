@@ -709,7 +709,11 @@
             const origin=val('pfFrom').toUpperCase(), destination=val('pfTo').toUpperCase();
             if(!origin||!destination){ note.textContent='Enter both airports.'; note.className='cp-note cp-note-bad'; return; }
 
-            btn.disabled=true;
+            // A pilot on a phone on mobile data files a flight over a slow
+            // connection, and a press that looks like it did nothing is a press
+            // they make again. busy() also guarantees the button comes back:
+            // this used to re-enable it on two of the three exits.
+            const done=CrewPanels.busy(btn,'Filing…');
             note.classList.add('cp-hidden');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/pireps`,{
@@ -728,7 +732,6 @@
                 if(!res.ok){
                     note.textContent=d.error||'Could not file that.';
                     note.className='cp-note cp-note-bad';
-                    btn.disabled=false;
                     return;
                 }
                 filePanel.close();
@@ -742,8 +745,9 @@
             }catch{
                 note.textContent='Could not reach the server.';
                 note.className='cp-note cp-note-bad';
-                btn.disabled=false;
+                CrewPanels.toast('Couldn’t reach the server — nothing was filed.','bad');
             }
+            finally{ done(); }
         }
 
         /* ---- The logbook ----
@@ -763,7 +767,24 @@
             loadMyFlying().then(()=>{ if(logbookPanel.isOpen()) renderLogbook(); });
         }
 
+        /**
+         * The logbook, keeping the reader's place.
+         *
+         * This is redrawn by filing a flight and by every catch-up when the tab
+         * comes back — and it is the longest list on this page, so a pilot
+         * reading last month's flying was returned to the top of it by something
+         * they had not done. The view key tells a loaded logbook from the three
+         * placeholder states, so the message-to-list transition starts at the
+         * top rather than at wherever the list was before.
+         */
         function renderLogbook(){
+            const key = !MY.loaded ? 'loading' : !MY.pilot ? 'signin' : MY.error ? 'error'
+                : MY.flights.length ? 'flights' : 'empty';
+            if(window.CrewPanels) CrewPanels.keepPlace(logbookPanel.body, drawLogbook, key);
+            else drawLogbook();
+        }
+
+        function drawLogbook(){
             const body=logbookPanel.body;
             if(!MY.loaded){ body.innerHTML='<div class="cp-empty">Reading your logbook…</div>'; return; }
             if(!MY.pilot){ body.innerHTML='<div class="cp-empty">Sign in to see your logbook.</div>'; return; }
