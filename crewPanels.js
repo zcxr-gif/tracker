@@ -249,6 +249,16 @@
             color:var(--ink,#1C1A16); border:1px solid var(--line,#e5e5e5); border-radius:.5rem;
             padding:.5rem .7rem; font-size:.85rem; font-family:inherit; }
         .cp-input:focus,.cp-select:focus,.cp-textarea:focus{ outline:none; border-color:var(--ink,#1C1A16); }
+        .cp-input::placeholder,.cp-textarea::placeholder{ color:var(--faint,#A8A296); }
+        /* Where the keyboard is. Same rule the dashboard sets for its own
+           controls, restated here for the same reason as box-sizing above: these
+           panels are dropped into pages that may not set one, and a confirm
+           dialog whose focused button looks no different from the other is a
+           dialog a keyboard user has to guess at. Ours, not the browser's
+           default, so it matches the VA's accent in both themes. */
+        .cp-btn:focus-visible,.cp-icon-btn:focus-visible,
+        .cp-input:focus-visible,.cp-select:focus-visible,.cp-textarea:focus-visible{
+            outline:2px solid var(--accent,#1C1A16); outline-offset:2px; }
         .cp-textarea{ resize:vertical; min-height:4.5rem; }
         .cp-label{ display:block; font-size:.72rem; font-weight:700; text-transform:uppercase;
             letter-spacing:.04em; color:var(--faint,#A8A296); margin-bottom:.3rem; }
