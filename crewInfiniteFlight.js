@@ -517,7 +517,14 @@
                 + 'Close it and try again — your fleet and schedules are unaffected.</div>';
         }
         try {
-            panel.body.innerHTML = html;
+            // Keep the reader's place. This panel is redrawn by everything that
+            // changes anything in it — picking an organization, pushing, pulling,
+            // editing a leg — and the view key tells the fleet list from the leg
+            // editor and the planner, so each opens at its own top rather than at
+            // wherever the list behind it happened to be.
+            const paint = () => { panel.body.innerHTML = html; };
+            const key = S.editing ? 'editor' : S.planning ? 'planner' : 'list';
+            if (P && P.keepPlace) P.keepPlace(panel.body, paint, key); else paint();
         } catch (err) {
             // Assigning innerHTML can itself throw on a detached node. Better a
             // panel that says nothing than a page locked behind one.

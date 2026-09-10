@@ -6,7 +6,11 @@
     <title>Application status — Crew Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Guarded, because Tailwind is a CDN script: blocked by a network or an
+         ad blocker, slow, or simply down, and an unguarded `tailwind.config`
+         throws a ReferenceError that kills this inline script outright. Every
+         other page in the crew center already guards it. -->
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -194,7 +198,7 @@
                     <h2 class="text-xl font-bold tracking-tight">Under review</h2>
                     <p class="text-sm muted mt-2">${d.ifcName?('Hang tight, '+escapeHtml(d.ifcName)+'. '):''}The ${escapeHtml(VA.name||'VA')} staff are reviewing your application. Check back here — this page updates when they decide.</p>
                     ${msg}
-                    <button onclick="load()" class="inline-flex items-center gap-1.5 text-sm font-semibold accent-text mt-5 hover:underline"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh</button>
+                    <button id="refreshBtn" onclick="load(true)" class="inline-flex items-center gap-1.5 text-sm font-semibold accent-text mt-5 hover:underline"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Check now</button>
                     ${meta}
                 </div>`;
             }
@@ -210,16 +214,71 @@
             if(window.lucide) lucide.createIcons();
         }
 
-        async function load(){
+        /* =====================================================================
+           KEEPING THE PROMISE THIS PAGE MAKES
+
+           The waiting state says, in as many words, "Check back here — this
+           page updates when they decide." It did not. It read the status once
+           on load and then sat there, so an applicant who was accepted an hour
+           ago was still being told to hang tight until they thought to reload.
+           The one screen in the crew center whose entire job is waiting was the
+           one that never looked again.
+
+           Two ways it looks again now, and no more than that:
+
+             · Coming back to the tab. Throttled, because flicking between two
+               tabs fires it every time.
+             · A slow poll — but ONLY while the tab is visible AND the answer is
+               still pending. This is the one place in the crew center where a
+               timer is the right shape: the reader is sitting in front of a
+               question they cannot answer themselves, and the alternative is
+               the page lying to them. It stops the moment there is a decision,
+               and it never runs against a tab nobody is looking at, so a
+               forgotten tab costs the VA's database nothing.
+           ===================================================================== */
+        const POLL_MS = 60000, CATCH_UP_MS = 20000;
+        let POLL_T = null, LAST_LOOK = 0, PENDING = true;
+
+        function stopPolling(){ clearTimeout(POLL_T); POLL_T = null; }
+        function schedulePoll(){
+            stopPolling();
+            if(!PENDING || document.visibilityState === 'hidden') return;
+            POLL_T = setTimeout(()=>{ load(); }, POLL_MS);
+        }
+
+        async function load(byHand){
             const slug=getSlug(), token=getToken();
             if(!slug || !token){ renderError('This status link is incomplete.'); return; }
+            LAST_LOOK = Date.now();
+            // Only a press gets a working state. A poll must never make the page
+            // flicker under someone who did not ask for anything.
+            const btn = byHand ? document.getElementById('refreshBtn') : null;
+            const was = btn ? btn.innerHTML : '';
+            if(btn){ btn.disabled = true; btn.textContent = 'Checking…'; }
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/application-status/${encodeURIComponent(token)}`,{ headers:{Accept:'application/json'} });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ renderError(d.error); return; }
+                if(!res.ok){ stopPolling(); renderError(d.error); return; }
+                PENDING = d.status !== 'accepted' && d.status !== 'declined';
                 render(d);
-            }catch{ renderError('Couldn’t reach the server. Please try again in a moment.'); }
+                schedulePoll();
+            }catch{
+                // A blip must not replace a decision already on screen with an
+                // error card — only a first read that fails has nothing to keep.
+                if(byHand && btn){ btn.disabled=false; btn.innerHTML=was; if(window.lucide) lucide.createIcons(); }
+                if(!document.querySelector('#body h2')) renderError('Couldn’t reach the server. Please try again in a moment.');
+                schedulePoll();
+            }
         }
+
+        function catchUp(){
+            if(document.visibilityState === 'hidden'){ stopPolling(); return; }
+            if(!PENDING) return;
+            if(Date.now() - LAST_LOOK < CATCH_UP_MS){ schedulePoll(); return; }
+            load();
+        }
+        document.addEventListener('visibilitychange', catchUp);
+        window.addEventListener('focus', catchUp);
 
         (async function(){
             const slug=getSlug();

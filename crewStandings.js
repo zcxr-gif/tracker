@@ -114,8 +114,19 @@
      * RENDER
      * =================================================================== */
 
+    /**
+     * Draw the board, keeping the reader's place.
+     *
+     * Changing the period redraws the whole thing, and a plain innerHTML
+     * assignment drops the scroll offset whenever the new board is shorter than
+     * where the reader was. No view key: this panel only ever draws a board.
+     */
     function render() {
         if (!S.panel || !S.panel.isOpen()) return;
+        if (P && P.keepPlace) P.keepPlace(S.panel.body, drawPanel); else drawPanel();
+    }
+
+    function drawPanel() {
         const body = S.panel.body;
 
         if (S.error && P.isSchemaGap(S.error)) { body.innerHTML = P.schemaGapHtml(S.error); icons(); return; }

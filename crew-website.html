@@ -11,6 +11,12 @@
          the dashboard does it. A VA editing their website should not have to
          leave their own crew center to do it. -->
     <script src="/crewBrand.js"></script>
+    <!-- For its confirm dialog. This builder is reached by navigating the crew
+         center, which can itself be framed in a VA's own site or the app's Crew
+         Center overlay — and window.confirm is blocked outright in a
+         cross-origin iframe on some browsers, where it returns false and the
+         delete silently does nothing. Same reasoning as the dashboard. -->
+    <script src="/crewPanels.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         :root{
@@ -416,6 +422,17 @@
         return data;
     }
 
+    /**
+     * Ask before something that cannot be undone.
+     *
+     * CrewPanels draws it in the page; window.confirm is the fallback for the
+     * case where the module did not load, because asking badly still beats
+     * deleting a page without asking at all.
+     */
+    const ask = (o) => (window.CrewPanels
+        ? CrewPanels.ask(o)
+        : Promise.resolve(window.confirm([o.title, o.body].filter(Boolean).join('\n\n'))));
+
     function toast(msg, tone) {
         const el = $('toast');
         el.textContent = msg;
@@ -601,9 +618,10 @@
             pageIx = +el.getAttribute('data-page'); openBlock = null; renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
         }));
         $('pageList').querySelectorAll('[data-page-edit]').forEach(el => el.addEventListener('click', () => editPage(+el.getAttribute('data-page-edit'))));
-        $('pageList').querySelectorAll('[data-page-del]').forEach(el => el.addEventListener('click', () => {
+        $('pageList').querySelectorAll('[data-page-del]').forEach(el => el.addEventListener('click', async () => {
             const i = +el.getAttribute('data-page-del');
-            if (!confirm(`Delete ${doc.pages[i].path} and everything on it?`)) return;
+            if (!await ask({ title: `Delete ${doc.pages[i].path}?`, danger: true, confirm: 'Delete the page',
+                body: 'Everything on it goes with it.' })) return;
             doc.pages.splice(i, 1);
             if (pageIx >= doc.pages.length) pageIx = doc.pages.length - 1;
             openBlock = null; queueSave(); renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
@@ -1355,7 +1373,8 @@
                 const warn = used
                     ? `\n\nIt is used in ${used} ${used === 1 ? 'section' : 'sections'}. Those will show a missing picture until you change them.`
                     : '';
-                if (!confirm(`Delete "${(row && row.name) || 'this picture'}"? This cannot be undone.${warn}`)) return;
+                if (!await ask({ title: `Delete “${(row && row.name) || 'this picture'}”?`, danger: true,
+                    confirm: 'Delete it', body: `This cannot be undone.${warn}` })) return;
                 try {
                     SITE = await api('/media', { method: 'DELETE', body: { id: delId } });
                     renderMedia();
@@ -1499,7 +1518,8 @@
                 <button type="button" data-restore="${x.version}" class="font-semibold muted hover:accent-text shrink-0">Restore</button>
             </div>`).join('') : '<p class="text-xs faint">Nothing published yet.</p>';
         $('versions').querySelectorAll('[data-restore]').forEach(el => el.addEventListener('click', async () => {
-            if (!confirm('Bring that version back as your draft? Nothing goes live until you publish.')) return;
+            if (!await ask({ title: 'Bring that version back as your draft?', confirm: 'Restore it',
+                body: 'Nothing goes live until you publish.' })) return;
             try {
                 SITE = await api('/restore', { method: 'POST', body: { version: +el.getAttribute('data-restore') } });
                 render(); refreshPreview(true);
@@ -1642,7 +1662,9 @@
             } catch (err) { toast(err.message, 'bad'); }
         });
         $('fileDeleteBtn').addEventListener('click', async () => {
-            if (!openFile || !confirm(`Delete ${openFile}?`)) return;
+            if (!openFile) return;
+            if (!await ask({ title: `Delete ${openFile}?`, danger: true, confirm: 'Delete the file',
+                body: 'It goes from your draft. Nothing changes on your live site until you publish.' })) return;
             try {
                 await api('/file?path=' + encodeURIComponent(openFile), { method: 'DELETE' });
                 SITE = await api('');

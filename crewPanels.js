@@ -23,6 +23,13 @@
    plus the small formatting helpers (esc, whenText, relativeText) that were
    about to be written a fourth time.
 
+   AND THE FOUR THINGS AN UPDATE NEEDS (see "Updating data" below)
+
+     CrewPanels.keepPlace(el, render)   re-draw a list without moving the reader
+     CrewPanels.busy(btn, label)        a button that says it is working
+     CrewPanels.ask({...})              a confirm the page draws itself
+     CrewPanels.emit(topic) / .on(...)  one change, every view that shows it
+
    crewEvents.js is deliberately left alone. It works, it is heavily tested by
    use, and rewriting it to sit on this would be a large change to a shipped
    feature to buy tidiness. Its `cev-` classes and this file's `cp-` classes
@@ -155,7 +162,27 @@
 
     function baseStyles() {
         style('cp-styles', `
+        /* EVERY WIDTH IN HERE IS A BORDER-BOX WIDTH.
+           These panels are laid out with width:100% on padded boxes — a
+           .cp-input inside a .cp-card, the confirm sheet across a phone — and
+           every one of those is 100% PLUS its padding under the default content
+           box, so it overflows its own container by two paddings and sits off
+           centre. It looked right only because Tailwind's preflight happened to
+           set border-box globally on the pages this shipped on, and Tailwind is
+           a CDN script: blocked, slow or simply down, and this stylesheet was
+           relying on it for its box model. Same reasoning as the .hidden rule
+           in crew-dashboard.html — a panel's own structure must not depend on a
+           third-party script arriving.
+           Scoped to our own classes rather than a global *, because this file
+           is dropped into pages it does not own. */
+        [class^="cp-"],[class*=" cp-"],[class^="cp-"]::before,[class*=" cp-"]::before,
+        [class^="cp-"]::after,[class*=" cp-"]::after{ box-sizing:border-box; }
         .cp-hidden{ display:none !important; }
+        /* Present to a screen reader, absent from the page. Not display:none,
+           which removes it from the accessibility tree along with everything
+           else — see announce(). */
+        .cp-sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+            overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0; }
         #cp-toasts{ position:fixed; bottom:1rem; left:50%; transform:translateX(-50%);
             z-index:120; display:flex; flex-direction:column; gap:.5rem; pointer-events:none; }
         .cp-toast{ background:var(--ink,#1C1A16); color:var(--bg,#fff); padding:.6rem 1rem;
@@ -222,6 +249,16 @@
             color:var(--ink,#1C1A16); border:1px solid var(--line,#e5e5e5); border-radius:.5rem;
             padding:.5rem .7rem; font-size:.85rem; font-family:inherit; }
         .cp-input:focus,.cp-select:focus,.cp-textarea:focus{ outline:none; border-color:var(--ink,#1C1A16); }
+        .cp-input::placeholder,.cp-textarea::placeholder{ color:var(--faint,#A8A296); }
+        /* Where the keyboard is. Same rule the dashboard sets for its own
+           controls, restated here for the same reason as box-sizing above: these
+           panels are dropped into pages that may not set one, and a confirm
+           dialog whose focused button looks no different from the other is a
+           dialog a keyboard user has to guess at. Ours, not the browser's
+           default, so it matches the VA's accent in both themes. */
+        .cp-btn:focus-visible,.cp-icon-btn:focus-visible,
+        .cp-input:focus-visible,.cp-select:focus-visible,.cp-textarea:focus-visible{
+            outline:2px solid var(--accent,#1C1A16); outline-offset:2px; }
         .cp-textarea{ resize:vertical; min-height:4.5rem; }
         .cp-label{ display:block; font-size:.72rem; font-weight:700; text-transform:uppercase;
             letter-spacing:.04em; color:var(--faint,#A8A296); margin-bottom:.3rem; }
@@ -235,6 +272,39 @@
         .cp-note-bad{ color:#DC2626; }
         .cp-note-warn{ color:#D97706; }
         @media (prefers-reduced-motion:reduce){ .cp-card,.cp-toast{ transition:none; } }
+
+        /* A button that is working. Inline-size so it sits on the text baseline
+           of whatever label replaced the original, and currentColor so it is
+           right on a primary button and a plain one without a second rule. */
+        .cp-spin{ display:inline-block; width:.85em; height:.85em; margin-right:.15em;
+            border:2px solid currentColor; border-right-color:transparent; border-radius:50%;
+            animation:cp-spin .6s linear infinite; vertical-align:-.1em; }
+        @keyframes cp-spin{ to{ transform:rotate(360deg); } }
+        [aria-busy="true"]{ cursor:progress; }
+        @media (prefers-reduced-motion:reduce){
+            .cp-spin{ animation-duration:1.6s; }
+        }
+
+        /* The page's own confirm. See ask(). */
+        .cp-ask{ position:fixed; inset:0; z-index:130; display:grid; place-items:center;
+            padding:1rem; }
+        .cp-ask-scrim{ position:absolute; inset:0; background:rgba(0,0,0,.5); }
+        .cp-ask-box{ position:relative; width:min(26rem,100%); background:var(--surface,#fff);
+            color:var(--ink,#1C1A16); border:1px solid var(--line,#e5e5e5); border-radius:.9rem;
+            box-shadow:0 24px 60px rgba(0,0,0,.28); padding:1.1rem 1.15rem 1rem;
+            display:grid; gap:.55rem; }
+        .cp-ask-title{ font-size:1rem; font-weight:700; letter-spacing:-.01em; margin:0; }
+        .cp-ask-body{ font-size:.87rem; color:var(--muted,#736E64); margin:0; white-space:pre-line; }
+        .cp-ask-row{ display:flex; justify-content:flex-end; gap:.5rem; margin-top:.35rem; }
+        .cp-btn-danger{ background:#DC2626; color:#fff; border-color:transparent; }
+        .cp-btn-danger:hover{ background:#B91C1C; border-color:transparent; }
+        @media (max-width:40rem){
+            .cp-ask{ place-items:end center; padding:0; }
+            .cp-ask-box{ width:100%; border-radius:1.1rem 1.1rem 0 0; border-left:0; border-right:0;
+                padding-bottom:calc(1rem + env(safe-area-inset-bottom,0px)); }
+            .cp-ask-row{ flex-direction:column-reverse; }
+            .cp-ask-row .cp-btn{ width:100%; justify-content:center; }
+        }
 
         /* ===================================================================
          * MOBILE
@@ -363,6 +433,60 @@
      * Toast
      * ------------------------------------------------------------------- */
 
+    /**
+     * Say one thing, briefly.
+     *
+     * Two rules about the stack, both learned from bulk work — reviewing a
+     * morning's flight reports is six presses in five seconds, and six toasts
+     * is not feedback, it is a wall across the bottom of the screen:
+     *
+     *   · THE SAME MESSAGE AGAIN counts up in place rather than queueing. Six
+     *     approvals read "Flight approved… ×6" on one line, which is both
+     *     shorter and more useful than six copies — it is the running total of
+     *     what you have just done. Its life is extended on each repeat, so the
+     *     count is still there when the last press lands.
+     *   · AT MOST THREE at once. Past three, the oldest goes. A fourth distinct
+     *     message means the first is already history.
+     */
+    const TOAST_MAX = 3;
+
+    /**
+     * Say it to a screen reader too.
+     *
+     * The toast is now where the crew center reports what a press did — saved,
+     * removed, approved, refused. A message only a sighted reader receives is
+     * not feedback, it is decoration, and routing MORE of the dashboard's
+     * feedback through here would have quietly made this worse rather than
+     * better.
+     *
+     * A separate visually-hidden region rather than making the toast host live,
+     * for two reasons: the visual stack is capped and coalesced ("…×6"), and
+     * that bookkeeping has nothing to do with what should be spoken; and a
+     * failure wants `assertive` while a confirmation wants `polite`, which is a
+     * property of the REGION, so it takes two of them.
+     *
+     * Blanked before it is written, because a live region whose text does not
+     * change is not announced — the second identical confirmation would be
+     * silent — and the two writes have to land in separate frames or the
+     * browser coalesces them back into no change at all.
+     */
+    function announce(text, tone) {
+        const assertive = tone === 'bad';
+        const id = assertive ? 'cp-live-alert' : 'cp-live-status';
+        let live = document.getElementById(id);
+        if (!live) {
+            live = document.createElement('div');
+            live.id = id;
+            live.className = 'cp-sr-only';
+            live.setAttribute('role', assertive ? 'alert' : 'status');
+            live.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+            live.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(live);
+        }
+        live.textContent = '';
+        setTimeout(() => { live.textContent = text; }, 60);
+    }
+
     function toast(msg, tone) {
         baseStyles();
         let host = document.getElementById('cp-toasts');
@@ -371,11 +495,63 @@
             host.id = 'cp-toasts';
             document.body.appendChild(host);
         }
+        const text = String(msg == null ? '' : msg);
+        const kind = 'cp-toast-' + (tone || 'info');
+
+        const same = Array.from(host.children).find(
+            (t) => t.dataset.cpMsg === text && t.classList.contains(kind) && !t.classList.contains('cp-out'),
+        );
+        if (same) {
+            const n = (Number(same.dataset.cpN) || 1) + 1;
+            same.dataset.cpN = String(n);
+            same.textContent = `${text} ×${n}`;
+            clearTimeout(Number(same.dataset.cpT));
+            same.dataset.cpT = String(setTimeout(() => retire(same), 4200));
+            announce(same.textContent, tone);
+            return;
+        }
+
         const el = document.createElement('div');
-        el.className = 'cp-toast cp-toast-' + (tone || 'info');
-        el.textContent = msg;
+        el.className = 'cp-toast ' + kind;
+        el.textContent = text;
+        el.dataset.cpMsg = text;
         host.appendChild(el);
-        setTimeout(() => { el.classList.add('cp-out'); setTimeout(() => el.remove(), 300); }, 4200);
+        el.dataset.cpT = String(setTimeout(() => retire(el), 4200));
+        // Trim to the cap by REMOVING, not by retiring.
+        //
+        // retire() fades and then removes on a timer, so the element it was
+        // given is still a child when this condition is re-tested — and its own
+        // first line makes it a no-op the second time it is handed the same
+        // node. The loop therefore never terminated: five distinct messages
+        // froze the tab outright. (Four did not, which is why every test that
+        // coalesced or stopped at three walked straight past it.)
+        while (host.children.length > TOAST_MAX) {
+            const oldest = host.firstElementChild;
+            clearTimeout(Number(oldest.dataset.cpT));
+            oldest.remove();
+        }
+        announce(text, tone);
+    }
+
+    function retire(el, now) {
+        if (!el || el.classList.contains('cp-out')) return;
+        clearTimeout(Number(el.dataset.cpT));
+        el.classList.add('cp-out');
+        setTimeout(() => el.remove(), now ? 0 : 300);
+    }
+
+    /**
+     * Bring something into view, honouring the reader's motion preference.
+     *
+     * `behavior:'smooth'` is the right default — an unannounced jump is how a
+     * reader loses track of where they are — but it is exactly the kind of
+     * movement `prefers-reduced-motion` is about, and scrollIntoView does not
+     * consult the preference on its own the way a CSS transition does.
+     */
+    function reveal(el, block) {
+        if (!el || typeof el.scrollIntoView !== 'function') return;
+        const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({ block: block || 'nearest', behavior: still ? 'auto' : 'smooth' });
     }
 
     /* ---------------------------------------------------------------------
@@ -537,6 +713,361 @@
         </div>`;
     }
 
+    /* =====================================================================
+     * UPDATING DATA
+     *
+     * Reported as two complaints that are really one: "the page jumps to the
+     * top when I press a button", and "I have to refresh to see what I just
+     * changed".
+     *
+     * Both come from the same shape of code. A crew center screen draws a list
+     * by assigning innerHTML, and an action that changes the data re-runs that
+     * draw. That is the right instinct — it is how the dashboard stays honest
+     * about what the server now holds — but done plainly it has two costs the
+     * reader pays:
+     *
+     *   · The draw destroys the node the caret was in, and when the new content
+     *     is shorter than the reader's scroll offset it destroys that too. The
+     *     caret goes every time, measurably: after an innerHTML replacement
+     *     document.activeElement is <body>. The offset survives an equal-height
+     *     redraw, and snaps to 0 the moment the list is shorter than where the
+     *     reader was — filtering a list down, switching to a short tab, clearing
+     *     the last rows. Nobody asked the page to scroll; it looks like the
+     *     button did it.
+     *   · It redraws ONE view. The figure at the top of the dashboard, the
+     *     badge on the tab, the rank badge on a roster card — all read the same
+     *     data from a different place, and none of them hear about the change.
+     *     So the screen is half old and half new, and the only way to make it
+     *     agree with itself is F5.
+     *
+     * (The larger half of "the page scrolls when I press things" is not here at
+     * all — it is a drawer over an unlocked page, where the gesture that misses
+     * the drawer scrolls the dashboard behind it. That is lockScroll's job, and
+     * the crew center dashboard's own four drawers now take it.)
+     *
+     * The four functions below are what the crew center needs to stop paying
+     * both costs above. They are deliberately small: this is not a rendering
+     * framework, it is the plumbing that makes hand-written renders behave.
+     * =================================================================== */
+
+    /**
+     * The nearest ancestor that actually scrolls.
+     *
+     * Not `closest('.cp-body')` — the dashboard's own drawers are plain
+     * `overflow-y-auto` divs with no class in common, the panels here are
+     * `.cp-sheet`, and a list on the dashboard itself scrolls the document. One
+     * answer for all three, found by asking the layout rather than the markup.
+     */
+    function scrollerFor(el) {
+        for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+            const oy = getComputedStyle(n).overflowY;
+            if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+        }
+        return document.scrollingElement || document.documentElement;
+    }
+
+    /**
+     * Where a node sits, as child indices from a root.
+     *
+     * Used to put the caret back after a redraw. An id would be better and is
+     * not available: these rows are built from array indices, so the field the
+     * reader was typing in has no stable identity — but it does have a stable
+     * POSITION, which is exactly what survives a redraw of the same array.
+     */
+    function indexPath(root, node) {
+        const path = [];
+        for (let n = node; n && n !== root && n.parentElement; n = n.parentElement) {
+            path.push(Array.prototype.indexOf.call(n.parentElement.children, n));
+        }
+        return path.reverse();
+    }
+
+    function nodeAtPath(root, path) {
+        let n = root;
+        for (const i of path) {
+            if (!n || !n.children || !n.children[i]) return null;
+            n = n.children[i];
+        }
+        return n;
+    }
+
+    /**
+     * Re-draw something without moving the reader.
+     *
+     *   CrewPanels.keepPlace('#pirepList', () => { list.innerHTML = …; });
+     *
+     * Captures the scroll offset of whatever is actually scrolling, plus the
+     * focused field and its caret, runs the render, then puts all three back.
+     *
+     * The FOCUS is the part that is always needed: an innerHTML replacement
+     * drops the caret on every browser, every time, so a row that redraws while
+     * somebody is typing in it takes their place in the sentence with it. The
+     * SCROLL is the part that is sometimes needed — a same-height redraw keeps
+     * its offset on its own, and the case this saves is the one where the new
+     * content is shorter than where the reader was and the offset snaps to 0.
+     *
+     * The offset is put back twice, a frame apart, because lucide replaces every
+     * <i> with an <svg> of a different height after we return, and a list whose
+     * rows each grow by 2px lands the reader slightly off where they were. The
+     * second pass is skipped if the reader has scrolled in the meantime — by
+     * then the offset is theirs, not ours to restore.
+     *
+     * `viewKey` is for a panel that renders genuinely DIFFERENT screens from one
+     * function — a library, and the document you open out of it. Keeping the
+     * place is right for a redraw of the same screen and wrong for a change of
+     * screen: opening a document 400px down because that is where the list was
+     * is not "not losing your place", it is starting half way through it.
+     *
+     * So a change of key moves to where THAT screen was last left — its top the
+     * first time, and otherwise the offset it had when you went away. Which
+     * makes going back from a document to the library land on the document you
+     * were just reading rather than at the top of a list you now have to scroll
+     * through again. Omit the key for anything that only ever draws one thing.
+     */
+    function keepPlace(el, render, viewKey) {
+        const host = (el && el.nodeType) ? el : document.querySelector(String(el || ''));
+        if (!host) { if (typeof render === 'function') render(); return; }
+        const box = scrollerFor(host);
+
+        if (viewKey != null) {
+            const key = String(viewKey);
+            const was = host.dataset.cpView;
+            if (was !== key) {
+                // Remember where the screen being left off was, on the element
+                // rather than in a module variable: two panels can be open at
+                // once, and a panel is torn down and rebuilt with its host.
+                const seen = host._cpViewTops || (host._cpViewTops = Object.create(null));
+                if (was != null) seen[was] = box.scrollTop;
+                host.dataset.cpView = key;
+                render();
+                box.scrollTop = seen[key] || 0;
+                return;
+            }
+        }
+
+        const top = box.scrollTop;
+        const left = box.scrollLeft;
+
+        const active = document.activeElement;
+        let field = null;
+        if (active && active !== document.body && host.contains(active)
+            && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) {
+            field = { path: indexPath(host, active) };
+            try { field.start = active.selectionStart; field.end = active.selectionEnd; } catch { /* number/colour inputs throw */ }
+        }
+
+        render();
+
+        box.scrollTop = top;
+        box.scrollLeft = left;
+        if (field) {
+            const back = nodeAtPath(host, field.path);
+            if (back && typeof back.focus === 'function') {
+                // preventScroll, or the browser helpfully scrolls the field into
+                // view and undoes the line above — the jump this exists to stop.
+                try { back.focus({ preventScroll: true }); } catch { back.focus(); }
+                if (field.start != null) {
+                    try { back.setSelectionRange(field.start, field.end); } catch { /* not a text field */ }
+                }
+            }
+        }
+        requestAnimationFrame(() => {
+            if (Math.abs(box.scrollTop - top) > 2 && Math.abs(box.scrollTop - top) < 400) box.scrollTop = top;
+        });
+    }
+
+    /**
+     * A button that says it is working.
+     *
+     *   const done = CrewPanels.busy(btn, 'Saving…');  …  done();
+     *
+     * Returns the undo. Swaps the label, disables the button and marks it
+     * aria-busy, so a slow round trip is visibly a slow round trip rather than
+     * a press that did nothing — which is what gets pressed again, and what
+     * turns one save into two.
+     *
+     * Re-entrant calls are ignored rather than stacked: the second call would
+     * capture "Saving…" as the label to restore and leave it there for good.
+     */
+    function busy(btn, label) {
+        const el = (btn && btn.nodeType) ? btn : document.getElementById(String(btn || ''));
+        if (!el) return () => {};
+        if (el.dataset.cpBusy) return () => {};
+        const wasHtml = el.innerHTML;
+        const wasDisabled = !!el.disabled;
+        el.dataset.cpBusy = '1';
+        el.disabled = true;
+        el.setAttribute('aria-busy', 'true');
+        if (label !== false) el.innerHTML = `<span class="cp-spin"></span>${esc(label || 'Working…')}`;
+        return function done() {
+            if (!el.dataset.cpBusy) return;
+            delete el.dataset.cpBusy;
+            el.disabled = wasDisabled;
+            el.removeAttribute('aria-busy');
+            if (label !== false) { el.innerHTML = wasHtml; try { icons(); } catch { /* ignore */ } }
+        };
+    }
+
+    /**
+     * Ask before doing something that cannot be undone — in the page.
+     *
+     *   if (!await CrewPanels.ask({ title:'Delete 412 flights?', … })) return;
+     *
+     * Replaces window.confirm, which is wrong here for three reasons beyond
+     * looking like 1998: it cannot say which airline or how many rows in the
+     * VA's own voice, it is BLOCKED outright in a cross-origin iframe on some
+     * browsers — and this dashboard runs framed inside a VA's own website and
+     * inside the app's Crew Center overlay — and when it is blocked it returns
+     * false, so the button silently does nothing at all.
+     *
+     * `type` asks the reader to type a word back before the button works — for
+     * the handful of actions that wipe a whole dataset. It replaces
+     * window.prompt, which is blocked in the same places and for the same
+     * reason, and which returned null indistinguishably from "cancelled".
+     *
+     * Carries `.cp-dialog` so an open sheet underneath knows the Escape key is
+     * not its own (see TOP_LAYER).
+     */
+    function ask({ title, body = '', confirm: okLabel = 'Continue', cancel: cancelLabel = 'Cancel', danger = false, type = '' } = {}) {
+        baseStyles();
+        // ONE QUESTION AT A TIME, and a second asked while one is up is answered
+        // no rather than stacked.
+        //
+        // A bin icon on a card takes an impatient double-press, and three
+        // dialogs over each other — two of them unreachable behind the top one,
+        // each holding a scroll lock — is the worst possible answer to "did that
+        // register?". The callers also disable the button before asking, so this
+        // should not be reached; it is here because the safe answer to a
+        // question nobody can see must be the one that changes nothing, and
+        // relying on every future caller to remember that is how it gets lost.
+        // Nothing in the crew center asks a question from inside a question.
+        if (document.querySelector('.cp-ask')) return Promise.resolve(false);
+        return new Promise((resolve) => {
+            const host = document.createElement('div');
+            host.className = 'cp-ask cp-dialog';
+            host.setAttribute('role', 'dialog');
+            host.setAttribute('aria-modal', 'true');
+            // Named and described, or a screen reader announces "dialog" and
+            // then two buttons with no idea what is being asked. Fixed ids are
+            // safe because only one of these is ever open — see the guard above.
+            host.setAttribute('aria-labelledby', 'cp-ask-title');
+            if (body) host.setAttribute('aria-describedby', 'cp-ask-body');
+            host.innerHTML = `
+                <div class="cp-ask-scrim" data-ask-no></div>
+                <div class="cp-ask-box">
+                    <h3 class="cp-ask-title" id="cp-ask-title">${esc(title || 'Are you sure?')}</h3>
+                    ${body ? `<p class="cp-ask-body" id="cp-ask-body">${esc(body)}</p>` : ''}
+                    ${type ? `<label class="cp-label" for="cp-ask-type">Type <b>${esc(type)}</b> to confirm</label>
+                        <input id="cp-ask-type" class="cp-input" data-ask-type autocomplete="off"
+                            spellcheck="false" placeholder="${esc(type)}">` : ''}
+                    <div class="cp-ask-row">
+                        <button class="cp-btn" data-ask-no>${esc(cancelLabel)}</button>
+                        <button class="cp-btn ${danger ? 'cp-btn-danger' : 'cp-btn-primary'}" data-ask-yes ${type ? 'disabled' : ''}>${esc(okLabel)}</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(host);
+            lockScroll();
+            const yes = host.querySelector('[data-ask-yes]');
+            const typed = host.querySelector('[data-ask-type]');
+            // Scoped to the button row: the SCRIM carries data-ask-no too (so
+            // that clicking away cancels), it comes first in the DOM, and it is a
+            // div — focusing it silently did nothing, which left the keyboard in
+            // the form BEHIND an open modal.
+            const no = host.querySelector('.cp-ask-row [data-ask-no]');
+            if (typed) {
+                typed.addEventListener('input', () => { yes.disabled = typed.value.trim() !== type; });
+            }
+            // Focus the field if there is one, else the safe choice — never the
+            // destructive button: a stray Enter left over from the form behind
+            // must not delete anything.
+            (typed || (danger ? no : yes)).focus({ preventScroll: true });
+
+            let settled = false;
+            const finish = (answer) => {
+                if (settled) return;
+                settled = true;
+                document.removeEventListener('keydown', onKey, true);
+                host.remove();
+                unlockScroll();
+                resolve(answer);
+            };
+            function onKey(ev) {
+                if (ev.key === 'Escape') { ev.stopPropagation(); finish(false); }
+                else if (ev.key === 'Enter' && (ev.target === yes || (typed && ev.target === typed && !yes.disabled))) {
+                    ev.stopPropagation(); ev.preventDefault(); finish(true);
+                } else if (ev.key === 'Tab') {
+                    // Keep Tab inside the dialog. window.confirm did this for
+                    // free by being the browser's own window; a modal drawn in
+                    // the page does not, and tabbing out of a question into the
+                    // form it is asking about is how you end up answering a
+                    // dialog you can no longer see.
+                    const stops = Array.from(host.querySelectorAll('button:not([disabled]), input, [tabindex]:not([tabindex="-1"])'))
+                        .filter((n) => n.offsetParent !== null);
+                    if (!stops.length) return;
+                    const first = stops[0], last = stops[stops.length - 1];
+                    const on = document.activeElement;
+                    if (ev.shiftKey && (on === first || !host.contains(on))) { ev.preventDefault(); last.focus(); }
+                    else if (!ev.shiftKey && (on === last || !host.contains(on))) { ev.preventDefault(); first.focus(); }
+                }
+            }
+            // Capture, so Escape here is swallowed before the sheet underneath
+            // sees it — closing the dialog must not close the panel behind it.
+            document.addEventListener('keydown', onKey, true);
+            host.addEventListener('click', (ev) => {
+                if (ev.target.closest('[data-ask-yes]')) finish(true);
+                else if (ev.target.closest('[data-ask-no]')) finish(false);
+            });
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+     * One change, every view that shows it
+     *
+     * The crew center draws the same facts in several places on purpose: the
+     * roster count is a headline figure, a drawer tab badge and the length of a
+     * list, and a rank is a row in the settings editor, a badge on a pilot card
+     * and a threshold on a route. Before this, whichever place you changed the
+     * data from was the only one that knew.
+     *
+     * So: say WHAT CHANGED, not who should redraw. `emit('roster')` after a
+     * pilot is added, and the figures, the badge and the list each decided for
+     * themselves, at load time, that they care. The alternative — having
+     * submitPilot() call the four renders by name — is the version that rots,
+     * because the fifth view that shows a pilot count is added by somebody who
+     * has never read submitPilot.
+     *
+     * Topics are plain strings and deliberately coarse ('roster', 'pireps',
+     * 'routes', 'applications', 'structure', 'settings'). A subscriber that
+     * needs to be cheap debounces itself; most of them are a DOM write.
+     * ------------------------------------------------------------------- */
+
+    const subs = new Map();
+
+    /** Subscribe. Returns the unsubscribe, for anything that can be unmounted. */
+    function on(topic, fn) {
+        if (typeof fn !== 'function') return () => {};
+        String(topic || '').split(/\s+/).filter(Boolean).forEach((t) => {
+            if (!subs.has(t)) subs.set(t, new Set());
+            subs.get(t).add(fn);
+        });
+        return () => String(topic || '').split(/\s+/).forEach((t) => { const s = subs.get(t); if (s) s.delete(fn); });
+    }
+
+    /**
+     * Announce a change. Every subscriber runs; one that throws does not stop
+     * the others, because a broken badge must not be able to leave the list it
+     * was drawn beside showing yesterday's data.
+     */
+    function emit(topic, detail) {
+        String(topic || '').split(/\s+/).filter(Boolean).forEach((t) => {
+            const s = subs.get(t);
+            if (!s) return;
+            for (const fn of Array.from(s)) {
+                try { fn(detail, t); } catch (err) { console.error('crew center: listener for', t, 'failed', err); }
+            }
+        });
+    }
+
     /* ---------------------------------------------------------------------
      * THE SAFETY NET
      *
@@ -580,8 +1111,15 @@
      * intent: never yank the page from under a reader who has something.
      */
     function anythingOpen() {
+        // A host page's own drawer. The crew center dashboard marks its four
+        // with data-topic and holds the page with lockScroll like everything
+        // here does, so they have to count: without them, one unrelated uncaught
+        // error while the roster is open would hand scrolling back to the page
+        // UNDERNEATH an open drawer — the bug this net exists to prevent,
+        // arrived at from the other direction.
+        if (document.querySelector('[data-topic][data-open="1"]')) return true;
         const open = document.querySelectorAll(
-            '.cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden), .cev-modal:not(.cev-hidden)',
+            '.cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden), .cev-modal:not(.cev-hidden), .cp-ask',
         );
         for (const el of open) {
             const body = el.querySelector('.cp-body, .cev-body');
@@ -654,5 +1192,6 @@
         style, baseStyles, toast, sheet, api,
         lockScroll, unlockScroll, recoverScroll,
         isSchemaGap, schemaGapHtml,
+        keepPlace, busy, ask, on, emit, reveal,
     };
 })();
