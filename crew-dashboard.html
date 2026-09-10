@@ -7473,13 +7473,16 @@
                 if(Date.now()-lastCatchUp < 20000) return;
                 lastCatchUp=Date.now();
                 renderCrewStats();
-                // Badges, so work waiting behind a closed drawer still announces
-                // itself — this is the one that matters when nothing is open.
-                fetchApps().then(refreshAppsBadge).catch(()=>{});
-                if(document.getElementById('roster')?.dataset.open==='1'){
+                const rosterOpen=document.getElementById('roster')?.dataset.open==='1';
+                // Applications are read whatever is open, because the badge is
+                // the only thing telling staff there is work waiting behind a
+                // closed drawer. One read, not two: drawing the list refreshes
+                // the badge on its way through.
+                const showingApps = rosterOpen && ROSTER_VIEW==='apps';
+                fetchApps().then(()=>{ showingApps ? renderApps() : refreshAppsBadge(); }).catch(()=>{});
+                if(rosterOpen){
                     if(ROSTER_VIEW==='roster') fetchRoster().then(renderRoster).catch(()=>{});
-                    else if(ROSTER_VIEW==='apps') fetchApps().then(renderApps).catch(()=>{});
-                    else fetchInvites().then(renderInvites).catch(()=>{});
+                    else if(ROSTER_VIEW==='invites') fetchInvites().then(renderInvites).catch(()=>{});
                 }
                 if(document.getElementById('routes')?.dataset.open==='1') fetchRoutes().then(renderRoutes).catch(()=>{});
                 if(document.getElementById('pireps')?.dataset.open==='1') fetchPireps().then(renderPireps).catch(()=>{});

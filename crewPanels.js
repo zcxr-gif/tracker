@@ -178,6 +178,11 @@
         [class^="cp-"],[class*=" cp-"],[class^="cp-"]::before,[class*=" cp-"]::before,
         [class^="cp-"]::after,[class*=" cp-"]::after{ box-sizing:border-box; }
         .cp-hidden{ display:none !important; }
+        /* Present to a screen reader, absent from the page. Not display:none,
+           which removes it from the accessibility tree along with everything
+           else — see announce(). */
+        .cp-sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+            overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0; }
         #cp-toasts{ position:fixed; bottom:1rem; left:50%; transform:translateX(-50%);
             z-index:120; display:flex; flex-direction:column; gap:.5rem; pointer-events:none; }
         .cp-toast{ background:var(--ink,#1C1A16); color:var(--bg,#fff); padding:.6rem 1rem;
@@ -435,6 +440,43 @@
      */
     const TOAST_MAX = 3;
 
+    /**
+     * Say it to a screen reader too.
+     *
+     * The toast is now where the crew center reports what a press did — saved,
+     * removed, approved, refused. A message only a sighted reader receives is
+     * not feedback, it is decoration, and routing MORE of the dashboard's
+     * feedback through here would have quietly made this worse rather than
+     * better.
+     *
+     * A separate visually-hidden region rather than making the toast host live,
+     * for two reasons: the visual stack is capped and coalesced ("…×6"), and
+     * that bookkeeping has nothing to do with what should be spoken; and a
+     * failure wants `assertive` while a confirmation wants `polite`, which is a
+     * property of the REGION, so it takes two of them.
+     *
+     * Blanked before it is written, because a live region whose text does not
+     * change is not announced — the second identical confirmation would be
+     * silent — and the two writes have to land in separate frames or the
+     * browser coalesces them back into no change at all.
+     */
+    function announce(text, tone) {
+        const assertive = tone === 'bad';
+        const id = assertive ? 'cp-live-alert' : 'cp-live-status';
+        let live = document.getElementById(id);
+        if (!live) {
+            live = document.createElement('div');
+            live.id = id;
+            live.className = 'cp-sr-only';
+            live.setAttribute('role', assertive ? 'alert' : 'status');
+            live.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+            live.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(live);
+        }
+        live.textContent = '';
+        setTimeout(() => { live.textContent = text; }, 60);
+    }
+
     function toast(msg, tone) {
         baseStyles();
         let host = document.getElementById('cp-toasts');
@@ -455,6 +497,7 @@
             same.textContent = `${text} ×${n}`;
             clearTimeout(Number(same.dataset.cpT));
             same.dataset.cpT = String(setTimeout(() => retire(same), 4200));
+            announce(same.textContent, tone);
             return;
         }
 
@@ -465,6 +508,7 @@
         host.appendChild(el);
         el.dataset.cpT = String(setTimeout(() => retire(el), 4200));
         while (host.children.length > TOAST_MAX) retire(host.firstElementChild, true);
+        announce(text, tone);
     }
 
     function retire(el, now) {
@@ -881,11 +925,16 @@
             host.className = 'cp-ask cp-dialog';
             host.setAttribute('role', 'dialog');
             host.setAttribute('aria-modal', 'true');
+            // Named and described, or a screen reader announces "dialog" and
+            // then two buttons with no idea what is being asked. Fixed ids are
+            // safe because only one of these is ever open — see the guard above.
+            host.setAttribute('aria-labelledby', 'cp-ask-title');
+            if (body) host.setAttribute('aria-describedby', 'cp-ask-body');
             host.innerHTML = `
                 <div class="cp-ask-scrim" data-ask-no></div>
                 <div class="cp-ask-box">
-                    <h3 class="cp-ask-title">${esc(title || 'Are you sure?')}</h3>
-                    ${body ? `<p class="cp-ask-body">${esc(body)}</p>` : ''}
+                    <h3 class="cp-ask-title" id="cp-ask-title">${esc(title || 'Are you sure?')}</h3>
+                    ${body ? `<p class="cp-ask-body" id="cp-ask-body">${esc(body)}</p>` : ''}
                     ${type ? `<label class="cp-label" for="cp-ask-type">Type <b>${esc(type)}</b> to confirm</label>
                         <input id="cp-ask-type" class="cp-input" data-ask-type autocomplete="off"
                             spellcheck="false" placeholder="${esc(type)}">` : ''}
