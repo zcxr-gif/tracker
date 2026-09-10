@@ -121,8 +121,17 @@
      * RENDER
      * =================================================================== */
 
+    /**
+     * Draw the partnership, keeping the reader's place. Same reasoning as the
+     * other panels: an action in here redraws the whole body, and that drops the
+     * caret every time and the offset whenever the new content is shorter.
+     */
     function render() {
         if (!panel) return;
+        if (P && P.keepPlace) P.keepPlace(panel.body, drawPanel); else drawPanel();
+    }
+
+    function drawPanel() {
         const body = panel.body;
 
         if (S.loading && !S.data) {

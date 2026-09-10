@@ -2599,7 +2599,19 @@
             </table></div>`;
         }
 
+        /**
+         * Statistics, keeping the reader's place.
+         *
+         * The period chips redraw the whole panel, and so does the fetch landing
+         * behind them. A key on the period would be wrong here: the chips are
+         * not different screens, they are the same figures over a different
+         * window, and someone comparing 30 days with 90 wants the same section
+         * of the panel both times rather than the top of it.
+         */
         function renderInsights(){
+            keepPlace(insightsPanel.body, drawInsights);
+        }
+        function drawInsights(){
             const body=insightsPanel.body;
             const chips=[[30,'30 days'],[90,'90 days'],[365,'1 year'],[0,'All time']].map(([d,l])=>
                 `<button data-insdays="${d}" class="px-2.5 py-1 rounded-md text-xs font-semibold ${d===INSIGHT_DAYS?'accent-bg text-white':'surface hair'}">${l}</button>`).join('');

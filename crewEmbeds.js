@@ -355,7 +355,10 @@ const figures = await CrewFeed.stats();    // { pilots, hours, pireps, … }`;
                     placeholder="${esc(opt.placeholder || '')}" value="${esc(v)}"></div>`;
         }).join('');
 
-        panel.body.innerHTML = `
+        // Keep the reader's place. The picker and the per-option "clear" both
+        // redraw the whole body; the key is which widget is picked, so switching
+        // widget starts at the top while clearing one of its options does not.
+        const paint = () => { panel.body.innerHTML = `
             <div class="ce-picker">${picker}</div>
 
             <section class="cp-card ce-about">
@@ -394,7 +397,8 @@ const figures = await CrewFeed.stats();    // { pilots, hours, pireps, … }`;
                 <p class="cp-note">Anywhere that accepts HTML will do — a page on your site, a
                     widget block, a Notion or Carrd embed. It resizes itself to whatever width
                     you give it.</p>
-            </section>`}`;
+            </section>`}`; };
+        if (P && P.keepPlace) P.keepPlace(panel.body, paint, S.pick); else paint();
 
         icons();
         wire(w, src);
