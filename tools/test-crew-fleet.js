@@ -146,6 +146,51 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
   ok('a 500 says it is not their typing', /not something you have typed wrong/i.test(n.t), n.t);
   ok('…and is never the bare "Could not save."', !/^Could not save\.$/.test(n.t), n.t);
 
+  // "I type in the plane and it already pops up, instead of wait for a selection
+  // of the livery." A <datalist> suggests but never constrains, so the aircraft
+  // box kept whatever was typed — and the livery lookup was a strict
+  // LIV_MAP[exact] hit, which a lowercase or loosely-spaced name missed. The
+  // livery box then offered nothing, with no hint that it was waiting on the
+  // box before it.
+  console.log('\nAn aircraft typed loosely, not picked from the list');
+  await ctx.close();
+  brandingFleet=[]; settingsReply=null;
+  ({ctx,page,errs}=await open());
+  await page.evaluate(()=>addFleet()); await page.waitForTimeout(150);
+  const typeSel='#fleetRows [data-idx="0"] [data-f="type"]';
+  const livSel='#fleetRows [data-idx="0"] [data-f="name"]';
+  ok('the livery box says it is waiting on the aircraft',
+     /Pick an aircraft first/.test(await page.getAttribute(livSel,'placeholder')),
+     await page.getAttribute(livSel,'placeholder'));
+
+  await page.fill(typeSel,'  boeing 787-9 ');
+  await page.waitForTimeout(150);
+  ok('its liveries are found anyway',
+     (await page.$$eval('#livList-0 option', o=>o.map(x=>x.value))).includes('Aeromexico'),
+     JSON.stringify(await page.$$eval('#livList-0 option', o=>o.map(x=>x.value))));
+  ok('…and the livery box now says how many there are',
+     /2 to choose from/.test(await page.getAttribute(livSel,'placeholder')),
+     await page.getAttribute(livSel,'placeholder'));
+
+  await page.dispatchEvent(typeSel,'change'); await page.waitForTimeout(200);
+  ok('committing snaps it to the catalogue spelling',
+     (await page.inputValue(typeSel))==='Boeing 787-9', await page.inputValue(typeSel));
+  ok('…so what is stored is what the tracker matches against',
+     (await page.evaluate(()=>FLEET[0].type))==='Boeing 787-9',
+     await page.evaluate(()=>JSON.stringify(FLEET[0])));
+
+  await page.fill(livSel,'aeromexico');
+  await page.dispatchEvent(livSel,'change'); await page.waitForTimeout(200);
+  ok('a loosely typed livery is snapped too',
+     (await page.evaluate(()=>FLEET[0].name))==='Aeromexico',
+     await page.evaluate(()=>JSON.stringify(FLEET[0])));
+
+  posts=[]; await page.evaluate(()=>saveStructure('fleet')); await page.waitForTimeout(500);
+  ok('and the row saves canonically',
+     posts.length===1 && posts[0].fleet[0].type==='Boeing 787-9' && posts[0].fleet[0].name==='Aeromexico',
+     JSON.stringify(posts));
+  ok('no page errors', errs.length===0, errs.join('|'));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close(); server.close(); process.exit(fail?1:0);
 })();
