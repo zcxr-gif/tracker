@@ -6,7 +6,11 @@
     <title>Join — Crew Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script>tailwind.config = { darkMode: 'class' };</script>
+    <!-- Guarded, because Tailwind is a CDN script: blocked by a network or an
+         ad blocker, slow, or simply down, and an unguarded `tailwind.config`
+         throws a ReferenceError that kills this inline script outright. Every
+         other page in the crew center already guards it. -->
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
@@ -73,6 +77,12 @@
                     <div id="stepBody"><div class="flex justify-center py-10"><i data-lucide="loader" class="w-6 h-6 muted animate-spin"></i></div></div>
                 </div>
 
+                <!-- Why you cannot go on yet.
+                     Above the nav rather than inside a step, because the steps
+                     are rebuilt from scratch on every render and the one place
+                     this has to survive is the press that did not work. -->
+                <p id="navNote" class="hidden px-5 sm:px-6 -mb-1 pt-3 text-sm text-red-500" role="alert"></p>
+
                 <!-- Footer nav -->
                 <div id="nav" class="hidden flex items-center justify-between px-5 sm:px-6 py-4 border-t hair-soft">
                     <button id="backBtn" onclick="back()" class="text-sm font-semibold muted hover:text-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="arrow-left" class="w-4 h-4"></i> Back</button>
@@ -91,6 +101,10 @@
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         const EMBED = new URLSearchParams(location.search).get('embed')==='1';
+        // Read once, at load. Both decide how a step ARRIVES — see renderStep.
+        const mq = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
+        const STILL  = mq('(prefers-reduced-motion: reduce)');
+        const COARSE = mq('(pointer: coarse)');
         let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[], emailEnabled:false };
         let VA = { name:'', code:'' };
         let STEPS = [], cur = 0;
@@ -325,9 +339,40 @@
                 setNav(true, CFG.mode==='free' ? 'Join now' : 'Submit application');
             }
             document.getElementById('nextBtn').disabled=false;
+            clearNote();
             if(window.lucide) lucide.createIcons();
             postHeight();
+
+            // A step is a new screen, so it starts at its top — arriving half
+            // way down a form because that is where the last one ended is how
+            // an applicant misses the question they are being asked. Framed, the
+            // host page owns the scroll and postHeight() has just resized us, so
+            // there is nothing here to move.
+            if(!EMBED) window.scrollTo({ top:0, behavior: STILL ? 'auto' : 'smooth' });
+
+            // And the caret goes in the first thing to fill in. Not on a phone:
+            // there, focusing a field throws the keyboard over the question the
+            // step is asking, which is worse than one tap.
+            if(!COARSE){
+                const first=body.querySelector('input:not([type=hidden]):not([type=radio]):not([type=checkbox]),textarea,select');
+                if(first) first.focus({preventScroll:true});
+            }
         }
+
+        /* Enter is Continue.
+           Every step of this is one or two fields and a Continue button, and
+           pressing Enter after typing is what everybody does. It did nothing —
+           there is no <form> here — so the applicant had to reach for the mouse
+           on every one of five steps. */
+        document.addEventListener('keydown', e=>{
+            if(e.key!=='Enter') return;
+            const tag=(e.target.tagName||'').toUpperCase();
+            if(tag==='TEXTAREA' || tag==='BUTTON' || tag==='A') return;
+            const btn=document.getElementById('nextBtn');
+            if(!btn || btn.disabled || document.getElementById('nav').classList.contains('hidden')) return;
+            e.preventDefault();
+            btn.click();
+        });
 
         function readStep(){
             const s = STEPS[cur];
@@ -346,8 +391,47 @@
             if(s==='questions'){ DATA.answers = CFG.form.map((q,i)=>({ q:q.label, a:(document.querySelector(`[data-q="${i}"]`)||{}).value?document.querySelector(`[data-q="${i}"]`).value.trim():'' })); for(let i=0;i<CFG.form.length;i++){ if(CFG.form[i].required && !DATA.answers[i].a){ shake(`[data-q="${i}"]`); return false; } } }
             return true;
         }
-        function shake(sel){ const el=sel.startsWith('[')?document.querySelector(sel):document.getElementById(sel); if(el){ el.style.borderColor='#ef4444'; el.focus(); } }
-        function toast(msg){ const n=document.getElementById('submitNote')||document.getElementById('stepBody'); }
+        /**
+         * Say why Continue did nothing.
+         *
+         * This used to be an empty function — it declared a variable and
+         * returned. So an applicant below the VA's minimum grade pressed
+         * Continue and got NOTHING: no message, no movement, no hint that the
+         * button had even registered. On the one page a prospective pilot meets
+         * before anything else.
+         *
+         * An inline line above the nav rather than a floating toast, because
+         * this page is embedded in VAs' own sites in an iframe sized to its
+         * content, and a fixed-position element in a short frame is a message
+         * posted off the bottom of the screen.
+         */
+        function toast(msg){
+            const n=document.getElementById('navNote');
+            if(!n) return;
+            n.textContent=msg;
+            n.classList.remove('hidden');
+            postHeight();
+        }
+        function clearNote(){ const n=document.getElementById('navNote'); if(n) n.classList.add('hidden'); }
+
+        /**
+         * Mark the field that is holding things up.
+         *
+         * The red used to be permanent: set on the element's own style, never
+         * taken off, so a field stayed red after it had been corrected and the
+         * form kept accusing you of a mistake you had already fixed. It now
+         * clears itself the moment the field is touched.
+         */
+        function shake(sel){
+            const el=sel.startsWith('[')?document.querySelector(sel):document.getElementById(sel);
+            if(!el) return;
+            el.style.borderColor='#ef4444';
+            el.setAttribute('aria-invalid','true');
+            const clear=()=>{ el.style.borderColor=''; el.removeAttribute('aria-invalid'); clearNote(); };
+            el.addEventListener('input', clear, {once:true});
+            el.addEventListener('change', clear, {once:true});
+            el.focus();
+        }
 
         async function next(){
             if(!readStep()) return;

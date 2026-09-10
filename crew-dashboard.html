@@ -1754,6 +1754,21 @@
         const keepPlace=(el,draw)=>window.CrewPanels?CrewPanels.keepPlace(el,draw):draw();
         const busy=(btn,label)=>window.CrewPanels?CrewPanels.busy(btn,label):()=>{};
         const say=(msg,tone)=>{ if(window.CrewPanels) CrewPanels.toast(msg,tone); };
+        /**
+         * A destructive action that failed has to report TWO things: why, and
+         * that nothing happened.
+         *
+         * The server's own reason is the better "why" — it knows what it
+         * refused — but on its own it leaves the reader staring at a pilot they
+         * asked to remove, unsure whether it went through. "The database
+         * refused that." does not answer "is she still on the roster?". So the
+         * reassurance is appended whoever supplied the reason.
+         */
+        const sayFailed=(reason, fallback)=>{
+            let why=String(reason||fallback||'That didn’t work.').trim();
+            if(!/[.!?]$/.test(why)) why+='.';
+            say(why+' Nothing was changed.','bad');
+        };
         const ask=(opts)=>window.CrewPanels
             ? CrewPanels.ask(opts)
             // No module: fall back to the browser's own, which is still better
@@ -4008,7 +4023,7 @@
                     renderRoster(); say(`${who} removed from the roster.`,'ok'); changed('roster');
                 } else {
                     const d=await res.json().catch(()=>({}));
-                    say(d.error||'Could not remove them. Nothing was changed.','bad');
+                    sayFailed(d.error,'Could not remove them.');
                 }
             }catch{ say('Server unreachable — nothing was changed.','bad'); }
             finally{ done(); }
@@ -4538,7 +4553,7 @@
                     renderRoutes(); say(`${leg} deleted.`,'ok'); changed('routes');
                 } else {
                     const d=await res.json().catch(()=>({}));
-                    say(d.error||'Could not delete it. Nothing was changed.','bad');
+                    sayFailed(d.error,'Could not delete it.');
                 }
             }catch{ say('Server unreachable — nothing was changed.','bad'); }
             finally{ done(); }
@@ -5123,7 +5138,7 @@
                     changed('pireps');
                 } else {
                     const d=await res.json().catch(()=>({}));
-                    say(d.error||'Could not review that flight.','bad');
+                    sayFailed(d.error,'Could not review that flight.');
                 }
             }catch{ say('Server unreachable — nothing was changed.','bad'); }
             finally{ done(); }
@@ -5137,7 +5152,7 @@
                     body:'Any hours it credited come back off the pilot. This cannot be undone.' })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
                 if(res.ok){ PIREPS=PIREPS.filter(x=>String(x.id)!==String(id)); renderPireps(); say('Flight report deleted.','ok'); changed('pireps'); }
-                else { const d=await res.json().catch(()=>({})); say(d.error||'Could not delete it. Nothing was changed.','bad'); }
+                else { const d=await res.json().catch(()=>({})); sayFailed(d.error,'Could not delete this flight report.'); }
             }catch{ say('Server unreachable — nothing was changed.','bad'); }
             finally{ done(); }
         }
