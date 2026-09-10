@@ -1743,6 +1743,7 @@
              say(msg, tone)        a toast, so feedback is never off-screen
              ask({...})            a confirm the page draws itself, not the browser
              changed('roster')     tell every other view that shows this
+             reveal(el, block)     scroll to it, gliding only if motion is welcome
 
            Each guards on CrewPanels being there. It is loaded as a classic
            script above, so it always is — but this page already refuses to
@@ -1760,6 +1761,8 @@
             : Promise.resolve(window.confirm([opts.title,opts.body].filter(Boolean).join('\n\n')));
         const changed=(topics,detail)=>{ if(window.CrewPanels) CrewPanels.emit(topics,detail); };
         const onChanged=(topics,fn)=>{ if(window.CrewPanels) CrewPanels.on(topics,fn); };
+        const reveal=(el,block)=>{ if(window.CrewPanels) CrewPanels.reveal(el,block);
+            else if(el) el.scrollIntoView({block:block||'nearest'}); };
 
         let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
@@ -2499,13 +2502,14 @@
             // The one confirm in this drawer, and only when the run can delete.
             // Marking somebody inactive is undone with a click; deleting them
             // is not, so that is where the friction belongs.
-            if(willDelete && !await ask({ title:'Run the sweep now?', danger:true, confirm:'Run it now',
-                body:'Pilots past their deadline will be deleted, and that cannot be undone.' })) return;
             const slug=getSlug(), token=sessionToken();
             if(!slug || !token) return;
-            note.textContent='Running…'; note.className='text-sm muted'; note.classList.remove('hidden');
+            // Down before the question — see removePilot.
             const stop=busy('ret_runBtn','Running…');
             try{
+                if(willDelete && !await ask({ title:'Run the sweep now?', danger:true, confirm:'Run it now',
+                    body:'Pilots past their deadline will be deleted, and that cannot be undone.' })) return;
+                note.textContent='Running…'; note.className='text-sm muted'; note.classList.remove('hidden');
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/retention/run`,
                     { method:'POST', headers:{ Accept:'application/json', Authorization:'Bearer '+token } });
                 const d=await res.json().catch(()=>({}));
@@ -2862,19 +2866,84 @@
          * find it. Now the form comes to them, and the first field is ready to
          * type into.
          */
+        /**
+         * `firstFieldId` is only taken when the form is BLANK — see the callers.
+         *
+         * On a phone, focusing a field throws the keyboard up over half the
+         * screen. That is what you want from "Add pilot", where the next thing
+         * you will do is type a name into an empty box. It is the opposite of
+         * what you want from "Edit", where the form is already full and the
+         * thing you came to change is probably the dropdown underneath the
+         * keyboard that just covered it.
+         */
         function revealForm(formId, firstFieldId){
             const form=document.getElementById(formId); if(!form) return;
             form.classList.remove('hidden');
             // After the frame that un-hid it, or there is nothing laid out to
             // scroll to yet.
             requestAnimationFrame(()=>{
-                form.scrollIntoView({block:'nearest',behavior:'smooth'});
+                reveal(form);
                 const first=firstFieldId && document.getElementById(firstFieldId);
-                // preventScroll: the smooth scroll above is already on its way,
-                // and focus() would jump straight to the end of it.
+                // preventScroll: the scroll above may still be travelling, and
+                // focus() would jump straight to the end of it.
                 if(first) first.focus({preventScroll:true});
             });
         }
+        /* =====================================================================
+           THE KEYBOARD IN AN INLINE FORM
+
+           The three add/edit forms — pilot, route, flight — are <div>s, not
+           <form>s, and that quietly cost them the two keys everybody tries.
+
+           ENTER did nothing. Type a name, press Enter, nothing happens, and the
+           only way to find out why is to go looking for the button. Enter now
+           presses the form's own submit, from any single-line field in it; a
+           <textarea> keeps Enter for what it is there for, and so does anything
+           that has opened a native picker (a <select>).
+
+           ESCAPE closed the whole DRAWER, taking the half-filled form with it.
+           The reader meant "never mind this form", and got "never mind the
+           roster" — plus whatever they had typed. Escape now closes the form
+           first and a second press closes the drawer.
+
+           Escape is decided in ONE handler, the drawer's, which checks for an
+           open form before closing anything. Two handlers cannot do it: both
+           would be on `document`, so stopPropagation is no help — it stops
+           other NODES, not other listeners on the same node — and the one that
+           ran first would close the form, leaving the second to find no form
+           open and close the drawer anyway. Which is precisely the bug, reached
+           by a longer route. So: Enter here, Escape there.
+
+           Delegated on the document and keyed off the form ids, because the
+           markup is static and there is nothing here worth three listeners.
+           ===================================================================== */
+        const INLINE_FORMS=[
+            { id:'addPilotForm', submit:'pilotSubmitBtn', close:()=>closePilotForm() },
+            { id:'addRouteForm', submit:'routeSubmitBtn', close:()=>closeRouteForm() },
+            { id:'addPirepForm', submit:'pirepSubmitBtn', close:()=>closePirepForm() },
+        ];
+        function openInlineForm(){
+            return INLINE_FORMS.find(f=>{
+                const el=document.getElementById(f.id);
+                return el && !el.classList.contains('hidden');
+            }) || null;
+        }
+        document.addEventListener('keydown', e=>{
+            if(e.key!=='Enter') return;
+            // Only the form the keystroke actually came from, so Enter in the
+            // settings drawer never files a flight in a form left open behind it.
+            const form=INLINE_FORMS.find(f=>{
+                const el=document.getElementById(f.id);
+                return el && !el.classList.contains('hidden') && el.contains(e.target);
+            });
+            if(!form) return;
+            const tag=(e.target.tagName||'').toUpperCase();
+            if(tag==='TEXTAREA' || tag==='SELECT' || tag==='BUTTON') return;
+            e.preventDefault();
+            const btn=document.getElementById(form.submit);
+            if(btn && !btn.disabled) btn.click();
+        });
+
         /**
          * Put a list back at its top after a tab change.
          *
@@ -2929,6 +2998,11 @@
                 +' .cp-panel:not(.cp-hidden), .cev-panel:not(.cev-hidden)')) return;
             if(!document.getElementById('csvModal').classList.contains('hidden')) return;
             if(!document.getElementById('routeMap').classList.contains('hidden')) return;
+            // An open add/edit form owns the first Escape — closing the drawer
+            // out from under a half-filled form throws away what was typed. A
+            // second press finds no form and closes the drawer.
+            const form=openInlineForm();
+            if(form){ form.close(); return; }
             // Topmost first, so a drawer opened from a drawer closes in order.
             const open=['pireps','routes','roster','settings'].filter(id=>document.getElementById(id)?.dataset.open==='1');
             if(open.length) closeDrawer(open[0]);
@@ -3194,7 +3268,7 @@
             const field=row.querySelector('[data-f="name"],[data-f="type"],[data-rf="name"],[data-qf="label"],[data-af="username"]')
                 || row.querySelector('input:not([type="color"]):not([type="checkbox"]):not([type="radio"]),textarea,select');
             if(!field) return;
-            row.scrollIntoView({block:'nearest',behavior:'smooth'});
+            reveal(row);
             field.focus({preventScroll:true});
         }
         // Live-edit via delegation (no re-render, so inputs keep focus).
@@ -3885,7 +3959,9 @@
             document.getElementById('pilotFormTitle').textContent = member ? 'Edit pilot' : 'Add pilot';
             document.getElementById('pilotSubmitBtn').textContent = member ? 'Save changes' : 'Add pilot';
             const note=document.getElementById('pilotNote'); if(note) note.classList.add('hidden');
-            revealForm('addPilotForm','np_name');
+            // Blank form: put them in the name box. Editing: leave the caret
+            // alone — see revealForm.
+            revealForm('addPilotForm', member?null:'np_name');
             if(window.lucide) lucide.createIcons();
         }
         function closePilotForm(){ EDITING=null; document.getElementById('addPilotForm').classList.add('hidden'); }
@@ -3917,10 +3993,14 @@
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
             const who=(ROSTER.find(m=>String(m.id)===String(id))||{}).name||'this pilot';
-            if(!await ask({ title:`Remove ${who} from the roster?`, danger:true, confirm:'Remove them',
-                body:'Their flight reports and hours stay in your database — this takes them off the roster.' })) return;
+            // The button goes down BEFORE the question, not after it. A bin icon
+            // takes an impatient double-press, and three questions stacked over
+            // each other — two of them unreachable behind the top one — is the
+            // worst possible answer to "did that register?".
             const done=busy(el && el.querySelector('[data-remove]'), false);
             try{
+                if(!await ask({ title:`Remove ${who} from the roster?`, danger:true, confirm:'Remove them',
+                    body:'Their flight reports and hours stay in your database — this takes them off the roster.' })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
                 if(res.ok){
                     ROSTER=ROSTER.filter(m=>String(m.id)!==String(id));
@@ -3940,10 +4020,11 @@
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
             const who=(ROSTER.find(x=>String(x.id)===String(id))||{}).name||'this pilot';
-            if(!await ask({ title:`Sign ${who} off for ${rank}?`, confirm:'Sign them off',
-                body:'They are promoted straight away, and the crew is told.' })) return;
+            // Down before the question — see removePilot.
             const done=busy(card && card.querySelector('[data-checkride]'), 'Signing off…');
             try{
+                if(!await ask({ title:`Sign ${who} off for ${rank}?`, confirm:'Sign them off',
+                    body:'They are promoted straight away, and the crew is told.' })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}/checkride`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
                     body:JSON.stringify({ rank }) });
@@ -4372,7 +4453,7 @@
             document.getElementById('routeFormTitle').textContent = route ? 'Edit route' : 'Add route';
             document.getElementById('routeSubmitBtn').textContent = route ? 'Save changes' : 'Add route';
             const note=document.getElementById('routeNote'); if(note) note.classList.add('hidden');
-            revealForm('addRouteForm','nr_flight');
+            revealForm('addRouteForm', route?null:'nr_flight');
             if(window.lucide) lucide.createIcons();
         }
         let NR_KIND='own';
@@ -4445,10 +4526,11 @@
             if(!slug||!token) return;
             const r=ROUTES.find(x=>String(x.id)===String(id))||{};
             const leg=(r.origin&&r.destination)?`${r.origin}–${r.destination}`:'this route';
-            if(!await ask({ title:`Delete ${leg}?`, danger:true, confirm:'Delete it',
-                body:'It comes off the network and out of the map. Flights already filed against it are not touched.' })) return;
+            // Down before the question — see removePilot.
             const done=busy(card && card.querySelector('[data-rdel]'), false);
             try{
+                if(!await ask({ title:`Delete ${leg}?`, danger:true, confirm:'Delete it',
+                    body:'It comes off the network and out of the map. Flights already filed against it are not touched.' })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
                 if(res.ok){
                     ROUTES=ROUTES.filter(x=>String(x.id)!==String(id));
@@ -5048,10 +5130,11 @@
         }
         async function deletePirep(id, card){
             const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
-            if(!await ask({ title:'Delete this flight report?', danger:true, confirm:'Delete it',
-                body:'Any hours it credited come back off the pilot. This cannot be undone.' })) return;
+            // Down before the question — see removePilot.
             const done=busy(card && card.querySelector('[data-pdel]'), false);
             try{
+                if(!await ask({ title:'Delete this flight report?', danger:true, confirm:'Delete it',
+                    body:'Any hours it credited come back off the pilot. This cannot be undone.' })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
                 if(res.ok){ PIREPS=PIREPS.filter(x=>String(x.id)!==String(id)); renderPireps(); say('Flight report deleted.','ok'); changed('pireps'); }
                 else { const d=await res.json().catch(()=>({})); say(d.error||'Could not delete it. Nothing was changed.','bad'); }
@@ -5133,7 +5216,9 @@
             if(p.aircraft) acSel.value=p.aircraft;
             document.getElementById('pf_routecheck').innerHTML='';
             const note=document.getElementById('pirepFormNote'); if(note) note.classList.add('hidden');
-            revealForm('addPirepForm','pf_from');
+            // A form opened off a booked departure arrives already filled, so
+            // there is nothing to type into — only a blank one takes the caret.
+            revealForm('addPirepForm', (p.origin||p.destination)?null:'pf_from');
             // Routes power the on-network check; make sure they're loaded.
             if(!ROUTES||!ROUTES.length) fetchRoutes().then(()=>{});
         }
@@ -5350,8 +5435,10 @@
         async function inviteAction(id, card, {method, path, check, working}){
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
-            if(check && !(await ask(check))) return;
+            // Buttons down before the question, so a double-press on a card
+            // cannot stack two of them — see removePilot.
             card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            if(check && !(await ask(check))){ card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
             inviteNote(card, working, 'muted');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications/${encodeURIComponent(id)}/invite${path||''}`,{
@@ -5518,7 +5605,14 @@
             if(!slug||!token) return;
             const note=card.querySelector('[data-note]');
             const message=(card.querySelector('[data-msg]')||{}).value||'';
-            const name=(card.querySelector('.font-semibold')||{}).textContent||'The pilot';
+            // Out of the record, not out of the card. This used to read the
+            // first `.font-semibold` in the DOM, which happens to be the name
+            // and would stop being the name the first time anything bold is
+            // added above it — a selector that cannot fail loudly. It matters
+            // more now than it did: the name goes into what the reader is told
+            // happened, and "Unnamed accepted" is worse than a note nobody saw.
+            const rec=APPS.find(a=>String(a._id||a.id)===String(id))||{};
+            const name=(rec.ifcName||rec.name||(card.querySelector('.font-semibold')||{}).textContent||'The pilot').trim();
             const body={ action, message };
             if(action==='accept'){
                 body.createAccount = !!(card.querySelector('[data-mkacct]')||{}).checked;
@@ -5541,9 +5635,9 @@
                 if(!res.ok){ fail(d.error||'Could not update.'); return; }
                 APPS=APPS.filter(a=>String(a._id||a.id)!==String(id));
                 if(action==='accept'){
-                    renderHandover(card, name.trim(), d);
+                    renderHandover(card, name, d);
                     refreshAppsBadge();
-                    say(`${name.trim()} accepted — they are on the roster.`,'ok');
+                    say(`${name} accepted — they are on the roster.`,'ok');
                     // Accepting adds a pilot — refresh the roster so it shows up.
                     fetchRoster().then(()=>{ changed('roster'); });
                     // …and mints an invitation, so the tab that holds it until
@@ -5553,7 +5647,7 @@
                 }else{
                     card.style.transition='opacity .25s'; card.style.opacity='0';
                     setTimeout(()=>{ renderApps(); }, 250);
-                    say(`${name.trim()} declined.${message?' Your message was sent.':''}`,'ok');
+                    say(`${name} declined.${message?' Your message was sent.':''}`,'ok');
                     changed('applications');
                 }
             }catch{ fail('Server unreachable.'); }
@@ -5725,7 +5819,7 @@
             openSettings('data');
             setTimeout(()=>{
                 const box=document.getElementById('dbUpgrade');
-                if(box && !box.classList.contains('hidden')) box.scrollIntoView({behavior:'smooth',block:'center'});
+                if(box && !box.classList.contains('hidden')) reveal(box,'center');
                 const field=document.getElementById('dbUpgradeToken');
                 // preventScroll: focus() would jump straight to the end of the
                 // smooth scroll that is already on its way, which is the one

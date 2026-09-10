@@ -162,6 +162,21 @@
 
     function baseStyles() {
         style('cp-styles', `
+        /* EVERY WIDTH IN HERE IS A BORDER-BOX WIDTH.
+           These panels are laid out with width:100% on padded boxes — a
+           .cp-input inside a .cp-card, the confirm sheet across a phone — and
+           every one of those is 100% PLUS its padding under the default content
+           box, so it overflows its own container by two paddings and sits off
+           centre. It looked right only because Tailwind's preflight happened to
+           set border-box globally on the pages this shipped on, and Tailwind is
+           a CDN script: blocked, slow or simply down, and this stylesheet was
+           relying on it for its box model. Same reasoning as the .hidden rule
+           in crew-dashboard.html — a panel's own structure must not depend on a
+           third-party script arriving.
+           Scoped to our own classes rather than a global *, because this file
+           is dropped into pages it does not own. */
+        [class^="cp-"],[class*=" cp-"],[class^="cp-"]::before,[class*=" cp-"]::before,
+        [class^="cp-"]::after,[class*=" cp-"]::after{ box-sizing:border-box; }
         .cp-hidden{ display:none !important; }
         #cp-toasts{ position:fixed; bottom:1rem; left:50%; transform:translateX(-50%);
             z-index:120; display:flex; flex-direction:column; gap:.5rem; pointer-events:none; }
@@ -403,6 +418,23 @@
      * Toast
      * ------------------------------------------------------------------- */
 
+    /**
+     * Say one thing, briefly.
+     *
+     * Two rules about the stack, both learned from bulk work — reviewing a
+     * morning's flight reports is six presses in five seconds, and six toasts
+     * is not feedback, it is a wall across the bottom of the screen:
+     *
+     *   · THE SAME MESSAGE AGAIN counts up in place rather than queueing. Six
+     *     approvals read "Flight approved… ×6" on one line, which is both
+     *     shorter and more useful than six copies — it is the running total of
+     *     what you have just done. Its life is extended on each repeat, so the
+     *     count is still there when the last press lands.
+     *   · AT MOST THREE at once. Past three, the oldest goes. A fourth distinct
+     *     message means the first is already history.
+     */
+    const TOAST_MAX = 3;
+
     function toast(msg, tone) {
         baseStyles();
         let host = document.getElementById('cp-toasts');
@@ -411,11 +443,49 @@
             host.id = 'cp-toasts';
             document.body.appendChild(host);
         }
+        const text = String(msg == null ? '' : msg);
+        const kind = 'cp-toast-' + (tone || 'info');
+
+        const same = Array.from(host.children).find(
+            (t) => t.dataset.cpMsg === text && t.classList.contains(kind) && !t.classList.contains('cp-out'),
+        );
+        if (same) {
+            const n = (Number(same.dataset.cpN) || 1) + 1;
+            same.dataset.cpN = String(n);
+            same.textContent = `${text} ×${n}`;
+            clearTimeout(Number(same.dataset.cpT));
+            same.dataset.cpT = String(setTimeout(() => retire(same), 4200));
+            return;
+        }
+
         const el = document.createElement('div');
-        el.className = 'cp-toast cp-toast-' + (tone || 'info');
-        el.textContent = msg;
+        el.className = 'cp-toast ' + kind;
+        el.textContent = text;
+        el.dataset.cpMsg = text;
         host.appendChild(el);
-        setTimeout(() => { el.classList.add('cp-out'); setTimeout(() => el.remove(), 300); }, 4200);
+        el.dataset.cpT = String(setTimeout(() => retire(el), 4200));
+        while (host.children.length > TOAST_MAX) retire(host.firstElementChild, true);
+    }
+
+    function retire(el, now) {
+        if (!el || el.classList.contains('cp-out')) return;
+        clearTimeout(Number(el.dataset.cpT));
+        el.classList.add('cp-out');
+        setTimeout(() => el.remove(), now ? 0 : 300);
+    }
+
+    /**
+     * Bring something into view, honouring the reader's motion preference.
+     *
+     * `behavior:'smooth'` is the right default — an unannounced jump is how a
+     * reader loses track of where they are — but it is exactly the kind of
+     * movement `prefers-reduced-motion` is about, and scrollIntoView does not
+     * consult the preference on its own the way a CSS transition does.
+     */
+    function reveal(el, block) {
+        if (!el || typeof el.scrollIntoView !== 'function') return;
+        const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({ block: block || 'nearest', behavior: still ? 'auto' : 'smooth' });
     }
 
     /* ---------------------------------------------------------------------
@@ -677,12 +747,16 @@
      * then the offset is theirs, not ours to restore.
      *
      * `viewKey` is for a panel that renders genuinely DIFFERENT screens from one
-     * function — a list, and the editor you reach from it. Keeping the place is
-     * right for a redraw of the same screen and wrong for a change of screen:
-     * opening an editor 400px down because that is where the list was is not
-     * "not losing your place", it is starting the form half way through. Pass a
-     * short string naming the screen and a change of it scrolls to the top
-     * instead. Omit it for anything that only ever draws one kind of thing.
+     * function — a library, and the document you open out of it. Keeping the
+     * place is right for a redraw of the same screen and wrong for a change of
+     * screen: opening a document 400px down because that is where the list was
+     * is not "not losing your place", it is starting half way through it.
+     *
+     * So a change of key moves to where THAT screen was last left — its top the
+     * first time, and otherwise the offset it had when you went away. Which
+     * makes going back from a document to the library land on the document you
+     * were just reading rather than at the top of a list you now have to scroll
+     * through again. Omit the key for anything that only ever draws one thing.
      */
     function keepPlace(el, render, viewKey) {
         const host = (el && el.nodeType) ? el : document.querySelector(String(el || ''));
@@ -691,9 +765,18 @@
 
         if (viewKey != null) {
             const key = String(viewKey);
-            const changed = host.dataset.cpView !== key;
-            host.dataset.cpView = key;
-            if (changed) { render(); box.scrollTop = 0; return; }
+            const was = host.dataset.cpView;
+            if (was !== key) {
+                // Remember where the screen being left off was, on the element
+                // rather than in a module variable: two panels can be open at
+                // once, and a panel is torn down and rebuilt with its host.
+                const seen = host._cpViewTops || (host._cpViewTops = Object.create(null));
+                if (was != null) seen[was] = box.scrollTop;
+                host.dataset.cpView = key;
+                render();
+                box.scrollTop = seen[key] || 0;
+                return;
+            }
         }
 
         const top = box.scrollTop;
@@ -781,6 +864,18 @@
      */
     function ask({ title, body = '', confirm: okLabel = 'Continue', cancel: cancelLabel = 'Cancel', danger = false, type = '' } = {}) {
         baseStyles();
+        // ONE QUESTION AT A TIME, and a second asked while one is up is answered
+        // no rather than stacked.
+        //
+        // A bin icon on a card takes an impatient double-press, and three
+        // dialogs over each other — two of them unreachable behind the top one,
+        // each holding a scroll lock — is the worst possible answer to "did that
+        // register?". The callers also disable the button before asking, so this
+        // should not be reached; it is here because the safe answer to a
+        // question nobody can see must be the one that changes nothing, and
+        // relying on every future caller to remember that is how it gets lost.
+        // Nothing in the crew center asks a question from inside a question.
+        if (document.querySelector('.cp-ask')) return Promise.resolve(false);
         return new Promise((resolve) => {
             const host = document.createElement('div');
             host.className = 'cp-ask cp-dialog';
@@ -829,6 +924,19 @@
                 if (ev.key === 'Escape') { ev.stopPropagation(); finish(false); }
                 else if (ev.key === 'Enter' && (ev.target === yes || (typed && ev.target === typed && !yes.disabled))) {
                     ev.stopPropagation(); ev.preventDefault(); finish(true);
+                } else if (ev.key === 'Tab') {
+                    // Keep Tab inside the dialog. window.confirm did this for
+                    // free by being the browser's own window; a modal drawn in
+                    // the page does not, and tabbing out of a question into the
+                    // form it is asking about is how you end up answering a
+                    // dialog you can no longer see.
+                    const stops = Array.from(host.querySelectorAll('button:not([disabled]), input, [tabindex]:not([tabindex="-1"])'))
+                        .filter((n) => n.offsetParent !== null);
+                    if (!stops.length) return;
+                    const first = stops[0], last = stops[stops.length - 1];
+                    const on = document.activeElement;
+                    if (ev.shiftKey && (on === first || !host.contains(on))) { ev.preventDefault(); last.focus(); }
+                    else if (!ev.shiftKey && (on === last || !host.contains(on))) { ev.preventDefault(); first.focus(); }
                 }
             }
             // Capture, so Escape here is swallowed before the sheet underneath
@@ -1013,6 +1121,6 @@
         style, baseStyles, toast, sheet, api,
         lockScroll, unlockScroll, recoverScroll,
         isSchemaGap, schemaGapHtml,
-        keepPlace, busy, ask, on, emit,
+        keepPlace, busy, ask, on, emit, reveal,
     };
 })();

@@ -1381,6 +1381,16 @@
         .cev-toast-bad{ background:#DC2626; color:#fff; }
         .cev-toast.cev-out{ opacity:0; transform:translateY(6px); }
 
+        /* Border-box, for the reason crewPanels.js sets it on its own classes:
+           .cev-input and friends are width:100% inside padded cards, which is
+           100% PLUS the padding under the default content box — so every field
+           in the event form overflows its card by two paddings. It looked right
+           only because Tailwind's preflight happened to set border-box globally
+           on the pages this ships on, and Tailwind is a CDN script. Scoped to
+           our own classes, not a global *, because this file is dropped into
+           pages it does not own. */
+        [class^="cev-"],[class*=" cev-"],[class^="cev-"]::before,[class*=" cev-"]::before,
+        [class^="cev-"]::after,[class*=" cev-"]::after{ box-sizing:border-box; }
         .cev-panel,.cev-modal{ position:fixed; inset:0; z-index:70; }
         .cev-scrim{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
         .cev-sheet,.cev-detail{ position:absolute; right:0; top:0; height:100%; width:100%;
