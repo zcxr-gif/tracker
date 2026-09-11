@@ -66,6 +66,9 @@
     <!-- A staff member's OWN flying. Staff fly too, and this dashboard used to
          show them everyone else's operation and none of their own. -->
     <script src="/crewMyFlying.js"></script>
+    <!-- The shop: what a flight is worth, the pilot's card, and Inflight Pay.
+         Off until an owner turns it on, and silent in every VA that has not. -->
+    <script src="/crewShop.js"></script>
     <!-- How a topic presents itself: the owner's slide-over/full-page choice,
          the burger that moves between topics and the per-topic links. Re-skins
          the panels above rather than replacing them, so it loads after them. -->
@@ -1987,6 +1990,7 @@
             {icon:'plane',label:'Infinite Flight',desc:'Live fleet & aircraft schedules',action:'ifLive'},
             {icon:'globe',label:'Website',desc:'Your public site',action:'website'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
+            {icon:'store',label:'Shop',desc:'What a flight is worth',action:'shop'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
@@ -2028,6 +2032,12 @@
             const tools=TOOLS.filter(t=>{
                 // A VA that has switched the schedule off gets no Schedules tile.
                 if(t.action==='schedule' && SCHEDULE_PREFS.enabled===false) return false;
+                // The shop is off until a VA turns it on, so for everybody
+                // else the tile is absent rather than a door into a room with
+                // nothing in it. Whoever can turn it on always sees it —
+                // otherwise the only way to switch it on would be a link
+                // somebody would have to be given.
+                if(t.action==='shop' && SHOP.enabled!==true && !can('settings.branding')) return false;
                 // Websites are a deployment-level switch (VA_SITES_DOMAIN, in
                 // the database repo). Where they are off there is no address a
                 // site could live at, so the tile would open a page that can
@@ -2085,6 +2095,7 @@
                 if(t.action==='ifLive') el.addEventListener('click', openIfLive);
                 if(t.action==='website') el.addEventListener('click', openWebsite);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
+                if(t.action==='shop') el.addEventListener('click', openShop);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
             });
@@ -2124,7 +2135,7 @@
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
         };
         const TOPIC_OPEN={
-            roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(),
+            roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(), shop:()=>openShop(),
             settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
             partnership:()=>openPartnership(), insights:()=>openInsights(),
@@ -2744,6 +2755,22 @@
         function openWebsite(){
             const slug=getSlug();
             location.href = slug ? `/crew/${encodeURIComponent(slug)}/website` : '/crew';
+        }
+
+        // ---- The shop ----
+        //
+        // Everything about it lives in crewShop.js: the shelf, the card, the
+        // rates and the till. The dashboard's part is the same two lines every
+        // other self-contained panel gets — where the backend is, and who is
+        // asking — plus the VA's own name and mark, because the pilot's card
+        // has the airline on the front of it.
+        let SHOP={ enabled:null }, CREW_LOGO='';   // enabled: null until the crew record says
+        function openShop(){
+            if(!window.CrewShop) return;
+            CrewShop.open({
+                api: CrewPanels.api({ backend: BACKEND, slug: getSlug(), token: sessionToken }),
+                brand: { name: CREW_NAME, code: CREW_CODE, logo: CREW_LOGO },
+            });
         }
 
         // ---- Embeds & partnership ----
@@ -7477,11 +7504,18 @@
                 document.getElementById('idMonogram').textContent=mono;
             }
             if(b.schedule && typeof b.schedule==='object'){ SCHEDULE_PREFS={ ...SCHEDULE_PREFS, ...b.schedule }; }
+            // Whether this VA runs a shop. Only the flag is read here — the
+            // rates, the shelf and the balances are the shop panel's own fetch,
+            // and none of it is worth asking for on a page that may never open
+            // it. Left null when the record says nothing, so `!==true` above
+            // keeps the tile hidden rather than guessing.
+            if(b.shop && typeof b.shop==='object'){ SHOP={ ...SHOP, ...b.shop }; }
             applyScheduleVisibility();
             renderSchedulePrefs();
             if(b.tagline) document.getElementById('idTagline').textContent=b.tagline;
             if(b.code){ CREW_CODE=b.code; const c=document.getElementById('idCode'); c.textContent=b.code; c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
+                CREW_LOGO=b.logo;           // the mark on the pilot's card, too
                 document.getElementById('navLogo').src=b.logo; document.getElementById('navLogo').classList.remove('hidden'); document.getElementById('navMonogram').classList.add('hidden');
                 document.getElementById('idLogo').src=b.logo; document.getElementById('idLogo').classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }

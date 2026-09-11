@@ -46,6 +46,13 @@
     <!-- The VA's real fleet, out of Infinite Flight's Live API. Read-only here:
          this page gets the pilot-facing board, never the staff panel. -->
     <script src="/crewInfiniteFlight.js"></script>
+    <!-- The shop: this pilot's card, what their flying is worth, and the
+         Inflight Pay sheet they spend it through. Draws nothing at all for a
+         VA that does not run a shop. -->
+    <script src="/crewShop.js"></script>
+    <!-- Paying should be felt. Silent on a desktop and in any browser without
+         the Vibration API; the crew center's only use of it. -->
+    <script src="/haptics.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -266,6 +273,12 @@
             </div>
         </section>
 
+        <!-- ============ THE CARD ============
+             This pilot's own card and balance, painted by crewShop.js. Starts
+             hidden and stays hidden unless the VA runs a shop — an empty frame
+             where a card would go is worse than no card. -->
+        <section id="shopCard" class="mt-6 cp-hidden"></section>
+
         <!-- ============ QUICK ACTIONS ============ -->
         <section class="mt-6">
             <div id="quickGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
@@ -375,6 +388,7 @@
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE = '';   // VA callsign — drives the live map behind the hero
+        let CREW_NAME = '', CREW_LOGO = '';   // the airline on the front of the pilot's card
         let CREW_LAYOUT = 'editorial';
 
         // Staff-allowed layout presets; ?layout=<preset> overrides for preview.
@@ -446,6 +460,10 @@
             // lands, so the tile never claims a library it has not read.
             {icon:'library',label:'Documents',desc:'Manuals & SOPs',action:'documents',live:true},
             {icon:'trophy',label:'Standings',desc:'Who’s flying this month',action:'standings'},
+            // Shown to everybody: the panel says plainly when the VA does not
+            // run a shop, and a pilot who has heard about it from a crewmate
+            // should not also have to be told where it is hidden.
+            {icon:'store',label:'Shop',desc:'Spend what you’ve flown',action:'shop'},
             {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
         ];
         function renderActions(){
@@ -471,6 +489,7 @@
                 if(act==='inbox') el.addEventListener('click', openInbox);
                 if(act==='documents') el.addEventListener('click', openDocuments);
                 if(act==='standings') el.addEventListener('click', openStandings);
+                if(act==='shop') el.addEventListener('click', openShop);
                 if(act==='network') el.addEventListener('click', openNetwork);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
@@ -934,6 +953,23 @@
 
         /* The board works signed out — it highlights nobody then, which is the
            honest state rather than a locked panel. So no token check here. */
+        // ---- The shop ----
+        //
+        // Both halves take what every panel on this page takes. `brand` is the
+        // airline on the front of the card — its name, its code and its mark,
+        // which this page has already resolved for its own header and hero.
+        function shopArgs(){
+            return {
+                api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }),
+                brand: { name:CREW_NAME, code:CREW_CODE, logo:CREW_LOGO },
+            };
+        }
+        function openShop(){ if(window.CrewShop) CrewShop.open(shopArgs()); }
+        function mountShopCard(){
+            const host=document.getElementById('shopCard');
+            if(host && window.CrewShop) CrewShop.mountCard(host, shopArgs());
+        }
+
         function openStandings(){
             if(!window.CrewStandings) return;
             CrewStandings.open({ api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }) });
@@ -1038,6 +1074,7 @@
             // picked their own from the top bar.
             if(window.CrewSkin) CrewSkin.applyRecord(b);
             const name=b.name||b.code||'';
+            CREW_NAME=name;
             if(name){
                 document.getElementById('navName').textContent=name;
                 document.getElementById('trustName').textContent=`${name}’s`;
@@ -1047,6 +1084,7 @@
             }
             if(b.code){ CREW_CODE=b.code; const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
+                CREW_LOGO=b.logo;           // the mark on the front of the card
                 const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
                 el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
             }
@@ -1178,6 +1216,9 @@
             loadNotices();
             const b = await resolveBranding();
             applyBranding(b);
+            // After applyBranding, not before: the card has the airline's name
+            // and mark on the front of it, and both arrive with the record.
+            mountShopCard();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
             applyEmbeds();                   // hero map / banner per layout
             // The hero map is themed by URL, so re-source it if a host flips us.

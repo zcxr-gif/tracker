@@ -487,10 +487,19 @@
 }
 :root[data-skin="aurora"] .cp-btn:active:not(:disabled),
 :root[data-skin="aurora"] .cev-btn:active:not(:disabled){ transform:translateY(0) scale(.985); }
+/* The accent is restated here, not only the glow: the .cp-btn rule above sets
+   a translucent surface fill at a specificity the modules' own
+   `.cp-btn-primary{background:var(--accent)}` cannot beat, so without this the
+   one button on a panel that is supposed to be the airline's colour comes out
+   the same as the ones beside it. */
 :root[data-skin="aurora"] .cp-btn-primary,
 :root[data-skin="aurora"] .cev-btn-primary{
+    background:var(--accent);
+    border-color:transparent;
     box-shadow:var(--sk-glow), inset 0 1px 0 0 color-mix(in srgb, #FFF 20%, transparent);
 }
+/* Same reasoning for the destructive one. */
+:root[data-skin="aurora"] .cp-btn-danger{ background:#DC2626; border-color:transparent; }
 :root[data-skin="aurora"] .cp-icon-btn,
 :root[data-skin="aurora"] .cev-icon-btn{ border-radius:.65rem; transition:background .2s, color .2s, transform .2s var(--sk-spring); }
 :root[data-skin="aurora"] .cp-icon-btn:hover,
