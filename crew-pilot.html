@@ -53,6 +53,18 @@
     <!-- Paying should be felt. Silent on a desktop and in any browser without
          the Vibration API; the crew center's only use of it. -->
     <script src="/haptics.js"></script>
+    <!-- The search box, made real: ⌘K, every pilot, sector, event and document,
+         and every tool on this page. -->
+    <script src="/crewCommand.js"></script>
+    <!-- The bell, made real. It has had a dot on it since this page shipped and
+         the dot has never counted anything. -->
+    <script src="/crewAlerts.js"></script>
+    <!-- Where this pilot stands on the ladder, and asking for the check-ride. -->
+    <script src="/crewTraining.js"></script>
+    <!-- What they have to show for it. -->
+    <script src="/crewAwards.js"></script>
+    <!-- Telling the airline they are away, so the roster sweep leaves them be. -->
+    <script src="/crewLeave.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -179,7 +191,10 @@
             <div class="hidden sm:flex flex-1 max-w-sm mx-auto">
                 <div class="relative w-full">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
-                    <input type="text" placeholder="Search flights, events, pilots…"
+                    <!-- data-crew-search: crewCommand.js takes this over. It has
+                         taken typing and answered with nothing since this page
+                         shipped; now it opens a search that works. -->
+                    <input type="text" data-crew-search placeholder="Search flights, events, pilots…"
                         class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
@@ -190,9 +205,11 @@
                      the people who actually read this page every day.
                      crewSkin.js fills it; empty if that script did not load. -->
                 <span data-skin-toggle></span>
-                <button class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications">
+                <!-- The dot that used to live here was markup: always on, never
+                     counting anything. crewAlerts.js owns this button now and
+                     paints a real number on it, or nothing at all. -->
+                <button data-crew-bell class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications">
                     <i data-lucide="bell" class="w-[18px] h-[18px]"></i>
-                    <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full accent-bg"></span>
                 </button>
                 <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme">
                     <span id="themeIcon"></span>
@@ -278,6 +295,12 @@
              hidden and stays hidden unless the VA runs a shop — an empty frame
              where a card would go is worse than no card. -->
         <section id="shopCard" class="mt-6 cp-hidden"></section>
+
+        <!-- ============ WHAT THEY'VE EARNED ============
+             The newest few badges, as a row. Painted by crewAwards.js and
+             hidden outright until there is one — an empty trophy shelf on the
+             page of somebody who just joined is the opposite of encouraging. -->
+        <section id="awardStrip" class="mt-6 cp-hidden"></section>
 
         <!-- ============ QUICK ACTIONS ============ -->
         <section class="mt-6">
@@ -464,6 +487,9 @@
             // run a shop, and a pilot who has heard about it from a crewmate
             // should not also have to be told where it is hidden.
             {icon:'store',label:'Shop',desc:'Spend what you’ve flown',action:'shop'},
+            {icon:'graduation-cap',label:'Training',desc:'Your ladder & check-rides',action:'training'},
+            {icon:'award',label:'Awards',desc:'What you’ve earned',action:'awards'},
+            {icon:'palmtree',label:'Going away?',desc:'Pause the roster sweep',action:'leave'},
             {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
         ];
         function renderActions(){
@@ -490,6 +516,9 @@
                 if(act==='documents') el.addEventListener('click', openDocuments);
                 if(act==='standings') el.addEventListener('click', openStandings);
                 if(act==='shop') el.addEventListener('click', openShop);
+                if(act==='training') el.addEventListener('click', openTraining);
+                if(act==='awards') el.addEventListener('click', openAwards);
+                if(act==='leave') el.addEventListener('click', openLeave);
                 if(act==='network') el.addEventListener('click', openNetwork);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
@@ -970,6 +999,62 @@
             if(host && window.CrewShop) CrewShop.mountCard(host, shopArgs());
         }
 
+        // ---- The ladder, the awards, and being away ----
+        function crewApi(){ return CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }); }
+        function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view:'me' }); }
+        function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
+        function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view:'me' }); }
+
+        // ---- The search box, and the bell ----
+        //
+        // The palette's actions are read back off the tiles this page just
+        // drew, so the two can never offer different things.
+        function paletteActions(){
+            return [...document.querySelectorAll('#quickGrid [data-i]')].map(el=>{
+                const label=el.querySelector('.font-semibold');
+                const desc=el.querySelector('.text-sm');
+                const ico=el.querySelector('[data-lucide]');
+                return {
+                    id:'tile-'+el.getAttribute('data-i'),
+                    label: label?label.textContent.trim():'',
+                    hint: desc?desc.textContent.trim():'',
+                    icon: ico?ico.getAttribute('data-lucide'):'square-chevron-right',
+                    run: ()=>el.click(),
+                };
+            }).filter(a=>a.label);
+        }
+        function mountCommand(){
+            if(!window.CrewCommand) return;
+            CrewCommand.mount({
+                api: crewApi(), slug:getSlug(), actions: paletteActions(),
+                onOpen: (kind)=>{
+                    if(kind==='route') openNetwork();
+                    else if(kind==='event') openEvents();
+                    else if(kind==='document') openDocuments();
+                    else if(kind==='pilot') openStandings();   // the only crew list a pilot has
+                },
+            });
+        }
+        function mountAlerts(){
+            if(!window.CrewAlerts) return;
+            CrewAlerts.mount({
+                api: crewApi(),
+                onOpen: (where)=>{
+                    if(where==='inbox') openInbox();
+                    else if(where==='schedule') openSchedule();
+                    else if(where==='shop') openShop();
+                    else if(where==='training') openTraining();
+                    else if(where==='awards') openAwards();
+                    else if(where==='events') openEvents();
+                    else openLogbook();
+                },
+            });
+        }
+        function mountAwardStrip(){
+            const host=document.getElementById('awardStrip');
+            if(host && window.CrewAwards) CrewAwards.mountStrip(host, { api: crewApi() });
+        }
+
         function openStandings(){
             if(!window.CrewStandings) return;
             CrewStandings.open({ api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }) });
@@ -1219,6 +1304,8 @@
             // After applyBranding, not before: the card has the airline's name
             // and mark on the front of it, and both arrive with the record.
             mountShopCard();
+            mountAwardStrip();
+            mountCommand(); mountAlerts();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
             applyEmbeds();                   // hero map / banner per layout
             // The hero map is themed by URL, so re-source it if a host flips us.

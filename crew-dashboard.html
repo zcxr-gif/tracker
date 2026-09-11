@@ -69,6 +69,19 @@
     <!-- The shop: what a flight is worth, the pilot's card, and Inflight Pay.
          Off until an owner turns it on, and silent in every VA that has not. -->
     <script src="/crewShop.js"></script>
+    <!-- The search box in the top bar, made real: ⌘K, every pilot, sector,
+         event and document, and every tool this member is allowed to open. -->
+    <script src="/crewCommand.js"></script>
+    <!-- The bell, made real: what happened to THIS person, and a count that
+         means something. Silent on a crew center whose database lacks it. -->
+    <script src="/crewAlerts.js"></script>
+    <!-- The ladder, and the check-rides that move a pilot up it. -->
+    <script src="/crewTraining.js"></script>
+    <!-- What a pilot has to show for it, off flights already approved. -->
+    <script src="/crewAwards.js"></script>
+    <!-- Being away on purpose, and spotting the pilots slipping away by
+         accident while there is still time to say something. -->
+    <script src="/crewLeave.js"></script>
     <!-- How a topic presents itself: the owner's slide-over/full-page choice,
          the burger that moves between topics and the per-topic links. Re-skins
          the panels above rather than replacing them, so it loads after them. -->
@@ -420,7 +433,10 @@
             <div class="hidden sm:flex flex-1 max-w-sm mx-auto">
                 <div class="relative w-full">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 faint w-4 h-4"></i>
-                    <input type="text" placeholder="Search crew, flights, events…"
+                    <!-- data-crew-search: crewCommand.js takes this over. The
+                         field stays because it is what people look for; it stops
+                         taking a caret because it cannot answer one. -->
+                    <input type="text" data-crew-search placeholder="Search crew, flights, events…"
                         class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
@@ -428,6 +444,9 @@
                 <!-- crewSkin.js puts the interface switch here. Empty until it
                      does, and empty for good if the script did not arrive. -->
                 <span data-skin-toggle></span>
+                <!-- crewAlerts.js adopts this and paints the count on it. No dot
+                     in the markup: one that is always there means nothing. -->
+                <button data-crew-bell class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications"><i data-lucide="bell" class="w-[18px] h-[18px]"></i></button>
                 <button onclick="openSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Settings"><i data-lucide="settings" class="w-[18px] h-[18px]"></i></button>
                 <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme"><span id="themeIcon"></span></button>
                 <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
@@ -1990,6 +2009,9 @@
             {icon:'plane',label:'Infinite Flight',desc:'Live fleet & aircraft schedules',action:'ifLive'},
             {icon:'globe',label:'Website',desc:'Your public site',action:'website'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
+            {icon:'graduation-cap',label:'Training',desc:'Check-rides & the ladder',action:'training'},
+            {icon:'award',label:'Awards',desc:'What pilots have to show for it',action:'awards'},
+            {icon:'heart-pulse',label:'Crew health',desc:'Who’s slipping away',action:'leave'},
             {icon:'store',label:'Shop',desc:'What a flight is worth',action:'shop'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
@@ -2095,6 +2117,9 @@
                 if(t.action==='ifLive') el.addEventListener('click', openIfLive);
                 if(t.action==='website') el.addEventListener('click', openWebsite);
                 if(t.action==='embeds') el.addEventListener('click', openEmbeds);
+                if(t.action==='training') el.addEventListener('click', openTraining);
+                if(t.action==='awards') el.addEventListener('click', openAwards);
+                if(t.action==='leave') el.addEventListener('click', openLeave);
                 if(t.action==='shop') el.addEventListener('click', openShop);
                 if(t.action==='partnership') el.addEventListener('click', openPartnership);
                 if(t.action==='insights') el.addEventListener('click', openInsights);
@@ -2136,6 +2161,7 @@
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(), shop:()=>openShop(),
+            training:()=>openTraining(), awards:()=>openAwards(), leave:()=>openLeave(),
             settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
             partnership:()=>openPartnership(), insights:()=>openInsights(),
@@ -2770,6 +2796,66 @@
             CrewShop.open({
                 api: CrewPanels.api({ backend: BACKEND, slug: getSlug(), token: sessionToken }),
                 brand: { name: CREW_NAME, code: CREW_CODE, logo: CREW_LOGO },
+            });
+        }
+
+        // ---- Training, awards, leave ----
+        //
+        // Three more self-contained panels, opened the way every other one is:
+        // where the backend is, and who is asking. Staff land on the half they
+        // came for — the queue, the board — and everyone else on their own.
+        function crewApi(){ return CrewPanels.api({ backend: BACKEND, slug: getSlug(), token: sessionToken }); }
+        function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view: can('roster.manage')?'queue':'me' }); }
+        function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
+        function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view: can('roster.manage')?'health':'me' }); }
+
+        // ---- The search box, and the bell ----
+        //
+        // The palette is handed the SAME tiles the grid was built from, read
+        // back off the grid itself — so it can never offer a door this member
+        // is not allowed through, and it cannot drift from the tile list by
+        // keeping a second copy of it.
+        function paletteActions(){
+            return [...document.querySelectorAll('#toolGrid [data-i]')].map(el=>{
+                const label=el.querySelector('.font-semibold');
+                const desc=el.querySelector('.text-sm');
+                const ico=el.querySelector('[data-lucide]');
+                return {
+                    id: 'tile-'+el.getAttribute('data-i'),
+                    label: label?label.textContent.trim():'',
+                    hint: desc?desc.textContent.trim():'',
+                    icon: ico?ico.getAttribute('data-lucide'):'square-chevron-right',
+                    run: ()=>el.click(),
+                };
+            }).filter(a=>a.label);
+        }
+        function mountCommand(){
+            if(!window.CrewCommand) return;
+            CrewCommand.mount({
+                api: crewApi(), slug: getSlug(), actions: paletteActions(),
+                // Where a result lives: the palette knows what was picked, the
+                // page knows which drawer it is behind.
+                onOpen: (kind)=>{
+                    if(kind==='pilot') openRoster();
+                    else if(kind==='route') openRoutes();
+                    else if(kind==='event') openEvents();
+                    else if(kind==='document') openDocuments();
+                },
+            });
+        }
+        function mountAlerts(){
+            if(!window.CrewAlerts) return;
+            CrewAlerts.mount({
+                api: crewApi(),
+                onOpen: (where)=>{
+                    if(where==='inbox') openInbox();
+                    else if(where==='schedule') openSchedule();
+                    else if(where==='shop') openShop();
+                    else if(where==='training') openTraining();
+                    else if(where==='awards') openAwards();
+                    else if(where==='events') openEvents();
+                    else openPireps();
+                },
             });
         }
 
@@ -6960,6 +7046,8 @@
             // once before /me answers — when CAPS is still empty and everything
             // would be hidden. Redraw now that we know who this is.
             renderTiles();
+            // …and the palette offers exactly the tiles that survived it.
+            if(window.CrewCommand) CrewCommand.setActions(paletteActions());
         }
 
         // Editors for staff roles + assignments — the owner's, and any
@@ -7693,6 +7781,7 @@
             mountIfLive();                  // the Live fleet board (and the panel behind it, for staff)
             renderSwatches(); syncAccentPicker();
             renderLookOpts(); renderUiOpts();
+            mountCommand(); mountAlerts();
             wireStructure(); renderStructure(); loadFleetMeta();
             wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor
             renderSchedulePrefs();          // the rank picker needs the ladder, which renderStructure has now
