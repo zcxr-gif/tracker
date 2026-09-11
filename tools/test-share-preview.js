@@ -196,6 +196,54 @@ const ctx = { rewrite: (target) => ({ __rewrite: target }) };
                 { departureIcao: 'EGLL', arrivalIcao: 'KJFK', position: { lat: 999, lon: 0 } }, 'dark'
             )).searchParams.get('lat') === null);
 
+        head('...and draws the FILED route when the pilot filed one');
+        // A plan is what the aeroplane will actually fly. The Discord flight card
+        // draws it, so the link preview of the same flight has to as well —
+        // otherwise one picture of a flight contradicts the other.
+        const PLAN = [
+            { lat: 51.4775, lon: -0.4614, name: 'EGLL' },
+            { lat: 51.3033, lon: 0.5975, name: 'DET' },
+            { lat: 40.6398, lon: -73.7789, name: 'KJFK' },
+        ];
+        const planned = new URL(routeMapImageUrl(flight, 'dark', PLAN));
+        ok('the plan rides in the URL',
+            planned.searchParams.get('plan') === '51.477,-0.461,EGLL;51.303,0.598,DET;40.640,-73.779,KJFK',
+            planned.searchParams.get('plan'));
+        ok('no plan means no plan parameter — the old straight line',
+            new URL(routeMapImageUrl(flight, 'dark')).searchParams.get('plan') === null);
+        ok('a single fix is a position, not a route',
+            new URL(routeMapImageUrl(flight, 'dark', [PLAN[0]])).searchParams.get('plan') === null);
+        // The URL still has to be a URL: a long-haul plan is capped, and an
+        // ident that isn't one cannot break the separator scheme.
+        const huge = Array.from({ length: 400 }, (_, i) => ({ lat: 40 + i / 100, lon: -70 + i / 100, name: 'F' + i }));
+        const cappedPlan = new URL(routeMapImageUrl(flight, 'dark', huge)).searchParams.get('plan');
+        ok('an absurdly long plan is capped', cappedPlan.split(';').length === 120, cappedPlan.split(';').length);
+        const nasty = new URL(routeMapImageUrl(flight, 'dark',
+            [{ lat: 1, lon: 2, name: 'A;B,C' }, { lat: 3, lon: 4, name: '' }])).searchParams.get('plan');
+        ok('an ident cannot smuggle a separator in', nasty === '1.000,2.000,ABC;3.000,4.000', nasty);
+
+        head('...and the plan lookup never breaks the preview');
+        respond = () => ({ ok: true, json: async () => ({ ok: true, waypoints: [
+            { name: 'EGLL', lat: 51.4775, lon: -0.4614 },
+            { name: 'BROKEN', lat: 0, lon: 0 },
+            { name: 'NOPE', lat: 999, lon: 1 },
+            { name: 'KJFK', lat: 40.6398, lon: -73.7789 },
+        ] }) });
+        const fetched = await share.__test.fetchFlightPlan('abc123');
+        ok('the filed plan is read from the live backend',
+            fetched.length === 2 && fetched[0].name === 'EGLL' && fetched[1].name === 'KJFK',
+            JSON.stringify(fetched));
+        respond = () => ({ ok: true, json: async () => ({ ok: true, waypoints: [] }) });
+        ok('a pilot who filed nothing yields no plan, not an error',
+            (await share.__test.fetchFlightPlan('abc123')).length === 0);
+        respond = () => ({ ok: false, status: 500 });
+        ok('a backend failure yields no plan either',
+            (await share.__test.fetchFlightPlan('abc123')).length === 0);
+        respond = () => { throw new Error('backend down'); };
+        ok('and neither does a thrown fetch',
+            (await share.__test.fetchFlightPlan('abc123')).length === 0);
+        respond = () => ({ ok: true });
+
         head('...and only uses a map the backend confirms');
         calls.length = 0;
         respond = () => ({ ok: true });
