@@ -13,6 +13,11 @@
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
+    <!-- Which of the two interfaces this crew center is wearing. Sets
+         data-skin on <html> and asks for crewSkin.css before the first paint;
+         a VA that has never chosen gets `essential`, which matches nothing in
+         that sheet and leaves this page exactly as it was. -->
+    <script src="/crewSkin.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
@@ -417,6 +422,9 @@
                 </div>
             </div>
             <div class="flex items-center gap-1 ml-auto">
+                <!-- crewSkin.js puts the interface switch here. Empty until it
+                     does, and empty for good if the script did not arrive. -->
+                <span data-skin-toggle></span>
                 <button onclick="openSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Settings"><i data-lucide="settings" class="w-[18px] h-[18px]"></i></button>
                 <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme"><span id="themeIcon"></span></button>
                 <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
@@ -605,6 +613,17 @@
             </div>
             <div class="p-5">
               <div data-panel="appearance" class="space-y-6">
+                <!-- INTERFACE — which of the two looks the crew center wears.
+                     Above Layout on purpose: this is the bigger decision of the
+                     two, and the layout presets below are arrangements WITHIN
+                     whichever one is picked. Hidden if crewSkin.js did not
+                     load, rather than offering a choice that cannot be made. -->
+                <div id="uiBlock" class="hidden">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Interface</h3>
+                    <div id="uiOpts"></div>
+                    <p class="text-xs muted mt-3">Sets the look for your whole crew. Anyone can still switch their own device from the top bar.</p>
+                </div>
+
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
                     <div id="layoutOpts" class="space-y-2.5"></div>
@@ -2780,6 +2799,23 @@
             applyLayout(k);                                   // live, instant
             try{ localStorage.setItem('crew:layout:'+getSlug(), k); }catch{}
             saveSettings({ layout:k }, `Layout set to ${(LAYOUT_META[k]||{}).name||k} for your whole crew.`);
+        }
+
+        // ---- Which interface (the second look) ----
+        //
+        // Same three moves the layout picker makes: draw the choice, apply it
+        // live, and tell the crew record. The drawing and the applying belong
+        // to crewSkin.js — it owns the miniatures and the switch in the top
+        // bar, and both have to agree with each other — so this is only the
+        // part that is the dashboard's: saving it for everybody else.
+        function renderUiOpts(){
+            const block=document.getElementById('uiBlock');
+            if(!window.CrewSkin || !block) return;
+            block.classList.remove('hidden');
+            CrewSkin.mountPicker('#uiOpts', k=>{
+                const name=(CrewSkin.META[k]||{}).name||k;
+                saveSettings({ ui:k }, `${name} is now your crew's interface.`);
+            });
         }
 
         // ---- How a topic opens (slide-over vs its own page) ----
@@ -7406,6 +7442,11 @@
             // The VA's full design system, when it has one. Applied before the
             // rest so the page paints in brand colours on first frame.
             if(window.CrewBrand) CrewBrand.apply(b);
+            // The crew's chosen interface. Only takes effect for a reader who
+            // has not picked one on this device; either way it is cached, so
+            // the next visit paints in it from the first frame instead of
+            // flipping once the record lands.
+            if(window.CrewSkin) CrewSkin.applyRecord(b);
             if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
                 ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
                 if(!ALLOWED.length) ALLOWED=['editorial'];
@@ -7617,7 +7658,7 @@
             mountLinks();                   // the quick-links board, painted into the page
             mountIfLive();                  // the Live fleet board (and the panel behind it, for staff)
             renderSwatches(); syncAccentPicker();
-            renderLookOpts();
+            renderLookOpts(); renderUiOpts();
             wireStructure(); renderStructure(); loadFleetMeta();
             wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor
             renderSchedulePrefs();          // the rank picker needs the ladder, which renderStructure has now

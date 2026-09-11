@@ -11,6 +11,10 @@
          the dashboard does it. A VA editing their website should not have to
          leave their own crew center to do it. -->
     <script src="/crewBrand.js"></script>
+    <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
+         Sets data-skin on <html> before the first paint; a VA that has never
+         chosen gets `essential`, which leaves this page exactly as it was. -->
+    <script src="/crewSkin.js"></script>
     <!-- For its confirm dialog. This builder is reached by navigating the crew
          center, which can itself be framed in a VA's own site or the app's Crew
          Center overlay — and window.confirm is blocked outright in a
@@ -86,7 +90,10 @@
 <body class="min-h-screen flex flex-col">
 
 <!-- ===== The bar ===================================================== -->
-<header class="sticky top-0 z-30 border-b hair" style="background:var(--surface)">
+<!-- data-flat-bar: this bar is a working toolbar — the save state and the
+     publish button live in it — so the second interface leaves it spanning the
+     window instead of floating it as page chrome. -->
+<header data-flat-bar class="sticky top-0 z-30 border-b hair" style="background:var(--surface)">
     <div class="px-3 sm:px-5 h-14 flex items-center gap-3">
         <!-- The way out. Labelled on every screen size on purpose: a lone
              back-arrow on a phone is a guess, and the alternative a VA reaches
@@ -514,6 +521,7 @@
                 document.title = va.name + ' — Website';
             }
             if (window.CrewBrand) CrewBrand.apply(b);
+            if (window.CrewSkin) CrewSkin.applyRecord(b);
         } catch { /* the page works without it */ }
     }
 

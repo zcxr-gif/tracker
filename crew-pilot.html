@@ -12,6 +12,10 @@
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
+    <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
+         Sets data-skin on <html> before the first paint; a VA that has never
+         chosen gets `essential`, which leaves this page exactly as it was. -->
+    <script src="/crewSkin.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board: the calendar, who's attending, and the map a
@@ -174,6 +178,11 @@
             </div>
 
             <div class="flex items-center gap-1 ml-auto">
+                <!-- The interface switch. Settings is a staff room and a pilot
+                     never sees it, so this button is how the choice reaches
+                     the people who actually read this page every day.
+                     crewSkin.js fills it; empty if that script did not load. -->
+                <span data-skin-toggle></span>
                 <button class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications">
                     <i data-lucide="bell" class="w-[18px] h-[18px]"></i>
                     <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full accent-bg"></span>
@@ -1025,6 +1034,9 @@
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
             // The VA's full design system, when it has one.
             if(window.CrewBrand) CrewBrand.apply(b);
+            // The interface the VA chose for its crew, unless this pilot has
+            // picked their own from the top bar.
+            if(window.CrewSkin) CrewSkin.applyRecord(b);
             const name=b.name||b.code||'';
             if(name){
                 document.getElementById('navName').textContent=name;

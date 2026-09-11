@@ -1,0 +1,878 @@
+/* ============================================================================
+   crewSkin.css — the crew center's SECOND interface.
+
+   WHY THIS EXISTS
+
+   Every VA's crew center looked like exactly one thing: the warm, papery,
+   hairline-ruled shell this product shipped with. It is a good look and it is
+   deliberately quiet — and "quiet" is not what every airline wants to hand its
+   pilots. A VA with a neon brand, a dark website and a Discord full of livery
+   renders lands its crew on cream paper, and the crew center reads as somebody
+   else's product with their logo dropped into the corner.
+
+   So there are two now. `data-skin` on <html> picks between them:
+
+     essential   the original. Untouched — not one rule in this file applies.
+     aurora      this file. A dark-first flight-deck: an ambient gradient
+                 canvas, glass over it, luminous rims, depth instead of
+                 hairlines, and motion with a spring in it.
+
+   HOW IT COVERS *EVERYTHING* WITHOUT TOUCHING EVERY FILE
+
+   The crew center is one dashboard, one pilot home, a website builder, a login,
+   a join form, a status page and fourteen panel modules. Re-skinning that by
+   hand would be fourteen stylesheets that drift apart by the third change.
+
+   It does not have to be. Every one of those surfaces is already built from the
+   same small vocabulary — the design tokens (--bg, --surface, --line, --ink,
+   --muted, --faint, --accent), the page primitives (.surface, .hair, .tile,
+   .accent-bg, .stat-num) and the shared panel chrome (crewPanels' cp-* classes,
+   crewEvents' matching cev-*). crewPanels.js says it outright: "EVERY COLOUR IS
+   A var() OFF THE HOST PAGE."
+
+   So this file re-states that vocabulary, and the whole product follows —
+   including panels written a year before it existed.
+
+   PRECEDENCE: the VA's brand always wins.
+
+   crewBrand.js publishes every token it resolves twice: --bg AND --brand-bg.
+   This file reads the brand alias first and only falls back to its own value —
+
+       --bg: var(--brand-bg, #080B12);
+
+   — so a VA that has set its own palette gets ITS colours in this interface's
+   FORM: their paper, their ink, their accent, on this file's depth, glass and
+   motion. A VA that has set nothing gets the palette below, which is the whole
+   point of offering a second choice.
+
+   PERFORMANCE: backdrop-filter is expensive and there can be thirty cards on
+   the dashboard. It is spent only where a reader actually sees through to
+   something moving underneath — the top bar, the drawers and their scrims.
+   Cards get a translucent fill and a shadow, which composite for free.
+
+   ACCESSIBILITY: every animation here sits behind
+   `prefers-reduced-motion: no-preference`; the bottom of this file switches the
+   rest off. Focus rings are drawn in the accent, never removed.
+   ========================================================================== */
+
+/* ============================================================================
+   1. TOKENS
+   ========================================================================== */
+
+:root[data-skin="aurora"]{
+    /* Daylight. Cool porcelain rather than the essential shell's cream — the
+       two interfaces have to be recognisable apart at a glance, in both modes. */
+    --bg:         var(--brand-bg,        #EEF1F8);
+    --surface:    var(--brand-surface,   #FFFFFF);
+    --surface-2:  var(--brand-surface2,  #F7F9FD);
+    --line:       var(--brand-line,      #DEE4F0);
+    --line-soft:  var(--brand-lineSoft,  #EBEFF7);
+    --ink:        var(--brand-ink,       #0D1320);
+    --muted:      var(--brand-muted,     #576075);
+    --faint:      var(--brand-faint,     #8890A4);
+    --accent:     var(--brand-accent,    #4C6EF5);
+
+    /* ---- The skin's own tokens ----------------------------------------- */
+    --sk-radius: 1.15rem;          /* cards. Brand --crew-radius still wins.  */
+    --sk-radius-sm: .7rem;         /* controls                                */
+    --sk-rim: color-mix(in srgb, var(--ink) 8%, transparent);
+    --sk-rim-lit: color-mix(in srgb, #FFFFFF 70%, transparent);
+    --sk-glass: color-mix(in srgb, var(--surface) 86%, transparent);
+    --sk-glass-solid: color-mix(in srgb, var(--surface) 94%, transparent);
+    --sk-shadow: 0 1px 2px -1px rgb(13 19 32 / .10), 0 18px 40px -32px rgb(13 19 32 / .45);
+    --sk-shadow-lift: 0 2px 6px -2px rgb(13 19 32 / .12), 0 26px 50px -28px rgb(13 19 32 / .5);
+    --sk-glow: 0 10px 30px -14px color-mix(in srgb, var(--accent) 65%, transparent);
+    /* One easing for the whole interface. Overshoots very slightly — enough to
+       read as physical, not enough to read as a toy. */
+    --sk-spring: cubic-bezier(.22,1.12,.36,1);
+    --sk-ease: cubic-bezier(.32,.72,0,1);
+    /* The ambient canvas. Two washes off the accent plus a cool counter-light,
+       so the page has a horizon instead of a flat fill. */
+    --sk-wash-1: color-mix(in srgb, var(--accent) 22%, transparent);
+    --sk-wash-2: color-mix(in srgb, #7C5CFF 14%, transparent);
+    --sk-wash-3: color-mix(in srgb, #22D3EE 10%, transparent);
+    color-scheme: light dark;
+}
+
+:root[data-skin="aurora"].dark{
+    /* Night. Navy-black rather than neutral charcoal: the wash needs somewhere
+       blue to sit, and a true grey turns every gradient muddy. */
+    --bg:         var(--brand-bg,        #070A12);
+    --surface:    var(--brand-surface,   #111726);
+    --surface-2:  var(--brand-surface2,  #171E2F);
+    --line:       var(--brand-line,      #232C3E);
+    --line-soft:  var(--brand-lineSoft,  #1A2131);
+    --ink:        var(--brand-ink,       #E9EEF9);
+    --muted:      var(--brand-muted,     #99A4BA);
+    --faint:      var(--brand-faint,     #68738A);
+    --accent:     var(--brand-accent,    #6E8BFF);
+    --sk-rim: color-mix(in srgb, #FFFFFF 9%, transparent);
+    --sk-rim-lit: color-mix(in srgb, #FFFFFF 14%, transparent);
+    --sk-shadow: 0 1px 2px -1px rgb(0 0 0 / .6), 0 22px 44px -30px rgb(0 0 0 / .95);
+    --sk-shadow-lift: 0 2px 8px -2px rgb(0 0 0 / .7), 0 30px 60px -26px rgb(0 0 0 / 1);
+    --sk-wash-1: color-mix(in srgb, var(--accent) 38%, transparent);
+    --sk-wash-2: color-mix(in srgb, #7C5CFF 26%, transparent);
+    --sk-wash-3: color-mix(in srgb, #22D3EE 16%, transparent);
+}
+
+/* ============================================================================
+   2. THE CANVAS
+
+   A fixed pair of gradients behind everything, so scrolling moves the content
+   across a lit room rather than dragging a painted backdrop with it.
+
+   It is a pseudo-element on <body> and not a background-image because
+   crewBrand.js writes `body{background:var(--bg)!important}` for a themed VA,
+   and a shorthand !important would wipe an image out. `isolation:isolate` is
+   what makes z-index:-1 land ABOVE the body's own fill and below every child:
+   body becomes a stacking context, paints its background, then the wash, then
+   the page. Without it the wash would slide behind the background and vanish.
+   ========================================================================== */
+
+:root[data-skin="aurora"] body{ isolation:isolate; }
+:root[data-skin="aurora"] body:not(.embed)::before{
+    content:''; position:fixed; inset:-20vmax -10vmax auto -10vmax; height:110vh;
+    z-index:-1; pointer-events:none;
+    background:
+        radial-gradient(46vmax 34vmax at 12% -4%,  var(--sk-wash-1), transparent 62%),
+        radial-gradient(40vmax 30vmax at 92% 2%,   var(--sk-wash-2), transparent 60%),
+        radial-gradient(52vmax 26vmax at 52% 34%,  var(--sk-wash-3), transparent 66%);
+    /* Softens the three circles into one field instead of three blobs. */
+    filter: blur(18px) saturate(118%);
+    opacity:.9;
+}
+/* A second, still band at the very top keeps the floating bar legible over
+   whatever the first card happens to be. */
+:root[data-skin="aurora"] body:not(.embed)::after{
+    content:''; position:fixed; left:0; right:0; top:0; height:7.5rem;
+    z-index:-1; pointer-events:none;
+    background:linear-gradient(to bottom, color-mix(in srgb, var(--bg) 92%, transparent), transparent);
+}
+
+/* ============================================================================
+   3. TYPE
+
+   Same face (no second web font to wait for), different voice: tighter
+   display tracking, and figures that do not wobble as they tick over —
+   a stats row that reflows on every poll reads as broken.
+   ========================================================================== */
+
+:root[data-skin="aurora"] h1,
+:root[data-skin="aurora"] h2,
+:root[data-skin="aurora"] h3{ letter-spacing:-.022em; }
+:root[data-skin="aurora"] h1{ letter-spacing:-.032em; }
+:root[data-skin="aurora"] .stat-num,
+:root[data-skin="aurora"] .cp-fact b,
+:root[data-skin="aurora"] .tabular{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
+/* The small uppercase labels the crew center uses everywhere as section
+   headings. Wider, lighter, and they read as engraving rather than shouting. */
+:root[data-skin="aurora"] .uppercase.tracking-wider,
+:root[data-skin="aurora"] .cp-label{ letter-spacing:.16em; }
+:root[data-skin="aurora"] ::selection{ background:color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* ============================================================================
+   4. SURFACES
+
+   `.surface` is the single most reused class in the product — cards, inputs,
+   drawers, the fleet rows, the login box. So it carries the skin: a
+   translucent fill over the canvas, a lit top rim, and depth instead of a
+   1px rule.
+
+   No backdrop-filter here on purpose (see the header note at the top).
+   ========================================================================== */
+
+:root[data-skin="aurora"] .surface{
+    background:var(--sk-glass-solid);
+    border-color:var(--sk-rim);
+    border-radius:var(--crew-radius, var(--sk-radius));
+    box-shadow:var(--sk-shadow), inset 0 1px 0 0 var(--sk-rim-lit);
+}
+:root[data-skin="aurora"] .hair{ border-color:var(--sk-rim); }
+:root[data-skin="aurora"] .hair-soft{ border-color:color-mix(in srgb, var(--ink) 5%, transparent); }
+:root[data-skin="aurora"] .divide-x > * + *,
+:root[data-skin="aurora"] .divide-y > * + *{ border-color:color-mix(in srgb, var(--ink) 6%, transparent); }
+
+/* Cards that respond to a pointer. `.tile` is the dashboard's tool grid; the
+   essential skin lifts them 2px and darkens the border, this one lights the
+   rim and throws the shadow further. */
+:root[data-skin="aurora"] .tile{
+    transition:transform .28s var(--sk-spring), box-shadow .28s var(--sk-ease),
+               border-color .28s var(--sk-ease), background .28s var(--sk-ease);
+}
+:root[data-skin="aurora"] .tile:hover{
+    transform:translateY(-3px);
+    border-color:color-mix(in srgb, var(--accent) 42%, transparent);
+    box-shadow:var(--sk-shadow-lift), var(--sk-glow), inset 0 1px 0 0 var(--sk-rim-lit);
+}
+:root[data-skin="aurora"] .tile:active{ transform:translateY(-1px) scale(.995); }
+
+/* ============================================================================
+   5. THE TOP BAR
+
+   The essential shell rules a line under a full-width bar. This one detaches
+   it: a floating glass pill with the page sliding under it. It is the single
+   change a reader notices first, before any card, which is exactly the job of
+   the one element that is on screen the whole time.
+
+   The background is !important because the page writes its own color-mix
+   inline on the element, and an inline style cannot be beaten any other way.
+   ========================================================================== */
+
+/* `[data-flat-bar]` is a page saying its top bar is a working toolbar and not
+   a piece of page chrome — the website builder's, which holds the save state
+   and the publish button and must stay put across the full width. */
+:root[data-skin="aurora"] body:not(.embed) > header.sticky:not([data-flat-bar]){
+    top:.6rem;
+    width:min(74rem, calc(100% - 1.4rem));
+    margin:.6rem auto 0;
+    border:1px solid var(--sk-rim);
+    border-radius:1.25rem;
+    background:color-mix(in srgb, var(--surface) 72%, transparent) !important;
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    backdrop-filter:blur(22px) saturate(180%);
+    box-shadow:var(--sk-shadow), inset 0 1px 0 0 var(--sk-rim-lit);
+    transition:box-shadow .3s var(--sk-ease), background .3s var(--sk-ease);
+}
+:root[data-skin="aurora"] body:not(.embed) > header.sticky:not([data-flat-bar]) > div{ height:3.5rem; }
+/* The identity monogram, which is the VA's mark and should read as one. */
+:root[data-skin="aurora"] #navMonogram,
+:root[data-skin="aurora"] #idMonogram{
+    border-radius:.8rem;
+    box-shadow:var(--sk-glow), inset 0 1px 0 0 color-mix(in srgb, #FFF 28%, transparent);
+}
+/* Search: a recessed slot rather than another raised card. */
+:root[data-skin="aurora"] header input[type="text"]{
+    background:color-mix(in srgb, var(--ink) 5%, transparent);
+    border-color:transparent; box-shadow:none; border-radius:999px;
+}
+:root[data-skin="aurora"] header input[type="text"]:focus{
+    background:color-mix(in srgb, var(--ink) 7%, transparent);
+    border-color:color-mix(in srgb, var(--accent) 55%, transparent) !important;
+}
+/* The round icon controls in the bar. */
+:root[data-skin="aurora"] header button.rounded-md{
+    border-radius:.7rem;
+    transition:background .2s var(--sk-ease), color .2s var(--sk-ease), transform .2s var(--sk-spring);
+}
+:root[data-skin="aurora"] header button.rounded-md:hover{
+    background:color-mix(in srgb, var(--ink) 7%, transparent); transform:translateY(-1px);
+}
+
+/* ============================================================================
+   6. THE HERO
+
+   Owner dashboard: the identity card. Pilot home: the full-bleed welcome.
+   Both get the same treatment — the accent lit through the corner, and a
+   sweep of light along the top edge.
+   ========================================================================== */
+
+:root[data-skin="aurora"] .r-identity{
+    border-radius:calc(var(--crew-radius, var(--sk-radius)) + .3rem);
+    background:
+        radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 58%),
+        var(--sk-glass-solid);
+}
+:root[data-skin="aurora"] #identityTint{ opacity:.14; }
+:root[data-skin="aurora"] .r-identity h1{ font-weight:800; }
+/* The pilot home's hero photo band. Deepen the scrim so white type over a
+   bright livery render stays readable, and round it into the page. */
+:root[data-skin="aurora"] #hero{
+    border-radius:calc(var(--crew-radius, var(--sk-radius)) + .45rem);
+    width:min(74rem, calc(100% - 1.4rem)); margin:.75rem auto 0;
+    overflow:hidden; box-shadow:var(--sk-shadow-lift);
+}
+:root[data-skin="aurora"] #hero > div[style*="linear-gradient"]{
+    background:linear-gradient(to top,
+        rgb(4 6 12 / .86), rgb(4 6 12 / .34) 46%, rgb(4 6 12 / .12) 100%) !important;
+}
+
+/* ============================================================================
+   7. THE FIGURES
+
+   Four numbers that answer "how is the airline doing?". In the essential skin
+   they are four cells behind a grid of rules. Here each is a panel of its own
+   with an accent keyline, because they are the first thing anyone reads.
+   ========================================================================== */
+
+:root[data-skin="aurora"] #crewStats{ background:transparent; border:0; box-shadow:none;
+    gap:.7rem; overflow:visible; }
+:root[data-skin="aurora"] #crewStats > div{
+    position:relative; overflow:hidden;
+    background:var(--sk-glass-solid);
+    border:1px solid var(--sk-rim);
+    border-radius:var(--crew-radius, var(--sk-radius));
+    box-shadow:var(--sk-shadow), inset 0 1px 0 0 var(--sk-rim-lit);
+    transition:transform .28s var(--sk-spring), box-shadow .28s var(--sk-ease);
+}
+:root[data-skin="aurora"] #crewStats > div::before{
+    content:''; position:absolute; left:0; right:0; top:0; height:2px;
+    background:linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 10%, transparent));
+    opacity:.85;
+}
+:root[data-skin="aurora"] #crewStats > div:hover{ transform:translateY(-2px); box-shadow:var(--sk-shadow-lift); }
+:root[data-skin="aurora"] #crewStats .stat-num{ font-size:1.85rem; font-weight:800; letter-spacing:-.03em; }
+/* Tailwind's divide-* draws the rules that made it one slab; the cells are
+   separate panels now, so those have to go. */
+:root[data-skin="aurora"] #crewStats > div + div{ border-width:1px !important; }
+
+/* ============================================================================
+   8. THE TOOL GRID
+
+   Fourteen doors into the operation. Each gets its icon in a lit chip and an
+   arrow that only commits on hover — a grid of identical cards is hard to aim
+   at, and the chip gives every tile a different-looking anchor to land on.
+   ========================================================================== */
+
+:root[data-skin="aurora"] #toolGrid .tile{ position:relative; overflow:hidden; padding-right:2.6rem; }
+:root[data-skin="aurora"] #toolGrid .tile > span:first-child{
+    width:2.6rem; height:2.6rem; display:grid; place-items:center; border-radius:.85rem;
+    background:linear-gradient(145deg,
+        color-mix(in srgb, var(--accent) 22%, transparent),
+        color-mix(in srgb, var(--accent) 7%, transparent));
+    border:1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+    color:var(--accent);
+    transition:transform .3s var(--sk-spring), box-shadow .3s var(--sk-ease);
+}
+:root[data-skin="aurora"] #toolGrid .tile:hover > span:first-child{
+    transform:translateY(-2px) scale(1.04); box-shadow:var(--sk-glow);
+}
+/* The arrow. Drawn in CSS rather than markup so no module has to know. */
+:root[data-skin="aurora"] #toolGrid .tile::after{
+    content:''; position:absolute; right:1.1rem; top:1.45rem;
+    width:.55rem; height:.55rem; border-right:2px solid var(--faint); border-top:2px solid var(--faint);
+    transform:rotate(45deg) translateX(-.15rem); opacity:0;
+    transition:opacity .25s var(--sk-ease), transform .3s var(--sk-spring), border-color .25s;
+}
+:root[data-skin="aurora"] #toolGrid .tile:hover::after{
+    opacity:1; transform:rotate(45deg) translateX(0); border-color:var(--accent);
+}
+/* The label block sits above the tile's own ::after arrow, so a long tool name
+   wrapping onto a second line is never drawn underneath it. */
+:root[data-skin="aurora"] #toolGrid .tile > div{ position:relative; z-index:1; }
+
+/* ============================================================================
+   9. CONTROLS — buttons, inputs, chips
+
+   The accent button is the one control every page shares. A VA accent can be
+   anything from near-black to lemon, so the treatment has to work for both:
+   a rim in the page's own ink keeps a dark accent from disappearing into a
+   dark canvas, and the glow is mixed from the accent itself.
+   ========================================================================== */
+
+:root[data-skin="aurora"] .accent-bg{
+    border-radius:var(--sk-radius-sm);
+    box-shadow:var(--sk-glow), inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent),
+               inset 0 1px 0 0 color-mix(in srgb, #FFF 22%, transparent);
+    transition:transform .22s var(--sk-spring), box-shadow .28s var(--sk-ease), opacity .2s;
+}
+:root[data-skin="aurora"] button.accent-bg:hover,
+:root[data-skin="aurora"] a.accent-bg:hover{ transform:translateY(-1px); }
+:root[data-skin="aurora"] button.accent-bg:active{ transform:translateY(0) scale(.985); }
+/* Round avatars and dots must not be squared off by the rule above. */
+:root[data-skin="aurora"] .accent-bg.rounded-full{ border-radius:999px; }
+
+:root[data-skin="aurora"] input:not([type=checkbox]):not([type=radio]),
+:root[data-skin="aurora"] select,
+:root[data-skin="aurora"] textarea{
+    border-radius:var(--sk-radius-sm);
+    transition:border-color .2s var(--sk-ease), box-shadow .2s var(--sk-ease), background .2s;
+}
+:root[data-skin="aurora"] input:focus,
+:root[data-skin="aurora"] select:focus,
+:root[data-skin="aurora"] textarea:focus{
+    border-color:color-mix(in srgb, var(--accent) 60%, transparent) !important;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+/* One focus ring for everything that takes keyboard focus. */
+:root[data-skin="aurora"] :focus-visible{
+    outline:2px solid color-mix(in srgb, var(--accent) 75%, transparent);
+    outline-offset:2px; border-radius:var(--sk-radius-sm);
+}
+:root[data-skin="aurora"] .settings-tab{ border-radius:.6rem; transition:all .22s var(--sk-ease); }
+:root[data-skin="aurora"] .settings-tab.active{
+    background:var(--surface); box-shadow:var(--sk-shadow), inset 0 1px 0 0 var(--sk-rim-lit);
+}
+:root[data-skin="aurora"] .lyt-opt,
+:root[data-skin="aurora"] .sch-opt{ border-radius:var(--sk-radius-sm); transition:all .22s var(--sk-ease); }
+:root[data-skin="aurora"] .lyt-opt:hover{ transform:translateX(2px); }
+:root[data-skin="aurora"] .lyt-opt[aria-checked="true"]{
+    background:color-mix(in srgb, var(--accent) 9%, transparent);
+    box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ============================================================================
+   10. THE PANELS
+
+   This is the section that makes the skin cover the product rather than the
+   dashboard. Roster, routes, schedule, documents, inbox, links, the Live
+   fleet, embeds, partnership, standings, insights, the flight picker and the
+   noticeboard are all built from crewPanels' cp-* chrome; the events panel
+   predates it and carries its own cev-* copy of the same design. Both are
+   re-stated here, so a module written before this file existed is skinned by
+   having been built properly.
+   ========================================================================== */
+
+/* ---- The scrim. The one place a blur is worth its cost: the dashboard is
+   directly behind it and the reader is meant to feel it still there. ------- */
+:root[data-skin="aurora"] .cp-scrim,
+:root[data-skin="aurora"] .cev-scrim,
+:root[data-skin="aurora"] .ctw-scrim,
+:root[data-skin="aurora"] #settings > .absolute.inset-0,
+:root[data-skin="aurora"] [data-topic] > .ctw-scrim{
+    background:color-mix(in srgb, #05070D 55%, transparent) !important;
+    -webkit-backdrop-filter:blur(6px) saturate(120%);
+    backdrop-filter:blur(6px) saturate(120%);
+}
+
+/* ---- The sheet ------------------------------------------------------------
+   Rounded down the leading edge, glass, and a rim of light where it meets the
+   dimmed page. Kept flush to the window edge on purpose: the open/close
+   animation is a translateX of the sheet's own width, and insetting it would
+   leave a sliver of drawer parked on screen when closed. */
+:root[data-skin="aurora"] .cp-sheet,
+:root[data-skin="aurora"] .cev-sheet,
+:root[data-skin="aurora"] #settings .panel,
+:root[data-skin="aurora"] [data-topic] > .panel{
+    background:color-mix(in srgb, var(--surface) 88%, transparent) !important;
+    -webkit-backdrop-filter:blur(26px) saturate(170%);
+    backdrop-filter:blur(26px) saturate(170%);
+    border-left:1px solid var(--sk-rim) !important;
+    border-radius:1.4rem 0 0 1.4rem;
+    box-shadow:-40px 0 80px -40px rgb(0 0 0 / .55);
+}
+:root[data-skin="aurora"] .cp-head,
+:root[data-skin="aurora"] .cev-head,
+:root[data-skin="aurora"] #settings .panel > .sticky{
+    background:color-mix(in srgb, var(--surface) 70%, transparent) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(160%);
+    backdrop-filter:blur(18px) saturate(160%);
+    border-bottom-color:var(--sk-rim) !important;
+}
+/* Full-page topic mode: the sheet IS the window, so the leading round corner
+   and the shadow of a floating drawer are both wrong. */
+:root[data-skin="aurora"][data-topic-mode="page"] .cp-sheet,
+:root[data-skin="aurora"][data-topic-mode="page"] .cev-sheet,
+:root[data-skin="aurora"][data-topic-mode="page"] [data-topic] > .panel{
+    border-radius:0; box-shadow:none; border-left:0 !important;
+}
+
+/* ---- Cards inside a panel ------------------------------------------------ */
+:root[data-skin="aurora"] .cp-card,
+:root[data-skin="aurora"] .cev-card{
+    background:color-mix(in srgb, var(--surface) 60%, transparent);
+    border-color:var(--sk-rim);
+    border-radius:var(--sk-radius);
+    box-shadow:0 1px 2px -1px rgb(0 0 0 / .18), inset 0 1px 0 0 var(--sk-rim-lit);
+    transition:border-color .24s var(--sk-ease), box-shadow .24s var(--sk-ease), transform .24s var(--sk-spring);
+}
+:root[data-skin="aurora"] .cp-card:hover,
+:root[data-skin="aurora"] .cev-card:hover{
+    border-color:color-mix(in srgb, var(--accent) 34%, transparent);
+    box-shadow:var(--sk-shadow), inset 0 1px 0 0 var(--sk-rim-lit);
+}
+
+/* ---- Buttons, chips and fields inside a panel ---------------------------- */
+:root[data-skin="aurora"] .cp-btn,
+:root[data-skin="aurora"] .cev-btn{
+    border-radius:.65rem; border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--surface) 70%, transparent);
+    transition:transform .2s var(--sk-spring), border-color .2s var(--sk-ease),
+               background .2s var(--sk-ease), box-shadow .2s var(--sk-ease);
+}
+:root[data-skin="aurora"] .cp-btn:hover:not(:disabled),
+:root[data-skin="aurora"] .cev-btn:hover:not(:disabled){
+    transform:translateY(-1px);
+    border-color:color-mix(in srgb, var(--accent) 40%, transparent);
+    box-shadow:0 6px 18px -10px rgb(0 0 0 / .5);
+}
+:root[data-skin="aurora"] .cp-btn:active:not(:disabled),
+:root[data-skin="aurora"] .cev-btn:active:not(:disabled){ transform:translateY(0) scale(.985); }
+:root[data-skin="aurora"] .cp-btn-primary,
+:root[data-skin="aurora"] .cev-btn-primary{
+    box-shadow:var(--sk-glow), inset 0 1px 0 0 color-mix(in srgb, #FFF 20%, transparent);
+}
+:root[data-skin="aurora"] .cp-icon-btn,
+:root[data-skin="aurora"] .cev-icon-btn{ border-radius:.65rem; transition:background .2s, color .2s, transform .2s var(--sk-spring); }
+:root[data-skin="aurora"] .cp-icon-btn:hover,
+:root[data-skin="aurora"] .cev-icon-btn:hover{ background:color-mix(in srgb, var(--ink) 7%, transparent); }
+:root[data-skin="aurora"] .cp-chip,
+:root[data-skin="aurora"] .cev-chip{ border-radius:999px; letter-spacing:.04em; }
+:root[data-skin="aurora"] .cp-chip-mute{ background:color-mix(in srgb, var(--ink) 8%, transparent); border-color:transparent; }
+:root[data-skin="aurora"] .cp-input,
+:root[data-skin="aurora"] .cp-select,
+:root[data-skin="aurora"] .cp-textarea,
+:root[data-skin="aurora"] .cev-input{
+    border-radius:.65rem; border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--ink) 4%, transparent);
+}
+:root[data-skin="aurora"] .cp-input:focus,
+:root[data-skin="aurora"] .cp-select:focus,
+:root[data-skin="aurora"] .cp-textarea:focus,
+:root[data-skin="aurora"] .cev-input:focus{
+    border-color:color-mix(in srgb, var(--accent) 60%, transparent) !important;
+    background:color-mix(in srgb, var(--surface) 80%, transparent);
+}
+/* The confirm box and the toast — small, central, and the two things a reader
+   is looking straight at when they appear. */
+:root[data-skin="aurora"] .cp-ask-box,
+:root[data-skin="aurora"] .cev-modal-card{
+    border-radius:1.25rem; border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--surface) 92%, transparent);
+    -webkit-backdrop-filter:blur(24px) saturate(170%);
+    backdrop-filter:blur(24px) saturate(170%);
+    box-shadow:0 40px 80px -30px rgb(0 0 0 / .6), inset 0 1px 0 0 var(--sk-rim-lit);
+}
+:root[data-skin="aurora"] .cp-ask-scrim{ -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+:root[data-skin="aurora"] .cp-toast,
+:root[data-skin="aurora"] .cev-toast{
+    border-radius:999px; padding:.65rem 1.15rem;
+    box-shadow:0 18px 40px -18px rgb(0 0 0 / .7), inset 0 1px 0 0 color-mix(in srgb, #FFF 18%, transparent);
+}
+:root[data-skin="aurora"] .cp-empty,
+:root[data-skin="aurora"] .cev-empty{ border-radius:var(--sk-radius); }
+
+/* The topic burger + its menu (crewTopicWindows), which is the only way
+   between rooms in full-page mode. */
+:root[data-skin="aurora"] .ctw-burger{
+    border-radius:.8rem; border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--surface) 80%, transparent);
+    -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
+    box-shadow:var(--sk-shadow);
+}
+:root[data-skin="aurora"] .ctw-menu,
+:root[data-skin="aurora"] .ctw-sheet{
+    border-radius:1.1rem; border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--surface) 92%, transparent);
+    -webkit-backdrop-filter:blur(24px) saturate(170%);
+    backdrop-filter:blur(24px) saturate(170%);
+    box-shadow:0 30px 70px -28px rgb(0 0 0 / .6);
+}
+:root[data-skin="aurora"] .ctw-item{ border-radius:.7rem; transition:background .18s var(--sk-ease), transform .18s var(--sk-spring); }
+:root[data-skin="aurora"] .ctw-item:hover{ background:color-mix(in srgb, var(--accent) 12%, transparent); transform:translateX(2px); }
+
+/* The quick-links board and the Live fleet rows, both painted straight into
+   the page rather than into a panel. */
+:root[data-skin="aurora"] .cl-tile,
+:root[data-skin="aurora"] .cif-row,
+:root[data-skin="aurora"] .cs-slot{
+    border-radius:var(--sk-radius); border-color:var(--sk-rim);
+    transition:border-color .24s var(--sk-ease), transform .24s var(--sk-spring), box-shadow .24s var(--sk-ease);
+}
+:root[data-skin="aurora"] .cl-tile:hover,
+:root[data-skin="aurora"] .cif-row:hover{
+    transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 40%, transparent);
+    box-shadow:var(--sk-shadow);
+}
+
+/* ============================================================================
+   11. MOTION
+
+   The dashboard already fades its grid in as one block. Here the cards arrive
+   in sequence — a short stagger, 40ms apart, so the eye is led down the page
+   in the order the layout intends rather than being handed all eight at once.
+
+   `both` fill mode matters: without it a card is invisible for its delay and
+   then snaps in. With it, it holds the from-state — which is the same thing,
+   correctly. Everything in this block is inside a no-preference query, so a
+   reader who has asked for less movement never enters it at all.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: no-preference){
+    :root[data-skin="aurora"] .crew-grid > *{
+        animation:sk-rise .55s var(--sk-spring) both;
+    }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(1){ animation-delay:.02s; }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(2){ animation-delay:.06s; }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(3){ animation-delay:.10s; }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(4){ animation-delay:.14s; }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(5){ animation-delay:.18s; }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(6){ animation-delay:.22s; }
+    :root[data-skin="aurora"] .crew-grid > *:nth-child(n+7){ animation-delay:.26s; }
+    @keyframes sk-rise{
+        from{ opacity:0; transform:translateY(14px) scale(.985); }
+        to  { opacity:1; transform:none; }
+    }
+    /* The em dash a figure shows before its fetch lands. A slow pulse says
+       "still coming" where a static dash says "there is nothing". */
+    :root[data-skin="aurora"] .stat-num{ transition:color .3s var(--sk-ease); }
+    /* Panels come in on the same spring as everything else. */
+    :root[data-skin="aurora"] [data-topic] > .panel{
+        transition:transform .42s var(--sk-spring) !important;
+    }
+}
+
+/* ============================================================================
+   12. THE SCROLLBAR
+
+   A default light scrollbar down the side of a dark canvas is the one piece of
+   chrome that gives away that a page was skinned rather than designed.
+   ========================================================================== */
+
+:root[data-skin="aurora"]{ scrollbar-color:color-mix(in srgb, var(--ink) 22%, transparent) transparent; scrollbar-width:thin; }
+:root[data-skin="aurora"] ::-webkit-scrollbar{ width:10px; height:10px; }
+:root[data-skin="aurora"] ::-webkit-scrollbar-track{ background:transparent; }
+:root[data-skin="aurora"] ::-webkit-scrollbar-thumb{
+    background:color-mix(in srgb, var(--ink) 18%, transparent);
+    border:3px solid transparent; background-clip:content-box; border-radius:999px;
+}
+:root[data-skin="aurora"] ::-webkit-scrollbar-thumb:hover{ background:color-mix(in srgb, var(--ink) 32%, transparent); background-clip:content-box; }
+
+/* ============================================================================
+   13. PHONES
+
+   The floating bar costs 1.4rem of width, which is worth it on a desktop and
+   not on a 360px screen where the search field has already been dropped. The
+   pill stays; the margins tighten and the hero goes full-bleed again.
+   ========================================================================== */
+
+@media (max-width:640px){
+    :root[data-skin="aurora"] body:not(.embed) > header.sticky:not([data-flat-bar]){
+        top:.4rem; width:calc(100% - .8rem); margin-top:.4rem; border-radius:1rem;
+    }
+    :root[data-skin="aurora"] #hero{ width:100%; margin:0; border-radius:0 0 1.4rem 1.4rem; }
+    :root[data-skin="aurora"] #crewStats{ gap:.55rem; }
+    :root[data-skin="aurora"] #crewStats .stat-num{ font-size:1.5rem; }
+    :root[data-skin="aurora"] .cp-sheet,
+    :root[data-skin="aurora"] .cev-sheet,
+    :root[data-skin="aurora"] [data-topic] > .panel{ border-radius:1.4rem 1.4rem 0 0; }
+}
+
+/* ============================================================================
+   14. FRAMED
+
+   With ?embed=1 the host page owns the background, the scroll edge and the
+   rounded card around us. A floating bar inside somebody else's floating card
+   is two frames deep, and the ambient canvas would fight whatever the host has
+   behind it. So in a frame the skin keeps its colours, depth and motion and
+   gives back the chrome that belongs to the host.
+   ========================================================================== */
+
+:root[data-skin="aurora"] body.embed > header.sticky{
+    width:auto; margin:0; border-radius:0; border-left:0; border-right:0; border-top:0;
+    box-shadow:none;
+}
+:root[data-skin="aurora"] body.embed #hero{ width:auto; margin:0; border-radius:0; }
+
+/* ============================================================================
+   15. REDUCED MOTION
+
+   Belt and braces over the no-preference query above: anything that animates
+   for another reason (a module's own transition, a hover lift) is stilled here
+   too. Nothing below changes a colour or a position — only the time taken.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce){
+    :root[data-skin="aurora"] *,
+    :root[data-skin="aurora"] *::before,
+    :root[data-skin="aurora"] *::after{
+        animation-duration:.001ms !important; animation-iteration-count:1 !important;
+        transition-duration:.001ms !important;
+    }
+    :root[data-skin="aurora"] .tile:hover,
+    :root[data-skin="aurora"] .cp-btn:hover,
+    :root[data-skin="aurora"] .cl-tile:hover,
+    :root[data-skin="aurora"] .cif-row:hover,
+    :root[data-skin="aurora"] #crewStats > div:hover{ transform:none; }
+}
+
+/* ============================================================================
+   15b. THE PAGES EITHER SIDE OF THE DASHBOARD
+
+   The crew center is not only the dashboard and the pilot home. A recruit
+   meets it as a join form, then a status page days later, then a login, and an
+   owner spends an afternoon in the website builder. If the second interface
+   stopped at the two main pages, every VA that picked it would have a crew
+   center that changed character halfway through — which is worse than not
+   offering it.
+
+   Two of those pages paint from the same tokens and are already covered by
+   everything above. The two below are not, and this is what they need.
+   ========================================================================== */
+
+/* ---- The login (crew.html) -----------------------------------------------
+   Painted in Tailwind's zinc utilities rather than the tokens, because it
+   predates them. The card is already `.surface` — it is the ground under it,
+   the dotted texture and the form controls that have to be brought over. */
+:root[data-skin="aurora"] body.bg-zinc-50:not(.embed){ background:var(--bg); color:var(--ink); }
+:root[data-skin="aurora"] .crew-bg{
+    background-image:
+        radial-gradient(color-mix(in srgb, var(--ink) 8%, transparent) 1px, transparent 1px);
+    background-size:26px 26px;
+}
+:root[data-skin="aurora"] .look-center .surface{
+    border-radius:1.6rem;
+    background:color-mix(in srgb, var(--surface) 82%, transparent) !important;
+    -webkit-backdrop-filter:blur(28px) saturate(180%);
+    backdrop-filter:blur(28px) saturate(180%);
+    box-shadow:0 50px 90px -40px rgb(0 0 0 / .55), inset 0 1px 0 0 var(--sk-rim-lit) !important;
+    border-color:var(--sk-rim) !important;
+}
+:root[data-skin="aurora"] .authForm input{
+    background:color-mix(in srgb, var(--ink) 6%, transparent);
+    color:var(--ink); border-radius:.8rem; border-color:transparent;
+}
+:root[data-skin="aurora"] .authForm label{ color:var(--muted); letter-spacing:.14em; }
+:root[data-skin="aurora"] .loader{ border-top-color:var(--accent); }
+
+/* ---- The website builder (crew-website.html) ------------------------------
+   Its bar stays flat (see [data-flat-bar] above) because it is a toolbar. The
+   editing surfaces are the part a VA stares at for an hour, so those get the
+   depth and the spring the rest of the product now has. */
+:root[data-skin="aurora"] body:not(.embed) > header.sticky[data-flat-bar]{
+    background:color-mix(in srgb, var(--surface) 78%, transparent) !important;
+    -webkit-backdrop-filter:blur(20px) saturate(170%);
+    backdrop-filter:blur(20px) saturate(170%);
+    border-bottom-color:var(--sk-rim) !important;
+}
+:root[data-skin="aurora"] .field{
+    border-radius:.7rem; border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--ink) 4%, transparent);
+    transition:border-color .2s var(--sk-ease), box-shadow .2s var(--sk-ease);
+}
+:root[data-skin="aurora"] .field:focus{
+    border-color:color-mix(in srgb, var(--accent) 60%, transparent);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+:root[data-skin="aurora"] .btn,
+:root[data-skin="aurora"] .btn-quiet{
+    border-radius:.7rem;
+    transition:transform .2s var(--sk-spring), box-shadow .2s var(--sk-ease), border-color .2s;
+}
+:root[data-skin="aurora"] .btn:hover,
+:root[data-skin="aurora"] .btn-quiet:hover{ transform:translateY(-1px); }
+:root[data-skin="aurora"] .btn{ box-shadow:var(--sk-glow); }
+:root[data-skin="aurora"] .row{
+    border-radius:var(--sk-radius-sm); border-color:var(--sk-rim);
+    background:color-mix(in srgb, var(--surface) 70%, transparent);
+    transition:border-color .2s var(--sk-ease), transform .2s var(--sk-spring), box-shadow .2s;
+}
+:root[data-skin="aurora"] .row:hover{ transform:translateX(2px); box-shadow:var(--sk-shadow); }
+:root[data-skin="aurora"] .row-on{
+    box-shadow:0 0 0 1px var(--accent) inset, var(--sk-glow);
+    background:color-mix(in srgb, var(--accent) 8%, transparent);
+}
+:root[data-skin="aurora"] .chip{ letter-spacing:.06em; }
+
+/* ============================================================================
+   16. THE CHOOSER
+
+   Everything below is NOT scoped to a skin: it is the control that picks
+   between them, and it has to look right in whichever one is currently on.
+
+   A radio list would have been three lines of markup. It would also have asked
+   an owner to pick a look from two words and a shrug — so each option draws
+   itself: a real miniature of that interface, in that interface's colours,
+   which moves when you point at it. Choosing what your crew sees every day is
+   worth a picture.
+   ========================================================================== */
+
+.ifc-opts{ display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
+@media (max-width:400px){ .ifc-opts{ grid-template-columns:1fr; } }
+
+.ifc-opt{
+    display:block; width:100%; text-align:left; cursor:pointer;
+    padding:.55rem .55rem .7rem; border-radius:.85rem;
+    border:1px solid var(--line); background:var(--surface); color:inherit;
+    transition:border-color .22s ease, box-shadow .22s ease, transform .22s cubic-bezier(.22,1.12,.36,1);
+}
+.ifc-opt:hover{ transform:translateY(-2px); border-color:color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.ifc-opt[aria-checked="true"]{
+    border-color:var(--accent);
+    box-shadow:0 0 0 1px var(--accent), 0 10px 26px -18px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.ifc-opt:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+/* ---- The miniature -------------------------------------------------------
+   Eight divs and a gradient. Each variant sets its own --p-* palette, so the
+   two previews are the two interfaces rather than two labels. */
+.ifc-prev{
+    position:relative; aspect-ratio:16/10; border-radius:.55rem; overflow:hidden;
+    background:var(--p-bg); border:1px solid color-mix(in srgb, var(--p-ink) 12%, transparent);
+    display:flex; flex-direction:column; gap:3px; padding:5px;
+}
+.ifc-prev::before{
+    content:''; position:absolute; inset:0; opacity:var(--p-wash, 0);
+    background:
+        radial-gradient(60% 70% at 8% 0%, var(--accent), transparent 62%),
+        radial-gradient(55% 60% at 96% 6%, #7C5CFF, transparent 60%);
+}
+.ifc-prev > *{ position:relative; }
+.ifc-bar{
+    height:9px; border-radius:var(--p-bar-radius, 2px);
+    background:var(--p-surface); border:1px solid color-mix(in srgb, var(--p-ink) 10%, transparent);
+    display:flex; align-items:center; gap:3px; padding:0 3px;
+    margin:var(--p-bar-margin, 0);
+}
+.ifc-dot{ width:4px; height:4px; border-radius:var(--p-bar-radius, 1px); background:var(--accent); flex:0 0 auto; }
+.ifc-line{ height:2px; border-radius:2px; background:color-mix(in srgb, var(--p-ink) 22%, transparent); }
+.ifc-hero{
+    flex:1.5; border-radius:var(--p-card-radius, 3px); background:var(--p-surface);
+    border:1px solid color-mix(in srgb, var(--p-ink) 10%, transparent);
+    box-shadow:var(--p-shadow, none);
+    position:relative; overflow:hidden;
+}
+.ifc-hero::after{
+    content:''; position:absolute; inset:0; opacity:var(--p-hero-tint, .1);
+    background:linear-gradient(115deg, var(--accent), transparent 62%);
+}
+.ifc-row{ display:flex; gap:3px; flex:1; }
+.ifc-cell{
+    flex:1; border-radius:var(--p-card-radius, 3px); background:var(--p-surface);
+    border:1px solid color-mix(in srgb, var(--p-ink) 10%, transparent);
+    box-shadow:var(--p-shadow, none);
+    position:relative;
+}
+.ifc-cell::before{
+    content:''; position:absolute; left:0; right:0; top:0; height:var(--p-keyline, 0);
+    background:var(--accent); border-radius:2px 2px 0 0;
+}
+/* Pointing at an option runs its miniature: the cards lift like the real ones. */
+.ifc-opt:hover .ifc-cell,
+.ifc-opt:hover .ifc-hero{ transform:translateY(-1px); }
+.ifc-cell,.ifc-hero{ transition:transform .3s cubic-bezier(.22,1.12,.36,1); }
+.ifc-opt:hover .ifc-cell:nth-child(2){ transition-delay:.04s; }
+.ifc-opt:hover .ifc-cell:nth-child(3){ transition-delay:.08s; }
+
+/* Per-variant palettes. These are the only hardcoded colours in the file that
+   are not a fallback — a preview of the essential interface has to be the
+   essential interface's cream even while you are looking at it in aurora. */
+.ifc-prev-essential{
+    --p-bg:#F6F3ED; --p-surface:#FFFFFF; --p-ink:#1C1A16;
+    --p-card-radius:3px; --p-bar-radius:2px; --p-hero-tint:.10;
+}
+.dark .ifc-prev-essential{ --p-bg:#121110; --p-surface:#1A1815; --p-ink:#F3EFE7; }
+.ifc-prev-aurora{
+    --p-bg:#070A12; --p-surface:#141B2B; --p-ink:#E9EEF9;
+    --p-card-radius:5px; --p-bar-radius:999px; --p-bar-margin:1px 1px 2px;
+    --p-wash:.5; --p-hero-tint:.22; --p-keyline:1.5px;
+    --p-shadow:0 2px 6px -2px rgb(0 0 0 / .8);
+}
+/* In daylight the aurora preview must show daylight aurora, not night. */
+html:not(.dark) .ifc-prev-aurora{
+    --p-bg:#EEF1F8; --p-surface:#FFFFFF; --p-ink:#0D1320;
+    --p-wash:.22; --p-shadow:0 2px 6px -3px rgb(13 19 32 / .35);
+}
+
+.ifc-name{ display:flex; align-items:center; gap:.35rem; margin-top:.5rem;
+    font-size:.82rem; font-weight:700; letter-spacing:-.01em; }
+.ifc-desc{ font-size:.72rem; line-height:1.35; color:var(--muted); margin-top:.1rem; }
+.ifc-badge{
+    margin-left:auto; font-size:.58rem; font-weight:800; letter-spacing:.08em;
+    text-transform:uppercase; padding:.12rem .4rem; border-radius:999px;
+    background:var(--accent); color:#fff;
+}
+.ifc-opt[aria-checked="false"] .ifc-badge{ display:none; }
+
+/* ---- The one-press switch in the top bar ---------------------------------
+   The chooser lives in Settings, which is a staff room. Everyone else — every
+   pilot — gets this: one button, no menu, their own device. */
+.ifc-toggle{ position:relative; width:2.25rem; height:2.25rem; display:grid;
+    place-items:center; border-radius:.7rem; color:var(--muted); background:none;
+    border:0; cursor:pointer; }
+.ifc-toggle:hover{ color:var(--ink); }
+.ifc-toggle svg{ display:block; }
+.ifc-toggle i,.ifc-toggle svg{ transition:transform .45s cubic-bezier(.22,1.12,.36,1); }
+.ifc-toggle:hover i,.ifc-toggle:hover svg{ transform:rotate(-18deg) scale(1.06); }
+@media (prefers-reduced-motion: reduce){
+    .ifc-opt,.ifc-cell,.ifc-hero,.ifc-toggle i,.ifc-toggle svg{ transition:none !important; }
+}

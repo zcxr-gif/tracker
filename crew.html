@@ -14,6 +14,10 @@
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
+    <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
+         Sets data-skin on <html> before the first paint; a VA that has never
+         chosen gets `essential`, which leaves this page exactly as it was. -->
+    <script src="/crewSkin.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -240,6 +244,7 @@
             // The VA's full design system, when it has one — sign-in then looks
             // like a page of the VA's own site rather than a detour.
             if(window.CrewBrand) CrewBrand.apply(b);
+            if(window.CrewSkin) CrewSkin.applyRecord(b);
             const name=b.name||b.code||'';
             const mono=initials(name,b.code);
             setAll('.brand-mono', el=>el.textContent=mono);

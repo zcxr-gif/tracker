@@ -74,11 +74,26 @@
     let currentTheme = null;
 
     // ---- Palette → declarations -------------------------------------------
+    //
+    // Every token is published TWICE: --bg and --brand-bg, --ink and
+    // --brand-ink, and so on. The first is what the pages have always read.
+    // The second exists so a second interface can be layered underneath a
+    // brand without fighting it — crewSkin.css writes
+    //
+    //     --bg: var(--brand-bg, <its own value>);
+    //
+    // at a higher specificity than this sheet, which would otherwise mean the
+    // skin's palette beat the VA's. With the alias the precedence comes out
+    // the only way that can be right: the VA's colours, in the skin's form,
+    // and the skin's colours only where the VA has not said.
     function declarations(palette) {
         if (!palette) return '';
         const out = [];
         for (const key in TOKENS) {
-            if (isHex(palette[key])) out.push(`${TOKENS[key]}:${palette[key]};`);
+            if (isHex(palette[key])) {
+                out.push(`${TOKENS[key]}:${palette[key]};`);
+                out.push(`--brand-${key}:${palette[key]};`);
+            }
         }
         return out.join('');
     }
