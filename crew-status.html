@@ -11,6 +11,11 @@
          throws a ReferenceError that kills this inline script outright. Every
          other page in the crew center already guards it. -->
     <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
+    <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
+         An applicant lands here from an email, days after they last saw the
+         VA's join page — arriving in a different-looking product is exactly
+         the discontinuity the second interface exists to avoid. -->
+    <script src="/crewSkin.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -105,6 +110,7 @@
 
         function applyBranding(b){
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
+            if(window.CrewSkin) CrewSkin.applyRecord(b);
             VA={ name:b.name||b.code||'', code:b.code||'' };
             document.getElementById('mono').textContent=initials(VA.name, VA.code);
             if(VA.name){ document.getElementById('vaName').textContent=VA.name; }

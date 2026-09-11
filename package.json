@@ -6,7 +6,10 @@
     "test:checkout": "node tools/test-checkout-modal.js",
     "test:crew-data": "node tools/test-crew-data-feed.js",
     "test:mobile": "node tools/test-crew-mobile.js",
-    "test:framed": "node tools/test-crew-framed-scroll-lock.js"
+    "test:framed": "node tools/test-crew-framed-scroll-lock.js",
+    "test:interface": "node tools/test-crew-interface.js",
+    "test:shop": "node tools/test-crew-shop.js",
+    "test:command": "node tools/test-crew-command.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
