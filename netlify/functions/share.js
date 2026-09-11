@@ -49,6 +49,10 @@ const PLANE_FALLBACK_TYPE = 'image/png';
 // which a stock photo of the type is not. Returns a 404 for a route it cannot
 // place, so it is only ever used as a candidate, never assumed.
 const ROUTE_MAP_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run/api/route-map';
+// How many filed fixes ride in the route-map URL. The renderer caps at 200 and
+// the map is 1,200 px wide, so past this the extra fixes land on pixels that are
+// already drawn — and the URL has to stay a URL.
+const MAX_PLAN_FIXES = 120;
 const ROUTE_MAP_STYLES = ['dark', 'midnight', 'light', 'mono'];
 const ROUTE_MAP_DEFAULT_STYLE = 'dark';
 const ICAO_RE = /^[A-Z0-9]{3,4}$/;
@@ -67,7 +71,7 @@ const ROUTE_MAP_PROBE_MS = 4000;
  * backend's own airport index covers roughly 5,900 fields, and a smaller
  * airfield would otherwise render nothing.
  */
-function routeMapImageUrl(flight, style) {
+function routeMapImageUrl(flight, style, plan) {
     if (style === 'off') return null;
 
     const dep = String(flight?.departureIcao || flight?.origin || '').trim().toUpperCase();
@@ -89,6 +93,16 @@ function routeMapImageUrl(flight, style) {
         params.set('lon', lon.toFixed(3));
     }
 
+    // The filed route, as the renderer's compact "lat,lon,IDENT;…" list. Three
+    // decimal places is ~100 m, far finer than a 1,200 px map can draw, and it
+    // keeps a long-haul plan inside a sane URL length.
+    if (Array.isArray(plan) && plan.length >= 2) {
+        params.set('plan', plan.slice(0, MAX_PLAN_FIXES).map((w) => {
+            const ident = String(w.name || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+            return `${w.lat.toFixed(3)},${w.lon.toFixed(3)}${ident ? ',' + ident : ''}`;
+        }).join(';'));
+    }
+
     return `${ROUTE_MAP_URL}?${params.toString()}`;
 }
 
@@ -105,8 +119,8 @@ function routeMapImageUrl(flight, style) {
  * failure — timeout, 404, backend down — quietly yields null and the caller
  * carries on with the photo.
  */
-async function confirmedRouteMapUrl(flight, style) {
-    const url = routeMapImageUrl(flight, style);
+async function confirmedRouteMapUrl(flight, style, plan) {
+    const url = routeMapImageUrl(flight, style, plan);
     if (!url) return null;
 
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -204,6 +218,38 @@ async function findFlightWithRetry(flightId, { attempts = 3, delayMs = 1200 } = 
 
 // Recorded flight path, kept by the ACARS backend after the flight ends —
 // the same endpoint the in-app replay uses. Returns normalized points or [].
+/*
+ * The pilot's FILED route, flattened to the fixes that carry coordinates.
+ *
+ * The live-flight backend already serves this (`/api/flights/:id/plan` — the
+ * flat form, built for exactly this: a caller that wants to draw the route).
+ * It is fetched here so a shared flight's link preview draws the plan the pilot
+ * filed rather than a straight line between the two airports — which is what the
+ * Discord flight card draws, and the two should not disagree about the same
+ * flight.
+ *
+ * Best-effort in every direction: a pilot who filed nothing, a backend blip and
+ * a malformed response all yield [], and the map falls back to the straight
+ * line it drew before.
+ */
+async function fetchFlightPlan(flightId) {
+    const json = await fetchJson(`${ACARS_HISTORY_BASE}/${encodeURIComponent(flightId)}/plan`);
+    const raw = json && Array.isArray(json.waypoints) ? json.waypoints : [];
+    const out = [];
+    for (const w of raw) {
+        const lat = Number(w && (w.lat ?? w.latitude));
+        const lon = Number(w && (w.lon ?? w.longitude));
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+        // (0,0) is an unresolved fix, not a point in the Gulf of Guinea.
+        if (lat === 0 && lon === 0) continue;
+        out.push({ lat, lon, name: String((w && w.name) || '').trim().slice(0, 12) });
+        if (out.length >= MAX_PLAN_FIXES) break;
+    }
+    // One point is a position, not a route.
+    return out.length >= 2 ? out : [];
+}
+
 async function fetchFlightHistory(flightId) {
     const json = await fetchJson(`${ACARS_HISTORY_BASE}/${encodeURIComponent(flightId)}/history`);
     if (!json || json.ok === false) return [];
@@ -756,7 +802,12 @@ exports.handler = async (event) => {
             // image they never see.
             body: buildPage({
                 siteOrigin, flightId, flight, serverName, imageUrl, isCrawler,
-                mapImageUrl: isCrawler ? await confirmedRouteMapUrl(flight, mapStyle) : null,
+                // The filed plan is only fetched for crawlers, and only because
+                // the map is: a human is redirected into the app and never sees
+                // this image, so it must not cost them a second round trip.
+                mapImageUrl: isCrawler
+                    ? await confirmedRouteMapUrl(flight, mapStyle, await fetchFlightPlan(flightId))
+                    : null,
             })
         };
     }
@@ -784,7 +835,7 @@ exports.handler = async (event) => {
                     imageUrl: snapshot.communityImageUrl,
                     isCrawler,
                     mapImageUrl: isCrawler
-                        ? await confirmedRouteMapUrl(snapshot.flight, mapStyle)
+                        ? await confirmedRouteMapUrl(snapshot.flight, mapStyle, await fetchFlightPlan(flightId))
                         : null,
                 })
             };
@@ -831,4 +882,4 @@ exports.handler = async (event) => {
 // function with a silent failure mode — an og:image the crawler cannot fetch
 // costs the unfurl its picture — and it is pure, so it is worth testing directly
 // rather than through the whole handler.
-exports.__test = { routeMapImageUrl, confirmedRouteMapUrl };
+exports.__test = { routeMapImageUrl, confirmedRouteMapUrl, fetchFlightPlan };
