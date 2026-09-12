@@ -176,6 +176,35 @@ that this deployment was never set up. `GET /api/va-ads/by-slug/<slug>` carries
 
 See `.env.example` in the backend repo for the four settings.
 
+## Setting it up
+
+1. **Discord developer portal** → your existing application (the one
+   `DISCORD_CLIENT_ID` already names) → **OAuth2**.
+   - Copy the **client secret** into `DISCORD_CLIENT_SECRET`.
+   - Add this redirect to the allow-list, and set the same string as
+     `DISCORD_OAUTH_REDIRECT_URI`:
+     `https://<this-api-host>/api/crew/auth/discord/callback`
+   - No scopes need ticking there; the flow asks for `identify` per request.
+
+   **It must point at the API host, not at the public site.** They are
+   different hosts and the site does not proxy `/api`. An address built from
+   `PUBLIC_BASE_URL` resolves to the site's catch-all: Discord sends the pilot
+   to a page that is not this route, nothing errors, and the sign-in never
+   completes.
+
+2. **`CREW_PUBLIC_BASE_URL`** — the origin the crew center is served from, no
+   trailing slash. A pilot lands on `<base>/crew/<slug>` afterwards.
+
+3. **Re-run the setup SQL** on each VA's project (Crew Center → Settings → Data
+   store → the update button). That is schema **v16**, which adds the four
+   `crew_accounts` columns. Until a VA does this their pilots carry on signing
+   in with passwords and linking says the database needs updating.
+
+4. **Check it.** The button appears on the sign-in page as soon as the secret is
+   set — `GET /api/va-ads/by-slug/<slug>` should report `discordLogin: true`.
+   Sign in with a password, link Discord from the pilot page, sign out, and use
+   the button.
+
 ## Files
 
 | | |
