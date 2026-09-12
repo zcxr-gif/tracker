@@ -113,11 +113,11 @@
     function bodyHtml() {
         if (!S.data && S.loading) return `<p class="cp-note" style="text-align:center;padding:2rem 0">Counting them up…</p>`;
         if (S.error && !S.data) {
-            if (P.isSchemaGap(S.error) || S.error.status === 404) {
-                return P.schemaGapHtml(S.error.status === 404
-                    ? { message: 'Awards need your crew center’s database brought up to date.' }
-                    : S.error);
-            }
+            // A 404 means this crew center's server has no awards route at
+            // all, which no database update can fix. Only a real schema gap
+            // (409) earns the update button.
+            if (S.error.status === 404) return P.notBuiltHtml('Awards');
+            if (P.isSchemaGap(S.error)) return P.schemaGapHtml(S.error);
             return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>
                 ${esc(S.error.message || 'Those could not be read.')}</div>`;
         }

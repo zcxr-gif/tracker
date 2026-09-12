@@ -713,6 +713,24 @@
         </div>`;
     }
 
+    /**
+     * The other thing a panel can hit: a backend that has never heard of it.
+     *
+     * A 404 is NOT a schema gap, and telling it as one was a real bug. The
+     * reasoning behind it — a route missing today is a route deployed tomorrow —
+     * turned "we have not built this yet" into "your database needs an update",
+     * which sent VAs to a button that could not possibly help and made a healthy
+     * Supabase project look broken to the one person able to check it. So this
+     * says the true thing and offers nothing to press.
+     */
+    function notBuiltHtml(what) {
+        return `<div class="cp-empty">
+            <i data-lucide="hard-hat"></i>
+            ${esc(what)} is not available on this crew center yet — its server has not got this part.
+            <div class="cp-note" style="margin-top:.6rem">Nothing is wrong with your database.</div>
+        </div>`;
+    }
+
     /* =====================================================================
      * UPDATING DATA
      *
@@ -1191,7 +1209,7 @@
         whenText, timeText, dayKey, dayLabel, relativeText, durationText,
         style, baseStyles, toast, sheet, api,
         lockScroll, unlockScroll, recoverScroll,
-        isSchemaGap, schemaGapHtml,
+        isSchemaGap, schemaGapHtml, notBuiltHtml,
         keepPlace, busy, ask, on, emit, reveal,
     };
 })();
