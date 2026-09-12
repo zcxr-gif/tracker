@@ -176,6 +176,85 @@ that this deployment was never set up. `GET /api/va-ads/by-slug/<slug>` carries
 
 See `.env.example` in the backend repo for the four settings.
 
+## One pilot, two airlines
+
+Somebody genuinely may fly for two VAs with the same Discord account. Pressing
+the button in one crew center signs them into **that** one, as the account that
+airline knows them by.
+
+It works because of where the question is asked. Each airline keeps its pilots
+in its **own** database, so "which account is this Discord id" is only ever
+asked inside one of them — and which one is decided by the crew center the
+button was pressed in, sealed into the signed state before the pilot ever left.
+Nothing in the flow can cross from one airline to the other:
+
+* the return address is built from the **canonical slug in the state**, so a
+  pilot who arrived at `/crew/BAW` by callsign still lands on `/crew/ba`;
+* a handoff issued at one airline is refused at another;
+* an airline they have **not** linked at says so, and does not quietly send them
+  to the one they have.
+
+`scripts/test-crew-discord-routes.js` runs two airlines with two rosters and the
+same Discord account across both. Making the callback read the wrong airline's
+roster fails four of its checks; making the return address ignore the sealed
+slug fails two more.
+
+## Inside the app's overlay
+
+The crew center is also framed inside the app, with `?embed=1`. That flag is
+sealed into the state as a **boolean** and handed back on the return, so a pilot
+who signs in there comes back into the overlay rather than being answered with
+the standalone page in its frame.
+
+It is the one thing about the round trip the page gets a say in, and it can only
+change how the destination *dresses itself* — never where that destination is.
+
+## Setting it up
+
+1. **Discord developer portal** → your existing application (the one
+   `DISCORD_CLIENT_ID` already names) → **OAuth2**.
+   - Copy the **client secret** into `DISCORD_CLIENT_SECRET`.
+   - Add this redirect to the allow-list, and set the same string as
+     `DISCORD_OAUTH_REDIRECT_URI`:
+     `https://<this-api-host>/api/crew/auth/discord/callback`
+   - No scopes need ticking there; the flow asks for `identify` per request.
+
+   **It must point at the API host, not at the public site.** They are
+   different hosts and the site does not proxy `/api`. An address built from
+   `PUBLIC_BASE_URL` resolves to the site's catch-all: Discord sends the pilot
+   to a page that is not this route, nothing errors, and the sign-in never
+   completes.
+
+2. **`CREW_PUBLIC_BASE_URL`** — the origin the crew center is served from, no
+   trailing slash. A pilot lands on `<base>/crew/<slug>` afterwards.
+
+3. **Re-run the setup SQL** on each VA's project (Crew Center → Settings → Data
+   store → the update button). That is schema **v16**, which adds the four
+   `crew_accounts` columns. Until a VA does this their pilots carry on signing
+   in with passwords and linking says the database needs updating.
+
+4. **Restart the backend** so the new environment reaches it.
+
+5. **Check the door is open.** `GET /api/va-ads/by-slug/<slug>` should report
+   `discordLogin: true`, and the button should appear on that VA's sign-in page.
+   If the flag is true but pressing it lands you somewhere odd, the redirect in
+   step 1 is pointing at the wrong host.
+
+6. **Walk one pilot through it.** Sign in with a password → **Signing in** card
+   at the foot of the pilot page → *Link Discord* → approve → it says linked.
+   Sign out, press **Continue with Discord**, and you should land back on that
+   airline's crew center, signed in.
+
+### Telling your VAs
+
+What a pilot needs to know is one sentence: *sign in with your password once,
+open your pilot page, and link Discord — after that the button works.* The
+button is visible before they link, and pressing it tells them exactly that, so
+nobody is stuck.
+
+Staff should know two things: a pilot who loses their Discord account still has
+their password, and unlinking (theirs, from the same card) never removes it.
+
 ## Files
 
 | | |
