@@ -135,11 +135,10 @@
     function bodyHtml() {
         if (!S.data && S.loading) return `<p class="cp-note" style="text-align:center;padding:2rem 0">One moment…</p>`;
         if (S.error && !S.data) {
-            if (P.isSchemaGap(S.error) || S.error.status === 404) {
-                return P.schemaGapHtml(S.error.status === 404
-                    ? { message: 'Leave needs your crew center’s database brought up to date.' }
-                    : S.error);
-            }
+            // 404 is "not built here", not "your database is behind" — see
+            // CrewPanels.notBuiltHtml.
+            if (S.error.status === 404) return P.notBuiltHtml('Leave');
+            if (P.isSchemaGap(S.error)) return P.schemaGapHtml(S.error);
             return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>
                 ${esc(S.error.message || 'That could not be read.')}</div>`;
         }
@@ -202,8 +201,8 @@
         if (!S.health) { loadHealth(); return `<p class="cp-note" style="text-align:center;padding:2rem 0">Reading the roster…</p>`; }
         if (S.health.error) {
             const e = S.health.error;
-            if (P.isSchemaGap(e) || e.status === 404) return P.schemaGapHtml(
-                e.status === 404 ? { message: 'The crew-health board needs your database brought up to date.' } : e);
+            if (e.status === 404) return P.notBuiltHtml('The crew-health board');
+            if (P.isSchemaGap(e)) return P.schemaGapHtml(e);
             return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>${esc(e.message || 'That could not be read.')}</div>`;
         }
         const groups = S.health.groups || {};

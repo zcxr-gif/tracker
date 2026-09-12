@@ -522,11 +522,11 @@
      * rather than as "That didn't work."
      */
     function errorHtml(err) {
-        if (P.isSchemaGap(err) || (err && err.status === 404)) {
-            return P.schemaGapHtml(err && err.status === 404
-                ? { message: 'The shop needs your crew center’s database brought up to date.' }
-                : err);
-        }
+        // A 404 is this crew center's server having no shop routes at all.
+        // That is not something the "Update my database" button can fix, and
+        // telling it as a schema gap sent VAs chasing a healthy project.
+        if (err && err.status === 404) return P.notBuiltHtml('The shop');
+        if (P.isSchemaGap(err)) return P.schemaGapHtml(err);
         return `<div class="cp-empty">
             <i data-lucide="triangle-alert"></i>
             ${esc((err && err.message) || 'The shop could not be opened.')}

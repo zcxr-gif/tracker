@@ -69,6 +69,20 @@
 
     const hrs = (h) => `${Math.round(Number(h) || 0).toLocaleString()}h`;
 
+    /**
+     * When the check-ride is, in the examiner's own words where there are any.
+     *
+     * The prompt invites a sentence — "Saturday 19:00Z, KJFK → EGLL" — and a
+     * date formatter throws away the half of that the pilot actually needs, so
+     * `scheduledText` wins over the parsed instant. The instant is what the
+     * server sorts and reminds by; this is what a person reads.
+     */
+    function scheduleLine(r) {
+        const when = (r && r.scheduledText) || whenText(r && r.scheduledAt);
+        if (!when) return 'Your staff will pick a time with you.';
+        return `With ${esc((r && r.examinerName) || 'an examiner')} · ${esc(when)}`;
+    }
+
     function styles() {
         P.baseStyles();
         P.style('crew-training', `
@@ -164,11 +178,14 @@
     function bodyHtml() {
         if (!S.data && S.loading) return `<p class="cp-note" style="text-align:center;padding:2rem 0">Reading the ladder…</p>`;
         if (S.error && !S.data) {
-            if (P.isSchemaGap(S.error) || S.error.status === 404) {
-                return P.schemaGapHtml(S.error.status === 404
-                    ? { message: 'Check-rides need your crew center’s database brought up to date.' }
-                    : S.error);
-            }
+            // Two different absences, told apart. A 409 with a *_missing code
+            // is the VA's project being behind, and the update button fixes it.
+            // A 404 is this crew center's server having no training routes —
+            // which no database update can touch, and which used to be reported
+            // as a schema gap, sending VAs to press a button against a perfectly
+            // healthy project.
+            if (S.error.status === 404) return P.notBuiltHtml('Check-rides');
+            if (P.isSchemaGap(S.error)) return P.schemaGapHtml(S.error);
             return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>
                 ${esc(S.error.message || 'The ladder could not be read.')}
                 <div style="margin-top:.9rem"><button class="cp-btn" data-tr-retry>Try again</button></div></div>`;
@@ -231,9 +248,7 @@
             action = `<div class="tr-row">
                 <div class="tr-row-main">
                     <div class="tr-row-name">${esc(STATE[openReq.status][0])} · ${esc(openReq.forRank || '')}</div>
-                    <div class="tr-row-sub">${openReq.scheduledAt
-                        ? `With ${esc(openReq.examinerName || 'an examiner')} on ${esc(whenText(openReq.scheduledAt))}`
-                        : 'Your staff will pick a time with you.'}</div>
+                    <div class="tr-row-sub">${scheduleLine(openReq)}</div>
                 </div>
                 <div class="tr-row-act"><button class="cp-btn cp-btn-sm cp-btn-bad" data-tr-withdraw="${esc(openReq.id)}">Withdraw</button></div>
             </div>`;
@@ -307,7 +322,11 @@
         const sub = [];
         if (r.hours != null) sub.push(hrs(r.hours));
         if (r.flights != null) sub.push(`${r.flights} flights`);
-        if (r.status === 'scheduled' && r.scheduledAt) sub.push(whenText(r.scheduledAt));
+        // The examiner's own words where there are any, and the parsed instant
+        // otherwise. A scheduled row with neither falls back to how long the
+        // pilot has been waiting, same as an unscheduled one.
+        const when = r.status === 'scheduled' ? (r.scheduledText || whenText(r.scheduledAt)) : '';
+        if (when) sub.push(when);
         else if (r.createdAt) sub.push(`asked ${relativeText(r.createdAt)}`);
         if (r.notes) sub.push(r.notes);
 
