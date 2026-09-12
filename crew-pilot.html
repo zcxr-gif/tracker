@@ -391,6 +391,29 @@
         </section>
 
         <!-- ============ TRUST LINE ============ -->
+        <!-- HOW THIS PILOT GETS IN.
+             Hidden until /me says this deployment offers Discord at all AND
+             this login is one that can hold a link — a VA staff or Inflight
+             account signs in centrally and has nowhere to keep it. Drawn near
+             the foot on purpose: it is a thing a pilot sets once and then never
+             looks at again, and it has no business above their flying. -->
+        <section id="signinSec" class="mt-10 hidden">
+            <h2 class="text-sm font-semibold tracking-tight mb-2.5 flex items-center gap-2">
+                <i data-lucide="key-round" class="w-4 h-4 muted"></i> Signing in
+            </h2>
+            <div class="rounded-lg border hair-soft p-4 flex items-center gap-3 flex-wrap">
+                <img id="dcAvatar" alt="" class="hidden w-9 h-9 rounded-full shrink-0">
+                <div class="min-w-0 flex-1">
+                    <div id="dcTitle" class="text-sm font-medium">Discord</div>
+                    <div id="dcSub" class="text-xs muted mt-0.5">Link it and you can sign in with one tap next time.</div>
+                </div>
+                <button id="dcBtn" type="button" class="shrink-0 text-white rounded-lg px-3.5 py-2 text-sm font-semibold inline-flex items-center gap-2 hover:opacity-90 transition" style="background:#5865F2">
+                    <svg viewBox="0 0 127 96" class="w-4 h-4" fill="currentColor" aria-hidden="true"><path d="M107 8A105 105 0 0 0 81 0a73 73 0 0 0-3 7 97 97 0 0 0-29 0 72 72 0 0 0-4-7 106 106 0 0 0-26 8A110 110 0 0 0 1 82a106 106 0 0 0 32 16 78 78 0 0 0 7-11 69 69 0 0 1-11-5l3-2a75 75 0 0 0 64 0l3 2a68 68 0 0 1-11 5 77 77 0 0 0 7 11 105 105 0 0 0 32-16A110 110 0 0 0 107 8ZM42 65c-6 0-12-6-12-13s5-13 12-13 12 6 12 13-5 13-12 13Zm43 0c-7 0-12-6-12-13s5-13 12-13 12 6 12 13-5 13-12 13Z"/></svg><span id="dcBtnLabel">Link Discord</span>
+                </button>
+            </div>
+            <p id="dcNote" class="hidden text-xs mt-2"></p>
+        </section>
+
         <section id="trust" class="mt-10">
             <div class="flex items-start gap-3 rounded-lg border hair-soft p-4">
                 <i data-lucide="lock" class="w-4 h-4 mt-0.5 muted shrink-0"></i>
@@ -1227,8 +1250,127 @@
                 const d=await res.json();
                 patchSession({ mustChangePassword:!!d.mustChangePassword, canChangePassword:!!d.canChangePassword });
                 showPasswordGate(!!d.mustChangePassword);
+                // /me is the only thing that knows both halves: whether the
+                // deployment offers Discord and whether THIS pilot has linked
+                // it. The card is drawn from the answer rather than from
+                // anything the page remembers.
+                DISCORD = Object.assign({ available:false, linked:false, name:'', avatar:'' }, d.discord || {});
+                paintDiscord();
+                handleDiscordLinkReturn();
             }catch{ /* offline: leave whatever the session said */ }
         }
+        /* ---- Discord, on the pilot's own page ----------------------------
+         *
+         * The link half of the flow. It is the same OAuth round trip the sign-in
+         * page starts, with one difference that matters: it carries this pilot's
+         * bearer token, and the backend reads the account to be linked out of
+         * THAT rather than out of anything the browser hands back afterwards.
+         *
+         * Which means the redirect cannot be started from here with a plain
+         * <a href>: the token has to travel in a header. So the page asks the
+         * backend for the address first and then goes there.
+         */
+        let DISCORD = { available:false, linked:false, name:'', avatar:'' };
+
+        function paintDiscord(){
+            const sec=document.getElementById('signinSec');
+            if(!sec) return;
+            if(!DISCORD.available){ sec.classList.add('hidden'); return; }
+            sec.classList.remove('hidden');
+            const title=document.getElementById('dcTitle');
+            const sub=document.getElementById('dcSub');
+            const label=document.getElementById('dcBtnLabel');
+            const btn=document.getElementById('dcBtn');
+            const av=document.getElementById('dcAvatar');
+            if(DISCORD.linked){
+                title.textContent = DISCORD.name || 'Discord';
+                sub.textContent = 'Linked — you can sign in with Discord.';
+                label.textContent = 'Unlink';
+                // Not the Discord blurple. Unlinking is the destructive half of
+                // this card, and a button that looks exactly like the one that
+                // linked it is a button people press by muscle memory.
+                btn.style.background = 'transparent';
+                btn.style.border = '1px solid var(--line)';
+                btn.style.color = 'var(--ink)';
+                if(DISCORD.avatar){ av.src=DISCORD.avatar; av.classList.remove('hidden'); } else av.classList.add('hidden');
+            } else {
+                title.textContent = 'Discord';
+                sub.textContent = 'Link it and you can sign in with one tap next time.';
+                label.textContent = 'Link Discord';
+                btn.style.background = '#5865F2';
+                btn.style.border = '0';
+                btn.style.color = '#fff';
+                av.classList.add('hidden');
+            }
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function sayDiscord(msg, tone){
+            const n=document.getElementById('dcNote');
+            if(!n) return;
+            if(!msg){ n.classList.add('hidden'); return; }
+            n.textContent=msg;
+            n.className='text-xs mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500'}[tone]||'muted');
+            n.classList.remove('hidden');
+        }
+
+        async function toggleDiscord(){
+            const s=storedSession(), slug=getSlug();
+            if(!s||!s.token||!slug) return;
+            const btn=document.getElementById('dcBtn');
+            btn.disabled=true;
+            try{
+                if(DISCORD.linked){
+                    const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/account/discord`,{
+                        method:'DELETE', headers:{Accept:'application/json',Authorization:'Bearer '+s.token} });
+                    const d=await res.json().catch(()=>({}));
+                    if(!res.ok){ sayDiscord(d.error||'That didn’t work.','bad'); return; }
+                    DISCORD = { ...DISCORD, linked:false, name:'', avatar:'' };
+                    paintDiscord();
+                    sayDiscord('Unlinked. Your password still works — that has not changed.','ok');
+                    return;
+                }
+                /* Starting a LINK needs this pilot's session, and a session
+                   lives in an Authorization header — which a browser cannot
+                   attach to a navigation. So the backend is asked for the
+                   address rather than redirecting to it, and the page follows
+                   what it answers. The alternative, putting the token in the
+                   query string of a navigation, would write a week-long
+                   credential into history, Referer and every log in between. */
+                const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/auth/discord/link`,{
+                    method:'POST', headers:{Accept:'application/json',Authorization:'Bearer '+s.token} });
+                const d = await res.json().catch(()=>({}));
+                if(!res.ok || !d.url){ sayDiscord(d.error||'That didn’t work.','bad'); return; }
+                location.href = d.url;
+            }catch{ sayDiscord('Couldn’t reach the server. Try again in a moment.','bad'); }
+            finally{ btn.disabled=false; }
+        }
+
+        /* Coming back from a link round trip. The sign-in page handles the
+           sign-in case; this handles the one that lands here. */
+        function handleDiscordLinkReturn(){
+            const q=new URLSearchParams(location.search);
+            const said=q.get('discord');
+            if(!said) return;
+            q.delete('discord');
+            history.replaceState(null,'',location.pathname+(q.toString()?'?'+q.toString():''));
+            const SAID={
+                linked:['Discord linked. You can use it to sign in from now on.','ok'],
+                link_taken:['That Discord account is already linked to another pilot here.','bad'],
+                link_denied:['That didn’t work — sign in again and try once more.','bad'],
+                needs_update:['Your crew center’s database needs updating before Discord can be linked. Ask your staff to re-run the setup SQL.','bad'],
+                unavailable:['Signing in with Discord isn’t switched on here.','bad'],
+                cancelled:['',''],
+                failed:['Discord didn’t answer. Please try again.','bad'],
+            };
+            const hit=SAID[said]; if(hit && hit[0]) sayDiscord(hit[0],hit[1]);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const b=document.getElementById('dcBtn');
+            if(b) b.addEventListener('click', toggleDiscord);
+        });
+
         async function submitNewPassword(e){
             e.preventDefault();
             const note=document.getElementById('pwNote'), btn=document.getElementById('pwSubmit');
