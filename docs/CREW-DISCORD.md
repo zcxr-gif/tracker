@@ -168,8 +168,8 @@ nothing else changes, and nothing breaks.
 
 ## Switching it off
 
-Leave `DISCORD_CLIENT_SECRET` empty and the feature is off, completely and
-silently: the sign-in page never draws the button, the pilot page never draws
+Leave `DISCORD_CLIENT_SECRET` empty — or leave the crew base unset — and the
+feature is off, completely and silently: the sign-in page never draws the button, the pilot page never draws
 the card, and nobody is ever sent to Discord only to be told on the way back
 that this deployment was never set up. `GET /api/va-ads/by-slug/<slug>` carries
 `discordLogin: true|false` so the sign-in page knows before it has a session.
@@ -225,8 +225,16 @@ change how the destination *dresses itself* — never where that destination is.
    to a page that is not this route, nothing errors, and the sign-in never
    completes.
 
-2. **`CREW_PUBLIC_BASE_URL`** — the origin the crew center is served from, no
-   trailing slash. A pilot lands on `<base>/crew/<slug>` afterwards.
+2. **`CREW_PUBLIC_BASE_URL`** — **required.** The origin the crew center is
+   served from, no trailing slash; a pilot lands on `<base>/crew/<slug>`. For
+   this platform that is the public site: `https://inflight.info`.
+
+   **Not the API host** — that is step 1, and they are different. Unset, the
+   return address came out relative (`/crew/<slug>?…`), and a relative redirect
+   from the API resolves against the API: a pilot finishing a sign-in was handed
+   the backend's own staff portal, with nothing anywhere reporting a fault.
+   Knowing where to send somebody back now counts as being configured, so the
+   button is not drawn at all until this is set.
 
 3. **Re-run the setup SQL** on each VA's project (Crew Center → Settings → Data
    store → the update button). That is schema **v16**, which adds the four
