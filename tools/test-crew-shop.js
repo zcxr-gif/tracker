@@ -53,12 +53,28 @@ const freshState = () => ({
     balance: 4820,
     orders: [],                   // every POST /shop/orders, in order
     settings: [],                 // every POST /shop/settings, in order
+    added: [],                    // every POST /shop/items, in order
 });
 
 const ITEMS = () => ([
     { id: 'i1', name: 'A320 Retro livery', desc: 'The 1987 scheme.', price: 1500, stock: -1 },
     { id: 'i2', name: 'Custom callsign', desc: 'Any three digits.', price: 6200, stock: -1 },
     { id: 'i3', name: 'Gate 1A at KSEA', desc: 'Your pick of stand.', price: 900, stock: 0 },
+]);
+
+/* What the server offers a VA with an empty shelf, priced from their own rates.
+ * A representative slice of the real catalogue rather than all of it — the
+ * arithmetic that produces these is unit-tested where it lives, in the database
+ * repo, and what this file has to prove is what the back office DOES with them.
+ *
+ * "A320 Retro livery" deliberately matches an item already on the shelf in
+ * ITEMS(), because the state worth testing is the one where a VA has already
+ * taken a suggestion and must not be offered it twice. */
+const SUGGESTED = () => ([
+    { id: 'badge', group: 'Identity', name: 'A badge on your profile', desc: 'A mark beside your name.', icon: 'shield', price: 1100, stock: -1, limitPerPilot: 0 },
+    { id: 'callsign', group: 'Identity', name: 'Your own callsign', desc: 'A flight number that is yours.', icon: 'radio', price: 2900, stock: -1, limitPerPilot: 1 },
+    { id: 'lead', group: 'Events', name: 'Lead the next group flight', desc: 'Fly as number one.', icon: 'users', price: 5400, stock: 1, limitPerPilot: 1 },
+    { id: 'livery', group: 'The network', name: 'A320 Retro livery', desc: 'Already on this shelf.', icon: 'paintbrush', price: 10800, stock: 3, limitPerPilot: 1 },
 ]);
 
 function api(route) {
@@ -85,6 +101,7 @@ function api(route) {
             currency: { name: 'Miles', short: 'mi' },
             earn: { perHour: 120, perLanding: 15, fleetBonus: 40, violationPenalty: 60 },
             items: ITEMS(),
+            suggested: SUGGESTED(),
             wallet: {
                 pilotId: 'p-8812', balance: state.balance, earned: 9140, spent: 4320,
                 name: 'Sam Reyes', callsign: 'TST1174', rank: 'First Officer', since: '2026-03-02',
@@ -95,9 +112,16 @@ function api(route) {
         const body = route.request().postDataJSON() || {};
         state.settings.push(body);
         if (typeof body.enabled === 'boolean') state.shopOn = body.enabled;
+        // Re-priced with the settings, because every suggestion's price is
+        // worked out from the rates that were just saved.
         return json({ enabled: state.shopOn, canManage: true, currency: { name: 'Miles', short: 'mi' },
             earn: { perHour: 120, perLanding: 15, fleetBonus: 40, violationPenalty: 60 }, items: ITEMS(),
+            suggested: SUGGESTED().map((x) => ({ ...x, price: x.price * 2 })),
             wallet: { pilotId: 'p-8812', balance: state.balance, name: 'Sam Reyes', callsign: 'TST1174' } });
+    }
+    if (p.endsWith('/shop/items') && method === 'POST') {
+        state.added.push(route.request().postDataJSON() || {});
+        return json({ item: { id: 'new1', ...(route.request().postDataJSON() || {}) } }, 201);
     }
     if (p.endsWith('/shop/orders') && method === 'POST') {
         const body = route.request().postDataJSON() || {};
@@ -300,11 +324,86 @@ function api(route) {
         await page.click('[data-sh-additem]');
         await page.waitForTimeout(300);
         check('adding something is a form, not another panel', await page.isVisible('[data-sh-f="name"]'));
+
+        /* THE ICON. It has always been in the item model and drawn on every
+           tile that has no picture, and there has never been a way to set it. */
+        check('a tile’s icon can be chosen', await page.isVisible('[data-sh-icon="plane"]'));
+        await page.click('[data-sh-icon="plane"]');
+        await page.waitForTimeout(150);
+        check('…and the chosen one is the one marked',
+            await page.getAttribute('[data-sh-icon="plane"]', 'aria-pressed') === 'true'
+            && await page.getAttribute('[data-sh-icon="gift"]', 'aria-pressed') === 'false');
+        await page.fill('[data-sh-f="name"]', 'Jumpseat ride');
+        await page.fill('[data-sh-f="price"]', '400');
+        await page.click('[data-sh-saveitem]');
+        await page.waitForTimeout(600);
+        const typed = state.added[state.added.length - 1] || {};
+        check('…and it is saved with the item',
+            typed.name === 'Jumpseat ride' && typed.icon === 'plane', JSON.stringify(typed));
+
         check('no page errors', errors.length === 0, errors[0]);
         await page.close();
     }
 
-    // ---- 5. A database that predates the shop --------------------------------
+    /* ---- 5. The blank shelf ------------------------------------------------
+     *
+     * The form has always been the easy half. What stops a VA is that there is
+     * no warehouse and nothing ships, so "what does a virtual airline even
+     * sell" is a blank page — and a shop nobody stocks is a feature nobody
+     * uses. The catalogue is the answer to that question, priced in this
+     * airline's own currency. */
+    console.log('\nThings you could sell');
+    state = freshState();
+    {
+        const { page, errors } = await openDash();
+        await openShop(page);
+        await page.click('[data-sh-view="manage"]');
+        await page.waitForTimeout(400);
+
+        check('a VA with an empty shelf is given things to put on it',
+            (await page.$$('[data-sh-suggest]')).length >= 4);
+        check('…grouped, so they read as a few short lists rather than one long one',
+            (await page.$$('.sh-sug-group')).length >= 2);
+        check('…priced in this airline’s own currency',
+            /2,?900 mi/.test(await page.textContent('[data-sh-suggest="callsign"]')),
+            await page.textContent('[data-sh-suggest="callsign"]'));
+
+        /* One of them is already on the shelf under the same name. It stays
+           where it is, marked and unpressable — a grid that drops a tile every
+           time you tap one moves the rest under your finger. */
+        check('one already on the shelf is not offered again',
+            await page.getAttribute('[data-sh-suggest="livery"]', 'disabled') !== null);
+        check('…and says so where its price was',
+            /on the shelf/i.test(await page.textContent('[data-sh-suggest="livery"]')));
+        check('…while the others are still pressable',
+            await page.getAttribute('[data-sh-suggest="callsign"]', 'disabled') === null);
+
+        await page.click('[data-sh-suggest="lead"]');
+        await page.waitForTimeout(700);
+        const sent = state.added[state.added.length - 1] || {};
+        check('tapping one puts it on the shelf, whole',
+            sent.name === 'Lead the next group flight' && sent.price === 5400
+            && sent.icon === 'users', JSON.stringify(sent));
+        check('…carrying the scarcity that was the point of it',
+            sent.stock === 1 && sent.limitPerPilot === 1, JSON.stringify(sent));
+        check('…and nothing that says it came from a catalogue',
+            sent.id === undefined && sent.group === undefined, JSON.stringify(sent));
+
+        /* Every price here is worked out from the rates. The one moment a VA is
+           certain to read them is right after changing the rate that decides
+           them, so they cannot still be the old ones. */
+        await page.fill('[data-sh-rate="perHour"]', '240');
+        await page.click('[data-sh-saverates]');
+        await page.waitForTimeout(700);
+        check('changing the rate reprices what is on offer',
+            /5,?800 mi/.test(await page.textContent('[data-sh-suggest="callsign"]')),
+            await page.textContent('[data-sh-suggest="callsign"]'));
+
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    // ---- 6. A database that predates the shop --------------------------------
     console.log('\nAn out-of-date database');
     state = freshState(); state.missing = true;
     {

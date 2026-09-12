@@ -66,6 +66,210 @@
         .look{ display:none; }
         body.ready[data-look="center"] .look-center{ display:flex; }
         body.ready[data-look="split"]  .look-split{ display:grid; }
+
+/* ============================================================================
+   THE BACKDROP, AND WHAT WENT WRONG WITH THE BANNER
+
+   A VA's banner is a WIDE picture — three to one, often wider. It is a banner:
+   it was made to sit across the top of something.
+
+   This page used to stretch it over the whole viewport with object-cover. That
+   does not distort it, but what it does instead is worse: covering a phone
+   screen (one to two) with a three-to-one picture means scaling it about six
+   times and showing a tall slice out of the middle. The airline's aircraft is
+   off the side of the screen; what is left is a few blurry pixels of sky. On a
+   desktop it is a heavy crop rather than a ruinous one, which is why it looked
+   almost passable and never good.
+
+   THE FIX IS TO USE IT TWICE, FOR TWO DIFFERENT JOBS.
+
+     the ambience   the banner blurred past recognition and scaled up as the
+                    page's colour field. Crop does not matter once a picture is
+                    blurred — what survives is the airline's colour, which is
+                    the only thing a background should have been contributing.
+
+     the subject    the SAME banner, crisp, in a band whose shape is a banner's
+                    shape. Sixteen by six against a three-to-one source is about
+                    a tenth cropped off the sides and no scaling worth the name.
+                    It is the first time the picture has actually been looked at
+                    on this page.
+
+   And the rule that keeps it fixed: never object-cover a banner into a box
+   taller than it is wide.
+
+   THE FOUR DRAWN BACKDROPS exist because most VAs have never uploaded a banner
+   at all, and until now their sign-in page was a grey dot field with a card on
+   it. Every one of them is gradients over the airline's own accent — no
+   request, nothing to 404, and right on a phone and a monitor alike.
+   ========================================================================= */
+
+/* Two companions for the accent, so a field built from one colour is not one
+   colour. Mixed rather than hue-rotated (which CSS cannot do to a custom
+   property): a red accent warms to red-orange and cools to plum, a blue one to
+   violet and to cyan. Both stay unmistakably the airline's. */
+:root{
+  --bd-warm: color-mix(in srgb, var(--accent) 45%, #ff8a5b);
+  --bd-cool: color-mix(in srgb, var(--accent) 45%, #4ec3ff);
+  --bd-base: #f7f8fb;
+  --bd-ink: 12,14,20;
+}
+.dark{ --bd-base:#0b0c10; --bd-ink:255,255,255; }
+
+#backdrop{ position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; background:var(--bd-base); }
+body.embed #backdrop{ position:absolute; }
+#backdrop > *{ position:absolute; inset:0; }
+.look{ position:relative; z-index:1; }
+
+/* ---- the banner, blurred, as the colour field --------------------------- */
+.bd-banner{ display:none; }
+body[data-bg="banner"] .bd-banner{ display:block; }
+/* Scaled up BEFORE it is blurred, because a blur samples past the edges and a
+   1:1 layer blurs to transparent at the borders. */
+.bd-banner img{ width:100%; height:100%; object-fit:cover; transform:scale(1.18); filter:blur(44px) saturate(1.35); }
+.bd-banner::after{ content:''; position:absolute; inset:0;
+  background:linear-gradient(180deg, rgba(8,10,14,.34), rgba(8,10,14,.58)); }
+.dark .bd-banner::after{ background:linear-gradient(180deg, rgba(4,5,8,.55), rgba(4,5,8,.74)); }
+
+/* ---- aurora: light, in the airline's colours ----------------------------
+   The first version of this was fog. Mixing a DARK accent into transparent over
+   a near-white page gives grey, every time — and most airline accents are dark,
+   because they are navies and maroons and racing greens. Colour has to be
+   mixed INTO something luminous to stay colour, so the blobs are mixed toward
+   their own light end and the page under them is tinted rather than white.
+   Nothing here is subtle; a sign-in page that looks like the airline is the
+   whole point of offering a choice at all. */
+body[data-bg="aurora"] .bd-art{
+  background:
+    radial-gradient(58% 50% at 14% 18%, color-mix(in srgb, var(--accent) 78%, #ffffff), transparent 68%),
+    radial-gradient(50% 44% at 88% 14%, color-mix(in srgb, var(--bd-warm) 82%, #ffffff), transparent 70%),
+    radial-gradient(62% 56% at 76% 94%, color-mix(in srgb, var(--bd-cool) 80%, #ffffff), transparent 72%),
+    linear-gradient(165deg, color-mix(in srgb, var(--accent) 16%, #ffffff), color-mix(in srgb, var(--accent) 6%, #ffffff));
+}
+.dark body[data-bg="aurora"] .bd-art{
+  background:
+    radial-gradient(58% 50% at 14% 18%, color-mix(in srgb, var(--accent) 62%, transparent), transparent 68%),
+    radial-gradient(50% 44% at 88% 14%, color-mix(in srgb, var(--bd-warm) 46%, transparent), transparent 70%),
+    radial-gradient(62% 56% at 76% 94%, color-mix(in srgb, var(--bd-cool) 50%, transparent), transparent 72%),
+    linear-gradient(165deg, #10131b, #07080c);
+}
+/* Two blobs that move. Transforms only, so it is a compositor job rather than a
+   repaint — and the blanket reduced-motion rule at the top of this file stops
+   them dead for anybody who asked for less movement.
+   Brought inward from the corners and blurred LESS than they were: a 70px blur
+   on top of a gradient that is already soft is two soft things making mush. */
+body[data-bg="aurora"] .bd-art::before,
+body[data-bg="aurora"] .bd-art::after{
+  content:''; position:absolute; border-radius:50%; filter:blur(46px); opacity:.55;
+}
+body[data-bg="aurora"] .bd-art::before{
+  width:40vmax; height:40vmax; left:-6vmax; bottom:-10vmax;
+  background:radial-gradient(circle, color-mix(in srgb, var(--bd-cool) 88%, #ffffff), transparent 62%);
+  animation:bdDriftA 26s ease-in-out infinite alternate;
+}
+body[data-bg="aurora"] .bd-art::after{
+  width:34vmax; height:34vmax; right:-8vmax; top:-8vmax;
+  background:radial-gradient(circle, color-mix(in srgb, var(--bd-warm) 88%, #ffffff), transparent 62%);
+  animation:bdDriftB 32s ease-in-out infinite alternate;
+}
+@keyframes bdDriftA{ from{ transform:translate3d(0,0,0) scale(1); } to{ transform:translate3d(8vw,-6vh,0) scale(1.12); } }
+@keyframes bdDriftB{ from{ transform:translate3d(0,0,0) scale(1.08); } to{ transform:translate3d(-7vw,7vh,0) scale(1); } }
+
+/* ---- grid: a flight deck ------------------------------------------------
+   DARK IN BOTH THEMES, on purpose. A drafting grid on white is a spreadsheet;
+   the thing this is imitating — an instrument panel, a chart table under a
+   lamp — is dark, and a VA who picks it is picking that. It is the one backdrop
+   here that does not follow the visitor's light setting, because following it
+   would produce a different design rather than the same one lighter. */
+body[data-bg="grid"] .bd-art{
+  background:
+    linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px) 0 0/46px 46px,
+    linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px) 0 0/46px 46px,
+    radial-gradient(78% 62% at 50% -8%, color-mix(in srgb, var(--accent) 62%, transparent), transparent 72%),
+    linear-gradient(180deg, #10141c, #070a0f);
+}
+/* The vignette is what stops a grid reading as graph paper. */
+body[data-bg="grid"] .bd-art::after{
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(120% 95% at 50% 34%, transparent 30%, rgba(0,0,0,.55) 100%);
+}
+
+/* ---- horizon: a sky ------------------------------------------------------
+   Deep at the top and light at the ground, which is what a sky does. The accent
+   carries the top third at full strength rather than a wash of it — the first
+   version put 30% of a navy over white and produced weather. */
+body[data-bg="horizon"] .bd-art{
+  background:
+    radial-gradient(96% 42% at 50% 84%, color-mix(in srgb, var(--bd-warm) 62%, #ffffff), transparent 74%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 92%, #000000) 0%,
+      var(--accent) 22%,
+      color-mix(in srgb, var(--accent) 34%, #ffffff) 58%,
+      color-mix(in srgb, var(--accent) 6%, #ffffff) 86%);
+}
+/* The great circle. A box far wider than the window, rounded to an ellipse, so
+   what crosses the page is the top of a very large circle rather than the side
+   of a small one. */
+body[data-bg="horizon"] .bd-art::after{
+  content:''; position:absolute; left:-40%; right:-40%; top:46%; height:150%;
+  border-top:1px dashed rgba(255,255,255,.42);
+  border-radius:50%;
+}
+
+/* ---- paper: the quiet one (this page's original field) ------------------ */
+body[data-bg="paper"] .bd-art{
+  background-image:radial-gradient(rgba(var(--bd-ink),.05) 1px, transparent 1px);
+  background-size:22px 22px;
+  background-color:var(--bd-base);
+}
+
+/* ============================================================================
+   THE BANNER, CRISP, AT A BANNER'S SHAPE
+   ========================================================================= */
+.bannerBand{ display:none; }
+body[data-banner="1"] .bannerBand{ display:block; }
+.bannerBand{ position:relative; width:100%; aspect-ratio:16/6; overflow:hidden; background:rgba(var(--bd-ink),.06); }
+.bannerBand img{ width:100%; height:100%; object-fit:cover; display:block; }
+/* A hairline of the airline's colour under it, so the band belongs to the card
+   rather than sitting on it. */
+.bannerBand::after{ content:''; position:absolute; left:0; right:0; bottom:0; height:2px; background:var(--accent); opacity:.9; }
+/* The logo rides the band's bottom edge — the one arrangement that makes a
+   wide picture and a square mark read as one object. The ring is the card's own
+   colour, so the mark reads as cut out of the card rather than dropped on the
+   photograph. */
+/* SCOPED TO data-banner, not written as a bare sibling rule.
+   `display:none` does not take an element out of the DOM, so `.bannerBand +
+   .cardHead` goes on matching for a VA who has no banner at all — and the pull
+   meant for tucking the logo under a picture instead dragged the logo up under
+   the card's own clipped top edge, where it was cut in half. It looked like a
+   layout bug and was a selector bug. */
+body[data-banner="1"] .bannerBand + .cardHead{ margin-top:-2.25rem; }
+body[data-banner="1"] .bannerBand + .cardHead .brand-mono-box{
+  box-shadow:0 0 0 4px #fff, 0 8px 20px -8px rgba(0,0,0,.45); }
+.dark body[data-banner="1"] .bannerBand + .cardHead .brand-mono-box,
+body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
+  box-shadow:0 0 0 4px #18181b, 0 8px 20px -8px rgba(0,0,0,.7); }
+
+@supports not (aspect-ratio: 16/6){ .bannerBand{ height:clamp(90px,26vw,150px); } }
+
+/* THE SPLIT LOOK'S BRAND PANEL, AND WHY IT IS NOT PAINTED BLACK ANY MORE.
+ *
+ * The two panels cover the window between them, so a backdrop chosen behind
+ * them would never be seen — which would make the choice meaningless on half
+ * the looks offered. So the brand panel is transparent and the page's backdrop
+ * shows through it; the panel it used to paint black is now whichever field the
+ * VA picked, cropped to its half.
+ *
+ * The scrim is not optional. This panel's type is white, and two of the drawn
+ * backdrops are light — white on a pale aurora is nothing at all. A fixed dark
+ * wash keeps the words readable on every backdrop while the colour and the
+ * texture still come through, which is the same rule the hero banners on the
+ * hosted sites follow. */
+.splitPanel{ background:transparent; }
+.splitPanel::before{
+  content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+  background:linear-gradient(155deg, rgba(6,8,12,.9), rgba(6,8,12,.66));
+}
+.splitPanel > *{ position:relative; z-index:1; }
     </style>
 </head>
 <body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased min-h-screen transition-colors duration-300" data-look="center">
@@ -79,21 +283,27 @@
       both looks share one auth handler (POST /api/crew/<slug>/login).
     -->
 
+    <!-- THE BACKDROP. One layer for the whole page, under both looks: which one
+         is painted is body[data-bg]. See THE BACKDROP in the stylesheet for why
+         the banner is in here blurred and again, crisp, inside the card. -->
+    <div id="backdrop" aria-hidden="true">
+        <div class="bd-art"></div>
+        <div class="bd-banner"><img class="brand-banner" alt=""></div>
+    </div>
+
     <!-- BOOT -->
     <div id="bootLoader" class="min-h-screen flex flex-col items-center justify-center gap-4 text-zinc-400">
         <div class="loader"></div><p class="text-sm font-medium">Loading crew center…</p>
     </div>
 
     <!-- ============================ CENTER LOOK ============================ -->
-    <div class="look look-center min-h-screen crew-bg relative overflow-hidden items-center justify-center px-5 py-10">
-        <div class="absolute inset-0 z-0 crew-bg"></div>
-        <div class="brand-banner-wrap hidden absolute inset-0 z-0">
-            <img class="brand-banner w-full h-full object-cover" alt="">
-            <div class="absolute inset-0 bg-zinc-950/45 backdrop-blur-[3px]"></div>
-        </div>
-        <div class="relative z-10 w-full max-w-sm mx-auto fade-in" style="margin-top:min(12vh,120px);">
-            <div class="surface rounded-3xl p-6 sm:p-7 shadow-xl">
-                <div class="text-center mb-6">
+    <div class="look look-center min-h-screen relative items-center justify-center px-5 py-10">
+        <div class="relative z-10 w-full max-w-sm mx-auto fade-in" style="margin-top:min(10vh,100px);">
+            <div class="surface rounded-3xl shadow-xl overflow-hidden">
+                <!-- The banner, crisp, at a banner's shape. The card clips it,
+                     so the picture takes the card's own top corners. -->
+                <div class="bannerBand"><img class="brand-banner" alt=""></div>
+                <div class="cardHead relative text-center px-6 sm:px-7 pt-6 pb-0">
                     <img class="brand-logo hidden mx-auto mb-4 max-h-16 w-auto object-contain" alt="">
                     <div class="brand-mono-box accent-bg w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg text-white text-2xl font-black tracking-tight">
                         <span class="brand-mono">VA</span>
@@ -101,7 +311,7 @@
                     <h1 class="text-xl font-bold tracking-tight">Crew Center</h1>
                     <p class="brand-tagline text-zinc-500 dark:text-zinc-400 text-sm mt-1">Sign in to your crew center</p>
                 </div>
-                <form class="authForm space-y-4">
+                <form class="authForm space-y-4 px-6 sm:px-7 pt-5">
                     <div>
                         <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Username or email</label>
                         <input name="username" type="text" autocomplete="username" required placeholder="username or you@yourva.com"
@@ -116,8 +326,24 @@
                     <button type="submit" class="authBtn accent-bg w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]">
                         <span class="authBtnLabel">Sign in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
                     </button>
+                    <!-- BELOW the password, not above it.
+                         The password is the way in that every pilot has on the
+                         day they are accepted; Discord is a second key they add
+                         later. Putting it on top would offer most people the
+                         door they have not got yet. Hidden until the branding
+                         call says this deployment can actually offer it. -->
+                    <div class="discordWrap hidden">
+                        <div class="flex items-center gap-3 my-1">
+                            <span class="h-px flex-1 bg-zinc-200 dark:bg-zinc-800"></span>
+                            <span class="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">or</span>
+                            <span class="h-px flex-1 bg-zinc-200 dark:bg-zinc-800"></span>
+                        </div>
+                        <button type="button" class="discordBtn w-full py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2.5 text-white transition hover:opacity-90 active:scale-[.98]" style="background:#5865F2">
+                            <svg viewBox="0 0 127 96" class="w-[18px] h-[18px]" fill="currentColor" aria-hidden="true"><path d="M107 8A105 105 0 0 0 81 0a73 73 0 0 0-3 7 97 97 0 0 0-29 0 72 72 0 0 0-4-7 106 106 0 0 0-26 8A110 110 0 0 0 1 82a106 106 0 0 0 32 16 78 78 0 0 0 7-11 69 69 0 0 1-11-5l3-2a75 75 0 0 0 64 0l3 2a68 68 0 0 1-11 5 77 77 0 0 0 7 11 105 105 0 0 0 32-16A110 110 0 0 0 107 8ZM42 65c-6 0-12-6-12-13s5-13 12-13 12 6 12 13-5 13-12 13Zm43 0c-7 0-12-6-12-13s5-13 12-13 12 6 12 13-5 13-12 13Z"/></svg><span>Continue with Discord</span>
+                        </button>
+                    </div>
                 </form>
-                <div class="mt-6 pt-5 border-t border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-center gap-2 opacity-80">
+                <div class="mt-6 pt-5 pb-6 mx-6 sm:mx-7 border-t border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-center gap-2 opacity-80">
                     <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
                     <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
                     <img src="/Images/inflight-light.png" alt="Inflight" class="h-[18px] w-auto hidden dark:block">
@@ -133,10 +359,14 @@
     <!-- ============================ SPLIT LOOK ============================ -->
     <div class="look look-split min-h-screen grid-cols-1 md:grid-cols-2">
         <!-- Brand panel (always dark, editorial) — hidden on mobile. -->
-        <div class="relative overflow-hidden text-white hidden md:flex flex-col justify-between p-8 sm:p-10" style="background:#0b0b0f;">
-            <div class="brand-banner-wrap hidden absolute inset-0 opacity-25">
-                <img class="brand-banner w-full h-full object-cover" alt=""><div class="absolute inset-0" style="background:#0b0b0f; opacity:.55;"></div>
-            </div>
+        <div class="splitPanel relative overflow-hidden text-white hidden md:flex flex-col justify-between p-8 sm:p-10">
+            <!-- The banner used the way this panel was always trying to use it.
+                 A half-screen panel is about one to two; a banner is three to
+                 one, so covering the panel with it was a six-fold zoom into a
+                 slice — which is exactly why it had to be dropped to a quarter
+                 opacity to be tolerable. It now sits in a band at the FOOT of
+                 the panel at its own shape, crisp and at full strength, and the
+                 panel's colour comes from the gradient underneath. -->
             <div class="pointer-events-none absolute -bottom-24 -left-24 w-72 h-72 rounded-full blur-3xl opacity-30 accent-bg"></div>
             <div class="relative flex items-center gap-3">
                 <img class="brand-logo hidden h-9 w-auto max-w-[150px] object-contain" alt="">
@@ -151,6 +381,7 @@
                     <div class="flex items-center gap-3 rounded-full bg-white/[.06] border border-white/10 px-4 py-2.5"><i data-lucide="clipboard-list" class="w-4 h-4 text-white/70"></i><span class="text-sm text-white/85">Dispatch board &amp; live notices</span></div>
                     <div class="flex items-center gap-3 rounded-full bg-white/[.06] border border-white/10 px-4 py-2.5"><i data-lucide="radio" class="w-4 h-4 text-white/70"></i><span class="text-sm text-white/85">Live flight tracking via Inflight</span></div>
                 </div>
+                <div class="bannerBand rounded-xl mt-8 border border-white/10"><img class="brand-banner" alt=""></div>
             </div>
         </div>
         <!-- Sign-in panel -->
@@ -179,6 +410,16 @@
                     <button type="submit" class="authBtn accent-bg w-full text-white py-3.5 rounded-full font-semibold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.99] shadow-lg" style="box-shadow:0 10px 30px -10px color-mix(in srgb, var(--accent) 60%, transparent);">
                         <span class="authBtnLabel">Sign in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
                     </button>
+                    <div class="discordWrap hidden">
+                        <div class="flex items-center gap-3 my-1">
+                            <span class="h-px flex-1 bg-zinc-200 dark:bg-zinc-700"></span>
+                            <span class="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">or</span>
+                            <span class="h-px flex-1 bg-zinc-200 dark:bg-zinc-700"></span>
+                        </div>
+                        <button type="button" class="discordBtn w-full py-3.5 rounded-full font-semibold uppercase tracking-wider text-sm flex items-center justify-center gap-2.5 text-white transition hover:opacity-90 active:scale-[.99]" style="background:#5865F2">
+                            <svg viewBox="0 0 127 96" class="w-[18px] h-[18px]" fill="currentColor" aria-hidden="true"><path d="M107 8A105 105 0 0 0 81 0a73 73 0 0 0-3 7 97 97 0 0 0-29 0 72 72 0 0 0-4-7 106 106 0 0 0-26 8A110 110 0 0 0 1 82a106 106 0 0 0 32 16 78 78 0 0 0 7-11 69 69 0 0 1-11-5l3-2a75 75 0 0 0 64 0l3 2a68 68 0 0 1-11 5 77 77 0 0 0 7 11 105 105 0 0 0 32-16A110 110 0 0 0 107 8ZM42 65c-6 0-12-6-12-13s5-13 12-13 12 6 12 13-5 13-12 13Zm43 0c-7 0-12-6-12-13s5-13 12-13 12 6 12 13-5 13-12 13Z"/></svg><span>Continue with Discord</span>
+                        </button>
+                    </div>
                     <p class="authState hidden text-sm text-zinc-500 dark:text-zinc-400"></p>
                 </form>
 
@@ -199,6 +440,10 @@
     <script>
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         const LOOKS = ['center','split'];
+        // Kept in step with LOGIN_BACKDROPS in crewAuth.js — the server refuses
+        // anything else, and this refuses anything else so a stale stored value
+        // falls back rather than painting nothing.
+        const BACKDROPS = ['auto','banner','aurora','grid','horizon','paper'];
         let CREW_SLUG = '';
 
         // ---- Theme ----
@@ -222,6 +467,28 @@
             const q=(new URLSearchParams(location.search).get('look')||'').toLowerCase();
             const l=(q || (b&&b.loginLook) || 'center').toLowerCase();
             return LOOKS.includes(l) ? l : 'center';
+        }
+
+        /* WHAT GOES BEHIND THE CARD.
+         *
+         * Separate from the look, because the two are independent: every
+         * backdrop works under either layout, so two small choices give a VA
+         * twelve sign-in pages rather than two.
+         *
+         * `auto` is the default and resolves HERE rather than on the server,
+         * because the answer depends on something only this page knows for
+         * certain — whether the banner is a URL we are willing to load. A VA
+         * with a banner gets it; a VA without gets the drawn field, which is
+         * most of them and which used to mean a grey dot grid.
+         */
+        function resolveBackdrop(b, hasBanner){
+            const q=(new URLSearchParams(location.search).get('bg')||'').toLowerCase();
+            let v=(q || (b&&b.loginBackdrop) || 'auto').toLowerCase();
+            if(!BACKDROPS.includes(v)) v='auto';
+            if(v==='auto') v = hasBanner ? 'banner' : 'aurora';
+            // Asking for the banner without one would paint a black rectangle.
+            if(v==='banner' && !hasBanner) v='aurora';
+            return v;
         }
 
         // ---- Branding (updates every look via .brand-* classes) ----
@@ -258,9 +525,13 @@
                 setAll('.brand-logo', el=>{ el.src=b.logo; el.alt=name||'VA'; el.classList.remove('hidden'); });
                 setAll('.brand-mono-box', el=>el.classList.add('hidden'));
             }
+            /* The banner goes to BOTH of its jobs: the blurred field behind the
+               page and the crisp band inside the card. data-banner is what the
+               stylesheet keys the band on, so a VA without one gets a card that
+               starts at its own top edge rather than a grey rectangle. */
             if(b.banner && isSafeImageUrl(b.banner)){
-                setAll('.brand-banner', el=>el.src=b.banner);
-                setAll('.brand-banner-wrap', el=>el.classList.remove('hidden'));
+                setAll('.brand-banner', el=>{ el.src=b.banner; });
+                document.body.setAttribute('data-banner','1');
             }
         }
         function showState(reason, slug){
@@ -311,6 +582,87 @@
             }catch{ note.textContent='Could not reach the server. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; }
         }
 
+        /* ---- Signing in with Discord -------------------------------------
+         *
+         * The page's whole part in this is three small jobs. Everything that
+         * decides anything happens on the backend; nothing here is trusted, and
+         * nothing here can be skipped to get in.
+         *
+         *   1. leave      send the pilot to the backend, which signs a state
+         *                 and forwards them to Discord. There is no client id
+         *                 in this page and no URL built here — a sign-in flow
+         *                 assembled in a static file is one anybody can edit.
+         *   2. land       spend the handoff left in the fragment for a real
+         *                 session, then go where a password login would have.
+         *   3. explain    say what happened when it did not work.
+         */
+        function goDiscord(){
+            if(!CREW_SLUG) return;
+            location.href = `${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/auth/discord`;
+        }
+
+        // What a pilot is told. The backend never says which of "no such link",
+        // "wrong airline" or "switched off" happened — telling them apart would
+        // let somebody map a roster by trying Discord accounts — so `not_linked`
+        // covers all three and says the one thing that actually helps.
+        const DISCORD_SAID = {
+            not_linked: 'That Discord account isn’t linked to a pilot here yet. Sign in with your password once, then link it from your account page.',
+            link_taken: 'That Discord account is already linked to another pilot at this airline.',
+            link_denied: 'Sign in first, then link Discord from your account page.',
+            needs_update: 'This crew center’s database needs updating before Discord sign-in works. Ask your staff to re-run the setup SQL.',
+            unavailable: 'Signing in with Discord isn’t switched on here.',
+            unknown: 'We couldn’t find that crew center.',
+            cancelled: '',   // they pressed Cancel. They know.
+            failed: 'Discord sign-in didn’t work. Please try again, or use your password.',
+        };
+
+        async function handleDiscordReturn(){
+            const q = new URLSearchParams(location.search);
+            const said = q.get('discord');
+            if(!said) return false;
+
+            // The handoff rides in the FRAGMENT, which no server ever sees.
+            // Read once and wiped from the address bar immediately, so a
+            // reload or a shared link cannot carry it.
+            const frag = new URLSearchParams((location.hash||'').replace(/^#/,''));
+            const code = frag.get('discord') || '';
+            const clean = () => history.replaceState(null, '', location.pathname + (q.get('embed')==='1'?'?embed=1':''));
+
+            if(said !== 'ok' || !code){
+                clean();
+                if(said === 'linked') return false;   // a link round trip, handled on the account page
+                const msg = DISCORD_SAID[said];
+                if(msg) setAll('.authNote', n=>{ n.textContent=msg; n.className='authNote text-sm font-medium text-amber-600 dark:text-amber-400'; n.classList.remove('hidden'); });
+                return false;
+            }
+
+            clean();
+            setAll('.discordBtn', b=>{ b.disabled=true; b.querySelector('span').textContent='Signing in…'; });
+            try{
+                const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/auth/discord/exchange`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+                    body: JSON.stringify({ code }) });
+                const data = await res.json().catch(()=>({}));
+                if(!res.ok || !data.token){
+                    setAll('.authNote', n=>{ n.textContent=data.error||DISCORD_SAID.failed; n.className='authNote text-sm font-medium text-red-500'; n.classList.remove('hidden'); });
+                    setAll('.discordBtn', b=>{ b.disabled=false; b.querySelector('span').textContent='Continue with Discord'; });
+                    return false;
+                }
+                // The same session the password door hands out, stored the same
+                // way — see crewSession() on the backend for why there is only
+                // one shape of this.
+                try{ localStorage.setItem(sessionKey(), JSON.stringify({token:data.token,name:data.name,username:data.username||'',role:data.role,view:data.view,oversight:!!data.oversight,mustChangePassword:!!data.mustChangePassword,canChangePassword:!!data.canChangePassword,at:Date.now()})); }catch{}
+                const embedQS = document.body.classList.contains('embed') ? '&embed=1' : '';
+                const page = data.view==='pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+                location.href = `/${page}?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
+                return true;
+            }catch{
+                setAll('.authNote', n=>{ n.textContent=DISCORD_SAID.failed; n.className='authNote text-sm font-medium text-red-500'; n.classList.remove('hidden'); });
+                setAll('.discordBtn', b=>{ b.disabled=false; b.querySelector('span').textContent='Continue with Discord'; });
+                return false;
+            }
+        }
+
         // ---- Boot ----
         (async function(){
             CREW_SLUG = getSlug();
@@ -321,10 +673,21 @@
                 document.documentElement.style.background='transparent';
             }
             setAll('.authForm', f=>f.addEventListener('submit', handleLogin));
+            setAll('.discordBtn', b=>b.addEventListener('click', goDiscord));
             const r = await resolveBranding();
             if(r.ok) applyBranding(r.b);
             document.body.setAttribute('data-look', resolveLook(r.ok?r.b:null));
+            document.body.setAttribute('data-bg',
+                resolveBackdrop(r.ok?r.b:null, document.body.getAttribute('data-banner')==='1'));
             if(!r.ok) showState(r.reason, r.slug);
+            // Drawn only where the deployment can actually offer it. A button
+            // that leaves for Discord and comes back saying we were never set
+            // up is worse than no button — the pilot has been sent somewhere
+            // else and has blamed themselves for it.
+            if(r.ok && r.b && r.b.discordLogin) setAll('.discordWrap', el=>el.classList.remove('hidden'));
+            // After the branding, so a message lands on a page that already
+            // looks like the airline rather than on a blank one.
+            await handleDiscordReturn();
             document.getElementById('bootLoader').classList.add('hidden');
             document.body.classList.add('ready');
             applyThemeIcon();

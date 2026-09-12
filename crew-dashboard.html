@@ -683,6 +683,19 @@
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Login page look</h3>
                     <div id="lookOpts" class="space-y-2.5"></div>
+
+                    <!-- WHAT IS BEHIND THE CARD.
+                         A second, separate choice, because it is genuinely
+                         independent of the first: every backdrop works under
+                         either layout, so two small pickers give twelve sign-in
+                         pages where one would have given two. Swatches rather
+                         than a list, drawn with the SAME gradients the page
+                         itself uses — a swatch that is a picture of a backdrop
+                         is a promise the sign-in page then breaks. -->
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mt-5 mb-3">Behind the card</h3>
+                    <div id="bgOpts" class="grid grid-cols-3 gap-2"></div>
+                    <p id="bgNote" class="text-xs muted mt-2"></p>
+
                     <a id="lookPreview" target="_blank" rel="noopener" class="hidden items-center gap-1.5 text-xs accent-text font-semibold mt-3 inline-flex">Preview login <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
                     <p id="lookNote" class="hidden text-sm mt-2"></p>
                 </div>
@@ -3239,6 +3252,67 @@
         let LOGIN_LOOK='center';
         const LOGIN_LOOKS=['center','split'];
         const LOOK_META={ center:{name:'Centered',desc:'Branded modal over the banner'}, split:{name:'Split screen',desc:'Editorial brand panel + sign-in'} };
+        /* THE BACKDROP SWATCHES.
+         *
+         * Each one is painted with the same declarations the sign-in page uses,
+         * scaled down — so what a VA picks from is what they get. `auto` is
+         * drawn as the airline's banner where there is one and the aurora where
+         * there is not, which is exactly what it resolves to.
+         *
+         * Kept in step with LOGIN_BACKDROPS in crewAuth.js; the server refuses
+         * anything else.
+         */
+        let LOGIN_BG='auto';
+        const LOGIN_BGS=['auto','banner','aurora','grid','horizon','paper'];
+        const BG_META={
+            auto:{name:'Automatic',desc:'Your banner if you have one, otherwise Aurora.'},
+            banner:{name:'Your banner',desc:'Your banner, blurred, as the page’s colour.'},
+            aurora:{name:'Aurora',desc:'Soft light in your own colours. No picture needed.'},
+            grid:{name:'Flight deck',desc:'Dark, technical, a drafting grid. Always dark.'},
+            horizon:{name:'Horizon',desc:'A drawn sky with a great circle across it.'},
+            paper:{name:'Paper',desc:'Quiet and plain. Gets out of the way.'},
+        };
+        function bgSwatchStyle(k){
+            const a='var(--accent)';
+            if(k==='banner'||k==='auto'){
+                const b=(window.__vaBanner||'');
+                if(b) return `background-image:url('${b.replace(/'/g,"%27")}');background-size:cover;background-position:center;filter:blur(1px)`;
+                if(k==='banner') return `background:linear-gradient(135deg,color-mix(in srgb,${a} 30%,#fff),color-mix(in srgb,${a} 60%,#000))`;
+            }
+            if(k==='aurora'||k==='auto') return `background:radial-gradient(60% 60% at 20% 20%,color-mix(in srgb,${a} 78%,#fff),transparent 68%),radial-gradient(60% 60% at 85% 85%,color-mix(in srgb,${a} 45%,#4ec3ff),transparent 70%),linear-gradient(160deg,color-mix(in srgb,${a} 14%,#fff),#fff)`;
+            if(k==='grid') return `background:linear-gradient(rgba(255,255,255,.10) 1px,transparent 1px) 0 0/9px 9px,linear-gradient(90deg,rgba(255,255,255,.10) 1px,transparent 1px) 0 0/9px 9px,radial-gradient(80% 70% at 50% -10%,color-mix(in srgb,${a} 62%,transparent),transparent 72%),linear-gradient(180deg,#10141c,#070a0f)`;
+            if(k==='horizon') return `background:radial-gradient(96% 44% at 50% 86%,color-mix(in srgb,${a} 45%,#ff8a5b),transparent 74%),linear-gradient(180deg,color-mix(in srgb,${a} 92%,#000) 0%,${a} 24%,color-mix(in srgb,${a} 30%,#fff) 60%,#fff 90%)`;
+            return `background-color:#f7f8fb;background-image:radial-gradient(rgba(12,14,20,.14) 1px,transparent 1px);background-size:6px 6px`;
+        }
+        function renderBgOpts(){
+            const host=document.getElementById('bgOpts');
+            if(!host) return;
+            host.innerHTML=LOGIN_BGS.map(k=>{
+                const m=BG_META[k]; const on=k===LOGIN_BG;
+                return `<button role="radio" aria-checked="${on}" data-bg="${k}" title="${escapeHtml(m.name)} — ${escapeHtml(m.desc)}"
+                    class="rounded-lg overflow-hidden text-left" style="${on?'box-shadow:0 0 0 2px var(--accent)':'box-shadow:0 0 0 1px var(--line)'}">
+                    <span class="block h-12" style="${bgSwatchStyle(k)}"></span>
+                    <span class="block text-[11px] font-semibold px-2 py-1.5 truncate">${escapeHtml(m.name)}</span>
+                </button>`;
+            }).join('');
+            host.querySelectorAll('[data-bg]').forEach(b=>b.addEventListener('click',()=>chooseBg(b.getAttribute('data-bg'))));
+            const m=BG_META[LOGIN_BG]; document.getElementById('bgNote').textContent=m?m.desc:'';
+            updateLookPreview();
+        }
+        async function chooseBg(k){
+            if(!LOGIN_BGS.includes(k)) return;
+            LOGIN_BG=k; renderBgOpts();
+            const note=document.getElementById('lookNote');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Preview it below. Sign in to save this for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({loginBackdrop:k}) });
+                if(res.ok){ note.textContent='Saved — your login now uses this.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
+            }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
         function renderLookOpts(){
             const host=document.getElementById('lookOpts');
             host.innerHTML=LOGIN_LOOKS.map(k=>{
@@ -3248,6 +3322,10 @@
                     <span class="min-w-0"><span class="block text-sm font-semibold">${escapeHtml(m.name)}</span><span class="block text-xs muted">${escapeHtml(m.desc)}</span></span></button>`;
             }).join('');
             host.querySelectorAll('[data-look]').forEach(b=>b.addEventListener('click',()=>chooseLook(b.getAttribute('data-look'))));
+            // Drawn together, always. The two pickers are one screen, and a
+            // drawer opened before the branding call lands would otherwise show
+            // the looks with an empty space where the backdrops go.
+            renderBgOpts();
             updateLookPreview();
             if(window.lucide) lucide.createIcons();
         }
@@ -3255,6 +3333,7 @@
             const p=new URLSearchParams(location.search); p.set('look', LOGIN_LOOK);
             // Carry the currently-chosen accent so the preview matches (and the
             // login gets the VA accent even before it's saved).
+            p.set('bg', LOGIN_BG);
             const cur=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
             if(isHex(cur)) p.set('accent', cur);
             const a=document.getElementById('lookPreview'); a.href='/crew?'+p.toString(); a.classList.remove('hidden');
@@ -7568,6 +7647,11 @@
             }
             if(b.supabase) SUPA=b.supabase;
             if(b.loginLook && LOGIN_LOOKS.includes(b.loginLook)) LOGIN_LOOK=b.loginLook;
+            if(b.loginBackdrop && LOGIN_BGS.includes(b.loginBackdrop)) LOGIN_BG=b.loginBackdrop;
+            // The swatch for "your banner" is the banner. Held here so the
+            // picker can draw the real thing rather than a stand-in gradient.
+            if(b.banner && isSafeImageUrl(b.banner)) window.__vaBanner=b.banner;
+            renderBgOpts();
             // Not applied here: the mode is resolved in one place (boot, below),
             // because a device-local choice and a ?topics= preview both outrank
             // what the crew record says and this is only one of the three.

@@ -2036,6 +2036,16 @@ video {
   .md\:flex {
     display: flex;
   }
+
+  /* The sign-in page's split look. Without these the two panels stack at full
+     width and a screenshot of it is a picture of a layout nobody ships. */
+  .md\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md\:hidden {
+    display: none;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -2073,4 +2083,21 @@ video {
     --tw-text-opacity: 1;
     color: rgb(248 113 113 / var(--tw-text-opacity, 1));
   }
+}
+
+/* Added for the sign-in page's card: the stub stands in for Tailwind, and a
+   missing radius made screenshots of a rounded card look square-cornered. */
+.rounded-3xl { border-radius: 1.5rem; }
+
+/* The sign-in page's split look: its right-hand panel is opaque, and a stub
+   without these renders it transparent over the backdrop with unreadable text —
+   a picture of a bug that does not exist. */
+.bg-stone-50 { background-color: #fafaf9; }
+.dark .dark\:bg-zinc-900 { background-color: #18181b; }
+
+/* The split look's brand panel is padded; without this the stub renders its
+   contents flush to the window edge. */
+.p-8 { padding: 2rem; }
+@media (min-width: 640px) {
+  .sm\:p-10 { padding: 2.5rem; }
 }
