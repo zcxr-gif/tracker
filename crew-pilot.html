@@ -1338,7 +1338,11 @@
                    query string of a navigation, would write a week-long
                    credential into history, Referer and every log in between. */
                 const res = await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/auth/discord/link`,{
-                    method:'POST', headers:{Accept:'application/json',Authorization:'Bearer '+s.token} });
+                    method:'POST',
+                    headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+s.token},
+                    // So a pilot who linked from inside the app's overlay comes
+                    // back into it rather than to the standalone page.
+                    body: JSON.stringify({ embed: new URLSearchParams(location.search).get('embed')==='1' ? '1' : '' }) });
                 const d = await res.json().catch(()=>({}));
                 if(!res.ok || !d.url){ sayDiscord(d.error||'That didn’t work.','bad'); return; }
                 location.href = d.url;

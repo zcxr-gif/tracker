@@ -598,7 +598,11 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
          */
         function goDiscord(){
             if(!CREW_SLUG) return;
-            location.href = `${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/auth/discord`;
+            // The overlay flag rides along so the backend can hand it back on
+            // the return. It is a boolean the state seals; it cannot change
+            // WHERE the pilot lands, only how that page dresses itself.
+            const embed = document.body.classList.contains('embed') ? '?embed=1' : '';
+            location.href = `${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/auth/discord${embed}`;
         }
 
         // What a pilot is told. The backend never says which of "no such link",
