@@ -73,6 +73,66 @@ that a click, a slip and a half-press all spend nothing.
 Then: a tick, the amount, the new balance, and the code the pilot shows their
 staff to collect it.
 
+## What a virtual airline actually sells
+
+The form was never the hard part. The hard part is the blank page: there is no
+warehouse, nothing ships, and a pilot who has flown forty hours cannot be handed
+anything physical. "What do I even sell" is where a VA stopped, and a shop
+nobody stocks is a feature nobody uses.
+
+So the back office offers **twelve things a VA can really give a pilot**, under
+the shelf. Tap one and it becomes an ordinary item they own, edit and price like
+any other — there is no trace afterwards of it having come from a catalogue,
+because a suggestion that stayed special would be a second kind of shelf item to
+reason about forever.
+
+| Shelf | What is on it |
+|---|---|
+| Identity | a profile badge, your own callsign, a tail number of your choosing |
+| The network | name a route, request a livery, open a new destination |
+| Events | first pick of the gate, lead the next group flight |
+| Getting on | an extra check-ride attempt, thirty more days of leave |
+| Recognition | featured on the website, a line in the next NOTAM |
+
+Three tests, and a thing had to pass all of them: **a staff member can deliver
+it today** with no new backend and nothing they cannot already do; **a pilot
+actually wants it** — status, a say in how the airline flies, or being seen;
+and **it cannot be bought twice into nonsense**, so anything absurd to hold two
+of carries a limit and anything genuinely scarce carries stock. Two "lead the
+next group flight" is not a lead.
+
+Neither of the two under *Getting on* buys a rank. They buy another attempt and
+a longer clock; the check ride itself is unchanged.
+
+### Priced in flights, not in points
+
+The decision that makes the catalogue worth having. A fixed price is wrong for
+everybody: a VA paying 120 an hour and a VA paying 5 an hour run the same
+economy at different scales, and `1,500` is a fortnight of flying to one of them
+and a lifetime to the other. A suggestion priced in somebody else's currency is
+worse than no suggestion, because it looks like advice.
+
+So each entry carries what it should cost in **typical flights**, and the price
+is worked out from the VA's own rates when the catalogue is read. `flights: 8`
+means "about eight flights' worth" at whatever rate the VA ever sets. The unit
+is `examplePay` — the same 2h 15m in-fleet flight the worked example under the
+rates is computed from — so the sentence a VA reads before saving and the prices
+they are offered come from one function.
+
+Prices are rounded up to a step that grows with the number (fives, then
+twenty-fives, then fifties, then hundreds) so a shelf reads as a price list
+rather than as arithmetic. Never down: a suggestion that undercuts the effort it
+stands for is selling somebody's pilots' hours cheap.
+
+A VA who has not set a rate yet is priced off a stated placeholder flight rather
+than at zero — a shelf of free things is worse than an empty one, because a
+pilot buys the lot before the VA has finished setting up. The moment a rate is
+saved, the server sends the catalogue back repriced with it.
+
+**Nothing is seeded.** No shop gets a row its owner did not put there. That is
+the same rule the settings follow, for the same reason: deploying a file must
+not start an economy in three hundred airlines that did not ask for one.
+
 ## What the browser is not allowed to do
 
 **Never compute a balance it then trusts, and never decide whether a pilot can
@@ -118,6 +178,15 @@ PATCH  /api/crew/<slug>/shop/orders/<id> staff: { action: 'fulfil' | 'cancel' }
 knows whether to draw the tile without asking for the whole shop on every page
 load.
 
+`GET /shop` and `POST /shop/settings` both carry `suggested` for staff — the
+catalogue, priced from that VA's rates. It rides the responses the panel already
+makes rather than a call of its own, and it comes back with the settings because
+every price in it is worked out from the rates that were just saved: the one
+moment a VA is certain to read those prices is immediately after changing the
+rate that decides them. Pilots never receive it; it is a back-office tool, and a
+pilot who could see it would be reading a list of things the airline does not
+sell.
+
 Server-side rules the client depends on:
 
 * `POST /shop/orders` is the only thing that moves a balance. It must re-check
@@ -132,7 +201,14 @@ Server-side rules the client depends on:
 node tools/test-crew-shop.js
 ```
 
-Covers: a VA with no shop has no tile; the one screen that switches it on; the
+Covers: the catalogue — that a VA with an empty shelf is offered things to put
+on it, grouped and priced in their own currency; that one already on the shelf
+stays visible but unpressable rather than vanishing under the finger aiming at
+it; that tapping one sends the whole item, scarcity included, and nothing that
+says where it came from; and that changing the rate reprices what is on offer.
+Also that an item's icon can be chosen and is saved with it.
+
+And: a VA with no shop has no tile; the one screen that switches it on; the
 shelf's three states (buy / how short / sold out); that a click, a slip and a
 half-press spend nothing while a held press pays exactly once; that the balance
 shown afterwards is the server's; the back office and its live worked example;

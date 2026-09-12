@@ -362,6 +362,36 @@
         .sh-switch{ display:flex; align-items:center; gap:.7rem; padding:.8rem .85rem;
             border:1px solid var(--line,#e5e5e5); border-radius:.9rem; background:var(--surface,#fff); }
         .sh-switch-main{ flex:1; min-width:0; }
+        /* ---- The suggestions ------------------------------------------
+           A grid rather than a list, and deliberately not styled like the
+           shelf above it: these are not on sale yet, and a VA scanning the
+           back office must never have to work out which rows are real. */
+        .sh-sug-group{ font-size:.72rem; font-weight:700; color:var(--muted,#736E64);
+            margin:.35rem 0 .1rem; }
+        .sh-sugs{ display:grid; gap:.4rem;
+            grid-template-columns:repeat(auto-fill, minmax(min(13rem,100%), 1fr)); }
+        .sh-sug{ display:flex; align-items:center; gap:.55rem; width:100%; text-align:left;
+            padding:.55rem .6rem; border-radius:.7rem; cursor:pointer; font:inherit;
+            border:1px dashed var(--line,#e5e5e5);
+            background:color-mix(in srgb, var(--ink,#1C1A16) 2%, transparent);
+            color:inherit; transition:border-color .15s ease, background-color .15s ease; }
+        .sh-sug:hover{ border-style:solid; border-color:var(--accent);
+            background:color-mix(in srgb, var(--accent) 7%, transparent); }
+        .sh-sug[disabled]{ opacity:.55; cursor:default; }
+        .sh-sug i{ width:1rem; height:1rem; flex-shrink:0; color:var(--accent); }
+        .sh-sug-main{ display:block; min-width:0; flex:1; }
+        .sh-sug-name{ display:block; font-size:.8rem; font-weight:700; letter-spacing:-.01em;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sh-sug-price{ display:block; font-size:.72rem; color:var(--muted,#736E64);
+            font-variant-numeric:tabular-nums; }
+        /* ---- The icon picker ------------------------------------------- */
+        .sh-icons{ display:flex; flex-wrap:wrap; gap:.3rem; }
+        .sh-icon{ width:2.1rem; height:2.1rem; display:grid; place-items:center; cursor:pointer;
+            border:1px solid var(--line,#e5e5e5); border-radius:.6rem; background:var(--surface,#fff);
+            color:inherit; padding:0; }
+        .sh-icon i{ width:1rem; height:1rem; }
+        .sh-icon[aria-pressed="true"]{ border-color:var(--accent);
+            box-shadow:0 0 0 1px var(--accent); color:var(--accent); }
         .sh-off{ text-align:center; padding:2.2rem 1rem; display:grid; gap:.6rem; justify-items:center; }
         .sh-off i{ width:1.7rem; height:1.7rem; color:var(--faint,#A8A296); }
         .sh-off-title{ font-size:1rem; font-weight:800; letter-spacing:-.015em; }
@@ -942,7 +972,49 @@
             <div class="sh-h" style="margin-top:.8rem">On the shelf</div>
             ${items.length ? items.map(manageItemHtml).join('') : '<p class="cp-note">Nothing yet.</p>'}
             <div><button class="cp-btn" data-sh-additem><i data-lucide="plus"></i> Add something</button></div>
+            ${suggestHtml()}
         </div>`;
+    }
+
+    /* ---- Things a virtual airline can actually sell ---------------------
+     *
+     * The hard part of setting up a shop is not the form, it is the blank
+     * page: there is no warehouse, nothing ships, and "what do I even sell"
+     * is where a VA stops. So the server sends a dozen answers, priced from
+     * this airline's own rates, and tapping one puts it on the shelf as an
+     * ordinary item to edit like any other.
+     *
+     * ALREADY-ADDED ONES STAY VISIBLE, disabled and marked, rather than
+     * disappearing. A grid that silently loses a tile every time you tap one
+     * makes the remaining ones jump under your finger, and somebody adding
+     * four things in a row would be aiming at a moving target. Matched on the
+     * name, because that is what a VA sees — rename it and it is theirs, and
+     * offering it again is correct.
+     */
+    function suggestHtml() {
+        const sugs = S.data.suggested || [];
+        if (!sugs.length) return '';
+        const have = new Set((S.data.items || []).map((i) => String(i.name || '').trim().toLowerCase()));
+        const groups = [];
+        sugs.forEach((sg) => {
+            const at = groups.find((g) => g.name === sg.group);
+            if (at) at.items.push(sg); else groups.push({ name: sg.group, items: [sg] });
+        });
+        return `<div class="sh-h" style="margin-top:.8rem">Things you could sell</div>
+            <p class="cp-note" style="margin:0">Worked out from the rate you set above. Tap one to put it
+                on the shelf, then change the words and the price to suit.</p>
+            ${groups.map((g) => `<div class="sh-sug-group">${esc(g.name)}</div>
+                <div class="sh-sugs">${g.items.map((sg) => {
+                    const added = have.has(String(sg.name || '').trim().toLowerCase());
+                    return `<button type="button" class="sh-sug" data-sh-suggest="${esc(sg.id)}"
+                        ${added ? 'disabled' : ''} title="${esc(sg.desc || '')}">
+                        <i data-lucide="${esc(added ? 'check' : (sg.icon || 'gift'))}"></i>
+                        <span class="sh-sug-main">
+                            <span class="sh-sug-name">${esc(sg.name)}</span>
+                            <span class="sh-sug-price">${added ? 'on the shelf' : money(sg.price)}</span>
+                        </span>
+                    </button>`;
+                }).join('')}</div>`).join('')}`;
     }
 
     function manageItemHtml(i) {
@@ -994,6 +1066,12 @@
                     <input class="cp-input" data-sh-f="image" value="${esc(it.image || '')}" placeholder="https://…"></label>
             </div>
             <p class="cp-note">A limit of 0 means no limit. Leave the picture empty and it gets a plain tile.</p>
+            <div class="cp-label">Icon
+                <div class="sh-icons">${ICONS.map((ic) => `<button type="button" class="sh-icon"
+                    data-sh-icon="${esc(ic)}" aria-label="${esc(ic)}"
+                    aria-pressed="${(it.icon || 'gift') === ic ? 'true' : 'false'}"><i data-lucide="${esc(ic)}"></i></button>`).join('')}</div>
+            </div>
+            <p class="cp-note">Shown on the tile when there is no picture.</p>
             <div class="cp-ask-row" style="justify-content:flex-start">
                 <button class="cp-btn cp-btn-primary" data-sh-saveitem>${isNew ? 'Put it on the shelf' : 'Save'}</button>
                 <button class="cp-btn" data-sh-canceledit>Cancel</button>
@@ -1001,12 +1079,27 @@
         </div>`;
     }
 
+    /* The icons offered for an item with no picture.
+     *
+     * A short, fixed list rather than a free-text field, and rather than all of
+     * Lucide. The name goes into a data-lucide attribute that is rendered on a
+     * page pilots open, so what a VA may type there is worth keeping to a set
+     * somebody chose — and a picker of twelve is a decision, where a picker of
+     * fourteen hundred is a search box and a shrug. These are the twelve the
+     * suggested catalogue uses, so anything a VA adds from it can be matched by
+     * anything they write themselves. */
+    const ICONS = ['gift', 'shield', 'radio', 'plane', 'route', 'paintbrush',
+        'map-pin', 'ticket', 'users', 'clipboard-check', 'calendar-plus', 'star', 'megaphone'];
+
     function readForm(scope) {
         const out = {};
         scope.querySelectorAll('[data-sh-f]').forEach((el) => {
             const k = el.getAttribute('data-sh-f');
             out[k] = (el.type === 'number') ? Number(el.value) : el.value.trim();
         });
+        // Buttons rather than an input, so it is not in the sweep above. Held
+        // on S.editing, which is where the form's own starting values live.
+        out.icon = (S.editing && S.editing.icon) || 'gift';
         return out;
     }
 
@@ -1040,6 +1133,34 @@
             S.editing = null;
             await load();
             P.toast(id ? 'Saved.' : 'It’s on the shelf.', 'ok');
+        } catch (err) {
+            P.toast((err && err.message) || 'That didn’t save.', 'bad');
+        } finally { done(); }
+    }
+
+    /* One suggestion, onto the shelf.
+     *
+     * It goes through the same POST /shop/items as anything a VA types, with
+     * the price the server worked out from their rates — so what lands is an
+     * ordinary item they own, and nothing downstream has to know it came from
+     * a catalogue. The `id` on a suggestion names the catalogue entry and is
+     * dropped here rather than sent; the server issues the item's own.
+     */
+    async function addSuggested(id, btn) {
+        const sug = (S.data.suggested || []).find((x) => String(x.id) === String(id));
+        if (!sug) return;
+        const done = P.busy(btn, false);
+        try {
+            await S.api('/shop/items', {
+                method: 'POST',
+                body: {
+                    name: sug.name, desc: sug.desc, icon: sug.icon, image: '',
+                    price: sug.price, stock: sug.stock,
+                    limitPerPilot: sug.limitPerPilot, active: true,
+                },
+            });
+            await load();
+            P.toast('It’s on the shelf.', 'ok');
         } catch (err) {
             P.toast((err && err.message) || 'That didn’t save.', 'bad');
         } finally { done(); }
@@ -1108,6 +1229,22 @@
             if (del) { removeItem(del.getAttribute('data-sh-delitem'), del); return; }
             if (t.closest('[data-sh-canceledit]')) { S.editing = null; draw(); return; }
             if (t.closest('[data-sh-saveitem]')) { saveItem(panel.body, t.closest('[data-sh-saveitem]')); return; }
+
+            /* The icon picker. Held on S.editing and the buttons repainted in
+               place rather than redrawing the panel: a redraw would throw away
+               every other half-typed field in the form. */
+            const pick = t.closest('[data-sh-icon]');
+            if (pick) {
+                const name = pick.getAttribute('data-sh-icon');
+                S.editing = { ...(S.editing || {}), icon: name };
+                panel.body.querySelectorAll('[data-sh-icon]').forEach((el) => {
+                    el.setAttribute('aria-pressed', el.getAttribute('data-sh-icon') === name ? 'true' : 'false');
+                });
+                return;
+            }
+
+            const sug = t.closest('[data-sh-suggest]');
+            if (sug) { addSuggested(sug.getAttribute('data-sh-suggest'), sug); return; }
         });
 
         // The worked example under the rates keeps up as they are typed. It is
