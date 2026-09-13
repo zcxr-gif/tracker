@@ -588,6 +588,15 @@
             link_denied: ['That didn’t work — sign in again and try once more.', 'bad'],
             no_pilot_side: ['Set up your pilot account first, then link Discord.', 'bad'],
             needs_update: ['This crew center’s database needs updating before Discord can be linked.', 'bad'],
+            /* THE VA'S DATA STORE, NOT DISCORD. Each of these used to arrive as
+               "Discord didn’t answer. Please try again." — which is advice that
+               cannot work, because Discord was never the thing that failed. */
+            store_offline: ['This crew center’s data store didn’t answer. Try again in a minute.', 'bad'],
+            store_denied: ['This crew center’s data store rejected our credentials. Ask your staff to re-copy the service key.', 'bad'],
+            store_readonly: ['This crew center’s database is full, so nothing can be saved to it. Ask your staff to make room.', 'bad'],
+            /* OUR CONFIGURATION, and the one reason here that names us. Trying
+               again cannot fix it, so it does not ask anybody to. */
+            discord_setup: ['Discord turned us away — this is our end, not yours. It has been logged; please tell your staff.', 'bad'],
             unavailable: ['Signing in with Discord isn’t switched on here.', 'bad'],
             cancelled: ['', ''],
             failed: ['Discord didn’t answer. Please try again.', 'bad'],

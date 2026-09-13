@@ -630,6 +630,19 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
             link_taken: 'That Discord account is already linked to another pilot at this airline.',
             link_denied: 'Sign in first, then link Discord from your account page.',
             needs_update: 'This crew center’s database needs updating before Discord sign-in works. Ask your staff to re-run the setup SQL.',
+            /* THE CREW CENTER'S OWN DATA STORE. These used to arrive as
+               "Discord sign-in didn’t work, please try again" — which sent
+               people to retry a thing that had not failed, and left the one
+               person who could fix it never hearing about it. Each of these
+               names what is wrong and who can act on it; every one of them
+               still ends with the password door, which is open throughout. */
+            store_offline: 'This crew center’s data store didn’t answer. Try again in a minute, or sign in with your password.',
+            store_denied: 'This crew center’s data store rejected our credentials. Ask your staff to re-copy the service key — your password still works.',
+            store_readonly: 'This crew center’s database is full, so it cannot record a sign-in. Ask your staff to make room — your password still works.',
+            /* OUR CONFIGURATION. Discord answered and turned us away, which no
+               amount of retrying changes, so this is the one message that does
+               not ask for one. */
+            discord_setup: 'Discord turned us away — this is our end, not yours. It has been logged. Please sign in with your password for now.',
             unavailable: 'Signing in with Discord isn’t switched on here.',
             unknown: 'We couldn’t find that crew center.',
             cancelled: '',   // they pressed Cancel. They know.
