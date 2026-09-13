@@ -246,7 +246,13 @@
         if (S.busy) return;
         S.busy = true; paintAll();
         try {
-            const d = await S.api('/auth/discord/link', { method: 'POST', body: {} });
+            // So a staff member who linked from inside the app's Crew Center
+            // overlay comes back into it, rather than to the standalone
+            // dashboard in the overlay's frame. A boolean the backend seals
+            // with the rest of the state; it cannot change where they land.
+            let embed = '';
+            try { embed = new URLSearchParams(window.location.search).get('embed') === '1' ? '1' : ''; } catch { embed = ''; }
+            const d = await S.api('/auth/discord/link', { method: 'POST', body: { embed } });
             if (d && d.url) { window.location.href = d.url; return; }
             P.toast('Could not start that.', 'bad');
         } catch (err) {
@@ -388,7 +394,9 @@
 
         const modal = dialog('Which pilot are you?', `
             <p class="cp-note">Pick your own record on the roster. This only affects what YOU can
-                book and file — it does not change anybody’s pilot account.</p>
+                book and file — it does not change anybody’s pilot account. A pilot who already has
+                their own crew center login cannot be picked: they are already somebody, and two
+                people on one record would each be able to cancel the other’s flying.</p>
             <input id="mfSearch" class="cp-input" placeholder="Search the roster…" autocomplete="off">
             <ul id="mfRoster" class="mf-roster"></ul>
             ${S.me ? '<button class="cp-btn cp-btn-bad cp-btn-sm" id="mfUnlink">I don’t fly for this airline</button>' : ''}

@@ -453,6 +453,12 @@
                 <p class="text-sm muted">
                     <span class="font-medium text-[var(--ink)]">Your logbook is yours.</span>
                     Your hours and flights stay in <span id="trustName">your VA’s</span> own space — Inflight just helps you fly.
+                    <!-- The standing link, not only the one-off prompt. A pilot
+                         who agreed months ago and now wants to check what was
+                         actually held about them should not have to wait for a
+                         new version to be shown it again. -->
+                    <a href="/crew-terms.html" target="_blank" rel="noopener"
+                       class="underline hover:text-[var(--ink)] whitespace-nowrap">What’s held, and why</a>.
                 </p>
             </div>
         </section>
@@ -1508,7 +1514,15 @@
                 if(!res.ok){ say(d.error||'That didn’t work.','bad'); return; }
                 patchSession({ mustChangePassword:false });
                 say('Saved — that’s your password from now on.','ok');
-                setTimeout(()=>showPasswordGate(false), 900);
+                setTimeout(()=>{
+                    showPasswordGate(false);
+                    // The notice was held back while the password gate was up,
+                    // so two modals never stacked. This is the moment it is free
+                    // to ask — otherwise a pilot on their first sign-in is never
+                    // shown it at all on the visit where they read everything
+                    // else for the first time.
+                    maybeAskTerms();
+                }, 900);
             }catch{ say('Couldn’t reach the server. Try again in a moment.','bad'); }
             finally{ btn.disabled=false; btn.textContent=prev; }
         }
