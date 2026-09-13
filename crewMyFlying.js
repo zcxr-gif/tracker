@@ -44,6 +44,10 @@
         // Who the signed-in person is on the roster, per GET /me/pilot.
         me: null,            // { memberId, name, callsign, hours } | null
         linkable: false,     // can this account choose its own roster row?
+        // v17. The staff member's OWN pilot account, if they have set one up.
+        // { applies, ready, discord: { available, linked, name } }
+        pilotSide: { applies: false, ready: true, discord: null },
+        busy: false,         // a set-up or link round trip is in flight
         loaded: false,
         error: null,
         roster: [],          // only fetched when the picker is actually opened
@@ -61,6 +65,7 @@
             const d = await S.api('/me/pilot');
             S.me = d.pilot || null;
             S.linkable = !!d.linkable;
+            S.pilotSide = Object.assign({ applies: false, ready: true, discord: null }, d.pilotSide || {});
             S.error = null;
         } catch (err) {
             S.error = err;
@@ -107,18 +112,32 @@
         // here — a store-backed account's link belongs to its own account row.
         if (!S.me && !S.linkable) { el.innerHTML = ''; return; }
 
+        /* NOBODY YET.
+         *
+         * Two ways out, and the order matters. The first — a pilot record of
+         * their OWN — is the one almost everybody wants and is offered as the
+         * button: staff who fly should not have to find themselves on a roster
+         * they may not be on, and picking somebody else's row is how two people
+         * end up sharing one pilot.
+         *
+         * The second is kept for the case it was built for: a staff member who
+         * is ALREADY on the roster, flying under a record with their hours on
+         * it. Making them a new one would strand those hours. */
         if (!S.me) {
             el.innerHTML = `
                 <div class="mf-link">
                     <div class="mf-link-text">
                         <div class="mf-link-title">Do you fly for this airline too?</div>
-                        <p class="cp-note">Point your staff account at your own pilot record and you can
-                            book legs, sign up for events and file flights from here.</p>
+                        <p class="cp-note">Set up your own pilot account and you can book legs, sign up
+                            for events, file flights and sign in with Discord — without a second password
+                            and without borrowing anybody else’s record.</p>
                     </div>
-                    <button class="cp-btn cp-btn-primary" data-mf-pick>
-                        <i data-lucide="user-check"></i> That’s me
+                    <button class="cp-btn cp-btn-primary" data-mf-setup ${S.busy ? 'disabled' : ''}>
+                        <i data-lucide="user-plus"></i> ${S.busy ? 'Setting up…' : 'Set up my pilot account'}
                     </button>
-                </div>`;
+                </div>
+                <p class="cp-note mf-alt">Already on the roster?
+                    <button class="mf-inline" data-mf-pick>Point at your existing record instead</button>.</p>`;
             icons();
             wire(el);
             return;
@@ -159,6 +178,7 @@
                 </span>
                 ${S.linkable ? '<button class="cp-icon-btn" data-mf-pick title="Change which pilot you are"><i data-lucide="pencil"></i></button>' : ''}
             </div>
+            ${discordRow()}
             <ul class="mf-legs">${rows}</ul>
             <div class="mf-actions">
                 <button class="cp-btn cp-btn-sm" data-mf-schedule><i data-lucide="calendar-clock"></i> Schedule</button>
@@ -168,6 +188,85 @@
             </div>`;
         icons();
         wire(el);
+    }
+
+    /**
+     * Signing in with Discord, for a staff member who has a pilot side.
+     *
+     * Drawn only when there is a row to write the link on: the backend refuses
+     * a link with nothing to hang it on, and a button that always refuses is
+     * worse than no button. Nothing is drawn for a store-backed pilot either —
+     * they have this on their own account page, and two places to link the same
+     * thing is two places for it to disagree.
+     */
+    function discordRow() {
+        const d = S.pilotSide && S.pilotSide.discord;
+        if (!S.pilotSide.applies || !S.pilotSide.ready || !d || !d.available) return '';
+        return d.linked
+            ? `<div class="mf-dc">
+                   <i data-lucide="check-circle-2"></i>
+                   <span class="mf-dc-text">Discord linked${d.name ? ` — ${esc(d.name)}` : ''}. You can sign in with it.</span>
+                   <button class="cp-btn cp-btn-sm" data-mf-dc-unlink ${S.busy ? 'disabled' : ''}>Unlink</button>
+               </div>`
+            : `<div class="mf-dc">
+                   <i data-lucide="link"></i>
+                   <span class="mf-dc-text">Link Discord and sign in with one press next time.</span>
+                   <button class="cp-btn cp-btn-sm" data-mf-dc-link ${S.busy ? 'disabled' : ''}>Link Discord</button>
+               </div>`;
+    }
+
+    /**
+     * Make this staff member a pilot record of their own.
+     *
+     * One call. The backend creates the roster row when they have not got one
+     * and binds the account to it, so there is nothing to pick and nothing to
+     * type — which is the entire point of it existing.
+     */
+    async function setUpPilotSide() {
+        if (S.busy) return;
+        S.busy = true; paintAll();
+        try {
+            const d = await S.api('/me/pilot-side', { method: 'POST', body: {} });
+            S.me = d.pilot || null;
+            S.pilotSide = Object.assign(S.pilotSide, { applies: true, ready: true, discord: d.discord || S.pilotSide.discord });
+            P.toast(d.created ? 'Your pilot account is set up.' : 'You already had one — here it is.', 'ok');
+            if (S.me) await loadBookings();
+        } catch (err) {
+            P.toast(err.message || 'Could not set that up.', 'bad');
+        } finally {
+            S.busy = false; paintAll();
+        }
+    }
+
+    /* Linking is a navigation, and the address has to be asked for rather than
+       built here: starting the flow needs this session's bearer token, which a
+       browser cannot attach to a navigation. Same round trip the pilot page
+       makes, for the same reason. */
+    async function linkDiscord() {
+        if (S.busy) return;
+        S.busy = true; paintAll();
+        try {
+            const d = await S.api('/auth/discord/link', { method: 'POST', body: {} });
+            if (d && d.url) { window.location.href = d.url; return; }
+            P.toast('Could not start that.', 'bad');
+        } catch (err) {
+            P.toast(err.message || 'Could not start that.', 'bad');
+        }
+        S.busy = false; paintAll();
+    }
+
+    async function unlinkDiscord() {
+        if (S.busy) return;
+        S.busy = true; paintAll();
+        try {
+            const d = await S.api('/account/discord', { method: 'DELETE' });
+            S.pilotSide.discord = Object.assign({}, S.pilotSide.discord, d.discord || { linked: false, name: '' });
+            P.toast('Unlinked. Your staff password still works.', 'ok');
+        } catch (err) {
+            P.toast(err.message || 'Could not unlink that.', 'bad');
+        } finally {
+            S.busy = false; paintAll();
+        }
     }
 
     function paintAll() {
@@ -203,6 +302,9 @@
         el.dataset.mfWired = '1';
         el.addEventListener('click', (ev) => {
             if (ev.target.closest('[data-mf-pick]')) return openPicker();
+            if (ev.target.closest('[data-mf-setup]')) return setUpPilotSide();
+            if (ev.target.closest('[data-mf-dc-link]')) return linkDiscord();
+            if (ev.target.closest('[data-mf-dc-unlink]')) return unlinkDiscord();
             if (ev.target.closest('[data-mf-schedule]')) return window.CrewSchedule && CrewSchedule.open();
             // Staff fly, so staff place. The board ranks by flights in a window
             // rather than career hours, which is the only version an owner who
@@ -408,6 +510,16 @@
         .mf-link{ display:flex; align-items:center; gap:.9rem; flex-wrap:wrap; }
         .mf-link-text{ flex:1; min-width:12rem; }
         .mf-link-title{ font-weight:700; letter-spacing:-.01em; color:var(--ink,#1C1A16); }
+        .mf-alt{ margin-top:.55rem; }
+
+        /* The Discord row. Sits between who they are and what they are flying,
+           because it is about getting IN rather than about the flying itself. */
+        .mf-dc{ display:flex; align-items:center; gap:.55rem; flex-wrap:wrap;
+            margin:.6rem 0 .2rem; padding:.55rem .65rem; border-radius:.6rem;
+            background:color-mix(in srgb, var(--ink,#1C1A16) 4%, transparent); }
+        .mf-dc [data-lucide]{ width:1rem; height:1rem; opacity:.7; }
+        .mf-dc-text{ flex:1; min-width:10rem; font-size:.8125rem; color:var(--muted,#6b6b6b); }
+        @media (max-width:40rem){ .mf-dc .cp-btn{ width:100%; justify-content:center; } }
 
         .mf-dialog{ z-index:90; }
         .mf-dialog-card{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
@@ -444,10 +556,43 @@
      * PUBLIC API
      * =================================================================== */
 
+    /**
+     * Coming back from a Discord link round trip.
+     *
+     * The backend returns a staff member to the dashboard they started from
+     * (see crewPageFor in crewAuth.js), with the outcome in the query. Read
+     * once and wiped from the address bar, so a reload or a shared link does
+     * not replay a message about something that happened minutes ago.
+     */
+    function readLinkReturn() {
+        let q;
+        try { q = new URLSearchParams(window.location.search); } catch { return; }
+        const said = q.get('discord');
+        if (!said) return;
+        q.delete('discord');
+        try {
+            const rest = q.toString();
+            window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''));
+        } catch { /* older browser: leaving it in the bar is not worth failing over */ }
+        const SAID = {
+            linked: ['Discord linked. You can sign in with it from now on.', 'ok'],
+            link_taken: ['That Discord account is already linked to somebody else here.', 'bad'],
+            link_denied: ['That didn’t work — sign in again and try once more.', 'bad'],
+            no_pilot_side: ['Set up your pilot account first, then link Discord.', 'bad'],
+            needs_update: ['This crew center’s database needs updating before Discord can be linked.', 'bad'],
+            unavailable: ['Signing in with Discord isn’t switched on here.', 'bad'],
+            cancelled: ['', ''],
+            failed: ['Discord didn’t answer. Please try again.', 'bad'],
+        };
+        const hit = SAID[said];
+        if (hit && hit[0]) P.toast(hit[0], hit[1]);
+    }
+
     function mount({ backend, slug, token }) {
         injectStyles();
         S.api = P.api({ backend, slug, token });
         if (!String(slug || '')) return Promise.resolve(null);
+        readLinkReturn();
         return load();
     }
 

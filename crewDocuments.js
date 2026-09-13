@@ -53,6 +53,9 @@
     const { esc, safeUrl, icons, relativeText, whenText } = P;
 
     const S = {
+        // A starter-handbook request in flight, so the button can say so and
+        // cannot be pressed twice into two drafts.
+        busyStarter: false,
         api: null,
         slug: '',
         docs: [],
@@ -441,9 +444,20 @@
             return;
         }
 
+        /* The starter handbook. Offered beside "New document" rather than as an
+           empty-state prompt, because the library a VA most wants it in is the
+           one that already has two SOPs and no handbook.
+
+           It arrives as a DRAFT nobody but staff can see — the backend decides
+           that, not this button — so pressing it cannot publish anything to the
+           crew by accident. */
         const newBtn = S.canManage
-            ? `<button class="cp-btn cp-btn-primary cd-new" data-cd-new>
-                   <i data-lucide="plus"></i> New document</button>`
+            ? `<div class="cd-tools">
+                   <button class="cp-btn cp-btn-primary cd-new" data-cd-new>
+                       <i data-lucide="plus"></i> New document</button>
+                   <button class="cp-btn cd-starter" data-cd-starter ${S.busyStarter ? 'disabled' : ''}>
+                       <i data-lucide="book-marked"></i> ${S.busyStarter ? 'Adding…' : 'Add the starter handbook'}</button>
+               </div>`
             : '';
 
         if (!S.docs.length) {
@@ -471,6 +485,32 @@
     /* =====================================================================
      * ACTIONS
      * =================================================================== */
+
+    /**
+     * Add Inflight's starter pilot handbook to this library.
+     *
+     * The words are the backend's, not this file's: it describes how the crew
+     * center works, which is software we change, and a copy of that text
+     * shipped in the browser would be a second version to keep in step.
+     *
+     * Refused with `already_added` when the library already has one. Shown as
+     * an ordinary message rather than an error — pressing a button twice is not
+     * a mistake worth scolding anybody for, and the document they wanted is
+     * already there.
+     */
+    async function addStarter() {
+        if (S.busyStarter) return;
+        S.busyStarter = true; renderPanel();
+        try {
+            await S.api('/documents/starter-handbook', { method: 'POST', body: {} });
+            P.toast('Added as a draft. Read it, fill in the bracketed parts, then publish.', 'ok');
+            await load();
+        } catch (err) {
+            P.toast(err.message || 'Could not add the handbook.', err.code === 'already_added' ? 'info' : 'bad');
+        } finally {
+            S.busyStarter = false; renderPanel();
+        }
+    }
 
     /**
      * The form, as the request body.
@@ -593,6 +633,7 @@
             const t = ev.target;
             if (t.closest('[data-cd-back]')) { S.reading = null; renderPanel(); return; }
             if (t.closest('[data-cd-cancel]')) { S.editing = null; renderPanel(); return; }
+            if (t.closest('[data-cd-starter]')) { addStarter(); return; }
             if (t.closest('[data-cd-new]')) {
                 S.editing = { source: 'text', status: 'draft', kind: 'document' };
                 renderPanel();
@@ -657,6 +698,8 @@
         .cd-card-sum{ font-size:.85rem; margin:.25rem 0 .5rem; }
         .cd-card-foot{ font-size:.78rem; }
         .cd-new{ justify-self:start; }
+        .cd-tools{ display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+        @media (max-width:40rem){ .cd-tools .cp-btn{ flex:1 1 100%; justify-content:center; } }
         .cd-back{ justify-self:start; }
 
         .cd-read-head{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }

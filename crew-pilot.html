@@ -169,6 +169,39 @@
     </div>
 
     <!--
+      THE PILOT NOTICE. v17.
+
+      A prompt, not a gate, and the difference is the whole design. The password
+      gate above blocks the page because an un-changed one-time password is a
+      live credential somebody else has read. A notice is not that: a pilot who
+      has not answered it can still read their own hours, and locking a roster
+      out over a consent prompt would punish pilots for a change their VA and we
+      made between us. So this sits ON TOP of a working page, can be put off,
+      and comes back next sign-in until it is answered.
+
+      "Read it in full" opens the same document the public page shows, because
+      it is the same document — one source on the backend feeds both, so what
+      was agreed to and what can be read cannot drift apart.
+    -->
+    <div id="termsGate" class="hidden fixed inset-0 z-[55] grid place-items-center p-5" style="background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(6px);">
+        <div class="w-full max-w-md surface rounded-2xl p-6 fade-in">
+            <div class="w-10 h-10 rounded-xl accent-bg text-white grid place-items-center mb-3"><i data-lucide="shield-check" class="w-5 h-5"></i></div>
+            <h2 class="text-lg font-bold tracking-tight">Before you carry on</h2>
+            <p class="text-sm muted mt-1">A short note on what your crew center holds about you, and what is expected of you while you use it.</p>
+            <ul id="termsPoints" class="mt-3 space-y-1.5 text-sm"></ul>
+            <p class="text-xs muted mt-3">
+                <a id="termsFull" href="/crew-terms.html" target="_blank" rel="noopener" class="underline hover:text-[var(--ink)]">Read it in full</a>
+                <span id="termsMeta" class="ml-1"></span>
+            </p>
+            <div class="mt-4 space-y-2">
+                <button id="termsAgree" type="button" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition">I’ve read this — continue</button>
+                <button id="termsLater" type="button" class="w-full text-xs muted hover:text-[var(--ink)] py-1">Not now</button>
+            </div>
+            <p id="termsNote" class="hidden text-sm mt-2"></p>
+        </div>
+    </div>
+
+    <!--
       Crew Center — PILOT home LOOK-MOCK (the generic member view).
       Static + placeholder. What a regular crew member sees after sign-in: their
       own flying, not the admin tools. Same warm-essential shell + branding source
@@ -1257,8 +1290,81 @@
                 DISCORD = Object.assign({ available:false, linked:false, name:'', avatar:'' }, d.discord || {});
                 paintDiscord();
                 handleDiscordLinkReturn();
+                // After the password gate is decided, so two modals never
+                // stack: the password is the one that actually blocks, and a
+                // notice on top of it would hide the thing they have to do.
+                TERMS = Object.assign({ applies:false, accepted:true, version:'', url:'/crew-terms.html' }, d.terms || {});
+                if(!d.mustChangePassword) maybeAskTerms();
             }catch{ /* offline: leave whatever the session said */ }
         }
+        /* ---- The pilot notice -------------------------------------------
+         *
+         * What is recorded is a VERSION against this account, and nothing else
+         * — no name, no address, no copy of what was on screen. The version is
+         * the record: the words for a version do not change, because changing
+         * them is what makes a new version.
+         *
+         * "Not now" is real. It closes the prompt for this visit and changes
+         * nothing on the account, so the next sign-in asks again. A dismissal
+         * that quietly counted as agreement would make the record worthless.
+         */
+        let TERMS = { applies:false, accepted:true, version:'', url:'/crew-terms.html' };
+
+        function maybeAskTerms(){
+            if(!TERMS.applies || TERMS.accepted) return;
+            const list=document.getElementById('termsPoints');
+            document.getElementById('termsFull').href = TERMS.url || '/crew-terms.html';
+            document.getElementById('termsMeta').textContent = TERMS.version ? `(version ${TERMS.version})` : '';
+            // The summary comes from the same backend document the full page
+            // draws. If it cannot be fetched the prompt still works — it just
+            // says less — because the thing being agreed to is the document at
+            // the link, not the bullets.
+            fetch(`${BACKEND}/api/crew-terms`,{headers:{Accept:'application/json'}})
+                .then(r=>r.ok?r.json():null)
+                .then(d=>{
+                    if(!d||!Array.isArray(d.summary)) return;
+                    list.innerHTML = d.summary.map(t=>`<li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 accent shrink-0 mt-0.5"></i><span>${escapeHtml(t)}</span></li>`).join('');
+                    if(window.lucide) lucide.createIcons();
+                })
+                .catch(()=>{});
+            document.getElementById('termsGate').classList.remove('hidden');
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function closeTerms(){ document.getElementById('termsGate').classList.add('hidden'); }
+
+        async function agreeTerms(){
+            const s=storedSession(); const slug=getSlug();
+            const btn=document.getElementById('termsAgree');
+            const note=document.getElementById('termsNote');
+            if(!s||!s.token||!slug) return closeTerms();
+            btn.disabled=true;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/account/terms`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+s.token},
+                    body: JSON.stringify({ version: TERMS.version || '' }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    // The commonest failure is a VA whose database has not been
+                    // updated, and it is not the pilot's to fix. Say what
+                    // happened, leave the prompt open, and let them carry on.
+                    note.textContent = d.error || 'That could not be recorded. You can carry on — it will ask again.';
+                    note.className='text-sm mt-2 text-amber-600 dark:text-amber-400';
+                    note.classList.remove('hidden');
+                    btn.disabled=false;
+                    return;
+                }
+                TERMS = Object.assign(TERMS, d.terms || { accepted:true });
+                closeTerms();
+            }catch{
+                note.textContent='Couldn’t reach the server. You can carry on — it will ask again.';
+                note.className='text-sm mt-2 text-amber-600 dark:text-amber-400';
+                note.classList.remove('hidden');
+                btn.disabled=false;
+            }
+        }
+
         /* ---- Discord, on the pilot's own page ----------------------------
          *
          * The link half of the flow. It is the same OAuth round trip the sign-in
@@ -1373,6 +1479,11 @@
         document.addEventListener('DOMContentLoaded', () => {
             const b=document.getElementById('dcBtn');
             if(b) b.addEventListener('click', toggleDiscord);
+            const agree=document.getElementById('termsAgree');
+            if(agree) agree.addEventListener('click', agreeTerms);
+            // "Not now" closes it and records nothing — see agreeTerms.
+            const later=document.getElementById('termsLater');
+            if(later) later.addEventListener('click', closeTerms);
         });
 
         async function submitNewPassword(e){
