@@ -112,6 +112,9 @@ function api(route) {
         });
         await page.addInitScript(([mine, crew]) => {
             localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' }));
+            // A returning user, not a first-timer: the walkthrough puts a mask
+            // over the whole page, and every click below would land on it.
+            localStorage.setItem('crew:tour:staff:testva', '1');
             if (mine) localStorage.setItem('crew:ui:testva', mine);
             if (crew) localStorage.setItem('crew:ui:default:testva', crew);
         }, [device, cached]);

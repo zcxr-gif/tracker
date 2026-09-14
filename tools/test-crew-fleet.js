@@ -76,6 +76,22 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
     await page.evaluate(()=>window.openFleet()); await page.waitForTimeout(300);
     return {ctx,page,errs};
   };
+  // The same page, stopped at the dashboard — the tile is what is under test,
+  // so nothing may open the drawer on its behalf. The first-visit walkthrough
+  // puts a mask over the page, and a returning user does not have it.
+  const openDash=async()=>{
+    const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+    const page=await ctx.newPage();
+    const errs=[]; page.on('pageerror',e=>errs.push(e.message));
+    await page.route('**/api/**', api);
+    await page.addInitScript(()=>{
+      localStorage.setItem('crew:session:testva',JSON.stringify({token:'tok',name:'Owner',role:'owner'}));
+      localStorage.setItem('crew:tour:staff:testva','1');
+    });
+    await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
+    await page.waitForTimeout(1400);
+    return {ctx,page,errs};
+  };
   const noteOf=(page)=>page.evaluate(()=>{const n=document.getElementById('fleetNote');return{t:n.textContent.trim(),c:n.className,hidden:n.classList.contains('hidden')};});
 
   console.log('\nA legacy fleet entry (aircraft stored in `name`)');
@@ -344,6 +360,42 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
   await page.waitForTimeout(150);
   ok('switching back reads the fleet picker again',
      (await page.evaluate(()=>routeAircraftValue()))===(await page.inputValue('#nr_aircraft')));
+  ok('no page errors', errs.length===0, errs.join('|'));
+  await ctx.close();
+
+  /* ====================================================================
+   * THE WAY IN.
+   *
+   * Every test above reaches the editor by calling openFleet() directly, and
+   * that is how the reported failure survived: the Fleet TILE on the dashboard
+   * was never wired to anything. It drew, it hovered, and pressing it did
+   * nothing at all — the only doors left were a button inside Routes, which is
+   * hidden below 640px, and one at the bottom of Settings. On a phone there was
+   * no way into the fleet.
+   *
+   * So the tile is pressed here, as a person presses it, and every other tile
+   * is checked for an opener too — the list that lost the fleet had a line per
+   * tile and would have lost another.
+   * ================================================================== */
+  console.log('\nThe Fleet tile on the dashboard');
+  brandingFleet=[];
+  ({ctx,page,errs}=await openDash());
+  const tiles=await page.evaluate(()=>[...document.querySelectorAll('#toolGrid [data-i]')]
+      .map(el=>el.textContent.replace(/\s+/g,' ').trim()));
+  const fleetIdx=tiles.findIndex(t=>/^Fleet/.test(t));
+  ok('is offered to somebody who can keep the fleet', fleetIdx>=0, tiles.join(' / '));
+  await page.dispatchEvent(`#toolGrid [data-i="${fleetIdx}"]`,'click');
+  await page.waitForTimeout(500);
+  ok('opens the fleet when it is pressed',
+     await page.evaluate(()=>!document.getElementById('fleet').classList.contains('hidden')));
+  ok('…and the editor is really there, not an empty drawer',
+     await page.evaluate(()=>!!document.getElementById('fleetFind')));
+  // And not just this one: every tool the dashboard offers has to have
+  // something behind it. This is the check the old per-tile list could not
+  // make about itself.
+  const unbound=await page.evaluate(()=>
+     TOOLS.map(t=>t.action).filter(a=>typeof TILE_OPEN[a]!=='function'));
+  ok('no tool is a door painted on a wall', unbound.length===0, unbound.join(','));
   ok('no page errors', errs.length===0, errs.join('|'));
   await ctx.close();
 

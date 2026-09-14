@@ -101,6 +101,9 @@ function api(route) {
         await page.route('**/api/**', (r) => api(r));
         await page.addInitScript((pref) => {
             localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' }));
+            // A returning user, not a first-timer: the walkthrough puts a mask
+            // over the whole page, and every click below would land on it.
+            localStorage.setItem('crew:tour:staff:testva', '1');
             if (pref) localStorage.setItem('crew:topics:testva', pref);
         }, device);
         await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva${hash}`);
