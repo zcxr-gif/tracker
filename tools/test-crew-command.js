@@ -139,7 +139,12 @@ function api(route) {
             body: `document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');s.textContent=${JSON.stringify(TAILWIND)};document.head.appendChild(s);});` }));
         await page.route('https://unpkg.com/**', (r) => r.fulfill({ contentType: 'text/javascript', body: 'window.lucide={createIcons(){}};' }));
         await page.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ contentType: 'text/css', body: '' }));
-        await page.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' })));
+        await page.addInitScript(() => {
+            localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' }));
+            // A returning user, not a first-timer: the walkthrough puts a mask
+            // over the whole page, and every click below would land on it.
+            localStorage.setItem('crew:tour:staff:testva', '1');
+        });
         await page.goto(`http://127.0.0.1:${port}${which}`);
         await page.waitForTimeout(1800);
         return { page, errors };

@@ -199,6 +199,135 @@
         el.textContent = css;
     }
 
+    /* ---- The tab -----------------------------------------------------------
+     *
+     * A crew centre is a page a pilot leaves open all day, next to their VA's
+     * website and half a dozen other tabs. It carried no icon at all, so the
+     * browser drew its own placeholder globe — the same globe as every other
+     * unbranded page — and the one tab the airline most wants recognised was
+     * the one tab you could not pick out.
+     *
+     * The airline's uploaded logo is the icon. Where there is none, the
+     * MONOGRAM is: the same initials on the same accent the header already
+     * shows, drawn here as an SVG rather than fetched, so an airline that has
+     * never uploaded anything still gets its own mark instead of the globe.
+     *
+     * Everything below is written defensively because the accent can arrive
+     * from a `?accent=` query override that never passed through the backend:
+     * the logo has to parse as an https URL, and the colour has to be a hex
+     * this file re-validates. Neither is interpolated anywhere it could become
+     * anything other than an attribute value or an SVG fill.
+     * --------------------------------------------------------------------- */
+    const ICON_REL = 'icon';
+    const ICON_MARK = 'data-crew-brand-icon';
+
+    // An https URL, or one of our own — a logo is loaded by the browser as the
+    // tab's icon, and http: on an https page is blocked anyway.
+    function httpsUrl(u) {
+        const raw = String(u == null ? '' : u).trim();
+        // Not a guard against nothing: `new URL('', location.href)` resolves to
+        // THIS PAGE, so an airline with no logo would have had its own HTML
+        // document hung in the head as the tab's icon — which draws the globe
+        // anyway, and silently, which is the worst of both.
+        if (!raw) return '';
+        try {
+            const x = new URL(raw, location.href);
+            return (x.protocol === 'https:' || x.origin === location.origin) ? x.href : '';
+        } catch (_) { return ''; }
+    }
+
+    // "Ocean Virtual" → OV, "Aeromexico Virtual" → AV, and a one-word airline
+    // falls back to its first two letters. The same rule the nav monogram uses.
+    function initials(name, code) {
+        const s = String(name || code || '').trim();
+        if (!s) return '';
+        const w = s.split(/\s+/).filter(Boolean);
+        return (w.length >= 2 ? (w[0][0] + w[1][0]) : s.slice(0, 2)).toUpperCase();
+    }
+
+    // Black or white, whichever the accent can actually be read against. A VA
+    // with a pale yellow accent must not get white initials on it.
+    function readableInk(hex) {
+        let h = String(hex || '').replace('#', '');
+        if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        const n = parseInt(h, 16);
+        if (!isFinite(n)) return '#FFFFFF';
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+        return L > 0.45 ? '#111111' : '#FFFFFF';
+    }
+
+    // Whatever accent is in force right now, however it got there — a theme
+    // this file just wrote, a query override, or the stock crew centre's own.
+    function liveAccent() {
+        try {
+            const v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            return isHex(v) ? v : '';
+        } catch (_) { return ''; }
+    }
+
+    function monogramIcon(name, code) {
+        const text = initials(name, code);
+        if (!text) return '';
+        const bg = liveAccent() || '#1F6FEB';
+        const ink = readableInk(bg);
+        // A rounded square rather than a circle: at 16px a circle loses its
+        // corners to the tab's own padding and reads as a smudge.
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+            + '<rect width="64" height="64" rx="14" fill="' + bg + '"/>'
+            + '<text x="32" y="32" fill="' + ink + '" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif"'
+            + ' font-size="30" font-weight="700" text-anchor="middle" dominant-baseline="central">'
+            + text.replace(/[&<>"']/g, '') + '</text></svg>';
+        return 'data:image/svg+xml,' + encodeURIComponent(svg);
+    }
+
+    // One set of links, replaced wholesale, so a second call (a host pushing a
+    // brand change, /me landing after the public record) cannot stack them up.
+    // The page's own <link rel="icon">, if it ever grows one, is left alone
+    // until we have something better to put there — and then it goes, because
+    // two icons is a browser's choice rather than the airline's.
+    function writeIcon(href, type) {
+        if (!href) return false;
+        const head = document.head;
+        if (!head) return false;
+        Array.prototype.forEach.call(
+            document.querySelectorAll('link[rel~="icon"], link[rel="shortcut icon"], link[' + ICON_MARK + ']'),
+            (el) => el.parentNode && el.parentNode.removeChild(el));
+        const link = document.createElement('link');
+        link.setAttribute('rel', ICON_REL);
+        if (type) link.setAttribute('type', type);
+        link.setAttribute(ICON_MARK, '1');
+        link.setAttribute('href', href);
+        head.appendChild(link);
+        return true;
+    }
+
+    /**
+     * Paint the tab from a branding record. Safe to call with anything —
+     * a record that names no airline at all writes nothing and leaves the page
+     * exactly as it found it.
+     */
+    function favicon(branding) {
+        const b = branding || {};
+        const logo = httpsUrl(b.logo);
+        const href = logo || monogramIcon(b.name, b.code);
+        if (!writeIcon(href, logo ? '' : 'image/svg+xml')) return false;
+        // iOS wants a real bitmap for a home-screen bookmark and ignores SVG,
+        // so the monogram never becomes one: an airline with no logo keeps the
+        // Inflight icon the page shipped with, which is a real picture and a
+        // better home-screen tile than a square iOS would draw itself.
+        if (logo) {
+            const prev = document.querySelector('link[rel="apple-touch-icon"]');
+            if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+            const t = document.createElement('link');
+            t.setAttribute('rel', 'apple-touch-icon');
+            t.setAttribute(ICON_MARK, '1');
+            t.setAttribute('href', logo);
+            document.head.appendChild(t);
+        }
+        return true;
+    }
+
     // ---- Light / dark ------------------------------------------------------
     function isDark() { return document.documentElement.classList.contains('dark'); }
 
@@ -214,17 +343,25 @@
     // ---- Public API --------------------------------------------------------
     function apply(branding) {
         const theme = branding && branding.theme;
-        // No theme configured → leave the stock crew center completely alone.
-        if (!theme || typeof theme !== 'object') return false;
+        // No theme configured → leave the stock crew center's COLOURS alone.
+        const themed = !!(theme && typeof theme === 'object');
+        if (themed) {
+            currentTheme = theme;
+            loadFonts(theme);
+            writeStyle(buildCss(theme));
 
-        currentTheme = theme;
-        loadFonts(theme);
-        writeStyle(buildCss(theme));
-
-        // A VA can pin its crew center to one mode; 'auto' (the default) leaves
-        // the pilot's own choice — and the page's existing toggle — in charge.
-        if (theme.mode === 'dark' || theme.mode === 'light') setMode(theme.mode, false);
-        return true;
+            // A VA can pin its crew center to one mode; 'auto' (the default)
+            // leaves the pilot's own choice — and the page's existing toggle —
+            // in charge.
+            if (theme.mode === 'dark' || theme.mode === 'light') setMode(theme.mode, false);
+        }
+        // The tab is not part of the theme and does not wait for one: an
+        // airline that has never opened the theme controls still has a name, a
+        // code and usually a logo, and that is all the icon needs. Painted
+        // after the style is written, so the monogram reads the accent this
+        // call just put in force rather than the one it replaced.
+        favicon(branding);
+        return themed;
     }
 
     // Hosts (the tracker's overlay, or a VA site framing the crew center) can
@@ -247,6 +384,7 @@
 
     global.CrewBrand = {
         apply,
+        favicon,
         setMode,
         isDark,
         getTheme: () => currentTheme,

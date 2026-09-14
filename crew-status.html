@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Application status — Crew Center</title>
+    <!-- Inflight's own mark, until the airline's arrives.
+         These pages carried no icon at all, so the browser drew its
+         placeholder globe — and kept drawing it for the whole of the first
+         request, because the VA's logo comes from the crew record and that is
+         a fetch away. This is what is shown in the meantime; CrewBrand.favicon
+         replaces it with the airline's own (or its monogram) the moment the
+         record lands. Absolute, because these pages are served under
+         /crew/<slug> and a relative path would look for them there. -->
+    <link rel="icon" type="image/x-icon" href="/Images/inflightIcon.ico">
+    <link rel="apple-touch-icon" href="/Images/inflight.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Guarded, because Tailwind is a CDN script: blocked by a network or an
@@ -20,6 +30,11 @@
          version of it that stays legible as text on this page. See crewAccent.js.
          After the skin, so the ground it measures against is the one in force. -->
     <script src="/crewAccent.js"></script>
+    <!-- The tab's icon. This page is the one a pilot leaves open while they
+         wait to hear back, so it is the one most worth being recognisable.
+         Only CrewBrand.favicon is used here — this page paints its own
+         colours above and wants none of the theme. -->
+    <script src="/crewBrand.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -133,6 +148,11 @@
             document.getElementById('mono').textContent=initials(VA.name, VA.code);
             if(VA.name){ document.getElementById('vaName').textContent=VA.name; }
             if(b.logo && isSafeImageUrl(b.logo)){ const el=document.getElementById('logo'); el.src=b.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
+            // The airline's mark on the tab, rather than the browser's globe.
+            // After the accent is set, so a VA with no logo gets its monogram
+            // drawn in its own colour.
+            if(window.CrewBrand) CrewBrand.favicon(b);
+            if(VA.name) document.title = `${VA.name} · Application status — Crew Center`;
         }
 
         function render(d){

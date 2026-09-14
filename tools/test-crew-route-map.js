@@ -83,9 +83,32 @@ const FAKE_MAPLIBRE = `(function(){
   Map.prototype.addControl=function(){return this;};
   Map.prototype.addSource=function(id,d){ this._s[id]={_d:d.data,setData:function(x){this._d=x;}}; };
   Map.prototype.getSource=function(id){ return this._s[id]; };
-  Map.prototype.addLayer=function(){};
-  Map.prototype.setFilter=function(){};
-  Map.prototype.setPaintProperty=function(){};
+  /* addLayer VALIDATES, because the real one does and that is the whole point.
+     MapLibre checks a layer against the style spec and, when it does not pass,
+     fires an error and RETURNS — the layer is simply never added, and a map
+     that swallows its error events shows no sign of it. That is exactly how the
+     route lines went missing: line-dasharray is a cross-faded property that
+     takes the zoom and nothing else, and it was being handed a ['case', ['get',
+     'codeshare'], …] per feature. Only the properties this page actually uses
+     are checked; the rule is the spec's, not this file's opinion. */
+  var FEATURE_BOUND=function(x){ if(!Array.isArray(x)) return false;
+    if(x[0]==='get'||x[0]==='has'||x[0]==='feature-state'||x[0]==='id'||x[0]==='properties') return true;
+    return x.some(FEATURE_BOUND); };
+  var ZOOM_ONLY=['line-dasharray'];
+  Map.prototype.addLayer=function(l){
+    var paint=(l&&l.paint)||{};
+    for(var i=0;i<ZOOM_ONLY.length;i++){
+      var k=ZOOM_ONLY[i];
+      if(k in paint && FEATURE_BOUND(paint[k])){
+        this.fire('error',{error:new Error('layers.'+l.id+'.paint.'+k+': property expressions not supported')});
+        return this;
+      }
+    }
+    this._l=this._l||{}; this._l[l.id]=l; return this;
+  };
+  Map.prototype.getLayer=function(id){ return (this._l||{})[id]; };
+  Map.prototype.setFilter=function(id){ if(!this.getLayer(id)) this.fire('error',{error:new Error("The layer '"+id+"' does not exist in the map's style.")}); };
+  Map.prototype.setPaintProperty=function(id){ if(!this.getLayer(id)) this.fire('error',{error:new Error("The layer '"+id+"' does not exist in the map's style.")}); };
   Map.prototype.queryRenderedFeatures=function(){ return []; };
   Map.prototype.getCanvas=function(){ return { style:{} }; };
   Map.prototype.fitBounds=function(){};
@@ -252,6 +275,32 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('…and the drawn map is not', !s.fallback && s.arcs === 0, JSON.stringify({ fallback: s.fallback, arcs: s.arcs }));
     ok('nothing tells the reader it is simplified', !s.noteShown, s.note);
     ok('the spinner stops', !s.spinnerShown);
+    // THE ROUTES ARE ON IT. A layer the engine refused is drawn by nothing and
+    // reported by nothing, and the map comes up as a basemap with some dots on
+    // it — which on the dark basemap reads as a black screen. Both line layers
+    // have to be there, and each has to carry only its own half of the network.
+    const layers = await page.evaluate(() => {
+        const l = RM.map._l || {};
+        const shape = (id) => l[id] ? { filter: JSON.stringify(l[id].filter),
+            dash: JSON.stringify((l[id].paint || {})['line-dasharray'] || null) } : null;
+        return { own: shape('rm-routes-line'), share: shape('rm-routes-share'), ids: Object.keys(l) };
+    });
+    ok('the airline’s own sectors are drawn', !!layers.own, layers.ids.join(','));
+    ok('…solid', layers.own && layers.own.dash === 'null', layers.own && layers.own.dash);
+    ok('somebody else’s are drawn too', !!layers.share, layers.ids.join(','));
+    ok('…dashed, and at a fixed dash the engine will take',
+        layers.share && layers.share.dash === '[2,2]', layers.share && layers.share.dash);
+    ok('…and the two do not draw each other',
+        layers.own && layers.share
+        && /"!"/.test(layers.own.filter) && /codeshare/.test(layers.own.filter)
+        && /codeshare/.test(layers.share.filter) && !/"!"/.test(layers.share.filter),
+        JSON.stringify(layers));
+    // Focusing dims the rest of the network, and it has to reach both layers —
+    // naming one by hand is how the second one gets forgotten.
+    await page.evaluate(() => rmFocusRoute('1'));
+    await page.waitForTimeout(120);
+    ok('focusing a sector talks to every line layer, not one of them',
+        await page.evaluate(() => RM_LINES.every(id => !!RM.map.getLayer(id))));
     ok('no page errors', errs.length === 0, errs.join('|'));
     await ctx.close();
 

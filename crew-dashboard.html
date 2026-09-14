@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Crew Center — Inflight</title>
+    <!-- Inflight's own mark, until the airline's arrives.
+         These pages carried no icon at all, so the browser drew its
+         placeholder globe — and kept drawing it for the whole of the first
+         request, because the VA's logo comes from the crew record and that is
+         a fetch away. This is what is shown in the meantime; CrewBrand.favicon
+         replaces it with the airline's own (or its monogram) the moment the
+         record lands. Absolute, because these pages are served under
+         /crew/<slug> and a relative path would look for them there. -->
+    <link rel="icon" type="image/x-icon" href="/Images/inflightIcon.ico">
+    <link rel="apple-touch-icon" href="/Images/inflight.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Guarded: if the Tailwind CDN did not arrive, `tailwind` is undefined and
@@ -2348,7 +2358,8 @@
                 // least one settings tab gets the tile; somebody with none
                 // would otherwise open an empty drawer.
                 if(t.action==='settings' && !canReachAnySettings()) return false;
-                return true;
+                // A tile nothing knows how to open is a door painted on a wall.
+                return !!TILE_OPEN[t.action];
             });
 
             // Redraw only when the set actually changed. This runs once at boot
@@ -2366,27 +2377,22 @@
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
                     <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
                 </a>`).join('');
+            // ONE TABLE, NOT TWENTY IFS.
+            //
+            // This was a hand-written line per tile, and it had no line for the
+            // fleet. So the Fleet tile drew, read as live, and did nothing at
+            // all when it was pressed — the only ways left into the fleet
+            // editor were the button inside Routes, which is hidden below
+            // 640px, and one at the bottom of Settings. On a phone there was no
+            // way in at all.
+            //
+            // A list that has to be kept in step with TOOLS by hand will drift
+            // again, so the tile is bound from the same table the burger menu
+            // opens topics from. A tile that exists cannot now be a tile that
+            // does nothing: if TILE_OPEN has no opener for it, it is not drawn.
             document.querySelectorAll('#toolGrid [data-i]').forEach(el=>{
                 const t=tools[+el.getAttribute('data-i')];
-                if(t.action==='settings') el.addEventListener('click', openSettings);
-                if(t.action==='roster') el.addEventListener('click', openRoster);
-                if(t.action==='routes') el.addEventListener('click', openRoutes);
-                if(t.action==='pireps') el.addEventListener('click', openPireps);
-                if(t.action==='events') el.addEventListener('click', openEvents);
-                if(t.action==='schedule') el.addEventListener('click', openSchedule);
-                if(t.action==='notices') el.addEventListener('click', openNotices);
-                if(t.action==='documents') el.addEventListener('click', openDocuments);
-                if(t.action==='inbox') el.addEventListener('click', openInbox);
-                if(t.action==='links') el.addEventListener('click', openLinks);
-                if(t.action==='ifLive') el.addEventListener('click', openIfLive);
-                if(t.action==='website') el.addEventListener('click', openWebsite);
-                if(t.action==='embeds') el.addEventListener('click', openEmbeds);
-                if(t.action==='training') el.addEventListener('click', openTraining);
-                if(t.action==='awards') el.addEventListener('click', openAwards);
-                if(t.action==='leave') el.addEventListener('click', openLeave);
-                if(t.action==='shop') el.addEventListener('click', openShop);
-                if(t.action==='partnership') el.addEventListener('click', openPartnership);
-                if(t.action==='insights') el.addEventListener('click', openInsights);
+                el.addEventListener('click', ()=>{ const open=TILE_OPEN[t.action]; if(open) open(); });
             });
             registerTopics(tools);
         }
@@ -2432,6 +2438,10 @@
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
             ifLive:()=>openIfLive(),
         };
+        // What a TILE opens, which is every topic plus the website builder —
+        // that one is a page of its own rather than a panel on this one, so it
+        // is not a topic, but it is still a tile and still has to open.
+        const TILE_OPEN=Object.assign({ website:()=>openWebsite() }, TOPIC_OPEN);
         function registerTopics(tools){
             if(!window.CrewTopics) return;
             CrewTopics.register(tools.filter(t=>TOPIC_OPEN[t.action]).map(t=>({
@@ -5374,6 +5384,22 @@
         const RM_FALLBACK_COORDS={ CYYZ:[43.68,-79.63],CYVR:[49.19,-123.18],CYUL:[45.47,-73.74],EGLL:[51.47,-0.46],EGKK:[51.15,-0.19],LFPG:[49.01,2.55],EHAM:[52.31,4.76],EDDF:[50.03,8.56],LEMD:[40.47,-3.56],LIRF:[41.80,12.25],LTFM:[41.26,28.74],OMDB:[25.25,55.36],OTHH:[25.27,51.61],VHHH:[22.31,113.91],RJTT:[35.55,139.78],RJAA:[35.76,140.39],RKSI:[37.46,126.44],WSSS:[1.36,103.99],YSSY:[-33.95,151.18],KJFK:[40.64,-73.78],KLAX:[33.94,-118.41],KSFO:[37.62,-122.38],KORD:[41.98,-87.90],KATL:[33.64,-84.43],KDFW:[32.90,-97.04],KMIA:[25.79,-80.29],KSEA:[47.45,-122.31],KBOS:[42.36,-71.01],SBGR:[-23.43,-46.47],FAOR:[-26.13,28.24] };
 
         const RM={ map:null, ready:false, data:null, routeFeat:[], aptFeat:[], aptCoords:{}, markers:[], activeOnly:true, canManage:false, styleDark:false, dataHadRoutes:false };
+        // The network is drawn in two line layers — own metal solid, codeshares
+        // dashed — because dashes cannot be chosen per feature (see rmAddLayers).
+        // Anything that talks to "the route lines" talks to both, through here.
+        const RM_LINES=['rm-routes-line','rm-routes-share'];
+        // Dim everything but the focused sector, and put it back. `expr` null
+        // means at rest, where each layer has its own resting opacity: a
+        // codeshare is drawn quieter than the airline's own aeroplane.
+        const RM_LINE_REST={ 'rm-routes-line':['case',['!',['get','active']],0.3,0.82],
+                             'rm-routes-share':['case',['!',['get','active']],0.3,0.55] };
+        function rmLineOpacity(expr){
+            if(!RM.map||!RM.ready) return;
+            RM_LINES.forEach(id=>{
+                if(!RM.map.getLayer(id)) return;
+                RM.map.setPaintProperty(id,'line-opacity',expr||RM_LINE_REST[id]);
+            });
+        }
 
         let _rmLibPromise=null;
         /* THE ENGINE, AND A DEADLINE.
@@ -5498,7 +5524,15 @@
             if(!RM.canManage) RM.activeOnly=true;
             const at=document.getElementById('rmActiveToggle'); if(at) at.style.display=RM.canManage?'':'none';
             document.addEventListener('keydown',rmEsc);
-            if(!RM._obs){ RM._obs=new MutationObserver(()=>{ if(document.getElementById('routeMap').classList.contains('hidden'))return; if(isDark()!==RM.styleDark) rmBuildMap(); }); RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
+            // Switching the theme rebuilds the map on the other basemap. A throw
+            // here — no WebGL left to give, most often — used to escape into
+            // nothing and leave the overlay empty; it hands over to the drawn
+            // map like every other way the engine can fail.
+            if(!RM._obs){ RM._obs=new MutationObserver(()=>{ if(document.getElementById('routeMap').classList.contains('hidden'))return;
+                if(isDark()===RM.styleDark) return;
+                if(RM.fallback) return rmDrawFallback(RM._why);
+                try{ rmBuildMap(); }catch(err){ rmDrawFallback((err&&err.message)||'the map could not be rebuilt'); } });
+                RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
             RM.fallback=false;
             // The network first, whatever happens to the engine: the data is
             // ours and it is what the fallback draws from.
@@ -5642,13 +5676,62 @@
                 if(RM.ready||RM.fallback) return;
                 rmDrawFallback('the basemap did not arrive');
             }, 10000);
-            map.on('load',()=>{ clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
-                rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
-                document.getElementById('rmLoading').classList.add('hidden'); });
+            /* `load` is not the end of the deadline, it is the middle of it.
+             *
+             * Everything below used to run unguarded inside this handler, and
+             * the watchdog was cancelled on the first line of it. So anything
+             * that went wrong AFTER the style arrived — a layer MapLibre would
+             * not take, a source that answered late, a filter naming a layer
+             * that was therefore never added — left the spinner turning over an
+             * empty canvas with nothing left to catch it. The overlay is
+             * painted var(--bg), so in dark mode that is a black screen.
+             *
+             * The watchdog is now cancelled only once the map is actually up,
+             * and a throw in here hands over to the drawn map like any other
+             * failure rather than stopping the page mid-build. */
+            map.on('load',()=>{
+                try{
+                    rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
+                }catch(err){
+                    RM.ready=false;
+                    return rmDrawFallback((err&&err.message)||'the map could not be built');
+                }
+                clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
+                document.getElementById('rmLoading').classList.add('hidden');
+            });
+            /* THE CANVAS THAT GOES AWAY AFTER IT ARRIVED.
+             *
+             * A WebGL context can be lost at any time — a phone under memory
+             * pressure, a tab in the background for a while, a driver reset —
+             * and MapLibre cannot draw again until it is restored. The canvas
+             * goes black and stays black, and `load` has long since fired, so
+             * none of the deadlines above are still watching. The drawn map
+             * needs no GPU at all, so that is what a lost context gets. */
+            map.on('webglcontextlost',()=>{ RM.ready=false; rmDrawFallback('the map lost its drawing surface'); });
             // A tile that hiccups once is not a reason to throw the map away —
             // the network overlay still renders over the gap. A style that never
             // arrives at all is, and the watchdog above is what catches it.
-            map.on('error',()=>{});
+            //
+            // What it must not keep doing is swallow the lot in silence. This
+            // was the only place the engine had to report that it had refused
+            // the route-line layer (see rmAddLayers), and an empty function is
+            // where that went. Now: an error before the map is up SHORTENS the
+            // deadline rather than ending it — a missing sprite is cosmetic and
+            // `load` still arrives behind it, but a style that answered 404
+            // never will, and ten seconds of black screen is the wrong way to
+            // find that out. Anything after the map is up is said out loud,
+            // where a console will show it.
+            map.on('error',(e)=>{
+                const why=(e&&e.error&&e.error.message)||'';
+                if(!RM.ready&&!RM.fallback){
+                    clearTimeout(RM._watchdog);
+                    RM._watchdog=setTimeout(()=>{
+                        if(RM.ready||RM.fallback) return;
+                        rmDrawFallback(why||'the basemap could not be read');
+                    }, 2500);
+                }
+                console.warn('[route map]',why||e);
+            });
         }
         function rmAddLayers(){
             const map=RM.map, accent=RM.accent;
@@ -5663,19 +5746,40 @@
                 filter:['!',['get','codeshare']],
                 paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2.5,6,7],'line-blur':3,
                     'line-opacity':['case',['get','active'],0.22,0.08]} });
+            /* THE NETWORK ITSELF, IN TWO LAYERS RATHER THAN ONE.
+             *
+             * This was one layer that chose its dashes per feature:
+             *
+             *     'line-dasharray':['case',['get','codeshare'],[2,2],[1,0]]
+             *
+             * which cannot work. `line-dasharray` is a CROSS-FADED property in
+             * the MapLibre style spec — it takes the zoom and nothing else, and
+             * a `['get', …]` inside it makes the whole paint block fail
+             * validation. MapLibre does not throw on that: addLayer fires an
+             * error and RETURNS, so the layer was never added at all. With
+             * `map.on('error')` swallowing everything (it no longer does, see
+             * rmBuildMap), the map came up showing a basemap, the airport dots
+             * and the blurred glow underneath — and not one route line. Which
+             * on the dark basemap is a black screen with some dots on it.
+             *
+             * Dashes are a property of WHICH layer a sector is drawn in, so
+             * that is where they go: own metal solid, somebody else's dashed,
+             * each filtered to its own half of the source. RM_LINES keeps the
+             * two together everywhere else — hover, click, hit-testing and the
+             * focus dimming all read from that list rather than naming a layer. */
             map.addLayer({ id:'rm-routes-line', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
-                paint:{'line-color':['case',
-                        ['!',['get','active']], gray,
-                        ['get','codeshare'], gray,
-                        accent],
+                filter:['!',['get','codeshare']],
+                paint:{'line-color':['case',['!',['get','active']], gray, accent],
                     'line-width':['interpolate',['linear'],['zoom'],1,0.8,6,2.4],
-                    // Dashed, so the two read apart at a glance and in print,
-                    // rather than relying on a colour difference alone.
-                    'line-dasharray':['case',['get','codeshare'],['literal',[2,2]],['literal',[1,0]]],
-                    'line-opacity':['case',
-                        ['!',['get','active']], 0.3,
-                        ['get','codeshare'], 0.55,
-                        0.82]} });
+                    'line-opacity':['case',['!',['get','active']], 0.3, 0.82]} });
+            // Somebody else's metal, dashed — so the two read apart at a glance
+            // and in print, rather than relying on a colour difference alone.
+            map.addLayer({ id:'rm-routes-share', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
+                filter:['get','codeshare'],
+                paint:{'line-color':gray,
+                    'line-width':['interpolate',['linear'],['zoom'],1,0.8,6,2.4],
+                    'line-dasharray':[2,2],
+                    'line-opacity':['case',['!',['get','active']], 0.3, 0.55]} });
             map.addLayer({ id:'rm-routes-hi', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
                 filter:['==',['get','id'],'__none__'],
                 paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2,6,4.5],'line-opacity':0.95} });
@@ -5684,14 +5788,16 @@
                     'circle-color':accent,'circle-stroke-color':halo,'circle-stroke-width':1.4,'circle-opacity':0.95} });
             // Interactions
             const tip=()=>document.getElementById('rmTip');
-            map.on('mouseenter','rm-routes-line',()=>map.getCanvas().style.cursor='pointer');
-            map.on('mouseleave','rm-routes-line',()=>{ map.getCanvas().style.cursor=''; tip().classList.add('hidden'); });
-            map.on('mousemove','rm-routes-line',(e)=>{ const f=e.features&&e.features[0]; if(f) rmShowTip(e,f.properties); });
-            map.on('click','rm-routes-line',(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusRoute(f.properties.id); } });
+            RM_LINES.forEach(id=>{
+                map.on('mouseenter',id,()=>map.getCanvas().style.cursor='pointer');
+                map.on('mouseleave',id,()=>{ map.getCanvas().style.cursor=''; tip().classList.add('hidden'); });
+                map.on('mousemove',id,(e)=>{ const f=e.features&&e.features[0]; if(f) rmShowTip(e,f.properties); });
+                map.on('click',id,(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusRoute(f.properties.id); } });
+            });
             map.on('mouseenter','rm-airports',()=>map.getCanvas().style.cursor='pointer');
             map.on('mouseleave','rm-airports',()=>map.getCanvas().style.cursor='');
             map.on('click','rm-airports',(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusAirport(f.properties.icao); } });
-            map.on('click',(e)=>{ const hit=map.queryRenderedFeatures(e.point,{layers:['rm-airports','rm-routes-line']}); if(!hit.length) rmClearFocus(); });
+            map.on('click',(e)=>{ const hit=map.queryRenderedFeatures(e.point,{layers:['rm-airports'].concat(RM_LINES)}); if(!hit.length) rmClearFocus(); });
         }
         function rmShowTip(e,p){
             const t=document.getElementById('rmTip');
@@ -5785,7 +5891,7 @@
             const match=['any',['==',['get','origin'],icao],['==',['get','destination'],icao]];
             if(RM.map&&RM.ready){
                 RM.map.setFilter('rm-routes-hi',match);
-                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',match,0.9,0.1]);
+                rmLineOpacity(['case',match,0.9,0.1]);
             }
             const touching=(RM.filteredRoutes||RM.routeFeat||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
             rmOpenAirportRail(icao,touching);
@@ -5795,7 +5901,7 @@
             id=String(id); RM.focusRoute=id; RM.focusApt=null;
             if(RM.map&&RM.ready){
                 RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
-                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['==',['get','id'],id],0.95,0.1]);
+                rmLineOpacity(['case',['==',['get','id'],id],0.95,0.1]);
             }
             const r=RM.routeFeat.find(f=>f.properties.id===id);
             if(r){ rmOpenRouteRail(r.properties); if(!keep&&RM.map&&RM.ready) rmFitFeatures([r.properties]); }
@@ -5803,7 +5909,7 @@
         function rmClearFocus(){
             RM.focusApt=null; RM.focusRoute=null;
             if(RM.map&&RM.ready){ RM.map.setFilter('rm-routes-hi',['==',['get','id'],'__none__']);
-                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['get','active'],0.82,0.3]); }
+                rmLineOpacity(null); }
             const rail=document.getElementById('rmRail'); rail.classList.add('hidden'); RM.railOpen=false;
         }
         function rmRailShow(title,html){

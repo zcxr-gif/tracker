@@ -190,11 +190,21 @@ function descendants(root) {
     })(root);
     return out;
 }
+/* The selectors these files actually use: a tag, [attr], [attr="v"] and
+ * [attr~="v"], each optionally behind a tag name — `link[rel~="icon"]` is how
+ * you ask a page whether it already has a favicon, and a harness that cannot
+ * express that question cannot test the answer. */
 function matches(el, sel) {
     return String(sel).split(',').map((s) => s.trim()).some((s) => {
-        const attr = s.match(/^\[([\w-]+)\]$/);
-        if (attr) return el.hasAttribute(attr[1]);
-        return el.tagName === s.toUpperCase();
+        const m = s.match(/^([\w-]*)(?:\[([\w-]+)(?:(~?=)"([^"]*)")?\])?$/);
+        if (!m) return false;
+        const [, tag, attr, op, want] = m;
+        if (tag && el.tagName !== tag.toUpperCase()) return false;
+        if (!attr) return !!tag;
+        if (!el.hasAttribute(attr)) return false;
+        if (!op) return true;
+        const have = String(el.getAttribute(attr));
+        return op === '~=' ? have.split(/\s+/).indexOf(want) > -1 : have === want;
     });
 }
 
@@ -322,6 +332,11 @@ const ROUTES = [
         doc.currentScript = tag;
         doc.readyState = 'complete';
         doc.getElementsByTagName = () => [tag];
+        // A <head> to hang the tab's icon in, and the one factory that makes
+        // the links that go in it.
+        doc.documentElement = makeEl('html');
+        doc.head = doc.appendChild(makeEl('head'));
+        doc.createElement = (t) => makeEl(t);
         const calls = [];
         const ctx = {
             console, URL, URLSearchParams, Date, Math, Number, String, Array, Object, JSON, isFinite,
@@ -507,6 +522,72 @@ const ROUTES = [
         const { feed } = loadFeed({});   // every fetch rejects
         ok('a quiet backend leaves the brand null', (await feed.brand()) === null);
         ok('…and the ladder null', (await feed.ranks()) === null);
+    }
+
+    /* ---------------------------------------------------------------------
+     * THE TAB.
+     *
+     * A generated site declares no <link rel="icon">, so every VA's website
+     * opened under the browser's placeholder globe while the airline's logo sat
+     * in the header two inches below it. The logo is in the brand record this
+     * file already fetches, so the tab is painted from it.
+     * ------------------------------------------------------------------- */
+    section('crew-feed.js — the airline’s mark on the tab');
+    {
+        const { feed, doc } = loadFeed({});
+        feed.paintFavicon({ name: 'Ocean Virtual', code: 'OVA', logo: 'https://cdn.example/ova.png' });
+        const icon = doc.head.querySelector('link[rel~="icon"]');
+        ok('the logo becomes the tab’s icon', !!icon && icon.getAttribute('href') === 'https://cdn.example/ova.png',
+            icon && icon.getAttribute('href'));
+        const touch = doc.head.querySelector('link[rel="apple-touch-icon"]');
+        ok('…and the icon iOS wants for a home screen', !!touch && touch.getAttribute('href') === 'https://cdn.example/ova.png');
+
+        // Called again — mount() is safe to call more than once, and a tab does
+        // not want four icons to choose between.
+        feed.paintFavicon({ name: 'Ocean Virtual', code: 'OVA', logo: 'https://cdn.example/ova.png' });
+        ok('painting twice does not stack icons up',
+            doc.head.querySelectorAll('link[rel~="icon"]').length === 1,
+            String(doc.head.querySelectorAll('link[rel~="icon"]').length));
+    }
+    {
+        const { feed, doc } = loadFeed({});
+        feed.paintFavicon({ name: 'Ocean Virtual', code: 'OVA', logo: '' });
+        const icon = doc.head.querySelector('link[rel~="icon"]');
+        const href = icon ? decodeURIComponent(icon.getAttribute('href')) : '';
+        ok('an airline with no logo still gets its own mark, not the globe',
+            /^data:image\/svg\+xml,/.test(icon ? icon.getAttribute('href') : ''), href.slice(0, 40));
+        ok('…drawn as its initials', />OV</.test(href), href);
+        ok('…and no apple-touch-icon, which iOS cannot read as SVG',
+            !doc.head.querySelector('link[rel="apple-touch-icon"]'));
+    }
+    {
+        // The same refusal every other URL field gets. A logo is loaded by the
+        // browser as the tab's icon; http: on an https page is blocked anyway,
+        // and a record is not a reason to write one into the head.
+        const { feed, doc } = loadFeed({});
+        feed.paintFavicon({ name: 'Ocean Virtual', code: 'OVA', logo: 'http://cdn.example/ova.png' });
+        const href = doc.head.querySelector('link[rel~="icon"]').getAttribute('href');
+        ok('an http logo is refused, and the monogram stands in', /^data:image\/svg/.test(href), href);
+    }
+    {
+        // These files are the VA's to edit. Somebody who wrote their own icon
+        // has chosen one, and this must not quietly replace it.
+        const { feed, doc } = loadFeed({});
+        doc.head.appendChild(makeEl('link', { rel: 'icon', href: '/my-own.ico' }));
+        feed.paintFavicon({ name: 'Ocean Virtual', code: 'OVA', logo: 'https://cdn.example/ova.png' });
+        const icons = doc.head.querySelectorAll('link[rel~="icon"]');
+        ok('an icon the site declared itself is left alone',
+            icons.length === 1 && icons[0].getAttribute('href') === '/my-own.ico',
+            icons.map((i) => i.getAttribute('href')).join(' '));
+    }
+    {
+        const { feed, doc } = loadFeed({});
+        feed.paintFavicon(null);
+        ok('a backend we could not reach writes no icon at all',
+            !doc.head.querySelector('link[rel~="icon"]'));
+        feed.paintFavicon({ name: '', code: '', logo: '' });
+        ok('…and neither does a record with no airline in it',
+            !doc.head.querySelector('link[rel~="icon"]'));
     }
 
     section('crew-feed.js — an image field most rows will not have');

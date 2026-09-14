@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Join — Crew Center</title>
+    <!-- Inflight's own mark, until the airline's arrives.
+         These pages carried no icon at all, so the browser drew its
+         placeholder globe — and kept drawing it for the whole of the first
+         request, because the VA's logo comes from the crew record and that is
+         a fetch away. This is what is shown in the meantime; CrewBrand.favicon
+         replaces it with the airline's own (or its monogram) the moment the
+         record lands. Absolute, because these pages are served under
+         /crew/<slug> and a relative path would look for them there. -->
+    <link rel="icon" type="image/x-icon" href="/Images/inflightIcon.ico">
+    <link rel="apple-touch-icon" href="/Images/inflight.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Guarded, because Tailwind is a CDN script: blocked by a network or an

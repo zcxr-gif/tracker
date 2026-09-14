@@ -1311,6 +1311,111 @@
     }
 
     /* ---------------------------------------------------------------------
+     * THE TAB.
+     *
+     * A generated site declares no icon, because the renderer that writes it
+     * has no network and the airline's logo lives behind a request — the same
+     * reason there is no og:image. So every VA's site opened with the browser's
+     * own placeholder globe, identical to every other unbranded page, while the
+     * logo sat in the header two inches below it.
+     *
+     * The logo arrives here anyway, in the brand record this file already
+     * fetches for [data-crew-brand]. So the tab is painted from it, at the same
+     * moment the header is, and an airline that has never uploaded a logo gets
+     * its initials on its accent rather than the globe.
+     *
+     * AN ICON THE SITE DECLARED ITSELF ALWAYS WINS. These files are the VA's to
+     * edit: someone who has written their own <link rel="icon"> has chosen one,
+     * and this must not quietly replace it. Only a page with no icon at all is
+     * painted, which is every page as generated and none that has been given
+     * one by hand.
+     * ------------------------------------------------------------------- */
+    var ICON_MARK = 'data-crew-icon';
+
+    function pageHasOwnIcon() {
+        var own = document.querySelector('link[rel~="icon"], link[rel="shortcut icon"]');
+        return !!(own && !own.hasAttribute(ICON_MARK));
+    }
+
+    // "Ocean Virtual" → OV. A one-word airline falls back to two letters, and
+    // an airline with no name at all gets nothing rather than a blank square.
+    function brandInitials(name, code) {
+        var s = text(name) || text(code);
+        if (!s) return '';
+        var w = s.split(/\s+/).filter(Boolean);
+        return (w.length >= 2 ? (w[0][0] + w[1][0]) : s.slice(0, 2))
+            .toUpperCase().replace(/[^A-Z0-9]/g, '');
+    }
+
+    // Black or white, whichever can be read against the accent — a pale accent
+    // with white initials on it is a blank square at 16 pixels.
+    function readableInk(hex) {
+        var h = String(hex || '').replace('#', '');
+        if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        var n = parseInt(h, 16);
+        if (!isFinite(n)) return '#FFFFFF';
+        var lin = function (c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        var L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+        return L > 0.45 ? '#111111' : '#FFFFFF';
+    }
+
+    // The site's own accent first — a site with a theme.css has one and it is
+    // the colour the visitor is actually looking at — then the crew centre's,
+    // then a neutral so the mark is never drawn on nothing.
+    function siteAccent(b) {
+        var v = '';
+        try { v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); } catch (e) { v = ''; }
+        if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) v = (b && b.accent) || '';
+        return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v) ? v : '#1F6FEB';
+    }
+
+    function monogramIcon(b) {
+        var t = brandInitials(b && b.name, b && b.code);
+        if (!t) return '';
+        var bg = siteAccent(b);
+        // A rounded square, not a circle: at 16px a circle loses its corners to
+        // the tab's own padding and reads as a smudge.
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+            + '<rect width="64" height="64" rx="14" fill="' + bg + '"/>'
+            + '<text x="32" y="32" fill="' + readableInk(bg) + '"'
+            + ' font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif"'
+            + ' font-size="30" font-weight="700" text-anchor="middle" dominant-baseline="central">'
+            + t + '</text></svg>';
+        return 'data:image/svg+xml,' + encodeURIComponent(svg);
+    }
+
+    function paintFavicon(b) {
+        if (!b || !document.head) return false;
+        if (pageHasOwnIcon()) return false;
+        var logo = https(b.logo);
+        var href = logo || monogramIcon(b);
+        if (!href) return false;
+
+        // Ours are replaced rather than added to: mount() is safe to call more
+        // than once, and a tab does not want four icons to choose between.
+        Array.prototype.forEach.call(document.querySelectorAll('link[' + ICON_MARK + ']'),
+            function (el) { el.parentNode && el.parentNode.removeChild(el); });
+
+        var link = document.createElement('link');
+        link.setAttribute('rel', 'icon');
+        if (!logo) link.setAttribute('type', 'image/svg+xml');
+        link.setAttribute(ICON_MARK, '1');
+        link.setAttribute('href', href);
+        document.head.appendChild(link);
+
+        // iOS ignores SVG for a home-screen bookmark, so only a real logo gets
+        // one — better the system's own screenshot than a blank square.
+        if (logo) {
+            var t = document.createElement('link');
+            t.setAttribute('rel', 'apple-touch-icon');
+            t.setAttribute(ICON_MARK, '1');
+            t.setAttribute('href', logo);
+            document.head.appendChild(t);
+        }
+        return true;
+    }
+
+    /* ---------------------------------------------------------------------
      * List painting.
      *
      *   <div data-crew-list="routes" data-crew-limit="10">
@@ -1428,7 +1533,10 @@
             jobs.push(stats().then(function (f) { paintStats(f, scope); return f; }));
         }
         if (scope.querySelector('[data-crew-brand]')) {
-            jobs.push(brand().then(function (b) { paintBrand(b, scope); return b; }));
+            // The tab is painted from the same record as the header, and from
+            // the document rather than the scope: a fragment mounted into a
+            // page still belongs to the same tab.
+            jobs.push(brand().then(function (b) { paintBrand(b, scope); paintFavicon(b); return b; }));
         }
         Array.prototype.forEach.call(scope.querySelectorAll('[data-crew-list]'), function (host) {
             jobs.push(paintList(host));
@@ -1444,7 +1552,7 @@
         brand: brand, ranks: ranks, fleet: fleet, roles: roles, staff: staff,
         roster: roster,
         hubs: hubs, partners: partners, silhouette: silhouette,
-        paintBrand: paintBrand,
+        paintBrand: paintBrand, paintFavicon: paintFavicon,
         paintStats: paintStats, mount: mount,
         get va() { return CFG.va; },
         get backend() { return CFG.backend; },
